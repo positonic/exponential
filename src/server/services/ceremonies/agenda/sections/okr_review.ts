@@ -8,6 +8,8 @@
 import type { AgendaItem, SectionModule } from "../types";
 
 const DEFAULT_DAYS = 7;
+/** Applied to the *answer* now that the predicate is in the query, not to the input. */
+const MAX_ITEMS = 50;
 
 function daysBetween(a: Date, b: Date): number {
   return Math.floor(Math.abs(a.getTime() - b.getTime()) / 86_400_000);
@@ -26,9 +28,18 @@ export const okrReviewSection: SectionModule = {
         ? { projects: { some: { productId: ctx.ceremony.productId } } }
         : {};
 
+    // The staleness predicate lives in the query, so `take` bounds what the
+    // section reports rather than what it considers. Filtering after a
+    // `take: 100` ordered by title silently hid every at-risk key result
+    // whose title sorted late — deterministically, in exactly the workspaces
+    // big enough to need the review.
     const keyResults = await ctx.db.keyResult.findMany({
       where: {
         goal: { workspaceId: ctx.workspaceId, status: "active", ...goalScope },
+        OR: [
+          { checkIns: { none: { createdAt: { gte: since } } } },
+          ...(previousStart ? [{ statusOverrideAt: { gt: previousStart } }] : []),
+        ],
       },
       select: {
         id: true,
@@ -44,11 +55,13 @@ export const okrReviewSection: SectionModule = {
         checkIns: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
       },
       orderBy: { title: "asc" },
-      take: 100,
+      take: MAX_ITEMS + 1,
     });
+    const overflow = keyResults.length > MAX_ITEMS;
+    const inScope = overflow ? keyResults.slice(0, MAX_ITEMS) : keyResults;
 
     const items: AgendaItem[] = [];
-    for (const kr of keyResults) {
+    for (const kr of inScope) {
       const last = kr.checkIns[0]?.createdAt ?? null;
       const stale = !last || last < since;
       const statusChanged = Boolean(previousStart && kr.statusOverrideAt && kr.statusOverrideAt > previousStart);
@@ -69,6 +82,19 @@ export const okrReviewSection: SectionModule = {
         keyResultTitle: kr.title,
         order: items.length,
         detail: `${kr.goal.title} · ${reasons.join(", ")} · ${kr.currentValue}/${kr.targetValue} ${kr.unit}`,
+        href: `${ctx.workspacePath}/goals?tab=okrs`,
+      });
+    }
+    // Never under-report silently: say so when the cap was reached.
+    if (overflow) {
+      items.push({
+        id: `${section.key}:text:overflow`,
+        sectionKey: section.key,
+        title: `More key results need attention than fit this agenda (showing ${MAX_ITEMS})`,
+        refType: "text",
+        refId: `${section.key}:text:overflow`,
+        order: items.length,
+        detail: "Review the rest on the OKR dashboard",
         href: `${ctx.workspacePath}/goals?tab=okrs`,
       });
     }

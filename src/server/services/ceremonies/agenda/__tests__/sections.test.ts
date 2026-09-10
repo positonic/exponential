@@ -47,6 +47,30 @@ describe("blockers section", () => {
     expect(items[0]).toMatchObject({ goalId: 9, goalTitle: "Launch" });
     expect(items[1]).toMatchObject({ goalId: null, goalTitle: null });
   });
+
+  it("returns nothing rather than 50 workspace-wide actions when the ceremony has neither participants nor a project", async () => {
+    const db = mockDeep<PrismaClient>();
+    const items = await blockersSection.run(
+      ctx(db, { participantUserIds: [] }),
+      { key: "blk", type: "blockers", title: "Blockers" },
+    );
+    expect(items).toEqual([]);
+    // Fail closed: no query at all, so the narration cannot present another
+    // team's overdue work as this team's blockers.
+    expect(db.action.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still queries when the ceremony has a project but no participants", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([] as never);
+    await blockersSection.run(
+      ctx(db, { participantUserIds: [], ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: "prj-1", productId: null } as never }),
+      { key: "blk", type: "blockers", title: "Blockers" },
+    );
+    expect(db.action.findMany).toHaveBeenCalled();
+    const where = db.action.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({ projectId: "prj-1" });
+  });
 });
 
 describe("carried_over section", () => {

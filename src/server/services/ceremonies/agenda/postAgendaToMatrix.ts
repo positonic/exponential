@@ -16,15 +16,10 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { getMatrixClientForServer, listMatrixServers } from "~/server/services/matrix/matrixServer";
 import { markdownToMatrixHtml, markdownToPlainText } from "~/server/services/matrix/renderMeetingSummary";
-import { readAgendaSnapshot, type AgendaSnapshot } from "./types";
+import { readAgendaSnapshot, type AgendaMatrixPost, type AgendaSnapshot } from "./types";
+import { withAgendaTransaction } from "./items";
 
-export interface AgendaMatrixPost {
-  roomId: string;
-  serverId: string;
-  eventId: string;
-  postedAt: string;
-  postedById: string | null;
-}
+export type { AgendaMatrixPost } from "./types";
 
 export type PostAgendaResult =
   | { kind: "posted"; roomId: string; eventId: string }
@@ -44,17 +39,29 @@ export function buildAgendaTransactionId(occurrenceId: string, roomId: string, a
   return `expo-agenda-${occurrenceId}-${roomSlug}-${attempt}`;
 }
 
+/**
+ * Record-derived text (Action names, Decision statements, key-result titles)
+ * is escaped before it reaches the Markdown. `markdownToMatrixHtml` turns
+ * `[text](https://…)` into a real anchor, so an unescaped title would let
+ * anyone who can name an Action get the workspace's bot to post an arbitrary
+ * clickable link. Only text the code itself authors stays live.
+ */
+function mdEscape(value: string): string {
+  return value.replace(/([\\`*_[\]()<>#|~])/g, "\\$1");
+}
+
 /** The agenda as Markdown: the narrative when there is one, else a plain listing of the sections. */
 export function renderAgendaMarkdown(input: { ceremonyName: string; when: string; agenda: AgendaSnapshot; url: string }): string {
-  const lines: string[] = [`**${input.ceremonyName} · ${input.when}** — agenda`, ""];
+  const lines: string[] = [`**${mdEscape(input.ceremonyName)} · ${input.when}** — agenda`, ""];
   if (input.agenda.narrative) {
     lines.push(input.agenda.narrative.trim(), "");
   } else {
     for (const section of input.agenda.sections) {
-      lines.push(`## ${section.title}`);
+      lines.push(`## ${mdEscape(section.title)}`);
       if (section.items.length === 0) lines.push(`Nothing to raise.`);
       for (const item of section.items) {
-        lines.push(`- ${item.resolvedAt ? `~~${item.title}~~` : item.title}${item.detail ? ` (${item.detail})` : ""}${item.carriedFromOccurrenceId ? " (carried over)" : ""}`);
+        const title = mdEscape(item.title);
+        lines.push(`- ${item.resolvedAt ? `~~${title}~~` : title}${item.detail ? ` (${mdEscape(item.detail)})` : ""}${item.carriedFromOccurrenceId ? " (carried over)" : ""}`);
       }
       lines.push("");
     }
@@ -97,7 +104,7 @@ export async function postAgendaToMatrix(
   const agenda = readAgendaSnapshot(occurrence.agenda);
   if (!agenda) return { kind: "no-agenda" };
 
-  const previous = (agenda as AgendaSnapshot & { matrixPosts?: AgendaMatrixPost[] }).matrixPosts ?? [];
+  const previous = agenda.matrixPosts ?? [];
   const priorHere = previous.filter((p) => p.roomId === roomId);
   if (priorHere.length > 0 && !input.confirmRepost) {
     return { kind: "already-posted", roomId, postedAt: priorHere[priorHere.length - 1]!.postedAt };
@@ -137,7 +144,26 @@ export async function postAgendaToMatrix(
   }
 
   const post: AgendaMatrixPost = { roomId, serverId, eventId, postedAt: new Date().toISOString(), postedById: input.actorUserId };
-  const next = { ...agenda, matrixPosts: [...previous, post] };
-  await db.ceremonyOccurrence.update({ where: { id: occurrence.id }, data: { agenda: next as unknown as Prisma.InputJsonValue } });
+  // Re-read inside the transaction and append only the ledger entry: the
+  // Matrix round-trip above is long enough for someone to have resolved or
+  // added an item, and writing the snapshot we read at the top would revert
+  // it. The send has already happened, so a failure here must not be fatal —
+  // the worst case is a repost prompt the reader can confirm.
+  try {
+    await withAgendaTransaction(db, async (tx) => {
+      const fresh = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrence.id }, select: { agenda: true } });
+      const current = readAgendaSnapshot(fresh?.agenda) ?? agenda;
+      const next: AgendaSnapshot = { ...current, matrixPosts: [...(current.matrixPosts ?? []), post] };
+      await tx.ceremonyOccurrence.update({
+        where: { id: occurrence.id },
+        data: { agenda: next as unknown as Prisma.InputJsonValue },
+      });
+    });
+  } catch (error) {
+    reportHandledErrorServer(error, {
+      area: "ceremonies.postAgendaToMatrix: could not record the post",
+      context: { occurrenceId: occurrence.id, roomId, eventId },
+    });
+  }
   return { kind: "posted", roomId, eventId };
 }

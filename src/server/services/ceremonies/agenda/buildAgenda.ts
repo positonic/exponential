@@ -31,8 +31,12 @@ export function buildAgenda(
     // any explicit order they gave the item last time.
     const fresh: AgendaItem[] = (run?.items ?? []).map((item) => {
       const old = prevById.get(item.id);
+      // A person's manual tick survives regeneration, but a section that
+      // derives `resolvedAt` from a query fact (retro_actions reads the
+      // Action's `completedAt`) must win — otherwise an action completed
+      // between two generations comes back as still outstanding.
       return old
-        ? { ...item, resolvedAt: old.resolvedAt ?? null, order: old.order }
+        ? { ...item, resolvedAt: item.resolvedAt ?? old.resolvedAt ?? null, order: old.order ?? item.order }
         : item;
     });
     const freshIds = new Set(fresh.map((i) => i.id));
@@ -60,11 +64,17 @@ export function buildAgenda(
   // The narrative belongs to one generation: it is written fresh (or left
   // empty) by the caller, never carried from a previous snapshot whose
   // items may no longer match.
+  //
+  // `matrixPosts` is the opposite case — an append-only delivery ledger that
+  // is not derived from any query, so it must survive the rebuild. Dropping
+  // it would reset both the repost guard and the transaction-id attempt
+  // counter, and the homeserver would silently swallow the repost.
   return {
     version: 1,
     generatedAt: now.toISOString(),
     sections,
     narrative: null,
     narratedAt: null,
+    ...(previous?.matrixPosts?.length ? { matrixPosts: previous.matrixPosts } : {}),
   };
 }

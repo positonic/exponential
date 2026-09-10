@@ -12,7 +12,7 @@ import { readAgendaSnapshot, type AgendaItem, type AgendaSnapshot } from "./type
  * transaction, retried once on a serialization failure, so two people
  * editing the same occurrence at once cannot clobber each other's change.
  */
-async function withAgendaTransaction<T>(db: PrismaClient, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+export async function withAgendaTransaction<T>(db: PrismaClient, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await db.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

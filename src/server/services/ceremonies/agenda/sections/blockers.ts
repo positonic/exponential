@@ -11,6 +11,13 @@ const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
 export const blockersSection: SectionModule = {
   type: "blockers",
   async run(ctx, section) {
+    // Fail closed. With neither participants nor a project there is nothing
+    // to narrow on, and the query would return 50 arbitrary overdue actions
+    // from the whole workspace — which the narration then presents as this
+    // team's blockers. A template-created ceremony with nobody added yet is
+    // the default shape, so this is the first agenda a new user sees.
+    if (ctx.participantUserIds.length === 0 && !ctx.ceremony.projectId) return [];
+
     // Narrowed to the participants when the ceremony has any — plus actions
     // nobody owns, which the standup exists to give an owner (see the module
     // docstring). Without that third branch an unassigned action created by a

@@ -1,8 +1,12 @@
 /**
  * `retro_actions`: the Actions extracted from the recordings attached to the
- * workspace's previous retrospective occurrence (any RETROSPECTIVE ceremony,
- * the latest one before now), with their status — did last retro's
- * improvements happen?
+ * previous retrospective occurrence in this ceremony's own scope — its team,
+ * else its project or product, else the workspace — with their status: did
+ * last retro's improvements happen?
+ *
+ * The scope matters. A workspace running a retro per team would otherwise
+ * put one team's improvement actions on another team's agenda, attributed
+ * to a meeting its attendees were never in.
  */
 import type { AgendaItem, SectionModule } from "../types";
 
@@ -13,7 +17,17 @@ export const retroActionsSection: SectionModule = {
       where: {
         workspaceId: ctx.workspaceId,
         scheduledStart: { lt: ctx.now },
-        ceremony: { kind: "RETROSPECTIVE" },
+        ceremony: {
+          kind: "RETROSPECTIVE",
+          // Mirror the scoping every sibling section applies. A ceremony with
+          // no team, project or product keeps the workspace-wide behaviour.
+          ...(ctx.ceremony.teamId ? { teamId: ctx.ceremony.teamId } : {}),
+          ...(ctx.ceremony.projectId
+            ? { projectId: ctx.ceremony.projectId }
+            : ctx.ceremony.productId
+              ? { productId: ctx.ceremony.productId }
+              : {}),
+        },
         // The retro being prepared is not its own previous retro.
         id: { not: ctx.occurrence.id },
       },

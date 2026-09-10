@@ -53,6 +53,20 @@ export interface AgendaSection {
   emptyReason?: string | null;
 }
 
+/**
+ * One delivery of this agenda to a Matrix room. `MatrixPostLog` requires a
+ * `TranscriptionSession`, so the ledger lives on the snapshot — which makes
+ * it the one part of the snapshot that is NOT derived from a query and must
+ * survive every rebuild (`buildAgenda` carries it forward).
+ */
+export interface AgendaMatrixPost {
+  roomId: string;
+  serverId: string;
+  eventId: string;
+  postedAt: string;
+  postedById: string | null;
+}
+
 export interface AgendaSnapshot {
   version: 1;
   generatedAt: string;
@@ -60,6 +74,13 @@ export interface AgendaSnapshot {
   /** Markdown narrative rendered from the sections (V2 action 5); never parsed back. */
   narrative?: string | null;
   narratedAt?: string | null;
+  /**
+   * Append-only record of Matrix deliveries. Not derived from a query: it is
+   * carried across regeneration, and its length is the transaction-id attempt
+   * counter, so dropping it would make a repost reuse a txn id the homeserver
+   * has already seen and silently swallow the message.
+   */
+  matrixPosts?: AgendaMatrixPost[];
 }
 
 /** One section of the ceremony's template, as stored in `Ceremony.agendaTemplate`. */

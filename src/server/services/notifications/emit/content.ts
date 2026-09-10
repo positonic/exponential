@@ -162,6 +162,7 @@ export async function buildContent(
         select: {
           scheduledStart: true,
           agenda: true,
+          agendaGeneratedAt: true,
           ceremony: {
             select: {
               id: true,
@@ -204,7 +205,12 @@ export async function buildContent(
           workspaceName: ceremony.workspace.name,
         },
         workspaceId: ceremony.workspace.id,
-        dedupeKey: `agenda_ready:${occurrenceId}:${recipientId}`,
+        // Keyed on the generation, not just the occurrence. Two sweeps over
+        // one generation must not double-notify, but a deliberate
+        // re-circulation after a regeneration ("Regenerate & send to
+        // participants") has a new `agendaGeneratedAt` and must reach people
+        // — otherwise the button reports success and notifies nobody.
+        dedupeKey: `agenda_ready:${occurrenceId}:${occurrence.agendaGeneratedAt?.getTime() ?? 0}:${recipientId}`,
       };
     }
 

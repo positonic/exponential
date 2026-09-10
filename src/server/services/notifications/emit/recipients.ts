@@ -52,6 +52,7 @@ export async function resolveRecipients(
       const occurrence = await input.db.ceremonyOccurrence.findUnique({
         where: { id: input.subject.occurrenceId },
         select: {
+          workspaceId: true,
           ceremony: {
             select: {
               ownerId: true,
@@ -71,7 +72,17 @@ export async function resolveRecipients(
         });
         for (const m of members) ids.add(m.userId);
       }
-      return Array.from(ids);
+      if (ids.size === 0) return [];
+      // `CeremonyParticipant` and `TeamUser` rows survive someone being
+      // removed from the workspace, and `filterRecipientsByAccess` has no
+      // resource to gate this category on, so the intersection has to happen
+      // here — otherwise an offboarded member keeps receiving the ceremony's
+      // name, cadence and a deep link indefinitely.
+      const members = await input.db.workspaceUser.findMany({
+        where: { workspaceId: occurrence.workspaceId, userId: { in: Array.from(ids) } },
+        select: { userId: true },
+      });
+      return members.map((m) => m.userId);
     }
     default:
       return Promise.resolve([]);

@@ -72,4 +72,41 @@ describe("buildAgenda", () => {
     expect(snap.sections[0]!.items.map((i) => i.id)).toEqual(["carried"]);
     expect(snap.sections[0]!.emptyReason).toBeNull();
   });
+
+  it("carries matrixPosts across a rebuild but never the narrative", () => {
+    const previous = {
+      version: 1 as const,
+      generatedAt: "2026-09-09T08:00:00Z",
+      narrative: "stale pre-read",
+      narratedAt: "2026-09-09T08:01:00Z",
+      matrixPosts: [{ roomId: "!r:s", serverId: "srv", eventId: "$e", postedAt: "2026-09-09T08:02:00Z", postedById: null }],
+      sections: [],
+    };
+    const next = buildAgenda([], [], previous, new Date("2026-09-10T08:00:00Z"));
+    // The ledger is not derived from a query, so losing it would reset the
+    // repost guard and the Matrix transaction-id attempt counter.
+    expect(next.matrixPosts).toEqual(previous.matrixPosts);
+    expect(next.narrative).toBeNull();
+    expect(next.narratedAt).toBeNull();
+  });
+
+  it("prefers a query-derived resolvedAt over the previous snapshot's null", () => {
+    const template = [{ key: "retro", type: "retro_actions", title: "Retro actions" }];
+    const previous = {
+      version: 1 as const,
+      generatedAt: "2026-09-09T08:00:00Z",
+      sections: [
+        { key: "retro", type: "retro_actions", title: "Retro actions", items: [
+          { id: "retro:action:a-1", sectionKey: "retro", title: "Improve CI", refType: "action" as const, refId: "a-1", order: 0, resolvedAt: null },
+        ] },
+      ],
+    };
+    // The action was completed between the two generations.
+    const results = [{
+      section: template[0]!,
+      items: [{ id: "retro:action:a-1", sectionKey: "retro", title: "Improve CI", refType: "action" as const, refId: "a-1", order: 0, resolvedAt: "2026-09-09T18:00:00Z" }],
+    }];
+    const next = buildAgenda(template, results, previous, new Date("2026-09-10T08:00:00Z"));
+    expect(next.sections[0]!.items[0]!.resolvedAt).toBe("2026-09-09T18:00:00Z");
+  });
 });

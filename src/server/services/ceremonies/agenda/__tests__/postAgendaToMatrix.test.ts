@@ -10,6 +10,14 @@ vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorSe
 
 import { buildAgendaTransactionId, postAgendaToMatrix, renderAgendaMarkdown } from "../postAgendaToMatrix";
 
+/** The ledger append runs in a serializable transaction; run the callback against the same mock. */
+function withTransaction(db: ReturnType<typeof mockDeep<PrismaClient>>) {
+  (db.$transaction as unknown as { mockImplementation: (fn: unknown) => void }).mockImplementation(
+    async (fn: (tx: PrismaClient) => Promise<unknown>) => fn(db),
+  );
+  return db;
+}
+
 const agenda = { version: 1, generatedAt: "x", narrative: "## Blockers\n- Fix login", sections: [{ key: "blk", type: "blockers", title: "Blockers", items: [{ id: "i", sectionKey: "blk", title: "Fix login", refType: "action", refId: "a", order: 0 }] }] };
 const occurrence = {
   id: "occ-1",
@@ -26,7 +34,7 @@ describe("postAgendaToMatrix", () => {
   });
 
   it("renders the narrative with a link, sends with an identity-derived txn id and stamps the post in the snapshot", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTransaction(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue(occurrence as never);
     db.ceremonyOccurrence.update.mockResolvedValue({} as never);
     listMatrixServers.mockResolvedValue([{ id: "srv-1" }]);
@@ -46,7 +54,7 @@ describe("postAgendaToMatrix", () => {
   });
 
   it("refuses a second copy unless confirmed, then uses the next attempt number", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTransaction(mockDeep<PrismaClient>());
     const posted = { ...occurrence, agenda: { ...agenda, matrixPosts: [{ roomId: "!room:syntro.fi", serverId: "srv-1", eventId: "$e", postedAt: "2026-09-10T00:00:00Z", postedById: null }] } };
     db.ceremonyOccurrence.findUnique.mockResolvedValue(posted as never);
     db.ceremonyOccurrence.update.mockResolvedValue({} as never);
@@ -62,7 +70,7 @@ describe("postAgendaToMatrix", () => {
   });
 
   it("reports outcomes it cannot act on: no room, no agenda, no server, a rejected send", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = withTransaction(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValueOnce({ ...occurrence, ceremony: { ...occurrence.ceremony, matrixRoomId: null } } as never);
     expect(await postAgendaToMatrix(db, { occurrenceId: "occ-1", actorUserId: null })).toEqual({ kind: "no-room" });
     db.ceremonyOccurrence.findUnique.mockResolvedValueOnce({ ...occurrence, agenda: null } as never);
@@ -83,5 +91,44 @@ describe("postAgendaToMatrix", () => {
     expect(md).toContain("## Blockers");
     expect(md).toContain("- Fix login");
     expect(md).toContain("Open in Exponential: u");
+  });
+
+  it("escapes Markdown in record-derived text so a record title cannot post a live link", () => {
+    const hostile = {
+      ...agenda,
+      narrative: null,
+      sections: [
+        { key: "blk", type: "blockers", title: "Blockers", items: [
+          { id: "i", sectionKey: "blk", title: "[Approve the budget](https://evil.example)", refType: "action", refId: "a", order: 0, detail: "**urgent**" },
+        ] },
+      ],
+    };
+    const md = renderAgendaMarkdown({ ceremonyName: "Retro", when: "Fri", agenda: hostile as never, url: "https://app.test/x" });
+    expect(md).not.toContain("[Approve the budget](https://evil.example)");
+    expect(md).toContain("\\[Approve the budget\\]");
+    expect(md).not.toContain("(**urgent**)");
+    // The app's own deep link stays live.
+    expect(md).toContain("Open in Exponential: https://app.test/x");
+  });
+
+  it("keeps the ledger written by a concurrent editor rather than reverting the snapshot", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    // Read at the top of the call: no items resolved yet.
+    db.ceremonyOccurrence.findUnique.mockResolvedValueOnce(occurrence as never);
+    // Re-read inside the transaction, after the Matrix round-trip: someone
+    // ticked the item in the meantime.
+    const edited = { agenda: { ...agenda, sections: [{ ...agenda.sections[0]!, items: [{ ...agenda.sections[0]!.items[0]!, resolvedAt: "2026-09-11T08:00:00Z" }] }] } };
+    db.ceremonyOccurrence.findUnique.mockResolvedValueOnce(edited as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    listMatrixServers.mockResolvedValue([{ id: "srv-1" }]);
+    const client = { joinedRooms: async () => ["!room:syntro.fi"], send: vi.fn(async () => ({ eventId: "$evt1" })) };
+
+    await postAgendaToMatrix(db, { occurrenceId: "occ-1", actorUserId: "u-1", client, appUrl: "https://app.test" });
+
+    const data = db.ceremonyOccurrence.update.mock.calls[0]![0].data as {
+      agenda: { sections: Array<{ items: Array<{ resolvedAt: string | null }> }>; matrixPosts: unknown[] };
+    };
+    expect(data.agenda.sections[0]!.items[0]!.resolvedAt).toBe("2026-09-11T08:00:00Z");
+    expect(data.agenda.matrixPosts).toHaveLength(1);
   });
 });

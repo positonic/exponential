@@ -10,6 +10,7 @@ import { buildAgenda, type SectionRunResult } from "./buildAgenda";
 import { getSectionModule } from "./sections";
 import { readAgendaSnapshot, readAgendaTemplate, type AgendaSnapshot, type SectionContext } from "./types";
 import { narrateAgenda, type NarrateOptions } from "./narrateAgenda";
+import { withAgendaTransaction } from "./items";
 import { formatOccurrenceLabel } from "../activity";
 
 export interface GenerateAgendaResult {
@@ -67,10 +68,25 @@ export async function generateAgenda(
     results.push({ section, items, emptyReason: items.length === 0 ? "Nothing to raise" : null });
   }
 
-  const agenda = buildAgenda(template, results, readAgendaSnapshot(occurrence.agenda), now);
+  // The snapshot we read at the top of this function is stale by now: the
+  // section queries above took a while, and someone may have resolved or
+  // added an item meanwhile. Re-read and assemble inside the same
+  // serializable transaction every other agenda writer uses, so a person's
+  // edit is merged rather than reverted.
+  const agenda = await withAgendaTransaction(db, async (tx) => {
+    const fresh = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrence.id }, select: { agenda: true } });
+    const assembled = buildAgenda(template, results, readAgendaSnapshot(fresh?.agenda), now);
+    await tx.ceremonyOccurrence.update({
+      where: { id: occurrence.id },
+      data: { agenda: assembled as unknown as Prisma.InputJsonValue, agendaGeneratedAt: now },
+    });
+    return assembled;
+  });
 
-  // Narration reads the assembled items and nothing else; a narration failure
-  // never costs the structured agenda (it is stored without one).
+  // Narration runs AFTER the structured agenda is durable. It is a network
+  // call with its own timeout, and this function is called in a loop by the
+  // hourly sweep — narrating first would mean a hang or a function kill lost
+  // the whole agenda, not just its pre-read.
   if (opts.narrate !== false) {
     try {
       const narrative = await narrateAgenda(
@@ -80,15 +96,23 @@ export async function generateAgenda(
       if (narrative) {
         agenda.narrative = narrative;
         agenda.narratedAt = now.toISOString();
+        await withAgendaTransaction(db, async (tx) => {
+          const fresh = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrence.id }, select: { agenda: true } });
+          const current = readAgendaSnapshot(fresh?.agenda);
+          // Only narrate the generation we just wrote. If something has
+          // regenerated since, its own narration owns the field.
+          if (!current || current.generatedAt !== agenda.generatedAt) return;
+          const next: AgendaSnapshot = { ...current, narrative, narratedAt: now.toISOString() };
+          await tx.ceremonyOccurrence.update({
+            where: { id: occurrence.id },
+            data: { agenda: next as unknown as Prisma.InputJsonValue },
+          });
+        });
       }
     } catch (error) {
-      console.error("[ceremonies] narrateAgenda failed; storing the agenda without a narrative:", error);
+      console.error("[ceremonies] narrateAgenda failed; the agenda is stored without a narrative:", error);
     }
   }
-  await db.ceremonyOccurrence.update({
-    where: { id: occurrence.id },
-    data: { agenda: agenda as unknown as Prisma.InputJsonValue, agendaGeneratedAt: now },
-  });
   return {
     occurrenceId: occurrence.id,
     agenda,

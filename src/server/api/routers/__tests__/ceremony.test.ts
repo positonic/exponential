@@ -89,6 +89,16 @@ function caller(db: DeepMockProxy<PrismaClient>) {
   return createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient });
 }
 
+/**
+ * Agenda writes run inside `withAgendaTransaction`; run the callback against
+ * the same mock so the write is observable.
+ */
+function withAgendaTransactionMock(db: DeepMockProxy<PrismaClient>) {
+  (db.$transaction as unknown as { mockImplementation: (fn: unknown) => void }).mockImplementation(
+    async (fn: (tx: PrismaClient) => Promise<unknown>) => fn(db as unknown as PrismaClient),
+  );
+}
+
 /** Satisfy requireWorkspaceMembership at a given workspace role. */
 function withWorkspaceRole(db: DeepMockProxy<PrismaClient>, role: string) {
   db.workspaceUser.findUnique.mockResolvedValue({
@@ -452,6 +462,7 @@ describe("ceremony router", () => {
         { id: "kr-1", title: "KR", status: "on-track", statusOverride: null, statusOverrideAt: null, currentValue: 0, targetValue: 1, unit: "count", goalId: 1, goal: { id: 1, title: "G" }, checkIns: [] },
       ] as never);
       db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+      withAgendaTransactionMock(db);
 
       const res = await caller(db).ceremony.generateAgenda({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
 

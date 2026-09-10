@@ -48,4 +48,33 @@ describe("okr_review section", () => {
     const items = await okrReviewSection.run(ctx(db), { ...section, config: { days: 30 } });
     expect(items).toEqual([]);
   });
+
+  it("filters for staleness in the query, so the cap bounds the answer and overflow is announced", async () => {
+    const db = mockDeep<PrismaClient>();
+    // 51 rows come back: the section asks for MAX_ITEMS + 1 to detect overflow.
+    const rows = Array.from({ length: 51 }, (_, i) => ({
+      id: `kr-${i}`,
+      title: `KR ${String(i).padStart(3, "0")}`,
+      status: "on-track",
+      statusOverride: null,
+      statusOverrideAt: null,
+      currentValue: 0,
+      targetValue: 1,
+      unit: "count",
+      goalId: 1,
+      goal: { id: 1, title: "Grow" },
+      checkIns: [],
+    }));
+    db.keyResult.findMany.mockResolvedValue(rows as never);
+
+    const items = await okrReviewSection.run(ctx(db), section);
+
+    const where = db.keyResult.findMany.mock.calls[0]![0]!.where! as { OR?: unknown[] };
+    // The predicate is in the query — a `take` applied before filtering used
+    // to hide every at-risk KR whose title sorted late.
+    expect(Array.isArray(where.OR)).toBe(true);
+    expect(items).toHaveLength(51);
+    expect(items[50]!.refType).toBe("text");
+    expect(items[50]!.title).toContain("showing 50");
+  });
 });
