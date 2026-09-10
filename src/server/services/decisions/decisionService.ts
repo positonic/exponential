@@ -364,6 +364,14 @@ export interface ListDecisionsFilter {
   projectId?: string;
   /** Free-text search over statement and body. */
   search?: string;
+  /** One decision by its workspace sequence number — resolves a `D-0003` label. */
+  number?: number;
+  /**
+   * Bound the page. Unset keeps the historical uncapped behaviour for the
+   * Decision Log, which renders the whole list; API callers looking one
+   * decision up should always pass this.
+   */
+  limit?: number;
 }
 
 /**
@@ -391,6 +399,7 @@ export async function listForWorkspace(
               : { productId: filter.productId }
           : {},
         filter.projectId ? { projectId: filter.projectId } : {},
+        filter.number !== undefined ? { number: filter.number } : {},
         search
           ? {
               OR: [
@@ -403,6 +412,7 @@ export async function listForWorkspace(
     },
     select: decisionListSelect,
     orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { number: "desc" }],
+    ...(filter.limit !== undefined ? { take: filter.limit } : {}),
   });
   return rows.map((row) => ({
     ...row,
