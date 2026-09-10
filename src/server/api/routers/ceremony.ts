@@ -10,6 +10,7 @@ import {
 } from "~/server/services/access/resolvers/transcriptionResolver";
 import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
+import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -100,6 +101,9 @@ const ceremonySummarySelect = {
 } satisfies Prisma.CeremonySelect;
 
 export const ceremonyRouter = createTRPCRouter({
+  /** Built-in templates for the six ceremony kinds ("Add from template"). */
+  templates: protectedProcedure.query(() => CEREMONY_TEMPLATES),
+
   /** Ceremonies of a workspace (active by default). */
   list: protectedProcedure
     .input(
@@ -250,6 +254,80 @@ export const ceremonyRouter = createTRPCRouter({
 
       const created = await ensureOccurrences(ctx.db, ceremony);
       return { ceremony, occurrencesCreated: created };
+    }),
+
+  /**
+   * Edit a definition. Existing occurrences keep their snapshot; when the
+   * cadence changes, future PLANNED occurrences that nothing has attached to
+   * yet are dropped and regenerated so the schedule follows the new rule.
+   */
+  update: protectedProcedure
+    .input(
+      ceremonyFieldsSchema
+        .partial()
+        .extend({ workspaceId: z.string(), id: z.string(), isActive: z.boolean().optional() }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const { workspaceId, id, participantUserIds, agendaTemplate, slug: rawSlug, ...fields } = input;
+      const existing = await ctx.db.ceremony.findFirst({ where: { id, workspaceId } });
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
+
+      const cadenceRule = fields.cadenceRule ?? existing.cadenceRule;
+      const timezone = fields.timezone ?? existing.timezone;
+      assertValidCadence(cadenceRule, timezone);
+
+      const slug = rawSlug ? slugify(rawSlug) : undefined;
+      if (slug && slug !== existing.slug) {
+        const clash = await ctx.db.ceremony.findUnique({
+          where: { workspaceId_slug: { workspaceId, slug } },
+          select: { id: true },
+        });
+        if (clash) throw new TRPCError({ code: "CONFLICT", message: `A ceremony with slug "${slug}" already exists` });
+      }
+
+      const cadenceChanged =
+        cadenceRule !== existing.cadenceRule ||
+        timezone !== existing.timezone ||
+        (fields.startsOn !== undefined && fields.startsOn.getTime() !== existing.startsOn.getTime()) ||
+        (fields.durationMinutes !== undefined && fields.durationMinutes !== existing.durationMinutes);
+
+      const ceremony = await ctx.db.$transaction(async (tx) => {
+        const updated = await tx.ceremony.update({
+          where: { id },
+          data: {
+            ...fields,
+            ...(slug ? { slug } : {}),
+            ...(agendaTemplate ? { agendaTemplate: agendaTemplate as Prisma.InputJsonValue } : {}),
+            ...(participantUserIds
+              ? {
+                  participants: {
+                    deleteMany: {},
+                    create: Array.from(new Set(participantUserIds)).map((userId) => ({ userId })),
+                  },
+                }
+              : {}),
+          },
+        });
+        if (cadenceChanged) {
+          await tx.ceremonyOccurrence.deleteMany({
+            where: {
+              ceremonyId: id,
+              status: "PLANNED",
+              scheduledStart: { gt: new Date() },
+              scheduledMeetingId: null,
+              recordedMeetings: { none: {} },
+            },
+          });
+        }
+        return updated;
+      });
+
+      let occurrencesCreated = 0;
+      if (ceremony.isActive && (cadenceChanged || input.isActive === true)) {
+        occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
+      }
+      return { ceremony, occurrencesCreated };
     }),
 
   /** Link a recorded meeting to the occurrence it captured (or unlink with null). */
