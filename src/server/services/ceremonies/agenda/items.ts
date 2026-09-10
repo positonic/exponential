@@ -37,6 +37,54 @@ export async function setAgendaItemResolved(
   return next;
 }
 
+/** A person adds an item by hand; it survives regeneration (buildAgenda keeps `addedByUserId` items). */
+export async function addAgendaItem(
+  db: PrismaClient,
+  occurrenceId: string,
+  input: { sectionKey: string; title: string; detail?: string | null; userId: string },
+  now = new Date(),
+): Promise<AgendaSnapshot> {
+  const occurrence = await db.ceremonyOccurrence.findUnique({ where: { id: occurrenceId }, select: { agenda: true } });
+  const agenda = occurrence ? readAgendaSnapshot(occurrence.agenda) : null;
+  if (!agenda) throw new TRPCError({ code: "NOT_FOUND", message: "This occurrence has no agenda yet" });
+  const section = agenda.sections.find((s) => s.key === input.sectionKey);
+  if (!section) throw new TRPCError({ code: "NOT_FOUND", message: "Agenda section not found" });
+  const id = `${section.key}:hand:${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  section.items.push({
+    id,
+    sectionKey: section.key,
+    title: input.title.trim(),
+    refType: "text",
+    refId: id,
+    order: section.items.length,
+    addedByUserId: input.userId,
+    detail: input.detail?.trim() ? input.detail.trim() : null,
+  });
+  section.emptyReason = null;
+  await db.ceremonyOccurrence.update({ where: { id: occurrenceId }, data: { agenda: agenda as unknown as Prisma.InputJsonValue } });
+  return agenda;
+}
+
+/** Reorder one section's items; the new order is kept by buildAgenda on regeneration. */
+export async function reorderAgendaItems(
+  db: PrismaClient,
+  occurrenceId: string,
+  input: { sectionKey: string; itemIds: string[] },
+): Promise<AgendaSnapshot> {
+  const occurrence = await db.ceremonyOccurrence.findUnique({ where: { id: occurrenceId }, select: { agenda: true } });
+  const agenda = occurrence ? readAgendaSnapshot(occurrence.agenda) : null;
+  if (!agenda) throw new TRPCError({ code: "NOT_FOUND", message: "This occurrence has no agenda yet" });
+  const section = agenda.sections.find((s) => s.key === input.sectionKey);
+  if (!section) throw new TRPCError({ code: "NOT_FOUND", message: "Agenda section not found" });
+  const position = new Map(input.itemIds.map((id, i) => [id, i]));
+  section.items = section.items
+    .slice()
+    .sort((a, b) => (position.get(a.id) ?? Number.MAX_SAFE_INTEGER + a.order) - (position.get(b.id) ?? Number.MAX_SAFE_INTEGER + b.order))
+    .map((item, index) => ({ ...item, order: index }));
+  await db.ceremonyOccurrence.update({ where: { id: occurrenceId }, data: { agenda: agenda as unknown as Prisma.InputJsonValue } });
+  return agenda;
+}
+
 /**
  * Unresolved items of `fromOccurrenceId`, seeded into the next occurrence of
  * the same ceremony when that one already has an agenda (otherwise the

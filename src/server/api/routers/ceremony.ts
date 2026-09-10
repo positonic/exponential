@@ -15,7 +15,7 @@ import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoA
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
-import { setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
+import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -368,6 +368,34 @@ export const ceremonyRouter = createTRPCRouter({
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       const agenda = await setAgendaItemResolved(ctx.db, occurrence.id, input.itemId, input.resolved);
+      return { occurrenceId: occurrence.id, agenda };
+    }),
+
+  /** Add an item by hand to a section; kept across regeneration. */
+  addAgendaItem: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), title: z.string().trim().min(1).max(300), detail: z.string().max(500).nullish() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const agenda = await addAgendaItem(ctx.db, occurrence.id, { sectionKey: input.sectionKey, title: input.title, detail: input.detail, userId: ctx.session.user.id });
+      return { occurrenceId: occurrence.id, agenda };
+    }),
+
+  /** Reorder a section's items; the order is kept across regeneration. */
+  reorderAgendaItems: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), itemIds: z.array(z.string()).max(200) }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      const agenda = await reorderAgendaItems(ctx.db, occurrence.id, { sectionKey: input.sectionKey, itemIds: input.itemIds });
       return { occurrenceId: occurrence.id, agenda };
     }),
 

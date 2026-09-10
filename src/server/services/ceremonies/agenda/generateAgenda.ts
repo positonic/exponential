@@ -9,6 +9,8 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { buildAgenda, type SectionRunResult } from "./buildAgenda";
 import { getSectionModule } from "./sections";
 import { readAgendaSnapshot, readAgendaTemplate, type AgendaSnapshot, type SectionContext } from "./types";
+import { narrateAgenda, type NarrateOptions } from "./narrateAgenda";
+import { formatOccurrenceLabel } from "../activity";
 
 export interface GenerateAgendaResult {
   occurrenceId: string;
@@ -19,7 +21,7 @@ export interface GenerateAgendaResult {
 export async function generateAgenda(
   db: PrismaClient,
   occurrenceId: string,
-  opts: { now?: Date } = {},
+  opts: { now?: Date; narrate?: boolean; narrateOptions?: NarrateOptions } = {},
 ): Promise<GenerateAgendaResult> {
   const now = opts.now ?? new Date();
   const occurrence = await db.ceremonyOccurrence.findUnique({
@@ -66,6 +68,23 @@ export async function generateAgenda(
   }
 
   const agenda = buildAgenda(template, results, readAgendaSnapshot(occurrence.agenda), now);
+
+  // Narration reads the assembled items and nothing else; a narration failure
+  // never costs the structured agenda (it is stored without one).
+  if (opts.narrate !== false) {
+    try {
+      const narrative = await narrateAgenda(
+        { ceremonyName: ceremony.name, when: formatOccurrenceLabel("", occurrence.scheduledStart, ceremony.timezone).replace(/^ · /, ""), agenda },
+        opts.narrateOptions,
+      );
+      if (narrative) {
+        agenda.narrative = narrative;
+        agenda.narratedAt = now.toISOString();
+      }
+    } catch (error) {
+      console.error("[ceremonies] narrateAgenda failed; storing the agenda without a narrative:", error);
+    }
+  }
   await db.ceremonyOccurrence.update({
     where: { id: occurrence.id },
     data: { agenda: agenda as unknown as Prisma.InputJsonValue, agendaGeneratedAt: now },

@@ -1,19 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
+import { useState } from "react";
+import { ActionIcon, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from "@mantine/core";
+import { IconArrowDown, IconArrowUp, IconPlus } from "@tabler/icons-react";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 interface AgendaViewProps {
   agenda: AgendaSnapshot;
   /** When given, each item gets a resolve checkbox. */
   onToggleResolved?: (itemId: string, resolved: boolean) => void;
+  /** When given, each section gets an "add item" input. */
+  onAddItem?: (sectionKey: string, title: string) => void;
+  /** When given, items get move up/down controls. */
+  onReorder?: (sectionKey: string, itemIds: string[]) => void;
 }
 
 /** Renders an agenda snapshot: sections in order, items with detail and links (ADR-0059). */
-export function AgendaView({ agenda, onToggleResolved }: AgendaViewProps) {
+export function AgendaView({ agenda, onToggleResolved, onAddItem, onReorder }: AgendaViewProps) {
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
+    const next = ids.slice();
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    onReorder?.(sectionKey, next);
+  };
   return (
     <Stack gap="md" data-testid="agenda-view">
+      {agenda.narrative && (
+        <Paper withBorder radius="md" p="md" data-testid="agenda-narrative">
+          <Text size="xs" fw={600} tt="uppercase" className="text-text-muted" mb={6}>
+            Pre-read
+          </Text>
+          <MarkdownRenderer content={agenda.narrative} variant="compact" />
+        </Paper>
+      )}
       {agenda.sections.map((section) => (
         <Paper key={section.key} withBorder radius="md" p="md" data-testid={`agenda-section-${section.key}`}>
           <Group justify="space-between" mb={6}>
@@ -35,7 +58,7 @@ export function AgendaView({ agenda, onToggleResolved }: AgendaViewProps) {
             </Text>
           ) : (
             <Stack gap={6}>
-              {section.items.map((item) => (
+              {section.items.map((item, index) => (
                 <div key={item.id} className="flex items-start gap-2" data-testid={`agenda-item-${item.id}`}>
                   {onToggleResolved ? (
                     <Checkbox
@@ -70,9 +93,49 @@ export function AgendaView({ agenda, onToggleResolved }: AgendaViewProps) {
                       </Text>
                     )}
                   </div>
+                  {onReorder && section.items.length > 1 && (
+                    <Group gap={0} ml="auto" wrap="nowrap">
+                      <ActionIcon size="xs" variant="subtle" color="gray" aria-label="Move up" disabled={index === 0} onClick={() => move(section.key, section.items.map((i) => i.id), index, -1)}>
+                        <IconArrowUp size={12} />
+                      </ActionIcon>
+                      <ActionIcon size="xs" variant="subtle" color="gray" aria-label="Move down" disabled={index === section.items.length - 1} onClick={() => move(section.key, section.items.map((i) => i.id), index, 1)}>
+                        <IconArrowDown size={12} />
+                      </ActionIcon>
+                    </Group>
+                  )}
                 </div>
               ))}
             </Stack>
+          )}
+          {onAddItem && (
+            <Group gap="xs" mt={8} wrap="nowrap">
+              <TextInput
+                size="xs"
+                placeholder="Add an item by hand"
+                value={drafts[section.key] ?? ""}
+                onChange={(e) => setDrafts({ ...drafts, [section.key]: e.currentTarget.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (drafts[section.key] ?? "").trim()) {
+                    onAddItem(section.key, drafts[section.key]!.trim());
+                    setDrafts({ ...drafts, [section.key]: "" });
+                  }
+                }}
+                style={{ flex: 1 }}
+                data-testid={`agenda-add-${section.key}`}
+              />
+              <Button
+                size="xs"
+                variant="subtle"
+                leftSection={<IconPlus size={12} />}
+                disabled={!(drafts[section.key] ?? "").trim()}
+                onClick={() => {
+                  onAddItem(section.key, drafts[section.key]!.trim());
+                  setDrafts({ ...drafts, [section.key]: "" });
+                }}
+              >
+                Add
+              </Button>
+            </Group>
           )}
         </Paper>
       ))}

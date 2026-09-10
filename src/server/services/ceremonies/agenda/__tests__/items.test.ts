@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
-import { carryOverToNext, markOccurrenceCaptured, setAgendaItemResolved } from "../items";
+import { addAgendaItem, carryOverToNext, markOccurrenceCaptured, reorderAgendaItems, setAgendaItemResolved } from "../items";
 
 const agenda = {
   version: 1,
@@ -80,5 +80,22 @@ describe("markOccurrenceCaptured", () => {
     expect(await markOccurrenceCaptured(db, "occ-1")).toBe(false);
     db.ceremonyOccurrence.updateMany.mockRejectedValue(new Error("db down"));
     expect(await markOccurrenceCaptured(db, "occ-1")).toBe(false);
+  });
+});
+
+describe("addAgendaItem / reorderAgendaItems", () => {
+  it("adds a hand item tagged with the user and reorders a section", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    const added = await addAgendaItem(db, "occ-1", { sectionKey: "blk", title: "  Talk about hiring ", userId: "u-1" }, now);
+    const items = added.sections[0]!.items;
+    expect(items).toHaveLength(3);
+    expect(items[2]).toMatchObject({ sectionKey: "blk", title: "Talk about hiring", refType: "text", addedByUserId: "u-1", order: 2 });
+    await expect(addAgendaItem(db, "occ-1", { sectionKey: "nope", title: "x", userId: "u-1" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: added } as never);
+    const reordered = await reorderAgendaItems(db, "occ-1", { sectionKey: "blk", itemIds: [items[2]!.id, "blk:action:a-1"] });
+    expect(reordered.sections[0]!.items.map((i) => [i.id, i.order])).toEqual([[items[2]!.id, 0], ["blk:action:a-1", 1], ["blk:action:a-2", 2]]);
   });
 });

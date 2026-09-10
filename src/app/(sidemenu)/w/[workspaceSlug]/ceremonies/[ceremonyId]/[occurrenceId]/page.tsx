@@ -45,6 +45,16 @@ export default function OccurrencePage() {
     onError: (e) => notifications.show({ title: "Couldn't generate agenda", message: e.message, color: "red" }),
   });
 
+  const invalidate = () =>
+    utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
+  const addItem = api.ceremony.addAgendaItem.useMutation({
+    onSuccess: invalidate,
+    onError: (e) => notifications.show({ title: "Couldn't add item", message: e.message, color: "red" }),
+  });
+  const reorder = api.ceremony.reorderAgendaItems.useMutation({
+    onSuccess: invalidate,
+    onError: (e) => notifications.show({ title: "Couldn't reorder", message: e.message, color: "red" }),
+  });
   const resolveItem = api.ceremony.resolveAgendaItem.useMutation({
     onSuccess: async () => {
       await utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
@@ -129,6 +139,8 @@ export default function OccurrencePage() {
             onToggleResolved={(itemId, resolved) =>
               resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved })
             }
+            onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
+            onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
           />
         ) : (
           <Paper withBorder radius="md" p="lg">
