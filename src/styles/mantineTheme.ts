@@ -2,8 +2,10 @@
 import {
   createTheme,
   type MantineColorsTuple,
+  type MantineTheme,
   type MantineThemeOverride,
 } from '@mantine/core';
+import type { CSSProperties } from 'react';
 
 // Default Mantine color tuple for the built-in brand (Exponential blue).
 const DEFAULT_BRAND_COLORS: MantineColorsTuple = [
@@ -52,6 +54,23 @@ const DEFAULT_BRAND: BrandConfig = {
 // The input family below has been converted. The overlay family (Modal, Drawer,
 // Popover, Menu, Tooltip) and Tabs/SegmentedControl/Title are still nested and
 // carry the same latent bug - convert them behind a visual pass, not blind.
+type SelectorStyles = Record<string, CSSProperties>;
+
+// `variant="unstyled"` means "do not paint me" - it is how the inline metadata
+// pickers on ticket/feature/epic pages render as bare text. Mantine implements
+// that variant with a stylesheet rule, which an inline `backgroundColor` from
+// the theme below would override, turning every such field into a visible pill.
+// So drop the two painting tokens for that variant and keep the rest.
+const unpaintedWhenUnstyled =
+  <T extends SelectorStyles>(styles: T) =>
+  (_theme: MantineTheme, props: { variant?: string }): T => {
+    if (props.variant !== 'unstyled' || !styles.input) {
+      return styles;
+    }
+    const { backgroundColor: _bg, borderColor: _bd, ...unpainted } = styles.input;
+    return { ...styles, input: unpainted };
+  };
+
 const componentStyles = {
   // Paper component (used by Modal, Popover, etc.)
   Paper: {
@@ -164,7 +183,7 @@ const componentStyles = {
 
   // Select component
   Select: {
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -180,12 +199,12 @@ const componentStyles = {
       label: {
         color: 'var(--color-text-primary)',
       },
-    },
+    }),
   },
 
   // TextInput and Textarea
   TextInput: {
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -194,7 +213,7 @@ const componentStyles = {
       label: {
         color: 'var(--color-text-primary)',
       },
-    },
+    }),
   },
 
   // InputBase - used as a custom target for Combobox/Autocomplete and
@@ -202,7 +221,7 @@ const componentStyles = {
   // Mantine doesn't inherit TextInput's defaults onto InputBase, so we mirror
   // them here so every InputBase picks up the theme tokens automatically.
   InputBase: {
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -211,11 +230,11 @@ const componentStyles = {
       label: {
         color: 'var(--color-text-primary)',
       },
-    },
+    }),
   },
 
   Textarea: {
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -224,14 +243,14 @@ const componentStyles = {
       label: {
         color: 'var(--color-text-primary)',
       },
-    },
+    }),
   },
 
   // NumberInput - Mantine does NOT inherit TextInput's defaults onto it, so
   // without this entry it falls back to the built-in dark default (#25262b),
   // clashing with our dark-blue surfaces. Mirror TextInput.
   NumberInput: {
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -240,7 +259,7 @@ const componentStyles = {
       label: {
         color: 'var(--color-text-primary)',
       },
-    },
+    }),
   },
 
   // DateInput and DatePicker components
@@ -256,7 +275,7 @@ const componentStyles = {
         },
       },
     },
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -303,7 +322,7 @@ const componentStyles = {
         backgroundColor: 'transparent',
         border: '1px solid transparent',
       },
-    },
+    }),
   },
 
   // DateTimePicker is a separate Mantine component that does NOT inherit from
@@ -323,7 +342,7 @@ const componentStyles = {
         },
       },
     },
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -375,7 +394,7 @@ const componentStyles = {
         backgroundColor: 'transparent',
         border: '1px solid transparent',
       },
-    },
+    }),
   },
 
   // DatePickerInput is also a separate Mantine component that does NOT inherit
@@ -392,7 +411,7 @@ const componentStyles = {
         },
       },
     },
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -439,7 +458,7 @@ const componentStyles = {
         backgroundColor: 'transparent',
         border: '1px solid transparent',
       },
-    },
+    }),
   },
 
   DatePicker: {
@@ -611,7 +630,7 @@ const componentStyles = {
 
   // MultiSelect component
   MultiSelect: {
-    styles: {
+    styles: unpaintedWhenUnstyled({
       input: {
         backgroundColor: 'var(--color-bg-secondary)',
         color: 'var(--color-text-primary)',
@@ -629,7 +648,7 @@ const componentStyles = {
       option: {
         color: 'var(--color-text-primary)',
       },
-    },
+    }),
   },
 
   // Title component
