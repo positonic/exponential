@@ -473,6 +473,11 @@ export async function listForMeeting(
 
 export interface CreateDraftDecisionInput {
   workspaceId: string;
+  /**
+   * A number already taken from the workspace sequence by
+   * {@link reserveDecisionNumbers}. Omit to take one here.
+   */
+  number?: number;
   createdById: string;
   transcriptionSessionId: string;
   statement: string;
@@ -514,6 +519,33 @@ export async function createDraftDecision(db: PrismaClient, input: CreateDraftDe
  * answers `$transaction` on the mocked `tx`, so that mistake type-checks, runs
  * green in unit tests, and only fails against a real database.
  */
+/**
+ * Take `count` consecutive numbers from the workspace sequence in ONE
+ * statement and hand them back.
+ *
+ * Writing a batch of drafts used to increment the counter once per row, so a
+ * run of twenty drafts spent forty sequential round trips inside a single
+ * interactive transaction — enough to blow Prisma's 5 s budget against a
+ * production database even though the work itself is trivial. The increment
+ * is atomic either way; doing it once is simply half the traffic and none of
+ * the sequencing.
+ */
+export async function reserveDecisionNumbers(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  count: number,
+): Promise<number[]> {
+  if (count <= 0) return [];
+  const { decisionCounter } = await tx.workspace.update({
+    where: { id: workspaceId },
+    data: { decisionCounter: { increment: count } },
+    select: { decisionCounter: true },
+  });
+  // `decisionCounter` is now the LAST number of the reserved block.
+  const first = decisionCounter - count + 1;
+  return Array.from({ length: count }, (_, i) => first + i);
+}
+
 export async function createDraftDecisionInTx(
   tx: Prisma.TransactionClient,
   input: CreateDraftDecisionInput,
@@ -526,15 +558,14 @@ export async function createDraftDecisionInTx(
     text: turn.text,
   }));
   {
-    const counter = await tx.workspace.update({
-      where: { id: input.workspaceId },
-      data: { decisionCounter: { increment: 1 } },
-      select: { decisionCounter: true },
-    });
+    // A caller writing a batch reserves the whole block up front and passes
+    // each number in; a lone caller takes one here.
+    const number =
+      input.number ?? (await reserveDecisionNumbers(tx, input.workspaceId, 1))[0]!;
     return tx.decision.create({
       data: {
         workspaceId: input.workspaceId,
-        number: counter.decisionCounter,
+        number,
         statement: input.statement.trim(),
         body: input.body?.trim() ? input.body : null,
         status: input.status ?? "ACCEPTED",

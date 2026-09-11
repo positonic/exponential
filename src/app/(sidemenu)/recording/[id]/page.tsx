@@ -170,6 +170,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     onSuccess: (result) => {
       if (!session) return;
       void utils.decision.listForMeeting.invalidate({ transcriptionSessionId: session.id });
+      // Partial transcript coverage is a caveat on a successful run, not a
+      // failure — say so plainly rather than leaving the count unexplained.
+      for (const warning of result.warnings ?? []) {
+        notifications.show({
+          title: "Part of the transcript was not read",
+          message: warning,
+          color: "yellow",
+          autoClose: 10_000,
+        });
+      }
       if (result.alreadyPublished) {
         notifications.show({
           title: "Decisions already logged",

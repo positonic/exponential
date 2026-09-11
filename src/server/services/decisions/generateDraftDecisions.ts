@@ -26,10 +26,22 @@ import {
   type DecisionCandidate,
   type OpenDecisionRef,
 } from "~/server/services/DecisionExtractionService";
-import { createDraftDecisionInTx, type DecisionDeciderInput } from "./decisionService";
+import {
+  createDraftDecisionInTx,
+  reserveDecisionNumbers,
+  type DecisionDeciderInput,
+} from "./decisionService";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+
+/**
+ * Budget for the all-or-nothing draft write. Prisma's defaults (5 s / 2 s)
+ * are sized for a local database; this runs against a managed one from a
+ * serverless function.
+ */
+const DRAFT_WRITE_TIMEOUT_MS = 20_000;
+const DRAFT_WRITE_MAX_WAIT_MS = 10_000;
 
 export interface GenerateDraftDecisionsOptions {
   /**
@@ -53,6 +65,13 @@ export interface DraftDecisionsResult {
   /** Candidates dropped because no transcript turn supported them. */
   discardedWithoutEvidence: number;
   errors: string[];
+  /**
+   * Things the caller should know that are not failures — partial transcript
+   * coverage, most of all. Kept apart from `errors` because the router throws
+   * on errors, and a run that produced drafts from five of six sections is a
+   * success with a caveat, not a failure.
+   */
+  warnings: string[];
 }
 
 interface ParticipantRow {
@@ -145,6 +164,7 @@ export async function generateDraftDecisions(
     draftsCreated: 0,
     discardedWithoutEvidence: 0,
     errors: [],
+    warnings: [],
   };
 
   try {
@@ -314,8 +334,8 @@ export async function generateDraftDecisions(
         });
         transcriptCandidates = filterNearDuplicateDecisions(run.candidates, alreadyCaptured);
         if (run.chunksSkipped > 0) {
-          result.errors.push(
-            `The transcript was longer than one extraction pass covers; ${run.chunksSkipped} of ${run.chunksTotal} sections were not read.`,
+          result.warnings.push(
+            `The transcript was longer than one extraction pass covers, so ${run.chunksSkipped} of its ${run.chunksTotal} sections were not read. Decisions made only in those sections will be missing.`,
           );
         }
         // Every chunk failing looks exactly like "no decisions here" to the
@@ -353,26 +373,41 @@ export async function generateDraftDecisions(
     // loop left a partial set that every retry reported as complete — with no
     // way back short of rejecting them all.
     if (candidates.length > 0) {
-      await db.$transaction(async (tx) => {
-        for (const candidate of candidates) {
-          const draft = await createDraftDecisionInTx(tx, {
-            workspaceId,
-            createdById: userId,
-            transcriptionSessionId: meeting.id,
-            statement: candidate.statement,
-            body: candidateBody(candidate),
-            status: "ACCEPTED",
-            decidedAt: meeting.meetingDate ?? null,
-            occurrenceId: meeting.occurrenceId,
-            projectId: meeting.projectId,
-            deciders: resolveDeciders(candidate.deciderNames, meeting.participants),
-            evidence: candidate.evidence,
-            resolvesDecisionId: candidate.resolvesDecisionId ?? null,
-          });
-          console.log(`[generateDraftDecisions] Draft ${draft.number} "${draft.statement}" (${candidate.origin})`);
-          result.draftsCreated++;
-        }
-      });
+      await db.$transaction(
+        async (tx) => {
+          // One statement for the whole block of labels, so the transaction is
+          // N round trips rather than 2N (see reserveDecisionNumbers).
+          const numbers = await reserveDecisionNumbers(tx, workspaceId, candidates.length);
+          for (const [index, candidate] of candidates.entries()) {
+            const draft = await createDraftDecisionInTx(tx, {
+              workspaceId,
+              number: numbers[index]!,
+              createdById: userId,
+              transcriptionSessionId: meeting.id,
+              statement: candidate.statement,
+              body: candidateBody(candidate),
+              status: "ACCEPTED",
+              decidedAt: meeting.meetingDate ?? null,
+              occurrenceId: meeting.occurrenceId,
+              projectId: meeting.projectId,
+              deciders: resolveDeciders(candidate.deciderNames, meeting.participants),
+              evidence: candidate.evidence,
+              resolvesDecisionId: candidate.resolvesDecisionId ?? null,
+            });
+            console.log(`[generateDraftDecisions] Draft ${draft.number} "${draft.statement}" (${candidate.origin})`);
+            result.draftsCreated++;
+          }
+        },
+        {
+          // Prisma's 5 s default is a local-database number. This writes up to
+          // DEFAULT_MAX_DECISIONS rows against a production database a region
+          // away, and it is all-or-nothing by design, so give it room rather
+          // than let a slow link roll back an extraction that already spent
+          // real money on the model.
+          timeout: DRAFT_WRITE_TIMEOUT_MS,
+          maxWait: DRAFT_WRITE_MAX_WAIT_MS,
+        },
+      );
     }
     result.draftCount = result.draftsCreated;
     result.success = true;

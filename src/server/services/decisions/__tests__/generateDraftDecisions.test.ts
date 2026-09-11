@@ -406,10 +406,46 @@ describe("generateDraftDecisions", () => {
     expect(result.errors.join(" ")).toMatch(/failed to extract/i);
   });
 
-  it("says so when the transcript was longer than one extraction pass covers", async () => {
+  it("warns about partial transcript coverage without failing the run", async () => {
     extractFromTranscript.mockResolvedValue(transcriptRun([candidate()], { chunksTotal: 9, chunksSkipped: 3 }));
     const result = await generateDraftDecisions(db, "m1", "u-dev");
-    expect(result.errors.join(" ")).toMatch(/3 of 9 sections were not read/);
+    // A run that read six of nine sections and produced drafts succeeded with
+    // a caveat. Carrying that in `errors` made the router throw it away as a
+    // failure alongside whatever really went wrong.
+    expect(result.success).toBe(true);
+    expect(result.draftCount).toBe(1);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.join(" ")).toMatch(/3 of its 9 sections were not read/);
+  });
+
+  it("reserves the whole block of labels in one statement, not one per draft", async () => {
+    extractFromTranscript.mockResolvedValue(
+      transcriptRun([candidate({ statement: "One" }), candidate({ statement: "Two" }), candidate({ statement: "Three" })]),
+    );
+    db.workspace.update.mockResolvedValue({ decisionCounter: 12 } as never);
+
+    const result = await generateDraftDecisions(db, "m1", "u-dev");
+
+    expect(result.draftsCreated).toBe(3);
+    // One increment of 3 — not three increments of 1, which is what spent the
+    // transaction budget on round trips against a production database.
+    expect(db.workspace.update).toHaveBeenCalledTimes(1);
+    expect(db.workspace.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { decisionCounter: { increment: 3 } } }),
+    );
+    // The reserved block is handed out in order: 10, 11, 12.
+    const numbers = db.decision.create.mock.calls.map(
+      (c) => (c[0] as { data: { number: number } }).data.number,
+    );
+    expect(numbers).toEqual([10, 11, 12]);
+  });
+
+  it("gives the all-or-nothing write a budget bigger than Prisma's local-database default", async () => {
+    extractFromTranscript.mockResolvedValue(transcriptRun([candidate()]));
+    await generateDraftDecisions(db, "m1", "u-dev");
+    const options = db.$transaction.mock.calls[0]![1] as { timeout: number; maxWait: number } | undefined;
+    expect(options?.timeout).toBeGreaterThan(5_000);
+    expect(options?.maxWait).toBeGreaterThan(2_000);
   });
 
   it("is a no-op success for a meeting with neither transcript nor notes", async () => {
