@@ -479,6 +479,31 @@ body {
   background-color: var(--color-surface-hover);
 }
 
+/* --- Input surface ---
+   These two tokens live here rather than in mantineTheme.ts's `styles` because
+   both reasons for wanting them there fail. The theme object is built in a
+   server layout and handed to MantineProvider (a client component), so it has
+   to stay serializable - a `(theme, props) => styles` function breaks the
+   production build with "Functions cannot be passed directly to Client
+   Components". And `variant="unstyled"` must stay unpainted: Mantine clears its
+   background with a stylesheet rule, which an inline style from the theme would
+   override, turning every bare-text field (the inline pickers on ticket,
+   feature and epic pages) into a visible pill. Both need a selector, so a
+   selector is what they get. A call site that sets its own `backgroundColor`
+   inline still wins over these rules, which is the intended precedence. */
+.mantine-Select-input:not([data-variant="unstyled"]),
+.mantine-TextInput-input:not([data-variant="unstyled"]),
+.mantine-InputBase-input:not([data-variant="unstyled"]),
+.mantine-Textarea-input:not([data-variant="unstyled"]),
+.mantine-NumberInput-input:not([data-variant="unstyled"]),
+.mantine-DateInput-input:not([data-variant="unstyled"]),
+.mantine-DateTimePicker-input:not([data-variant="unstyled"]),
+.mantine-DatePickerInput-input:not([data-variant="unstyled"]),
+.mantine-MultiSelect-input:not([data-variant="unstyled"]) {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-border-primary);
+}
+
 /* --- Input focus & placeholder --- */
 .mantine-Select-input:focus,
 .mantine-TextInput-input:focus,
