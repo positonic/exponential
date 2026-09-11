@@ -142,10 +142,22 @@ export function summaryDecisionText(summary: string | null | undefined): string 
 }
 
 /** The draft's Markdown body, with the ADR headings the detail page renders. */
+/**
+ * Compose the draft's Markdown body from the extractor's bullet lists.
+ *
+ * Fixed ADR headings (context, alternatives, consequences) and one bullet per
+ * point: a decision body is read inside a list of decisions, so it has to be
+ * scannable at a glance rather than a paragraph to wade through.
+ */
 export function candidateBody(candidate: DecisionCandidate): string | null {
   const sections: string[] = [];
-  if (candidate.rationale) sections.push(`## Context\n${candidate.rationale}`);
-  if (candidate.alternatives) sections.push(`## Alternatives considered\n${candidate.alternatives}`);
+  const add = (heading: string, points: string[] | undefined) => {
+    if (!points || points.length === 0) return;
+    sections.push(`## ${heading}\n${points.map((p) => `- ${p}`).join("\n")}`);
+  };
+  add("Context", candidate.context);
+  add("Alternatives considered", candidate.alternatives);
+  add("Consequences", candidate.consequences);
   return sections.length > 0 ? sections.join("\n\n") : null;
 }
 
@@ -386,7 +398,9 @@ export async function generateDraftDecisions(
               transcriptionSessionId: meeting.id,
               statement: candidate.statement,
               body: candidateBody(candidate),
-              status: "ACCEPTED",
+              // An open question is a Decision in OPEN status, not a separate
+              // entity (ADR-0060) — the meeting page splits the two by status.
+              status: candidate.isOpenQuestion ? "OPEN" : "ACCEPTED",
               decidedAt: meeting.meetingDate ?? null,
               occurrenceId: meeting.occurrenceId,
               projectId: meeting.projectId,

@@ -65,7 +65,8 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       decisions: [
         {
           statement: "Prioritisation debates are parked for the prioritisation ceremony",
-          rationale: "Standups are not the place for prioritisation calls.",
+          context: ["Standups are not the place for prioritisation calls."],
+          consequences: ["Prioritisation moves to its own ceremony."],
           deciderNames: ["Pat Reviewer", "Dev Fixture"],
           evidenceTurnIndices: [4, 3],
         },
@@ -85,7 +86,9 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
       text: TURNS[3]!.text,
     });
     expect(candidate.deciderNames).toEqual(["Pat Reviewer", "Dev Fixture"]);
-    expect(candidate.rationale).toBe("Standups are not the place for prioritisation calls.");
+    expect(candidate.context).toEqual(["Standups are not the place for prioritisation calls."]);
+    expect(candidate.consequences).toEqual(["Prioritisation moves to its own ceremony."]);
+    expect(candidate.isOpenQuestion).toBe(false);
     expect(candidate.resolvesDecisionId).toBeUndefined();
   });
 
@@ -281,7 +284,7 @@ describe("prompt contract", () => {
 });
 
 describe("extractNotesDecisionItems", () => {
-  it("extracts the list under a Decisions heading, with sub-bullets as rationale", () => {
+  it("extracts the list under a Decisions heading, with sub-bullets as context points", () => {
     const notes = [
       "* Context bullet, not a decision",
       "",
@@ -299,7 +302,8 @@ describe("extractNotesDecisionItems", () => {
       "Ship the peek drawer first",
       "standups stay inside fifteen minutes",
     ]);
-    expect(items[0]!.rationale).toBe("hover affordances can wait");
+    // Sub-bullets stay separate points rather than being glued into a sentence.
+    expect(items[0]!.context).toEqual(["hover affordances can wait"]);
     expect(items.every((i) => i.origin === "notes" && i.evidence.length === 0)).toBe(true);
   });
 

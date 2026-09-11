@@ -76,7 +76,7 @@ const MEETING = {
 function candidate(overrides: Partial<DecisionCandidate> = {}): DecisionCandidate {
   return {
     statement: "Prioritisation debates are parked for the prioritisation ceremony",
-    rationale: "Standups are not for prioritisation.",
+    context: ["Standups are not for prioritisation."],
     deciderNames: ["Pat", "Dev Fixture"],
     evidence: [{ turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: "Agreed." }],
     origin: "transcript",
@@ -162,7 +162,7 @@ describe("generateDraftDecisions", () => {
       decidedAt: MEETING.meetingDate,
       createdById: "u-dev",
       supersededById: null,
-      body: "## Context\nStandups are not for prioritisation.",
+      body: "## Context\n- Standups are not for prioritisation.",
     });
     expect(data.evidence).toEqual([{ turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: "Agreed." }]);
     expect(data.deciders).toEqual({
@@ -251,8 +251,8 @@ describe("generateDraftDecisions", () => {
       notes: "## Decisions\n- Park prioritisation debates for the prioritisation ceremony\n- Migrate billing to Kubernetes",
     } as never);
     extractFromNotes.mockResolvedValue([
-      candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", rationale: undefined }),
-      candidate({ statement: "Migrate billing to Kubernetes", evidence: [], origin: "notes", rationale: undefined }),
+      candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", context: undefined }),
+      candidate({ statement: "Migrate billing to Kubernetes", evidence: [], origin: "notes", context: undefined }),
     ]);
     extractFromTranscript.mockResolvedValue(transcriptRun([
       // A rewording of the notes decision — dropped by the near-duplicate filter.
@@ -374,7 +374,7 @@ describe("generateDraftDecisions", () => {
       notes: "## Decisions\n- Park prioritisation debates for the prioritisation ceremony",
     } as never);
     extractFromNotes.mockResolvedValue([
-      candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", rationale: undefined }),
+      candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", context: undefined }),
     ]);
     extractFromTranscript.mockResolvedValue(transcriptRun([]));
 
@@ -398,6 +398,28 @@ describe("generateDraftDecisions", () => {
     const firstTransaction = db.$transaction.mock.invocationCallOrder[0]!;
     const firstCreate = db.decision.create.mock.invocationCallOrder[0]!;
     expect(firstTransaction).toBeLessThan(firstCreate);
+  });
+
+  it("stores an extracted open question as OPEN, not as a settled decision", async () => {
+    extractFromTranscript.mockResolvedValue(
+      transcriptRun([
+        candidate({ statement: "Ship the drawer first", isOpenQuestion: false }),
+        candidate({ statement: "Which stakeholders get the roadmap first?", isOpenQuestion: true }),
+      ]),
+    );
+
+    await generateDraftDecisions(db, "m1", "u-dev");
+
+    // One entity, split by status (ADR-0060): the question is the same row
+    // shape in OPEN, never a separate table.
+    const byStatement = new Map(
+      db.decision.create.mock.calls.map((c) => {
+        const data = (c[0] as { data: { statement: string; status: string } }).data;
+        return [data.statement, data.status];
+      }),
+    );
+    expect(byStatement.get("Ship the drawer first")).toBe("ACCEPTED");
+    expect(byStatement.get("Which stakeholders get the roadmap first?")).toBe("OPEN");
   });
 
   it("reports a wholly-failed transcript pass instead of calling it an empty meeting", async () => {
@@ -471,11 +493,20 @@ describe("resolveDeciders", () => {
 });
 
 describe("candidateBody", () => {
-  it("renders rationale and alternatives under ADR headings, or null", () => {
-    expect(candidateBody(candidate({ rationale: "why", alternatives: "what else" }))).toBe(
-      "## Context\nwhy\n\n## Alternatives considered\nwhat else",
+  it("renders the extractor's bullets under fixed ADR headings, or null", () => {
+    expect(
+      candidateBody(
+        candidate({
+          context: ["why one", "why two"],
+          alternatives: ["what else"],
+          consequences: ["what follows"],
+        }),
+      ),
+    ).toBe(
+      "## Context\n- why one\n- why two\n\n## Alternatives considered\n- what else\n\n## Consequences\n- what follows",
     );
-    expect(candidateBody(candidate({ rationale: undefined }))).toBeNull();
+    // A body is bullets so it can be read at a glance in a list of decisions.
+    expect(candidateBody(candidate({ context: undefined, alternatives: undefined, consequences: undefined }))).toBeNull();
   });
 });
 

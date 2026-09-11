@@ -281,6 +281,11 @@
 .mp-dec__label { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin-right: 7px; text-decoration: none; }
 .mp-dec__label:hover { color: var(--brand-400); }
 .mp-dec__meta { display: block; margin-top: 1px; font-size: 11.5px; color: var(--color-text-faint); }
+/* The extractor's context/alternatives/consequences bullets, under the statement.
+   MarkdownRenderer owns the typography inside (its compact variant renders the
+   headings as styled paragraphs, not h2) — this only sets the block apart. */
+.mp-dec__body { margin-top: 4px; color: var(--color-text-secondary); }
+.mp-dec__body > :first-child { margin-top: 0; }
 .mp-dec__empty { font-size: 12.5px; color: var(--color-text-muted); }
 
 /* per-turn "Use as evidence" — hover-revealed, sticky once selected */
