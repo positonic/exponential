@@ -757,92 +757,98 @@ export function DecisionsIndex({
         ) : null}
 
         <div className="dec-bar">
-          <label className="dec-search">
-            <IconSearch size={14} stroke={1.75} />
-            <input
-              type="search"
-              placeholder="Search decisions"
-              value={search}
-              onChange={(e) => setSearch(e.currentTarget.value)}
-              aria-label="Search decisions"
+          <div className="dec-bar__row">
+            <label className="dec-search">
+              <IconSearch size={14} stroke={1.75} />
+              <input
+                type="search"
+                placeholder="Search decisions"
+                value={search}
+                onChange={(e) => setSearch(e.currentTarget.value)}
+                aria-label="Search decisions"
+              />
+            </label>
+            <div className="dec-seg" role="group" aria-label="Filter by status">
+              <button
+                type="button"
+                className={statusFilter === "all" ? "on" : ""}
+                aria-pressed={statusFilter === "all"}
+                onClick={() => setStatusFilter("all")}
+              >
+                All <span className="dec-seg__n">{totalCount}</span>
+              </button>
+              {/* Zero-count statuses hide, except the active one — a filter
+                  that is still applied must stay visible and clearable. */}
+              {STATUS_ORDER.filter(
+                (s) => (counts.get(s) ?? 0) > 0 || statusFilter === s,
+              ).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={statusFilter === s ? "on" : ""}
+                  aria-pressed={statusFilter === s}
+                  onClick={() => setStatusFilter(s)}
+                >
+                  <span className={`dot dot--${STATUS_META[s].dot}`} />
+                  {STATUS_META[s].label}{" "}
+                  <span className="dec-seg__n">{counts.get(s) ?? 0}</span>
+                </button>
+              ))}
+            </div>
+            <div className="dec-bar__spacer" />
+            <ProductScopeChip
+              value={productFilter}
+              options={scopeOptions}
+              onChange={setProductFilter}
             />
-          </label>
-          <div className="dec-seg" role="group" aria-label="Filter by status">
-            <button
-              type="button"
-              className={statusFilter === "all" ? "on" : ""}
-              aria-pressed={statusFilter === "all"}
-              onClick={() => setStatusFilter("all")}
-            >
-              All <span className="dec-seg__n">{totalCount}</span>
-            </button>
-            {/* Zero-count statuses hide, except the active one — a filter
-                that is still applied must stay visible and clearable. */}
-            {STATUS_ORDER.filter(
-              (s) => (counts.get(s) ?? 0) > 0 || statusFilter === s,
-            ).map((s) => (
+            <div className="dec-seg" role="group" aria-label="Grouping">
               <button
-                key={s}
                 type="button"
-                className={statusFilter === s ? "on" : ""}
-                aria-pressed={statusFilter === s}
-                onClick={() => setStatusFilter(s)}
+                className={grouped ? "on" : ""}
+                aria-pressed={grouped}
+                onClick={() => setGrouped(true)}
               >
-                <span className={`dot dot--${STATUS_META[s].dot}`} />
-                {STATUS_META[s].label}{" "}
-                <span className="dec-seg__n">{counts.get(s) ?? 0}</span>
+                <IconFolder size={12} stroke={1.75} />
+                Grouped
               </button>
-            ))}
-          </div>
-          <div className="dec-seg" role="group" aria-label="Filter by source">
-            <button
-              type="button"
-              className={sourceFilter === "all" ? "on" : ""}
-              aria-pressed={sourceFilter === "all"}
-              onClick={() => setSourceFilter("all")}
-            >
-              All sources
-            </button>
-            {SOURCE_ORDER.filter(
-              (s) => (sourceCounts.get(s.value) ?? 0) > 0 || sourceFilter === s.value,
-            ).map((s) => (
               <button
-                key={s.value}
                 type="button"
-                className={sourceFilter === s.value ? "on" : ""}
-                aria-pressed={sourceFilter === s.value}
-                onClick={() => setSourceFilter(s.value)}
+                className={!grouped ? "on" : ""}
+                aria-pressed={!grouped}
+                onClick={() => setGrouped(false)}
               >
-                {s.icon}
-                {s.label} <span className="dec-seg__n">{sourceCounts.get(s.value) ?? 0}</span>
+                <IconList size={12} stroke={1.75} />
+                Flat
               </button>
-            ))}
+            </div>
           </div>
-          <div className="dec-bar__spacer" />
-          <ProductScopeChip
-            value={productFilter}
-            options={scopeOptions}
-            onChange={setProductFilter}
-          />
-          <div className="dec-seg" role="group" aria-label="Grouping">
-            <button
-              type="button"
-              className={grouped ? "on" : ""}
-              aria-pressed={grouped}
-              onClick={() => setGrouped(true)}
-            >
-              <IconFolder size={12} stroke={1.75} />
-              Grouped
-            </button>
-            <button
-              type="button"
-              className={!grouped ? "on" : ""}
-              aria-pressed={!grouped}
-              onClick={() => setGrouped(false)}
-            >
-              <IconList size={12} stroke={1.75} />
-              Flat
-            </button>
+          {/* The source filter always sits on its own row under the search
+              box, so it never wraps into the status row at in-between widths. */}
+          <div className="dec-bar__row">
+            <div className="dec-seg" role="group" aria-label="Filter by source">
+              <button
+                type="button"
+                className={sourceFilter === "all" ? "on" : ""}
+                aria-pressed={sourceFilter === "all"}
+                onClick={() => setSourceFilter("all")}
+              >
+                All sources
+              </button>
+              {SOURCE_ORDER.filter(
+                (s) => (sourceCounts.get(s.value) ?? 0) > 0 || sourceFilter === s.value,
+              ).map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  className={sourceFilter === s.value ? "on" : ""}
+                  aria-pressed={sourceFilter === s.value}
+                  onClick={() => setSourceFilter(s.value)}
+                >
+                  {s.icon}
+                  {s.label} <span className="dec-seg__n">{sourceCounts.get(s.value) ?? 0}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

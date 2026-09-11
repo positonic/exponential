@@ -24,7 +24,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
     hidden: false,
     items: [
       { id: 'goals', hidden: false },
-      { id: 'alignment', hidden: false },
+      { id: 'decisions', hidden: false },
     ],
   },
   {
@@ -69,12 +69,12 @@ export interface NavItemConfig {
 export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
   goals: {
     label: 'Goals',
-    href: (s) => `/w/${s}/goals?tab=okrs`,
+    href: (s) => `/w/${s}/goals`,
     matchSegments: ['goals', 'okrs'],
   },
-  alignment: {
-    label: 'Alignment',
-    href: (s) => `/w/${s}/alignment`,
+  decisions: {
+    label: 'Decisions',
+    href: (s) => `/w/${s}/decisions`,
   },
   actions: {
     label: 'Actions',
@@ -121,21 +121,22 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
  * items added to the defaults in a later release roll out to existing users.
  * The user's existing order, custom names, and visibility flags are preserved;
  * missing default items are appended to their matching section and missing
- * default sections are appended at the end.
+ * default sections are appended at the end. Items whose id no longer exists in
+ * {@link NAV_ITEM_CONFIG} (a retired nav entry, e.g. the old `alignment` item)
+ * are dropped so they neither render nor linger in the settings editor.
  */
 function mergeWithDefaults(saved: NavSection[]): NavSection[] {
   const merged = saved.map((section) => {
+    const items = section.items.filter((i) => i.id in NAV_ITEM_CONFIG);
     const defaultSection = DEFAULT_NAV_LAYOUT.find((d) => d.id === section.id);
-    if (!defaultSection) return section;
+    if (!defaultSection) return { ...section, items };
 
-    const existingItemIds = new Set(section.items.map((i) => i.id));
+    const existingItemIds = new Set(items.map((i) => i.id));
     const missingItems = defaultSection.items
       .filter((i) => !existingItemIds.has(i.id))
       .map((i) => ({ ...i }));
 
-    return missingItems.length > 0
-      ? { ...section, items: [...section.items, ...missingItems] }
-      : section;
+    return { ...section, items: [...items, ...missingItems] };
   });
 
   const existingSectionIds = new Set(saved.map((s) => s.id));
