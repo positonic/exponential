@@ -13,7 +13,7 @@ import {
   IconMicrophone,
   IconBook,
   IconBook2,
-  IconRoute,
+  IconGavel,
   IconBriefcase,
   IconFileText,
   IconChartBar,
@@ -29,7 +29,7 @@ import { parseNavLayout, NAV_ITEM_CONFIG } from "~/lib/navLayout";
 
 const ITEM_ICONS: Record<string, Icon> = {
   goals: IconTarget,
-  alignment: IconRoute,
+  decisions: IconGavel,
   actions: IconBriefcase,
   projects: IconStack2,
   products: IconLayoutGrid,
