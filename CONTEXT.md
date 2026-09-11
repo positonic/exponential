@@ -90,7 +90,7 @@ An architecture decision record: a markdown file in an enrolled git repository (
 _Avoid_: Decision (reserved for the Exponential-owned entity), design doc.
 
 **Decision Log**:
-The workspace index at `/w/[slug]/decisions` (and the per-product lens) over *both* sources — git-projected **ADRs** and Exponential-owned **Decisions** — with a Source facet, one shared status vocabulary, repository / product / status filters and search. Meeting decisions group by ceremony or project; ADRs by repository. Meeting-linked Decisions are visible only through **Meeting visibility** (they quote the transcript); ADRs are workspace-member-visible.
+The workspace index at `/w/[slug]/decisions` (and the per-product lens) over *both* sources — git-projected **ADRs** and Exponential-owned **Decisions** — with a Source facet, one shared status vocabulary, repository / product / status filters and search. Meeting decisions group by ceremony or project; ADRs by repository. Its **graph** (`/decisions/graph`) draws both sources too, in two views picked from a dropdown: a *Timeline* (default — time left to right, one lane per repository or ceremony / project, cards packed into rows, undated ones in a "No date" column) and the *Network* cluster view; edges are supersedes, detected mentions, and "formalised as" (Decision → ADR). Meeting-linked Decisions are visible only through **Meeting visibility** (they quote the transcript); ADRs are workspace-member-visible.
 _Avoid_: ADR viewer (that was v1; it is now half the log), decisions page.
 
 ## Relationships

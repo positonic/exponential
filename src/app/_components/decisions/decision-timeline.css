@@ -1,0 +1,437 @@
+/* ============================================================
+   Decision timeline — time runs left to right, one lane per repository
+   (ADRs) or ceremony / project / workspace bucket (Decisions). Tokens come
+   from `.dec-surface` in globals.css; this file uses var() only, and the
+   same rules as the index: blue is reserved for interaction and the
+   supersedes edge, status is a dot, never a pill.
+   ============================================================ */
+
+.dtl-wrap {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
+  overflow: hidden;
+}
+.dtl {
+  position: relative;
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.dtl__content {
+  position: relative;
+}
+
+/* ---- sticky time axis ---- */
+.dtl__axis {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 36px;
+  background: color-mix(in oklab, var(--color-bg-primary) 88%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--color-border-primary);
+  box-sizing: border-box;
+}
+.dtl__corner {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  height: 100%;
+  background: var(--color-bg-primary);
+  border-right: 1px solid var(--color-border-primary);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+.dtl__tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-start;
+  padding: 3px 0 0 8px;
+  box-sizing: border-box;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dtl__tick--major {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+.dtl__tick::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 8px;
+  background: var(--color-border-strong);
+}
+.dtl__tick--major::before {
+  height: 14px;
+}
+.dtl__axis-today,
+.dtl__axis-undated {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Today sits on the lower half of the axis so it never covers a month label. */
+.dtl__axis-today {
+  top: auto;
+  bottom: 2px;
+  padding: 1px 6px;
+  transform: translateX(-50%);
+  background: var(--brand-400);
+  color: var(--color-text-inverse);
+}
+.dtl__axis-undated {
+  transform: translateY(-50%);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-subtle);
+}
+
+/* ---- lanes ---- */
+.dtl__body {
+  position: relative;
+}
+.dtl__lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  pointer-events: none;
+}
+.dtl__lane-head {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 10px 14px;
+  background: var(--color-bg-primary);
+  border-right: 1px solid var(--color-border-primary);
+  border-bottom: 1px solid var(--color-border-subtle);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.dtl__lane-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--color-text-primary);
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.dtl__lane-name--repo {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.dtl__lane-name em {
+  font-style: normal;
+  color: color-mix(in oklab, var(--brand-400) 55%, var(--color-text-faint));
+}
+.dtl__lane-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--color-text-faint);
+}
+.dtl__lane-kind {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.dtl__lane-n {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the drawing layer: bands, grid, today, edges ---- */
+.dtl__svg {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+.dtl__band {
+  fill: transparent;
+}
+.dtl__band--alt {
+  fill: color-mix(in oklab, var(--color-bg-secondary) 70%, transparent);
+}
+.dtl__lane-rule {
+  stroke: var(--color-border-subtle);
+  stroke-width: 1;
+}
+.dtl__grid {
+  stroke: var(--color-border-subtle);
+  stroke-width: 1;
+}
+.dtl__grid--major {
+  stroke: var(--color-border-primary);
+}
+.dtl__today {
+  stroke: var(--brand-400);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.8;
+}
+.dtl__undated-rule {
+  stroke: var(--color-border-primary);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.dtl__edge {
+  fill: none;
+  stroke-width: 1.5;
+  transition: opacity 120ms, stroke-width 120ms;
+}
+.dtl__edge--SUPERSEDES {
+  stroke: var(--brand-400);
+  stroke-width: 1.75;
+}
+.dtl__edge--MENTIONS {
+  stroke: var(--color-border-strong);
+  stroke-dasharray: 4 4;
+}
+.dtl__edge--FORMALISED {
+  stroke: var(--accent-crm);
+  stroke-dasharray: 1.5 3.5;
+  stroke-linecap: round;
+}
+.dtl__arrow--SUPERSEDES {
+  fill: var(--brand-400);
+}
+.dtl__arrow--MENTIONS {
+  fill: var(--color-border-strong);
+}
+.dtl__arrow--FORMALISED {
+  fill: var(--accent-crm);
+}
+.dtl.is-focused .dtl__edge {
+  opacity: 0.18;
+}
+.dtl.is-focused .dtl__edge.is-hot {
+  opacity: 1;
+  stroke-width: 2.5;
+}
+
+/* ---- cards ---- */
+.dtl__card {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 9px 7px 11px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms, opacity 120ms;
+}
+.dtl__card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-text-faint);
+}
+.dtl__card--accepted::before {
+  background: var(--accent-crm);
+}
+.dtl__card--superseded::before {
+  background: var(--accent-okr);
+}
+.dtl__card--deprecated::before {
+  background: var(--accent-due);
+}
+.dtl__card--proposed::before,
+.dtl__card--open::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-text-muted);
+}
+.dtl__card--open::before {
+  box-shadow: inset 0 0 0 1.5px var(--accent-okr);
+}
+.dtl__card--superseded,
+.dtl__card--deprecated {
+  opacity: 0.72;
+}
+.dtl__card--undated {
+  border-style: dashed;
+}
+.dtl__card:hover,
+.dtl__card:focus-visible,
+.dtl__card.is-linked {
+  border-color: var(--brand-400);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-400) 14%, transparent);
+  opacity: 1;
+  z-index: 4;
+  text-decoration: none;
+}
+.dtl__card:hover {
+  transform: translateY(-1px);
+}
+.dtl__card:focus-visible {
+  outline: none;
+}
+.dtl.is-focused .dtl__card:not(:hover):not(.is-linked) {
+  opacity: 0.55;
+}
+.dtl__card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dtl__card-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.dtl__card:hover .dtl__card-label {
+  color: var(--brand-400);
+}
+.dtl__card-src {
+  display: inline-flex;
+  color: var(--color-text-faint);
+}
+.dtl__card-date {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dtl__card-title {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--color-text-primary);
+  letter-spacing: -0.005em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: pretty;
+}
+
+/* ---- floating zoom controls (bottom-left, like the network canvas) ---- */
+.dtl__controls {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 7;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--color-text-primary) 8%, transparent);
+}
+.dtl__controls button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.dtl__controls button:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.dtl__controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dtl__controls button:focus-visible {
+  outline: 1px solid var(--brand-400);
+  outline-offset: -1px;
+}
+
+/* ---- header bits shared by both graph views ---- */
+.dtl-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.dtl-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.dtl-legend__line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top: 2px solid var(--brand-400);
+}
+.dtl-legend__line--MENTIONS {
+  border-top-style: dashed;
+  border-top-color: var(--color-border-strong);
+}
+.dtl-legend__line--FORMALISED {
+  border-top-style: dotted;
+  border-top-color: var(--accent-crm);
+}
+.dtl-legend__sep {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border-subtle);
+}
+.dtl-view {
+  gap: 6px;
+  cursor: pointer;
+}
+.dtl-view__chev {
+  color: var(--color-text-faint);
+}

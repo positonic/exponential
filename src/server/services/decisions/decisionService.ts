@@ -345,6 +345,8 @@ export const decisionListSelect = {
   productId: true,
   projectId: true,
   supersededById: true,
+  // "Formalised as" — lets the graph draw the Decision → ADR edge.
+  adrDocumentId: true,
   evidence: true,
   product: { select: { id: true, name: true, slug: true } },
   project: { select: { id: true, name: true, slug: true } },
