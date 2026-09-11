@@ -127,7 +127,7 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
  */
 function mergeWithDefaults(saved: NavSection[]): NavSection[] {
   const merged = saved.map((section) => {
-    const items = section.items.filter((i) => i.id in NAV_ITEM_CONFIG);
+    const items = section.items.filter((i) => Object.hasOwn(NAV_ITEM_CONFIG, i.id));
     const defaultSection = DEFAULT_NAV_LAYOUT.find((d) => d.id === section.id);
     if (!defaultSection) return { ...section, items };
 

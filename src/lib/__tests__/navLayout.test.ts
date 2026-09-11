@@ -24,6 +24,22 @@ describe("parseNavLayout", () => {
     expect(align?.items.map((i) => i.id)).toEqual(["goals", "decisions"]);
   });
 
+  it("does not let an inherited object key pose as a nav item", () => {
+    const saved = [
+      {
+        id: "align",
+        name: "Align",
+        hidden: false,
+        items: [
+          { id: "constructor", hidden: false },
+          { id: "goals", hidden: false },
+        ],
+      },
+    ];
+    const [align] = parseNavLayout(saved);
+    expect(align?.items.map((i) => i.id)).toEqual(["goals", "decisions"]);
+  });
+
   it("keeps the user's order and visibility while appending new defaults", () => {
     const saved = [
       {
