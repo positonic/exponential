@@ -54,6 +54,8 @@ export interface MeetingDecision {
   decidedAt: Date | string | null;
   /** Number of quoted transcript turns backing it. */
   evidenceCount: number;
+  /** Markdown body (context, alternatives, consequences) shown under the statement. */
+  body: string | null;
   /** Detail page; null when the meeting has no workspace slug to route under. */
   href: string | null;
 }
@@ -315,6 +317,7 @@ export function buildMeetingViewModel(
     status: d.status,
     decidedAt: d.decidedAt,
     evidenceCount: d.evidenceCount,
+    body: d.body ?? null,
     href: workspaceSlug ? `/w/${workspaceSlug}/decisions/d/${d.id}` : null,
   });
   // Drafts never count as decisions or questions (ADR-0060): they render in

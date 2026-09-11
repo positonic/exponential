@@ -7,20 +7,16 @@ import {
   IconSparkles,
   IconCopy,
   IconPencil,
-  IconCheck,
-  IconAlertCircle,
   IconPlus,
   IconRefresh,
   IconBulb,
-  IconGavel,
 } from "@tabler/icons-react";
-import Link from "next/link";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { ActionsList } from "~/app/_components/actions/ActionsList";
-import type { MeetingDecision, MeetingViewModel } from "~/lib/meeting-view-model";
+import type { MeetingViewModel } from "~/lib/meeting-view-model";
 import type { RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
@@ -51,55 +47,6 @@ interface SummaryTabProps {
   onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
   onRegenerate: () => void;
-  /** Whether the viewer may log a decision from this meeting (ADR-0060). */
-  canLogDecision: boolean;
-  /** Open the "Log a decision" modal. */
-  onLogDecision: () => void;
-  /** Extract draft decisions from the notes and transcript (V2). */
-  onExtractDecisions?: () => void;
-  isExtractingDecisions?: boolean;
-  /**
-   * The draft-decisions review panel, rendered inside the Decisions section
-   * when the meeting has drafts. Owned by the caller so this tab stays
-   * presentational.
-   */
-  draftsPanel?: React.ReactNode;
-}
-
-const DECISION_STATUS_WORD: Record<MeetingDecision["status"], string> = {
-  OPEN: "Open",
-  PROPOSED: "Proposed",
-  ACCEPTED: "Accepted",
-  SUPERSEDED: "Superseded",
-  DEPRECATED: "Deprecated",
-};
-
-/** One column of the Decisions / Open questions block: dot, label, statement. */
-function DecisionList({ items }: { items: MeetingDecision[] }) {
-  return (
-    <ul className="mp-dec__list">
-      {items.map((d) => (
-        <li key={d.id} className="mp-dec__item">
-          <span className="mp-dec__dot" data-status={d.status} title={DECISION_STATUS_WORD[d.status]} />
-          <span>
-            {d.href ? (
-              <Link href={d.href} className="mp-dec__label">
-                {d.label}
-              </Link>
-            ) : (
-              <span className="mp-dec__label">{d.label}</span>
-            )}
-            {d.statement}
-            {d.evidenceCount > 0 && (
-              <span className="mp-dec__meta">
-                {d.evidenceCount} transcript {d.evidenceCount === 1 ? "turn" : "turns"} quoted
-              </span>
-            )}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 export function SummaryTab({
@@ -116,11 +63,6 @@ export function SummaryTab({
   onCreateActions,
   onIdeateFeatures,
   onRegenerate,
-  canLogDecision,
-  onLogDecision,
-  onExtractDecisions,
-  isExtractingDecisions = false,
-  draftsPanel,
 }: SummaryTabProps) {
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -290,71 +232,6 @@ export function SummaryTab({
             <h3>Key moments</h3>
             <span className="mp-sec__count">{vm.keyMoments.length}</span>
             <span className="mp-sec__rule" />
-          </div>
-        </section>
-      )}
-
-      {/* ===== Decisions / Open questions (ADR-0060) ===== */}
-      {(vm.decisions.length > 0 || vm.questions.length > 0 || canLogDecision) && (
-        <section>
-          <div className="mp-sec">
-            <h3>Decisions</h3>
-            {vm.decisions.length + vm.questions.length > 0 && (
-              <span className="mp-sec__count">{vm.decisions.length + vm.questions.length}</span>
-            )}
-            <span className="mp-sec__rule" />
-            {canLogDecision && hasTranscript && onExtractDecisions && (
-              <button
-                className="mp-chipbtn"
-                onClick={onExtractDecisions}
-                type="button"
-                disabled={isExtractingDecisions}
-              >
-                <IconSparkles size={11} />{" "}
-                {isExtractingDecisions
-                  ? "Extracting…"
-                  : vm.drafts.length > 0
-                    ? "Review drafts with Zoe"
-                    : "Extract decisions"}
-              </button>
-            )}
-            {canLogDecision && (
-              <button className="mp-chipbtn" onClick={onLogDecision} type="button">
-                <IconGavel size={11} /> Log a decision
-              </button>
-            )}
-          </div>
-          {vm.drafts.length > 0 && draftsPanel && (
-            <div className="mp-card" data-testid="summary-draft-decisions">
-              {draftsPanel}
-            </div>
-          )}
-          <div className="mp-twocard">
-            <div className="mp-card">
-              <div className="mp-card__label mp-card__label--decision">
-                <IconCheck size={11} /> Decisions
-              </div>
-              {vm.decisions.length > 0 ? (
-                <DecisionList items={vm.decisions} />
-              ) : (
-                <p className="mp-dec__empty">
-                  Nothing logged yet.
-                  {canLogDecision
-                    ? " Mark transcript turns as evidence, then log a decision."
-                    : ""}
-                </p>
-              )}
-            </div>
-            <div className="mp-card">
-              <div className="mp-card__label mp-card__label--question">
-                <IconAlertCircle size={11} /> Open questions
-              </div>
-              {vm.questions.length > 0 ? (
-                <DecisionList items={vm.questions} />
-              ) : (
-                <p className="mp-dec__empty">No open questions from this meeting.</p>
-              )}
-            </div>
           </div>
         </section>
       )}

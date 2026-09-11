@@ -8,6 +8,7 @@ import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
 import { PostToMatrixButton } from "~/app/_components/matrix/PostToMatrixButton";
 import { SummaryTab } from "./SummaryTab";
+import { DecisionsTab } from "./DecisionsTab";
 import { TranscriptView } from "./TranscriptView";
 import { ScreenshotsTab } from "./ScreenshotsTab";
 import { ContextRail } from "./ContextRail";
@@ -26,7 +27,7 @@ import type { MeetingOccurrenceOption } from "./MeetingOccurrencePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
-type Tab = "summary" | "transcript" | "screenshots";
+type Tab = "summary" | "transcript" | "decisions" | "screenshots";
 
 interface MeetingDetailProps {
   session: MeetingSession;
@@ -324,6 +325,18 @@ export function MeetingDetail({
           </button>
           <button
             role="tab"
+            aria-selected={tab === "decisions"}
+            className={`mp-tab ${tab === "decisions" ? "on" : ""}`}
+            onClick={() => setTab("decisions")}
+            data-testid="tab-decisions"
+          >
+            <IconGavel size={14} /> Decisions
+            {vm.decisions.length + vm.questions.length > 0 && (
+              <span className="mp-tab__count">{vm.decisions.length + vm.questions.length}</span>
+            )}
+          </button>
+          <button
+            role="tab"
             aria-selected={tab === "screenshots"}
             className={`mp-tab ${tab === "screenshots" ? "on" : ""}`}
             onClick={() => setTab("screenshots")}
@@ -350,6 +363,12 @@ export function MeetingDetail({
                 onCreateActions={onCreateActions}
                 onIdeateFeatures={onIdeateFeatures}
                 onRegenerate={onRegenerateSummary}
+              />
+            )}
+            {tab === "decisions" && (
+              <DecisionsTab
+                vm={vm}
+                hasTranscript={Boolean(session.transcription)}
                 canLogDecision={canLogDecision}
                 onLogDecision={() => setLogDecisionOpen(true)}
                 onExtractDecisions={onExtractDecisions}
