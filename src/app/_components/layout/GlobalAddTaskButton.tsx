@@ -14,6 +14,13 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import type { EffortUnit } from "~/types/effort";
 import { notifications } from "@mantine/notifications";
 
+/** Post-create work that belongs to one specific submission. */
+interface PendingAttachments {
+  sprintListId: string | null;
+  assigneeIds: string[];
+  screenshots: PastedScreenshot[];
+}
+
 export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "sidebar" } = {}) {
   const { data: session } = useSession();
   const { width } = useViewportSize();
@@ -209,6 +216,9 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
         utils.action.getToday.setData(undefined, todayActions);
       }
 
+      // This submission will never reach onSuccess; drop its attachments.
+      pendingAttachmentsRef.current.delete(variables);
+
       // The modal closed the instant the user submitted, so a failure is
       // otherwise invisible - the optimistic row just disappears again.
       notifications.show({
@@ -241,44 +251,42 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
       await Promise.all(invalidatePromises);
     },
 
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Deliberately don't store data.id into createdActionId: the modal is
       // already closed for this submission, and a stored value would race a
       // new compose cycle - if the user starts a second task before this
       // success fires, AssignActionModal would re-scope to the prior action's
       // id and route the next assignee pick to the wrong task.
 
+      // This submission's own attachments, not whatever is being composed now.
+      const pending = pendingAttachmentsRef.current.get(variables);
+      pendingAttachmentsRef.current.delete(variables);
+      if (!pending) return;
+
       // Run the post-create attachments concurrently. Each mutation has its
       // own onError handler, so nothing here needs to gate the modal - it
       // closed on submit and the optimistic row is already visible.
-      const pendingSprintListId = pendingSprintListIdRef.current;
-      const pendingAssignees = pendingAssigneesRef.current;
-      const pendingScreenshots = pendingScreenshotsRef.current;
-      pendingSprintListIdRef.current = null;
-      pendingAssigneesRef.current = [];
-      pendingScreenshotsRef.current = [];
-
       const postCreatePromises: Promise<unknown>[] = [];
 
-      if (pendingSprintListId) {
+      if (pending.sprintListId) {
         postCreatePromises.push(
           addToListMutation.mutateAsync({
-            listId: pendingSprintListId,
+            listId: pending.sprintListId,
             actionId: data.id,
           }),
         );
       }
 
-      if (pendingAssignees.length > 0) {
+      if (pending.assigneeIds.length > 0) {
         postCreatePromises.push(
           assignMutation.mutateAsync({
             actionId: data.id,
-            userIds: pendingAssignees,
+            userIds: pending.assigneeIds,
           }),
         );
       }
 
-      for (const screenshot of pendingScreenshots) {
+      for (const screenshot of pending.screenshots) {
         postCreatePromises.push(
           uploadImageMutation.mutateAsync({
             actionId: data.id,
@@ -287,7 +295,7 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
         );
       }
 
-      if (pendingScreenshots.length > 0) {
+      if (pending.screenshots.length > 0) {
         // Re-invalidate so EditActionModal sees the uploaded screenshots.
         void Promise.allSettled(postCreatePromises).then(() =>
           utils.action.getAll.invalidate(),
@@ -300,13 +308,22 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     },
   });
 
-  // Refs hold the values the post-create callbacks need, because the
-  // corresponding state is reset on submit - long before the mutation
-  // resolves - and react-query invokes onSuccess with the latest render's
-  // closure, which would see the cleared values.
-  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
-  const pendingAssigneesRef = useRef<string[]>([]);
-  const pendingSprintListIdRef = useRef<string | null>(null);
+  // Everything the post-create callbacks need, held per submission.
+  //
+  // It can't live in state: the form is reset on submit, long before the
+  // mutation resolves, and react-query rebinds a pending mutation's options on
+  // every re-render (MutationObserver.setOptions), so onSuccess would run
+  // against the cleared values.
+  //
+  // It can't be a plain ref either, now that the modal closes on submit: two
+  // actions can be in flight at once, and a single slot would hand the first
+  // one's onSuccess the *second* one's assignees. Keying on the exact
+  // variables object passed to mutate() - which react-query hands back to
+  // onSuccess - keeps each submission's attachments with its own create. A
+  // WeakMap so entries go away with the variables object.
+  const pendingAttachmentsRef = useRef(
+    new WeakMap<object, PendingAttachments>(),
+  );
 
   const handleSubmit = () => {
     if (!name) return;
@@ -317,10 +334,6 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     // all, for the whole server round-trip plus the sequential sprint /
     // assignee / screenshot chain.
     close();
-
-    pendingScreenshotsRef.current = [...pastedScreenshots];
-    pendingAssigneesRef.current = [...selectedAssigneeIds];
-    pendingSprintListIdRef.current = sprintListId;
 
     const actionData = {
       name,
@@ -355,6 +368,14 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     setEffortEstimate(null);
     setBlockedByIds([]);
     setPastedScreenshots([]);
+
+    // Filed against this exact object, which onSuccess gets back as its
+    // `variables` argument - see pendingAttachmentsRef.
+    pendingAttachmentsRef.current.set(actionData, {
+      sprintListId,
+      assigneeIds: [...selectedAssigneeIds],
+      screenshots: [...pastedScreenshots],
+    });
 
     createAction.mutate(actionData);
   };
