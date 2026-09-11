@@ -51,6 +51,7 @@ import type { FilterBarConfig, FilterMember, FilterState } from "~/types/filter"
 import Link from "next/link";
 import { OkrTimeline } from "~/plugins/okr/client/components/OkrTimeline";
 import type { GoalsView } from "~/app/_components/goals/useGoalsViewParams";
+import { GoalsViewToggles } from "~/app/_components/goals/GoalsViewToggles";
 import { buildGoalTimelineData, type TimelineGoalInput } from "./goalTimelineData";
 import styles from "./InitiativeDashboard.module.css";
 
@@ -602,12 +603,20 @@ interface InitiativeDashboardProps {
   onlyMine?: boolean;
   /** Gantt of the filtered rows instead of the table. */
   view?: GoalsView;
+  /**
+   * Both setters together put the Mine / Timeline toggles in the header.
+   * The project detail page omits them and renders without the toggles.
+   */
+  onOnlyMineChange?: (onlyMine: boolean) => void;
+  onViewChange?: (view: GoalsView) => void;
 }
 
 export function InitiativeDashboard({
   projectId,
   onlyMine = false,
   view = "list",
+  onOnlyMineChange,
+  onViewChange,
 }: InitiativeDashboardProps = {}) {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [collapsedIds, setCollapsedIds] = useState<Set<number>>(() => new Set());
@@ -778,11 +787,22 @@ export function InitiativeDashboard({
           <Title order={3} className="text-text-primary">
             Goals
           </Title>
-          <CreateGoalModal projectId={projectId}>
-            <ActionIcon variant="subtle" size="lg">
-              <IconPlus size={18} />
-            </ActionIcon>
-          </CreateGoalModal>
+          <Group gap="sm">
+            {onOnlyMineChange && onViewChange && (
+              <GoalsViewToggles
+                onlyMine={onlyMine}
+                view={view}
+                onOnlyMineChange={onOnlyMineChange}
+                onViewChange={onViewChange}
+                size="sm"
+              />
+            )}
+            <CreateGoalModal projectId={projectId}>
+              <ActionIcon variant="subtle" size="lg">
+                <IconPlus size={18} />
+              </ActionIcon>
+            </CreateGoalModal>
+          </Group>
         </Group>
 
         {/* Status pills left; search + filter (projects-page look) right */}

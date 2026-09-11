@@ -48,6 +48,7 @@ import {
   parseGoalsViewParams,
   type GoalsView,
 } from "~/app/_components/goals/useGoalsViewParams";
+import { GoalsViewToggles } from "~/app/_components/goals/GoalsViewToggles";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import Link from "next/link";
@@ -138,11 +139,19 @@ interface OkrDashboardProps {
   onlyMine?: boolean;
   /** Gantt of the selected period instead of the card list. */
   view?: GoalsView;
+  /**
+   * Both setters together put the Mine / Timeline toggles in the header,
+   * beside the year switch. Omit them to render without the toggles.
+   */
+  onOnlyMineChange?: (onlyMine: boolean) => void;
+  onViewChange?: (view: GoalsView) => void;
 }
 
 export function OkrDashboard({
   onlyMine = false,
   view = "list",
+  onOnlyMineChange,
+  onViewChange,
 }: OkrDashboardProps = {}) {
   const { workspaceId, workspaceSlug } = useWorkspace();
   const {
@@ -715,6 +724,15 @@ export function OkrDashboard({
             </div>
 
             <Group gap="sm">
+              {onOnlyMineChange && onViewChange && (
+                <GoalsViewToggles
+                  onlyMine={onlyMine}
+                  view={view}
+                  onOnlyMineChange={onOnlyMineChange}
+                  onViewChange={onViewChange}
+                  size="sm"
+                />
+              )}
               {availableYears.length > 1 && (
                 <SegmentedControl
                   value={selectedYear}
