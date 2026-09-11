@@ -1,15 +1,82 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
+import { Badge, Button, Group, Paper, Stack, Text, UnstyledButton } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconCheck, IconGavel, IconPencil, IconX } from "@tabler/icons-react";
+import { IconCheck, IconChevronRight, IconGavel, IconPencil, IconX } from "@tabler/icons-react";
 import Link from "next/link";
 import { api } from "~/trpc/react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { evidenceHref, formatEvidenceTime } from "~/lib/decision-evidence";
 import type { MeetingDraftDecision } from "~/lib/meeting-view-model";
 import { EditDraftDecisionModal } from "./EditDraftDecisionModal";
+
+/**
+ * A draft's quoted transcript turns, folded away by default.
+ *
+ * A single turn is one speaker's unbroken stretch of talk, which in a real
+ * meeting is regularly several hundred words — rendering even one inline
+ * buried the decision it was meant to support. The count stays visible so the
+ * evidence is never hidden, only collapsed.
+ *
+ * Rendered conditionally rather than with Mantine's `Collapse`: its height
+ * animation is driven by requestAnimationFrame, which leaves the panel clipped
+ * to zero height in a backgrounded tab. Unmounting also keeps a wall of text
+ * out of the DOM entirely until someone asks for it.
+ */
+function DraftEvidence({
+  evidence,
+  transcriptionSessionId,
+}: {
+  evidence: MeetingDraftDecision["evidence"];
+  transcriptionSessionId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  if (evidence.length === 0) return null;
+  const label = `${evidence.length} transcript ${evidence.length === 1 ? "turn" : "turns"} quoted`;
+  return (
+    <div>
+      <UnstyledButton
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid="draft-evidence-toggle"
+      >
+        <Group gap={4} wrap="nowrap">
+          <IconChevronRight
+            size={12}
+            style={{
+              transform: open ? "rotate(90deg)" : undefined,
+              transition: "transform 120ms ease",
+            }}
+          />
+          <Text size="xs" c="dimmed">
+            {open ? "Hide evidence" : label}
+          </Text>
+        </Group>
+      </UnstyledButton>
+      {open && (
+        <Stack gap={6} mt={6}>
+          {evidence.map((turn) => {
+            const time = formatEvidenceTime(turn.startTime);
+            return (
+              <Text
+                key={turn.turnIndex}
+                size="xs"
+                c="dimmed"
+                component={Link}
+                href={evidenceHref(transcriptionSessionId, turn.turnIndex)}
+                className="hover:underline"
+              >
+                “{turn.text}”{turn.speaker ? ` — ${turn.speaker}` : ""}
+                {time ? ` · ${time}` : ""}
+              </Text>
+            );
+          })}
+        </Stack>
+      )}
+    </div>
+  );
+}
 
 interface DraftDecisionReviewListProps {
   transcriptionSessionId: string;
@@ -109,32 +176,10 @@ export function DraftDecisionReviewList({
             {draft.body && variant === "default" && (
               <MarkdownRenderer content={draft.body} variant="compact" />
             )}
-            {draft.evidence.length > 0 && (
-              <Stack gap={2}>
-                {draft.evidence.slice(0, variant === "compact" ? 1 : 3).map((turn) => {
-                  const time = formatEvidenceTime(turn.startTime);
-                  return (
-                    <Text
-                      key={turn.turnIndex}
-                      size="xs"
-                      c="dimmed"
-                      component={Link}
-                      href={evidenceHref(transcriptionSessionId, turn.turnIndex)}
-                      className="hover:underline"
-                    >
-                      “{turn.text}”{turn.speaker ? ` — ${turn.speaker}` : ""}
-                      {time ? ` · ${time}` : ""}
-                    </Text>
-                  );
-                })}
-                {draft.evidence.length > (variant === "compact" ? 1 : 3) && (
-                  <Text size="xs" c="dimmed">
-                    +{draft.evidence.length - (variant === "compact" ? 1 : 3)} more{" "}
-                    {draft.evidence.length - (variant === "compact" ? 1 : 3) === 1 ? "turn" : "turns"}
-                  </Text>
-                )}
-              </Stack>
-            )}
+            <DraftEvidence
+              evidence={draft.evidence}
+              transcriptionSessionId={transcriptionSessionId}
+            />
             <Group gap="xs" justify="flex-end">
               <Button
                 size="xs"

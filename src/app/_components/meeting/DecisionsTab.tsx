@@ -99,7 +99,7 @@ export function DecisionsTab({
                 ? "Extracting…"
                 : vm.drafts.length > 0
                   ? "Review drafts with Zoe"
-                  : "Extract decisions"}
+                  : "Extract decisions & questions"}
             </button>
           )}
           {canLogDecision && (
@@ -136,7 +136,10 @@ export function DecisionsTab({
             {vm.questions.length > 0 ? (
               <DecisionList items={vm.questions} />
             ) : (
-              <p className="mp-dec__empty">No open questions from this meeting.</p>
+              <p className="mp-dec__empty">
+                No open questions from this meeting. Extraction finds these in the same pass as
+                decisions — anything the meeting raised and left unresolved lands here.
+              </p>
             )}
           </div>
         </div>
