@@ -31,6 +31,27 @@ const DEFAULT_BRAND: BrandConfig = {
 // Component styles that apply to both light and dark themes
 // NOTE: Mantine v7's styles prop only supports flat CSS properties (inline styles).
 // CSS selectors (&:hover, &[data-*], etc.) are defined in globals.css instead.
+//
+// NOTE: `styles` belongs at the component root here, NOT nested inside
+// `defaultProps`. Mantine resolves the two completely differently:
+//
+//   defaultProps.styles - merged by `useProps` as a plain shallow spread
+//     ({ ...defaultProps, ...themeDefaultProps, ...props }), so ANY call site
+//     that passes its own `styles` prop - even just `styles={{ input: { height: 30 } }}`
+//     to nudge a height - replaces this object wholesale and silently loses every
+//     token below. The control then falls back to Mantine's stock dark input
+//     background (#2e2e2e), which reads warm grey against our navy surfaces.
+//
+//   root-level styles - merged by `getThemeStyles` per selector key BENEATH the
+//     call site's `styles`, so a height override keeps the themed colours and a
+//     deliberate `backgroundColor` override still wins.
+//
+// Use the root-level form for anything that paints a surface. Only genuine prop
+// defaults (sizes, variants, `popoverProps`, ...) go in `defaultProps`.
+//
+// The input family below has been converted. The overlay family (Modal, Drawer,
+// Popover, Menu, Tooltip) and Tabs/SegmentedControl/Title are still nested and
+// carry the same latent bug - convert them behind a visual pass, not blind.
 const componentStyles = {
   // Paper component (used by Modal, Popover, etc.)
   Paper: {
@@ -143,39 +164,35 @@ const componentStyles = {
 
   // Select component
   Select: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        dropdown: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        option: {
-          color: 'var(--color-text-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      dropdown: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      option: {
+        color: 'var(--color-text-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
 
   // TextInput and Textarea
   TextInput: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
@@ -185,31 +202,27 @@ const componentStyles = {
   // Mantine doesn't inherit TextInput's defaults onto InputBase, so we mirror
   // them here so every InputBase picks up the theme tokens automatically.
   InputBase: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
 
   Textarea: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
@@ -218,16 +231,14 @@ const componentStyles = {
   // without this entry it falls back to the built-in dark default (#25262b),
   // clashing with our dark-blue surfaces. Mirror TextInput.
   NumberInput: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
@@ -244,53 +255,53 @@ const componentStyles = {
           },
         },
       },
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
-        calendar: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        calendarHeader: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderControl: {
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderLevel: {
-          color: 'var(--color-text-primary)',
-        },
-        month: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        yearsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        yearsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        weekday: {
-          color: 'var(--color-text-muted)',
-        },
-        day: {
-          color: 'var(--color-text-primary)',
-          backgroundColor: 'transparent',
-          border: '1px solid transparent',
-        },
+    },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
+      },
+      calendar: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      calendarHeader: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+      },
+      calendarHeaderControl: {
+        color: 'var(--color-text-primary)',
+      },
+      calendarHeaderLevel: {
+        color: 'var(--color-text-primary)',
+      },
+      month: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      monthsList: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      monthsListCell: {
+        color: 'var(--color-text-primary)',
+        border: '1px solid transparent',
+      },
+      yearsList: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      yearsListCell: {
+        color: 'var(--color-text-primary)',
+        border: '1px solid transparent',
+      },
+      weekday: {
+        color: 'var(--color-text-muted)',
+      },
+      day: {
+        color: 'var(--color-text-primary)',
+        backgroundColor: 'transparent',
+        border: '1px solid transparent',
       },
     },
   },
@@ -311,58 +322,58 @@ const componentStyles = {
           },
         },
       },
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
-        timeInput: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        calendar: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        calendarHeader: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderControl: {
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderLevel: {
-          color: 'var(--color-text-primary)',
-        },
-        month: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        yearsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        yearsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        weekday: {
-          color: 'var(--color-text-muted)',
-        },
-        day: {
-          color: 'var(--color-text-primary)',
-          backgroundColor: 'transparent',
-          border: '1px solid transparent',
-        },
+    },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
+      },
+      timeInput: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      calendar: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      calendarHeader: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+      },
+      calendarHeaderControl: {
+        color: 'var(--color-text-primary)',
+      },
+      calendarHeaderLevel: {
+        color: 'var(--color-text-primary)',
+      },
+      month: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      monthsList: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      monthsListCell: {
+        color: 'var(--color-text-primary)',
+        border: '1px solid transparent',
+      },
+      yearsList: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      yearsListCell: {
+        color: 'var(--color-text-primary)',
+        border: '1px solid transparent',
+      },
+      weekday: {
+        color: 'var(--color-text-muted)',
+      },
+      day: {
+        color: 'var(--color-text-primary)',
+        backgroundColor: 'transparent',
+        border: '1px solid transparent',
       },
     },
   },
@@ -380,53 +391,53 @@ const componentStyles = {
           },
         },
       },
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
-        calendar: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        calendarHeader: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderControl: {
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderLevel: {
-          color: 'var(--color-text-primary)',
-        },
-        month: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        yearsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        yearsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        weekday: {
-          color: 'var(--color-text-muted)',
-        },
-        day: {
-          color: 'var(--color-text-primary)',
-          backgroundColor: 'transparent',
-          border: '1px solid transparent',
-        },
+    },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
+      },
+      calendar: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      calendarHeader: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+      },
+      calendarHeaderControl: {
+        color: 'var(--color-text-primary)',
+      },
+      calendarHeaderLevel: {
+        color: 'var(--color-text-primary)',
+      },
+      month: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      monthsList: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      monthsListCell: {
+        color: 'var(--color-text-primary)',
+        border: '1px solid transparent',
+      },
+      yearsList: {
+        backgroundColor: 'var(--color-bg-primary)',
+      },
+      yearsListCell: {
+        color: 'var(--color-text-primary)',
+        border: '1px solid transparent',
+      },
+      weekday: {
+        color: 'var(--color-text-muted)',
+      },
+      day: {
+        color: 'var(--color-text-primary)',
+        backgroundColor: 'transparent',
+        border: '1px solid transparent',
       },
     },
   },
@@ -600,25 +611,23 @@ const componentStyles = {
 
   // MultiSelect component
   MultiSelect: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        pill: {
-          backgroundColor: 'var(--color-surface-secondary)',
-          color: 'var(--color-text-primary)',
-          border: '1px solid var(--color-border-primary)',
-        },
-        dropdown: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        option: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        color: 'var(--color-text-primary)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      pill: {
+        backgroundColor: 'var(--color-surface-secondary)',
+        color: 'var(--color-text-primary)',
+        border: '1px solid var(--color-border-primary)',
+      },
+      dropdown: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      option: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
