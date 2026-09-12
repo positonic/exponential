@@ -266,6 +266,12 @@ describe("timeEntry.create — ADR-0061 owner carve-out", () => {
 describe("timeEntry.upsertBySourceRef", () => {
   let db: DeepMockProxy<PrismaClient>;
 
+  /** Mock order: foreign-ref check, then the ref family, then manual time. */
+  function arrangeRows(family: unknown[], manual: unknown[]) {
+    db.timeEntry.findFirst.mockResolvedValue(null);
+    db.timeEntry.findMany.mockResolvedValueOnce(family as never).mockResolvedValueOnce(manual as never);
+  }
+
   beforeEach(() => {
     db = getDbMock();
     mockReset(db);
@@ -273,11 +279,10 @@ describe("timeEntry.upsertBySourceRef", () => {
     withTransaction(db);
     arrangeAgent(db);
     arrangeAction(db, OWNER_ID);
-    db.timeEntry.findFirst.mockResolvedValue(null);
   });
 
   it("no row for (owner, ref) → created, owned by the owner", async () => {
-    db.timeEntry.findUnique.mockResolvedValue(null);
+    arrangeRows([], []);
     db.timeEntry.create.mockResolvedValue(entryRow({ sourceRef: "claude-session:s1#0" }) as never);
 
     const result = await agentCaller(db).timeEntry.upsertBySourceRef({
@@ -289,16 +294,22 @@ describe("timeEntry.upsertBySourceRef", () => {
     });
 
     expect(result.outcome).toBe("created");
-    expect(result.entry.userId).toBe(OWNER_ID);
-    expect(db.timeEntry.findUnique).toHaveBeenCalledWith(
+    expect(result.entry?.userId).toBe(OWNER_ID);
+    expect(db.timeEntry.findMany).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
-        where: { userId_sourceRef: { userId: OWNER_ID, sourceRef: "claude-session:s1#0" } },
+        where: expect.objectContaining({ userId: OWNER_ID }),
+      }),
+    );
+    expect(db.timeEntry.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: OWNER_ID, createdByAgentId: AGENT_ID, status: "PROPOSED" }),
       }),
     );
   });
 
   it("PROPOSED match → updated in place, still no spent-time arithmetic", async () => {
-    db.timeEntry.findUnique.mockResolvedValue(entryRow({ sourceRef: "claude-session:s1#0" }) as never);
+    arrangeRows([entryRow({ sourceRef: "claude-session:s1#0" })], []);
     db.timeEntry.update.mockResolvedValue(entryRow({ sourceRef: "claude-session:s1#0", note: "run 2" }) as never);
 
     const result = await agentCaller(db).timeEntry.upsertBySourceRef({
@@ -321,9 +332,7 @@ describe("timeEntry.upsertBySourceRef", () => {
   });
 
   it("CONFIRMED match → left untouched", async () => {
-    db.timeEntry.findUnique.mockResolvedValue(
-      entryRow({ sourceRef: "claude-session:s1#0", status: "CONFIRMED" }) as never,
-    );
+    arrangeRows([entryRow({ sourceRef: "claude-session:s1#0", status: "CONFIRMED" })], []);
 
     const result = await agentCaller(db).timeEntry.upsertBySourceRef({
       actionId: ACTION_ID,
@@ -334,8 +343,30 @@ describe("timeEntry.upsertBySourceRef", () => {
     });
 
     expect(result.outcome).toBe("left");
-    expect(result.entry.status).toBe("CONFIRMED");
+    expect(result.entry?.status).toBe("CONFIRMED");
     expect(db.timeEntry.update).not.toHaveBeenCalled();
+    expect(db.timeEntry.create).not.toHaveBeenCalled();
+  });
+
+  it("manual time on the same Action wins → merged, the manual note carries the ref", async () => {
+    arrangeRows(
+      [],
+      [{ id: "manual-1", actionId: ACTION_ID, startedAt: START, endedAt: END, note: null }],
+    );
+
+    const result = await agentCaller(db).timeEntry.upsertBySourceRef({
+      actionId: ACTION_ID,
+      startedAt: new Date("2026-09-11T09:30:00Z"),
+      endedAt: new Date("2026-09-11T10:00:00Z"),
+      sourceRef: "claude-session:s1#0",
+    });
+
+    expect(result.outcome).toBe("merged");
+    expect(result.mergedInto).toEqual(["manual-1"]);
+    expect(db.timeEntry.update).toHaveBeenCalledWith({
+      where: { id: "manual-1" },
+      data: { note: "claude-session:s1#0" },
+    });
     expect(db.timeEntry.create).not.toHaveBeenCalled();
   });
 });
