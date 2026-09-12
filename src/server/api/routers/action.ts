@@ -3494,4 +3494,122 @@ export const actionRouter = createTRPCRouter({
         take: input.limit,
       });
     }),
+
+  /**
+   * Idempotent create keyed on `(sourceType, sourceId)` inside one workspace
+   * — the Daily worklog's "one Action per conversation" path (convention:
+   * `sourceType = "claude-session"`, `sourceId = <sessionId>`). A match has
+   * its name and links refreshed; otherwise the Action is created exactly as
+   * `create` would (agent principals stamp `source: "agent"`, ADR-0049).
+   *
+   * Links are validated against the target workspace: a project or ticket
+   * from another workspace is NOT_FOUND, never linked.
+   */
+  upsertBySource: protectedProcedure
+    .input(
+      z.object({
+        sourceType: z.string().min(1).max(100),
+        sourceId: z.string().min(1).max(500),
+        name: z.string().min(1),
+        workspaceId: z.string(),
+        description: z.string().optional(),
+        projectId: z.string().nullish(),
+        ticketId: z.string().nullish(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await assertCanWriteToWorkspace(ctx.db, userId, input.workspaceId);
+
+      if (input.projectId) {
+        const [access, project] = await Promise.all([
+          getProjectAccess(ctx.db, userId, input.projectId),
+          ctx.db.project.findUnique({
+            where: { id: input.projectId },
+            select: { workspaceId: true },
+          }),
+        ]);
+        if (
+          !access ||
+          !hasProjectAccess(access) ||
+          project?.workspaceId !== input.workspaceId
+        ) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        }
+      }
+
+      if (input.ticketId) {
+        const ticket = await ctx.db.ticket.findUnique({
+          where: { id: input.ticketId },
+          select: { product: { select: { workspaceId: true } } },
+        });
+        if (ticket?.product.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+      }
+
+      const include = {
+        project: { select: { id: true, name: true, workspaceId: true } },
+        ticket: { select: { id: true, number: true, shortId: true, productId: true } },
+      } as const;
+
+      const existing = await ctx.db.action.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          status: { not: "DELETED" },
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+
+      if (existing) {
+        const action = await ctx.db.action.update({
+          where: { id: existing.id },
+          data: {
+            name: input.name,
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+            ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
+          },
+          include,
+        });
+        return { action, outcome: "updated" as const };
+      }
+
+      const action = await ctx.db.action.create({
+        data: {
+          name: input.name,
+          description: input.description,
+          workspaceId: input.workspaceId,
+          projectId: input.projectId ?? undefined,
+          ticketId: input.ticketId ?? undefined,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+          createdById: userId,
+          status: "ACTIVE",
+          priority: "Quick",
+          ...(input.projectId ? { kanbanStatus: "TODO" } : {}),
+          ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
+        },
+        include,
+      });
+
+      const activityWorkspaceId = action.workspaceId ?? action.project?.workspaceId ?? null;
+      if (activityWorkspaceId) {
+        await recordActivity(ctx.db, {
+          workspaceId: activityWorkspaceId,
+          userId,
+          entityType: "action",
+          entityId: action.id,
+          action: "created",
+          metadata: { name: action.name },
+        }).catch(() => {
+          /* instrumentation failure is non-fatal */
+        });
+      }
+
+      return { action, outcome: "created" as const };
+    }),
 });
