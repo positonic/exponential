@@ -359,7 +359,8 @@ describe("action.upsertBySource", () => {
     db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: WS_ID } as never);
   });
 
-  it("no match → created with the source pair; an agent stamps source 'agent' (ADR-0049)", async () => {
+  it("no match → created with the source pair; an agent stamps source 'agent' and assigns its OWNER (ADR-0049, ADR-0061)", async () => {
+    arrangeAgent(db);
     db.action.findFirst.mockResolvedValue(null);
     db.action.create.mockResolvedValue(created as never);
 
@@ -379,9 +380,53 @@ describe("action.upsertBySource", () => {
           workspaceId: WS_ID,
           createdById: SHADOW_ID,
           source: "agent",
+          // The owner must be able to view the Action to have time logged on it.
+          assignees: { create: { userId: OWNER_ID } },
         }),
       }),
     );
+  });
+
+  it("an agent refreshing an existing Action also assigns its owner, idempotently", async () => {
+    arrangeAgent(db);
+    db.action.findFirst.mockResolvedValue({ id: "action-existing" } as never);
+    db.action.update.mockResolvedValue({ ...created, id: "action-existing" } as never);
+
+    await agentCaller(db).action.upsertBySource({
+      sourceType: "claude-session",
+      sourceId: "s1",
+      name: "v2",
+      workspaceId: WS_ID,
+    });
+
+    expect(db.action.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          assignees: {
+            connectOrCreate: {
+              where: { actionId_userId: { actionId: "action-existing", userId: OWNER_ID } },
+              create: { userId: OWNER_ID },
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it("a human upsert assigns nobody", async () => {
+    db.action.findFirst.mockResolvedValue(null);
+    db.action.create.mockResolvedValue(created as never);
+
+    await humanCaller(db).action.upsertBySource({
+      sourceType: "claude-session",
+      sourceId: "s1",
+      name: "x",
+      workspaceId: WS_ID,
+    });
+
+    expect(db.externalAgent.findUnique).not.toHaveBeenCalled();
+    const data = (db.action.create.mock.calls[0]?.[0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty("assignees");
   });
 
   it("match on (workspace, sourceType, sourceId) → name refreshed, no second Action", async () => {

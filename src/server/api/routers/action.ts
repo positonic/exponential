@@ -3548,9 +3548,24 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
+      // Under an agent key the Action records the OWNER's work (the Daily
+      // worklog writes one per conversation), so the owner is assigned to it:
+      // that is the view path getActionAccess grants them, and the one
+      // timeEntry.create needs before an agent may log the owner's time on it
+      // (ADR-0061). The writer stays the shadow user (ADR-0049).
+      let ownerAssigneeId: string | null = null;
+      if (ctx.tokenType === "agent-key") {
+        const agent = await ctx.db.externalAgent.findUnique({
+          where: { shadowUserId: userId },
+          select: { ownerId: true },
+        });
+        ownerAssigneeId = agent?.ownerId ?? null;
+      }
+
       const include = {
         project: { select: { id: true, name: true, workspaceId: true } },
         ticket: { select: { id: true, number: true, shortId: true, productId: true } },
+        assignees: { select: { userId: true } },
       } as const;
 
       const existing = await ctx.db.action.findFirst({
@@ -3572,6 +3587,16 @@ export const actionRouter = createTRPCRouter({
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
             ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
+            ...(ownerAssigneeId
+              ? {
+                  assignees: {
+                    connectOrCreate: {
+                      where: { actionId_userId: { actionId: existing.id, userId: ownerAssigneeId } },
+                      create: { userId: ownerAssigneeId },
+                    },
+                  },
+                }
+              : {}),
           },
           include,
         });
@@ -3592,6 +3617,7 @@ export const actionRouter = createTRPCRouter({
           priority: "Quick",
           ...(input.projectId ? { kanbanStatus: "TODO" } : {}),
           ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
+          ...(ownerAssigneeId ? { assignees: { create: { userId: ownerAssigneeId } } } : {}),
         },
         include,
       });
