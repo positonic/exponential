@@ -321,7 +321,7 @@ async function loadYesterdayTime(
   } catch (error) {
     reportHandledErrorServer(error, {
       area: "daily-summary-time",
-      context: { userId, workspaceId },
+      context: { userId, workspaceId: workspaceId ?? "none" },
     });
     return undefined;
   }
