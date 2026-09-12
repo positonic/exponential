@@ -18,6 +18,16 @@ import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAg
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony } from "~/server/services/ceremonies/access";
+import {
+  draftMyUpdate,
+  getMyUpdate,
+  loadUpdateScope,
+  saveMyUpdate,
+} from "~/server/services/ceremonies/updates/occurrenceUpdates";
+import { getOccurrenceSummary } from "~/server/services/ceremonies/updates/summary";
+import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server/services/ceremonies/skip";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -304,10 +314,12 @@ export const ceremonyRouter = createTRPCRouter({
         : [];
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
+      const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
       return {
         ...occurrence,
         agenda: readAgendaSnapshot(occurrence.agenda),
         canGenerate,
+        skipProposal,
         recordedMeetings: occurrence.recordedMeetings.map((m) => {
           const v = visibleById.get(m.id);
           return v
@@ -315,6 +327,64 @@ export const ceremonyRouter = createTRPCRouter({
             : { id: m.id, visible: false as const, title: null, meetingDate: null };
         }),
       };
+    }),
+
+  /**
+   * The caller's own async-first update for an occurrence (ADR-0059, V3):
+   * the ceremony kind's questions, their drafted and written answers. Read
+   * with `view` — a viewer sees the questions and their own empty row, and
+   * the write procedures below gate at `edit`.
+   */
+  myOccurrenceUpdate: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      const update = await getMyUpdate(ctx.db, scope, ctx.session.user.id);
+      return { ...update, isParticipant: scope.participantUserIds.includes(ctx.session.user.id) };
+    }),
+
+  /**
+   * The merged async summary: every participant's submitted update, plus the
+   * people who haven't answered. Any workspace member who can see the
+   * occurrence can read it — it is the meeting, held in writing.
+   */
+  occurrenceUpdateSummary: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      return getOccurrenceSummary(ctx.db, scope);
+    }),
+
+  /** Draft the caller's answers from their own activity since the previous occurrence. */
+  draftMyOccurrenceUpdate: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      return draftMyUpdate(ctx.db, scope, ctx.session.user.id);
+    }),
+
+  /** Save (and optionally submit, or reopen) the caller's own answers. */
+  saveMyOccurrenceUpdate: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        answers: z.record(z.string().max(10_000)),
+        flaggedBlocker: z.boolean().optional(),
+        submit: z.boolean().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      return saveMyUpdate(ctx.db, scope, ctx.session.user.id, {
+        answers: input.answers,
+        flaggedBlocker: input.flaggedBlocker,
+        submit: input.submit,
+      });
     }),
 
   /**
@@ -347,6 +417,67 @@ export const ceremonyRouter = createTRPCRouter({
         ({ circulated } = await circulateAgenda(ctx.db, occurrence.id, { actorUserId: userId, force: true }));
       }
       return { ...generated, circulated };
+    }),
+
+  /**
+   * Skip an occurrence, with a reason (ADR-0059, V3). The ceremony owner (or
+   * a workspace owner/admin) only, and never automatic: an empty agenda is an
+   * offer to skip, not a decision. Participants are told, and the deep link
+   * lands on the async summary that stands in for the meeting.
+   */
+  skipOccurrence: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        reason: z.string().trim().min(1).max(500),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can skip an occurrence" });
+      }
+      const skipped = await skipOccurrence(ctx.db, {
+        occurrenceId: occurrence.id,
+        workspaceId: input.workspaceId,
+        reason: input.reason,
+        actorUserId: userId,
+      });
+      // Telling people it is off is the whole point of skipping it; a failed
+      // notification must not leave the occurrence half-skipped.
+      await emitNotification({
+        db: ctx.db,
+        category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+        actorUserId: userId,
+        subject: { occurrenceId: occurrence.id },
+      }).catch((err) => {
+        console.error("[ceremonies] skip notification failed:", err);
+      });
+      return skipped;
+    }),
+
+  /** Undo a skip; the occurrence goes back to where it was in the agenda flow. */
+  unskipOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can unskip an occurrence" });
+      }
+      return unskipOccurrence(ctx.db, { occurrenceId: occurrence.id, workspaceId: input.workspaceId, actorUserId: userId });
     }),
 
   /** Mark one agenda item resolved (or reopen it). Any non-viewer member; survives regeneration. */

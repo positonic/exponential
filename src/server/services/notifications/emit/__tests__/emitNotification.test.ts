@@ -521,6 +521,118 @@ describe("emitNotification — Agenda ready (ADR-0059)", () => {
     );
   });
 
+  it("offers a skip when a standup's agenda is empty and nobody flagged a blocker", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      status: "AGENDA_CIRCULATED",
+      skipReason: null,
+      agenda: { sections: [{ items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      updates: [],
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        kind: "STANDUP",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: "Nothing to cover: Daily Standup",
+          message: expect.stringContaining("nobody flagged a blocker"),
+        }),
+      }),
+    );
+  });
+
+  it("does not offer a skip when a participant flagged a blocker", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      status: "AGENDA_CIRCULATED",
+      skipReason: null,
+      agenda: { sections: [{ items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      updates: [{ id: "upd-1" }],
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        kind: "STANDUP",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ title: "Agenda ready: Daily Standup" }) }),
+    );
+  });
+
+  it("tells participants a skipped occurrence is off, with the reason", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      status: "SKIPPED",
+      skipReason: "Nothing on the agenda and nobody blocked",
+      agenda: { sections: [{ items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      updates: [],
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        kind: "STANDUP",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: "Skipped: Daily Standup",
+          message: expect.stringContaining("Nothing on the agenda and nobody blocked"),
+          // A skip notice must not collide with the agenda notice for the
+          // same generation, or nobody is told the standup is off.
+          dedupeKey: expect.stringMatching(/^agenda_ready:occ-1:skipped:member/),
+        }),
+      }),
+    );
+  });
+
   it("drops a participant who is no longer a member of the workspace", async () => {
     // member2 was removed from the workspace; their CeremonyParticipant row survives.
     db.workspaceUser.findMany.mockResolvedValue(
