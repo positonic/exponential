@@ -161,16 +161,20 @@ export async function buildContent(
         where: { id: occurrenceId },
         select: {
           scheduledStart: true,
+          status: true,
+          skipReason: true,
           agenda: true,
           agendaGeneratedAt: true,
           ceremony: {
             select: {
               id: true,
               name: true,
+              kind: true,
               timezone: true,
               workspace: { select: { id: true, slug: true, name: true } },
             },
           },
+          updates: { where: { flaggedBlocker: true, submittedAt: { not: null } }, select: { id: true }, take: 1 },
         },
       });
       if (!occurrence) return null;
@@ -190,16 +194,34 @@ export async function buildContent(
       } catch {
         when = occurrence.scheduledStart.toISOString();
       }
+      // The empty-agenda skip proposal (ADR-0059, V3): a standup with nothing
+      // to cover and nobody blocked is worth offering to skip, and saying so
+      // in the notification is the only place the owner reliably sees it.
+      const skipProposed =
+        itemCount === 0 && occurrence.ceremony.kind === "STANDUP" && occurrence.updates.length === 0;
+      const skipped = occurrence.status === "SKIPPED";
+      const title = skipped
+        ? `Skipped: ${ceremony.name}`
+        : skipProposed
+          ? `Nothing to cover: ${ceremony.name}`
+          : `Agenda ready: ${ceremony.name}`;
+      const message = skipped
+        ? `${when} · ${occurrence.skipReason ?? "skipped"} — the async summary stands in for it`
+        : skipProposed
+          ? `${when} · nobody flagged a blocker, so the owner can skip this one`
+          : `${when} · ${itemCount} item${itemCount === 1 ? "" : "s"} to cover`;
       return {
         category: NOTIFICATION_CATEGORIES.AGENDA_READY,
-        title: `Agenda ready: ${ceremony.name}`,
-        message: `${when} · ${itemCount} item${itemCount === 1 ? "" : "s"} to cover`,
+        title,
+        message,
         deeplink: `/w/${ceremony.workspace.slug}/ceremonies/${ceremony.id}/${occurrenceId}`,
         metadata: {
           occurrenceId,
           ceremonyId: ceremony.id,
           ceremonyName: ceremony.name,
           itemCount,
+          skipProposed,
+          skipped,
           workspaceId: ceremony.workspace.id,
           workspaceSlug: ceremony.workspace.slug,
           workspaceName: ceremony.workspace.name,
@@ -210,7 +232,7 @@ export async function buildContent(
         // re-circulation after a regeneration ("Regenerate & send to
         // participants") has a new `agendaGeneratedAt` and must reach people
         // — otherwise the button reports success and notifies nobody.
-        dedupeKey: `agenda_ready:${occurrenceId}:${occurrence.agendaGeneratedAt?.getTime() ?? 0}:${recipientId}`,
+        dedupeKey: `agenda_ready:${occurrenceId}:${skipped ? "skipped" : (occurrence.agendaGeneratedAt?.getTime() ?? 0)}:${recipientId}`,
       };
     }
 
