@@ -8,11 +8,13 @@ import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { AgendaView } from "~/app/_components/ceremonies/AgendaView";
+import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUpdatePanel";
 
 /**
- * Occurrence page (ADR-0059, V2): the generated agenda for one ceremony
+ * Occurrence page (ADR-0059): the generated agenda for one ceremony
  * occurrence — sections and items from the section queries, regenerable on
- * demand by the ceremony owner — plus the recordings that captured it.
+ * demand by the ceremony owner — plus the participant's own async-first
+ * update (V3) and the recordings that captured it.
  */
 
 const whenFmt: Intl.DateTimeFormatOptions = {
@@ -153,6 +155,8 @@ export default function OccurrencePage() {
             </Group>
           )}
         </Group>
+
+        <OccurrenceUpdatePanel workspaceId={workspaceId} occurrenceId={occurrence.id} />
 
         {occurrence.agenda ? (
           <AgendaView

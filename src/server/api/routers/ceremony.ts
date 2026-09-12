@@ -18,6 +18,12 @@ import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAg
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony } from "~/server/services/ceremonies/access";
+import {
+  draftMyUpdate,
+  getMyUpdate,
+  loadUpdateScope,
+  saveMyUpdate,
+} from "~/server/services/ceremonies/updates/occurrenceUpdates";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -315,6 +321,51 @@ export const ceremonyRouter = createTRPCRouter({
             : { id: m.id, visible: false as const, title: null, meetingDate: null };
         }),
       };
+    }),
+
+  /**
+   * The caller's own async-first update for an occurrence (ADR-0059, V3):
+   * the ceremony kind's questions, their drafted and written answers. Read
+   * with `view` — a viewer sees the questions and their own empty row, and
+   * the write procedures below gate at `edit`.
+   */
+  myOccurrenceUpdate: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      const update = await getMyUpdate(ctx.db, scope, ctx.session.user.id);
+      return { ...update, isParticipant: scope.participantUserIds.includes(ctx.session.user.id) };
+    }),
+
+  /** Draft the caller's answers from their own activity since the previous occurrence. */
+  draftMyOccurrenceUpdate: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      return draftMyUpdate(ctx.db, scope, ctx.session.user.id);
+    }),
+
+  /** Save (and optionally submit, or reopen) the caller's own answers. */
+  saveMyOccurrenceUpdate: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        answers: z.record(z.string().max(10_000)),
+        flaggedBlocker: z.boolean().optional(),
+        submit: z.boolean().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      return saveMyUpdate(ctx.db, scope, ctx.session.user.id, {
+        answers: input.answers,
+        flaggedBlocker: input.flaggedBlocker,
+        submit: input.submit,
+      });
     }),
 
   /**

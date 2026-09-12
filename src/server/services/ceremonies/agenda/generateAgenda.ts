@@ -12,6 +12,7 @@ import { readAgendaSnapshot, readAgendaTemplate, type AgendaSnapshot, type Secti
 import { narrateAgenda, type NarrateOptions } from "./narrateAgenda";
 import { withAgendaTransaction } from "./items";
 import { formatOccurrenceLabel } from "../activity";
+import { resolveParticipantUserIds } from "../participants";
 
 export interface GenerateAgendaResult {
   occurrenceId: string;
@@ -39,11 +40,7 @@ export async function generateAgenda(
     orderBy: { scheduledStart: "desc" },
   });
 
-  const participantUserIds = new Set(ceremony.participants.map((p) => p.userId));
-  if (ceremony.teamId) {
-    const members = await db.teamUser.findMany({ where: { teamId: ceremony.teamId }, select: { userId: true } });
-    for (const m of members) participantUserIds.add(m.userId);
-  }
+  const participantUserIds = await resolveParticipantUserIds(db, ceremony);
 
   const ctx: SectionContext = {
     db,
@@ -51,7 +48,7 @@ export async function generateAgenda(
     ceremony,
     occurrence,
     previousOccurrence,
-    participantUserIds: Array.from(participantUserIds),
+    participantUserIds,
     now,
     workspacePath: `/w/${ceremony.workspace.slug}`,
   };

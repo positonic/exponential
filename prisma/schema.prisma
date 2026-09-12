@@ -315,6 +315,7 @@ model User {
   ownedCeremonies             Ceremony[]                        @relation("CeremonyOwner")
   createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
   ceremonyParticipations      CeremonyParticipant[]
+  ceremonyOccurrenceUpdates   CeremonyOccurrenceUpdate[]        @relation("CeremonyOccurrenceUpdateUser")
   // Decisions (ADR-0060)
   ownedDecisions              Decision[]                        @relation("DecisionOwner")
   createdDecisions            Decision[]                        @relation("DecisionCreatedBy")
@@ -2311,10 +2312,41 @@ model CeremonyOccurrence {
   recordedMeetings   TranscriptionSession[]
   /// Decisions logged as outputs of this occurrence (ADR-0060).
   decisions          Decision[]
+  /// Per-participant async updates (V3).
+  updates            CeremonyOccurrenceUpdate[]
 
   @@unique([ceremonyId, scheduledStart])
   @@index([workspaceId, scheduledStart])
   @@index([status])
+}
+
+/// One participant's async-first update for an occurrence (ADR-0059, V3;
+/// mirrors `OkrCheckinUpdate`). `draftAnswers` is what the system proposed
+/// from that person's activity since the previous occurrence; `answers` is
+/// what they actually said. Both are keyed by the per-person question key
+/// for the ceremony's kind, with Markdown values (ADR-0017).
+model CeremonyOccurrenceUpdate {
+  id             String    @id @default(cuid())
+  occurrenceId   String
+  userId         String
+  /// `{ [questionKey]: markdown }` proposed by the draft builder.
+  draftAnswers   Json      @default("{}")
+  draftedAt      DateTime?
+  /// `{ [questionKey]: markdown }` as edited by the participant.
+  answers        Json      @default("{}")
+  submittedAt    DateTime?
+  /// The participant says something is blocking them; suppresses the
+  /// empty-agenda skip proposal.
+  flaggedBlocker Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  occurrence CeremonyOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  user       User               @relation("CeremonyOccurrenceUpdateUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([occurrenceId, userId])
+  @@index([occurrenceId])
+  @@index([userId])
 }
 
 model ScheduledNotification {
