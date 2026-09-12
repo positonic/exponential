@@ -18,6 +18,7 @@ import { useParams } from "next/navigation";
 import { DecisionLinksPanel } from "~/app/_components/decisions/DecisionLinksPanel";
 import { DecisionScopePanel } from "~/app/_components/decisions/DecisionScopePanel";
 import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
+import { DraftAdrButton } from "~/app/_components/decisions/DraftAdrModal";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import {
   evidenceHref,
@@ -30,7 +31,8 @@ import { api } from "~/trpc/react";
 /**
  * Decision detail page (ADR-0060): statement, status, provenance (the
  * meeting and ceremony it came from, with each evidence quote deep-linked
- * to its transcript turn), deciders, the supersession chain and links.
+ * to its transcript turn), deciders, the supersession chain and links. An
+ * accepted decision also offers "Draft ADR" — the file it would become.
  * Sits beside the read-only ADR page at `/decisions/[adrId]`.
  */
 
@@ -185,12 +187,17 @@ export default function DecisionPage() {
             ) : null}
           </Group>
         </div>
-        {decision.canEdit ? (
-          <DecisionStatusMenu
-            workspaceId={workspace.id}
-            decision={{ id: decision.id, label: decision.label, status: decision.status }}
-          />
-        ) : null}
+        <Group gap="xs" wrap="nowrap">
+          {decision.status === "ACCEPTED" ? (
+            <DraftAdrButton workspaceId={workspace.id} decisionId={decision.id} />
+          ) : null}
+          {decision.canEdit ? (
+            <DecisionStatusMenu
+              workspaceId={workspace.id}
+              decision={{ id: decision.id, label: decision.label, status: decision.status }}
+            />
+          ) : null}
+        </Group>
       </Group>
 
       <Stack gap={4} mt="md">
