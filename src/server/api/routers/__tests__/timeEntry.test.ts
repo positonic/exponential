@@ -371,6 +371,54 @@ describe("timeEntry.upsertBySourceRef", () => {
   });
 });
 
+describe("timeEntry.confirmDay — human-only", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const day = new Date("2026-09-11T00:00:00");
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    vi.mocked(recordActivity).mockClear();
+    withTransaction(db);
+  });
+
+  it("an agent key is FORBIDDEN before anything is read", async () => {
+    await expect(agentCaller(db).timeEntry.confirmDay({ date: day })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an agent principal on any other token is FORBIDDEN too", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    await expect(humanCaller(db).timeEntry.confirmDay({ date: day })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("a human confirms the 24 hours from the given day start", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    db.timeEntry.findMany.mockResolvedValue([
+      entryRow({ startedAt: new Date("2026-09-11T13:38:00"), endedAt: new Date("2026-09-11T14:30:00") }),
+    ] as never);
+    db.timeEntry.updateMany.mockResolvedValue({ count: 1 } as never);
+
+    const result = await humanCaller(db).timeEntry.confirmDay({ date: day });
+
+    expect(result).toEqual({ confirmed: 1 });
+    expect(db.timeEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: OWNER_ID,
+          status: "PROPOSED",
+          startedAt: { gte: day, lt: new Date(day.getTime() + 24 * 60 * 60 * 1000) },
+        }),
+      }),
+    );
+    expect(db.action.update).toHaveBeenCalledWith({
+      where: { id: ACTION_ID },
+      data: { timeSpentMins: { increment: 52 } },
+    });
+  });
+});
+
 describe("action.upsertBySource", () => {
   let db: DeepMockProxy<PrismaClient>;
 

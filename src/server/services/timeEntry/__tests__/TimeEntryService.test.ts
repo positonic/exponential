@@ -1031,3 +1031,70 @@ describe("TimeEntryService.upsertBySourceRef", () => {
     expect(dbMock.timeEntry.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe("TimeEntryService.confirmDay", () => {
+  const dayStart = new Date("2026-09-11T00:00:00Z");
+  const dayEnd = new Date("2026-09-12T00:00:00Z");
+
+  it("confirms every proposed entry in the window and increments each Action once", async () => {
+    const rows = [
+      buildProposed({ id: "p1", actionId: "action-1", startedAt: new Date("2026-09-11T09:00:00Z"), endedAt: new Date("2026-09-11T09:30:00Z") }),
+      buildProposed({ id: "p2", actionId: "action-1", startedAt: new Date("2026-09-11T10:00:00Z"), endedAt: new Date("2026-09-11T10:22:00Z") }),
+      buildProposed({ id: "p3", actionId: "action-2", startedAt: new Date("2026-09-11T13:38:00Z"), endedAt: new Date("2026-09-11T14:30:00Z") }),
+    ];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findMany.mockResolvedValueOnce(rows as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.updateMany.mockResolvedValueOnce({ count: 3 } as any);
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.confirmDay({ userId: "user-1", dayStart, dayEnd });
+
+    expect(result).toEqual({ confirmed: 3 });
+    expect(dbMock.timeEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: "user-1",
+          status: "PROPOSED",
+          startedAt: { gte: dayStart, lt: dayEnd },
+        }),
+      }),
+    );
+    expect(dbMock.timeEntry.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["p1", "p2", "p3"] } },
+      data: { status: "CONFIRMED" },
+    });
+    // One increment per Action: 30 + 22 on action-1, 52 on action-2.
+    expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+    expect(dbMock.action.update).toHaveBeenCalledWith({
+      where: { id: "action-1" },
+      data: { timeSpentMins: { increment: 52 } },
+    });
+    expect(dbMock.action.update).toHaveBeenCalledWith({
+      where: { id: "action-2" },
+      data: { timeSpentMins: { increment: 52 } },
+    });
+    // One activity event per entry, after commit.
+    expect(recordActivity).toHaveBeenCalledTimes(3);
+  });
+
+  it("a day with nothing proposed confirms 0 and writes nothing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findMany.mockResolvedValueOnce([] as any);
+    const svc = new TimeEntryService(dbMock);
+    expect(await svc.confirmDay({ userId: "user-1", dayStart, dayEnd })).toEqual({ confirmed: 0 });
+    expect(dbMock.timeEntry.updateMany).not.toHaveBeenCalled();
+    expect(dbMock.action.update).not.toHaveBeenCalled();
+    expect(recordActivity).not.toHaveBeenCalled();
+  });
+
+  it("scopes to a workspace when asked", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findMany.mockResolvedValueOnce([] as any);
+    const svc = new TimeEntryService(dbMock);
+    await svc.confirmDay({ userId: "user-1", dayStart, dayEnd, workspaceId: "ws-1" });
+    expect(dbMock.timeEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ workspaceId: "ws-1" }) }),
+    );
+  });
+});

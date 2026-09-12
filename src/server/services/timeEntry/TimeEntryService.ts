@@ -462,6 +462,68 @@ export class TimeEntryService {
   }
 
   /**
+   * Confirm a day: every PROPOSED entry of the owner's whose start falls in
+   * `[dayStart, dayEnd)` becomes CONFIRMED and each affected Action's
+   * `timeSpentMins` is incremented ONCE by the sum of its newly-confirmed
+   * durations, all in one transaction; one `time_entry` activity event per
+   * entry is emitted after commit. Confirmation is the only path that moves
+   * spent time for Proposed time (ADR-0061). A day with nothing proposed
+   * returns `{ confirmed: 0 }`, not an error. Human-only at the router.
+   */
+  async confirmDay(input: {
+    userId: string;
+    dayStart: Date;
+    dayEnd: Date;
+    workspaceId?: string | null;
+  }): Promise<{ confirmed: number }> {
+    const confirmedRows = await this.db.$transaction(async (tx) => {
+      const rows = await tx.timeEntry.findMany({
+        where: {
+          userId: input.userId,
+          status: "PROPOSED",
+          startedAt: { gte: input.dayStart, lt: input.dayEnd },
+          endedAt: { not: null },
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: { action: { select: { name: true } } },
+      });
+      if (rows.length === 0) return rows;
+
+      await tx.timeEntry.updateMany({
+        where: { id: { in: rows.map((row) => row.id) } },
+        data: { status: "CONFIRMED" },
+      });
+
+      const minutesByAction = new Map<string, number>();
+      for (const row of rows) {
+        const mins = durationMinutes(row.startedAt, row.endedAt!);
+        minutesByAction.set(row.actionId, (minutesByAction.get(row.actionId) ?? 0) + mins);
+      }
+      for (const [actionId, mins] of minutesByAction) {
+        if (mins > 0) {
+          await tx.action.update({
+            where: { id: actionId },
+            data: { timeSpentMins: { increment: mins } },
+          });
+        }
+      }
+      return rows;
+    });
+
+    for (const row of confirmedRows) {
+      await this.recordTracked({
+        userId: row.userId,
+        workspaceId: row.workspaceId,
+        actionId: row.actionId,
+        actionName: row.action.name,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt!,
+      });
+    }
+    return { confirmed: confirmedRows.length };
+  }
+
+  /**
    * Stop the currently running entry (or the entry identified by `entryId`).
    * Stamps `endedAt = now()` (clamped to never precede `startedAt`) and
    * increments the parent Action's denormalized `timeSpentMins`.
