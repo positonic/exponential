@@ -10,7 +10,7 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { findUserByEmailInWorkspace, getWorkspaceMembership, canEditWorkspaceContent } from "~/server/services/access/resolvers/workspaceResolver";
+import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -24,35 +24,33 @@ import {
   PROJECT_ACTIVITY_TYPES,
 } from "~/server/services/projectActivity";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import {
+  actionWriteSchema,
+  assertCanWriteToWorkspace,
+  createAction,
+  type ActionWriteDeps,
+} from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
 /**
- * Guard a caller-supplied `workspaceId` on a write.
- *
- * `workspaceId` arrives as free-form input on `create`/`update`, so membership
- * is never implied by having reached the mutation: without this check any
- * authenticated user could inject rows into an arbitrary workspace's task list
- * by guessing its CUID.
- *
- * Membership alone isn't sufficient either — `viewer` is a read-only role — so
- * this asserts `canEditWorkspaceContent` (member and above). Project-only
- * members ("guests") have no WorkspaceUser row and are refused here by design;
- * their writes are authorised through the project path instead, which is why
- * callers must skip this check for a workspace derived from the project.
+ * The plain dependencies every Action write takes (`ActionWriteDeps`): the
+ * three actor fields `createTRPCContext` already resolved. Routers build it
+ * from `ctx`; nothing else about the tRPC context crosses into the module.
  */
-async function assertCanWriteToWorkspace(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-) {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!canEditWorkspaceContent(membership?.role ?? null)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You don't have permission to add actions to this workspace",
-    });
-  }
+function actionWriteDeps(ctx: {
+  db: PrismaClient;
+  session: { user: { id: string; isAdmin: boolean } };
+  tokenType?: string;
+}): ActionWriteDeps {
+  return {
+    db: ctx.db,
+    actor: {
+      userId: ctx.session.user.id,
+      tokenType: ctx.tokenType,
+      isAdmin: ctx.session.user.isAdmin,
+    },
+  };
 }
 
 export const actionRouter = createTRPCRouter({
@@ -390,191 +388,15 @@ export const actionRouter = createTRPCRouter({
     }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        name: z.string().min(1),
-        description: z.string().optional(),
-        projectId: z.string().optional(),
-        workspaceId: z.string().optional(),
-        dueDate: z.date().optional(),
-        scheduledStart: z.date().optional(),
-        scheduledEnd: z.date().optional(),
-        duration: z.number().min(1).optional(), // Duration in minutes
-        priority: z.enum(PRIORITY_VALUES).default("Quick"),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).default("ACTIVE"),
-        epicId: z.string().optional(),
-        effortEstimate: z.number().min(0).optional(),
-        blockedByIds: z.array(z.string()).optional(),
-        // Bounty fields
-        isBounty: z.boolean().optional(),
-        bountyAmount: z.number().positive().optional(),
-        bountyToken: z.string().optional(),
-        bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
-        bountySkills: z.array(z.string()).optional(),
-        bountyDeadline: z.date().optional(),
-        bountyMaxClaimants: z.number().int().min(1).optional(),
-        bountyExternalUrl: z.string().url().optional(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Project-scoped reads run in parallel: access check, project workspace,
-      // and the two kanban-order lookups are all independent.
-      let projectWorkspaceId: string | null = null;
-      let nextKanbanOrder: number | null = null;
-
-      if (input.projectId) {
-        const [access, project, maxOrderAcrossBoard, maxOrderInTodo] =
-          await Promise.all([
-            getProjectAccess(ctx.db, ctx.session.user.id, input.projectId),
-            ctx.db.project.findUnique({
-              where: { id: input.projectId },
-              select: { workspaceId: true },
-            }),
-            ctx.db.action.findFirst({
-              where: {
-                projectId: input.projectId,
-                kanbanOrder: { not: null },
-              },
-              orderBy: { kanbanOrder: "desc" },
-              select: { kanbanOrder: true },
-            }),
-            ctx.db.action.findFirst({
-              where: {
-                projectId: input.projectId,
-                kanbanStatus: "TODO",
-                kanbanOrder: { not: null },
-              },
-              orderBy: { kanbanOrder: "desc" },
-              select: { kanbanOrder: true },
-            }),
-          ]);
-
-        if (!canEditProject(access)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have permission to create actions on this project",
-          });
-        }
-
-        projectWorkspaceId = project?.workspaceId ?? null;
-
-        if (maxOrderInTodo?.kanbanOrder) {
-          nextKanbanOrder = maxOrderInTodo.kanbanOrder + 1;
-        } else if (maxOrderAcrossBoard?.kanbanOrder) {
-          nextKanbanOrder = maxOrderAcrossBoard.kanbanOrder + 1;
-        } else {
-          nextKanbanOrder = 1;
-        }
-      }
-
-      // `input.workspaceId` is spread straight into the create below, so an
-      // unchecked value plants the action — and the `created` activity event
-      // fired for it further down — inside a workspace the caller has no
-      // relationship to, where that workspace's members then see it in their
-      // feed. The project branch above only gates the *project*.
-      //
-      // A project dictates its own workspace, so it takes precedence over any
-      // caller-supplied `workspaceId`. The old precedence ran the other way,
-      // which let a caller attach a project they can genuinely edit while
-      // naming a foreign workspace, laundering the row into that workspace.
-      // `input.workspaceId` therefore only applies when there is no project, or
-      // when the project is personal (no workspace of its own).
-      const targetWorkspaceId = projectWorkspaceId ?? input.workspaceId ?? null;
-
-      // Authorise the destination workspace whenever it came from the caller
-      // rather than from the project. Skipping the project-derived case keeps
-      // project-only members ("guests") working — `canEditProject` above is
-      // their authorisation, and a bare `input.workspaceId` check would refuse
-      // them, since a guest has no WorkspaceUser row but every client sends
-      // workspaceId alongside projectId.
-      if (targetWorkspaceId && targetWorkspaceId !== projectWorkspaceId) {
-        await assertCanWriteToWorkspace(
-          ctx.db,
-          ctx.session.user.id,
-          targetWorkspaceId,
-        );
-      }
-
-      // A linked epic must live in the action's own workspace, or its name and
-      // status leak back through the `epic` include below (PR 481). Resolved
-      // against `targetWorkspaceId` — the workspace the action will actually
-      // land in — rather than a caller-supplied id that may not be it.
-      if (input.epicId) {
-        await assertWorkspaceScopedRefs(
-          ctx.db,
-          ctx.session.user.id,
-          targetWorkspaceId,
-          { epicId: input.epicId },
-        );
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const actionData: any = {
+    .input(actionWriteSchema)
+    .mutation(({ ctx, input }) =>
+      createAction(actionWriteDeps(ctx), {
         ...input,
-        // Overrides the `workspaceId` spread from `...input`, which is exactly
-        // the field that was previously written through unchecked.
-        workspaceId: targetWorkspaceId ?? undefined,
-        createdById: ctx.session.user.id,
-        ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
         // External-agent principals stamp their surface (ADR-0049); the *who*
         // is createdById (the agent's shadow user), the *how* is source.
         ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
-      };
-
-      if (input.projectId) {
-        actionData.kanbanStatus = "TODO";
-        actionData.kanbanOrder = nextKanbanOrder;
-      }
-
-      const createdAction = await ctx.db.action.create({
-        data: actionData,
-        include: {
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
-          },
-          project: true,
-          syncs: true,
-          createdBy: { select: { id: true, name: true, email: true, image: true } },
-          tags: { include: { tag: true } },
-          epic: { select: { id: true, name: true, status: true } },
-        },
-      });
-
-      // T7: workspace activity feed instrumentation. Helper never throws in
-      // production (it catches its own write failures), but we add `.catch`
-      // here as a belt-and-braces guard so instrumentation can NEVER break
-      // the user's mutation, even if the helper is later refactored.
-      const activityWorkspaceId =
-        createdAction.workspaceId ?? createdAction.project?.workspaceId ?? null;
-      if (activityWorkspaceId) {
-        await recordActivity(ctx.db, {
-          workspaceId: activityWorkspaceId,
-          userId: ctx.session.user.id,
-          entityType: "action",
-          entityId: createdAction.id,
-          action: "created",
-          metadata: { name: createdAction.name },
-        }).catch(() => {
-          /* instrumentation failure is non-fatal */
-        });
-      }
-
-      // Sync onboarding progress if action is linked to a project (fire-and-forget)
-      if (input.projectId) {
-
-        void logProjectActivity(ctx.db, {
-          projectId: input.projectId,
-          actionId: createdAction.id,
-          type: PROJECT_ACTIVITY_TYPES.ACTION_CREATED,
-          toValue: createdAction.name,
-          changedById: ctx.session.user.id,
-        }).catch((err: unknown) => {
-          console.error("[projectActivity] ACTION_CREATED:", err);
-        });
-      }
-
-      return createdAction;
-    }),
+      }),
+    ),
 
   /**
    * Idempotently ensure a "Do daily plan" prompt Action exists for today.
