@@ -46,6 +46,12 @@ export type ActionWriteInput = z.input<typeof actionWriteSchema>;
 export const createActionInputSchema = actionWriteSchema.extend({
   /** Which surface the Action came from (`Action.source`). */
   source: z.string().optional(),
+  /** Tags to attach, written in the same transaction as the Action. */
+  tagIds: z.array(z.string()).optional(),
+  /** Users to assign, written in the same transaction as the Action. */
+  assigneeIds: z.array(z.string()).optional(),
+  /** Sprint (List) to add the Action to, written in the same transaction. */
+  sprintListId: z.string().optional(),
 });
 
 export type CreateActionInput = z.input<typeof createActionInputSchema>;

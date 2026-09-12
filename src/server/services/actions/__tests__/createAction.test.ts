@@ -15,9 +15,13 @@ vi.mock("~/server/services/projectActivity", () => ({
   logProjectActivity: vi.fn(async () => undefined),
   PROJECT_ACTIVITY_TYPES: { ACTION_CREATED: "ACTION_CREATED" },
 }));
+vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
+  emitNotification: vi.fn(async () => undefined),
+}));
 
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { logProjectActivity } from "~/server/services/projectActivity";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { createAction } from "../createAction";
 import type { ActionWriteDeps } from "../types";
 
@@ -83,6 +87,13 @@ describe("createAction", () => {
     mockReset(db);
     vi.mocked(recordActivity).mockClear();
     vi.mocked(logProjectActivity).mockClear();
+    vi.mocked(emitNotification).mockClear();
+    // Interactive transaction runs against the same mock, so the per-model
+    // stubs see the writes; a callback that throws rejects the transaction.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    db.$transaction.mockImplementation(async (arg: any) =>
+      typeof arg === "function" ? arg(db) : Promise.all(arg),
+    );
   });
 
   describe("gate", () => {
@@ -216,6 +227,152 @@ describe("createAction", () => {
       const data = db.action.create.mock.calls[0]![0]!.data;
       expect(data).not.toHaveProperty("kanbanStatus");
       expect(data).not.toHaveProperty("kanbanOrder");
+    });
+  });
+
+  describe("attachments", () => {
+    const TAG = "tag-1";
+    const COLLEAGUE = "user-2";
+    const SPRINT = "list-1";
+
+    /** Member of the workspace; tag, colleague and sprint all live in it. */
+    function stubAttachableWorkspace() {
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      db.tag.findMany.mockResolvedValue([{ id: TAG }] as never);
+      db.list.findUnique.mockResolvedValue({ id: SPRINT, workspaceId: WORKSPACE } as never);
+      db.action.create.mockResolvedValue(createdRow());
+      db.action.findUniqueOrThrow.mockResolvedValue(
+        createdRow({
+          tags: [{ tag: { id: TAG } }],
+          assignees: [{ user: { id: COLLEAGUE } }],
+        }),
+      );
+    }
+
+    it("writes the row, tags, assignees and sprint membership in one transaction", async () => {
+      stubAttachableWorkspace();
+
+      const result = await createAction(deps(db), {
+        name: "Ship it",
+        workspaceId: WORKSPACE,
+        tagIds: [TAG, TAG],
+        assigneeIds: [COLLEAGUE],
+        sprintListId: SPRINT,
+      });
+
+      expect(db.$transaction).toHaveBeenCalledTimes(1);
+      expect(db.action.create).toHaveBeenCalledTimes(1);
+      expect(db.actionTag.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", tagId: TAG }],
+      });
+      expect(db.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: COLLEAGUE }],
+      });
+      expect(db.actionList.create).toHaveBeenCalledWith({
+        data: { actionId: "a1", listId: SPRINT },
+      });
+      // The returned row carries the attachments, same include shape as a
+      // bare create.
+      expect(result.tags).toHaveLength(1);
+      expect(result.assignees).toHaveLength(1);
+    });
+
+    it("refuses a tag from another workspace and writes no row at all", async () => {
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      // The tag lookup is scoped to global-or-this-workspace, so a foreign
+      // tag simply does not come back.
+      db.tag.findMany.mockResolvedValue([] as never);
+
+      await expect(
+        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE, tagIds: [TAG] }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(db.$transaction).not.toHaveBeenCalled();
+      expect(db.action.create).not.toHaveBeenCalled();
+      expect(db.actionTag.createMany).not.toHaveBeenCalled();
+      expect(recordActivity).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+    });
+
+    it("refuses an assignee who cannot read the action, with NOT_FOUND and no row", async () => {
+      // Caller is a member; the candidate is not, and shares no team.
+      db.workspaceUser.findUnique.mockImplementation(((args: { where: { userId_workspaceId: { userId: string } } }) =>
+        Promise.resolve(
+          args.where.userId_workspaceId.userId === ACTOR
+            ? { userId: ACTOR, workspaceId: WORKSPACE, role: "member", joinedAt: new Date() }
+            : null,
+        )) as never);
+      db.teamUser.findFirst.mockResolvedValue(null);
+      db.team.findFirst.mockResolvedValue(null);
+
+      await expect(
+        createAction(deps(db), {
+          name: "Ship it",
+          workspaceId: WORKSPACE,
+          assigneeIds: ["user-stranger"],
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses a sprint from another workspace and writes no row", async () => {
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      db.list.findUnique.mockResolvedValue({ id: SPRINT, workspaceId: "w-other" } as never);
+
+      await expect(
+        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE, sprintListId: SPRINT }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+
+    it("rolls the whole create back when an attachment write fails inside the transaction", async () => {
+      stubAttachableWorkspace();
+      db.actionTag.createMany.mockRejectedValue(new Error("unique violation"));
+
+      await expect(
+        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE, tagIds: [TAG] }),
+      ).rejects.toThrow("unique violation");
+
+      // The row write happened inside the same callback that then threw, so
+      // Prisma discards it with the transaction; nothing after the commit runs.
+      expect(db.$transaction).toHaveBeenCalledTimes(1);
+      expect(db.action.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(recordActivity).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+    });
+
+    it("emits one Assignment notification for the assignees who are not the actor", async () => {
+      stubAttachableWorkspace();
+
+      await createAction(deps(db), {
+        name: "Ship it",
+        workspaceId: WORKSPACE,
+        assigneeIds: [ACTOR, COLLEAGUE],
+      });
+
+      expect(emitNotification).toHaveBeenCalledTimes(1);
+      expect(emitNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: "assignment",
+          actorUserId: ACTOR,
+          subject: { actionId: "a1", assignedUserIds: [COLLEAGUE] },
+        }),
+      );
+    });
+
+    it("emits nothing when the actor is the only assignee", async () => {
+      stubAttachableWorkspace();
+
+      await createAction(deps(db), {
+        name: "Ship it",
+        workspaceId: WORKSPACE,
+        assigneeIds: [ACTOR],
+      });
+
+      expect(db.actionAssignee.createMany).toHaveBeenCalledTimes(1);
+      expect(emitNotification).not.toHaveBeenCalled();
     });
   });
 

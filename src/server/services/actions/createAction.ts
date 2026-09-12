@@ -14,7 +14,14 @@ import {
   logProjectActivity,
   PROJECT_ACTIVITY_TYPES,
 } from "~/server/services/projectActivity";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { createActionInputSchema, type CreateActionInput } from "./schema";
+import {
+  assertAssignableUsers,
+  assertListMembership,
+  assertTagsInWorkspace,
+} from "./containment";
 import type { ActionWriteDeps } from "./types";
 
 /**
@@ -98,8 +105,10 @@ async function nextKanbanOrder(
  *
  * In order: gate (project edit access when a project is given, otherwise a
  * write role in the target workspace), workspace derivation (the project's
- * workspace wins over a caller-supplied one), scoped-reference guard, kanban
- * seed, the row write, then the activity event.
+ * workspace wins over a caller-supplied one), scoped-reference and attachment
+ * containment guards, kanban seed, one transaction writing the row plus its
+ * tags, assignees and sprint membership, then the activity event and the
+ * Assignment notification.
  *
  * Throws `TRPCError` (`FORBIDDEN`, `NOT_FOUND`, `BAD_REQUEST`) exactly as the
  * router procedures did, so tRPC callers pass errors through unchanged and
@@ -119,7 +128,16 @@ export async function createAction(
     });
   }
   const { db, actor } = deps;
-  const { source, workspaceId: requestedWorkspaceId, ...columns } = parsed.data;
+  const {
+    source,
+    workspaceId: requestedWorkspaceId,
+    tagIds,
+    assigneeIds,
+    sprintListId,
+    ...columns
+  } = parsed.data;
+  const uniqueTagIds = [...new Set(tagIds ?? [])];
+  const uniqueAssigneeIds = [...new Set(assigneeIds ?? [])];
 
   // 1. Gate + workspace derivation + kanban seed. The project-scoped reads are
   //    independent, so they run in parallel.
@@ -174,20 +192,72 @@ export async function createAction(
     });
   }
 
-  // 3. The row.
-  const created = await db.action.create({
-    data: {
-      ...columns,
-      workspaceId: targetWorkspaceId ?? undefined,
-      createdById: actor.userId,
-      ...(columns.isBounty ? { bountyStatus: "OPEN" } : {}),
-      ...(source ? { source } : {}),
-      ...(kanbanSeed ?? {}),
-    },
-    include: createdActionInclude,
+  // 3. Attachment containment, resolved against the workspace the Action
+  //    will land in. Reads only, so they run before the transaction: a
+  //    refused attachment means no row is written at all.
+  if (uniqueTagIds.length > 0) {
+    await assertTagsInWorkspace(db, actor.userId, targetWorkspaceId, uniqueTagIds);
+  }
+  if (uniqueAssigneeIds.length > 0) {
+    await assertAssignableUsers(
+      db,
+      actor.userId,
+      { projectId: columns.projectId ?? null, teamId: null, workspaceId: targetWorkspaceId },
+      uniqueAssigneeIds,
+    );
+  }
+  if (sprintListId) {
+    const list = await assertListMembership(db, actor.userId, sprintListId);
+    if (targetWorkspaceId && list.workspaceId !== targetWorkspaceId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "List is not in this workspace",
+      });
+    }
+  }
+
+  // 4. One transaction: the row and every attachment, so an Action with
+  //    partial attachments cannot exist. The re-read at the end returns the
+  //    same include shape whether or not anything was attached.
+  const hasAttachments =
+    uniqueTagIds.length > 0 || uniqueAssigneeIds.length > 0 || !!sprintListId;
+
+  const created = await db.$transaction(async (tx) => {
+    const row = await tx.action.create({
+      data: {
+        ...columns,
+        workspaceId: targetWorkspaceId ?? undefined,
+        createdById: actor.userId,
+        ...(columns.isBounty ? { bountyStatus: "OPEN" } : {}),
+        ...(source ? { source } : {}),
+        ...(kanbanSeed ?? {}),
+      },
+      include: createdActionInclude,
+    });
+    if (!hasAttachments) return row;
+
+    if (uniqueTagIds.length > 0) {
+      await tx.actionTag.createMany({
+        data: uniqueTagIds.map((tagId) => ({ actionId: row.id, tagId })),
+      });
+    }
+    if (uniqueAssigneeIds.length > 0) {
+      await tx.actionAssignee.createMany({
+        data: uniqueAssigneeIds.map((userId) => ({ actionId: row.id, userId })),
+      });
+    }
+    if (sprintListId) {
+      await tx.actionList.create({
+        data: { actionId: row.id, listId: sprintListId },
+      });
+    }
+    return tx.action.findUniqueOrThrow({
+      where: { id: row.id },
+      include: createdActionInclude,
+    });
   });
 
-  // 4. Side effects, after the write. `recordActivity` never throws by
+  // 5. Side effects, after the commit. `recordActivity` never throws by
   //    contract, but the `.catch` keeps instrumentation from ever breaking the
   //    caller's mutation even if the helper is later refactored.
   const activityWorkspaceId =
@@ -214,6 +284,19 @@ export async function createAction(
       changedById: actor.userId,
     }).catch((err: unknown) => {
       console.error("[projectActivity] ACTION_CREATED:", err);
+    });
+  }
+
+  // Unified notification pipeline (ADR-0045): one Assignment emit for every
+  // assignee who is not the actor. Best-effort and not awaited, matching
+  // `action.assign`; the cron worker retries any channel that failed.
+  const notifiedAssigneeIds = uniqueAssigneeIds.filter((id) => id !== actor.userId);
+  if (notifiedAssigneeIds.length > 0) {
+    void emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: actor.userId,
+      subject: { actionId: created.id, assignedUserIds: notifiedAssigneeIds },
+      db,
     });
   }
 

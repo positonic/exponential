@@ -131,6 +131,13 @@ describe("action router (mocked)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // `createAction` writes the row and its attachments in one interactive
+    // transaction; run the callback against the same mock so the per-model
+    // stubs below see the writes.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.$transaction.mockImplementation(async (arg: any) =>
+      typeof arg === "function" ? arg(dbMock) : Promise.all(arg),
+    );
   });
 
   // ────────────────────────────────────────────────────────────────────

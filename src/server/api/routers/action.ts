@@ -26,6 +26,7 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   actionWriteSchema,
+  assertAssignableUsers,
   assertCanWriteToWorkspace,
   createAction,
   type ActionWriteDeps,
@@ -1717,29 +1718,7 @@ export const actionRouter = createTRPCRouter({
       // Verify the action exists and user has permission to modify it
       const action = await ctx.db.action.findUnique({
         where: { id: input.actionId },
-        include: { 
-          project: {
-            include: {
-              projectMembers: {
-                select: { userId: true }
-              },
-              team: {
-                include: {
-                  members: {
-                    select: { userId: true }
-                  }
-                }
-              }
-            }
-          },
-          team: {
-            include: {
-              members: {
-                select: { userId: true }
-              }
-            }
-          }
-        },
+        select: { id: true, projectId: true, teamId: true, workspaceId: true },
       });
 
       if (!action) {
@@ -1759,65 +1738,19 @@ export const actionRouter = createTRPCRouter({
         throw new Error("You don't have permission to modify this action");
       }
 
-      // Validate that all users can be assigned to this action.
-      // Restricted projects: only ProjectMembers, the creator, and workspace
-      // owners/admins can be assigned. Team/workspace fallback is disabled.
-      for (const userId of input.userIds) {
-        let canAssign = false;
-
-        if (action.projectId && action.project) {
-          const candidateAccess = await getProjectAccess(
-            ctx.db,
-            userId,
-            action.projectId,
-          );
-          canAssign = hasProjectAccess(candidateAccess);
-
-          // Unrestricted-only fallback: shared-team membership with the
-          // assigning user (legacy assignment ergonomics).
-          if (!canAssign && !candidateAccess.isRestricted) {
-            const sharedTeam = await ctx.db.team.findFirst({
-              where: {
-                AND: [
-                  { members: { some: { userId } } },
-                  { members: { some: { userId: ctx.session.user.id } } },
-                ],
-              },
-              select: { id: true },
-            });
-            canAssign = !!sharedTeam;
-          }
-        }
-        // Action has a team (but no project) - users must be team members
-        else if (action.teamId && action.team) {
-          canAssign = action.team.members.some(
-            (member: { userId: string }) => member.userId === userId,
-          );
-        }
-        // No project and no team: this used to allow assigning ANY user id,
-        // and the include below returns `user.email` — the same PII leak the
-        // ticket assignee guard closes. Fall back to the action's workspace
-        // and the caller's teams, which is exactly what the picker offers.
-        else {
-          canAssign = await canAssignToUnscopedAction(
-            ctx.db,
-            ctx.session.user.id,
-            action.workspaceId,
-            userId,
-          );
-        }
-
-        if (!canAssign) {
-          // Deliberately does NOT name the rejected user. The old message
-          // looked them up and echoed `name ?? email` back, which handed the
-          // caller a stranger's identity on exactly the path where they had
-          // just been told they have no relationship to them.
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"}`,
-          });
-        }
-      }
+      // Same containment rule `createAction` applies to assignees attached on
+      // create, so attaching later cannot reach further than attaching at
+      // creation. Rejects with NOT_FOUND and never names the rejected user.
+      await assertAssignableUsers(
+        ctx.db,
+        ctx.session.user.id,
+        {
+          projectId: action.projectId,
+          teamId: action.teamId,
+          workspaceId: action.workspaceId,
+        },
+        input.userIds,
+      );
 
       // Snapshot existing assignees so we can compute the diff for activity logging.
       const priorAssignees = await ctx.db.actionAssignee.findMany({
