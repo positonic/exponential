@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Group, Paper, Select, Stack, Text, Title } from "@mantine/core";
+import { Badge, Group, Paper, Select, Stack, Text, Title } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import {
   endOfDay,
@@ -191,11 +191,15 @@ export function TimePageContent() {
                         endedAt: e.endedAt ? new Date(e.endedAt) : null,
                       });
                       const isRunning = e.endedAt === null;
+                      const isProposed = e.status === "PROPOSED";
                       return (
                         <button
                           key={e.id}
                           type="button"
-                          className="flex w-full items-center justify-between rounded border border-border-primary bg-background-primary px-3 py-2 text-left hover:bg-surface-hover"
+                          data-status={e.status}
+                          className={`flex w-full items-center justify-between rounded border border-border-primary bg-background-primary px-3 py-2 text-left hover:bg-surface-hover ${
+                            isProposed ? "border-dashed" : ""
+                          }`}
                           onClick={() => {
                             setSelectedEntry(e);
                             setModalOpened(true);
@@ -213,12 +217,24 @@ export function TimePageContent() {
                                   · running
                                 </span>
                               )}
+                              {isProposed && (
+                                <Badge
+                                  size="xs"
+                                  variant="outline"
+                                  color="yellow"
+                                  ml={8}
+                                  className="align-middle"
+                                >
+                                  proposed
+                                </Badge>
+                              )}
                             </Text>
                             <Text size="xs" c="dimmed">
                               {format(new Date(e.startedAt), "h:mm a")} –{" "}
                               {e.endedAt
                                 ? format(new Date(e.endedAt), "h:mm a")
                                 : "now"}
+                              {e.note ? ` · ${e.note}` : ""}
                             </Text>
                           </div>
                           <Text size="sm" className="font-mono" c="dimmed">

@@ -232,6 +232,40 @@ _Avoid_: Health score (that's one field of a digest entry, not the digest), need
 The single, server-persisted state of one in-progress **Weekly plan** — position, the set of reviewed Projects, the running change tally (`statusChanges`, `actionsAdded`, …), and `reviewMode` — keyed per `(userId, workspaceId, week)`, the same key as `weeklyReviewCompletion`. Shared by **both** surfaces: the `/weekly-plan` wizard and **Zoe**'s chat walk read and write the same session, so a user can review three projects in chat, open the wizard, and resume at the fourth (the ADR-0006 "two surfaces, one thread" pattern). A session is created at *start* and stamped `completedAt` at finish — so "completed this week" means `completedAt != null`, **not** mere row existence.
 _Avoid_: Review session (only in code), wizard state (it is no longer client-only).
 
+### Time
+
+**Time entry**:
+A stretch of one person's time spent on an **Action**, with a start and an end. It always *belongs to* the person whose time it was, even when something else *wrote* it — an **External agent** records itself as the author, never as the owner (decision 2026-09-12, [ADR-0061](docs/adr/0061-time-entries-belong-to-the-owner.md)). Rolls up to a **Ticket**, **Project** and **Product** through the Action's links; an entry whose Action has none of those is **Unassigned time**, a signal rather than an error.
+_Avoid_: Timesheet row, log, timer (that is the live way of making one).
+
+**Timer**:
+The live way to make a **Time entry**: start now, stop later, one running per person. Starting a new one silently stops the old one.
+_Avoid_: Stopwatch, clock.
+
+**Manual time**:
+A **Time entry** a person made by hand, with the **Timer** or by editing. Always authoritative over **Proposed time**: a proposed entry on the same Action is merged into it, one on a different Action is clipped to the minutes the manual entry does not cover (decision 2026-09-12). A manual entry that runs more than an hour past the person's last recorded activity is flagged as a likely forgotten timer, never edited.
+_Avoid_: Tracked time (both kinds are tracked), real time.
+
+**Proposed time**:
+A **Time entry** the **Daily worklog** created that its owner has not yet confirmed. Shown distinctly, counted in totals with a visible marker, and it does not move an Action's spent-time figure until confirmed. Confirming the day, or editing the entry, makes it confirmed; the worklog never touches a confirmed entry again (decision 2026-09-12). Same word as the Decision lifecycle's `PROPOSED` on purpose.
+_Avoid_: Draft (reserved for extracted Decisions), suggested time, estimate.
+
+**Agent-run time**:
+Time an agent spent on an **Action** with no human turns — an unattended ship pipeline, a background review. Stored as its own kind of **Time entry** on the same Action, shown on its own lane, and excluded from **Attention hours** by default (decision 2026-09-12: stored rather than dropped, because "how much did the agent do" is the first question an agentic workflow gets asked).
+_Avoid_: Agent time (ambiguous with an agent's own calendar), compute time, machine time.
+
+**Attention hours**:
+The minutes of a person's day covered by at least one of their **Time entries** (excluding **Agent-run time**), each minute counted once. Strictly distinct from **Session hours**, the plain sum of those entries, which exceeds attention hours whenever threads overlap. The day view leads with attention hours. Product and Project roll-ups split overlapping minutes evenly across the overlapping entries so the day adds up (decision 2026-09-12); raw entries stay whole.
+_Avoid_: Hours worked (which one?), wall-clock (attention is a subset of it), billable.
+
+**Worklog segment**:
+One contiguous stretch of a Claude Desktop conversation, cut wherever more than 30 minutes pass between the person's messages; it starts at the person's first message and ends at the last reply, rounded out to 5 minutes (decision 2026-09-12). The unit the **Daily worklog** turns into one **Proposed time** entry. A conversation is not a segment: a tab can stay open for days.
+_Avoid_: Session (reserved — see **Meeting**), thread (that is the whole conversation), block.
+
+**Daily worklog**:
+The morning routine that reads yesterday's Claude Desktop conversations, cuts them into **Worklog segments**, resolves each conversation to a **Ticket** (by branch or PR), else a **Product** (by repository), else the workspace alone, and writes one Action per conversation and one **Proposed time** entry per segment. Idempotent: the conversation is the Action's source, so a re-run updates rather than duplicates. Its output is read on the `/time` day view and as a Yesterday line in the **Daily summary**; it writes no page of its own (decision 2026-09-12: one source of truth).
+_Avoid_: Timesheet, standup report, activity import.
+
 ### Product
 
 **Product**:

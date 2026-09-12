@@ -355,6 +355,8 @@ model ExternalAgent {
   owner      User               @relation("ExternalAgentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   shadowUser User               @relation("ExternalAgentShadowUser", fields: [shadowUserId], references: [id], onDelete: Cascade)
   keys       ExternalAgentKey[]
+  /// Time entries this agent wrote on its owner's behalf (ADR-0061).
+  timeEntries TimeEntry[]       @relation("TimeEntryAuthorAgent")
 
   @@index([ownerId])
 }
@@ -932,23 +934,45 @@ model Action {
   @@index([sourceType, sourceId])
 }
 
+/// Lifecycle of a TimeEntry (ADR-0061). `PROPOSED` rows are written by the
+/// Daily worklog on the owner's behalf and stay out of `Action.timeSpentMins`
+/// until the owner confirms them; everything a human makes is `CONFIRMED`.
+enum TimeEntryStatus {
+  PROPOSED
+  CONFIRMED
+}
+
 model TimeEntry {
   id          String    @id @default(cuid())
+  /// Whose time this is. Under an External agent this is the agent's OWNER,
+  /// never the shadow user (ADR-0061); the writer is `createdByAgentId`.
   userId      String
   actionId    String
   workspaceId String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
+  /// "plugin" (legacy Timer / calendar grids), "manual", "claude-desktop"
+  /// (Proposed time from the Daily worklog) or "agent-run" (Agent-run time).
   source      String    @default("plugin")
+  status      TimeEntryStatus @default(CONFIRMED)
+  /// ExternalAgent that wrote the row; null for human-made entries.
+  createdByAgentId String?
+  /// Idempotency key, e.g. "claude-session:<sessionId>#<segmentIndex>".
+  sourceRef   String?
+  /// One line shown in the day view and list row.
+  note        String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    Action     @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action         Action         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  workspace      Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  createdByAgent ExternalAgent? @relation("TimeEntryAuthorAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
 
+  @@unique([userId, sourceRef])
   @@index([userId, endedAt])
   @@index([userId, startedAt])
+  @@index([userId, status, startedAt])
   @@index([actionId])
   @@index([workspaceId, startedAt])
 }
