@@ -260,6 +260,29 @@ export const timeEntryRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * The day view's and the Daily summary's numbers. `date` is the START of
+   * the day in the caller's timezone. An agent key reads its OWNER's day
+   * (the data is the owner's, ADR-0061); a human reads their own.
+   */
+  dayReport: apiKeyMiddleware
+    .input(
+      z.object({
+        date: z.coerce.date(),
+        workspaceId: z.string().nullish(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const principal = await resolveTimeEntryPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      const service = new TimeEntryService(ctx.db);
+      return service.dayReport({
+        userId: principal.ownerUserId,
+        dayStart: input.date,
+        dayEnd: new Date(input.date.getTime() + 24 * 60 * 60 * 1000),
+        workspaceId: input.workspaceId ?? null,
+      });
+    }),
+
   stop: apiKeyMiddleware
     .input(
       z

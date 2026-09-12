@@ -31,6 +31,7 @@ import {
   reconcileProposed,
   type ProposedPiece,
 } from "./reconcile";
+import { computeDayReport, type DayReport } from "./dayReport";
 
 export type TimeEntryWithAction = Prisma.TimeEntryGetPayload<{
   include: {
@@ -521,6 +522,59 @@ export class TimeEntryService {
       });
     }
     return { confirmed: confirmedRows.length };
+  }
+
+  /**
+   * One day's report for the owner: every entry touching `[dayStart, dayEnd)`
+   * joined to its Action, Ticket, Project and Product, with attention,
+   * session and agent-run minutes and the overlap-split roll-ups
+   * (`dayReport.ts`). One `findMany` with the Action join plus one product
+   * name lookup; the sweep runs in memory.
+   */
+  async dayReport(input: {
+    userId: string;
+    dayStart: Date;
+    dayEnd: Date;
+    workspaceId?: string | null;
+  }): Promise<DayReport> {
+    const rows = await this.db.timeEntry.findMany({
+      where: {
+        userId: input.userId,
+        startedAt: { lt: input.dayEnd },
+        OR: [{ endedAt: null }, { endedAt: { gt: input.dayStart } }],
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      },
+      orderBy: { startedAt: "asc" },
+      include: {
+        action: {
+          select: {
+            id: true,
+            name: true,
+            projectId: true,
+            ticketId: true,
+            project: { select: { id: true, name: true, productId: true } },
+            ticket: {
+              select: { id: true, number: true, shortId: true, title: true, productId: true },
+            },
+          },
+        },
+      },
+    });
+
+    const productIds = new Set<string>();
+    for (const row of rows) {
+      const id = row.action.ticket?.productId ?? row.action.project?.productId;
+      if (id) productIds.add(id);
+    }
+    const products =
+      productIds.size > 0
+        ? await this.db.product.findMany({
+            where: { id: { in: [...productIds] } },
+            select: { id: true, name: true },
+          })
+        : [];
+
+    return computeDayReport(rows, products, input.dayStart, input.dayEnd);
   }
 
   /**
