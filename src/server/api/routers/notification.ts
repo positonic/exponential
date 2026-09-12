@@ -322,7 +322,10 @@ export const notificationRouter = createTRPCRouter({
 
     const profileTimezone = user?.timezone ?? null;
     return {
-      dailySummary: pref?.dailySummary ?? true,
+      // No row means the scheduler never visits this user (it iterates
+      // existing rows), so report the summary as off — the schema default of
+      // `true` only takes effect once a row exists. Saving creates the row.
+      dailySummary: pref?.dailySummary ?? false,
       dailySummaryTime: pref?.dailySummaryTime ?? DEFAULT_SUMMARY_TIME,
       weeklySummary: pref?.weeklySummary ?? false,
       weeklyDayOfWeek: pref?.weeklyDayOfWeek ?? 1,

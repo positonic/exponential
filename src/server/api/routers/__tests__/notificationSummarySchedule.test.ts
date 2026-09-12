@@ -81,8 +81,10 @@ describe("notification.getSummarySchedule", () => {
     const caller = createMockCaller({ userId: USER_ID, db: dbMock });
     const result = await caller.notification.getSummarySchedule();
 
+    // dailySummary reads false here even though the column defaults to true:
+    // with no row the scheduler never visits the user, so "on" would be a lie.
     expect(result).toEqual({
-      dailySummary: true,
+      dailySummary: false,
       dailySummaryTime: "09:00",
       weeklySummary: false,
       weeklyDayOfWeek: 1,
