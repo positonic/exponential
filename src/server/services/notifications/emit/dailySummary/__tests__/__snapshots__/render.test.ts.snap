@@ -10,6 +10,7 @@ exports[`renderDailySummaryPlainText > matches the full and empty snapshots (pla
 3. Offsite
 4. 16:30 Pipeline sync (recorded) — recording
    https://app.test/recording/rec2
+Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed → https://app.test/time
 
 📅 Today's meetings
 1. 09:00 CLEAR daily standup
@@ -42,6 +43,7 @@ exports[`renderDailySummaryPlainText > matches the full and empty snapshots (pla
 
 ⏪ Yesterday
 No meetings yesterday
+No time recorded yesterday
 
 📅 Today's meetings
 No meetings today
@@ -67,6 +69,7 @@ exports[`renderer snapshots (markdown) > matches the full and empty snapshots 1`
 2. 14:00 Coffee with Ira
 3. Offsite
 4. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec2)
+Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed → [/time](https://app.test/time)
 
 **📅 Today's meetings**
 1. 09:00 CLEAR daily standup
@@ -95,6 +98,7 @@ exports[`renderer snapshots (markdown) > matches the full and empty snapshots 2`
 
 **⏪ Yesterday**
 No meetings yesterday
+No time recorded yesterday
 
 **📅 Today's meetings**
 No meetings today
