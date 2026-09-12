@@ -2892,19 +2892,20 @@ export const actionRouter = createTRPCRouter({
         parseNaturalLanguage: input.parseNaturalLanguage,
       });
 
-      // If explicit projectId provided, verify it belongs to the user
+      // If explicit projectId provided, verify the caller can write to it.
+      // Uses the same gate as `action.create` so shared workspace/team
+      // projects (which appear in project.getUserProjects) are accepted, not
+      // only projects the caller personally created.
       if (input.projectId) {
-        const project = await ctx.db.project.findFirst({
-          where: {
-            id: input.projectId,
-            createdById: userId,
-          },
-        });
-
-        if (!project) {
+        const projectAccess = await getProjectAccess(
+          ctx.db,
+          userId,
+          input.projectId,
+        );
+        if (!canEditProject(projectAccess)) {
           throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Project not found or does not belong to user",
+            code: "FORBIDDEN",
+            message: "You don't have permission to create actions on this project",
           });
         }
       }
