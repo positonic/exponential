@@ -21,6 +21,12 @@ interface TranscriptViewProps {
   variant?: "full" | "preview";
   /** Number of turns shown in the `preview` variant before "+N more". */
   previewCount?: number;
+  /** Already-parsed turns (e.g. the server-built card peek). When given,
+   *  `transcription`/`sentencesJson` are not parsed. */
+  turns?: TranscriptTurn[];
+  /** Total turn count behind a partial `turns` list, so the `preview`
+   *  variant can still say "+N more". Defaults to `turns.length`. */
+  totalTurnCount?: number;
   /** Canonical indices of turns already marked as decision evidence (ADR-0060). */
   evidenceTurnIndices?: ReadonlySet<number>;
   /** Present when the viewer may log decisions: shows "Use as evidence" per turn. */
@@ -95,6 +101,8 @@ export function TranscriptView({
   participants = [],
   variant = "full",
   previewCount = 3,
+  turns: providedTurns,
+  totalTurnCount,
   evidenceTurnIndices,
   onToggleEvidence,
 }: TranscriptViewProps) {
@@ -118,13 +126,14 @@ export function TranscriptView({
   // resolved in the parser, so this component is purely presentational.
   const turns = useMemo<TranscriptTurn[]>(
     () =>
+      providedTurns ??
       parseTranscript({
         transcription,
         sentencesJson: sentencesJson ?? null,
         provider,
         participants: participants.map((p) => ({ name: p.name, isHost: p.isHost })),
       }),
-    [transcription, sentencesJson, provider, participants],
+    [providedTurns, transcription, sentencesJson, provider, participants],
   );
 
   // ----- Preview variant (meetings-list cards) -----------------------------
@@ -140,7 +149,7 @@ export function TranscriptView({
       new Set(turns.map((t) => t.speaker).filter((s): s is string => s !== null)),
     );
     const shown = turns.slice(0, previewCount);
-    const remaining = turns.length - shown.length;
+    const remaining = (totalTurnCount ?? turns.length) - shown.length;
     return (
       <Stack gap="xs">
         {shown.map((turn, i) =>

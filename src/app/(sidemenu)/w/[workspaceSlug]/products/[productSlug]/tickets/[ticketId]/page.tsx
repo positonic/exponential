@@ -362,9 +362,9 @@ export default function TicketDetailPage() {
   const displayId = getDisplayId(ticket);
 
   return (
-    <div className="flex min-h-0">
+    <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_18rem]">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto pr-6">
+      <div className="min-w-0 lg:pr-6">
         <Stack gap="lg">
           {/* Back nav + identifier */}
           <div>
@@ -497,24 +497,14 @@ export default function TicketDetailPage() {
             onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
           />
 
-          {/* Activity - the app-wide feed + composer, same block as TicketPeek */}
-          <div className="mt-4">
-            <CollapsibleSection
-              title="Activity"
-              action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
-            >
-              {/* Keyed on the ticket: the nav arrows swap tickets without
-                  unmounting this page, and the composer's draft state lives
-                  inside ActivityTimeline — without the key a half-typed
-                  comment would follow you to the next ticket. */}
-              <ActivityTimeline key={ticketId} activity={activity} filter={activityFilter} />
-            </CollapsibleSection>
-          </div>
         </Stack>
       </div>
 
-      {/* Properties sidebar */}
-      <PropertiesSidebar>
+      {/* Properties sidebar. Spans both grid rows from lg up; below that it
+          stacks between the body and the activity feed (the GitHub-issue
+          ordering) so status/assignee stay one short scroll away instead of
+          being buried under the whole comment thread. */}
+      <PropertiesSidebar className="lg:row-span-2">
         {/* Status */}
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
           <Select
@@ -722,6 +712,20 @@ export default function TicketDetailPage() {
           </PropertyRow>
         )}
       </PropertiesSidebar>
+
+      {/* Activity - the app-wide feed + composer, same block as TicketPeek */}
+      <div className="min-w-0 mt-2 lg:mt-9 lg:pr-6">
+        <CollapsibleSection
+          title="Activity"
+          action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+        >
+          {/* Keyed on the ticket: the nav arrows swap tickets without
+              unmounting this page, and the composer's draft state lives
+              inside ActivityTimeline — without the key a half-typed
+              comment would follow you to the next ticket. */}
+          <ActivityTimeline key={ticketId} activity={activity} filter={activityFilter} />
+        </CollapsibleSection>
+      </div>
     </div>
   );
 }

@@ -690,6 +690,26 @@ body {
 .mantine-Tabs-list::-webkit-scrollbar {
   display: none;
 }
+/* Product page tab strip (products/[productSlug]/layout.tsx). Below the
+   `lg` breakpoint the list sits in its own horizontal scroller and grows to
+   max-content so the underline runs under every tab. From `lg` up it keeps
+   Mantine's default wrapping: on a 1024–1160px laptop with the sidebar open
+   the eight tabs don't fit either, and a second row is discoverable where a
+   scrollbar-less strip with the last tab clipped is not. Compound selector:
+   the bare `.mantine-Tabs-list` rule above is overridden by Mantine's own
+   stylesheet, which loads later. */
+@media (max-width: 1023.98px) {
+  .product-tabs-scroll {
+    scrollbar-width: none;
+  }
+  .product-tabs-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .mantine-Tabs-list.product-tabs-list {
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
+}
 .mantine-Tabs-tab[data-active] {
   border-color: var(--color-brand-primary);
   color: var(--color-brand-primary);

@@ -525,7 +525,12 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           onSubmit={handleSubmit}
           onClose={close}
           submitLabel="New action"
-          isSubmitting={createAction.isPending}
+          // The modal dismisses on submit and creation is optimistic, so there
+          // is nothing to spin for. Passing isPending here would also disable
+          // the submit button of a *reopened* modal while the previous create
+          // is still in flight (Mantine's Button sets disabled={disabled ||
+          // loading}), blocking back-to-back task entry.
+          isSubmitting={false}
           {...(advancedActionsEnabled ? {
             sprintListId,
             setSprintListId,

@@ -56,6 +56,7 @@ export function CreateTranscriptionModal({
         void utils.transcription.getAllTranscriptions.invalidate({
           workspaceId,
         });
+        void utils.transcription.getMeetingCards.invalidate({ workspaceId });
 
         setTitle("");
         setDescription("");

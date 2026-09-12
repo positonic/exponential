@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   IconHome,
@@ -61,6 +61,20 @@ export default function ProductLayout({
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
 
   const utils = api.useUtils();
+
+  // On narrow screens the tab strip scrolls horizontally; nudge it so the
+  // active tab is never hidden off an edge. Horizontal only — scrollIntoView
+  // would also move the page vertically.
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const scroller = tabsScrollRef.current;
+    const active = scroller?.querySelector<HTMLElement>("[data-active]");
+    if (!scroller || !active) return;
+    const s = scroller.getBoundingClientRect();
+    const a = active.getBoundingClientRect();
+    if (a.left < s.left) scroller.scrollLeft += a.left - s.left - 16;
+    else if (a.right > s.right) scroller.scrollLeft += a.right - s.right + 16;
+  }, [pathname]);
 
   const { data: product, isLoading } = api.product.product.getBySlug.useQuery(
     {
@@ -204,7 +218,7 @@ export default function ProductLayout({
   return (
     <div className="w-full">
       {/* Header: Title + action icons */}
-      <div className="w-full px-10 pt-6 mb-6">
+      <div className="w-full px-4 pt-4 mb-4 sm:px-6 sm:pt-6 sm:mb-6 lg:px-10">
         <Group justify="space-between" align="flex-start">
           <div>
             {isLoading ? (
@@ -320,23 +334,29 @@ export default function ProductLayout({
       {/* Tabs */}
       <Tabs value={activeTab} onChange={handleTabChange}>
         <Stack gap="xl" align="stretch" justify="flex-start">
-          <Tabs.List className="px-10">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <Tabs.Tab
-                  key={tab.value}
-                  value={tab.value}
-                  leftSection={<Icon size={16} />}
-                >
-                  {tab.label}
-                </Tabs.Tab>
-              );
-            })}
-          </Tabs.List>
+          {/* One row that scrolls sideways on narrow screens instead of
+              wrapping into four. The list grows to max-content inside this
+              scroller so Mantine's underline (a ::before on the list) still
+              runs under every tab, not just the first viewport of them. */}
+          <div ref={tabsScrollRef} className="product-tabs-scroll overflow-x-auto">
+            <Tabs.List className="product-tabs-list px-4 sm:px-6 lg:px-10">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <Tabs.Tab
+                    key={tab.value}
+                    value={tab.value}
+                    leftSection={<Icon size={16} />}
+                  >
+                    {tab.label}
+                  </Tabs.Tab>
+                );
+              })}
+            </Tabs.List>
+          </div>
 
           {/* Tab content */}
-          <div className="px-10 pb-6">{children}</div>
+          <div className="px-4 sm:px-6 lg:px-10 pb-6">{children}</div>
         </Stack>
       </Tabs>
 

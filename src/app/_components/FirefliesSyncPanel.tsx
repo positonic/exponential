@@ -208,6 +208,7 @@ export function FirefliesSyncPanel({ onSyncComplete, onSettingsClick }: Fireflie
 
       // Refresh transcriptions list and sync status
       void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
       void utils.transcription.getFirefliesSyncStatus.invalidate({ integrationId });
       
       // Call callback if provided

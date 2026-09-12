@@ -1067,7 +1067,7 @@ export default function TicketsBacklogPage() {
   return (
     <Stack gap="sm">
       {/* Action bar */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <SegmentedControl
           value={view}
           onChange={(v) => { setView(v); debouncedSave({ view: v }); }}
@@ -1142,8 +1142,8 @@ export default function TicketsBacklogPage() {
           size="xs"
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
+          className="w-full sm:w-[200px]"
           styles={{
-            root: { width: 200 },
             input: { backgroundColor: "transparent", border: "1px solid var(--color-border-primary)", fontSize: "0.8rem", height: 30, minHeight: 30 },
           }}
         />
@@ -1237,6 +1237,7 @@ export default function TicketsBacklogPage() {
           }}
           disabled={!product}
           variant="light"
+          className="ml-auto"
           styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem", minWidth: 110 } }}
         >
           {entity === "epics" ? "New epic" : "New ticket"}

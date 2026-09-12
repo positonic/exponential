@@ -24,6 +24,7 @@ import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStat
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 import { tokenizeTitle } from "~/lib/meetings/titleTokens";
+import { parseTranscript } from "~/lib/transcript";
 import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
@@ -331,6 +332,94 @@ async function upsertMeetingParticipant(
   });
 }
 
+
+/**
+ * Shared input for the two meeting list procedures. `getAllTranscriptions`
+ * returns full bodies (transcript, notes, Fireflies JSON) for the SDK, MCP
+ * server and agent tools; `getMeetingCards` returns the card-shaped rows the
+ * meetings page and home panels render.
+ */
+const meetingListInput = z
+  .object({
+    includeArchived: z.boolean().optional().default(false),
+    workspaceId: z.string().optional(),
+    // Meeting type filter for the Meetings v2 tab strip.
+    // - 'all' / undefined: no narrowing
+    // - 'mine': caller is the session owner OR a Participant on the
+    //   session (covers both creator and attendance)
+    // - 'one_on_one': only Meetings with exactly two Participants
+    //   (derived from `participantCount = 2` since no stored
+    //   `meetingType` column exists in v1)
+    // - 'customer' / 'internal': always empty — short-circuited in
+    //   `buildMeetingListFilters` until a meeting-tagging mechanism exists
+    meetingType: z
+      .enum(["all", "mine", "one_on_one", "customer", "internal"])
+      .optional(),
+    // Ceremony filter (ADR-0059): only meetings attached to an
+    // occurrence of this ceremony.
+    ceremonyId: z.string().optional(),
+  })
+  .optional();
+
+type MeetingListInput = z.infer<typeof meetingListInput>;
+
+/**
+ * Visibility plus tab, workspace and ceremony filters, shared by both list
+ * procedures so the card list can never show a meeting the full list hides.
+ * Returns null for the Customer and Internal tabs, which ship with honest
+ * empty states until a meeting-tagging mechanism exists.
+ */
+function buildMeetingListFilters(
+  userId: string,
+  input: MeetingListInput,
+): Prisma.TranscriptionSessionWhereInput[] | null {
+  if (input?.meetingType === "customer" || input?.meetingType === "internal") {
+    return null;
+  }
+
+  // Visibility: the centralized Meeting access rule (owner, Participant,
+  // project access, or workspace membership for project-less sessions).
+  const filters: Prisma.TranscriptionSessionWhereInput[] = [
+    buildTranscriptionAccessWhere(userId),
+  ];
+
+  if (!input?.includeArchived) {
+    filters.push({ archivedAt: null });
+  }
+
+  // Optional workspace filter — match either direct workspaceId or via the
+  // project's workspace.
+  if (input?.workspaceId) {
+    filters.push({
+      OR: [
+        { workspaceId: input.workspaceId },
+        { project: { workspaceId: input.workspaceId } },
+      ],
+    });
+  }
+
+  if (input?.meetingType === "one_on_one") {
+    filters.push({ participantCount: 2 });
+  }
+
+  if (input?.ceremonyId) {
+    filters.push({ occurrence: { ceremonyId: input.ceremonyId } });
+  }
+
+  if (input?.meetingType === "mine") {
+    // "Mine" = the caller owns the Meeting or appears in its
+    // Participant list. Participant userId may be null for email-only
+    // invitees we haven't linked yet; those are correctly excluded.
+    filters.push({
+      OR: [{ userId }, { participants: { some: { userId } } }],
+    });
+  }
+
+  return filters;
+}
+
+/** Transcript turns a meeting card shows before "+N more". */
+const MEETING_CARD_PREVIEW_TURNS = 2;
 
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
@@ -1092,80 +1181,11 @@ export const transcriptionRouter = createTRPCRouter({
     }),
 
   getAllTranscriptions: protectedProcedure
-    .input(
-      z
-        .object({
-          includeArchived: z.boolean().optional().default(false),
-          workspaceId: z.string().optional(),
-          // Meeting type filter for the Meetings v2 tab strip.
-          // - 'all' / undefined: no narrowing
-          // - 'mine': caller is the session owner OR a Participant on the
-          //   session (covers both creator and attendance)
-          // - 'one_on_one': only Meetings with exactly two Participants
-          //   (derived from `participantCount = 2` since no stored
-          //   `meetingType` column exists in v1)
-          // - 'customer' / 'internal': always empty — short-circuited below
-          //   until a meeting-tagging mechanism exists
-          meetingType: z
-            .enum(["all", "mine", "one_on_one", "customer", "internal"])
-            .optional(),
-          // Ceremony filter (ADR-0059): only meetings attached to an
-          // occurrence of this ceremony.
-          ceremonyId: z.string().optional(),
-        })
-        .optional(),
-    )
+    .input(meetingListInput)
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-
-      // Customer and Internal tabs ship with honest empty states — no
-      // tagging mechanism exists yet.
-      if (
-        input?.meetingType === "customer" ||
-        input?.meetingType === "internal"
-      ) {
-        return [];
-      }
-
-      // Visibility: the centralized Meeting access rule (owner, Participant,
-      // project access, or workspace membership for project-less sessions).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const filters: any[] = [buildTranscriptionAccessWhere(userId)];
-
-      if (!input?.includeArchived) {
-        filters.push({ archivedAt: null });
-      }
-
-      // Optional workspace filter — match either direct workspaceId or via the
-      // project's workspace.
-      if (input?.workspaceId) {
-        filters.push({
-          OR: [
-            { workspaceId: input.workspaceId },
-            { project: { workspaceId: input.workspaceId } },
-          ],
-        });
-      }
-
-      if (input?.meetingType === "one_on_one") {
-        filters.push({ participantCount: 2 });
-      }
-
-      if (input?.ceremonyId) {
-        filters.push({ occurrence: { ceremonyId: input.ceremonyId } });
-      }
-
-      if (input?.meetingType === "mine") {
-        // "Mine" = the caller owns the Meeting or appears in its
-        // Participant list. Participant userId may be null for email-only
-        // invitees we haven't linked yet; those are correctly excluded.
-        filters.push({
-          OR: [
-            { userId },
-            { participants: { some: { userId } } },
-          ],
-        });
-      }
+      const filters = buildMeetingListFilters(userId, input);
+      if (!filters) return [];
 
       return ctx.db.transcriptionSession.findMany({
         where: { AND: filters },
@@ -1219,6 +1239,106 @@ export const transcriptionRouter = createTRPCRouter({
             },
           },
         },
+      });
+    }),
+
+  /**
+   * Card-shaped rows for the meetings page and home panels. Same visibility
+   * and filters as `getAllTranscriptions`, but selects only what a card
+   * renders: the transcript, notes and Fireflies JSON blobs stay on the
+   * server (they were ~95% of the list payload), and the card's transcript
+   * peek is computed here from the first turns instead.
+   */
+  getMeetingCards: protectedProcedure
+    .input(meetingListInput)
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const filters = buildMeetingListFilters(userId, input);
+      if (!filters) return [];
+
+      const rows = await ctx.db.transcriptionSession.findMany({
+        where: { AND: filters },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          sessionId: true,
+          title: true,
+          description: true,
+          summary: true,
+          createdAt: true,
+          updatedAt: true,
+          meetingDate: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          archivedAt: true,
+          processedAt: true,
+          actionsSavedAt: true,
+          sourceIntegrationId: true,
+          occurrenceId: true,
+          durationSeconds: true,
+          participantCount: true,
+          // Read only to build the peek below; stripped before returning.
+          transcription: true,
+          project: {
+            select: {
+              id: true,
+              name: true,
+              taskManagementTool: true,
+              taskManagementConfig: true,
+            },
+          },
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            where: { status: { not: "DRAFT" } },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              priority: true,
+            },
+          },
+          participants: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              user: { select: { id: true, name: true, image: true } },
+              contact: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+          occurrence: {
+            select: {
+              id: true,
+              ceremonyId: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true } },
+            },
+          },
+        },
+      });
+
+      return rows.map(({ transcription, ...row }) => {
+        // Same inputs the card used to parse with client-side: no
+        // sentencesJson and no participant mapping.
+        const turns = parseTranscript({
+          transcription,
+          sentencesJson: null,
+          provider: row.sourceIntegration?.provider,
+          participants: [],
+        });
+        return {
+          ...row,
+          hasTranscript: Boolean(transcription?.trim()),
+          transcriptPreview: turns.slice(0, MEETING_CARD_PREVIEW_TURNS),
+          transcriptTurnCount: turns.length,
+        };
       });
     }),
 
