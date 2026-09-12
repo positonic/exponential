@@ -189,7 +189,14 @@ function RollupCard({
           <BarChart data={data} layout="vertical" margin={{ left: 4, right: 20 }}>
             <CartesianGrid strokeDasharray="2 2" stroke="var(--color-border-secondary)" />
             <XAxis type="number" tickFormatter={(v) => `${v}h`} stroke="var(--color-text-muted)" fontSize={11} />
-            <YAxis dataKey="name" type="category" stroke="var(--color-text-muted)" fontSize={11} width={width} />
+            <YAxis
+              dataKey="name"
+              type="category"
+              stroke="var(--color-text-muted)"
+              fontSize={11}
+              width={width}
+              interval={0}
+            />
             <ChartTooltip
               formatter={(value) => formatMins(Math.round(+value * 60))}
               contentStyle={{
