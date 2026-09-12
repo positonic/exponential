@@ -25,6 +25,7 @@ function pref(overrides: Record<string, unknown> = {}) {
     dailySummary: true,
     weeklySummary: false,
     weeklyDayOfWeek: 1,
+    user: { timezone: null },
     ...overrides,
   };
 }
@@ -90,6 +91,30 @@ describe("generateScheduledSummaries", () => {
     expect(emitNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         subject: expect.objectContaining({ kind: "daily", periodKey: "2026-07-23" }),
+      }),
+    );
+  });
+
+  it("prefers the profile timezone (User.timezone) over the preference row's zone", async () => {
+    // Pref row still at its "UTC" default, but the profile says Berlin:
+    // 08:00 Berlin in September = 06:00 UTC. A tick at 09:05 UTC must NOT fire
+    // (that would be the UTC reading, arriving at 11:05 local — the bug).
+    db.notificationPreference.findMany.mockResolvedValue([
+      pref({ timezone: "UTC", dailySummaryTime: "08:00", user: { timezone: "Europe/Berlin" } }),
+    ] as never);
+
+    await generateScheduledSummaries(db, new Date("2026-09-12T09:05:00.000Z"), {
+      readCalendar: noEvents,
+    });
+    expect(emitNotification).not.toHaveBeenCalled();
+
+    await generateScheduledSummaries(db, new Date("2026-09-12T06:05:00.000Z"), {
+      readCalendar: noEvents,
+    });
+    expect(emitNotification).toHaveBeenCalledTimes(1);
+    expect(emitNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: expect.objectContaining({ kind: "daily", periodKey: "2026-09-12" }),
       }),
     );
   });
