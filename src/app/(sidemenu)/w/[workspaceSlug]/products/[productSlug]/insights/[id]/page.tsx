@@ -209,9 +209,9 @@ export default function InsightDetailPage() {
   };
 
   return (
-    <div className="flex min-h-0">
+    <div className="flex flex-col lg:flex-row min-h-0">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto pr-6">
+      <div className="flex-1 min-w-0 overflow-y-auto lg:pr-6">
         <Stack gap="lg">
           {/* Back nav */}
           <Link

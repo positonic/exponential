@@ -690,6 +690,20 @@ body {
 .mantine-Tabs-list::-webkit-scrollbar {
   display: none;
 }
+/* Product page tab strip (products/[productSlug]/layout.tsx). The list sits
+   in its own horizontal scroller and grows to max-content so the underline
+   runs under every tab. Compound selector: the bare `.mantine-Tabs-list`
+   rule above is overridden by Mantine's own stylesheet, which loads later. */
+.product-tabs-scroll {
+  scrollbar-width: none;
+}
+.product-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+.mantine-Tabs-list.product-tabs-list {
+  flex-wrap: nowrap;
+  min-width: max-content;
+}
 .mantine-Tabs-tab[data-active] {
   border-color: var(--color-brand-primary);
   color: var(--color-brand-primary);
