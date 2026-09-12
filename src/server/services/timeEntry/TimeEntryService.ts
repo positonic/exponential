@@ -210,6 +210,9 @@ export class TimeEntryService {
         message: "endedAt must be after startedAt",
       });
     }
+    if (input.sourceRef) {
+      await this.assertSourceRefFree(input.userId, input.sourceRef);
+    }
 
     const created = await this.db.$transaction(async (tx) => {
       const action = await tx.action.findUnique({
@@ -304,6 +307,7 @@ export class TimeEntryService {
     });
 
     if (!existing) {
+      // `create` re-checks the cross-user collision before writing.
       const entry = await this.create(input);
       return { entry, outcome: "created" };
     }
@@ -659,6 +663,29 @@ export class TimeEntryService {
           },
         },
       },
+    });
+  }
+
+  /**
+   * Internal: a `sourceRef` names one conversation segment, which belongs to
+   * exactly one person. A ref already held by ANOTHER user is a CONFLICT (two
+   * owners cannot both claim the same segment), and so is a ref this user
+   * already holds when the caller asked to *create* rather than upsert — the
+   * `(userId, sourceRef)` unique index would reject it anyway; this turns the
+   * P2002 into a readable error before the write.
+   */
+  private async assertSourceRefFree(userId: string, sourceRef: string): Promise<void> {
+    const holder = await this.db.timeEntry.findFirst({
+      where: { sourceRef },
+      select: { userId: true },
+    });
+    if (!holder) return;
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        holder.userId === userId
+          ? "A time entry with this sourceRef already exists; use upsertBySourceRef to update it"
+          : "This sourceRef is already claimed by another user",
     });
   }
 
