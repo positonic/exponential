@@ -121,6 +121,26 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
   recordActivity: vi.fn().mockResolvedValue(true),
 }));
 
+// Natural-language parsing is the quick-create caller's concern and has its
+// own tests; here it is a pass-through so the suite can pin what the router
+// does with the parse result.
+vi.mock("~/server/services/parsing", () => ({
+  parseActionInput: vi.fn(
+    async (
+      name: string,
+      _userId: string,
+      _db: unknown,
+      options?: { projectId?: string },
+    ) => ({
+      name: name.trim(),
+      scheduledStart: null,
+      dueDate: null,
+      projectId: options?.projectId ?? null,
+      parsingMetadata: null,
+    }),
+  ),
+}));
+
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -1440,6 +1460,121 @@ describe("action router (mocked)", () => {
 
         expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
         expect(dbMock.action.create).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // quickCreate — the iOS shortcut / CLI path, now through createAction
+  // ────────────────────────────────────────────────────────────────────
+  describe("quickCreate", () => {
+    const callerId = "caller-1";
+
+    function stubUser() {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.user.findUnique.mockResolvedValue({ id: callerId } as any);
+    }
+
+    it("creates through the module and maps the legacy ios-shortcut default to source ios", async () => {
+      stubUser();
+      dbMock.action.create.mockResolvedValue({
+        id: "a1",
+        name: "Call John",
+        priority: "Quick",
+        status: "ACTIVE",
+        dueDate: null,
+        project: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.quickCreate({ name: "Call John" });
+
+      expect(result.success).toBe(true);
+      expect(result.action).toEqual({
+        id: "a1",
+        name: "Call John",
+        priority: "Quick",
+        status: "ACTIVE",
+        dueDate: null,
+        project: null,
+      });
+      const data = dbMock.action.create.mock.calls[0]![0]!.data;
+      expect(data).toMatchObject({
+        name: "Call John",
+        createdById: callerId,
+        status: "ACTIVE",
+        source: "ios",
+      });
+      // No project: no kanban seed.
+      expect(data).not.toHaveProperty("kanbanStatus");
+    });
+
+    it("passes a source from the closed set straight through", async () => {
+      stubUser();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "x", project: null } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.quickCreate({ name: "x", source: "cli" });
+
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source: "cli" });
+    });
+
+    it("refuses a project the caller can only view, with FORBIDDEN and no row", async () => {
+      stubUser();
+      // Public project: visible, not editable. Same gate as action.create.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: true,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.quickCreate({ name: "Trespass", projectId: "p1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    it("seeds the kanban column and inherits the workspace from an editable project", async () => {
+      stubUser();
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+      dbMock.action.create.mockResolvedValue({
+        id: "a1",
+        name: "In project",
+        project: { id: "p1", name: "Proj", workspaceId: "w1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.quickCreate({ name: "In project", projectId: "p1" });
+
+      expect(result.action.project).toEqual({ id: "p1", name: "Proj" });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        projectId: "p1",
+        workspaceId: "w1",
+        kanbanStatus: "TODO",
+        kanbanOrder: 1,
       });
     });
   });

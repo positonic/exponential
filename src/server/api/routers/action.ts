@@ -29,6 +29,8 @@ import {
   assertAssignableUsers,
   assertCanWriteToWorkspace,
   createAction,
+  isActionSource,
+  type ActionSource,
   type ActionWriteDeps,
 } from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
@@ -52,6 +54,24 @@ function actionWriteDeps(ctx: {
       isAdmin: ctx.session.user.isAdmin,
     },
   };
+}
+
+/**
+ * `quickCreate` keeps its free-form `source` input (the iOS shortcut has sent
+ * its legacy default for years), but `createAction` only accepts the closed
+ * set. A value in the set passes through; the legacy `ios-shortcut` default
+ * is the iOS shortcut; anything else is named from how the call was
+ * authenticated: an agent key is an agent, an API key is the iOS shortcut,
+ * a session or Bearer JWT is the CLI.
+ */
+function resolveQuickCreateSource(
+  requested: string,
+  ctx: { tokenType?: string; viaApiKey: boolean },
+): ActionSource {
+  if (isActionSource(requested)) return requested;
+  if (requested === "ios-shortcut") return "ios";
+  if (ctx.tokenType === "agent-key") return "agent";
+  return ctx.viaApiKey ? "ios" : "cli";
 }
 
 export const actionRouter = createTRPCRouter({
@@ -2662,83 +2682,48 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      // Parse natural language input using shared helper
+      // Parse natural language input using shared helper. Parsing stays
+      // here (it is the quick-create callers' concern); the create itself is
+      // the module's, which gates on the project the parser actually resolved.
       const parsed = await parseActionInput(input.name, userId, ctx.db, {
         projectId: input.projectId,
         parseNaturalLanguage: input.parseNaturalLanguage,
       });
 
-      // If explicit projectId provided, verify the caller can write to it.
-      // Uses the same gate as `action.create` so shared workspace/team
-      // projects (which appear in project.getUserProjects) are accepted, not
-      // only projects the caller personally created.
-      if (input.projectId) {
-        const projectAccess = await getProjectAccess(
-          ctx.db,
-          userId,
-          input.projectId,
-        );
-        if (!canEditProject(projectAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have permission to create actions on this project",
-          });
-        }
-      }
-
-      // Calculate kanban order if this is a project action
-      let kanbanOrder: number | null = null;
-      if (parsed.projectId) {
-        const maxOrderAction = await ctx.db.action.findFirst({
-          where: {
-            projectId: parsed.projectId,
-            kanbanOrder: { not: null },
+      const created = await createAction(
+        {
+          db: ctx.db,
+          actor: {
+            userId,
+            tokenType: ctx.tokenType,
+            isAdmin: ctx.session?.user?.isAdmin ?? false,
           },
-          orderBy: { kanbanOrder: "desc" },
-          select: { kanbanOrder: true },
-        });
-        kanbanOrder = (maxOrderAction?.kanbanOrder ?? 0) + 1;
-      }
-
-      // Inherit workspaceId from project
-      let quickCreateWorkspaceId: string | null = null;
-      if (parsed.projectId) {
-        const proj = await ctx.db.project.findUnique({
-          where: { id: parsed.projectId },
-          select: { workspaceId: true },
-        });
-        quickCreateWorkspaceId = proj?.workspaceId ?? null;
-      }
-
-      // Create the action
-      const action = await ctx.db.action.create({
-        data: {
+        },
+        {
           name: parsed.name,
-          projectId: parsed.projectId,
+          projectId: parsed.projectId ?? undefined,
           priority: input.priority,
           status: "ACTIVE",
-          createdById: userId,
-          scheduledStart: parsed.scheduledStart,
-          dueDate: parsed.dueDate,
-          source: input.source,
-          kanbanStatus: parsed.projectId ? "TODO" : null,
-          kanbanOrder,
-          workspaceId: quickCreateWorkspaceId,
+          scheduledStart: parsed.scheduledStart ?? undefined,
+          dueDate: parsed.dueDate ?? undefined,
+          source: resolveQuickCreateSource(input.source, {
+            tokenType: ctx.tokenType,
+            viaApiKey: !ctx.session?.user?.id,
+          }),
         },
-        select: {
-          id: true,
-          name: true,
-          priority: true,
-          status: true,
-          dueDate: true,
-          project: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-      });
+      );
+
+      // Same projection this procedure has always returned.
+      const action = {
+        id: created.id,
+        name: created.name,
+        priority: created.priority,
+        status: created.status,
+        dueDate: created.dueDate,
+        project: created.project
+          ? { id: created.project.id, name: created.project.name }
+          : null,
+      };
 
       return {
         success: true,
