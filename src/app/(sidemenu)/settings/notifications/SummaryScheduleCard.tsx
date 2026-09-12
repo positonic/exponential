@@ -112,7 +112,8 @@ export function SummaryScheduleCard() {
             Summary schedule
           </Title>
           <Text size="sm" className="text-text-muted" maw={520}>
-            When your Daily and Weekly summaries are sent. Which channels
+            When your Daily and Weekly summaries are sent. The weekly summary
+            goes out at the same time on the day you pick. Which channels
             receive them is the &quot;Summaries&quot; option above.
           </Text>
         </div>
