@@ -649,6 +649,8 @@ export const actionRouter = createTRPCRouter({
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).optional(),
         kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
         epicId: z.string().nullable().optional(),
+        /** Link to a Ticket whose product lives in the action's workspace; null unlinks. */
+        ticketId: z.string().nullable().optional(),
         effortEstimate: z.number().min(0).nullable().optional(),
         blockedByIds: z.array(z.string()).optional(),
         // Bounty fields
@@ -760,6 +762,25 @@ export const actionRouter = createTRPCRouter({
           ctx.session.user.id,
           updateData.workspaceId,
         );
+      }
+
+      // A Ticket link is a second read path into another product's data, so
+      // the ticket must belong to a product in the action's own workspace
+      // (the workspace it is moving to, else the one it lives in). Mismatches
+      // are NOT_FOUND so the error does not confirm the id exists elsewhere.
+      if (updateData.ticketId) {
+        const effectiveWorkspaceId =
+          updateData.workspaceId ??
+          currentAction?.workspaceId ??
+          currentAction?.project?.workspaceId ??
+          null;
+        const ticket = await ctx.db.ticket.findUnique({
+          where: { id: updateData.ticketId },
+          select: { product: { select: { workspaceId: true } } },
+        });
+        if (!ticket || !effectiveWorkspaceId || ticket.product.workspaceId !== effectiveWorkspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
       }
 
       // Same-workspace guard as create, resolved against the workspace the
