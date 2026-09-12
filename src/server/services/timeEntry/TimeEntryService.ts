@@ -26,6 +26,11 @@ import type {
   TimeEntryStatus,
 } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import {
+  appendReference,
+  reconcileProposed,
+  type ProposedPiece,
+} from "./reconcile";
 
 export type TimeEntryWithAction = Prisma.TimeEntryGetPayload<{
   include: {
@@ -83,7 +88,26 @@ interface GetActiveInput {
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export type UpsertOutcome = "created" | "updated" | "left";
+/**
+ * `created` / `updated`: proposed pieces were written; `left`: a CONFIRMED
+ * row already carries this ref and was not touched; `merged`: manual time on
+ * the same Action covers it, so the manual entries were annotated instead;
+ * `dropped`: manual time on other Actions covered every minute.
+ */
+export type UpsertOutcome = "created" | "updated" | "left" | "merged" | "dropped";
+
+export interface UpsertResult {
+  /** The first written piece, or the untouched CONFIRMED row; null for merged/dropped. */
+  entry: TimeEntryWithAction | null;
+  outcome: UpsertOutcome;
+  /** Every piece written (one, or several when manual time split the proposal). */
+  pieces: TimeEntryWithAction[];
+  /** Manual entry ids that now carry the conversation reference in their note. */
+  mergedInto: string[];
+}
+
+/** Manual time for reconciliation: the Timer's legacy stamp and hand-made entries. */
+const MANUAL_SOURCES = ["plugin", "manual"];
 
 const ACTION_INCLUDE = {
   action: {
@@ -277,43 +301,116 @@ export class TimeEntryService {
 
   /**
    * Idempotent write keyed on `(userId, sourceRef)` — the Daily worklog's
-   * re-run path. Outcomes:
+   * re-run path — with manual time applied first (`reconcile.ts`):
    *
-   *  - no row for the ref            → `create`, outcome "created"
-   *  - row exists and is PROPOSED    → start, end, action, source and note
-   *                                     are replaced, outcome "updated"
-   *  - row exists and is CONFIRMED   → returned untouched, outcome "left"
-   *                                     (confirmed entries are never re-touched,
-   *                                     decision 2026-09-12)
+   *  - a CONFIRMED row already carries this ref (or a piece of it) → "left";
+   *    confirmed entries are never re-touched (decision 2026-09-12)
+   *  - manual time on the SAME Action overlaps → "merged": nothing is
+   *    written, the manual entries' notes gain the conversation reference,
+   *    and any earlier proposed rows for this ref are removed
+   *  - otherwise the proposal (clipped by manual time on other Actions, see
+   *    `reconcileProposed`) is written as one or more pieces, each keyed by
+   *    the ref (`<ref>#a`, `<ref>#b` when split); existing PROPOSED pieces
+   *    are updated in place and stale ones removed → "created"/"updated",
+   *    or "dropped" when nothing remains
    *
-   * A PROPOSED row carries no `timeSpentMins` contribution, so the update
-   * needs no arithmetic. `workspaceId` follows the (possibly new) Action.
+   * Reconciliation applies to Proposed time only: a human logging a
+   * CONFIRMED entry with a ref is writing manual time, not a proposal.
+   * Manual entries never have their start, end, Action or owner changed.
    */
   async upsertBySourceRef(
     input: CreateInput & { sourceRef: string },
-  ): Promise<{ entry: TimeEntryWithAction; outcome: UpsertOutcome }> {
+  ): Promise<UpsertResult> {
     if (input.endedAt.getTime() <= input.startedAt.getTime()) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "endedAt must be after startedAt",
       });
     }
+    const { userId, sourceRef } = input;
 
-    const existing = await this.db.timeEntry.findUnique({
+    const foreign = await this.db.timeEntry.findFirst({
+      where: { sourceRef, userId: { not: userId } },
+      select: { id: true },
+    });
+    if (foreign) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "This sourceRef is already claimed by another user",
+      });
+    }
+
+    // Every row this ref has produced before: the ref itself and its pieces.
+    const family = await this.db.timeEntry.findMany({
       where: {
-        userId_sourceRef: { userId: input.userId, sourceRef: input.sourceRef },
+        userId,
+        OR: [{ sourceRef }, { sourceRef: { startsWith: `${sourceRef}#` } }],
       },
       include: ACTION_INCLUDE,
     });
-
-    if (!existing) {
-      // `create` re-checks the cross-user collision before writing.
-      const entry = await this.create(input);
-      return { entry, outcome: "created" };
+    const confirmed = family.find((row) => row.status === "CONFIRMED");
+    if (confirmed) {
+      return { entry: confirmed, outcome: "left", pieces: [], mergedInto: [] };
     }
 
-    if (existing.status === "CONFIRMED") {
-      return { entry: existing, outcome: "left" };
+    let pieces: ProposedPiece[] = [
+      {
+        actionId: input.actionId,
+        startMs: input.startedAt.getTime(),
+        endMs: input.endedAt.getTime(),
+        sourceRef,
+      },
+    ];
+
+    if (input.status === "PROPOSED") {
+      const manual = await this.db.timeEntry.findMany({
+        where: {
+          userId,
+          source: { in: MANUAL_SOURCES },
+          startedAt: { lt: input.endedAt },
+          OR: [{ endedAt: null }, { endedAt: { gt: input.startedAt } }],
+        },
+        select: { id: true, actionId: true, startedAt: true, endedAt: true, note: true },
+      });
+      const now = Date.now();
+      const verdict = reconcileProposed(
+        manual.map((m) => ({
+          id: m.id,
+          actionId: m.actionId,
+          startMs: m.startedAt.getTime(),
+          endMs: m.endedAt?.getTime() ?? now,
+        })),
+        pieces[0]!,
+      );
+
+      if (verdict.kind === "merge") {
+        // The only write the routine may make to manual time: provenance.
+        for (const id of verdict.mergeInto) {
+          const target = manual.find((m) => m.id === id)!;
+          await this.db.timeEntry.update({
+            where: { id },
+            data: { note: appendReference(target.note, sourceRef) },
+          });
+        }
+        if (family.length > 0) {
+          await this.db.timeEntry.deleteMany({
+            where: { id: { in: family.map((row) => row.id) } },
+          });
+        }
+        return { entry: null, outcome: "merged", pieces: [], mergedInto: verdict.mergeInto };
+      }
+      pieces = verdict.pieces;
+    }
+
+    const keep = new Set(pieces.map((piece) => piece.sourceRef));
+    const stale = family.filter((row) => !keep.has(row.sourceRef ?? ""));
+    if (stale.length > 0) {
+      await this.db.timeEntry.deleteMany({
+        where: { id: { in: stale.map((row) => row.id) } },
+      });
+    }
+    if (pieces.length === 0) {
+      return { entry: null, outcome: "dropped", pieces: [], mergedInto: [] };
     }
 
     const action = await this.db.action.findUnique({
@@ -324,20 +421,106 @@ export class TimeEntryService {
       throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
     }
 
-    const entry = await this.db.timeEntry.update({
-      where: { id: existing.id },
-      data: {
-        actionId: action.id,
-        workspaceId: action.workspaceId,
-        startedAt: input.startedAt,
-        endedAt: input.endedAt,
-        source: input.source,
-        note: input.note ?? null,
-        createdByAgentId: input.createdByAgentId ?? null,
-      },
-      include: ACTION_INCLUDE,
+    const written: TimeEntryWithAction[] = [];
+    let updatedAny = false;
+    for (const piece of pieces) {
+      const existing = family.find((row) => row.sourceRef === piece.sourceRef);
+      if (existing) {
+        updatedAny = true;
+        written.push(
+          await this.db.timeEntry.update({
+            where: { id: existing.id },
+            data: {
+              actionId: action.id,
+              workspaceId: action.workspaceId,
+              startedAt: new Date(piece.startMs),
+              endedAt: new Date(piece.endMs),
+              source: input.source,
+              note: input.note ?? null,
+              createdByAgentId: input.createdByAgentId ?? null,
+            },
+            include: ACTION_INCLUDE,
+          }),
+        );
+      } else {
+        written.push(
+          await this.create({
+            ...input,
+            startedAt: new Date(piece.startMs),
+            endedAt: new Date(piece.endMs),
+            sourceRef: piece.sourceRef,
+          }),
+        );
+      }
+    }
+    return {
+      entry: written[0] ?? null,
+      outcome: updatedAny ? "updated" : "created",
+      pieces: written,
+      mergedInto: [],
+    };
+  }
+
+  /**
+   * Confirm a day: every PROPOSED entry of the owner's whose start falls in
+   * `[dayStart, dayEnd)` becomes CONFIRMED and each affected Action's
+   * `timeSpentMins` is incremented ONCE by the sum of its newly-confirmed
+   * durations, all in one transaction; one `time_entry` activity event per
+   * entry is emitted after commit. Confirmation is the only path that moves
+   * spent time for Proposed time (ADR-0061). A day with nothing proposed
+   * returns `{ confirmed: 0 }`, not an error. Human-only at the router.
+   */
+  async confirmDay(input: {
+    userId: string;
+    dayStart: Date;
+    dayEnd: Date;
+    workspaceId?: string | null;
+  }): Promise<{ confirmed: number }> {
+    const confirmedRows = await this.db.$transaction(async (tx) => {
+      const rows = await tx.timeEntry.findMany({
+        where: {
+          userId: input.userId,
+          status: "PROPOSED",
+          startedAt: { gte: input.dayStart, lt: input.dayEnd },
+          endedAt: { not: null },
+          ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+        },
+        include: { action: { select: { name: true } } },
+      });
+      if (rows.length === 0) return rows;
+
+      await tx.timeEntry.updateMany({
+        where: { id: { in: rows.map((row) => row.id) } },
+        data: { status: "CONFIRMED" },
+      });
+
+      const minutesByAction = new Map<string, number>();
+      for (const row of rows) {
+        const mins = durationMinutes(row.startedAt, row.endedAt!);
+        minutesByAction.set(row.actionId, (minutesByAction.get(row.actionId) ?? 0) + mins);
+      }
+      for (const [actionId, mins] of minutesByAction) {
+        if (mins > 0) {
+          await tx.action.update({
+            where: { id: actionId },
+            data: { timeSpentMins: { increment: mins } },
+          });
+        }
+      }
+      return rows;
     });
-    return { entry, outcome: "updated" };
+
+    for (const row of confirmedRows) {
+      await this.recordTracked({
+        userId: row.userId,
+        workspaceId: row.workspaceId,
+        actionId: row.actionId,
+        actionName: row.action.name,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt!,
+      });
+    }
+    return { confirmed: confirmedRows.length };
   }
 
   /**
@@ -436,6 +619,12 @@ export class TimeEntryService {
    *  - Range-edited + same action + completed: increment new action by
    *    (new − old) (signed; may be negative).
    *
+   * Edit is confirmation (ADR-0061): a PROPOSED entry becomes CONFIRMED by
+   * being edited, and since Proposed time never contributed to
+   * `timeSpentMins`, its old duration counts as zero here — the arithmetic
+   * below then simply adds the new duration. The Daily worklog will not touch
+   * the entry again (`upsertBySourceRef` reports "left").
+   *
    * Throws NOT_FOUND for missing entries, FORBIDDEN for other users' entries,
    * BAD_REQUEST when `endedAt <= startedAt`.
    */
@@ -472,10 +661,13 @@ export class TimeEntryService {
         });
       }
 
-      // Compute old & new contributions to timeSpentMins.
-      const oldDurMins = existing.endedAt
-        ? durationMinutes(existing.startedAt, existing.endedAt)
-        : 0;
+      // Compute old & new contributions to timeSpentMins. A PROPOSED entry
+      // never contributed, so its baseline is zero.
+      const wasProposed = existing.status === "PROPOSED";
+      const oldDurMins =
+        existing.endedAt && !wasProposed
+          ? durationMinutes(existing.startedAt, existing.endedAt)
+          : 0;
       const newDurMins = newEndedAt
         ? durationMinutes(newStartedAt, newEndedAt)
         : 0;
@@ -503,6 +695,7 @@ export class TimeEntryService {
           endedAt: newEndedAt,
           actionId: newActionId,
           workspaceId: newWorkspaceId,
+          ...(wasProposed ? { status: "CONFIRMED" as const } : {}),
         },
         include: {
           action: {
@@ -548,7 +741,8 @@ export class TimeEntryService {
   /**
    * Permanently delete a time entry. Decrements its action's
    * `timeSpentMins` by the entry's recorded duration (running entries — those
-   * with no endedAt — contribute 0).
+   * with no endedAt — contribute 0, and so does a PROPOSED entry, which never
+   * counted; deleting one is its confirmation-and-removal in one step).
    */
   async delete(input: { userId: string; entryId: string }): Promise<{ id: string }> {
     return this.db.$transaction(async (tx) => {
@@ -565,9 +759,10 @@ export class TimeEntryService {
         });
       }
 
-      const dur = existing.endedAt
-        ? durationMinutes(existing.startedAt, existing.endedAt)
-        : 0;
+      const dur =
+        existing.endedAt && existing.status !== "PROPOSED"
+          ? durationMinutes(existing.startedAt, existing.endedAt)
+          : 0;
 
       await tx.timeEntry.delete({ where: { id: input.entryId } });
 

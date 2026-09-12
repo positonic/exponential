@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Badge, Group, Paper, Select, Stack, Text, Title } from "@mantine/core";
+import { Badge, Group, Paper, Select, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import {
   endOfDay,
@@ -16,6 +16,7 @@ import { api } from "~/trpc/react";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
 import { TimeReports } from "./TimeReports";
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
+import { flagForgottenTimers } from "~/lib/time/forgottenTimer";
 
 // Stable reference so the `entries` memo doesn't re-run on every render when
 // the query is undefined (a fresh `[]` literal would change identity).
@@ -174,6 +175,9 @@ export function TimePageContent() {
                   }),
                 0,
               );
+              // A manual entry ending over an hour after the day's last other
+              // activity is probably a Timer nobody stopped: flagged, never edited.
+              const forgotten = flagForgottenTimers(group.entries);
               return (
                 <div key={group.date.toISOString()}>
                   <Group justify="space-between" mb="xs">
@@ -227,6 +231,25 @@ export function TimePageContent() {
                                 >
                                   proposed
                                 </Badge>
+                              )}
+                              {forgotten.has(e.id) && (
+                                <Tooltip
+                                  label="Ends more than an hour after your last recorded activity that day. Left as you made it; edit it if the timer ran on."
+                                  withArrow
+                                  multiline
+                                  w={280}
+                                >
+                                  <Badge
+                                    size="xs"
+                                    variant="light"
+                                    color="orange"
+                                    ml={8}
+                                    className="align-middle"
+                                    data-flag="forgotten-timer"
+                                  >
+                                    forgotten timer?
+                                  </Badge>
+                                </Tooltip>
                               )}
                             </Text>
                             <Text size="xs" c="dimmed">

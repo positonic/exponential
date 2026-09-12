@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActionIcon,
+  Badge,
   Button,
   Group,
   Modal,
@@ -149,6 +150,15 @@ export function TimeEntryModal({
         title={
           <Group gap="xs">
             <Text fw={600}>Time entry</Text>
+            {entry.status === "PROPOSED" ? (
+              <Badge size="xs" variant="outline" color="yellow">
+                proposed
+              </Badge>
+            ) : (
+              <Badge size="xs" variant="light" color="green">
+                confirmed
+              </Badge>
+            )}
             <Tooltip label="Edit underlying action" withArrow>
               <ActionIcon
                 variant="subtle"
@@ -243,6 +253,24 @@ export function TimeEntryModal({
           <Text size="xs" c="dimmed">
             Duration: <span className="font-mono">{durationLabel}</span>
           </Text>
+
+          {entry.note && (
+            <div>
+              <Text size="xs" c="dimmed">
+                Note
+              </Text>
+              <Text size="sm" className="text-text-primary">
+                {entry.note}
+              </Text>
+            </div>
+          )}
+
+          {entry.status === "PROPOSED" && (
+            <Text size="xs" c="dimmed">
+              Proposed by the Daily worklog. Saving or deleting confirms it; the
+              worklog will not touch it again.
+            </Text>
+          )}
 
           <Group justify="space-between" mt="md">
             <Tooltip label="Delete entry" withArrow>

@@ -62,6 +62,28 @@ async function assertOwnerCanViewAction(
   }
 }
 
+/**
+ * Confirmation is a human act (ADR-0061). Keyed on the principal like
+ * `humanOnlyProcedure`: the token-type check is the fast path, the `isAgent`
+ * read catches a shadow user reaching here through any other token.
+ */
+async function assertHumanPrincipal(
+  db: PrismaClient,
+  userId: string,
+  tokenType: string | undefined,
+): Promise<void> {
+  const forbidden = new TRPCError({
+    code: "FORBIDDEN",
+    message: "Confirming a day is not available to external agents",
+  });
+  if (tokenType === "agent-key") throw forbidden;
+  const principal = await db.user.findUnique({
+    where: { id: userId },
+    select: { isAgent: true },
+  });
+  if (principal?.isAgent) throw forbidden;
+}
+
 const explicitEntryInput = z
   .object({
     actionId: z.string(),
@@ -211,6 +233,30 @@ export const timeEntryRouter = createTRPCRouter({
         sourceRef: input.sourceRef,
         note: input.note,
         createdByAgentId: principal.createdByAgentId,
+      });
+    }),
+
+  /**
+   * Confirm a day's Proposed time. `date` is the START of the day in the
+   * caller's timezone (the client sends local midnight); the window is the
+   * 24 hours from it. Human-only: confirmation turns a guess into a fact,
+   * so an agent principal is FORBIDDEN whichever way it authenticated.
+   */
+  confirmDay: apiKeyMiddleware
+    .input(
+      z.object({
+        date: z.coerce.date(),
+        workspaceId: z.string().nullish(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertHumanPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      const service = new TimeEntryService(ctx.db);
+      return service.confirmDay({
+        userId: ctx.userId,
+        dayStart: input.date,
+        dayEnd: new Date(input.date.getTime() + 24 * 60 * 60 * 1000),
+        workspaceId: input.workspaceId ?? null,
       });
     }),
 
