@@ -56,6 +56,9 @@ export const FIXTURE = {
   },
   /** An OPEN decision (open question) the `resolve` draft answers. */
   openQuestionStatement: "Should the peek drawer ship before the hover affordances?",
+  /** A workspace tag, so the create-action modals' tag picker has something to pick. */
+  tagName: "Fixture label",
+  tagSlug: "fixture-label",
 } as const;
 
 export interface SeededFixture {
@@ -87,6 +90,9 @@ export interface SeededFixture {
   occurrenceId: string;
   /** App-relative URL of the recorded meeting attached to that occurrence. */
   meetingUrl: string;
+  /** A workspace tag the create-action modals can attach. */
+  tagId: string;
+  tagName: string;
   /** The confirmed decision logged against that meeting. */
   decisionId: string;
   /** Its rendered label (`D-0001` on a fresh workspace). */
@@ -169,6 +175,22 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   await db.user.update({
     where: { id: user.id },
     data: { defaultWorkspaceId: workspace.id },
+  });
+
+  // One workspace tag. The create-action modals apply tags *after* the action
+  // exists, on a separate mutation, which is exactly the path that used to
+  // drop them - so the fixture needs a tag for that to be observable.
+  const tag = await db.tag.upsert({
+    where: { id: `${workspace.id}-fixture-label` },
+    update: { name: FIXTURE.tagName },
+    create: {
+      id: `${workspace.id}-fixture-label`,
+      name: FIXTURE.tagName,
+      slug: FIXTURE.tagSlug,
+      color: "brand-primary",
+      workspaceId: workspace.id,
+      createdById: user.id,
+    },
   });
 
   // A second workspace, so the fixture can express anything that only exists
@@ -738,6 +760,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
 
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    tagId: tag.id,
+    tagName: FIXTURE.tagName,
     ceremonyId: ceremony.id,
     occurrenceId: occurrence.id,
     meetingUrl: `/recording/${meeting.id}`,

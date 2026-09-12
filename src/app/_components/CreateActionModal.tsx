@@ -1,7 +1,7 @@
 import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useViewportSize } from '@mantine/hooks';
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
@@ -12,6 +12,7 @@ import type { ActionStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
+import { useActionAttachments } from '~/hooks/useActionAttachments';
 
 export function CreateActionModal({ viewName, projectId: propProjectId, children, initialName, onActionCreated, externalOpened, onExternalClose }: { viewName: string; projectId?: string; children?: React.ReactNode; initialName?: string; onActionCreated?: (actionId: string) => void; externalOpened?: boolean; onExternalClose?: () => void }) {
   const { data: session } = useSession();
@@ -69,33 +70,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
   const utils = api.useUtils();
   
-  // Assignment mutation for post-creation assignment
-  const assignMutation = api.action.assign.useMutation({
-    onError: (error) => {
-      console.error('Assignment failed:', error);
-    },
-  });
-
-  // List mutation for post-creation sprint assignment
-  const addToListMutation = api.list.addAction.useMutation({
-    onError: (error) => {
-      console.error('Sprint assignment failed:', error);
-    },
-  });
-
-  // Tag mutation for post-creation tagging
-  const setTagsMutation = api.tag.setActionTags.useMutation({
-    onError: (error) => {
-      console.error('Setting tags failed:', error);
-    },
-  });
-
-  // Screenshot upload mutation
-  const uploadImageMutation = api.action.uploadImage.useMutation({
-    onError: (error) => {
-      console.error('Screenshot upload failed:', error);
-    },
-  });
+  // Sprint / assignees / tags / screenshots, carried per submission.
+  const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
@@ -240,6 +216,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     },
 
     onError: (err, variables, context) => {
+      // This submission will never reach onSuccess; drop its attachments.
+      attachments.discard(variables);
+
       if (!context) return;
 
       // Restore all previous states
@@ -303,77 +282,27 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       await Promise.all(invalidatePromises);
     },
 
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Don't store data.id into createdActionId here. The modal is already
       // closed for this submission, and a stored value would race a new
       // compose cycle: if the user starts a second task before this success
       // fires, AssignActionModal would re-scope to the prior action's id and
-      // route the next assignee pick to the wrong task. Assignees for this
-      // action are applied below via pendingAssigneesRef.
+      // route the next assignee pick to the wrong task.
 
-      // Run all post-create attachments concurrently. Each mutation has its own
-      // onError handler that surfaces failures independently, so we don't need
-      // to gate the modal flow or a success toast on these completing - the
-      // optimistic row is already visible.
-      const pendingAssignees = pendingAssigneesRef.current;
-      const pendingScreenshots = pendingScreenshotsRef.current;
-      pendingAssigneesRef.current = [];
-      pendingScreenshotsRef.current = [];
-
-      const postCreatePromises: Promise<unknown>[] = [];
-
-      if (sprintListId) {
-        postCreatePromises.push(
-          addToListMutation.mutateAsync({ listId: sprintListId, actionId: data.id }),
-        );
-      }
-
-      if (pendingAssignees.length > 0) {
-        postCreatePromises.push(
-          assignMutation.mutateAsync({ actionId: data.id, userIds: pendingAssignees }),
-        );
-      }
-
-      if (selectedTagIds.length > 0) {
-        postCreatePromises.push(
-          setTagsMutation.mutateAsync({ actionId: data.id, tagIds: selectedTagIds }),
-        );
-      }
-
-      for (const screenshot of pendingScreenshots) {
-        postCreatePromises.push(
-          uploadImageMutation.mutateAsync({
-            actionId: data.id,
-            base64Data: screenshot.base64,
-          }),
-        );
-      }
-
-      // Fire-and-forget; per-mutation onError handlers already log failures.
-      void Promise.allSettled(postCreatePromises);
+      // This submission's own selections - not whatever is being composed now,
+      // and not the cleared form. See useActionAttachments.
+      attachments.apply(variables, data.id);
 
       onActionCreated?.(data.id);
       onExternalClose?.();
     },
   });
 
-  // Ref to hold screenshots for upload after action creation
-  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
-  // Ref to hold assignees so the post-create assign call can read them after
-  // selectedAssigneeIds state has been reset.
-  const pendingAssigneesRef = useRef<string[]>([]);
-
   const handleSubmit = () => {
     if (!name) return;
 
     // Close modal immediately for better UX
     close();
-
-    // Capture screenshots and assignees before resetting state. The
-    // post-create callbacks read these refs because the corresponding state
-    // is reset below before the mutation resolves.
-    pendingScreenshotsRef.current = [...pastedScreenshots];
-    pendingAssigneesRef.current = [...selectedAssigneeIds];
 
     // Prepare action data before resetting form
     const actionData = {
@@ -438,6 +367,15 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setBountyMaxClaimants(1);
     setBountyExternalUrl(null);
     setPastedScreenshots([]);
+
+    // File this submission's post-create work against the exact object handed
+    // to mutate(), which onSuccess gets back as its `variables`.
+    attachments.record(actionData, {
+      sprintListId,
+      assigneeIds: [...selectedAssigneeIds],
+      tagIds: [...selectedTagIds],
+      screenshots: [...pastedScreenshots],
+    });
 
     // Trigger mutation in background
     createAction.mutate(actionData);
