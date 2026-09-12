@@ -1098,3 +1098,85 @@ describe("TimeEntryService.confirmDay", () => {
     );
   });
 });
+
+describe("edit is confirmation (ADR-0061)", () => {
+  it("update on a PROPOSED entry confirms it and increments by the full new duration", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(buildProposed() as any); // 68 min proposed
+    const newEnd = new Date("2026-09-11T10:45:00Z"); // 83 min
+    dbMock.timeEntry.update.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildProposed({ status: "CONFIRMED", endedAt: newEnd }) as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.update({ userId: "user-1", entryId: "entry-1", endedAt: newEnd });
+
+    expect(result.status).toBe("CONFIRMED");
+    expect(dbMock.timeEntry.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "CONFIRMED", endedAt: newEnd }),
+      }),
+    );
+    // Old contribution was zero (proposed), so the whole 83 minutes land.
+    expect(dbMock.action.update).toHaveBeenCalledWith({
+      where: { id: "action-1" },
+      data: { timeSpentMins: { increment: 83 } },
+    });
+  });
+
+  it("reassigning a PROPOSED entry increments only the new Action", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(buildProposed() as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findUnique.mockResolvedValueOnce({ id: "action-2", workspaceId: "ws-2" } as any);
+    dbMock.timeEntry.update.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildProposed({ status: "CONFIRMED", actionId: "action-2" }) as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.update({ userId: "user-1", entryId: "entry-1", actionId: "action-2" });
+
+    expect(dbMock.action.update).toHaveBeenCalledTimes(1);
+    expect(dbMock.action.update).toHaveBeenCalledWith({
+      where: { id: "action-2" },
+      data: { timeSpentMins: { increment: 68 } },
+    });
+  });
+
+  it("a CONFIRMED entry keeps the signed-delta arithmetic and no status write", async () => {
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildProposed({ status: "CONFIRMED", source: "manual" }) as any,
+    );
+    const newEnd = new Date("2026-09-11T10:45:00Z");
+    dbMock.timeEntry.update.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildProposed({ status: "CONFIRMED", endedAt: newEnd }) as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.update({ userId: "user-1", entryId: "entry-1", endedAt: newEnd });
+
+    const data = (dbMock.timeEntry.update.mock.calls[0]?.[0] as { data: Record<string, unknown> }).data;
+    expect(data).not.toHaveProperty("status");
+    expect(dbMock.action.update).toHaveBeenCalledWith({
+      where: { id: "action-1" },
+      data: { timeSpentMins: { increment: 15 } },
+    });
+  });
+
+  it("deleting a PROPOSED entry decrements nothing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(buildProposed() as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.delete.mockResolvedValueOnce(buildProposed() as any);
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.delete({ userId: "user-1", entryId: "entry-1" });
+
+    expect(dbMock.timeEntry.delete).toHaveBeenCalledWith({ where: { id: "entry-1" } });
+    expect(dbMock.action.update).not.toHaveBeenCalled();
+  });
+});

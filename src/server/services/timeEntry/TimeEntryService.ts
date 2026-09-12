@@ -619,6 +619,12 @@ export class TimeEntryService {
    *  - Range-edited + same action + completed: increment new action by
    *    (new − old) (signed; may be negative).
    *
+   * Edit is confirmation (ADR-0061): a PROPOSED entry becomes CONFIRMED by
+   * being edited, and since Proposed time never contributed to
+   * `timeSpentMins`, its old duration counts as zero here — the arithmetic
+   * below then simply adds the new duration. The Daily worklog will not touch
+   * the entry again (`upsertBySourceRef` reports "left").
+   *
    * Throws NOT_FOUND for missing entries, FORBIDDEN for other users' entries,
    * BAD_REQUEST when `endedAt <= startedAt`.
    */
@@ -655,10 +661,13 @@ export class TimeEntryService {
         });
       }
 
-      // Compute old & new contributions to timeSpentMins.
-      const oldDurMins = existing.endedAt
-        ? durationMinutes(existing.startedAt, existing.endedAt)
-        : 0;
+      // Compute old & new contributions to timeSpentMins. A PROPOSED entry
+      // never contributed, so its baseline is zero.
+      const wasProposed = existing.status === "PROPOSED";
+      const oldDurMins =
+        existing.endedAt && !wasProposed
+          ? durationMinutes(existing.startedAt, existing.endedAt)
+          : 0;
       const newDurMins = newEndedAt
         ? durationMinutes(newStartedAt, newEndedAt)
         : 0;
@@ -686,6 +695,7 @@ export class TimeEntryService {
           endedAt: newEndedAt,
           actionId: newActionId,
           workspaceId: newWorkspaceId,
+          ...(wasProposed ? { status: "CONFIRMED" as const } : {}),
         },
         include: {
           action: {
@@ -731,7 +741,8 @@ export class TimeEntryService {
   /**
    * Permanently delete a time entry. Decrements its action's
    * `timeSpentMins` by the entry's recorded duration (running entries — those
-   * with no endedAt — contribute 0).
+   * with no endedAt — contribute 0, and so does a PROPOSED entry, which never
+   * counted; deleting one is its confirmation-and-removal in one step).
    */
   async delete(input: { userId: string; entryId: string }): Promise<{ id: string }> {
     return this.db.$transaction(async (tx) => {
@@ -748,9 +759,10 @@ export class TimeEntryService {
         });
       }
 
-      const dur = existing.endedAt
-        ? durationMinutes(existing.startedAt, existing.endedAt)
-        : 0;
+      const dur =
+        existing.endedAt && existing.status !== "PROPOSED"
+          ? durationMinutes(existing.startedAt, existing.endedAt)
+          : 0;
 
       await tx.timeEntry.delete({ where: { id: input.entryId } });
 
