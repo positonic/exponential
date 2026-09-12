@@ -46,9 +46,27 @@ async function holdCreateResponses(page: Page) {
   return { release, inFlight: () => started.length };
 }
 
+/**
+ * The two entry points that create an action. They are separate components
+ * with separate copies of this flow, which is how they drifted apart in the
+ * first place, so anything asserted here is asserted for both.
+ */
+const ENTRY_POINTS = [
+  {
+    label: "sidebar Create Action (GlobalAddTaskButton)",
+    url: `/w/${fixture.workspaceSlug}/projects`,
+    trigger: /Create Action/i,
+  },
+  {
+    label: "projects-tasks Add task (CreateActionModal)",
+    url: `/w/${fixture.workspaceSlug}/projects-tasks`,
+    trigger: /Add task/i,
+  },
+] as const;
+
 /** Opens the modal and types a name, leaving it ready to submit. */
-async function compose(page: Page, name: string) {
-  await page.getByRole("button", { name: /Create Action/i }).click();
+async function compose(page: Page, name: string, trigger = /Create Action/i) {
+  await page.getByRole("button", { name: trigger }).first().click();
   const nameBox = page.locator('form [contenteditable="true"]').first();
   await expect(nameBox).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
   await nameBox.click();
@@ -147,3 +165,55 @@ test("two creates in flight at once keep their own post-create attachments", asy
 
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
+
+/**
+ * Tags are applied on a *separate* mutation after the action exists, which is
+ * the path that used to lose them: one modal never sent them at all, and the
+ * other read them off state that submit had already cleared. Both now go
+ * through the same per-submission record, as does the sprint assignment that
+ * shared the second bug.
+ */
+for (const entry of ENTRY_POINTS) {
+  test(`tags selected before submit reach the created action - ${entry.label}`, async ({
+    page,
+  }) => {
+    const tagged: { actionId: string; tagIds: string[] }[] = [];
+    await page.route("**/api/trpc/tag.setActionTags**", async (route) => {
+      const body = route.request().postDataJSON() as Record<
+        string,
+        { json?: { actionId?: string; tagIds?: string[] } }
+      >;
+      for (const call of Object.values(body)) {
+        if (call?.json?.actionId) {
+          tagged.push({
+            actionId: call.json.actionId,
+            tagIds: call.json.tagIds ?? [],
+          });
+        }
+      }
+      await route.continue();
+    });
+
+    await page.goto(entry.url);
+    const nameBox = await compose(page, `tagged via ${entry.label}`, entry.trigger);
+
+    await page.getByRole("button", { name: "Tags", exact: true }).click();
+    const tagChip = page.getByText(fixture.tagName, { exact: true });
+    await expect(tagChip).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+    await tagChip.click();
+
+    // Dismiss via the popover's own Done. Selecting a tag re-renders the Tags
+    // button with a badge, so the footer row keeps moving while the popover is
+    // open and the submit button never settles enough to be clicked.
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "New action", exact: true }).click();
+    await expect(nameBox).toHaveCount(0, { timeout: 5_000 });
+
+    await expect.poll(() => tagged.length, { timeout: 15_000 }).toBe(1);
+    expect(tagged[0]!.tagIds).toEqual([fixture.tagId]);
+
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+  });
+}
