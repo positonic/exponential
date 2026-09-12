@@ -179,6 +179,91 @@ function generatePublicId(): string {
   return id;
 }
 
+/** How many linking pages one scan will look at. The reverse-link scan runs on
+ * every page open (it powers the breadcrumb), so it is bounded; callers that
+ * report a count say so when the bound was hit rather than reporting the bound
+ * as the answer. */
+const LINKER_SCAN_LIMIT = 20;
+
+/**
+ * The reverse-link scan: every page in the same workspace whose body links to
+ * `page.id` via a `pageLink` node, newest-edited first, restricted to the ones
+ * `userId` can view.
+ *
+ * Sub-pages are soft — there is no stored parent pointer (ADR-0033/0038) — so
+ * "what links here" is a scan, and it is deliberately the *only* one: the
+ * breadcrumb parent is its first element, the delete-impact count is its
+ * length, and the Links panel is the list itself.
+ *
+ * Two steps keep it cheap and correct. The pre-filter is a `jsonb_path_exists`
+ * for a `pageLink` node carrying this id, **not** a `::text LIKE` on the id:
+ * an id appears in a body for reasons that are not links — a pasted internal
+ * URL is a `link` mark whose href ends in the id, and prose can simply mention
+ * it — and with the scan bounded, enough of those crowd real linkers out of
+ * the window entirely, which would have the delete dialog report zero. Then
+ * {@link collectPageLinkIds} confirms each candidate, staying the one
+ * definition of "links here" (it walks `content` only, so it is the narrower
+ * of the two, which is the right way round for a pre-filter).
+ *
+ * View access is pushed into the second query via
+ * {@link buildKnowledgePageAccessWhere} — no per-candidate access resolution,
+ * the same one-round-trip shape `children` uses. It also means the result is
+ * *the caller's* view of the link graph; callers that show it to a user should
+ * say so.
+ *
+ * `capped` is true when the scan filled its window, i.e. there may be more.
+ */
+export async function findLinkingPages(
+  db: PrismaClient,
+  userId: string,
+  page: { id: string; workspaceId: string },
+): Promise<{
+  pages: { id: string; title: string; isPublic: boolean }[];
+  capped: boolean;
+}> {
+  // One row over the limit, purely to detect that there were more.
+  const rows = await db.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "KnowledgePage"
+    WHERE "workspaceId" = ${page.workspaceId}
+      AND "id" <> ${page.id}
+      AND jsonb_path_exists(
+            "bodyDoc",
+            '$.** ? (@.type == "pageLink" && @.attrs.pageId == $target)',
+            jsonb_build_object('target', ${page.id}::text)
+          )
+    ORDER BY "updatedAt" DESC
+    LIMIT ${LINKER_SCAN_LIMIT + 1}
+  `;
+  const capped = rows.length > LINKER_SCAN_LIMIT;
+  const window = capped ? rows.slice(0, LINKER_SCAN_LIMIT) : rows;
+  if (window.length === 0) return { pages: [], capped: false };
+
+  const candidates = await db.knowledgePage.findMany({
+    where: {
+      id: { in: window.map((r) => r.id) },
+      workspaceId: page.workspaceId,
+      ...buildKnowledgePageAccessWhere(userId),
+    },
+    select: { id: true, title: true, isPublic: true, bodyDoc: true },
+  });
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+
+  // Re-emit in the raw query's newest-edited-first order.
+  const pages: { id: string; title: string; isPublic: boolean }[] = [];
+  for (const { id } of window) {
+    const candidate = byId.get(id);
+    if (!candidate) continue;
+    const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
+    if (!links.includes(page.id)) continue;
+    pages.push({
+      id: candidate.id,
+      title: candidate.title,
+      isPublic: candidate.isPublic,
+    });
+  }
+  return { pages, capped };
+}
+
 /**
  * The publish core (ADR-0038), shared by `publish` and `publishMany`. Callers
  * must have already enforced edit access. First publish mints the immutable
@@ -467,12 +552,10 @@ export const pageRouter = createTRPCRouter({
   /**
    * The "parent" of a page for breadcrumbs: a page whose body links to this
    * one via a `pageLink` node. Sub-pages are soft — there is no stored parent
-   * pointer (ADR-0033/0038) — so this is a reverse lookup: scan same-workspace
-   * pages whose serialized `bodyDoc` mentions this id (cheap `::text` LIKE
-   * pre-filter), then confirm with {@link collectPageLinkIds} to reject
-   * incidental text matches, and gate on the caller's view access. A page can
-   * have several linkers; the newest-edited viewable one wins. Returns null
-   * when the page is top-level or has no viewable linker.
+   * pointer (ADR-0033/0038) — so this is the first element of the shared
+   * reverse-link scan ({@link findLinkingPages}): a page can have several
+   * linkers, and the newest-edited viewable one wins. Returns null when the
+   * page is top-level or has no viewable linker.
    */
   parentCrumb: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -481,46 +564,58 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
-      // Escape LIKE wildcards (`%` `_` `\`) so a pathological id can't broaden
-      // the pre-filter into a full-workspace scan. Postgres LIKE treats `\` as
-      // the escape char by default, so `\%`/`\_`/`\\` match those literals.
-      // (Titles still can't leak: every candidate is view-gated below.)
-      const likePattern = `%${input.id.replace(/[\\%_]/g, "\\$&")}%`;
-      const rows = await ctx.db.$queryRaw<{ id: string }[]>`
-        SELECT "id" FROM "KnowledgePage"
-        WHERE "workspaceId" = ${page.workspaceId}
-          AND "id" <> ${input.id}
-          AND "bodyDoc"::text LIKE ${likePattern}
-        ORDER BY "updatedAt" DESC
-        LIMIT 20
-      `;
-      if (rows.length === 0) return null;
+      const { pages } = await findLinkingPages(ctx.db, userId, page);
+      const parent = pages[0];
+      return parent ? { id: parent.id, title: parent.title } : null;
+    }),
 
-      const candidates = await ctx.db.knowledgePage.findMany({
-        where: { id: { in: rows.map((r) => r.id) } },
-        select: {
-          id: true,
-          title: true,
-          bodyDoc: true,
-          createdById: true,
-          projectId: true,
-          workspaceId: true,
-        },
-      });
-      const byId = new Map(candidates.map((c) => [c.id, c]));
+  /**
+   * What a hard delete would break, for the type-the-title confirmation on the
+   * Page actions menu. Three facts, all recoverable only by not deleting:
+   * pages whose bodies link here (their links go dead), sub-pages that lose
+   * their only parent and become top-level, and a public URL that stops
+   * resolving. Counts only — the dialog states the scale, not the names.
+   *
+   * Both counts are the *caller's* view of the graph, since both queries carry
+   * the view filter, and both are bounded by {@link LINKER_SCAN_LIMIT}.
+   * `linkedFromCapped` says the bound was hit, so the dialog can say "20+"
+   * rather than presenting a floor as the answer.
+   */
+  deleteImpact: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "view");
 
-      // Preserve the raw query's newest-edited-first order.
-      for (const { id } of rows) {
-        const candidate = byId.get(id);
-        if (!candidate) continue;
-        const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
-        if (!links.includes(input.id)) continue;
-        const access = await getKnowledgePageAccess(ctx.db, userId, candidate);
-        if (canViewKnowledgePage(access)) {
-          return { id: candidate.id, title: candidate.title };
-        }
-      }
-      return null;
+      const [linkers, self] = await Promise.all([
+        findLinkingPages(ctx.db, userId, page),
+        ctx.db.knowledgePage.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { bodyDoc: true, isPublic: true },
+        }),
+      ]);
+
+      // Sub-pages are the `pageLink` targets in this page's own body, already
+      // loaded — no second scan (mirrors `children`).
+      const childIds = collectPageLinkIds(self.bodyDoc as JSONContent | null);
+      const subpageCount =
+        childIds.length === 0
+          ? 0
+          : await ctx.db.knowledgePage.count({
+              where: {
+                id: { in: childIds },
+                workspaceId: page.workspaceId,
+                ...buildKnowledgePageAccessWhere(userId),
+              },
+            });
+
+      return {
+        linkedFromCount: linkers.pages.length,
+        linkedFromCapped: linkers.capped,
+        subpageCount,
+        isPublic: self.isPublic,
+      };
     }),
 
   /**
