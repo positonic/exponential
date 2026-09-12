@@ -2214,6 +2214,32 @@ body {
   margin: 0.5rem 0;
 }
 
+/* Underline, strike and highlight (the bubble menu's three extra marks).
+   Preflight leaves `u`/`s` decorations alone, but `mark`'s UA yellow is
+   unreadable in dark mode and ignores the theme — so it gets a token-derived
+   wash instead.
+
+   Same amber token as the comment highlight above, but at highlighter
+   strength rather than that wash's 22%: the two must not read alike, since
+   one is a formatting choice and the other means "there is a thread here". */
+.prd-document u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prd-document s {
+  text-decoration: line-through;
+}
+.prd-document mark {
+  background-color: color-mix(
+    in srgb,
+    var(--color-brand-warning) 55%,
+    transparent
+  );
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+
 /* PRD body lists - visible markers + Linear-style spacing.
    The editor sets `prose prose-invert`, but @tailwindcss/typography isn't
    installed, so those classes are inert and Tailwind Preflight strips list
@@ -2408,4 +2434,77 @@ body {
   --accent-crm: oklch(0.780 0.105 178);
   --accent-okr: oklch(0.800 0.110 88);
   --accent-due: oklch(0.715 0.120 20);
+}
+
+/* ==========================================================================
+   Print — "Export ▸ Print / Save as PDF" on a Page
+   ==========================================================================
+   The browser print dialog is the whole PDF export: no server render, no
+   second layout to keep in sync. What it needs is the reading column alone,
+   so this strips the app chrome and lets the column run the width of the
+   sheet.
+
+   Two ways in, deliberately: `[data-print="hide"]` is the explicit opt-out a
+   component sets on itself (the topbar, the page's own action row, the side
+   panel), and the selectors below cover the floating layers that live in
+   portals outside any of those subtrees. Anything unmarked prints. */
+@media print {
+  [data-print="hide"],
+  aside,
+  [data-thread-popover],
+  .mantine-Menu-dropdown,
+  .mantine-Popover-dropdown,
+  .mantine-Modal-root,
+  .mantine-Notifications-root,
+  .mantine-Tooltip-tooltip {
+    display: none !important;
+  }
+
+  /* Paper is light whatever the app's scheme is, so pull the handful of
+     tokens the reading column reads back to ink-on-paper. Keywords and
+     color-mix rather than the light palette's literals: one place to be
+     wrong instead of two. */
+  [data-mantine-color-scheme="dark"] {
+    --color-bg-primary: white;
+    --color-bg-secondary: white;
+    --color-bg-tertiary: white;
+    --color-bg-elevated: white;
+    --color-surface-primary: white;
+    --color-surface-secondary: white;
+    --color-surface-tertiary: white;
+    --color-text-primary: black;
+    --color-text-secondary: color-mix(in srgb, black 65%, white);
+    --color-text-muted: color-mix(in srgb, black 55%, white);
+    --color-border-primary: color-mix(in srgb, black 25%, white);
+    --color-border-secondary: color-mix(in srgb, black 15%, white);
+  }
+
+  html,
+  body {
+    background: white;
+    height: auto;
+  }
+
+  /* The shell reserves a 220px gutter for the (now hidden) sidebar. Only that
+     goes: <main>'s own padding is cancelled by the workspace wrapper's
+     negative bleed margin, so zeroing it too would drag the column off the
+     left edge of the sheet. */
+  main.sidebar-offset {
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  /* The reading column is centred and capped on screen (max-w-3xl); the sheet
+     already has margins, so let it use the full text block. */
+  [data-print="column"] {
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  /* Links keep their text but lose the on-screen colour, which prints grey. */
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
 }

@@ -22,10 +22,11 @@ import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand, type SlashCommandItem } from "~/lib/prd/slash-command";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { createSaveQueue } from "~/lib/prd/save-queue";
+import { uploadImageFile, type UploadImage } from "~/lib/prd/image-upload";
 import { PageLinkWithView } from "./PageLinkView";
+import { BlockTypeMenu } from "./BlockTypeMenu";
 import "@mantine/tiptap/styles.css";
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** Imperative handle the comment layer (or any host) needs from the engine. */
 export interface RichDocEditorHandle {
@@ -61,7 +62,7 @@ export interface RichDocEditorProps {
   /** Persist the one-time lazy migration of legacy Markdown → ProseMirror JSON. */
   onInitDoc?: (doc: JSONContent) => void;
   /** Upload a pasted/dropped image (base64 in, public URL out). */
-  uploadImage?: (base64Data: string) => Promise<{ url: string }>;
+  uploadImage?: UploadImage;
 
   // ───────── optional host layer (e.g. Feature comments) ─────────
   /** Extra Tiptap extensions layered on top of the shared set. */
@@ -189,42 +190,31 @@ export function RichDocEditor({
 
   // Image paste/drop handlers, built from the injected uploader. An uploaded
   // image is inserted as an inline `image` node (the codec serialises it to a
-  // Markdown image link).
+  // Markdown image link). The cap, the notifications and the base64 read live
+  // in `uploadImageFile`, shared with the `/image` block.
   const imageHandlers = useMemo(() => {
     if (!uploadImage) return null;
     const insertImage = (view: EditorView, file: File, pos?: number): boolean => {
       if (!file.type.startsWith("image/")) return false;
-      if (file.size > MAX_IMAGE_BYTES) {
-        notifications.show({
-          title: "Image too large",
-          message: "Please use an image under 5MB.",
-          color: "red",
-        });
-        return true;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result !== "string") return;
-        const base64 = result.split(",")[1];
-        if (!base64) return;
-        uploadImage(base64)
-          .then((res) => {
-            const { state } = view;
-            const node = state.schema.nodes.image?.create({ src: res.url });
-            if (!node) return;
-            const at = pos ?? state.selection.from;
-            view.dispatch(state.tr.insert(at, node));
-          })
-          .catch(() => {
-            notifications.show({
-              title: "Upload failed",
-              message: "Could not upload the image. Please try again.",
-              color: "red",
-            });
+      void uploadImageFile(file, uploadImage)
+        .then((url) => {
+          if (!url || view.isDestroyed) return;
+          const { state } = view;
+          const node = state.schema.nodes.image?.create({ src: url });
+          if (!node) return;
+          // A drop carries the position it was dropped at, which the document
+          // may have outgrown while the upload was in flight (an undo, a
+          // deleted block); an out-of-range insert throws.
+          const at = Math.min(pos ?? state.selection.from, state.doc.content.size);
+          view.dispatch(state.tr.insert(at, node));
+        })
+        .catch(() => {
+          notifications.show({
+            title: "Image not inserted",
+            message: "The upload finished but the image could not be placed.",
+            color: "red",
           });
-      };
-      reader.readAsDataURL(file);
+        });
       return true;
     };
     const firstImage = (list?: FileList | null): File | null => {
@@ -351,7 +341,12 @@ export function RichDocEditor({
         pageLink: PageLinkWithView,
       }),
       ...(editable
-        ? [SlashCommand.configure({ extraCommands: slashExtras ?? [] })]
+        ? [
+            SlashCommand.configure({
+              extraCommands: slashExtras ?? [],
+              ...(uploadImage ? { uploadImage } : {}),
+            }),
+          ]
         : []),
       ...(extraExtensions ?? []),
     ],
@@ -429,13 +424,14 @@ export function RichDocEditor({
             tippyOptions={{ duration: 150 }}
           >
             <RichTextEditor.ControlsGroup>
+              <BlockTypeMenu editor={editor} />
               <RichTextEditor.Bold />
               <RichTextEditor.Italic />
+              <RichTextEditor.Underline />
+              <RichTextEditor.Strikethrough />
+              <RichTextEditor.Highlight />
               <RichTextEditor.Code />
               <RichTextEditor.Link />
-              <RichTextEditor.H1 />
-              <RichTextEditor.H2 />
-              <RichTextEditor.H3 />
               <RichTextEditor.BulletList />
               <RichTextEditor.OrderedList />
               {bubbleExtras}
