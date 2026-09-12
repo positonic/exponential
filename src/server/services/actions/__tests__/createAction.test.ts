@@ -102,6 +102,7 @@ describe("createAction", () => {
       db.action.create.mockResolvedValue(createdRow());
 
       const result = await createAction(deps(db), {
+        source: "ui",
         name: "Ship it",
         workspaceId: WORKSPACE,
       });
@@ -134,7 +135,7 @@ describe("createAction", () => {
       stubWorkspaceRole(db, WORKSPACE, "viewer");
 
       await expect(
-        createAction(deps(db), { name: "Read-only", workspaceId: WORKSPACE }),
+        createAction(deps(db), { source: "ui", name: "Read-only", workspaceId: WORKSPACE }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
       expect(db.action.create).not.toHaveBeenCalled();
@@ -148,7 +149,7 @@ describe("createAction", () => {
       db.action.findFirst.mockResolvedValue(null);
 
       await expect(
-        createAction(deps(db), { name: "Trespass", projectId: "p1" }),
+        createAction(deps(db), { source: "ui", name: "Trespass", projectId: "p1" }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
       expect(db.action.create).not.toHaveBeenCalled();
@@ -158,7 +159,7 @@ describe("createAction", () => {
     it("needs no membership probe when neither project nor workspace is given", async () => {
       db.action.create.mockResolvedValue(createdRow({ workspaceId: null }));
 
-      await createAction(deps(db), { name: "Personal" });
+      await createAction(deps(db), { source: "ui", name: "Personal" });
 
       expect(db.workspaceUser.findUnique).not.toHaveBeenCalled();
       expect(db.action.create).toHaveBeenCalledTimes(1);
@@ -168,7 +169,7 @@ describe("createAction", () => {
 
     it("rejects malformed input with BAD_REQUEST before touching the database", async () => {
       await expect(
-        createAction(deps(db), { name: "" }),
+        createAction(deps(db), { source: "ui", name: "" }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
       expect(db.action.create).not.toHaveBeenCalled();
@@ -188,6 +189,7 @@ describe("createAction", () => {
       );
 
       await createAction(deps(db), {
+        source: "ui",
         name: "Scoped",
         projectId: "p1",
         workspaceId: "w-foreign",
@@ -210,7 +212,7 @@ describe("createAction", () => {
       db.action.findFirst.mockResolvedValue(null);
       db.action.create.mockResolvedValue(createdRow({ projectId: "p1" }));
 
-      await createAction(deps(db), { name: "First", projectId: "p1" });
+      await createAction(deps(db), { source: "ui", name: "First", projectId: "p1" });
 
       expect(db.action.create.mock.calls[0]![0]!.data).toMatchObject({
         kanbanStatus: "TODO",
@@ -222,7 +224,7 @@ describe("createAction", () => {
       stubWorkspaceRole(db, WORKSPACE, "member");
       db.action.create.mockResolvedValue(createdRow());
 
-      await createAction(deps(db), { name: "Inbox", workspaceId: WORKSPACE });
+      await createAction(deps(db), { source: "ui", name: "Inbox", workspaceId: WORKSPACE });
 
       const data = db.action.create.mock.calls[0]![0]!.data;
       expect(data).not.toHaveProperty("kanbanStatus");
@@ -253,6 +255,7 @@ describe("createAction", () => {
       stubAttachableWorkspace();
 
       const result = await createAction(deps(db), {
+        source: "ui",
         name: "Ship it",
         workspaceId: WORKSPACE,
         tagIds: [TAG, TAG],
@@ -284,7 +287,7 @@ describe("createAction", () => {
       db.tag.findMany.mockResolvedValue([] as never);
 
       await expect(
-        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE, tagIds: [TAG] }),
+        createAction(deps(db), { source: "ui", name: "Ship it", workspaceId: WORKSPACE, tagIds: [TAG] }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
       expect(db.$transaction).not.toHaveBeenCalled();
@@ -307,6 +310,7 @@ describe("createAction", () => {
 
       await expect(
         createAction(deps(db), {
+        source: "ui",
           name: "Ship it",
           workspaceId: WORKSPACE,
           assigneeIds: ["user-stranger"],
@@ -321,7 +325,7 @@ describe("createAction", () => {
       db.list.findUnique.mockResolvedValue({ id: SPRINT, workspaceId: "w-other" } as never);
 
       await expect(
-        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE, sprintListId: SPRINT }),
+        createAction(deps(db), { source: "ui", name: "Ship it", workspaceId: WORKSPACE, sprintListId: SPRINT }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
       expect(db.action.create).not.toHaveBeenCalled();
@@ -332,7 +336,7 @@ describe("createAction", () => {
       db.actionTag.createMany.mockRejectedValue(new Error("unique violation"));
 
       await expect(
-        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE, tagIds: [TAG] }),
+        createAction(deps(db), { source: "ui", name: "Ship it", workspaceId: WORKSPACE, tagIds: [TAG] }),
       ).rejects.toThrow("unique violation");
 
       // The row write happened inside the same callback that then threw, so
@@ -347,6 +351,7 @@ describe("createAction", () => {
       stubAttachableWorkspace();
 
       await createAction(deps(db), {
+        source: "ui",
         name: "Ship it",
         workspaceId: WORKSPACE,
         assigneeIds: [ACTOR, COLLEAGUE],
@@ -366,6 +371,7 @@ describe("createAction", () => {
       stubAttachableWorkspace();
 
       await createAction(deps(db), {
+        source: "ui",
         name: "Ship it",
         workspaceId: WORKSPACE,
         assigneeIds: [ACTOR],
@@ -376,6 +382,56 @@ describe("createAction", () => {
     });
   });
 
+  describe("source", () => {
+    it("stamps the named source on the row", async () => {
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      db.action.create.mockResolvedValue(createdRow());
+
+      await createAction(deps(db), { source: "voice", name: "Say it", workspaceId: WORKSPACE });
+
+      expect(db.action.create.mock.calls[0]![0]!.data).toMatchObject({ source: "voice" });
+    });
+
+    it("rejects a source outside the closed set with BAD_REQUEST before touching the database", async () => {
+      await expect(
+        createAction(deps(db), {
+          source: "ios-shortcut" as never,
+          name: "Legacy",
+          workspaceId: WORKSPACE,
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(db.workspaceUser.findUnique).not.toHaveBeenCalled();
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a missing source: nothing defaults silently", async () => {
+      await expect(
+        createAction(deps(db), { name: "Unnamed surface", workspaceId: WORKSPACE } as never),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("dates", () => {
+    it("refuses a time block that ends before it starts, with BAD_REQUEST and no row", async () => {
+      stubWorkspaceRole(db, WORKSPACE, "member");
+
+      await expect(
+        createAction(deps(db), {
+          source: "ui",
+          name: "Backwards",
+          workspaceId: WORKSPACE,
+          scheduledStart: new Date("2026-09-12T10:00:00.000Z"),
+          scheduledEnd: new Date("2026-09-12T09:00:00.000Z"),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+  });
+
   describe("side effects", () => {
     it("does not fail the create when recordActivity rejects", async () => {
       vi.mocked(recordActivity).mockRejectedValueOnce(new Error("instrumentation down"));
@@ -383,7 +439,7 @@ describe("createAction", () => {
       db.action.create.mockResolvedValue(createdRow());
 
       await expect(
-        createAction(deps(db), { name: "Ship it", workspaceId: WORKSPACE }),
+        createAction(deps(db), { source: "ui", name: "Ship it", workspaceId: WORKSPACE }),
       ).resolves.toMatchObject({ id: "a1" });
     });
   });

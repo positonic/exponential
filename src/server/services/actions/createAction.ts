@@ -9,6 +9,7 @@ import {
   canEditProject,
 } from "~/server/services/access/resolvers/projectResolver";
 import { assertWorkspaceScopedRefs } from "~/server/services/access/workspaceRefs";
+import { validateScheduledTimes } from "~/lib/dateUtils";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   logProjectActivity,
@@ -110,6 +111,9 @@ async function nextKanbanOrder(
  * tags, assignees and sprint membership, then the activity event and the
  * Assignment notification.
  *
+ * `source` is required and must be one of `ACTION_SOURCES`; a caller that
+ * cannot name its surface fails rather than defaulting.
+ *
  * Throws `TRPCError` (`FORBIDDEN`, `NOT_FOUND`, `BAD_REQUEST`) exactly as the
  * router procedures did, so tRPC callers pass errors through unchanged and
  * non-tRPC callers map them as they already map router errors.
@@ -138,6 +142,9 @@ export async function createAction(
   } = parsed.data;
   const uniqueTagIds = [...new Set(tagIds ?? [])];
   const uniqueAssigneeIds = [...new Set(assigneeIds ?? [])];
+
+  // Dates: a time block cannot end before it starts. BAD_REQUEST.
+  validateScheduledTimes(columns.scheduledStart, columns.scheduledEnd);
 
   // 1. Gate + workspace derivation + kanban seed. The project-scoped reads are
   //    independent, so they run in parallel.
@@ -229,7 +236,7 @@ export async function createAction(
         workspaceId: targetWorkspaceId ?? undefined,
         createdById: actor.userId,
         ...(columns.isBounty ? { bountyStatus: "OPEN" } : {}),
-        ...(source ? { source } : {}),
+        source,
         ...(kanbanSeed ?? {}),
       },
       include: createdActionInclude,

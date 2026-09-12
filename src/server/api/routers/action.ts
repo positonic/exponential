@@ -395,7 +395,7 @@ export const actionRouter = createTRPCRouter({
         ...input,
         // External-agent principals stamp their surface (ADR-0049); the *who*
         // is createdById (the agent's shadow user), the *how* is source.
-        ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
+        source: ctx.tokenType === "agent-key" ? "agent" : "ui",
       }),
     ),
 

@@ -17,7 +17,11 @@ export {
 export {
   actionWriteSchema,
   createActionInputSchema,
+  actionSourceSchema,
+  isActionSource,
+  ACTION_SOURCES,
   ACTION_STATUS_VALUES,
+  type ActionSource,
   type ActionWriteInput,
   type CreateActionInput,
 } from "./schema";

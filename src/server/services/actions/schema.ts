@@ -42,10 +42,42 @@ export const actionWriteSchema = z.object({
 
 export type ActionWriteInput = z.input<typeof actionWriteSchema>;
 
+/**
+ * The closed set of surfaces an Action can be created from, stored in the
+ * existing `Action.source` string column (no migration; validated here).
+ * Every create names one; nothing defaults silently.
+ *
+ * `daily-plan-prompt` is the idempotent "Do daily plan" prompt and stays
+ * distinct from `daily-plan` (a task converted from a daily plan): the prompt
+ * is deduplicated by `source` + due date, so sharing the value would make an
+ * ordinary planned task due today suppress the prompt.
+ */
+export const ACTION_SOURCES = [
+  "ui",
+  "ios",
+  "cli",
+  "voice",
+  "meeting",
+  "daily-plan",
+  "daily-plan-prompt",
+  "whatsapp",
+  "telegram",
+  "matrix",
+  "agent",
+] as const;
+
+export const actionSourceSchema = z.enum(ACTION_SOURCES);
+
+export type ActionSource = (typeof ACTION_SOURCES)[number];
+
+export function isActionSource(value: unknown): value is ActionSource {
+  return actionSourceSchema.safeParse(value).success;
+}
+
 /** `actionWriteSchema` plus the create-only extras. */
 export const createActionInputSchema = actionWriteSchema.extend({
-  /** Which surface the Action came from (`Action.source`). */
-  source: z.string().optional(),
+  /** Which surface the Action came from (`Action.source`). Required. */
+  source: actionSourceSchema,
   /** Tags to attach, written in the same transaction as the Action. */
   tagIds: z.array(z.string()).optional(),
   /** Users to assign, written in the same transaction as the Action. */
