@@ -434,6 +434,53 @@ describe("timeEntry.listByDateRange under an agent key", () => {
   });
 });
 
+describe("timeEntry.rememberResolution", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  it("an agent key is FORBIDDEN", async () => {
+    await expect(
+      agentCaller(db).timeEntry.rememberResolution({ titlePattern: "Ontology one-pager", projectId: "p1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.timeResolutionRule.upsert).not.toHaveBeenCalled();
+  });
+
+  it("a human upserts one rule per title, keyed on the trimmed title", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    db.project.findUnique.mockResolvedValue({
+      id: "p1",
+      createdById: OWNER_ID,
+      workspaceId: WS_ID,
+      teamId: null,
+      isPublic: false,
+      workspace: null,
+    } as never);
+    db.timeResolutionRule.upsert.mockResolvedValue({ id: "rule-1" } as never);
+
+    await humanCaller(db).timeEntry.rememberResolution({ titlePattern: "  Ontology one-pager ", projectId: "p1" });
+
+    expect(db.timeResolutionRule.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId_titlePattern: { userId: OWNER_ID, titlePattern: "Ontology one-pager" } },
+        create: expect.objectContaining({ projectId: "p1", ticketId: null }),
+      }),
+    );
+  });
+
+  it("needs exactly one of projectId or ticketId", async () => {
+    await expect(
+      humanCaller(db).timeEntry.rememberResolution({ titlePattern: "x", projectId: "p1", ticketId: "t1" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(humanCaller(db).timeEntry.rememberResolution({ titlePattern: "x" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+});
+
 describe("action.upsertBySource", () => {
   let db: DeepMockProxy<PrismaClient>;
 
@@ -505,6 +552,71 @@ describe("action.upsertBySource", () => {
         }),
       }),
     );
+  });
+
+  it("applies a remembered rule for the owner when the incoming Action has no Project or Ticket", async () => {
+    arrangeAgent(db);
+    db.action.findFirst.mockResolvedValue(null);
+    db.action.create.mockResolvedValue(created as never);
+    db.timeResolutionRule.findFirst.mockResolvedValue({
+      projectId: "proj-ontology",
+      ticketId: null,
+      project: { workspaceId: WS_ID },
+      ticket: null,
+    } as never);
+
+    await agentCaller(db).action.upsertBySource({
+      sourceType: "claude-session",
+      sourceId: "s2",
+      name: "Ontology one-pager",
+      workspaceId: WS_ID,
+    });
+
+    expect(db.timeResolutionRule.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: OWNER_ID,
+          titlePattern: { equals: "Ontology one-pager", mode: "insensitive" },
+        }),
+      }),
+    );
+    expect(db.action.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ projectId: "proj-ontology", kanbanStatus: "TODO" }),
+      }),
+    );
+  });
+
+  it("ignores a rule pointing at another workspace, and never consults rules when a link is given", async () => {
+    arrangeAgent(db);
+    db.action.findFirst.mockResolvedValue(null);
+    db.action.create.mockResolvedValue(created as never);
+    db.timeResolutionRule.findFirst.mockResolvedValue({
+      projectId: "proj-elsewhere",
+      ticketId: null,
+      project: { workspaceId: "ws-other" },
+      ticket: null,
+    } as never);
+
+    await agentCaller(db).action.upsertBySource({
+      sourceType: "claude-session",
+      sourceId: "s3",
+      name: "Ontology one-pager",
+      workspaceId: WS_ID,
+    });
+    const data = (db.action.create.mock.calls[0]?.[0] as { data: Record<string, unknown> }).data;
+    expect(data.projectId).toBeUndefined();
+
+    db.timeResolutionRule.findFirst.mockClear();
+    db.ticket.findUnique.mockResolvedValue({ product: { workspaceId: WS_ID } } as never);
+    await agentCaller(db).action.upsertBySource({
+      sourceType: "claude-session",
+      sourceId: "s4",
+      name: "Ontology one-pager",
+      workspaceId: WS_ID,
+      ticketId: "ticket-1",
+    });
+    expect(db.timeResolutionRule.findFirst).not.toHaveBeenCalled();
   });
 
   it("a human upsert assigns nobody", async () => {

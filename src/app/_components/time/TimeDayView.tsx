@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Badge,
   Button,
+  Checkbox,
   Group,
   Loader,
   Paper,
@@ -469,7 +470,9 @@ function ActionTicketTable({
 function AssignPicker({ row, onAssigned }: { row: ActionRow; onAssigned: () => Promise<void> }) {
   const [opened, setOpened] = useState(false);
   const [query, setQuery] = useState("");
+  const [remember, setRemember] = useState(true);
   const workspaceId = row.workspaceId ?? undefined;
+  const rememberResolution = api.timeEntry.rememberResolution.useMutation();
 
   const { data: projects = [] } = api.project.getAll.useQuery(
     { workspaceId },
@@ -489,11 +492,25 @@ function AssignPicker({ row, onAssigned }: { row: ActionRow; onAssigned: () => P
   );
 
   const update = api.action.update.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_data, vars) => {
       setOpened(false);
       setQuery("");
+      // Remembering is best-effort and separate from the assignment itself:
+      // the row is placed either way, and a failed rule save only means the
+      // next conversation with this title asks again.
+      if (remember && (vars.projectId || vars.ticketId)) {
+        await rememberResolution
+          .mutateAsync({ titlePattern: row.name, projectId: vars.projectId, ticketId: vars.ticketId })
+          .catch((err: Error) => {
+            notifications.show({ title: "Placed, but not remembered", message: err.message, color: "yellow" });
+          });
+      }
       await onAssigned();
-      notifications.show({ title: "Assigned", message: `${row.name} is placed.`, color: "green" });
+      notifications.show({
+        title: "Assigned",
+        message: remember ? `${row.name} is placed; the same title will land here next time.` : `${row.name} is placed.`,
+        color: "green",
+      });
     },
     onError: (err) => {
       notifications.show({ title: "Could not assign", message: err.message, color: "red" });
@@ -525,6 +542,12 @@ function AssignPicker({ row, onAssigned }: { row: ActionRow; onAssigned: () => P
             onChange={(e) => setQuery(e.currentTarget.value)}
             autoFocus
             rightSection={searching ? <Loader size={12} /> : null}
+          />
+          <Checkbox
+            size="xs"
+            label="Remember for conversations with this title"
+            checked={remember}
+            onChange={(e) => setRemember(e.currentTarget.checked)}
           />
           {!workspaceId && (
             <Text size="xs" c="dimmed">

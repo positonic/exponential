@@ -3583,6 +3583,32 @@ export const actionRouter = createTRPCRouter({
         ownerAssigneeId = agent?.ownerId ?? null;
       }
 
+      // A remembered answer (Daily worklog V4): when the incoming Action has
+      // no Project or Ticket, a TimeResolutionRule the owner saved for this
+      // exact title supplies one — but only inside this workspace, so a rule
+      // can never point a conversation at another workspace's data.
+      let projectId = input.projectId;
+      let ticketId = input.ticketId;
+      if (!projectId && !ticketId) {
+        const rule = await ctx.db.timeResolutionRule.findFirst({
+          where: {
+            userId: ownerAssigneeId ?? userId,
+            titlePattern: { equals: input.name.trim(), mode: "insensitive" },
+          },
+          select: {
+            projectId: true,
+            ticketId: true,
+            project: { select: { workspaceId: true } },
+            ticket: { select: { product: { select: { workspaceId: true } } } },
+          },
+        });
+        if (rule?.ticketId && rule.ticket?.product.workspaceId === input.workspaceId) {
+          ticketId = rule.ticketId;
+        } else if (rule?.projectId && rule.project?.workspaceId === input.workspaceId) {
+          projectId = rule.projectId;
+        }
+      }
+
       const include = {
         project: { select: { id: true, name: true, workspaceId: true } },
         ticket: { select: { id: true, number: true, shortId: true, productId: true } },
@@ -3610,8 +3636,8 @@ export const actionRouter = createTRPCRouter({
           data: {
             name: input.name,
             ...(input.description !== undefined ? { description: input.description } : {}),
-            ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
-            ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
+            ...(projectId !== undefined ? { projectId } : {}),
+            ...(ticketId !== undefined ? { ticketId } : {}),
             ...(ownerAssigneeId
               ? {
                   assignees: {
@@ -3633,14 +3659,14 @@ export const actionRouter = createTRPCRouter({
           name: input.name,
           description: input.description,
           workspaceId: input.workspaceId,
-          projectId: input.projectId ?? undefined,
-          ticketId: input.ticketId ?? undefined,
+          projectId: projectId ?? undefined,
+          ticketId: ticketId ?? undefined,
           sourceType: input.sourceType,
           sourceId: input.sourceId,
           createdById: userId,
           status: "ACTIVE",
           priority: "Quick",
-          ...(input.projectId ? { kanbanStatus: "TODO" } : {}),
+          ...(projectId ? { kanbanStatus: "TODO" } : {}),
           ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
           ...(ownerAssigneeId ? { assignees: { create: { userId: ownerAssigneeId } } } : {}),
         },
