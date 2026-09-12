@@ -63,18 +63,39 @@ export function reconcileProposed(
     return { kind: "merge", mergeInto: sameAction.map((m) => m.id), pieces: [] };
   }
 
-  return {
-    kind: "write",
-    mergeInto: [],
-    pieces: [
-      {
-        actionId: proposed.actionId,
-        startMs: proposed.startMs,
-        endMs: proposed.endMs,
-        sourceRef: proposed.sourceRef,
-      },
-    ],
-  };
+  // Manual time on OTHER Actions wins minute by minute: subtract every
+  // overlapping manual interval from the proposal. What survives may be one
+  // piece, several, or nothing.
+  let remaining: Array<{ startMs: number; endMs: number }> = [
+    { startMs: proposed.startMs, endMs: proposed.endMs },
+  ];
+  for (const m of touching) {
+    remaining = remaining.flatMap((piece) => {
+      if (!overlaps(piece, m)) return [piece];
+      const out: Array<{ startMs: number; endMs: number }> = [];
+      if (piece.startMs < m.startMs) out.push({ startMs: piece.startMs, endMs: m.startMs });
+      if (m.endMs < piece.endMs) out.push({ startMs: m.endMs, endMs: piece.endMs });
+      return out;
+    });
+  }
+  const kept = remaining.filter(
+    (piece) => piece.endMs - piece.startMs >= MIN_PIECE_MINUTES * 60_000,
+  );
+
+  // One surviving piece keeps the proposal's own ref (a clipped segment is
+  // still that segment); a split gets `#a`, `#b`, … so each piece has a
+  // stable key of its own for the next run.
+  const pieces: ProposedPiece[] = kept.map((piece, index) => ({
+    actionId: proposed.actionId,
+    startMs: piece.startMs,
+    endMs: piece.endMs,
+    sourceRef:
+      kept.length === 1
+        ? proposed.sourceRef
+        : `${proposed.sourceRef}#${String.fromCharCode(97 + index)}`,
+  }));
+
+  return { kind: "write", mergeInto: [], pieces };
 }
 
 /** Append a conversation reference to a manual entry's note, once. */

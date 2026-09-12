@@ -948,6 +948,69 @@ describe("TimeEntryService.upsertBySourceRef", () => {
     expect(dbMock.action.update).not.toHaveBeenCalled();
   });
 
+  it("manual time on another Action splits the proposal into #a/#b pieces and retires the stale whole", async () => {
+    const manualOther = {
+      id: "manual-2",
+      actionId: "action-9",
+      startedAt: new Date("2026-09-11T09:40:00Z"),
+      endedAt: new Date("2026-09-11T10:00:00Z"),
+      note: null,
+    };
+    // An earlier run wrote the whole segment; now manual time carves a hole.
+    arrange([buildProposed()], [manualOther]);
+    dbMock.timeEntry.create
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValueOnce(buildProposed({ id: "piece-a", sourceRef: "claude-session:s1#0#a" }) as any)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValueOnce(buildProposed({ id: "piece-b", sourceRef: "claude-session:s1#0#b" }) as any);
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.upsertBySourceRef(input);
+
+    expect(result.outcome).toBe("created");
+    expect(result.pieces.map((p) => p.id)).toEqual(["piece-a", "piece-b"]);
+    expect(dbMock.timeEntry.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["entry-1"] } } });
+    expect(dbMock.timeEntry.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceRef: "claude-session:s1#0#a",
+          startedAt: WL_START,
+          endedAt: new Date("2026-09-11T09:40:00Z"),
+        }),
+      }),
+    );
+    expect(dbMock.timeEntry.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceRef: "claude-session:s1#0#b",
+          startedAt: new Date("2026-09-11T10:00:00Z"),
+          endedAt: WL_END,
+        }),
+      }),
+    );
+    expect(dbMock.action.update).not.toHaveBeenCalled();
+  });
+
+  it("manual time on another Action covering everything → dropped, nothing written", async () => {
+    const manualOther = {
+      id: "manual-2",
+      actionId: "action-9",
+      startedAt: new Date("2026-09-11T09:00:00Z"),
+      endedAt: new Date("2026-09-11T11:00:00Z"),
+      note: null,
+    };
+    arrange([], [manualOther]);
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.upsertBySourceRef(input);
+
+    expect(result).toEqual({ entry: null, outcome: "dropped", pieces: [], mergedInto: [] });
+    expect(dbMock.timeEntry.create).not.toHaveBeenCalled();
+    expect(dbMock.timeEntry.update).not.toHaveBeenCalled();
+  });
+
   it("does not reconcile a CONFIRMED (human) write: manual time is not queried", async () => {
     arrange([], []);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
