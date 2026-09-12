@@ -1,6 +1,7 @@
 "use client";
 
-import { Badge, Group, Paper, Stack, Text, Title, Tooltip } from "@mantine/core";
+import { Badge, Button, Group, Paper, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import { format } from "date-fns";
 import {
   Bar,
@@ -39,9 +40,29 @@ interface TimeDayViewProps {
  * time on its own line, never inside either.
  */
 export function TimeDayView({ date, workspaceId, onEntryClick }: TimeDayViewProps) {
+  const utils = api.useUtils();
   const { data: report, isLoading } = api.timeEntry.dayReport.useQuery({
     date,
     workspaceId: workspaceId ?? undefined,
+  });
+  const confirmDay = api.timeEntry.confirmDay.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.timeEntry.dayReport.invalidate(),
+        utils.timeEntry.listByDateRange.invalidate(),
+      ]);
+      notifications.show({
+        title: "Day confirmed",
+        message:
+          result.confirmed === 0
+            ? "Nothing was proposed on this day."
+            : `${result.confirmed} ${result.confirmed === 1 ? "entry" : "entries"} confirmed.`,
+        color: "green",
+      });
+    },
+    onError: (err) => {
+      notifications.show({ title: "Could not confirm", message: err.message, color: "red" });
+    },
   });
 
   return (
@@ -80,6 +101,18 @@ export function TimeDayView({ date, workspaceId, onEntryClick }: TimeDayViewProp
                 Unassigned{" "}
                 <span className="font-mono text-text-primary">{report.unassignedCount}</span>
               </Text>
+              <Button
+                size="xs"
+                variant={report.proposedCount > 0 ? "filled" : "default"}
+                disabled={report.proposedCount === 0}
+                loading={confirmDay.isPending}
+                onClick={() =>
+                  confirmDay.mutate({ date, workspaceId: workspaceId ?? undefined })
+                }
+                data-testid="confirm-day"
+              >
+                Confirm day
+              </Button>
             </Group>
           )}
         </Group>
@@ -94,6 +127,8 @@ export function TimeDayView({ date, workspaceId, onEntryClick }: TimeDayViewProp
       {report && report.entries.length > 0 && (
         <LaneTimeline report={report} onEntryClick={onEntryClick} />
       )}
+
+      {report && report.byAction.length > 0 && <ActionTicketTable rows={report.byAction} />}
 
       {report && report.entries.length > 0 && (
         <Group gap="md" align="stretch" wrap="wrap">
@@ -296,6 +331,91 @@ function LaneTimeline({
             </div>
           ))}
         </div>
+      </div>
+    </Paper>
+  );
+}
+
+/**
+ * Each Action of the day joined to its Ticket — the "was this work tracked?"
+ * table. An Action with neither Ticket nor Project is marked Unassigned, the
+ * signal V4's picker acts on; the marker is a count in the header too.
+ */
+function ActionTicketTable({
+  rows,
+}: {
+  rows: Array<{
+    actionId: string;
+    name: string;
+    minutes: number;
+    agentRunMinutes: number;
+    productName: string | null;
+    projectName: string | null;
+    projectId: string | null;
+    ticket: { id: string; number: number; shortId: string | null; title: string } | null;
+    proposedCount: number;
+  }>;
+}) {
+  return (
+    <Paper p="md" radius="md" className="border-border-primary bg-surface-secondary">
+      <Title order={5} className="text-text-primary" mb="sm">
+        Actions and tickets
+      </Title>
+      <div className="overflow-x-auto">
+        <Table verticalSpacing="xs" className="min-w-[560px]">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Action</Table.Th>
+              <Table.Th>Ticket</Table.Th>
+              <Table.Th>Product</Table.Th>
+              <Table.Th ta="right">Attention</Table.Th>
+              <Table.Th ta="right">Agent-run</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {rows.map((r) => (
+              <Table.Tr key={r.actionId} data-unassigned={!r.ticket && !r.projectId}>
+                <Table.Td>
+                  <Text size="sm" className="text-text-primary">
+                    {r.name}
+                    {r.proposedCount > 0 && (
+                      <Badge size="xs" variant="outline" color="yellow" ml={6} className="align-middle">
+                        {r.proposedCount} proposed
+                      </Badge>
+                    )}
+                  </Text>
+                </Table.Td>
+                <Table.Td>
+                  {r.ticket ? (
+                    <Text size="sm" className="text-text-primary">
+                      <span className="font-mono">{r.ticket.shortId ?? `#${r.ticket.number}`}</span>{" "}
+                      <span className="text-text-secondary">{r.ticket.title}</span>
+                    </Text>
+                  ) : r.projectId ? (
+                    <Text size="sm" c="dimmed">
+                      no ticket · {r.projectName}
+                    </Text>
+                  ) : (
+                    <Badge size="xs" variant="light" color="orange">
+                      Unassigned
+                    </Badge>
+                  )}
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm" c="dimmed">
+                    {r.productName ?? "—"}
+                  </Text>
+                </Table.Td>
+                <Table.Td ta="right" className="font-mono">
+                  {formatMins(r.minutes)}
+                </Table.Td>
+                <Table.Td ta="right" className="font-mono">
+                  {r.agentRunMinutes > 0 ? formatMins(r.agentRunMinutes) : "—"}
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
       </div>
     </Paper>
   );
