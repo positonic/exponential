@@ -10,11 +10,21 @@
  *   - stop({ userId, entryId? })                   → stamps endedAt, resyncs Action.timeSpentMins
  *   - getActive({ userId })                        → currently running TimeEntry, if any
  *
- * Future slices (autocomplete pick, reassign, update, delete) layer on top.
+ * Daily worklog (ADR-0061):
+ *   - create({ userId, actionId, startedAt, endedAt, status, … }) → a completed
+ *     entry with explicit bounds; never touches the running Timer. `PROPOSED`
+ *     entries stay out of `Action.timeSpentMins` until confirmed.
+ *   - upsertBySourceRef(…)                          → idempotent create keyed
+ *     on (userId, sourceRef); a CONFIRMED match is never re-touched.
  */
 
 import { TRPCError } from "@trpc/server";
-import type { Prisma, PrismaClient, TimeEntry } from "@prisma/client";
+import type {
+  Prisma,
+  PrismaClient,
+  TimeEntry,
+  TimeEntryStatus,
+} from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 
 export type TimeEntryWithAction = Prisma.TimeEntryGetPayload<{
@@ -51,11 +61,35 @@ interface StopInput {
   entryId?: string;
 }
 
+export interface CreateInput {
+  /** Whose time it is — under an External agent, the agent's OWNER (ADR-0061). */
+  userId: string;
+  actionId: string;
+  startedAt: Date;
+  endedAt: Date;
+  /** "manual" | "claude-desktop" | "agent-run" (see CONTEXT.md "Time"). */
+  source: string;
+  status: TimeEntryStatus;
+  /** Idempotency key; unique per owner. */
+  sourceRef?: string | null;
+  note?: string | null;
+  /** The ExternalAgent that wrote the row; null for human-made entries. */
+  createdByAgentId?: string | null;
+}
+
 interface GetActiveInput {
   userId: string;
 }
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+export type UpsertOutcome = "created" | "updated" | "left";
+
+const ACTION_INCLUDE = {
+  action: {
+    select: { id: true, name: true, projectId: true, workspaceId: true },
+  },
+} as const;
 
 /**
  * The data a just-completed TimeEntry needs to surface as a `time_entry`
@@ -155,6 +189,155 @@ export class TimeEntryService {
     if (autoStopped) await this.recordTracked(autoStopped);
 
     return created;
+  }
+
+  /**
+   * Create a completed entry with explicit bounds. Unlike `start` this never
+   * calls `autoStopRunning`: a worklog written the next morning must not stop
+   * a Timer the owner is running right now.
+   *
+   * `workspaceId` is inherited from the Action. `Action.timeSpentMins` is
+   * incremented — and the `time_entry` activity event emitted — only for
+   * `CONFIRMED` entries; Proposed time is not a happening yet (ADR-0061).
+   *
+   * Throws BAD_REQUEST when `endedAt <= startedAt`, NOT_FOUND for a missing
+   * Action. Access is the router's job (owner-scoped, see timeEntryRouter).
+   */
+  async create(input: CreateInput): Promise<TimeEntryWithAction> {
+    if (input.endedAt.getTime() <= input.startedAt.getTime()) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "endedAt must be after startedAt",
+      });
+    }
+    if (input.sourceRef) {
+      await this.assertSourceRefFree(input.userId, input.sourceRef);
+    }
+
+    const created = await this.db.$transaction(async (tx) => {
+      const action = await tx.action.findUnique({
+        where: { id: input.actionId },
+        select: { id: true, workspaceId: true },
+      });
+      if (!action) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+      }
+
+      const entry = await tx.timeEntry.create({
+        data: {
+          userId: input.userId,
+          actionId: action.id,
+          workspaceId: action.workspaceId,
+          startedAt: input.startedAt,
+          endedAt: input.endedAt,
+          source: input.source,
+          status: input.status,
+          sourceRef: input.sourceRef ?? null,
+          note: input.note ?? null,
+          createdByAgentId: input.createdByAgentId ?? null,
+        },
+        include: {
+          action: {
+            select: {
+              id: true,
+              name: true,
+              projectId: true,
+              workspaceId: true,
+            },
+          },
+        },
+      });
+
+      if (input.status === "CONFIRMED") {
+        const mins = durationMinutes(input.startedAt, input.endedAt);
+        if (mins > 0) {
+          await tx.action.update({
+            where: { id: action.id },
+            data: { timeSpentMins: { increment: mins } },
+          });
+        }
+      }
+
+      return entry;
+    });
+
+    if (created.status === "CONFIRMED") {
+      await this.recordTracked({
+        userId: created.userId,
+        workspaceId: created.workspaceId,
+        actionId: created.actionId,
+        actionName: created.action.name,
+        startedAt: created.startedAt,
+        endedAt: created.endedAt!,
+      });
+    }
+
+    return created;
+  }
+
+  /**
+   * Idempotent write keyed on `(userId, sourceRef)` — the Daily worklog's
+   * re-run path. Outcomes:
+   *
+   *  - no row for the ref            → `create`, outcome "created"
+   *  - row exists and is PROPOSED    → start, end, action, source and note
+   *                                     are replaced, outcome "updated"
+   *  - row exists and is CONFIRMED   → returned untouched, outcome "left"
+   *                                     (confirmed entries are never re-touched,
+   *                                     decision 2026-09-12)
+   *
+   * A PROPOSED row carries no `timeSpentMins` contribution, so the update
+   * needs no arithmetic. `workspaceId` follows the (possibly new) Action.
+   */
+  async upsertBySourceRef(
+    input: CreateInput & { sourceRef: string },
+  ): Promise<{ entry: TimeEntryWithAction; outcome: UpsertOutcome }> {
+    if (input.endedAt.getTime() <= input.startedAt.getTime()) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "endedAt must be after startedAt",
+      });
+    }
+
+    const existing = await this.db.timeEntry.findUnique({
+      where: {
+        userId_sourceRef: { userId: input.userId, sourceRef: input.sourceRef },
+      },
+      include: ACTION_INCLUDE,
+    });
+
+    if (!existing) {
+      // `create` re-checks the cross-user collision before writing.
+      const entry = await this.create(input);
+      return { entry, outcome: "created" };
+    }
+
+    if (existing.status === "CONFIRMED") {
+      return { entry: existing, outcome: "left" };
+    }
+
+    const action = await this.db.action.findUnique({
+      where: { id: input.actionId },
+      select: { id: true, workspaceId: true },
+    });
+    if (!action) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+    }
+
+    const entry = await this.db.timeEntry.update({
+      where: { id: existing.id },
+      data: {
+        actionId: action.id,
+        workspaceId: action.workspaceId,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        source: input.source,
+        note: input.note ?? null,
+        createdByAgentId: input.createdByAgentId ?? null,
+      },
+      include: ACTION_INCLUDE,
+    });
+    return { entry, outcome: "updated" };
   }
 
   /**
@@ -480,6 +663,29 @@ export class TimeEntryService {
           },
         },
       },
+    });
+  }
+
+  /**
+   * Internal: a `sourceRef` names one conversation segment, which belongs to
+   * exactly one person. A ref already held by ANOTHER user is a CONFLICT (two
+   * owners cannot both claim the same segment), and so is a ref this user
+   * already holds when the caller asked to *create* rather than upsert — the
+   * `(userId, sourceRef)` unique index would reject it anyway; this turns the
+   * P2002 into a readable error before the write.
+   */
+  private async assertSourceRefFree(userId: string, sourceRef: string): Promise<void> {
+    const holder = await this.db.timeEntry.findFirst({
+      where: { sourceRef },
+      select: { userId: true },
+    });
+    if (!holder) return;
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        holder.userId === userId
+          ? "A time entry with this sourceRef already exists; use upsertBySourceRef to update it"
+          : "This sourceRef is already claimed by another user",
     });
   }
 

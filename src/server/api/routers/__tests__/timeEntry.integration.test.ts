@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller } from "~/test/trpc-helpers";
-import { createUser, createWorkspace } from "~/test/factories";
+import { createUser, createWorkspace, createAction } from "~/test/factories";
 
 describe("timeEntry router (E2E baseline)", () => {
   let db: ReturnType<typeof getTestDb>;
@@ -149,5 +149,52 @@ describe("timeEntry router (E2E baseline)", () => {
     const running = await db.timeEntry.findMany({ where: { userId: user.id, endedAt: null } });
     expect(running).toHaveLength(1);
     expect(running[0]!.id).toBe(resumed.id);
+  });
+
+  it("upsertBySourceRef twice with the same ref creates one PROPOSED row and leaves timeSpentMins alone", async () => {
+    // The (userId, sourceRef) unique index is the thing under test here —
+    // the only reason this case is an integration test (CLAUDE.md).
+    const user = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: user.id, slug: "te-worklog" });
+    const action = await createAction(db, {
+      createdById: user.id,
+      workspaceId: ws.id,
+      name: "Action modal close latency",
+    });
+    const caller = createTestCaller(user.id);
+
+    const first = await caller.timeEntry.upsertBySourceRef({
+      actionId: action.id,
+      startedAt: new Date("2026-09-11T09:22:00Z"),
+      endedAt: new Date("2026-09-11T10:30:00Z"),
+      source: "claude-desktop",
+      status: "PROPOSED",
+      sourceRef: "claude-session:s1#0",
+      note: "run 1",
+    });
+    const second = await caller.timeEntry.upsertBySourceRef({
+      actionId: action.id,
+      startedAt: new Date("2026-09-11T09:22:00Z"),
+      endedAt: new Date("2026-09-11T10:45:00Z"),
+      source: "claude-desktop",
+      status: "PROPOSED",
+      sourceRef: "claude-session:s1#0",
+      note: "run 2",
+    });
+
+    expect(first.outcome).toBe("created");
+    expect(second.outcome).toBe("updated");
+    expect(second.entry.id).toBe(first.entry.id);
+
+    const rows = await db.timeEntry.findMany({
+      where: { userId: user.id, sourceRef: "claude-session:s1#0" },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("PROPOSED");
+    expect(rows[0]!.note).toBe("run 2");
+    expect(rows[0]!.endedAt?.toISOString()).toBe("2026-09-11T10:45:00.000Z");
+
+    const refreshed = await db.action.findUnique({ where: { id: action.id } });
+    expect(refreshed?.timeSpentMins).toBe(0);
   });
 });

@@ -33,6 +33,9 @@ export interface CalendarTimeEntry {
   startedAt: Date;
   endedAt: Date | null;
   source: string;
+  /** PROPOSED rows come from the Daily worklog and await confirmation. */
+  status: "PROPOSED" | "CONFIRMED";
+  note: string | null;
   action: {
     id: string;
     name: string;

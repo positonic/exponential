@@ -692,3 +692,222 @@ describe("safeEndedAt", () => {
     expect(result.getTime()).toBeGreaterThan(startedAt.getTime());
   });
 });
+
+// ── Daily worklog (ADR-0061) ─────────────────────────────────────────
+
+const WL_START = new Date("2026-09-11T09:22:00Z");
+const WL_END = new Date("2026-09-11T10:30:00Z"); // 68 minutes
+
+function buildProposed(overrides: Record<string, unknown> = {}) {
+  return {
+    ...buildEntry({ startedAt: WL_START, endedAt: WL_END, source: "claude-desktop", workspaceId: "ws-1" }),
+    status: "PROPOSED",
+    sourceRef: "claude-session:s1#0",
+    note: null,
+    createdByAgentId: "agent-1",
+    action: { id: "action-1", name: "Review PR", projectId: null, workspaceId: "ws-1" },
+    ...overrides,
+  };
+}
+
+describe("TimeEntryService.create", () => {
+  beforeEach(() => {
+    dbMock.timeEntry.findFirst.mockResolvedValue(null); // no sourceRef holder
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findUnique.mockResolvedValue({ id: "action-1", workspaceId: "ws-1" } as any);
+  });
+
+  it("never touches the running Timer and never increments for a PROPOSED entry", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.create.mockResolvedValueOnce(buildProposed() as any);
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.create({
+      userId: "user-1",
+      actionId: "action-1",
+      startedAt: WL_START,
+      endedAt: WL_END,
+      source: "claude-desktop",
+      status: "PROPOSED",
+      sourceRef: "claude-session:s1#0",
+      createdByAgentId: "agent-1",
+    });
+
+    expect(result.status).toBe("PROPOSED");
+    // autoStopRunning would look for `endedAt: null` and update it — neither happens.
+    expect(dbMock.timeEntry.findFirst).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ endedAt: null }) }),
+    );
+    expect(dbMock.timeEntry.update).not.toHaveBeenCalled();
+    expect(dbMock.action.update).not.toHaveBeenCalled();
+    expect(recordActivity).not.toHaveBeenCalled();
+    expect(dbMock.timeEntry.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "user-1",
+          workspaceId: "ws-1", // inherited from the Action
+          status: "PROPOSED",
+          createdByAgentId: "agent-1",
+          sourceRef: "claude-session:s1#0",
+        }),
+      }),
+    );
+  });
+
+  it("increments timeSpentMins and emits the activity event only when CONFIRMED", async () => {
+    dbMock.timeEntry.create.mockResolvedValueOnce(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildProposed({ status: "CONFIRMED", createdByAgentId: null, source: "manual", sourceRef: null }) as any,
+    );
+
+    const svc = new TimeEntryService(dbMock);
+    await svc.create({
+      userId: "user-1",
+      actionId: "action-1",
+      startedAt: WL_START,
+      endedAt: WL_END,
+      source: "manual",
+      status: "CONFIRMED",
+    });
+
+    expect(dbMock.action.update).toHaveBeenCalledWith({
+      where: { id: "action-1" },
+      data: { timeSpentMins: { increment: 68 } },
+    });
+    expect(recordActivity).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({
+        workspaceId: "ws-1",
+        userId: "user-1",
+        entityType: "time_entry",
+        entityId: "action-1",
+        metadata: expect.objectContaining({ durationMins: 68 }),
+      }),
+    );
+  });
+
+  it("rejects endedAt <= startedAt with BAD_REQUEST before any write", async () => {
+    const svc = new TimeEntryService(dbMock);
+    await expect(
+      svc.create({
+        userId: "user-1",
+        actionId: "action-1",
+        startedAt: WL_END,
+        endedAt: WL_START,
+        source: "manual",
+        status: "CONFIRMED",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(dbMock.timeEntry.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a sourceRef another user holds with CONFLICT", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findFirst.mockResolvedValue({ userId: "user-2" } as any);
+    const svc = new TimeEntryService(dbMock);
+    await expect(
+      svc.create({
+        userId: "user-1",
+        actionId: "action-1",
+        startedAt: WL_START,
+        endedAt: WL_END,
+        source: "claude-desktop",
+        status: "PROPOSED",
+        sourceRef: "claude-session:theirs#0",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(dbMock.timeEntry.create).not.toHaveBeenCalled();
+  });
+
+  it("NOT_FOUND for a missing Action", async () => {
+    dbMock.action.findUnique.mockResolvedValue(null);
+    const svc = new TimeEntryService(dbMock);
+    await expect(
+      svc.create({
+        userId: "user-1",
+        actionId: "nope",
+        startedAt: WL_START,
+        endedAt: WL_END,
+        source: "manual",
+        status: "CONFIRMED",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("TimeEntryService.upsertBySourceRef", () => {
+  const input = {
+    userId: "user-1",
+    actionId: "action-1",
+    startedAt: WL_START,
+    endedAt: WL_END,
+    source: "claude-desktop",
+    status: "PROPOSED" as const,
+    sourceRef: "claude-session:s1#0",
+    createdByAgentId: "agent-1",
+  };
+
+  beforeEach(() => {
+    dbMock.timeEntry.findFirst.mockResolvedValue(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findUnique.mockResolvedValue({ id: "action-1", workspaceId: "ws-1" } as any);
+  });
+
+  it("creates when no row holds (userId, sourceRef)", async () => {
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.create.mockResolvedValueOnce(buildProposed() as any);
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.upsertBySourceRef(input);
+
+    expect(result.outcome).toBe("created");
+    expect(dbMock.timeEntry.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId_sourceRef: { userId: "user-1", sourceRef: "claude-session:s1#0" } },
+      }),
+    );
+  });
+
+  it("updates a PROPOSED match in place (bounds, action, note) with no spent-time arithmetic", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(buildProposed() as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findUnique.mockResolvedValue({ id: "action-2", workspaceId: "ws-2" } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.update.mockResolvedValueOnce(buildProposed({ actionId: "action-2", note: "run 2" }) as any);
+
+    const svc = new TimeEntryService(dbMock);
+    const later = new Date("2026-09-11T10:45:00Z");
+    const result = await svc.upsertBySourceRef({ ...input, actionId: "action-2", endedAt: later, note: "run 2" });
+
+    expect(result.outcome).toBe("updated");
+    expect(dbMock.timeEntry.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "entry-1" },
+        data: expect.objectContaining({
+          actionId: "action-2",
+          workspaceId: "ws-2",
+          startedAt: WL_START,
+          endedAt: later,
+          note: "run 2",
+        }),
+      }),
+    );
+    expect(dbMock.timeEntry.create).not.toHaveBeenCalled();
+    expect(dbMock.action.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves a CONFIRMED match untouched (confirmed entries are never re-touched)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.timeEntry.findUnique.mockResolvedValueOnce(buildProposed({ status: "CONFIRMED" }) as any);
+
+    const svc = new TimeEntryService(dbMock);
+    const result = await svc.upsertBySourceRef({ ...input, note: "run 3" });
+
+    expect(result.outcome).toBe("left");
+    expect(result.entry.status).toBe("CONFIRMED");
+    expect(dbMock.timeEntry.update).not.toHaveBeenCalled();
+    expect(dbMock.timeEntry.create).not.toHaveBeenCalled();
+  });
+});
