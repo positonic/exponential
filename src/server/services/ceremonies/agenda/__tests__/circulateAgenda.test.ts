@@ -71,6 +71,17 @@ describe("circulateAgenda", () => {
   });
 });
 
+describe("circulateAgenda on a skipped occurrence", () => {
+  it("never circulates, even when forced — the skip notice is the only word participants get", async () => {
+    emitNotification.mockClear();
+    const db = mockDeep<PrismaClient>();
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ ...occ, status: "SKIPPED", agendaCirculatedAt: null } as never);
+    expect(await circulateAgenda(db, "occ-1", { actorUserId: "u-1", now, force: true })).toEqual({ circulated: false });
+    expect(emitNotification).not.toHaveBeenCalled();
+    expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("sweepDueAgendas", () => {
   it("generates and circulates only occurrences inside their ceremony's lead time, isolating errors", async () => {
     const db = mockDeep<PrismaClient>();

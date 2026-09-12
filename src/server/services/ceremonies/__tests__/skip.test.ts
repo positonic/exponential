@@ -105,6 +105,20 @@ describe("skipOccurrence", () => {
     expect(result.status).toBe("SKIPPED");
   });
 
+  it("refuses to skip an occurrence that is already skipped, so the notice is never sent twice", async () => {
+    const mock = db();
+    mock.ceremonyOccurrence.findFirst.mockResolvedValue({
+      id: "occ-1",
+      status: "SKIPPED",
+      scheduledStart: new Date(),
+      ceremony: { id: "cer-1", name: "Daily Standup", timezone: "UTC" },
+    } as never);
+    await expect(
+      skipOccurrence(mock, { occurrenceId: "occ-1", workspaceId: "ws-1", reason: "again", actorUserId: "u-1" }),
+    ).rejects.toThrow(/already skipped/);
+    expect(mock.ceremonyOccurrence.update).not.toHaveBeenCalled();
+  });
+
   it("refuses to skip an occurrence that already happened", async () => {
     const mock = db();
     mock.ceremonyOccurrence.findFirst.mockResolvedValue({

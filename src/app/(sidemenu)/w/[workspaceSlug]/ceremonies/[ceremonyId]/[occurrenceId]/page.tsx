@@ -125,7 +125,7 @@ export default function OccurrencePage() {
               )}
             </Group>
           </div>
-          {occurrence.canGenerate && (
+          {occurrence.canGenerate && occurrence.status !== "SKIPPED" && (
             <Group gap="xs">
               <Button
                 variant="default"

@@ -598,6 +598,7 @@ describe("emitNotification — Agenda ready (ADR-0059)", () => {
       scheduledStart: new Date("2026-09-11T07:00:00Z"),
       status: "SKIPPED",
       skipReason: "Nothing on the agenda and nobody blocked",
+      updatedAt: new Date("2026-09-10T09:00:00Z"),
       agenda: { sections: [{ items: [] }] },
       agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
       updates: [],
@@ -627,10 +628,47 @@ describe("emitNotification — Agenda ready (ADR-0059)", () => {
           message: expect.stringContaining("Nothing on the agenda and nobody blocked"),
           // A skip notice must not collide with the agenda notice for the
           // same generation, or nobody is told the standup is off.
-          dedupeKey: expect.stringMatching(/^agenda_ready:occ-1:skipped:member/),
+          dedupeKey: expect.stringMatching(/^agenda_ready:occ-1:skipped:\d+:member/),
         }),
       }),
     );
+  });
+
+  it("a second skip after an undo gets a fresh dedupe key, so participants are told again", async () => {
+    const skipped = (updatedAt: Date) =>
+      ({
+        workspaceId: WORKSPACE.id,
+        scheduledStart: new Date("2026-09-11T07:00:00Z"),
+        status: "SKIPPED",
+        skipReason: "Nothing to cover",
+        updatedAt,
+        agenda: { sections: [{ items: [] }] },
+        agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+        updates: [],
+        ceremony: {
+          id: "cer-1",
+          name: "Daily Standup",
+          kind: "STANDUP",
+          timezone: "Europe/Berlin",
+          ownerId: "owner1",
+          teamId: null,
+          participants: [{ userId: "member1" }],
+          workspace: WORKSPACE,
+        },
+      }) as never;
+    db.teamUser.findMany.mockResolvedValue([] as never);
+
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(skipped(new Date("2026-09-10T09:00:00Z")));
+    await emitNotification({ category: NOTIFICATION_CATEGORIES.AGENDA_READY, actorUserId: "owner1", subject: { occurrenceId: "occ-1" }, db });
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(skipped(new Date("2026-09-10T09:30:00Z")));
+    await emitNotification({ category: NOTIFICATION_CATEGORIES.AGENDA_READY, actorUserId: "owner1", subject: { occurrenceId: "occ-1" }, db });
+
+    const rows = db.notification.create.mock.calls.map((c) => (c[0] as { data: { userId: string; dedupeKey: string } }).data);
+    const perRecipient = new Map<string, Set<string>>();
+    for (const r of rows) perRecipient.set(r.userId, (perRecipient.get(r.userId) ?? new Set()).add(r.dedupeKey));
+    expect(perRecipient.size).toBeGreaterThan(0);
+    // Every recipient was told twice, under two different keys.
+    for (const keys of perRecipient.values()) expect(keys.size).toBe(2);
   });
 
   it("drops a participant who is no longer a member of the workspace", async () => {

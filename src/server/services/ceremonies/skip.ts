@@ -88,6 +88,11 @@ export async function skipOccurrence(db: PrismaClient, input: SkipOccurrenceInpu
   if (occurrence.status === "CAPTURED" || occurrence.status === "FOLLOWED_THROUGH") {
     throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence already happened" });
   }
+  // A second skip would re-notify everyone (the notice is keyed per skip
+  // write); undo first if the reason needs changing.
+  if (occurrence.status === "SKIPPED") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence is already skipped" });
+  }
 
   const updated = await db.ceremonyOccurrence.update({
     where: { id: occurrence.id },
