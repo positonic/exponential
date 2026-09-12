@@ -1,33 +1,34 @@
 /**
  * Draft one participant's async-first update from their own activity
- * (ADR-0059, V3). V3 action 1 reads their Actions: what they completed since
- * the previous occurrence fills the "done" question, and what they still have
- * open fills "what next". Tickets and commits join as sources in action 2.
+ * (ADR-0059, V3). Each per-person question names the sources that fill it;
+ * this assembles their lines into Markdown bullets, running every source at
+ * most once however many questions ask for it.
  *
- * Deterministic-then-refine (ADR-0007): this is a query rendered as Markdown
- * bullets, never a generated narrative — every line names a record the
- * participant can open. A question with nothing behind it drafts as empty,
- * so the participant writes it themselves rather than reading a fabricated
- * summary of their day.
+ * Deterministic-then-refine (ADR-0007): the answer is a list of records the
+ * participant can point at, never a generated narrative. A question whose
+ * sources found nothing drafts empty, so they write it themselves rather than
+ * editing a plausible account of a day they didn't have.
  */
 import type { PrismaClient } from "@prisma/client";
-import type { PerPersonQuestion } from "./questions";
+import type { DraftSource, PerPersonQuestion } from "./questions";
+import {
+  commitLines,
+  completedActionLines,
+  openActionLines,
+  ticketMoveLines,
+  type ActivityWindow,
+} from "./sources";
 
-/** Actions worth listing under "what next" — an unbounded list is noise. */
-const OPEN_ACTION_LIMIT = 8;
-const COMPLETED_ACTION_LIMIT = 20;
+const SOURCE_QUERIES: Record<DraftSource, (db: PrismaClient, window: ActivityWindow) => Promise<string[]>> = {
+  "completed-actions": completedActionLines,
+  "open-actions": openActionLines,
+  "ticket-moves": ticketMoveLines,
+  commits: commitLines,
+};
 
-export interface DraftAnswersInput {
-  workspaceId: string;
-  userId: string;
+export interface DraftAnswersInput extends ActivityWindow {
   /** The ceremony's kind decides which questions exist. */
   questions: readonly PerPersonQuestion[];
-  /** Start of the window: the previous occurrence's start, when there is one. */
-  since: Date | null;
-  /** This occurrence's start; activity after it belongs to the next update. */
-  until: Date;
-  /** Narrows to the ceremony's project when it has one. */
-  projectId?: string | null;
 }
 
 export interface DraftAnswersResult {
@@ -36,53 +37,22 @@ export interface DraftAnswersResult {
   hasContent: boolean;
 }
 
-const bullets = (lines: string[]) => lines.map((line) => `- ${line}`).join("\n");
-
 export async function buildDraftAnswers(
   db: PrismaClient,
   input: DraftAnswersInput,
 ): Promise<DraftAnswersResult> {
-  const needs = new Set(input.questions.map((q) => q.draftFrom));
-  const projectScope = input.projectId ? { projectId: input.projectId } : {};
-  const assignedToThem = {
-    workspaceId: input.workspaceId,
-    assignees: { some: { userId: input.userId } },
-    ...projectScope,
-  };
+  const { questions, ...window } = input;
+  const wanted = new Set<DraftSource>(questions.flatMap((q) => q.draftFrom));
 
-  const completed = needs.has("completed-actions")
-    ? await db.action.findMany({
-        where: {
-          ...assignedToThem,
-          completedAt: { ...(input.since ? { gt: input.since } : {}), lte: input.until },
-        },
-        select: { id: true, name: true, completedAt: true },
-        orderBy: { completedAt: "asc" },
-        take: COMPLETED_ACTION_LIMIT,
-      })
-    : [];
+  const lines = new Map<DraftSource, string[]>();
+  for (const source of wanted) {
+    lines.set(source, await SOURCE_QUERIES[source](db, window));
+  }
 
-  const open = needs.has("open-actions")
-    ? await db.action.findMany({
-        where: { ...assignedToThem, status: "ACTIVE" },
-        select: { id: true, name: true, dueDate: true },
-        orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
-        take: OPEN_ACTION_LIMIT,
-      })
-    : [];
-
-  const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
   const answers: Record<string, string> = {};
-  for (const question of input.questions) {
-    if (question.draftFrom === "completed-actions" && completed.length > 0) {
-      answers[question.key] = bullets(completed.map((a) => a.name));
-    } else if (question.draftFrom === "open-actions" && open.length > 0) {
-      answers[question.key] = bullets(
-        open.map((a) => (a.dueDate ? `${a.name} (due ${a.dueDate.toLocaleDateString("en-GB", dateFmt)})` : a.name)),
-      );
-    } else {
-      answers[question.key] = "";
-    }
+  for (const question of questions) {
+    const bullets = question.draftFrom.flatMap((source) => lines.get(source) ?? []);
+    answers[question.key] = bullets.map((line) => `- ${line}`).join("\n");
   }
   return { answers, hasContent: Object.values(answers).some((v) => v.length > 0) };
 }

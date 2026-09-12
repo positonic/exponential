@@ -11,6 +11,9 @@
  */
 import type { CeremonyKind } from "@prisma/client";
 
+/** Activity a question can be drafted from; see `updates/sources.ts`. */
+export type DraftSource = "completed-actions" | "open-actions" | "ticket-moves" | "commits";
+
 export interface PerPersonQuestion {
   key: string;
   /** Shown as the field label on the occurrence page. */
@@ -18,10 +21,11 @@ export interface PerPersonQuestion {
   /** Placeholder when the participant has nothing drafted. */
   placeholder: string;
   /**
-   * Which draft source fills this question. `none` means the participant
-   * always writes it themselves — there is no record of a blocker to read.
+   * Which activity sources fill this question, in the order their lines are
+   * listed. Empty means the participant always writes it themselves — there
+   * is no record of a blocker to read.
    */
-  draftFrom: "completed-actions" | "open-actions" | "none";
+  draftFrom: readonly DraftSource[];
 }
 
 const STANDUP_QUESTIONS: readonly PerPersonQuestion[] = [
@@ -29,19 +33,19 @@ const STANDUP_QUESTIONS: readonly PerPersonQuestion[] = [
     key: "done",
     prompt: "What did you get done since the last standup?",
     placeholder: "Shipped the importer's dry-run pass…",
-    draftFrom: "completed-actions",
+    draftFrom: ["completed-actions", "ticket-moves", "commits"],
   },
   {
     key: "today",
     prompt: "What are you working on next?",
     placeholder: "Finishing the review queue…",
-    draftFrom: "open-actions",
+    draftFrom: ["open-actions"],
   },
   {
     key: "blockers",
     prompt: "Anything blocking you?",
     placeholder: "Waiting on the staging database credentials…",
-    draftFrom: "none",
+    draftFrom: [],
   },
 ];
 

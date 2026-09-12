@@ -13,9 +13,10 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
  * V3). Renders only for ceremony kinds that have per-person questions and
  * only for people who take part; everyone else sees nothing here.
  *
- * "Draft from my activity" fills empty answers from what the server found —
- * it never overwrites something already written, because a draft losing
- * someone's typed answer is worse than no draft at all.
+ * "Draft from my activity" fills empty answers from what the server found in
+ * their Actions, ticket moves and commits — it never overwrites something
+ * already written, because a draft losing someone's typed answer is worse
+ * than no draft at all.
  */
 export function OccurrenceUpdatePanel({
   workspaceId,
@@ -53,7 +54,7 @@ export function OccurrenceUpdatePanel({
         message:
           filled > 0
             ? "Edit anything that isn't right, then submit."
-            : "No completed or open actions found for you in this window.",
+            : "No actions, ticket moves or commits found for you since the last occurrence.",
         color: filled > 0 ? "green" : "yellow",
       });
       await invalidate();

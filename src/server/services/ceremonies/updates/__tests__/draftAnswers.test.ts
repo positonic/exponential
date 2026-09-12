@@ -11,6 +11,10 @@ const questions = perPersonQuestions("STANDUP");
 function db() {
   const mock = mockDeep<PrismaClient>();
   mock.action.findMany.mockResolvedValue([] as never);
+  mock.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
+  mock.ticket.findMany.mockResolvedValue([] as never);
+  mock.gitHubActivity.findMany.mockResolvedValue([] as never);
+  mock.integration.findFirst.mockResolvedValue(null as never);
   return mock;
 }
 
@@ -85,5 +89,105 @@ describe("buildDraftAnswers", () => {
     const mock = db();
     await buildDraftAnswers(mock, { workspaceId: "ws-1", userId: "u-1", questions: [], since, until });
     expect(mock.action.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("ticket and commit sources", () => {
+  it("lists a ticket's whole journey once, and only tickets assigned to the participant", async () => {
+    const mock = db();
+    mock.workspaceActivityEvent.findMany.mockResolvedValue([
+      { entityId: "t-1", metadata: { from: "BACKLOG", to: "IN_PROGRESS" }, createdAt: since },
+      { entityId: "t-1", metadata: { from: "IN_PROGRESS", to: "IN_REVIEW" }, createdAt: since },
+      { entityId: "t-2", metadata: { from: "BACKLOG", to: "DONE" }, createdAt: since },
+    ] as never);
+    mock.ticket.findMany.mockResolvedValue([
+      { id: "t-1", shortId: "opal.bobcat", number: 569, title: "Ceremonies V3" },
+    ] as never);
+    const { answers } = await buildDraftAnswers(mock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      questions,
+      since,
+      until,
+    });
+    expect(mock.ticket.findMany.mock.calls[0]![0]!.where).toMatchObject({ assigneeId: "u-1" });
+    expect(answers.done).toBe("- opal.bobcat Ceremonies V3 (backlog → in review)");
+  });
+
+  it("falls back to the ticket number when it has no short id", async () => {
+    const mock = db();
+    mock.workspaceActivityEvent.findMany.mockResolvedValue([
+      { entityId: "t-3", metadata: { from: "BACKLOG", to: "BACKLOG" }, createdAt: since },
+    ] as never);
+    mock.ticket.findMany.mockResolvedValue([{ id: "t-3", shortId: null, number: 42, title: "Nameless" }] as never);
+    const { answers } = await buildDraftAnswers(mock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      questions,
+      since,
+      until,
+    });
+    expect(answers.done).toBe("- #42 Nameless (backlog)");
+  });
+
+  it("matches commits through the participant's own github login", async () => {
+    const mock = db();
+    mock.integration.findFirst.mockResolvedValue({
+      credentials: [{ key: JSON.stringify({ githubUsername: "positonic" }) }],
+    } as never);
+    mock.gitHubActivity.findMany.mockResolvedValue([
+      { commitSha: "9ac790c", commitMessage: "feat(ceremonies): draft an update\n\nbody" },
+      { commitSha: null, commitMessage: "   " },
+    ] as never);
+    const { answers } = await buildDraftAnswers(mock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      questions,
+      since,
+      until,
+    });
+    expect(mock.gitHubActivity.findMany.mock.calls[0]![0]!.where).toMatchObject({
+      commitAuthor: { equals: "positonic", mode: "insensitive" },
+      eventTimestamp: { gt: since, lte: until },
+    });
+    expect(answers.done).toBe("- `9ac790c` feat(ceremonies): draft an update");
+  });
+
+  it("drafts no commits for someone with no github integration", async () => {
+    const mock = db();
+    await buildDraftAnswers(mock, { workspaceId: "ws-1", userId: "u-1", questions, since, until });
+    expect(mock.gitHubActivity.findMany).not.toHaveBeenCalled();
+  });
+
+  it("survives unreadable integration metadata", async () => {
+    const mock = db();
+    mock.integration.findFirst.mockResolvedValue({ credentials: [{ key: "not json" }] } as never);
+    const { answers } = await buildDraftAnswers(mock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      questions,
+      since,
+      until,
+    });
+    expect(answers.done).toBe("");
+    expect(mock.gitHubActivity.findMany).not.toHaveBeenCalled();
+  });
+
+  it("runs each source once however many questions ask for it", async () => {
+    const mock = db();
+    const twoAsks = [
+      { key: "a", prompt: "a", placeholder: "", draftFrom: ["completed-actions"] as const },
+      { key: "b", prompt: "b", placeholder: "", draftFrom: ["completed-actions"] as const },
+    ];
+    mock.action.findMany.mockResolvedValue([{ id: "a-1", name: "Ship it" }] as never);
+    const { answers } = await buildDraftAnswers(mock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      questions: twoAsks,
+      since,
+      until,
+    });
+    expect(mock.action.findMany).toHaveBeenCalledTimes(1);
+    expect(answers).toEqual({ a: "- Ship it", b: "- Ship it" });
   });
 });
