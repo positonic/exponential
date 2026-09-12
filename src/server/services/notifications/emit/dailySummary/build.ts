@@ -10,6 +10,7 @@ import {
   computeCycleRollup,
 } from "~/plugins/product/server/cycleRollup";
 import { buildTranscriptionAccessWhere } from "~/server/services/access";
+import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import {
   eventsOnLocalDay,
@@ -22,6 +23,7 @@ import type {
   DailySummaryActionItem,
   DailySummaryCycle,
   DailySummaryDigest,
+  DailySummaryTime,
   DailySummaryYesterdayItem,
 } from "./types";
 
@@ -288,6 +290,44 @@ async function loadCycleBlocks(
 }
 
 /**
+ * Yesterday's time for the Yesterday line: the same `dayReport` the `/time`
+ * Day tab renders (ADR-0059 — one builder, two renderers), scoped to the
+ * summary workspace when there is one. A failing report degrades to the
+ * empty state rather than costing the user the digest.
+ */
+async function loadYesterdayTime(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string | null,
+  window: SummaryWindow,
+  baseUrl: string,
+): Promise<DailySummaryTime | undefined> {
+  try {
+    const report = await new TimeEntryService(db).dayReport({
+      userId,
+      dayStart: window.yesterdayStart,
+      dayEnd: window.todayStart,
+      workspaceId,
+    });
+    return {
+      attentionMinutes: report.attentionMinutes,
+      proposedCount: report.proposedCount,
+      topProducts: report.byProduct
+        .filter((p) => p.minutes > 0)
+        .slice(0, 3)
+        .map((p) => ({ name: p.name, minutes: p.minutes })),
+      dayUrl: `${baseUrl}/time`,
+    };
+  } catch (error) {
+    reportHandledErrorServer(error, {
+      area: "daily-summary-time",
+      context: { userId, workspaceId: workspaceId ?? "none" },
+    });
+    return undefined;
+  }
+}
+
+/**
  * Build a user's Daily summary digest for the local day containing `now` in
  * `tz` (the notification-preference timezone that also decides when the
  * summary fires). Returns null when the user is gone.
@@ -339,11 +379,12 @@ export async function buildDailySummary(
     });
     return [];
   });
-  const [events, recordings, { todaysActions, overdueCount }, cycles] = await Promise.all([
+  const [events, recordings, { todaysActions, overdueCount }, cycles, time] = await Promise.all([
     readCalendarSafely,
     loadYesterdayRecordings(db, userId, scope?.workspaceId ?? null, window),
     loadTodaysActions(db, userId, localNow, tz),
     scope ? loadCycleBlocks(db, userId, scope, now, tz, baseUrl) : Promise.resolve([]),
+    loadYesterdayTime(db, userId, scope?.workspaceId ?? null, window, baseUrl),
   ]);
 
   const yesterdayEvents = eventsOnLocalDay(events, window.yesterdayKey, tz);
@@ -374,6 +415,7 @@ export async function buildDailySummary(
   return {
     firstName: firstNameOf(user.name),
     yesterday,
+    time,
     todayMeetings: todayEvents.map((e) => ({ startLocal: e.startLocal, title: e.title })),
     todaysActions,
     overdueCount,

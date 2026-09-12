@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Badge, Group, Paper, Select, Stack, Text, Title, Tooltip } from "@mantine/core";
+import { Badge, Group, Paper, SegmentedControl, Select, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import {
   endOfDay,
@@ -15,6 +15,7 @@ import {
 import { api } from "~/trpc/react";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
 import { TimeReports } from "./TimeReports";
+import { TimeDayView } from "./TimeDayView";
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
 import { flagForgottenTimers } from "~/lib/time/forgottenTimer";
 
@@ -56,6 +57,10 @@ export function TimePageContent() {
 
   const [selectedEntry, setSelectedEntry] = useState<CalendarTimeEntry | null>(null);
   const [modalOpened, setModalOpened] = useState(false);
+  // Day: the worklog's day view (dayReport). Week: the list this page has
+  // always shown. Both open the same TimeEntryModal.
+  const [view, setView] = useState<"day" | "week">("week");
+  const [day, setDay] = useState<Date>(() => startOfDay(new Date()));
 
   const startDate = range[0] ?? startOfWeek(new Date(), { weekStartsOn: 1 });
   const endDate = endOfDay(range[1] ?? endOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -132,6 +137,15 @@ export function TimePageContent() {
           </Text>
         </div>
         <Group gap="sm">
+          <SegmentedControl
+            value={view}
+            onChange={(v) => setView(v as "day" | "week")}
+            data={[
+              { label: "Day", value: "day" },
+              { label: "Week", value: "week" },
+            ]}
+            size="sm"
+          />
           <Select
             placeholder="All workspaces"
             value={workspaceId ?? ""}
@@ -140,18 +154,37 @@ export function TimePageContent() {
             allowDeselect={false}
             w={220}
           />
-          <DatePickerInput
-            type="range"
-            value={range}
-            onChange={(v) =>
-              setRange([v[0] ? new Date(v[0]) : null, v[1] ? new Date(v[1]) : null])
-            }
-            valueFormat="MMM D"
-            w={260}
-          />
+          {view === "day" ? (
+            <DatePickerInput
+              value={day}
+              onChange={(v) => v && setDay(startOfDay(new Date(v)))}
+              valueFormat="ddd, MMM D"
+              w={180}
+            />
+          ) : (
+            <DatePickerInput
+              type="range"
+              value={range}
+              onChange={(v) =>
+                setRange([v[0] ? new Date(v[0]) : null, v[1] ? new Date(v[1]) : null])
+              }
+              valueFormat="MMM D"
+              w={260}
+            />
+          )}
         </Group>
       </Group>
 
+      {view === "day" ? (
+        <TimeDayView
+          date={day}
+          workspaceId={workspaceId}
+          onEntryClick={(e) => {
+            setSelectedEntry(e);
+            setModalOpened(true);
+          }}
+        />
+      ) : (
       <Paper
         p="md"
         radius="md"
@@ -274,7 +307,9 @@ export function TimePageContent() {
         )}
       </Paper>
 
-      <TimeReports entries={entries} projectNames={projectNames} />
+      )}
+
+      {view === "week" && <TimeReports entries={entries} projectNames={projectNames} />}
 
       <TimeEntryModal
         entry={selectedEntry}

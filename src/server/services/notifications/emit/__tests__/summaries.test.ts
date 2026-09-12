@@ -38,6 +38,8 @@ beforeEach(() => {
   db.action.findMany.mockResolvedValue([] as never);
   db.action.count.mockResolvedValue(0 as never);
   db.project.findMany.mockResolvedValue([] as never);
+  // The Yesterday's-time line reads dayReport; no entries → its empty state.
+  db.timeEntry.findMany.mockResolvedValue([] as never);
 });
 
 describe("generateScheduledSummaries", () => {
@@ -312,6 +314,7 @@ describe("generateScheduledSummaries — daily summary digest", () => {
         "2. 14:00 Coffee with Ira",
         "3. 16:30 Pipeline sync (recorded) — recording",
         "   https://app.test/recording/rec-sync",
+        "No time recorded yesterday",
         "",
         "📅 Today's meetings",
         "1. Offsite",
@@ -344,6 +347,7 @@ describe("generateScheduledSummaries — daily summary digest", () => {
         "1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec-standup)",
         "2. 14:00 Coffee with Ira",
         "3. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec-sync)",
+        "No time recorded yesterday",
         "",
         "**📅 Today's meetings**",
         "1. Offsite",
@@ -389,7 +393,7 @@ describe("generateScheduledSummaries — daily summary digest", () => {
       new Date("2026-09-09T22:00:00.000Z"),
     );
     expect(subject.message).toContain(
-      "⏪ Yesterday\n1. 09:00 CLEAR daily standup\n2. 14:00 Coffee with Ira\n\n📅 Today's meetings\n1. Offsite\n2. 00:30 Late night\n3. 10:00 Pipeline sync\n",
+      "⏪ Yesterday\n1. 09:00 CLEAR daily standup\n2. 14:00 Coffee with Ira\nNo time recorded yesterday\n\n📅 Today's meetings\n1. Offsite\n2. 00:30 Late night\n3. 10:00 Pipeline sync\n",
     );
     expect(subject.markdown).toContain(
       "**📅 Today's meetings**\n1. Offsite\n2. 00:30 Late night\n3. 10:00 Pipeline sync\n",
@@ -426,10 +430,10 @@ describe("generateScheduledSummaries — daily summary digest", () => {
       }),
     );
     expect(subject.message).toContain(
-      "⏪ Yesterday\n1. 09:00 CLEAR daily standup — recording\n   https://app.test/recording/rec-standup\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — recording\n   https://app.test/recording/rec-sync\n",
+      "⏪ Yesterday\n1. 09:00 CLEAR daily standup — recording\n   https://app.test/recording/rec-standup\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — recording\n   https://app.test/recording/rec-sync\nNo time recorded yesterday\n",
     );
     expect(subject.markdown).toContain(
-      "**⏪ Yesterday**\n1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec-standup)\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec-sync)\n",
+      "**⏪ Yesterday**\n1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec-standup)\n2. 14:00 Coffee with Ira\n3. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec-sync)\nNo time recorded yesterday\n",
     );
   });
 
@@ -441,7 +445,7 @@ describe("generateScheduledSummaries — daily summary digest", () => {
 
     const subject = await emittedDailySubject(failing);
 
-    expect(subject.message).toContain("⏪ Yesterday\nNo meetings yesterday\n\n📅 Today's meetings\nNo meetings today\n");
+    expect(subject.message).toContain("⏪ Yesterday\nNo meetings yesterday\nNo time recorded yesterday\n\n📅 Today's meetings\nNo meetings today\n");
     expect(reportHandledErrorServer).toHaveBeenCalledWith(
       expect.objectContaining({ message: "Google token expired" }),
       expect.objectContaining({ area: "daily-summary-calendar", context: { userId: "u1", tz: "Europe/Berlin" } }),

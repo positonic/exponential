@@ -27,6 +27,15 @@ export const fullDigest: DailySummaryDigest = {
       source: "recording",
     },
   ],
+  time: {
+    attentionMinutes: 92,
+    proposedCount: 2,
+    topProducts: [
+      { name: "Exponential", minutes: 60 },
+      { name: "CLEAR", minutes: 32 },
+    ],
+    dayUrl: `${BASE}/time`,
+  },
   todayMeetings: [
     { startLocal: "09:00", title: "CLEAR daily standup" },
     { startLocal: null, title: "Public holiday" },
@@ -175,5 +184,42 @@ describe("renderer snapshots (markdown)", () => {
   it("matches the full and empty snapshots", () => {
     expect(renderDailySummaryMarkdown(fullDigest)).toMatchSnapshot();
     expect(renderDailySummaryMarkdown(emptyDigest)).toMatchSnapshot();
+  });
+});
+
+describe("Yesterday's time line (Daily worklog)", () => {
+  it("renders attention hours, the top products and the proposed count under Yesterday, linking /time", () => {
+    const md = renderDailySummaryMarkdown(fullDigest);
+    expect(md).toContain(
+      `Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed → [/time](${BASE}/time)`,
+    );
+    const plain = renderDailySummaryPlainText(fullDigest);
+    expect(plain).toContain(`Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed → ${BASE}/time`);
+    // It sits inside the Yesterday section, before Today's meetings.
+    const yesterdayAt = plain.indexOf(DAILY_SUMMARY_HEADINGS.yesterday);
+    const timeAt = plain.indexOf("Yesterday's time:");
+    const meetingsAt = plain.indexOf(DAILY_SUMMARY_HEADINGS.todayMeetings);
+    expect(yesterdayAt).toBeLessThan(timeAt);
+    expect(timeAt).toBeLessThan(meetingsAt);
+  });
+
+  it("omits the proposed count when nothing is proposed and the products when none resolved", () => {
+    const md = renderDailySummaryMarkdown({
+      ...fullDigest,
+      time: { attentionMinutes: 45, proposedCount: 0, topProducts: [], dayUrl: `${BASE}/time` },
+    });
+    expect(md).toContain("Yesterday's time: 45m → ");
+    expect(md).not.toContain("proposed");
+  });
+
+  it("renders the empty state for no time, a zero day, and a missing block", () => {
+    for (const time of [
+      undefined,
+      { attentionMinutes: 0, proposedCount: 0, topProducts: [], dayUrl: `${BASE}/time` },
+    ]) {
+      const plain = renderDailySummaryPlainText({ ...emptyDigest, time });
+      expect(plain).toContain(DAILY_SUMMARY_EMPTY.time);
+      expect(plain).not.toContain("Yesterday's time:");
+    }
   });
 });

@@ -61,9 +61,25 @@ export interface DailySummaryCycle {
   unrefinedCount: number;
 }
 
+/** Yesterday's time from the same day report the `/time` Day tab reads. */
+export interface DailySummaryTime {
+  /** Minutes covered by at least one of the person's non-agent-run entries, each once. */
+  attentionMinutes: number;
+  proposedCount: number;
+  /** Up to three Products by overlap-split minutes, largest first. */
+  topProducts: Array<{ name: string; minutes: number }>;
+  /** Absolute URL of the `/time` page. */
+  dayUrl: string;
+}
+
 export interface DailySummaryDigest {
   firstName: string;
   yesterday: DailySummaryYesterdayItem[];
+  /**
+   * Yesterday's time (Daily worklog). Optional so older callers and fixtures
+   * still type-check; renderers treat a missing block as "no time recorded".
+   */
+  time?: DailySummaryTime;
   todayMeetings: DailySummaryMeetingItem[];
   /** Exactly the `todays` bucket of `partitionActions`, cross-workspace (ADR-0034). */
   todaysActions: DailySummaryActionItem[];

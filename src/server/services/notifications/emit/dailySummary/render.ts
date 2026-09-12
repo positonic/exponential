@@ -32,6 +32,7 @@ export const DAILY_SUMMARY_HEADINGS = {
 
 export const DAILY_SUMMARY_EMPTY = {
   yesterday: "No meetings yesterday",
+  time: "No time recorded yesterday",
   todayMeetings: "No meetings today",
   todaysActions: "Nothing scheduled or due today",
   cycle: "No active cycle",
@@ -74,6 +75,35 @@ function daysLeftLabel(daysLeft: number): string {
 
 function present(parts: Array<string | null>): string[] {
   return parts.filter((p): p is string => p !== null);
+}
+
+function formatMinutes(totalMins: number): string {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/**
+ * "Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed" — the
+ * Daily worklog's one line, read from the same day report as the day view.
+ * Links to /time so a proposed day is one click from being confirmed.
+ */
+function timeLines(mode: Mode, time: DailySummaryDigest["time"]): string[] {
+  if (!time || time.attentionMinutes === 0) return [DAILY_SUMMARY_EMPTY.time];
+  const products = time.topProducts.map((p) => p.name).join(", ");
+  const proposed =
+    time.proposedCount > 0
+      ? `${time.proposedCount} proposed`
+      : null;
+  const text = present([
+    `Yesterday's time: ${formatMinutes(time.attentionMinutes)}${products ? ` across ${products}` : ""}`,
+    proposed,
+  ]).join(", ");
+  return mode === "markdown"
+    ? [`${text} → ${link(mode, "/time", time.dayUrl)}`]
+    : [`${text} → ${time.dayUrl}`];
 }
 
 function cycleLines(mode: Mode, cycle: DailySummaryCycle, showProduct: boolean): string[] {
@@ -131,6 +161,7 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
       }
     });
   }
+  lines.push(...timeLines(mode, digest.time));
   lines.push("");
 
   // ---- Today's meetings ----
