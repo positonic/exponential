@@ -58,6 +58,7 @@ import { TranscriptView } from "./meeting/TranscriptView";
 import { MeetingProjectPicker } from "./meeting/MeetingProjectPicker";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
+import type { TranscriptTurn } from "~/lib/transcript";
 import {
   buildMeetingCardViewModel,
   type MeetingCardParticipant,
@@ -244,11 +245,13 @@ function projectTagClass(projectId: string): { bg: string; text: string; dot: st
 }
 
 function PeekTranscript({
-  transcription,
+  turns,
+  turnCount,
   provider,
   onContainerClick,
 }: {
-  transcription: string;
+  turns: TranscriptTurn[];
+  turnCount: number;
   provider?: string;
   onContainerClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
 }) {
@@ -271,7 +274,9 @@ function PeekTranscript({
         <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
           <TranscriptView
             variant="preview"
-            transcription={transcription}
+            transcription={null}
+            turns={turns}
+            totalTurnCount={turnCount}
             provider={provider}
             previewCount={2}
           />
@@ -548,23 +553,28 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
-  const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
-    { workspaceId },
+  // One card-shaped fetch covers every tab: active and archived meetings are
+  // split client-side from the same rows, so the page pays the list query
+  // once per mount instead of twice. `getMeetingCards` leaves transcript and
+  // notes bodies on the server; the details modal loads them via `getById`.
+  const meetingCardsInput = { includeArchived: true, workspaceId };
+  const { data: allMeetingCards, isLoading } = api.transcription.getMeetingCards.useQuery(
+    meetingCardsInput,
     {
       refetchOnMount: shouldUseCachedTranscriptions ? false : undefined,
       refetchOnWindowFocus: shouldUseCachedTranscriptions ? false : undefined,
       staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
     }
   );
-  const { data: archivedTranscriptions, isLoading: isLoadingArchived } = api.transcription.getAllTranscriptions.useQuery(
-    { includeArchived: true, workspaceId },
-    {
-      select: (data) => data.filter(t => t.archivedAt), // Only get archived ones
-      refetchOnMount: shouldUseCachedTranscriptions ? false : undefined,
-      refetchOnWindowFocus: shouldUseCachedTranscriptions ? false : undefined,
-      staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
-    }
+  const transcriptions = useMemo(
+    () => allMeetingCards?.filter((t) => !t.archivedAt),
+    [allMeetingCards],
   );
+  const archivedTranscriptions = useMemo(
+    () => allMeetingCards?.filter((t) => t.archivedAt),
+    [allMeetingCards],
+  );
+  const isLoadingArchived = isLoading;
   // Register lightweight page context for the AI agent. Counts only; the agent
   // fetches actual meetings on demand via its `get-meeting-transcriptions` tool.
   const meetingsPageContext = useMemo(() => {
@@ -614,7 +624,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     api.transcription.ensureMyMeetingSummaries.useMutation({
       onSuccess: (result) => {
         if (result.summarized > 0) {
-          void utils.transcription.getAllTranscriptions.invalidate();
+          void utils.transcription.getMeetingCards.invalidate();
         }
       },
     });
@@ -632,13 +642,13 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onMutate: async ({ transcriptionId, projectId }) => {
       // Cancel outgoing refetches
-      await utils.transcription.getAllTranscriptions.cancel();
+      await utils.transcription.getMeetingCards.cancel();
 
       // Snapshot previous value
-      const previousData = utils.transcription.getAllTranscriptions.getData({ workspaceId });
+      const previousData = utils.transcription.getMeetingCards.getData(meetingCardsInput);
 
       // Optimistically update the cache
-      utils.transcription.getAllTranscriptions.setData({ workspaceId }, (old) => {
+      utils.transcription.getMeetingCards.setData(meetingCardsInput, (old) => {
         if (!old) return old;
         return old.map((session) => {
           if (session.id === transcriptionId) {
@@ -663,7 +673,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onError: (err, _variables, context) => {
       // Rollback on error
       if (context?.previousData) {
-        utils.transcription.getAllTranscriptions.setData({ workspaceId }, context.previousData);
+        utils.transcription.getMeetingCards.setData(meetingCardsInput, context.previousData);
       }
       notifications.show({
         title: 'Error',
@@ -679,7 +689,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
     },
     onSettled: () => {
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
   });
 
@@ -698,7 +708,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
           color: 'green',
         });
       }
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -718,7 +728,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -738,7 +748,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -756,7 +766,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         message: 'Meeting has been moved to archive',
         color: 'green',
       });
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -774,7 +784,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         message: 'Meeting has been restored from archive',
         color: 'green',
       });
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -794,7 +804,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -997,8 +1007,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       filtered = filtered.filter(session => {
         const title = (session.title ?? "").toLowerCase();
         const provider = session.sourceIntegration?.provider?.toLowerCase() ?? "";
-        const transcription = (session.transcription ?? "").toLowerCase();
-        return title.includes(q) || provider.includes(q) || transcription.includes(q);
+        const preview = session.transcriptPreview
+          .map((turn) => turn.text)
+          .join(" ")
+          .toLowerCase();
+        return title.includes(q) || provider.includes(q) || preview.includes(q);
       });
     }
 
@@ -1347,7 +1360,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                         sessionId: session.sessionId,
                         title: session.title,
                         summary: session.summary,
-                        transcription: session.transcription,
                         project: session.project ? { id: session.project.id, name: session.project.name } : null,
                         actions: session.actions ?? [],
                       };
@@ -1588,9 +1600,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                         </div>
 
                         {/* Peek at transcript — button toggles inline transcript block */}
-                        {session.transcription && (
+                        {session.hasTranscript && (
                           <PeekTranscript
-                            transcription={session.transcription}
+                            turns={session.transcriptPreview}
+                            turnCount={session.transcriptTurnCount}
                             provider={provider}
                             onContainerClick={stopBubble}
                           />
@@ -1718,11 +1731,13 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           )}
 
                           {/* Meeting Preview */}
-                          {session.transcription && (
+                          {session.hasTranscript && (
                             <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800 opacity-75">
                               <TranscriptView
                                 variant="preview"
-                                transcription={session.transcription}
+                                transcription={null}
+                                turns={session.transcriptPreview}
+                                totalTurnCount={session.transcriptTurnCount}
                                 provider={session.sourceIntegration?.provider}
                                 previewCount={2}
                               />

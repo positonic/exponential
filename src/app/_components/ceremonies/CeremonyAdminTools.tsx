@@ -60,7 +60,7 @@ export function CeremonyAdminTools({ workspaceId }: { workspaceId: string }) {
           message: `${result.matched} of ${result.scanned} recordings attached.`,
           color: "green",
         });
-        await Promise.all([utils.ceremony.list.invalidate(), utils.transcription.getAllTranscriptions.invalidate()]);
+        await Promise.all([utils.ceremony.list.invalidate(), utils.transcription.getAllTranscriptions.invalidate(), utils.transcription.getMeetingCards.invalidate()]);
       }
     },
     onError: (e) => notifications.show({ title: "Backfill failed", message: e.message, color: "red" }),

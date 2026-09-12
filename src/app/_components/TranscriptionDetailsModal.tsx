@@ -209,6 +209,7 @@ export function TranscriptionDetailsModal({
           color: "green",
         });
         void utils.transcription.getAllTranscriptions.invalidate();
+        void utils.transcription.getMeetingCards.invalidate();
         void refetch();
         setDraftActionsOpened(true);
       },
@@ -230,6 +231,7 @@ export function TranscriptionDetailsModal({
           color: "green",
         });
         void utils.transcription.getAllTranscriptions.invalidate();
+        void utils.transcription.getMeetingCards.invalidate();
         void refetch();
       },
       onError: (error) => {
@@ -249,6 +251,7 @@ export function TranscriptionDetailsModal({
         color: "green",
       });
       void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
       onClose();
     },
     onError: (error) => {
@@ -268,6 +271,7 @@ export function TranscriptionDetailsModal({
         color: "green",
       });
       void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
       onClose();
     },
     onError: (error) => {
