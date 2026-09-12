@@ -45,8 +45,10 @@ owner's.
   entries are never `CONFIRMED` on creation.
 - `Action.timeSpentMins` is incremented only when an entry is confirmed, so proposed time cannot
   pollute estimates.
-- Agent-run time (an agent working with no human turns) is *not* covered by this carve-out. It is
-  stored as its own kind of entry on the same Action and excluded from the owner's attention
-  totals; whose row it is remains the agent's, per ADR-0049.
+- Agent-run time (an agent working with no human turns) is stored as its own kind of entry
+  (`source: "agent-run"`) on the same Action and on the owner's day — the row's `userId` is the
+  owner's, like every other worklog row, so the owner's day report can show it on its own lane —
+  but it is excluded from the owner's attention totals. The agent is still the author. (Amended
+  2026-09-12 while shipping V3: an agent-owned row would never appear on the owner's `/time`.)
 - The members list and activity feed keep showing the agent badge on these writes, as ADR-0049
   point 7 requires; the badge now reads "wrote", not "worked".
