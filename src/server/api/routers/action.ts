@@ -5,7 +5,7 @@ import {
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { PRIORITY_VALUES } from "~/types/priority";
+import { PRIORITY_VALUES, type Priority } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
@@ -3025,21 +3025,9 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
-      // 1. Verify caller workspace membership.
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: { userId, workspaceId: input.workspaceId },
-        },
-        select: { userId: true },
-      });
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You are not a member of this workspace",
-        });
-      }
+      // 1. The workspace / project write gate is `createAction`'s, applied
+      //    per item below; a FORBIDDEN from it is re-thrown rather than
+      //    skipped, since it holds for every item alike.
 
       // 2. Verify the transcript exists and belongs to this workspace.
       const transcript = await ctx.db.transcriptionSession.findUnique({
@@ -3075,7 +3063,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // 4. Map agent priority strings to internal priority values.
-      const mapPriority = (p: "HIGH" | "MEDIUM" | "LOW"): string => {
+      const mapPriority = (p: "HIGH" | "MEDIUM" | "LOW"): Priority => {
         if (p === "HIGH") return "1st Priority";
         if (p === "LOW") return "5th Priority";
         return "Quick";
@@ -3100,27 +3088,23 @@ export const actionRouter = createTRPCRouter({
       //    doesn't abort the whole batch. We deliberately do NOT wrap the
       //    loop in an outer transaction - each item is logically independent
       //    and we want partial successes to persist.
+      const deps = actionWriteDeps(ctx);
       for (const item of input.items) {
         try {
-          const dueDate = item.dueDate ? new Date(item.dueDate) : null;
-
-          const action = await ctx.db.action.create({
-            data: {
-              name: item.description,
-              description: item.rawText ?? null,
-              dueDate,
-              priority: mapPriority(item.priority),
-              status: "ACTIVE",
-              workspaceId: input.workspaceId,
-              projectId: resolvedProjectId,
-              transcriptionSessionId: input.transcriptionSessionId,
-              createdById: userId,
-              source: "agent-transcript",
-              sourceType: "meeting",
-              sourceId: input.transcriptionSessionId,
-              lastUpdatedBy: "AGENT",
-              lastUpdatedSource: "agent-action-items-tool",
-            },
+          const action = await createAction(deps, {
+            name: item.description,
+            description: item.rawText ?? undefined,
+            dueDate: item.dueDate ? new Date(item.dueDate) : undefined,
+            priority: mapPriority(item.priority),
+            status: "ACTIVE",
+            workspaceId: input.workspaceId,
+            projectId: resolvedProjectId ?? undefined,
+            source: "meeting",
+            transcriptionSessionId: input.transcriptionSessionId,
+            sourceType: "meeting",
+            sourceId: input.transcriptionSessionId,
+            lastUpdatedBy: "AGENT",
+            lastUpdatedSource: "agent-action-items-tool",
           });
 
           // 5b. Resolve assignee using 3-tier strategy.
@@ -3177,6 +3161,10 @@ export const actionRouter = createTRPCRouter({
           });
           created.push(hydrated);
         } catch (err) {
+          // Not a member, or cannot edit the project: the same answer for
+          // every item, so refuse the batch as before rather than reporting
+          // N skipped rows.
+          if (err instanceof TRPCError && err.code === "FORBIDDEN") throw err;
           const reason =
             err instanceof Error ? err.message : "Unknown error creating action";
           skipped.push({ rawText: item.rawText, reason });

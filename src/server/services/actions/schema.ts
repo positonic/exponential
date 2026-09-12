@@ -84,6 +84,17 @@ export const createActionInputSchema = actionWriteSchema.extend({
   assigneeIds: z.array(z.string()).optional(),
   /** Sprint (List) to add the Action to, written in the same transaction. */
   sprintListId: z.string().optional(),
+  /**
+   * Provenance for Actions extracted from somewhere (a meeting transcript):
+   * the meeting row, the `(sourceType, sourceId)` pair `findBySource` and
+   * `upsertBySource` key on, and the last-write stamp. Plain columns; the
+   * meeting-domain linkage (participants) stays with the caller.
+   */
+  transcriptionSessionId: z.string().optional(),
+  sourceType: z.string().optional(),
+  sourceId: z.string().optional(),
+  lastUpdatedBy: z.string().optional(),
+  lastUpdatedSource: z.string().optional(),
 });
 
 export type CreateActionInput = z.input<typeof createActionInputSchema>;
