@@ -163,6 +163,7 @@ export async function buildContent(
           scheduledStart: true,
           status: true,
           skipReason: true,
+          updatedAt: true,
           agenda: true,
           agendaGeneratedAt: true,
           ceremony: {
@@ -232,7 +233,13 @@ export async function buildContent(
         // re-circulation after a regeneration ("Regenerate & send to
         // participants") has a new `agendaGeneratedAt` and must reach people
         // — otherwise the button reports success and notifies nobody.
-        dedupeKey: `agenda_ready:${occurrenceId}:${skipped ? "skipped" : (occurrence.agendaGeneratedAt?.getTime() ?? 0)}:${recipientId}`,
+        // A skip notice is keyed by the skip write itself (`updatedAt` moves
+        // on every skip and nothing else touches a SKIPPED row), so skip →
+        // undo → skip again reaches people a second time instead of being
+        // swallowed as a duplicate of the first notice.
+        dedupeKey: `agenda_ready:${occurrenceId}:${
+          skipped ? `skipped:${occurrence.updatedAt.getTime()}` : (occurrence.agendaGeneratedAt?.getTime() ?? 0)
+        }:${recipientId}`,
       };
     }
 

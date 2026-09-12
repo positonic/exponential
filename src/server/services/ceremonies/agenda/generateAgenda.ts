@@ -33,6 +33,11 @@ export async function generateAgenda(
     },
   });
   if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+  // A skipped occurrence has no meeting to prepare for; regenerating would
+  // also stamp `agendaCirculatedAt` and change what an undo restores to.
+  if (occurrence.status === "SKIPPED") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence was skipped — undo the skip to work on its agenda" });
+  }
   const { ceremony } = occurrence;
 
   const previousOccurrence = await db.ceremonyOccurrence.findFirst({

@@ -34,6 +34,10 @@ export async function circulateAgenda(
     },
   });
   if (!occurrence?.agenda) return { circulated: false };
+  // A skipped occurrence is told about through the skip notice, never the
+  // agenda notice — a forced resend here would build the skip content and
+  // be deduped against it, reporting success and reaching nobody.
+  if (occurrence.status === "SKIPPED") return { circulated: false };
   if (occurrence.agendaCirculatedAt && !opts.force) return { circulated: false };
 
   await emitNotification({

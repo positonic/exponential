@@ -17,6 +17,10 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
  * their Actions, ticket moves and commits — it never overwrites something
  * already written, because a draft losing someone's typed answer is worse
  * than no draft at all.
+ *
+ * Submitted is a server state, not a local one: "Edit" reopens the update
+ * (`submit: false`), which takes it out of the async summary until it is
+ * submitted again and is what lets the server accept a re-draft.
  */
 export function OccurrenceUpdatePanel({
   workspaceId,
@@ -31,7 +35,7 @@ export function OccurrenceUpdatePanel({
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [blocked, setBlocked] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [submittedAt, setSubmittedAt] = useState<Date | null>(null);
   // Server state seeds the fields exactly once, on first load. Every later
   // refetch — React Query refetches on window focus past its 30s staleTime —
   // must leave the fields alone: re-seeding from the server would throw away
@@ -43,6 +47,7 @@ export function OccurrenceUpdatePanel({
     hydrated.current = true;
     setAnswers(data.answers);
     setBlocked(data.flaggedBlocker);
+    setSubmittedAt(data.submittedAt ? new Date(data.submittedAt) : null);
   }, [data]);
 
   const invalidate = () => utils.ceremony.myOccurrenceUpdate.invalidate(queryKey);
@@ -70,13 +75,18 @@ export function OccurrenceUpdatePanel({
     onError: (e) => notifications.show({ title: "Couldn't draft your update", message: e.message, color: "red" }),
   });
   const save = api.ceremony.saveMyOccurrenceUpdate.useMutation({
-    onSuccess: async (res) => {
-      setEditing(false);
+    onSuccess: async (res, variables) => {
       setAnswers(res.answers);
       setBlocked(res.flaggedBlocker);
+      setSubmittedAt(res.submittedAt ? new Date(res.submittedAt) : null);
+      const reopened = variables.submit === false;
       notifications.show({
-        title: res.submittedAt ? "Update submitted" : "Update saved",
-        message: res.submittedAt ? "Your answers are part of this occurrence." : "Saved as a draft — submit when ready.",
+        title: reopened ? "Update reopened" : res.submittedAt ? "Update submitted" : "Update saved",
+        message: reopened
+          ? "It's out of the async summary until you submit it again."
+          : res.submittedAt
+            ? "Your answers are part of this occurrence."
+            : "Saved as a draft — submit when ready.",
         color: "green",
       });
       await invalidate();
@@ -85,20 +95,22 @@ export function OccurrenceUpdatePanel({
   });
 
   const questions = data?.questions ?? [];
-  const submitted = Boolean(data?.submittedAt);
   const hasAnything = useMemo(() => Object.values(answers).some((v) => v.trim().length > 0), [answers]);
 
   if (!data || questions.length === 0 || !data.isParticipant) return null;
 
-  const readOnly = submitted && !editing;
+  const readOnly = submittedAt !== null;
+  const reopening = save.isPending && save.variables?.submit === false;
+  const submitting = save.isPending && save.variables?.submit === true;
+  const savingDraft = save.isPending && save.variables?.submit === undefined;
   return (
     <Paper withBorder radius="md" p="lg" data-testid="occurrence-update-panel">
       <Group justify="space-between" align="center" mb="sm">
         <Group gap="xs">
           <Text fw={600}>Your update</Text>
-          {submitted ? (
+          {submittedAt ? (
             <Badge variant="light" color="green">
-              submitted {new Date(data.submittedAt!).toLocaleString()}
+              submitted {submittedAt.toLocaleString()}
             </Badge>
           ) : (
             <Badge variant="light">not submitted</Badge>
@@ -109,7 +121,8 @@ export function OccurrenceUpdatePanel({
             variant="default"
             size="compact-sm"
             leftSection={<IconPencil size={14} />}
-            onClick={() => setEditing(true)}
+            loading={reopening}
+            onClick={() => save.mutate({ ...queryKey, answers, flaggedBlocker: blocked, submit: false })}
             data-testid="edit-occurrence-update"
           >
             Edit
@@ -155,7 +168,7 @@ export function OccurrenceUpdatePanel({
       </Stack>
 
       {readOnly
-        ? data.flaggedBlocker && (
+        ? blocked && (
             <Group gap={6} mt="md">
               <IconAlertTriangle size={14} className="text-text-muted" />
               <Text size="sm" className="text-text-muted">
@@ -175,7 +188,7 @@ export function OccurrenceUpdatePanel({
             <Group gap="xs">
               <Button
                 variant="subtle"
-                loading={save.isPending && !save.variables?.submit}
+                loading={savingDraft}
                 onClick={() => save.mutate({ ...queryKey, answers, flaggedBlocker: blocked })}
               >
                 Save draft
@@ -183,11 +196,11 @@ export function OccurrenceUpdatePanel({
               <Button
                 leftSection={<IconSend size={14} />}
                 disabled={!hasAnything}
-                loading={save.isPending && Boolean(save.variables?.submit)}
+                loading={submitting}
                 onClick={() => save.mutate({ ...queryKey, answers, flaggedBlocker: blocked, submit: true })}
                 data-testid="submit-occurrence-update"
               >
-                {submitted ? "Resubmit" : "Submit"}
+                Submit
               </Button>
             </Group>
           </Group>
