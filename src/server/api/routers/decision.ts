@@ -27,6 +27,7 @@ import {
   updateDecision,
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
+import { buildAdrDraft } from "~/server/services/decisions/renderAdrMarkdown";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
@@ -281,6 +282,74 @@ export const decisionRouter = createTRPCRouter({
         })),
         canEdit: canEditDecision(access),
       };
+    }),
+
+  /**
+   * The ADR file this decision would become (ADR-0060, V3): the rendered
+   * markdown and the path it belongs at, for a person to put in the
+   * repository. Read-only in both directions — it writes nothing here and
+   * nothing in the repo. Git stays the source of truth for ADR content.
+   */
+  adrDraft: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "view");
+      const decision = await ctx.db.decision.findUniqueOrThrow({
+        where: { id: subject.id },
+        select: {
+          number: true,
+          statement: true,
+          body: true,
+          status: true,
+          decidedAt: true,
+          // A decider's own `name` column is the reliable one: deciders
+          // extracted from a transcript have no user account at all, and
+          // reading through the relation would drop them from the file.
+          deciders: { select: { name: true, user: { select: { name: true } } } },
+          transcriptionSession: { select: { title: true, meetingDate: true } },
+        },
+      });
+
+      // Where the file would go: the workspace's enrolled ADR repository and
+      // its first configured path. A workspace with no ADR sync still gets
+      // the markdown — it just can't say which repo, so the caller shows a
+      // path-less draft rather than nothing.
+      const config = await ctx.db.adrSyncConfig.findFirst({
+        where: { workspaceId: input.workspaceId, enabled: true },
+        orderBy: { createdAt: "asc" },
+        select: {
+          adrPaths: true,
+          repositoryId: true,
+          repository: { select: { fullName: true } },
+        },
+      });
+      const adrPath = config?.adrPaths[0] ?? "docs/adr";
+      const highest = config
+        ? await ctx.db.adrDocument.findFirst({
+            where: { repositoryId: config.repositoryId, deletedAt: null, number: { not: null } },
+            orderBy: { number: "desc" },
+            select: { number: true },
+          })
+        : null;
+
+      const draft = buildAdrDraft(
+        {
+          number: decision.number,
+          statement: decision.statement,
+          body: decision.body,
+          status: decision.status,
+          decidedAt: decision.decidedAt,
+          deciderNames: decision.deciders
+            .map((d) => d.user?.name ?? d.name)
+            .filter((n): n is string => Boolean(n?.trim())),
+          meetingTitle: decision.transcriptionSession?.title ?? null,
+          meetingDate: decision.transcriptionSession?.meetingDate ?? null,
+        },
+        { nextNumber: (highest?.number ?? 0) + 1, adrPath },
+      );
+      return { ...draft, repositoryFullName: config?.repository.fullName ?? null };
     }),
 
   /**
