@@ -180,6 +180,40 @@ export const timeEntryRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Idempotent create keyed on `(owner, sourceRef)`: re-running the Daily
+   * worklog updates a PROPOSED entry in place and leaves a CONFIRMED one
+   * alone. Same principal rules as `create`.
+   */
+  upsertBySourceRef: apiKeyMiddleware
+    .input(
+      explicitEntryInput.innerType().extend({ sourceRef: z.string().min(1).max(500) }).refine(
+        (v) => v.endedAt.getTime() > v.startedAt.getTime(),
+        { message: "endedAt must be after startedAt", path: ["endedAt"] },
+      ),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const principal = await resolveTimeEntryPrincipal(
+        ctx.db,
+        ctx.userId,
+        ctx.tokenType,
+      );
+      await assertOwnerCanViewAction(ctx.db, principal.ownerUserId, input.actionId);
+
+      const service = new TimeEntryService(ctx.db);
+      return service.upsertBySourceRef({
+        userId: principal.ownerUserId,
+        actionId: input.actionId,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        source: input.source,
+        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        sourceRef: input.sourceRef,
+        note: input.note,
+        createdByAgentId: principal.createdByAgentId,
+      });
+    }),
+
   stop: apiKeyMiddleware
     .input(
       z

@@ -14,6 +14,8 @@
  *   - create({ userId, actionId, startedAt, endedAt, status, … }) → a completed
  *     entry with explicit bounds; never touches the running Timer. `PROPOSED`
  *     entries stay out of `Action.timeSpentMins` until confirmed.
+ *   - upsertBySourceRef(…)                          → idempotent create keyed
+ *     on (userId, sourceRef); a CONFIRMED match is never re-touched.
  */
 
 import { TRPCError } from "@trpc/server";
@@ -80,6 +82,14 @@ interface GetActiveInput {
 }
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+export type UpsertOutcome = "created" | "updated" | "left";
+
+const ACTION_INCLUDE = {
+  action: {
+    select: { id: true, name: true, projectId: true, workspaceId: true },
+  },
+} as const;
 
 /**
  * The data a just-completed TimeEntry needs to surface as a `time_entry`
@@ -260,6 +270,70 @@ export class TimeEntryService {
     }
 
     return created;
+  }
+
+  /**
+   * Idempotent write keyed on `(userId, sourceRef)` — the Daily worklog's
+   * re-run path. Outcomes:
+   *
+   *  - no row for the ref            → `create`, outcome "created"
+   *  - row exists and is PROPOSED    → start, end, action, source and note
+   *                                     are replaced, outcome "updated"
+   *  - row exists and is CONFIRMED   → returned untouched, outcome "left"
+   *                                     (confirmed entries are never re-touched,
+   *                                     decision 2026-09-12)
+   *
+   * A PROPOSED row carries no `timeSpentMins` contribution, so the update
+   * needs no arithmetic. `workspaceId` follows the (possibly new) Action.
+   */
+  async upsertBySourceRef(
+    input: CreateInput & { sourceRef: string },
+  ): Promise<{ entry: TimeEntryWithAction; outcome: UpsertOutcome }> {
+    if (input.endedAt.getTime() <= input.startedAt.getTime()) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "endedAt must be after startedAt",
+      });
+    }
+
+    const existing = await this.db.timeEntry.findUnique({
+      where: {
+        userId_sourceRef: { userId: input.userId, sourceRef: input.sourceRef },
+      },
+      include: ACTION_INCLUDE,
+    });
+
+    if (!existing) {
+      const entry = await this.create(input);
+      return { entry, outcome: "created" };
+    }
+
+    if (existing.status === "CONFIRMED") {
+      return { entry: existing, outcome: "left" };
+    }
+
+    const action = await this.db.action.findUnique({
+      where: { id: input.actionId },
+      select: { id: true, workspaceId: true },
+    });
+    if (!action) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+    }
+
+    const entry = await this.db.timeEntry.update({
+      where: { id: existing.id },
+      data: {
+        actionId: action.id,
+        workspaceId: action.workspaceId,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        source: input.source,
+        note: input.note ?? null,
+        createdByAgentId: input.createdByAgentId ?? null,
+      },
+      include: ACTION_INCLUDE,
+    });
+    return { entry, outcome: "updated" };
   }
 
   /**
