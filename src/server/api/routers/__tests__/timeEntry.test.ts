@@ -419,6 +419,21 @@ describe("timeEntry.confirmDay — human-only", () => {
   });
 });
 
+describe("timeEntry.listByDateRange under an agent key", () => {
+  it("lists the OWNER's entries, not the shadow user's", async () => {
+    const db = getDbMock();
+    mockReset(db);
+    arrangeAgent(db);
+    db.timeEntry.findMany.mockResolvedValue([] as never);
+
+    await agentCaller(db).timeEntry.listByDateRange({ startDate: START, endDate: END });
+
+    expect(db.timeEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ userId: OWNER_ID }) }),
+    );
+  });
+});
+
 describe("action.upsertBySource", () => {
   let db: DeepMockProxy<PrismaClient>;
 

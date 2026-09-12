@@ -350,9 +350,12 @@ export const timeEntryRouter = createTRPCRouter({
         }),
     )
     .query(async ({ ctx, input }) => {
+      // An agent key lists its OWNER's entries — the day it writes into
+      // (ADR-0061); the shadow user has no time of its own.
+      const principal = await resolveTimeEntryPrincipal(ctx.db, ctx.userId, ctx.tokenType);
       const service = new TimeEntryService(ctx.db);
       return service.listByDateRange({
-        userId: ctx.userId,
+        userId: principal.ownerUserId,
         startDate: input.startDate,
         endDate: input.endDate,
         workspaceId: input.workspaceId ?? null,

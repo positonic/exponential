@@ -3565,7 +3565,11 @@ export const actionRouter = createTRPCRouter({
       const include = {
         project: { select: { id: true, name: true, workspaceId: true } },
         ticket: { select: { id: true, number: true, shortId: true, productId: true } },
-        assignees: { select: { userId: true } },
+        // Same shape as `create` returns, so clients that read
+        // `assignees[].user` (the CLI's transformAction) keep working.
+        assignees: {
+          include: { user: { select: { id: true, name: true, email: true, image: true } } },
+        },
       } as const;
 
       const existing = await ctx.db.action.findFirst({
