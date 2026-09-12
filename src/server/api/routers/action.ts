@@ -421,7 +421,9 @@ export const actionRouter = createTRPCRouter({
 
   /**
    * Idempotently ensure a "Do daily plan" prompt Action exists for today.
-   * Deduped via source="daily-plan-prompt". Safe to call on every app load.
+   * Deduped via source="daily-plan-prompt" (kept distinct from "daily-plan",
+   * the source of a task converted from a plan, or a planned task due today
+   * would suppress the prompt). Safe to call on every app load.
    */
   ensureDailyPlanPromptAction: protectedProcedure
     .input(
@@ -432,10 +434,9 @@ export const actionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Same free-form `workspaceId` as `create`, and it lands in the same
-      // place — `db.action.create` below — so it needs the same guard. Without
-      // it, any authenticated user can drop a prompt action into an arbitrary
-      // workspace's task list by guessing its CUID.
+      // `createAction` gates the write itself; this up-front check is so the
+      // existence probe below never runs against a workspace the caller
+      // cannot write to (the same free-form `workspaceId` as `create`).
       if (input?.workspaceId) {
         await assertCanWriteToWorkspace(ctx.db, userId, input.workspaceId);
       }
@@ -459,18 +460,17 @@ export const actionRouter = createTRPCRouter({
         return { created: false, actionId: existing.id };
       }
 
-      const created = await ctx.db.action.create({
-        data: {
-          name: "Do daily plan",
-          description: "Set aside 5 minutes to plan your day.",
-          dueDate: today,
-          priority: "High",
-          status: "ACTIVE",
-          source: "daily-plan-prompt",
-          createdById: userId,
-          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
-        },
-        select: { id: true },
+      const created = await createAction(actionWriteDeps(ctx), {
+        name: "Do daily plan",
+        description: "Set aside 5 minutes to plan your day.",
+        dueDate: today,
+        // The canonical top priority. The row used to carry the legacy
+        // integration value "High", which is outside PRIORITY_VALUES and
+        // which the shared write schema refuses.
+        priority: "1st Priority",
+        status: "ACTIVE",
+        source: "daily-plan-prompt",
+        workspaceId: input?.workspaceId,
       });
 
       return { created: true, actionId: created.id };
