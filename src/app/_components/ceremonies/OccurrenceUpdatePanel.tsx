@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconAlertTriangle, IconPencil, IconSend, IconSparkles } from "@tabler/icons-react";
@@ -32,15 +32,18 @@ export function OccurrenceUpdatePanel({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [blocked, setBlocked] = useState(false);
   const [editing, setEditing] = useState(false);
-  // Server state seeds the fields once loaded, and again after every write.
-  const serverAnswers = data?.answers;
-  const serverBlocked = data?.flaggedBlocker;
+  // Server state seeds the fields exactly once, on first load. Every later
+  // refetch — React Query refetches on window focus past its 30s staleTime —
+  // must leave the fields alone: re-seeding from the server would throw away
+  // whatever the participant has typed since, which is the one thing this
+  // panel is not allowed to do. Writes set the fields from their own result.
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (serverAnswers) setAnswers(serverAnswers);
-  }, [serverAnswers]);
-  useEffect(() => {
-    if (serverBlocked !== undefined) setBlocked(serverBlocked);
-  }, [serverBlocked]);
+    if (hydrated.current || !data) return;
+    hydrated.current = true;
+    setAnswers(data.answers);
+    setBlocked(data.flaggedBlocker);
+  }, [data]);
 
   const invalidate = () => utils.ceremony.myOccurrenceUpdate.invalidate(queryKey);
   const draft = api.ceremony.draftMyOccurrenceUpdate.useMutation({
@@ -69,6 +72,8 @@ export function OccurrenceUpdatePanel({
   const save = api.ceremony.saveMyOccurrenceUpdate.useMutation({
     onSuccess: async (res) => {
       setEditing(false);
+      setAnswers(res.answers);
+      setBlocked(res.flaggedBlocker);
       notifications.show({
         title: res.submittedAt ? "Update submitted" : "Update saved",
         message: res.submittedAt ? "Your answers are part of this occurrence." : "Saved as a draft — submit when ready.",
