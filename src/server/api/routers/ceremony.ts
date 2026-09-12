@@ -24,6 +24,7 @@ import {
   loadUpdateScope,
   saveMyUpdate,
 } from "~/server/services/ceremonies/updates/occurrenceUpdates";
+import { getOccurrenceSummary } from "~/server/services/ceremonies/updates/summary";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /**
@@ -336,6 +337,19 @@ export const ceremonyRouter = createTRPCRouter({
       const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
       const update = await getMyUpdate(ctx.db, scope, ctx.session.user.id);
       return { ...update, isParticipant: scope.participantUserIds.includes(ctx.session.user.id) };
+    }),
+
+  /**
+   * The merged async summary: every participant's submitted update, plus the
+   * people who haven't answered. Any workspace member who can see the
+   * occurrence can read it — it is the meeting, held in writing.
+   */
+  occurrenceUpdateSummary: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const scope = await loadUpdateScope(ctx.db, input.occurrenceId, input.workspaceId);
+      return getOccurrenceSummary(ctx.db, scope);
     }),
 
   /** Draft the caller's answers from their own activity since the previous occurrence. */

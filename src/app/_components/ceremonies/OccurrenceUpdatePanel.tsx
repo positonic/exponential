@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
+import { Badge, Button, Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconPencil, IconSend, IconSparkles } from "@tabler/icons-react";
+import { IconAlertTriangle, IconPencil, IconSend, IconSparkles } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
@@ -30,12 +30,17 @@ export function OccurrenceUpdatePanel({
   const { data } = api.ceremony.myOccurrenceUpdate.useQuery(queryKey);
 
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [blocked, setBlocked] = useState(false);
   const [editing, setEditing] = useState(false);
   // Server state seeds the fields once loaded, and again after every write.
   const serverAnswers = data?.answers;
+  const serverBlocked = data?.flaggedBlocker;
   useEffect(() => {
     if (serverAnswers) setAnswers(serverAnswers);
   }, [serverAnswers]);
+  useEffect(() => {
+    if (serverBlocked !== undefined) setBlocked(serverBlocked);
+  }, [serverBlocked]);
 
   const invalidate = () => utils.ceremony.myOccurrenceUpdate.invalidate(queryKey);
   const draft = api.ceremony.draftMyOccurrenceUpdate.useMutation({
@@ -144,26 +149,44 @@ export function OccurrenceUpdatePanel({
         ))}
       </Stack>
 
-      {!readOnly && (
-        <Group justify="flex-end" gap="xs" mt="md">
-          <Button
-            variant="subtle"
-            loading={save.isPending && !save.variables?.submit}
-            onClick={() => save.mutate({ ...queryKey, answers })}
-          >
-            Save draft
-          </Button>
-          <Button
-            leftSection={<IconSend size={14} />}
-            disabled={!hasAnything}
-            loading={save.isPending && Boolean(save.variables?.submit)}
-            onClick={() => save.mutate({ ...queryKey, answers, submit: true })}
-            data-testid="submit-occurrence-update"
-          >
-            {submitted ? "Resubmit" : "Submit"}
-          </Button>
-        </Group>
-      )}
+      {readOnly
+        ? data.flaggedBlocker && (
+            <Group gap={6} mt="md">
+              <IconAlertTriangle size={14} className="text-text-muted" />
+              <Text size="sm" className="text-text-muted">
+                You flagged a blocker, so this occurrence won&apos;t be proposed for a skip.
+              </Text>
+            </Group>
+          )
+        : (
+          <Group justify="space-between" align="center" mt="md">
+            <Checkbox
+              label="I'm blocked on something"
+              description="Keeps the standup on the calendar even if the agenda comes up empty"
+              checked={blocked}
+              onChange={(e) => setBlocked(e.currentTarget.checked)}
+              data-testid="flag-blocker"
+            />
+            <Group gap="xs">
+              <Button
+                variant="subtle"
+                loading={save.isPending && !save.variables?.submit}
+                onClick={() => save.mutate({ ...queryKey, answers, flaggedBlocker: blocked })}
+              >
+                Save draft
+              </Button>
+              <Button
+                leftSection={<IconSend size={14} />}
+                disabled={!hasAnything}
+                loading={save.isPending && Boolean(save.variables?.submit)}
+                onClick={() => save.mutate({ ...queryKey, answers, flaggedBlocker: blocked, submit: true })}
+                data-testid="submit-occurrence-update"
+              >
+                {submitted ? "Resubmit" : "Submit"}
+              </Button>
+            </Group>
+          </Group>
+        )}
     </Paper>
   );
 }

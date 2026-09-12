@@ -9,6 +9,7 @@ import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { AgendaView } from "~/app/_components/ceremonies/AgendaView";
 import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUpdatePanel";
+import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceAsyncSummary";
 
 /**
  * Occurrence page (ADR-0059): the generated agenda for one ceremony
@@ -157,6 +158,8 @@ export default function OccurrencePage() {
         </Group>
 
         <OccurrenceUpdatePanel workspaceId={workspaceId} occurrenceId={occurrence.id} />
+
+        <OccurrenceAsyncSummary workspaceId={workspaceId} occurrenceId={occurrence.id} />
 
         {occurrence.agenda ? (
           <AgendaView
