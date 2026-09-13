@@ -143,6 +143,7 @@ vi.mock("~/server/services/parsing", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import { createCaller } from "~/server/api/root";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 
 describe("action router (mocked)", () => {
@@ -1962,6 +1963,43 @@ describe("action router (mocked)", () => {
         kanbanOrder: 1,
         createdById: callerId,
       });
+    });
+
+    /** A caller authenticated by a gateway-typed JWT (a chat-gateway callback). */
+    function createGatewayCaller(tokenType: string) {
+      return createCaller({
+        db: dbMock,
+        session: {
+          user: { id: callerId, email: `${callerId}@test.com`, name: "Test", image: null, isAdmin: false },
+          expires: new Date(Date.now() + 60_000).toISOString(),
+        },
+        headers: new Headers(),
+        tokenType,
+      });
+    }
+
+    it("mastra.quickCreateAction creates through the module with the gateway's mapped source", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Buy milk", priority: "Quick", dueDate: null, scheduledStart: null, project: null } as any);
+
+      const result = await createGatewayCaller("whatsapp-gateway").mastra.quickCreateAction({ text: "Buy milk" });
+
+      expect(result.success).toBe(true);
+      expect(result.action).toMatchObject({ id: "a1", name: "Buy milk", project: null });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        name: "Buy milk",
+        source: "whatsapp",
+        status: "ACTIVE",
+        createdById: callerId,
+      });
+    });
+
+    it("mastra.quickCreateAction rejects an unmapped gateway token type with BAD_REQUEST and no row", async () => {
+      await expect(
+        createGatewayCaller("signal-gateway").mastra.quickCreateAction({ text: "Buy milk" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
     });
 
     it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {

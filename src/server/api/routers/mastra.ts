@@ -7,7 +7,7 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
-import { deriveActionSource } from "~/server/utils/actionSource";
+import { resolveAgentActionSource } from "~/server/utils/actionSource";
 import { actionWriteDeps, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
@@ -1135,7 +1135,7 @@ export const mastraRouter = createTRPCRouter({
         dueDate: parseAgentDate(input.dueDate, "dueDate") ?? undefined,
         scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart") ?? undefined,
         projectId: input.projectId,
-        source: deriveActionSource(ctx.tokenType) ?? "agent",
+        source: resolveAgentActionSource(ctx.tokenType),
       });
 
       console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);
@@ -1205,48 +1205,23 @@ export const mastraRouter = createTRPCRouter({
           ? parseAgentDate(input.dueDate, "dueDate")
           : parsed.dueDate;
 
-      // Get kanban order if project specified
-      let kanbanOrder: number | null = null;
-      if (parsed.projectId) {
-        const highestOrder = await ctx.db.action.findFirst({
-          where: { projectId: parsed.projectId, kanbanOrder: { not: null } },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true },
-        });
-        kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-      }
-
-      // Inherit workspaceId from the target project
-      let quickMastraWsId: string | null = null;
-      if (parsed.projectId) {
-        const proj = await ctx.db.project.findUnique({
-          where: { id: parsed.projectId },
-          select: { workspaceId: true },
-        });
-        quickMastraWsId = proj?.workspaceId ?? null;
-      }
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: parsed.name,
-          projectId: parsed.projectId,
-          priority: input.priority ?? "Quick",
-          status: "ACTIVE",
-          createdById: userId,
-          scheduledStart,
-          dueDate,
-          // Gateway tokens name their surface; any other principal reaching
-          // this agent tool is an agent. `deriveActionSource` no longer
-          // defaults, so the choice is explicit here.
-          source: deriveActionSource(ctx.tokenType) ?? "agent",
-          kanbanStatus: parsed.projectId ? "TODO" : null,
-          kanbanOrder,
-          workspaceId: quickMastraWsId,
-        },
-        include: {
-          project: { select: { id: true, name: true } },
-        },
+      // The write is the Action module's: project edit gate on the resolved
+      // project (ADR-0016), workspace from the project, kanban seed, activity
+      // event. A gateway token names its surface; an unmapped gateway type
+      // is rejected rather than mislabelled; anything else is the agent.
+      const created = await createAction(actionWriteDeps(ctx), {
+        name: parsed.name,
+        projectId: parsed.projectId ?? undefined,
+        priority: input.priority ?? "Quick",
+        status: "ACTIVE",
+        scheduledStart: scheduledStart ?? undefined,
+        dueDate: dueDate ?? undefined,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
+      const action = {
+        ...created,
+        project: created.project ? { id: created.project.id, name: created.project.name } : null,
+      };
 
       console.log(`✅ [tRPC quickCreateAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}, project=${action.project?.name || "none"}`);
 
