@@ -176,6 +176,23 @@ export function TimeDayView({ date, workspaceId, onEntryClick }: TimeDayViewProp
   );
 }
 
+/** One line, theme tokens only: "Exponential · 32m". Shared with TimeReports. */
+export function RollupTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { name: string; mins: number } }>;
+}) {
+  const row = payload?.[0]?.payload;
+  if (!active || !row) return null;
+  return (
+    <div className="rounded border border-border-primary bg-background-primary px-2 py-1 text-xs text-text-primary shadow-sm">
+      {row.name} · {formatMins(row.mins)}
+    </div>
+  );
+}
+
 /**
  * Overlap-split minutes per Product or Action (Recharts, as in TimeReports).
  * Overlapping minutes are credited 1/n to each entry covering them, so the
@@ -195,7 +212,10 @@ function RollupCard({
     <Paper
       p="md"
       radius="md"
-      className="min-w-[300px] flex-1 border-border-primary bg-surface-secondary"
+      // overflow-hidden: the tooltip is absolutely positioned inside the
+      // chart; letting it spill out of the card would grow the page's scroll
+      // area on hover and shift the layout.
+      className="min-w-[300px] flex-1 overflow-hidden border-border-primary bg-surface-secondary"
     >
       <Group justify="space-between" mb="sm">
         <Title order={5} className="text-text-primary">
@@ -210,7 +230,7 @@ function RollupCard({
           Nothing to show.
         </Text>
       ) : (
-        <ResponsiveContainer width="100%" height={Math.max(60, data.length * 28)}>
+        <ResponsiveContainer width="100%" height={Math.max(88, data.length * 28 + 32)}>
           <BarChart data={data} layout="vertical" margin={{ left: 4, right: 20 }}>
             <CartesianGrid strokeDasharray="2 2" stroke="var(--color-border-secondary)" />
             <XAxis type="number" tickFormatter={(v) => `${v}h`} stroke="var(--color-text-muted)" fontSize={11} />
@@ -223,14 +243,13 @@ function RollupCard({
               interval={0}
             />
             <ChartTooltip
-              formatter={(value) => formatMins(Math.round(+value * 60))}
-              contentStyle={{
-                background: "var(--color-background-primary)",
-                border: "1px solid var(--color-border-primary)",
-                color: "var(--color-text-primary)",
-              }}
+              // Recharts' default cursor is a light grey block and its default
+              // tooltip is two lines ("hours : 32m") that outgrow a short chart.
+              cursor={{ fill: "var(--color-surface-hover)" }}
+              content={<RollupTooltip />}
+              allowEscapeViewBox={{ x: false, y: false }}
             />
-            <Bar dataKey="hours" fill="var(--color-brand-primary)" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="hours" name="Attention" fill="var(--color-brand-primary)" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>
       )}

@@ -14,20 +14,12 @@ import {
 import { format, startOfDay } from "date-fns";
 
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
+import { RollupTooltip } from "./TimeDayView";
 
 function entryMinutes(e: CalendarTimeEntry): number {
   const end = e.endedAt ?? new Date();
   const ms = new Date(end).getTime() - new Date(e.startedAt).getTime();
   return ms > 0 ? Math.round(ms / 60_000) : 0;
-}
-
-function formatMins(totalMins: number): string {
-  if (totalMins <= 0) return "0m";
-  const h = Math.floor(totalMins / 60);
-  const m = totalMins % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
 }
 
 interface TimeReportsProps {
@@ -89,6 +81,7 @@ export function TimeReports({ entries, projectNames }: TimeReportsProps) {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([key, mins]) => ({
         date: format(new Date(key), "EEE M/d"),
+        name: format(new Date(key), "EEE M/d"),
         mins,
         hours: +(mins / 60).toFixed(2),
       }));
@@ -102,37 +95,23 @@ export function TimeReports({ entries, projectNames }: TimeReportsProps) {
     <Stack gap="md">
       <Group gap="md" align="stretch" wrap="wrap">
         <ReportCard title="By project" empty={byProject.length === 0}>
-          <ResponsiveContainer width="100%" height={Math.max(60, byProject.length * 28)}>
+          <ResponsiveContainer width="100%" height={Math.max(88, byProject.length * 28 + 32)}>
             <BarChart data={byProject} layout="vertical" margin={{ left: 4, right: 20 }}>
               <CartesianGrid strokeDasharray="2 2" stroke="var(--color-border-secondary)" />
               <XAxis type="number" tickFormatter={(v) => `${v}h`} stroke="var(--color-text-muted)" fontSize={11} />
               <YAxis dataKey="name" type="category" stroke="var(--color-text-muted)" fontSize={11} width={120} />
-              <Tooltip
-                formatter={(value) => formatMins(Math.round(+value * 60))}
-                contentStyle={{
-                  background: "var(--color-background-primary)",
-                  border: "1px solid var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                }}
-              />
+              <Tooltip cursor={{ fill: "var(--color-surface-hover)" }} content={<RollupTooltip />} />
               <Bar dataKey="hours" fill="var(--color-brand-primary)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ReportCard>
         <ReportCard title="By action (top 10)" empty={byAction.length === 0}>
-          <ResponsiveContainer width="100%" height={Math.max(60, byAction.length * 28)}>
+          <ResponsiveContainer width="100%" height={Math.max(88, byAction.length * 28 + 32)}>
             <BarChart data={byAction} layout="vertical" margin={{ left: 4, right: 20 }}>
               <CartesianGrid strokeDasharray="2 2" stroke="var(--color-border-secondary)" />
               <XAxis type="number" tickFormatter={(v) => `${v}h`} stroke="var(--color-text-muted)" fontSize={11} />
               <YAxis dataKey="name" type="category" stroke="var(--color-text-muted)" fontSize={11} width={160} />
-              <Tooltip
-                formatter={(value) => formatMins(Math.round(+value * 60))}
-                contentStyle={{
-                  background: "var(--color-background-primary)",
-                  border: "1px solid var(--color-border-primary)",
-                  color: "var(--color-text-primary)",
-                }}
-              />
+              <Tooltip cursor={{ fill: "var(--color-surface-hover)" }} content={<RollupTooltip />} />
               <Bar dataKey="hours" fill="var(--color-brand-primary)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -145,14 +124,7 @@ export function TimeReports({ entries, projectNames }: TimeReportsProps) {
             <CartesianGrid strokeDasharray="2 2" stroke="var(--color-border-secondary)" />
             <XAxis dataKey="date" stroke="var(--color-text-muted)" fontSize={11} />
             <YAxis tickFormatter={(v) => `${v}h`} stroke="var(--color-text-muted)" fontSize={11} />
-            <Tooltip
-              formatter={(value) => formatMins(Math.round(+value * 60))}
-              contentStyle={{
-                background: "var(--color-background-primary)",
-                border: "1px solid var(--color-border-primary)",
-                color: "var(--color-text-primary)",
-              }}
-            />
+            <Tooltip cursor={{ fill: "var(--color-surface-hover)" }} content={<RollupTooltip />} />
             <Bar dataKey="hours" fill="var(--color-brand-primary)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -174,7 +146,7 @@ function ReportCard({
     <Paper
       p="md"
       radius="md"
-      className="min-w-[320px] flex-1 border-border-primary bg-surface-secondary"
+      className="min-w-[320px] flex-1 overflow-hidden border-border-primary bg-surface-secondary"
     >
       <Title order={5} className="text-text-primary" mb="sm">
         {title}
