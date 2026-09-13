@@ -180,6 +180,105 @@ describe("applyActionUpdate", () => {
     });
   });
 
+  describe("re-targeting", () => {
+    function stubTargetProject(
+      overrides: { createdById?: string; workspaceId?: string | null; isPublic?: boolean } = {},
+    ) {
+      db.project.findUnique.mockResolvedValue({
+        createdById: ACTOR,
+        teamId: null,
+        workspaceId: "w-target",
+        isPublic: false,
+        isRestricted: false,
+        ...overrides,
+      } as never);
+      db.projectMember.findFirst.mockResolvedValue(null);
+      db.workspaceUser.findUnique.mockResolvedValue(null);
+      db.teamUser.findFirst.mockResolvedValue(null);
+    }
+
+    it("moving to a different project takes its workspace and re-seeds the kanban column and order", async () => {
+      stubRow(db, { projectId: "p-old", kanbanStatus: "IN_PROGRESS", kanbanOrder: 4 });
+      stubTargetProject();
+      // Target board: TODO max 2, board max 9 → after the last TODO card.
+      db.action.findFirst
+        .mockResolvedValueOnce({ kanbanOrder: 9 } as never)
+        .mockResolvedValueOnce({ kanbanOrder: 2 } as never);
+
+      await applyActionUpdate(deps(db), "a1", { projectId: "p-new", workspaceId: "w-foreign" });
+
+      expect(written(db)).toMatchObject({
+        projectId: "p-new",
+        workspaceId: "w-target",
+        kanbanStatus: "TODO",
+        kanbanOrder: 3,
+      });
+      // No membership probe for the foreign workspace: the project's won.
+      expect(db.workspaceUser.findUnique).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId_workspaceId: { userId: ACTOR, workspaceId: "w-foreign" } } }),
+      );
+    });
+
+    it("re-sending the current project does not re-seed", async () => {
+      stubRow(db, { projectId: "p1", kanbanStatus: "IN_PROGRESS", kanbanOrder: 4 });
+      stubTargetProject({ workspaceId: WORKSPACE });
+
+      await applyActionUpdate(deps(db), "a1", { projectId: "p1", name: "Renamed" });
+
+      const data = written(db);
+      expect(data).not.toHaveProperty("kanbanStatus");
+      expect(data).not.toHaveProperty("kanbanOrder");
+      expect(db.action.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("refuses a target project the actor cannot edit, with FORBIDDEN and no write", async () => {
+      stubRow(db);
+      stubTargetProject({ createdById: "someone-else", isPublic: true });
+
+      await expect(
+        applyActionUpdate(deps(db), "a1", { projectId: "p-foreign" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(db.action.update).not.toHaveBeenCalled();
+    });
+
+    it("leaving the project clears the kanban column and order", async () => {
+      stubRow(db, { projectId: "p1", kanbanStatus: "DONE", kanbanOrder: 2, status: "COMPLETED", completedAt: STAMPED });
+
+      await applyActionUpdate(deps(db), "a1", { projectId: null });
+
+      const data = written(db);
+      expect(data).toMatchObject({ projectId: null, kanbanStatus: null, kanbanOrder: null });
+      // Clearing the column is not a kanban move: the coarse status stays.
+      expect(data).not.toHaveProperty("status");
+      expect(data).not.toHaveProperty("completedAt");
+      expect(db.actionStatusChange.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses a bare workspace move without a write role there", async () => {
+      stubRow(db);
+      db.workspaceUser.findUnique.mockResolvedValue({ role: "viewer", workspaceId: "w-other" } as never);
+      db.teamUser.findFirst.mockResolvedValue(null);
+
+      await expect(
+        applyActionUpdate(deps(db), "a1", { workspaceId: "w-other" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(db.action.update).not.toHaveBeenCalled();
+    });
+
+    it("refuses a ticket from another workspace with NOT_FOUND", async () => {
+      stubRow(db);
+      db.ticket.findUnique.mockResolvedValue({ product: { workspaceId: "w-other" } } as never);
+
+      await expect(
+        applyActionUpdate(deps(db), "a1", { ticketId: "t1" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      expect(db.action.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe("dates", () => {
     it("refuses an end before the start with BAD_REQUEST", async () => {
       stubRow(db);

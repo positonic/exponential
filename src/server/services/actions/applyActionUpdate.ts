@@ -4,6 +4,13 @@ import {
   getActionAccess,
   canEditAction,
 } from "~/server/services/access/resolvers/actionResolver";
+import {
+  getProjectAccess,
+  canEditProject,
+} from "~/server/services/access/resolvers/projectResolver";
+import { assertWorkspaceScopedRefs } from "~/server/services/access/workspaceRefs";
+import { assertCanWriteToWorkspace } from "./workspaceGate";
+import { nextKanbanOrder } from "./kanban";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
@@ -77,13 +84,17 @@ function fieldsChangedBetween(
 /**
  * Update an Action. The single implementation behind every update path.
  *
- * Gates on the central Action edit resolver, applies `deriveActionPatch`
- * (the kanban ⇄ status lockstep, completed-at stamping, the DRAFT / DELETED
- * guards), writes once, then records the activity event: `status_changed`
- * when the coarse status moved, else `updated` with the fields that
- * actually changed. A real kanban column change also records the
- * `ActionStatusChange` analytics row and the project activity, whichever
- * procedure moved the card.
+ * Gates on the central Action edit resolver, authorises any re-targeting (a
+ * project move re-checks edit on the target, takes the target's workspace
+ * and re-seeds the kanban column and order there; leaving the project
+ * clears both; a bare workspace move needs a write role there), guards the
+ * ticket and epic links against the effective workspace, applies
+ * `deriveActionPatch` (the kanban ⇄ status lockstep, completed-at stamping,
+ * the DRAFT / DELETED guards), writes once, then records the activity
+ * event: `status_changed` when the coarse status moved, else `updated`
+ * with the fields that actually changed. A real kanban column change also
+ * records the `ActionStatusChange` analytics row and the project activity,
+ * whichever procedure moved the card.
  *
  * `kanbanOrder` passes through untouched; a `priority` change without an
  * explicit order clears it so the board falls back to automatic sorting.
@@ -145,20 +156,93 @@ export async function applyActionUpdate<
     validateScheduledTimes(resolvedStart, resolvedEnd);
   }
 
-  // 3. The lockstep.
+  // 3. Re-targeting. `projectId` and `workspaceId` are free-form input, and
+  //    the gate above only proves the actor may edit the Action where it
+  //    lives — not that they may move it somewhere else.
+  let kanbanStatus: Prisma.ActionUncheckedUpdateInput["kanbanStatus"] = columns.kanbanStatus;
+  let order: number | null | undefined = kanbanOrder;
+
+  if (columns.projectId) {
+    const [targetAccess, targetProject] = await Promise.all([
+      getProjectAccess(db, actor.userId, columns.projectId),
+      db.project.findUnique({
+        where: { id: columns.projectId },
+        select: { workspaceId: true },
+      }),
+    ]);
+    if (!canEditProject(targetAccess)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "You don't have permission to move this action to that project",
+      });
+    }
+    // The project's workspace wins over a caller-supplied one (same
+    // precedence as create); only a personal project leaves it in play.
+    if (targetProject?.workspaceId) {
+      columns.workspaceId = targetProject.workspaceId;
+    } else if (columns.workspaceId) {
+      await assertCanWriteToWorkspace(db, actor.userId, columns.workspaceId);
+    }
+    // A move to a different project re-seeds the card there, unless the
+    // caller placed it explicitly.
+    if (columns.projectId !== previous.projectId) {
+      kanbanStatus = columns.kanbanStatus ?? "TODO";
+      order = kanbanOrder ?? (await nextKanbanOrder(db, columns.projectId));
+    }
+  } else if (columns.projectId === null) {
+    // Leaving the project: no board, no column, no order.
+    if (previous.projectId !== null) {
+      kanbanStatus = null;
+      order = null;
+    }
+    if (columns.workspaceId) {
+      await assertCanWriteToWorkspace(db, actor.userId, columns.workspaceId);
+    }
+  } else if (columns.workspaceId) {
+    // Moving into a workspace by id alone. `null` falls through unchecked on
+    // purpose: detaching an Action the actor can already edit grants nothing.
+    await assertCanWriteToWorkspace(db, actor.userId, columns.workspaceId);
+  }
+
+  const effectiveWorkspaceId =
+    columns.workspaceId ?? previous.workspaceId ?? previous.project?.workspaceId ?? null;
+
+  // A Ticket link is a second read path into another product's data, so the
+  // ticket must belong to a product in the Action's own workspace. NOT_FOUND
+  // so the error does not confirm the id exists elsewhere.
+  if (columns.ticketId) {
+    const ticket = await db.ticket.findUnique({
+      where: { id: columns.ticketId },
+      select: { product: { select: { workspaceId: true } } },
+    });
+    if (!ticket || !effectiveWorkspaceId || ticket.product.workspaceId !== effectiveWorkspaceId) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+    }
+  }
+
+  // Same-workspace guard as create, against the workspace the Action will
+  // have after any move above.
+  if (columns.epicId) {
+    await assertWorkspaceScopedRefs(db, actor.userId, effectiveWorkspaceId, {
+      epicId: columns.epicId,
+    });
+  }
+
+  // 4. The lockstep.
   const derived = deriveActionPatch(previous, {
     status: columns.status,
-    kanbanStatus: columns.kanbanStatus,
+    kanbanStatus,
   });
 
   const data: Prisma.ActionUncheckedUpdateInput = {
     ...columns,
-    ...(kanbanOrder !== undefined ? { kanbanOrder } : {}),
+    ...(kanbanStatus !== undefined ? { kanbanStatus } : {}),
+    ...(order !== undefined ? { kanbanOrder: order } : {}),
     ...derived.data,
-    ...(columns.priority !== undefined && kanbanOrder === undefined ? { kanbanOrder: null } : {}),
+    ...(columns.priority !== undefined && order === undefined ? { kanbanOrder: null } : {}),
   };
 
-  // 4. One write.
+  // 5. One write.
   const updated = await db.action.update({
     where: { id: actionId },
     data,
@@ -166,7 +250,7 @@ export async function applyActionUpdate<
   });
   const action = updated as unknown as ActionWithInclude<I>;
 
-  // 5. Side effects, after the write. `recordActivity` never throws by
+  // 6. Side effects, after the write. `recordActivity` never throws by
   //    contract; the `.catch` keeps instrumentation from breaking the
   //    caller's mutation if the helper is later refactored.
   const activityWorkspaceId =
@@ -202,19 +286,19 @@ export async function applyActionUpdate<
 
   // A real column move is what the PM analytics (cycle time, lead time) and
   // the project feed track, whichever procedure moved the card.
-  if (derived.transitions.kanbanChanged && columns.kanbanStatus) {
-    await db.actionStatusChange
-      .create({
+  if (derived.transitions.kanbanChanged && kanbanStatus) {
+    try {
+      await db.actionStatusChange.create({
         data: {
           actionId,
           fromStatus: previous.kanbanStatus,
-          toStatus: columns.kanbanStatus,
+          toStatus: kanbanStatus,
           changedById: actor.userId,
         },
-      })
-      .catch((err: unknown) => {
-        console.error("Failed to record status change:", err);
       });
+    } catch (err: unknown) {
+      console.error("Failed to record status change:", err);
+    }
 
     const projectId = updated.projectId ?? previous.projectId;
     if (projectId) {
@@ -223,7 +307,7 @@ export async function applyActionUpdate<
         actionId,
         type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
         fromValue: previous.kanbanStatus,
-        toValue: columns.kanbanStatus,
+        toValue: kanbanStatus,
         changedById: actor.userId,
       }).catch((err: unknown) => {
         console.error("[projectActivity] applyActionUpdate:", err);

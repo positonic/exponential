@@ -13,9 +13,9 @@
 export {
   createAction,
   createdActionInclude,
-  assertCanWriteToWorkspace,
   type CreatedAction,
 } from "./createAction";
+export { assertCanWriteToWorkspace } from "./workspaceGate";
 export {
   applyActionUpdate,
   type ApplyActionUpdateResult,
