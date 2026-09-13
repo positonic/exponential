@@ -595,7 +595,7 @@ body {
   .mantine-DatePickerInput-calendarHeaderLevel,
   .mantine-DatePicker-calendarHeaderLevel,
   .mantine-Calendar-calendarHeaderLevel
-):hover:not([data-disabled]) {
+):hover:not(:disabled, [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
 
@@ -710,6 +710,15 @@ body {
 )[data-in-range]:not([data-selected]) {
   background-color: color-mix(in oklab, var(--color-brand-primary) 22%, transparent);
   color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-in-range]:not([data-selected], [data-disabled]):hover {
+  background-color: color-mix(in oklab, var(--color-brand-primary) 36%, transparent);
 }
 :is(
   .mantine-DateInput-day,
