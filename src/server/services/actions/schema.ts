@@ -143,6 +143,8 @@ export const actionUpdatePatchSchema = actionWriteSchema
   .extend({
   priority: z.enum(PRIORITY_VALUES).optional(),
   status: z.enum(ACTION_STATUS_VALUES).optional(),
+  /** `null` clears the description (the agent tool allows it; the column is nullable). */
+  description: z.string().nullable().optional(),
   /** A project to move to, or `null` to leave the current one. */
   projectId: z.string().nullable().optional(),
   workspaceId: z.string().nullable().optional(),

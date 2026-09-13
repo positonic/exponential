@@ -2002,6 +2002,62 @@ describe("action router (mocked)", () => {
       expect(dbMock.action.create).not.toHaveBeenCalled();
     });
 
+    it("mastra.updateAction yields the same status and completedAt as action.update for the same patch", async () => {
+      // A legacy row: kanban already DONE, status never followed, no stamp.
+      // The agent copy used to stamp only on ACTIVE → COMPLETED; both paths
+      // now run the same lockstep, so both complete and backfill.
+      const legacy = { status: "ACTIVE", kanbanStatus: "DONE", completedAt: null };
+      stubUpdateRow(legacy);
+      dbMock.action.update.mockResolvedValue({
+        id: "a1", name: "X", description: null, status: "COMPLETED", priority: "Quick",
+        dueDate: null, scheduledStart: null, scheduledEnd: null, duration: null,
+        projectId: null, workspaceId: null, project: null, dailyPlanActions: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const { action } = await caller.mastra.updateAction({ actionId: "a1", status: "COMPLETED" });
+      const viaAgent = updatedWith();
+      expect(action).toMatchObject({ id: "a1", status: "COMPLETED", project: null });
+
+      dbMock.action.update.mockClear();
+      await caller.action.update({ id: "a1", status: "COMPLETED" });
+      const viaUi = updatedWith();
+
+      expect(viaAgent.status).toBe("COMPLETED");
+      expect(viaAgent.completedAt).toBeInstanceOf(Date);
+      expect(viaUi.status).toBe(viaAgent.status);
+      expect(viaUi.completedAt).toBeInstanceOf(Date);
+    });
+
+    it("mastra.updateAction refuses an action the user can only view", async () => {
+      // Someone else's action in a public project: view access, no edit.
+      dbMock.action.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        projectId: "p-public",
+        assignees: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: true,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.mastra.updateAction({ actionId: "a1", name: "Renamed by Zoe" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.update).not.toHaveBeenCalled();
+    });
+
     it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 

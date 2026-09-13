@@ -8,7 +8,7 @@ import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
 import { resolveAgentActionSource } from "~/server/utils/actionSource";
-import { actionWriteDeps, createAction } from "~/server/services/actions";
+import { actionWriteDeps, applyActionUpdate, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -4302,92 +4302,31 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`✏️ [tRPC updateAction] RECEIVED: actionId=${input.actionId}, userId=${userId}, changes=${JSON.stringify(input)}`);
 
-      // Find the action first
-      const existing = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: { id: true, createdById: true, projectId: true, status: true, priority: true, name: true, description: true, dueDate: true },
-      });
-
-      if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Action not found',
-        });
-      }
-
-      // Check access: user is creator, or has project-level access
-      let hasAccess = existing.createdById === userId;
-      if (!hasAccess && existing.projectId) {
-        const projectAccess = await getProjectAccess(ctx.db, userId, existing.projectId);
-        hasAccess = hasProjectAccess(projectAccess);
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have access to this action',
-        });
-      }
-
-      // Build update data
+      // The write is the Action module's: central edit gate (ADR-0016 — the
+      // inline gate here accepted view access), kanban ⇄ status lockstep
+      // and completedAt (this copy stamped it without the legacy backfill),
+      // project moves with the kanban re-seed, and the activity event.
       const { actionId, ...fields } = input;
-      const updateData: Record<string, unknown> = {};
-
-      if (fields.name !== undefined) updateData.name = fields.name;
-      if (fields.description !== undefined) updateData.description = fields.description;
-      if (fields.priority !== undefined) updateData.priority = fields.priority;
-      if (fields.dueDate !== undefined) {
-        updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
-      }
-      if (fields.scheduledStart !== undefined) {
-        updateData.scheduledStart = fields.scheduledStart
-          ? new Date(fields.scheduledStart)
-          : null;
-      }
-      if (fields.scheduledEnd !== undefined) {
-        updateData.scheduledEnd = fields.scheduledEnd
-          ? new Date(fields.scheduledEnd)
-          : null;
-      }
-      if (fields.duration !== undefined) {
-        updateData.duration = fields.duration;
-      }
-
-      // Handle status change
-      if (fields.status !== undefined) {
-        updateData.status = fields.status;
-        if (fields.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
-          updateData.completedAt = new Date();
-        } else if (fields.status !== 'COMPLETED' && existing.status === 'COMPLETED') {
-          updateData.completedAt = null;
-        }
-      }
-
-      // Handle project reassignment
-      if (fields.projectId !== undefined) {
-        updateData.projectId = fields.projectId;
-        if (fields.projectId && fields.projectId !== existing.projectId) {
-          // Moving to a new project — set kanban defaults
-          const highestOrder = await ctx.db.action.findFirst({
-            where: { projectId: fields.projectId, kanbanOrder: { not: null } },
-            orderBy: { kanbanOrder: 'desc' },
-            select: { kanbanOrder: true },
-          });
-          updateData.kanbanStatus = 'TODO';
-          updateData.kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-        } else if (fields.projectId === null) {
-          // Unassigning from project — clear kanban
-          updateData.kanbanStatus = null;
-          updateData.kanbanOrder = null;
-        }
-      }
-
-      const action = await ctx.db.action.update({
-        where: { id: actionId },
-        data: updateData,
-        include: {
-          project: { select: { id: true, name: true } },
+      const { action } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        actionId,
+        {
+          ...(fields.name !== undefined ? { name: fields.name } : {}),
+          ...(fields.description !== undefined ? { description: fields.description } : {}),
+          ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
+          ...(fields.status !== undefined ? { status: fields.status } : {}),
+          ...(fields.dueDate !== undefined ? { dueDate: parseAgentDate(fields.dueDate, "dueDate") } : {}),
+          ...(fields.scheduledStart !== undefined
+            ? { scheduledStart: parseAgentDate(fields.scheduledStart, "scheduledStart") }
+            : {}),
+          ...(fields.scheduledEnd !== undefined
+            ? { scheduledEnd: parseAgentDate(fields.scheduledEnd, "scheduledEnd") }
+            : {}),
+          ...(fields.duration !== undefined ? { duration: fields.duration } : {}),
+          ...(fields.projectId !== undefined ? { projectId: fields.projectId } : {}),
         },
-      });
+        { include: { project: { select: { id: true, name: true } } } },
+      );
 
       console.log(`✅ [tRPC updateAction] UPDATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}`);
 
