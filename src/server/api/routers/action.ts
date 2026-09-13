@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -33,31 +33,11 @@ import {
   createAction,
   isActionSource,
   KANBAN_STATUS_VALUES,
+  actionWriteDeps,
   type ActionSource,
-  type ActionWriteDeps,
 } from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
-
-/**
- * The plain dependencies every Action write takes (`ActionWriteDeps`): the
- * three actor fields `createTRPCContext` already resolved. Routers build it
- * from `ctx`; nothing else about the tRPC context crosses into the module.
- */
-function actionWriteDeps(ctx: {
-  db: PrismaClient;
-  session: { user: { id: string; isAdmin: boolean } };
-  tokenType?: string;
-}): ActionWriteDeps {
-  return {
-    db: ctx.db,
-    actor: {
-      userId: ctx.session.user.id,
-      tokenType: ctx.tokenType,
-      isAdmin: ctx.session.user.isAdmin,
-    },
-  };
-}
 
 /**
  * Which surface a session-authenticated write came from, by principal: an
@@ -510,11 +490,15 @@ export const actionRouter = createTRPCRouter({
         { include: { dailyPlanActions: { include: { dailyPlan: true } } } },
       );
 
-      // Project activity audit log: status + dueDate diffs (fire-and-forget)
+      // Project activity audit log: explicit status + dueDate diffs
+      // (fire-and-forget). A kanban-driven status change is already logged
+      // by the module as the column move; logging the coarse diff too would
+      // record one drag twice.
       if (previous.projectId) {
-        const statusDiff = transitions.statusChanged
-          ? { from: previous.status, to: transitions.nextStatus }
-          : undefined;
+        const statusDiff =
+          patch.status !== undefined && transitions.statusChanged
+            ? { from: previous.status, to: transitions.nextStatus }
+            : undefined;
         const dueDateDiff =
           patch.dueDate !== undefined
             ? { from: previous.dueDate ?? null, to: patch.dueDate ?? null }
@@ -1364,8 +1348,9 @@ export const actionRouter = createTRPCRouter({
           count += 1;
         } catch (err) {
           // The target was checked above, so a FORBIDDEN here is one Action
-          // the caller may read but not edit: skipped, as updateMany did.
-          if (err instanceof TRPCError && err.code === "FORBIDDEN") continue;
+          // the caller may read but not edit, and a NOT_FOUND one that went
+          // away since the lookup: both skipped, as updateMany did.
+          if (err instanceof TRPCError && (err.code === "FORBIDDEN" || err.code === "NOT_FOUND")) continue;
           throw err;
         }
       }

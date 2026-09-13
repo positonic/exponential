@@ -7,8 +7,10 @@
  * owns the edit gate, the kanban ⇄ status lockstep (`deriveActionPatch`),
  * project moves and the activity event. A bug in any of them is fixed once.
  *
- * Nothing crosses this seam except plain dependencies (`ActionWriteDeps`), so
- * voice, webhooks, sync engines and cron can call it without a tRPC context.
+ * Nothing crosses this seam except plain dependencies (`ActionWriteDeps`: a
+ * Prisma client and the actor) and, on update, an optional Prisma `include`
+ * so every caller keeps its return shape — no tRPC context, so voice,
+ * webhooks, sync engines and cron can call it without one.
  *
  * Outside the seam, on purpose: `action.bulkReschedule` and `action.bulkDefer`
  * stay set-based `updateMany` writes. They touch dates only — never `status`,
@@ -62,4 +64,4 @@ export {
   assertListMembership,
   type AssignmentScope,
 } from "./containment";
-export type { ActionActor, ActionWriteDeps } from "./types";
+export { actionWriteDeps, type ActionActor, type ActionWriteDeps } from "./types";

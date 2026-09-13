@@ -121,6 +121,34 @@ describe("deriveActionPatch", () => {
       completedAt: "cleared",
     },
     {
+      name: "leaving DONE on a legacy DONE-but-ACTIVE row clears its stamp",
+      current: row("ACTIVE", "DONE", STAMPED),
+      patch: { kanbanStatus: "TODO" },
+      status: undefined,
+      completedAt: "cleared",
+    },
+    {
+      name: "an explicit CANCELLED on a completed row clears the stamp",
+      current: row("COMPLETED", "DONE", STAMPED),
+      patch: { status: "CANCELLED" },
+      status: "CANCELLED",
+      completedAt: "cleared",
+    },
+    {
+      name: "an explicit DELETED (soft delete) keeps a completed row's stamp",
+      current: row("COMPLETED", "DONE", STAMPED),
+      patch: { status: "DELETED" },
+      status: "DELETED",
+      completedAt: "untouched",
+    },
+    {
+      name: "an explicit COMPLETED wins over leaving the DONE column",
+      current: row("COMPLETED", "DONE", STAMPED),
+      patch: { kanbanStatus: "TODO", status: "COMPLETED" },
+      status: "COMPLETED",
+      completedAt: "untouched",
+    },
+    {
       name: "an explicit status on a DRAFT row applies (explicit always wins)",
       current: row("DRAFT", "TODO"),
       patch: { status: "ACTIVE" },
@@ -188,5 +216,7 @@ describe("deriveActionPatch", () => {
       completing: false,
       uncompleting: false,
     });
+    // Clearing the column (leaving a project) is not a move between columns.
+    expect(deriveActionPatch(row("ACTIVE", "TODO"), { kanbanStatus: null }).transitions.kanbanChanged).toBe(false);
   });
 });

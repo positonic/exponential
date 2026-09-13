@@ -292,9 +292,12 @@ export async function applyActionUpdate<
     }
   }
 
-  // A real column move is what the PM analytics (cycle time, lead time) and
-  // the project feed track, whichever procedure moved the card.
-  if (derived.transitions.kanbanChanged && kanbanStatus) {
+  // A move between columns on the same board is what the PM analytics
+  // (cycle time, lead time) and the project feed track, whichever procedure
+  // moved the card. Re-seeding on a project move is not a move on any board.
+  const projectMoved =
+    columns.projectId !== undefined && columns.projectId !== previous.projectId;
+  if (derived.transitions.kanbanChanged && previous.kanbanStatus && kanbanStatus && !projectMoved) {
     try {
       await db.actionStatusChange.create({
         data: {
@@ -325,6 +328,3 @@ export async function applyActionUpdate<
 
   return { action, previous, transitions: derived.transitions };
 }
-
-/** Exposed for the module's own tests. */
-export const _internal = { snapshotSelect, fieldsChangedBetween };

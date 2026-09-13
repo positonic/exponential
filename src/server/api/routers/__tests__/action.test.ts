@@ -1854,6 +1854,45 @@ describe("action router (mocked)", () => {
       expect(dbMock.action.updateMany).not.toHaveBeenCalled();
     });
 
+    it("updateActionsProject moves each of the caller's transcript actions through the module", async () => {
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findMany.mockResolvedValue([
+        { id: "a1", name: "One", projectId: null, transcriptionSessionId: "s1" },
+        { id: "a2", name: "Two", projectId: null, transcriptionSessionId: "s1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any);
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: null });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.updateActionsProject({ transcriptionSessionId: "s1", projectId: "p1" });
+
+      expect(result.count).toBe(2);
+      expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+      expect(updatedWith()).toMatchObject({ projectId: "p1", workspaceId: "w1", kanbanStatus: "TODO" });
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("view.updateKanbanStatus (workspace board) completes the coarse status through the module", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "IN_PROGRESS" });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.view.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE", kanbanOrder: 4 });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", kanbanOrder: 4, status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
     it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 

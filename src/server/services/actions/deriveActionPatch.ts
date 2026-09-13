@@ -16,7 +16,10 @@ export interface ActionPatchInput {
 }
 
 export interface ActionPatchTransitions {
-  /** The kanban column is actually changing, not being re-sent. */
+  /**
+   * The card is moving to a different column, not being re-sent. Clearing
+   * the column (`kanbanStatus: null`, leaving a project) is not a move.
+   */
   kanbanChanged: boolean;
   /** The coarse status the row will have after the write. */
   nextStatus: string;
@@ -60,15 +63,17 @@ function statusForKanban(kanbanStatus: ActionStatus): ActionCoarseStatus {
  * - DRAFT and DELETED rows never move through a kanban move.
  * - An explicit `patch.status` always wins over the sync.
  * - `completedAt` is stamped on entering COMPLETED when the row has none
- *   (backfilling legacy DONE-with-null rows), cleared on leaving COMPLETED,
- *   and otherwise untouched.
+ *   (backfilling legacy DONE-with-null rows), cleared on going back to
+ *   ACTIVE or on to CANCELLED and on leaving the DONE column on a real move
+ *   (even when the status never followed — the legacy shape), kept through
+ *   DELETED and DRAFT, and otherwise untouched.
  */
 export function deriveActionPatch(
   current: ActionPatchCurrent,
   patch: ActionPatchInput,
 ): DerivedActionPatch {
   const kanbanChanged =
-    patch.kanbanStatus !== undefined && patch.kanbanStatus !== current.kanbanStatus;
+    patch.kanbanStatus != null && patch.kanbanStatus !== current.kanbanStatus;
 
   let nextStatus: string = current.status;
   if (patch.status !== undefined) {
@@ -86,9 +91,22 @@ export function deriveActionPatch(
   if (statusChanged || patch.status !== undefined) {
     data.status = nextStatus as ActionCoarseStatus;
   }
+
+  // The stamp is cleared when the Action stops being completed as a live
+  // thing — back to ACTIVE or on to CANCELLED — and also when a card leaves
+  // DONE on a real move while its status never followed (the legacy shape),
+  // or the row keeps showing in "completed today". DELETED and DRAFT are
+  // archival: a soft-deleted completed Action keeps its timestamp.
+  const leavingDoneColumn =
+    kanbanChanged && patch.kanbanStatus !== "DONE" && SYNCABLE_STATUSES.has(current.status);
+  const clearsStamp =
+    nextStatus !== "COMPLETED" &&
+    ((uncompleting && (nextStatus === "ACTIVE" || nextStatus === "CANCELLED")) ||
+      (patch.status === undefined && leavingDoneColumn));
+
   if (nextStatus === "COMPLETED" && !current.completedAt) {
     data.completedAt = new Date();
-  } else if (uncompleting && current.completedAt) {
+  } else if (clearsStamp && current.completedAt) {
     data.completedAt = null;
   }
 

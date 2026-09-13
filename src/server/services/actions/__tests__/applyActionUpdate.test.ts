@@ -107,6 +107,17 @@ describe("applyActionUpdate", () => {
       expect(written(db)).toMatchObject({ name: "Renamed" });
     });
 
+    it("an empty patch writes neither status nor priority (no create default fires)", async () => {
+      stubRow(db, { status: "COMPLETED", kanbanStatus: "DONE", completedAt: STAMPED, priority: "1st Priority" });
+
+      await applyActionUpdate(deps(db), "a1", {});
+
+      const data = written(db);
+      expect(data).not.toHaveProperty("status");
+      expect(data).not.toHaveProperty("priority");
+      expect(data).not.toHaveProperty("completedAt");
+    });
+
     it("rejects a malformed patch with BAD_REQUEST before writing", async () => {
       stubRow(db);
 
@@ -217,6 +228,30 @@ describe("applyActionUpdate", () => {
       expect(db.workspaceUser.findUnique).not.toHaveBeenCalledWith(
         expect.objectContaining({ where: { userId_workspaceId: { userId: ACTOR, workspaceId: "w-foreign" } } }),
       );
+    });
+
+    it("a project move records no ActionStatusChange row even when the column changes", async () => {
+      stubRow(db, { projectId: "p-old", kanbanStatus: "IN_PROGRESS", kanbanOrder: 2 });
+      stubTargetProject();
+      db.action.findFirst.mockResolvedValue(null);
+
+      await applyActionUpdate(deps(db), "a1", { projectId: "p-new" });
+
+      expect(written(db)).toMatchObject({ projectId: "p-new", kanbanStatus: "TODO" });
+      expect(db.actionStatusChange.create).not.toHaveBeenCalled();
+      expect(logProjectActivity).not.toHaveBeenCalled();
+    });
+
+    it("seeding a column on a project move records no ActionStatusChange row", async () => {
+      stubRow(db, { projectId: null, kanbanStatus: null });
+      stubTargetProject();
+      db.action.findFirst.mockResolvedValue(null);
+
+      await applyActionUpdate(deps(db), "a1", { projectId: "p-new" });
+
+      expect(written(db)).toMatchObject({ kanbanStatus: "TODO", kanbanOrder: 1 });
+      expect(db.actionStatusChange.create).not.toHaveBeenCalled();
+      expect(logProjectActivity).not.toHaveBeenCalled();
     });
 
     it("moving a completed action into a project seeds it in DONE and leaves it completed", async () => {

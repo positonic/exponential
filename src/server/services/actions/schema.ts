@@ -135,7 +135,14 @@ export type CreateActionInput = z.input<typeof createActionInputSchema>;
  * last-write stamp). `applyActionUpdate` takes it; `action.update` exposes
  * it minus the fields it never accepted.
  */
-export const actionUpdatePatchSchema = actionWriteSchema.partial().extend({
+export const actionUpdatePatchSchema = actionWriteSchema
+  // The create defaults must never fire on a partial patch (an empty patch
+  // would reactivate a completed row), so those two come back defaults-free.
+  .omit({ priority: true, status: true })
+  .partial()
+  .extend({
+  priority: z.enum(PRIORITY_VALUES).optional(),
+  status: z.enum(ACTION_STATUS_VALUES).optional(),
   /** A project to move to, or `null` to leave the current one. */
   projectId: z.string().nullable().optional(),
   workspaceId: z.string().nullable().optional(),
