@@ -7,7 +7,8 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
-import { deriveActionSource } from "~/server/utils/actionSource";
+import { resolveAgentActionSource } from "~/server/utils/actionSource";
+import { actionWriteDeps, applyActionUpdate, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -1122,32 +1123,19 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, userId=${userId}`);
 
-      // Verify user has access to this project via all access paths
-      const access = await getProjectAccess(ctx.db, userId, input.projectId);
-      if (!hasProjectAccess(access)) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Project not found or access denied'
-        });
-      }
-
-      // Inherit workspaceId from the target project
-      const mastraProject = await ctx.db.project.findUnique({
-        where: { id: input.projectId },
-        select: { workspaceId: true },
-      });
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: input.name,
-          description: input.description,
-          priority: input.priority,
-          dueDate: parseAgentDate(input.dueDate, "dueDate"),
-          scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart"),
-          projectId: input.projectId,
-          createdById: userId,
-          workspaceId: mastraProject?.workspaceId ?? null,
-        },
+      // The write is the Action module's: it gates on project EDIT access
+      // (ADR-0016 — Zoe can do exactly what the user's own hands can; the
+      // old view-access gate here let an agent create in a project the user
+      // could only look at), takes the project's workspace, seeds the kanban
+      // column and records the activity event.
+      const action = await createAction(actionWriteDeps(ctx), {
+        name: input.name,
+        description: input.description,
+        priority: input.priority,
+        dueDate: parseAgentDate(input.dueDate, "dueDate") ?? undefined,
+        scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart") ?? undefined,
+        projectId: input.projectId,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
 
       console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);
@@ -1217,48 +1205,23 @@ export const mastraRouter = createTRPCRouter({
           ? parseAgentDate(input.dueDate, "dueDate")
           : parsed.dueDate;
 
-      // Get kanban order if project specified
-      let kanbanOrder: number | null = null;
-      if (parsed.projectId) {
-        const highestOrder = await ctx.db.action.findFirst({
-          where: { projectId: parsed.projectId, kanbanOrder: { not: null } },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true },
-        });
-        kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-      }
-
-      // Inherit workspaceId from the target project
-      let quickMastraWsId: string | null = null;
-      if (parsed.projectId) {
-        const proj = await ctx.db.project.findUnique({
-          where: { id: parsed.projectId },
-          select: { workspaceId: true },
-        });
-        quickMastraWsId = proj?.workspaceId ?? null;
-      }
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: parsed.name,
-          projectId: parsed.projectId,
-          priority: input.priority ?? "Quick",
-          status: "ACTIVE",
-          createdById: userId,
-          scheduledStart,
-          dueDate,
-          // Gateway tokens name their surface; any other principal reaching
-          // this agent tool is an agent. `deriveActionSource` no longer
-          // defaults, so the choice is explicit here.
-          source: deriveActionSource(ctx.tokenType) ?? "agent",
-          kanbanStatus: parsed.projectId ? "TODO" : null,
-          kanbanOrder,
-          workspaceId: quickMastraWsId,
-        },
-        include: {
-          project: { select: { id: true, name: true } },
-        },
+      // The write is the Action module's: project edit gate on the resolved
+      // project (ADR-0016), workspace from the project, kanban seed, activity
+      // event. A gateway token names its surface; an unmapped gateway type
+      // is rejected rather than mislabelled; anything else is the agent.
+      const created = await createAction(actionWriteDeps(ctx), {
+        name: parsed.name,
+        projectId: parsed.projectId ?? undefined,
+        priority: input.priority ?? "Quick",
+        status: "ACTIVE",
+        scheduledStart: scheduledStart ?? undefined,
+        dueDate: dueDate ?? undefined,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
+      const action = {
+        ...created,
+        project: created.project ? { id: created.project.id, name: created.project.name } : null,
+      };
 
       console.log(`✅ [tRPC quickCreateAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}, project=${action.project?.name || "none"}`);
 
@@ -4339,92 +4302,31 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`✏️ [tRPC updateAction] RECEIVED: actionId=${input.actionId}, userId=${userId}, changes=${JSON.stringify(input)}`);
 
-      // Find the action first
-      const existing = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: { id: true, createdById: true, projectId: true, status: true, priority: true, name: true, description: true, dueDate: true },
-      });
-
-      if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Action not found',
-        });
-      }
-
-      // Check access: user is creator, or has project-level access
-      let hasAccess = existing.createdById === userId;
-      if (!hasAccess && existing.projectId) {
-        const projectAccess = await getProjectAccess(ctx.db, userId, existing.projectId);
-        hasAccess = hasProjectAccess(projectAccess);
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have access to this action',
-        });
-      }
-
-      // Build update data
+      // The write is the Action module's: central edit gate (ADR-0016 — the
+      // inline gate here accepted view access), kanban ⇄ status lockstep
+      // and completedAt (this copy stamped it without the legacy backfill),
+      // project moves with the kanban re-seed, and the activity event.
       const { actionId, ...fields } = input;
-      const updateData: Record<string, unknown> = {};
-
-      if (fields.name !== undefined) updateData.name = fields.name;
-      if (fields.description !== undefined) updateData.description = fields.description;
-      if (fields.priority !== undefined) updateData.priority = fields.priority;
-      if (fields.dueDate !== undefined) {
-        updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
-      }
-      if (fields.scheduledStart !== undefined) {
-        updateData.scheduledStart = fields.scheduledStart
-          ? new Date(fields.scheduledStart)
-          : null;
-      }
-      if (fields.scheduledEnd !== undefined) {
-        updateData.scheduledEnd = fields.scheduledEnd
-          ? new Date(fields.scheduledEnd)
-          : null;
-      }
-      if (fields.duration !== undefined) {
-        updateData.duration = fields.duration;
-      }
-
-      // Handle status change
-      if (fields.status !== undefined) {
-        updateData.status = fields.status;
-        if (fields.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
-          updateData.completedAt = new Date();
-        } else if (fields.status !== 'COMPLETED' && existing.status === 'COMPLETED') {
-          updateData.completedAt = null;
-        }
-      }
-
-      // Handle project reassignment
-      if (fields.projectId !== undefined) {
-        updateData.projectId = fields.projectId;
-        if (fields.projectId && fields.projectId !== existing.projectId) {
-          // Moving to a new project — set kanban defaults
-          const highestOrder = await ctx.db.action.findFirst({
-            where: { projectId: fields.projectId, kanbanOrder: { not: null } },
-            orderBy: { kanbanOrder: 'desc' },
-            select: { kanbanOrder: true },
-          });
-          updateData.kanbanStatus = 'TODO';
-          updateData.kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-        } else if (fields.projectId === null) {
-          // Unassigning from project — clear kanban
-          updateData.kanbanStatus = null;
-          updateData.kanbanOrder = null;
-        }
-      }
-
-      const action = await ctx.db.action.update({
-        where: { id: actionId },
-        data: updateData,
-        include: {
-          project: { select: { id: true, name: true } },
+      const { action } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        actionId,
+        {
+          ...(fields.name !== undefined ? { name: fields.name } : {}),
+          ...(fields.description !== undefined ? { description: fields.description } : {}),
+          ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
+          ...(fields.status !== undefined ? { status: fields.status } : {}),
+          ...(fields.dueDate !== undefined ? { dueDate: parseAgentDate(fields.dueDate, "dueDate") } : {}),
+          ...(fields.scheduledStart !== undefined
+            ? { scheduledStart: parseAgentDate(fields.scheduledStart, "scheduledStart") }
+            : {}),
+          ...(fields.scheduledEnd !== undefined
+            ? { scheduledEnd: parseAgentDate(fields.scheduledEnd, "scheduledEnd") }
+            : {}),
+          ...(fields.duration !== undefined ? { duration: fields.duration } : {}),
+          ...(fields.projectId !== undefined ? { projectId: fields.projectId } : {}),
         },
-      });
+        { include: { project: { select: { id: true, name: true } } } },
+      );
 
       console.log(`✅ [tRPC updateAction] UPDATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}`);
 

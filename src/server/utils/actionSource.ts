@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import type { ActionSource } from "~/server/services/actions/schema";
 
 /**
@@ -23,4 +24,22 @@ export function deriveActionSource(
   tokenType: string | undefined,
 ): ActionSource | undefined {
   return tokenType ? GATEWAY_TOKEN_SOURCES[tokenType] : undefined;
+}
+
+/**
+ * The source an agent-facing procedure names for a create: a mapped gateway
+ * token passes its surface; an unmapped gateway token is a bug in the
+ * gateway wiring and is rejected rather than mislabelled; any other
+ * principal reaching an agent tool is the agent.
+ */
+export function resolveAgentActionSource(tokenType: string | undefined): ActionSource {
+  const mapped = deriveActionSource(tokenType);
+  if (mapped) return mapped;
+  if (tokenType?.endsWith("-gateway")) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Unknown gateway token type "${tokenType}": no Action source is mapped for it`,
+    });
+  }
+  return "agent";
 }

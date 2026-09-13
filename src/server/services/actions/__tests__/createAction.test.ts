@@ -156,6 +156,20 @@ describe("createAction", () => {
       expect(recordActivity).not.toHaveBeenCalled();
     });
 
+    it("is NOT_FOUND for a project id that does not exist, before any gate", async () => {
+      // An agent's stale or hallucinated id: the caller should re-resolve it,
+      // not be told it lacks permission.
+      db.project.findUnique.mockResolvedValue(null);
+      db.projectMember.findFirst.mockResolvedValue(null);
+      db.action.findFirst.mockResolvedValue(null);
+
+      await expect(
+        createAction(deps(db), { source: "agent", name: "Ghost", projectId: "p-missing" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+
     it("needs no membership probe when neither project nor workspace is given", async () => {
       db.action.create.mockResolvedValue(createdRow({ workspaceId: null }));
 

@@ -182,7 +182,23 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          const { action, inbox } = await captureAction(phrase, userId, ctx.db, workspaceId);
+          // The write applies the same gate as the user's own hands
+          // (ADR-0016): a read-only workspace or a project the user can only
+          // view refuses. That is a spoken answer, not a transport error.
+          let captured: Awaited<ReturnType<typeof captureAction>>;
+          try {
+            captured = await captureAction(phrase, userId, ctx.db, workspaceId);
+          } catch (err) {
+            if (err instanceof TRPCError && err.code === "FORBIDDEN") {
+              return {
+                speakable: "I can't add actions there — you have read-only access.",
+                structured: { error: "forbidden" },
+                needsConfirmation: false,
+              };
+            }
+            throw err;
+          }
+          const { action, inbox } = captured;
           return {
             speakable: speakableCaptureConfirmation({
               name: action.name,
