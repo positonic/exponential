@@ -14,6 +14,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import type { EffortUnit } from "~/types/effort";
 import { notifications } from "@mantine/notifications";
 import { useActionAttachments } from "~/hooks/useActionAttachments";
+import { buildCreateActionPayload } from "~/lib/actions/createActionPayload";
 
 export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "sidebar" } = {}) {
   const { data: session } = useSession();
@@ -50,7 +51,7 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
 
   const utils = api.useUtils();
 
-  // Sprint / assignees / tags / screenshots, carried per submission.
+  // Pasted screenshots, carried per submission to the post-create upload.
   const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
@@ -240,7 +241,9 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
   });
 
   const handleSubmit = () => {
-    if (!name) return;
+    // The payload builder trims the name; a whitespace-only name would be
+    // refused by the server after the modal had already closed.
+    if (!name.trim()) return;
 
     // Close the modal immediately. Creation is optimistic and every
     // post-create step reports its own failure, so there is nothing for the
@@ -249,19 +252,25 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     // assignee / screenshot chain.
     close();
 
-    const actionData = {
+    // One request: the write fields plus tags, assignees and sprint, which
+    // the server writes in the same transaction as the Action. Same builder
+    // as CreateActionModal, so the two surfaces cannot drift again.
+    const actionData = buildCreateActionPayload({
       name,
-      description: description || undefined,
-      projectId: projectId || undefined,
-      workspaceId: currentWorkspaceId ?? undefined,
-      priority: priority || "Quick",
-      dueDate: dueDate || undefined,
-      scheduledStart: scheduledStart || undefined,
-      duration: duration || undefined,
-      epicId: epicId || undefined,
-      effortEstimate: effortEstimate || undefined,
-      blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
-    };
+      description,
+      projectId,
+      workspaceId: currentWorkspaceId,
+      priority,
+      dueDate,
+      scheduledStart,
+      duration,
+      epicId,
+      effortEstimate,
+      blockedByIds,
+      sprintListId,
+      assigneeIds: selectedAssigneeIds,
+      tagIds: selectedTagIds,
+    });
 
     // Reset the form now rather than in onSuccess, so reopening the modal
     // during an in-flight create starts from a clean compose.
@@ -283,14 +292,11 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     setBlockedByIds([]);
     setPastedScreenshots([]);
 
+    // Tags, assignees and sprint travel in the create request above; only
+    // the screenshots (blobs, not rows) still need the new action's id.
     // Filed against this exact object, which onSuccess gets back as its
     // `variables` argument. See useActionAttachments.
-    attachments.record(actionData, {
-      sprintListId,
-      assigneeIds: [...selectedAssigneeIds],
-      tagIds: [...selectedTagIds],
-      screenshots: [...pastedScreenshots],
-    });
+    attachments.record(actionData, { screenshots: [...pastedScreenshots] });
 
     createAction.mutate(actionData);
   };

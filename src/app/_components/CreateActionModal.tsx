@@ -13,6 +13,7 @@ import { useSession } from 'next-auth/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
 import { useActionAttachments } from '~/hooks/useActionAttachments';
+import { buildCreateActionPayload } from '~/lib/actions/createActionPayload';
 
 export function CreateActionModal({ viewName, projectId: propProjectId, children, initialName, onActionCreated, externalOpened, onExternalClose }: { viewName: string; projectId?: string; children?: React.ReactNode; initialName?: string; onActionCreated?: (actionId: string) => void; externalOpened?: boolean; onExternalClose?: () => void }) {
   const { data: session } = useSession();
@@ -70,7 +71,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
   const utils = api.useUtils();
   
-  // Sprint / assignees / tags / screenshots, carried per submission.
+  // Pasted screenshots, carried per submission to the post-create upload.
   const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
@@ -299,36 +300,43 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   });
 
   const handleSubmit = () => {
-    if (!name) return;
+    // The payload builder trims the name; a whitespace-only name would be
+    // refused by the server after the modal had already closed.
+    if (!name.trim()) return;
 
     // Close modal immediately for better UX
     close();
 
-    // Prepare action data before resetting form
-    const actionData = {
+    // One request: the write fields plus tags, assignees and sprint, which
+    // the server writes in the same transaction as the Action. Built before
+    // the form resets.
+    const actionData = buildCreateActionPayload({
       name,
-      description: description || undefined,
-      projectId: projectId || undefined,
-      workspaceId: currentWorkspaceId ?? undefined,
-      priority: priority || "Quick",
-      dueDate: dueDate || undefined,
-      scheduledStart: scheduledStart || undefined,
-      duration: duration || undefined,
-      epicId: epicId || undefined,
-      effortEstimate: effortEstimate || undefined,
-      blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
-      // Bounty fields
-      ...(isBounty ? {
-        isBounty: true,
-        bountyAmount: bountyAmount ?? undefined,
-        bountyToken: bountyToken ?? undefined,
-        bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | undefined,
-        bountySkills: bountySkills.length > 0 ? bountySkills : undefined,
-        bountyDeadline: bountyDeadline ?? undefined,
-        bountyMaxClaimants: bountyMaxClaimants,
-        bountyExternalUrl: bountyExternalUrl ?? undefined,
-      } : {}),
-    };
+      description,
+      projectId,
+      workspaceId: currentWorkspaceId,
+      priority,
+      dueDate,
+      scheduledStart,
+      duration,
+      epicId,
+      effortEstimate,
+      blockedByIds,
+      sprintListId,
+      assigneeIds: selectedAssigneeIds,
+      tagIds: selectedTagIds,
+      bounty: isBounty
+        ? {
+            amount: bountyAmount,
+            token: bountyToken,
+            difficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | undefined,
+            skills: bountySkills,
+            deadline: bountyDeadline,
+            maxClaimants: bountyMaxClaimants,
+            externalUrl: bountyExternalUrl,
+          }
+        : null,
+    });
 
     // Reset form immediately (moved from onSuccess)
     setName("");
@@ -368,14 +376,11 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setBountyExternalUrl(null);
     setPastedScreenshots([]);
 
-    // File this submission's post-create work against the exact object handed
-    // to mutate(), which onSuccess gets back as its `variables`.
-    attachments.record(actionData, {
-      sprintListId,
-      assigneeIds: [...selectedAssigneeIds],
-      tagIds: [...selectedTagIds],
-      screenshots: [...pastedScreenshots],
-    });
+    // Tags, assignees and sprint travel in the create request above; only
+    // the screenshots (blobs, not rows) still need the new action's id.
+    // Filed against the exact object handed to mutate(), which onSuccess
+    // gets back as its `variables`.
+    attachments.record(actionData, { screenshots: [...pastedScreenshots] });
 
     // Trigger mutation in background
     createAction.mutate(actionData);
