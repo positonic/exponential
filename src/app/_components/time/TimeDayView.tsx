@@ -1,6 +1,21 @@
 "use client";
 
-import { Badge, Button, Group, Paper, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { useState } from "react";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Group,
+  Loader,
+  Paper,
+  Popover,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Title,
+  Tooltip,
+} from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { format } from "date-fns";
 import {
@@ -128,7 +143,17 @@ export function TimeDayView({ date, workspaceId, onEntryClick }: TimeDayViewProp
         <LaneTimeline report={report} onEntryClick={onEntryClick} />
       )}
 
-      {report && report.byAction.length > 0 && <ActionTicketTable rows={report.byAction} />}
+      {report && report.byAction.length > 0 && (
+        <ActionTicketTable
+          rows={report.byAction}
+          onAssigned={async () => {
+            await Promise.all([
+              utils.timeEntry.dayReport.invalidate(),
+              utils.timeEntry.listByDateRange.invalidate(),
+            ]);
+          }}
+        />
+      )}
 
       {report && report.entries.length > 0 && (
         <Group gap="md" align="stretch" wrap="wrap">
@@ -348,20 +373,25 @@ function LaneTimeline({
  * table. An Action with neither Ticket nor Project is marked Unassigned, the
  * signal V4's picker acts on; the marker is a count in the header too.
  */
+interface ActionRow {
+  actionId: string;
+  name: string;
+  workspaceId: string | null;
+  minutes: number;
+  agentRunMinutes: number;
+  productName: string | null;
+  projectName: string | null;
+  projectId: string | null;
+  ticket: { id: string; number: number; shortId: string | null; title: string } | null;
+  proposedCount: number;
+}
+
 function ActionTicketTable({
   rows,
+  onAssigned,
 }: {
-  rows: Array<{
-    actionId: string;
-    name: string;
-    minutes: number;
-    agentRunMinutes: number;
-    productName: string | null;
-    projectName: string | null;
-    projectId: string | null;
-    ticket: { id: string; number: number; shortId: string | null; title: string } | null;
-    proposedCount: number;
-  }>;
+  rows: ActionRow[];
+  onAssigned: () => Promise<void>;
 }) {
   return (
     <Paper p="md" radius="md" className="border-border-primary bg-surface-secondary">
@@ -403,9 +433,12 @@ function ActionTicketTable({
                       no ticket · {r.projectName}
                     </Text>
                   ) : (
-                    <Badge size="xs" variant="light" color="orange">
-                      Unassigned
-                    </Badge>
+                    <Group gap="xs">
+                      <Badge size="xs" variant="light" color="orange">
+                        Unassigned
+                      </Badge>
+                      <AssignPicker row={r} onAssigned={onAssigned} />
+                    </Group>
                   )}
                 </Table.Td>
                 <Table.Td>
@@ -425,5 +458,146 @@ function ActionTicketTable({
         </Table>
       </div>
     </Paper>
+  );
+}
+
+/**
+ * One interaction from Unassigned to placed: a Project or a Ticket of the
+ * Action's workspace, searched in one box, written with `action.update`.
+ * The picker never guesses (CONTEXT.md "Unassigned time" is a signal, not an
+ * error) — it just makes the person's own choice one click.
+ */
+function AssignPicker({ row, onAssigned }: { row: ActionRow; onAssigned: () => Promise<void> }) {
+  const [opened, setOpened] = useState(false);
+  const [query, setQuery] = useState("");
+  const [remember, setRemember] = useState(true);
+  const workspaceId = row.workspaceId ?? undefined;
+  const rememberResolution = api.timeEntry.rememberResolution.useMutation();
+
+  const { data: projects = [] } = api.project.getAll.useQuery(
+    { workspaceId },
+    { enabled: opened && !!workspaceId },
+  );
+  const { data: products = [] } = api.product.product.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: opened && !!workspaceId },
+  );
+  const ticketQueries = api.useQueries((t) =>
+    products.map((p) =>
+      t.product.ticket.search(
+        { productId: p.id, query: query.trim() || undefined, limit: 6 },
+        { enabled: opened && query.trim().length > 0 },
+      ),
+    ),
+  );
+
+  const update = api.action.update.useMutation({
+    onSuccess: async (_data, vars) => {
+      setOpened(false);
+      setQuery("");
+      // Remembering is best-effort and separate from the assignment itself:
+      // the row is placed either way, and a failed rule save only means the
+      // next conversation with this title asks again.
+      if (remember && (vars.projectId || vars.ticketId)) {
+        await rememberResolution
+          .mutateAsync({ titlePattern: row.name, projectId: vars.projectId, ticketId: vars.ticketId })
+          .catch((err: Error) => {
+            notifications.show({ title: "Placed, but not remembered", message: err.message, color: "yellow" });
+          });
+      }
+      await onAssigned();
+      notifications.show({
+        title: "Assigned",
+        message: remember ? `${row.name} is placed; the same title will land here next time.` : `${row.name} is placed.`,
+        color: "green",
+      });
+    },
+    onError: (err) => {
+      notifications.show({ title: "Could not assign", message: err.message, color: "red" });
+    },
+  });
+
+  const q = query.trim().toLowerCase();
+  const projectHits = projects
+    .filter((p) => !q || p.name.toLowerCase().includes(q))
+    .slice(0, 6);
+  const ticketHits = ticketQueries.flatMap((tq, i) =>
+    (tq.data ?? []).map((t) => ({ ...t, productName: products[i]?.name ?? "" })),
+  );
+  const searching = ticketQueries.some((tq) => tq.isFetching);
+
+  return (
+    <Popover opened={opened} onChange={setOpened} width={320} position="bottom-start" withArrow shadow="md">
+      <Popover.Target>
+        <Button size="compact-xs" variant="subtle" onClick={() => setOpened((o) => !o)} data-testid="assign">
+          Assign
+        </Button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <Stack gap="xs">
+          <TextInput
+            size="xs"
+            placeholder="Search projects and tickets…"
+            value={query}
+            onChange={(e) => setQuery(e.currentTarget.value)}
+            autoFocus
+            rightSection={searching ? <Loader size={12} /> : null}
+          />
+          <Checkbox
+            size="xs"
+            label="Remember for conversations with this title"
+            checked={remember}
+            onChange={(e) => setRemember(e.currentTarget.checked)}
+          />
+          {!workspaceId && (
+            <Text size="xs" c="dimmed">
+              This Action has no workspace, so there is nothing to pick from.
+            </Text>
+          )}
+          {projectHits.length > 0 && (
+            <div>
+              <Text size="xs" c="dimmed" mb={2}>
+                Projects
+              </Text>
+              {projectHits.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="block w-full rounded px-2 py-1 text-left text-sm text-text-primary hover:bg-surface-hover"
+                  disabled={update.isPending}
+                  onClick={() => update.mutate({ id: row.actionId, projectId: p.id })}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {ticketHits.length > 0 && (
+            <div>
+              <Text size="xs" c="dimmed" mb={2}>
+                Tickets
+              </Text>
+              {ticketHits.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="block w-full rounded px-2 py-1 text-left text-sm text-text-primary hover:bg-surface-hover"
+                  disabled={update.isPending}
+                  onClick={() => update.mutate({ id: row.actionId, ticketId: t.id })}
+                >
+                  <span className="font-mono text-text-secondary">{t.shortId ?? `#${t.number}`}</span> {t.title}
+                  <span className="ml-1 text-text-muted">· {t.productName}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {workspaceId && q.length > 0 && projectHits.length === 0 && ticketHits.length === 0 && !searching && (
+            <Text size="xs" c="dimmed">
+              Nothing matches.
+            </Text>
+          )}
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
   );
 }

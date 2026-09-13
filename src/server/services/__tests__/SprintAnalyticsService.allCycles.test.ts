@@ -56,6 +56,7 @@ function makeService(opts: {
     list: {
       findMany: vi.fn().mockResolvedValue(opts.cycles),
     },
+    timeEntry: { findMany: vi.fn().mockResolvedValue([]) },
     ticket: {
       findMany: vi.fn().mockResolvedValue(opts.tickets),
     },
@@ -311,7 +312,8 @@ describe("SprintAnalyticsService.getAllCyclesMetrics", () => {
         findMany: vi.fn().mockResolvedValue([cycle]),
         findUniqueOrThrow: vi.fn().mockResolvedValue(cycle),
       },
-      ticket: {
+      timeEntry: { findMany: vi.fn().mockResolvedValue([]) },
+    ticket: {
         findMany: vi.fn().mockResolvedValue(tickets),
       },
       gitHubActivity: {

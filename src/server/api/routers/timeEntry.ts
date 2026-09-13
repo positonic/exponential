@@ -283,6 +283,56 @@ export const timeEntryRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * Remember where a conversation title belongs (Daily worklog V4): the next
+   * Action upserted with this exact title and no Project or Ticket lands
+   * there without a click. One rule per person and title; saving again
+   * replaces it. Human-only — the picker is the person's own choice.
+   */
+  rememberResolution: apiKeyMiddleware
+    .input(
+      z
+        .object({
+          titlePattern: z.string().trim().min(1).max(500),
+          projectId: z.string().nullish(),
+          ticketId: z.string().nullish(),
+        })
+        .refine((v) => !!v.projectId !== !!v.ticketId, {
+          message: "Pass exactly one of projectId or ticketId",
+        }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertHumanPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      if (input.projectId) {
+        const access = await getProjectAccess(ctx.db, ctx.userId, input.projectId);
+        if (!access || !hasProjectAccess(access)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        }
+      }
+      if (input.ticketId) {
+        const ticket = await ctx.db.ticket.findUnique({
+          where: { id: input.ticketId },
+          select: { product: { select: { workspaceId: true } } },
+        });
+        const membership = ticket
+          ? await getWorkspaceMembership(ctx.db, ctx.userId, ticket.product.workspaceId)
+          : null;
+        if (!ticket || !membership) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+      }
+      return ctx.db.timeResolutionRule.upsert({
+        where: { userId_titlePattern: { userId: ctx.userId, titlePattern: input.titlePattern } },
+        create: {
+          userId: ctx.userId,
+          titlePattern: input.titlePattern,
+          projectId: input.projectId ?? null,
+          ticketId: input.ticketId ?? null,
+        },
+        update: { projectId: input.projectId ?? null, ticketId: input.ticketId ?? null },
+      });
+    }),
+
   stop: apiKeyMiddleware
     .input(
       z

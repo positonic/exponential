@@ -649,6 +649,8 @@ export const actionRouter = createTRPCRouter({
         status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).optional(),
         kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
         epicId: z.string().nullable().optional(),
+        /** Link to a Ticket whose product lives in the action's workspace; null unlinks. */
+        ticketId: z.string().nullable().optional(),
         effortEstimate: z.number().min(0).nullable().optional(),
         blockedByIds: z.array(z.string()).optional(),
         // Bounty fields
@@ -760,6 +762,25 @@ export const actionRouter = createTRPCRouter({
           ctx.session.user.id,
           updateData.workspaceId,
         );
+      }
+
+      // A Ticket link is a second read path into another product's data, so
+      // the ticket must belong to a product in the action's own workspace
+      // (the workspace it is moving to, else the one it lives in). Mismatches
+      // are NOT_FOUND so the error does not confirm the id exists elsewhere.
+      if (updateData.ticketId) {
+        const effectiveWorkspaceId =
+          updateData.workspaceId ??
+          currentAction?.workspaceId ??
+          currentAction?.project?.workspaceId ??
+          null;
+        const ticket = await ctx.db.ticket.findUnique({
+          where: { id: updateData.ticketId },
+          select: { product: { select: { workspaceId: true } } },
+        });
+        if (!ticket || !effectiveWorkspaceId || ticket.product.workspaceId !== effectiveWorkspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
       }
 
       // Same-workspace guard as create, resolved against the workspace the
@@ -3562,6 +3583,32 @@ export const actionRouter = createTRPCRouter({
         ownerAssigneeId = agent?.ownerId ?? null;
       }
 
+      // A remembered answer (Daily worklog V4): when the incoming Action has
+      // no Project or Ticket, a TimeResolutionRule the owner saved for this
+      // exact title supplies one — but only inside this workspace, so a rule
+      // can never point a conversation at another workspace's data.
+      let projectId = input.projectId;
+      let ticketId = input.ticketId;
+      if (!projectId && !ticketId) {
+        const rule = await ctx.db.timeResolutionRule.findFirst({
+          where: {
+            userId: ownerAssigneeId ?? userId,
+            titlePattern: { equals: input.name.trim(), mode: "insensitive" },
+          },
+          select: {
+            projectId: true,
+            ticketId: true,
+            project: { select: { workspaceId: true } },
+            ticket: { select: { product: { select: { workspaceId: true } } } },
+          },
+        });
+        if (rule?.ticketId && rule.ticket?.product.workspaceId === input.workspaceId) {
+          ticketId = rule.ticketId;
+        } else if (rule?.projectId && rule.project?.workspaceId === input.workspaceId) {
+          projectId = rule.projectId;
+        }
+      }
+
       const include = {
         project: { select: { id: true, name: true, workspaceId: true } },
         ticket: { select: { id: true, number: true, shortId: true, productId: true } },
@@ -3589,8 +3636,8 @@ export const actionRouter = createTRPCRouter({
           data: {
             name: input.name,
             ...(input.description !== undefined ? { description: input.description } : {}),
-            ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
-            ...(input.ticketId !== undefined ? { ticketId: input.ticketId } : {}),
+            ...(projectId !== undefined ? { projectId } : {}),
+            ...(ticketId !== undefined ? { ticketId } : {}),
             ...(ownerAssigneeId
               ? {
                   assignees: {
@@ -3612,14 +3659,14 @@ export const actionRouter = createTRPCRouter({
           name: input.name,
           description: input.description,
           workspaceId: input.workspaceId,
-          projectId: input.projectId ?? undefined,
-          ticketId: input.ticketId ?? undefined,
+          projectId: projectId ?? undefined,
+          ticketId: ticketId ?? undefined,
           sourceType: input.sourceType,
           sourceId: input.sourceId,
           createdById: userId,
           status: "ACTIVE",
           priority: "Quick",
-          ...(input.projectId ? { kanbanStatus: "TODO" } : {}),
+          ...(projectId ? { kanbanStatus: "TODO" } : {}),
           ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
           ...(ownerAssigneeId ? { assignees: { create: { userId: ownerAssigneeId } } } : {}),
         },

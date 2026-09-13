@@ -77,6 +77,8 @@ export interface DayReportProductRow {
 export interface DayReportActionRow {
   actionId: string;
   name: string;
+  /** The Action's workspace — where an Unassigned row's picker looks for Projects and Tickets. */
+  workspaceId: string | null;
   /** Overlap-split minutes; sums to `attentionMinutes` across rows. */
   minutes: number;
   /** Plain sum of the Action's non-agent-run entries. */
@@ -187,6 +189,7 @@ export function computeDayReport(
     const action = actionRows.get(e.actionId) ?? {
       actionId: e.actionId,
       name: e.action.name || "Untitled",
+      workspaceId: e.workspaceId,
       minutes: 0,
       sessionMinutes: 0,
       agentRunMinutes: 0,
