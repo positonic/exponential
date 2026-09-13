@@ -282,12 +282,6 @@ export function DeadlinePicker({
               highlightToday={true}
               firstDayOfWeek={1}
               styles={{
-                calendarHeader: {
-                  backgroundColor: "var(--color-bg-secondary)",
-                },
-                month: {
-                  backgroundColor: "var(--color-bg-secondary)",
-                },
                 day: {
                   width: 36,
                   height: 36,

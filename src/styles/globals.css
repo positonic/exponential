@@ -419,21 +419,6 @@
   }
 }
 
-/* Custom styles for UnifiedDatePicker today highlighting */
-@layer components {
-  /* High specificity selector to override inline styles */
-  .unified-datepicker-day[data-today][data-highlight-today] {
-    background-color: var(--color-brand-primary) !important;
-    font-weight: 600 !important;
-  }
-
-  /* Handle selected state as well */
-  .unified-datepicker-day[data-today][data-highlight-today][data-selected] {
-    background-color: var(--color-brand-primary) !important;
-    font-weight: 600 !important;
-  }
-}
-
 /* =================================================================
    Mantine Component Theme Overrides
    Mantine v7's styles prop only supports flat CSS properties (inline
@@ -509,6 +494,8 @@ body {
 .mantine-TextInput-input:focus,
 .mantine-Textarea-input:focus,
 .mantine-DateInput-input:focus,
+.mantine-DateTimePicker-input:focus,
+.mantine-DatePickerInput-input:focus,
 .mantine-MultiSelect-input:focus {
   border-color: var(--color-border-focus);
 }
@@ -516,7 +503,9 @@ body {
 .mantine-Select-input::placeholder,
 .mantine-TextInput-input::placeholder,
 .mantine-Textarea-input::placeholder,
-.mantine-DateInput-input::placeholder {
+.mantine-DateInput-input::placeholder,
+.mantine-DateTimePicker-input::placeholder,
+.mantine-DatePickerInput-input::placeholder {
   color: var(--color-text-muted);
 }
 
@@ -582,103 +571,175 @@ body {
   background-color: var(--color-surface-hover);
 }
 
-/* --- Calendar header controls (DateInput, DatePicker, Calendar) --- */
-.mantine-DateInput-calendarHeaderControl:hover,
-.mantine-DatePicker-calendarHeaderControl:hover,
-.mantine-Calendar-calendarHeaderControl:hover {
+/* =================================================================
+   @mantine/dates - ONE calendar look for every component
+   DateInput, DateTimePicker, DatePickerInput, DatePicker and Calendar are
+   five separate Mantine components with five static selectors, so every
+   rule below is written once against the :is() list. The theme entries in
+   mantineTheme.ts hold only inert container paint; all state paint lives
+   here, because Mantine `styles` render inline and an inline background or
+   colour on a day cell beats every [data-*] rule (that bug is why a
+   selected day used to render invisibly). Add a new dates component to
+   the list, never a component-specific copy.
+   ================================================================= */
+
+/* --- Calendar header (month/year label + prev/next) --- */
+:is(
+  .mantine-DateInput-calendarHeaderControl,
+  .mantine-DateTimePicker-calendarHeaderControl,
+  .mantine-DatePickerInput-calendarHeaderControl,
+  .mantine-DatePicker-calendarHeaderControl,
+  .mantine-Calendar-calendarHeaderControl,
+  .mantine-DateInput-calendarHeaderLevel,
+  .mantine-DateTimePicker-calendarHeaderLevel,
+  .mantine-DatePickerInput-calendarHeaderLevel,
+  .mantine-DatePicker-calendarHeaderLevel,
+  .mantine-Calendar-calendarHeaderLevel
+):hover:not(:disabled, [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
 
-.mantine-DateInput-calendarHeaderLevel:hover,
-.mantine-DatePicker-calendarHeaderLevel:hover,
-.mantine-Calendar-calendarHeaderLevel:hover {
+/* --- Month / year pickers (the header-label drill-down) --- */
+:is(
+  .mantine-DateInput-monthsListControl,
+  .mantine-DateTimePicker-monthsListControl,
+  .mantine-DatePickerInput-monthsListControl,
+  .mantine-DatePicker-monthsListControl,
+  .mantine-Calendar-monthsListControl,
+  .mantine-DateInput-yearsListControl,
+  .mantine-DateTimePicker-yearsListControl,
+  .mantine-DatePickerInput-yearsListControl,
+  .mantine-DatePicker-yearsListControl,
+  .mantine-Calendar-yearsListControl
+) {
+  color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-monthsListControl,
+  .mantine-DateTimePicker-monthsListControl,
+  .mantine-DatePickerInput-monthsListControl,
+  .mantine-DatePicker-monthsListControl,
+  .mantine-Calendar-monthsListControl,
+  .mantine-DateInput-yearsListControl,
+  .mantine-DateTimePicker-yearsListControl,
+  .mantine-DatePickerInput-yearsListControl,
+  .mantine-DatePicker-yearsListControl,
+  .mantine-Calendar-yearsListControl
+):hover:not([data-selected], [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
-
-/* --- Months/Years list controls --- */
-.mantine-DateInput-monthsListControl:hover,
-.mantine-DatePicker-monthsListControl:hover,
-.mantine-Calendar-monthsListControl:hover,
-.mantine-DateInput-yearsListControl:hover,
-.mantine-DatePicker-yearsListControl:hover,
-.mantine-Calendar-yearsListControl:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.mantine-DateInput-monthsListControl[data-selected],
-.mantine-DatePicker-monthsListControl[data-selected],
-.mantine-Calendar-monthsListControl[data-selected],
-.mantine-DateInput-yearsListControl[data-selected],
-.mantine-DatePicker-yearsListControl[data-selected],
-.mantine-Calendar-yearsListControl[data-selected] {
+:is(
+  .mantine-DateInput-monthsListControl,
+  .mantine-DateTimePicker-monthsListControl,
+  .mantine-DatePickerInput-monthsListControl,
+  .mantine-DatePicker-monthsListControl,
+  .mantine-Calendar-monthsListControl,
+  .mantine-DateInput-yearsListControl,
+  .mantine-DateTimePicker-yearsListControl,
+  .mantine-DatePickerInput-yearsListControl,
+  .mantine-DatePicker-yearsListControl,
+  .mantine-Calendar-yearsListControl
+)[data-selected] {
   background-color: var(--color-brand-primary);
   color: var(--color-text-inverse);
 }
 
-/* --- Day states (DateInput) --- */
-.mantine-DateInput-day:hover:not([data-selected], [data-disabled]) {
+/* --- Day cells ---
+   Order matters: later rules win at equal specificity, so `selected`
+   comes last and overrides `today` when the selected day IS today. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+) {
+  color: var(--color-text-primary);
+}
+/* Weekends are plain text, not Mantine's default red. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-weekend] {
+  color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+):hover:not([data-selected], [data-in-range], [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
-.mantine-DateInput-day[data-selected] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-}
-.mantine-DateInput-day[data-in-range] {
-  background-color: var(--color-brand-primary);
-  opacity: 0.2;
-}
-.mantine-DateInput-day[data-outside] {
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-outside] {
   color: var(--color-text-disabled);
 }
-.mantine-DateInput-day[data-today] {
+/* Today is ringed in brand so it stays visible when another day is
+   selected; the selected day is the only filled cell. The ring is an inset
+   box-shadow, not a border: Mantine's button reset (`border: 0`) loads after
+   this sheet at equal specificity and would strip a border. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-today] {
+  color: var(--color-brand-primary);
+  box-shadow: inset 0 0 0 1px var(--color-brand-primary);
+  font-weight: 600;
+}
+/* Range interior: a translucent brand wash. Mantine keeps the cells'
+   flattened corners so the run reads as one bar. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-in-range]:not([data-selected]) {
+  background-color: color-mix(in oklab, var(--color-brand-primary) 22%, transparent);
+  color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-in-range]:not([data-selected], [data-disabled]):hover {
+  background-color: color-mix(in oklab, var(--color-brand-primary) 36%, transparent);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-selected] {
   background-color: var(--color-brand-primary);
+  box-shadow: none;
   color: var(--color-text-inverse);
   font-weight: 600;
 }
-
-/* --- Day states (DatePicker) --- */
-.mantine-DatePicker-day:hover:not([data-selected], [data-disabled]) {
-  background-color: var(--color-surface-hover);
-}
-.mantine-DatePicker-day[data-selected] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-}
-.mantine-DatePicker-day[data-in-range] {
-  background-color: var(--color-brand-primary);
-  opacity: 0.2;
-}
-.mantine-DatePicker-day[data-outside] {
-  color: var(--color-text-disabled);
-}
-.mantine-DatePicker-day[data-today] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-  font-weight: 600;
-}
-
-/* --- Day states (Calendar) --- */
-.mantine-Calendar-day:hover:not([data-selected], [data-disabled]) {
-  background-color: var(--color-surface-hover);
-}
-.mantine-Calendar-day[data-selected] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-}
-.mantine-Calendar-day[data-in-range] {
-  background-color: var(--color-brand-primary);
-  opacity: 0.2;
-}
-.mantine-Calendar-day[data-outside] {
-  color: var(--color-text-disabled);
-}
-.mantine-Calendar-day[data-weekend] {
-  color: var(--color-brand-primary) !important;
-}
-.mantine-Calendar-day[data-today] {
-  background-color: var(--color-brand-primary) !important;
-  color: var(--color-text-inverse) !important;
-  font-weight: 600 !important;
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-selected]:hover:not([data-disabled]) {
+  background-color: var(--color-brand-primary-hover);
 }
 
 /* --- Tabs --- */

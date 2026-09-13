@@ -289,17 +289,6 @@ export function UnifiedDatePicker({
               highlightToday={true}
               minDate={minDate}
               maxDate={maxDate}
-              classNames={{
-                day: 'unified-datepicker-day'
-              }}
-              styles={{
-                calendarHeader: {
-                  backgroundColor: 'var(--color-bg-secondary)',
-                },
-                month: {
-                  backgroundColor: 'var(--color-bg-secondary)',
-                }
-              }}
             />
           </div>
         </Stack>

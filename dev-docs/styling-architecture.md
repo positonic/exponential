@@ -226,6 +226,26 @@ colors: {
 ### Issue: Date picker appears white in dark mode
 **Solution:** Ensure all layout files import `@mantine/dates/styles.css` and use the global Mantine theme.
 
+### Issue: A calendar looks different from the others (nested box, no selected/today highlight)
+All `@mantine/dates` components (`DateInput`, `DateTimePicker`, `DatePickerInput`, `DatePicker`,
+`Calendar`) share ONE look, and it comes from two places only:
+
+- `src/styles/mantineTheme.ts` — the shared `calendarStyles` object (inert container paint, all
+  transparent so the calendar sits on its host surface). Every dates component gets the same entry.
+- `src/styles/globals.css` — the "@mantine/dates" section: one `:is()` selector list per state
+  (hover, today, selected, in-range, outside, months/years lists).
+
+Rules:
+- Never pass `styles`/`classNames` for `calendarHeader`, `month` or `day` colours at a call site,
+  and never add `backgroundColor`/`color` to `day` in the theme. Mantine `styles` render as
+  inline styles, and an inline value on a day cell silently beats every `[data-selected]` /
+  `[data-today]` rule — that is how a selected day became invisible.
+- Size-only overrides (day width/height, font size) at a call site are fine.
+- Adding a new dates component? Add its static selector to the `:is()` lists — don't copy a block.
+- Form fields with quick options ("Today / Tomorrow / Next week") use `UnifiedDatePicker`
+  (single date) or `DeadlinePicker` (date + time). Filters and range inputs use Mantine's
+  `DatePickerInput` directly; it inherits the same calendar.
+
 ### Issue: Component doesn't respond to theme changes
 **Solution:** Check that:
 1. Component uses CSS variables or theme tokens
