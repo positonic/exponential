@@ -27,10 +27,12 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   actionWriteSchema,
   actionCreateAttachmentsSchema,
+  applyActionUpdate,
   assertAssignableUsers,
   assertCanWriteToWorkspace,
   createAction,
   isActionSource,
+  KANBAN_STATUS_VALUES,
   type ActionSource,
   type ActionWriteDeps,
 } from "~/server/services/actions";
@@ -2271,156 +2273,98 @@ export const actionRouter = createTRPCRouter({
   updateKanbanStatusWithOrder: protectedProcedure
     .input(z.object({
       actionId: z.string(),
-      kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]),
+      kanbanStatus: z.enum(KANBAN_STATUS_VALUES),
       targetPosition: z.number().optional(),
       droppedOnTaskId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { actionId, kanbanStatus, targetPosition, droppedOnTaskId } = input;
 
-      // Verify user has edit access to this action
-      const access = await getActionAccess(ctx.db, ctx.session.user.id, actionId);
-      if (!access) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
-      }
-      if (!canEditAction(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have permission to update this action",
-        });
-      }
-
-      // Get the action being moved
+      // Column bookkeeping (reads only; nothing read here is returned). The
+      // write — and the edit gate, and the kanban ⇄ status lockstep this
+      // procedure used to skip — is `applyActionUpdate`'s.
       const action = await ctx.db.action.findUnique({
         where: { id: actionId },
-        include: { project: true }
+        select: { projectId: true },
       });
-
       if (!action) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
 
       let newOrder: number;
+      let tasksToShift: { id: string; kanbanOrder: number | null }[] = [];
 
       if (droppedOnTaskId) {
-        // Get the target task details
         const targetTask = await ctx.db.action.findUnique({
           where: { id: droppedOnTaskId },
-          select: { kanbanOrder: true, kanbanStatus: true }
+          select: { kanbanOrder: true, kanbanStatus: true },
         });
-
         if (!targetTask) {
-          throw new Error("Target task not found");
+          throw new TRPCError({ code: "NOT_FOUND", message: "Target task not found" });
         }
-
-        // Get the target task's order
         const targetOrder = targetTask.kanbanOrder ?? 1;
 
-        // Find all tasks in the same column that need to be shifted down
-        const tasksToShift = await ctx.db.action.findMany({
+        // Everything in the column from the target down moves one slot.
+        tasksToShift = await ctx.db.action.findMany({
           where: {
             projectId: action.projectId,
             kanbanStatus,
             kanbanOrder: { gte: targetOrder },
-            id: { not: actionId } // Don't include the task being moved
+            id: { not: actionId },
           },
           select: { id: true, kanbanOrder: true },
-          orderBy: { kanbanOrder: 'asc' }
+          orderBy: { kanbanOrder: "asc" },
         });
-
-        // Use a transaction to update all affected tasks
-        await ctx.db.$transaction(async (tx: any) => {
-          // First, shift all tasks down by 1
-          for (const task of tasksToShift) {
-            await tx.action.update({
-              where: { id: task.id },
-              data: { kanbanOrder: (task.kanbanOrder ?? 0) + 1 }
-            });
-          }
-        });
-
-        // Set the moved task to take the target position
         newOrder = targetOrder;
       } else if (targetPosition !== undefined) {
-        // Use provided position
         newOrder = targetPosition;
       } else {
-        // Get the highest order in this status column
-        const maxOrderInColumn = await ctx.db.action.findFirst({
-          where: {
-            projectId: action.projectId,
-            kanbanStatus,
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
-        // Get the highest order across the entire board
-        const maxOrderAcrossBoard = await ctx.db.action.findFirst({
-          where: {
-            projectId: action.projectId,
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
+        const [maxOrderInColumn, maxOrderAcrossBoard] = await Promise.all([
+          ctx.db.action.findFirst({
+            where: { projectId: action.projectId, kanbanStatus, kanbanOrder: { not: null } },
+            orderBy: { kanbanOrder: "desc" },
+            select: { kanbanOrder: true },
+          }),
+          ctx.db.action.findFirst({
+            where: { projectId: action.projectId, kanbanOrder: { not: null } },
+            orderBy: { kanbanOrder: "desc" },
+            select: { kanbanOrder: true },
+          }),
+        ]);
         if (maxOrderInColumn?.kanbanOrder) {
-          // Add to the end of the specific column
           newOrder = maxOrderInColumn.kanbanOrder + 1;
         } else if (maxOrderAcrossBoard?.kanbanOrder) {
-          // Column is empty, but board has tasks - place at end of board order
           newOrder = maxOrderAcrossBoard.kanbanOrder + 1;
         } else {
-          // First task in the entire project
           newOrder = 1;
         }
       }
 
-      // Update the action
-      const updated = await ctx.db.action.update({
-        where: { id: actionId },
-        data: {
-          kanbanStatus,
-          kanbanOrder: newOrder,
-          // Track completion timestamp
-          ...(kanbanStatus === "DONE" && action.kanbanStatus !== "DONE" && { completedAt: new Date() }),
-          ...(kanbanStatus !== "DONE" && action.kanbanStatus === "DONE" && { completedAt: null }),
-        },
-        include: {
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+      const { action: updated } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        actionId,
+        { kanbanStatus, kanbanOrder: newOrder },
+        {
+          include: {
+            assignees: {
+              include: { user: { select: { id: true, name: true, email: true, image: true } } },
+            },
+            project: { select: { id: true, name: true } },
           },
-          project: { select: { id: true, name: true } },
         },
-      });
+      );
 
-      // Track status change for PM agent analytics (cycle time, lead time)
-      if (action.kanbanStatus !== kanbanStatus) {
-        await ctx.db.actionStatusChange.create({
-          data: {
-            actionId,
-            fromStatus: action.kanbanStatus,
-            toStatus: kanbanStatus,
-            changedById: ctx.session.user.id,
-          },
-        }).catch((err: unknown) => {
-          console.error("Failed to record status change:", err);
-        });
-
-        if (action.projectId) {
-          void logProjectActivity(ctx.db, {
-            projectId: action.projectId,
-            actionId,
-            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
-            fromValue: action.kanbanStatus,
-            toValue: kanbanStatus,
-            changedById: ctx.session.user.id,
-          }).catch((err: unknown) => {
-            console.error("[projectActivity] moveKanbanCard:", err);
-          });
-        }
+      // Shift the displaced cards after the gated write, so a refused move
+      // displaces nothing.
+      if (tasksToShift.length > 0) {
+        await ctx.db.$transaction(
+          tasksToShift.map((task) =>
+            ctx.db.action.update({
+              where: { id: task.id },
+              data: { kanbanOrder: (task.kanbanOrder ?? 0) + 1 },
+            }),
+          ),
+        );
       }
 
       return updated;

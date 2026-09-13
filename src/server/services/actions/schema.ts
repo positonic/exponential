@@ -10,6 +10,18 @@ export const ACTION_STATUS_VALUES = [
   "DRAFT",
 ] as const;
 
+export type ActionCoarseStatus = (typeof ACTION_STATUS_VALUES)[number];
+
+/** Kanban column (the `Action.kanbanStatus` enum column). */
+export const KANBAN_STATUS_VALUES = [
+  "BACKLOG",
+  "TODO",
+  "IN_PROGRESS",
+  "IN_REVIEW",
+  "DONE",
+  "CANCELLED",
+] as const;
+
 /**
  * The one input shape for writing an Action — the union of what the create
  * procedures accept today. `createAction` takes it plus its create-only
@@ -115,3 +127,40 @@ export const createActionInputSchema = actionWriteSchema.extend({
 });
 
 export type CreateActionInput = z.input<typeof createActionInputSchema>;
+
+/**
+ * The one patch shape for updating an Action: `actionWriteSchema.partial()`
+ * with the columns an update may also clear made nullable, plus the
+ * update-only fields (kanban column and order, ticket link, bounty status,
+ * last-write stamp). `applyActionUpdate` takes it; `action.update` exposes
+ * it minus the fields it never accepted.
+ */
+export const actionUpdatePatchSchema = actionWriteSchema.partial().extend({
+  /** A project to move to, or `null` to leave the current one. */
+  projectId: z.string().nullable().optional(),
+  workspaceId: z.string().nullable().optional(),
+  dueDate: z.date().nullable().optional(),
+  scheduledStart: z.date().nullable().optional(),
+  scheduledEnd: z.date().nullable().optional(),
+  duration: z.number().min(1).nullable().optional(),
+  kanbanStatus: z.enum(KANBAN_STATUS_VALUES).optional(),
+  kanbanOrder: z.number().int().nullable().optional(),
+  epicId: z.string().nullable().optional(),
+  /** Link to a Ticket whose product lives in the action's workspace; null unlinks. */
+  ticketId: z.string().nullable().optional(),
+  effortEstimate: z.number().min(0).nullable().optional(),
+  bountyAmount: z.number().positive().nullable().optional(),
+  bountyToken: z.string().nullable().optional(),
+  bountyStatus: z
+    .enum(["OPEN", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED"])
+    .nullable()
+    .optional(),
+  bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).nullable().optional(),
+  bountyDeadline: z.date().nullable().optional(),
+  bountyExternalUrl: z.string().url().nullable().optional(),
+  /** Source attribution set by agents and integrations: which channel last touched the action. */
+  lastUpdatedBy: z.enum(["AGENT", "USER_EMAIL", "USER_WHATSAPP", "USER_UI"]).optional(),
+  lastUpdatedSource: z.string().optional(),
+});
+
+export type ActionUpdatePatch = z.input<typeof actionUpdatePatchSchema>;

@@ -1904,6 +1904,21 @@ describe("action router (mocked)", () => {
       expect(updatedWith().completedAt).toBeInstanceOf(Date);
     });
 
+    it("updateKanbanStatusWithOrder moving to DONE finally completes the coarse status", async () => {
+      // This procedure never synced `status` before; it now delegates the
+      // write to applyActionUpdate like every other update path.
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+      dbMock.action.findFirst.mockResolvedValue(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.actionStatusChange.create.mockResolvedValue({} as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatusWithOrder({ actionId: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", kanbanOrder: 1, status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
     it("update with an explicit status wins over the kanban sync", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 
