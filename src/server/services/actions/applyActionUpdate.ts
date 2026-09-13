@@ -184,9 +184,17 @@ export async function applyActionUpdate<
       await assertCanWriteToWorkspace(db, actor.userId, columns.workspaceId);
     }
     // A move to a different project re-seeds the card there, unless the
-    // caller placed it explicitly.
+    // caller placed it explicitly. The column follows the coarse status —
+    // a finished Action lands in DONE, not TODO — so the move itself never
+    // drives the lockstep.
     if (columns.projectId !== previous.projectId) {
-      kanbanStatus = columns.kanbanStatus ?? "TODO";
+      kanbanStatus =
+        columns.kanbanStatus ??
+        (previous.status === "COMPLETED"
+          ? "DONE"
+          : previous.status === "CANCELLED"
+            ? "CANCELLED"
+            : "TODO");
       order = kanbanOrder ?? (await nextKanbanOrder(db, columns.projectId));
     }
   } else if (columns.projectId === null) {

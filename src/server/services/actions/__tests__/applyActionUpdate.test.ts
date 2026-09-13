@@ -219,6 +219,19 @@ describe("applyActionUpdate", () => {
       );
     });
 
+    it("moving a completed action into a project seeds it in DONE and leaves it completed", async () => {
+      stubRow(db, { projectId: null, kanbanStatus: null, status: "COMPLETED", completedAt: STAMPED });
+      stubTargetProject();
+      db.action.findFirst.mockResolvedValue(null);
+
+      await applyActionUpdate(deps(db), "a1", { projectId: "p-new" });
+
+      const data = written(db);
+      expect(data).toMatchObject({ projectId: "p-new", kanbanStatus: "DONE", kanbanOrder: 1 });
+      expect(data).not.toHaveProperty("status");
+      expect(data).not.toHaveProperty("completedAt");
+    });
+
     it("re-sending the current project does not re-seed", async () => {
       stubRow(db, { projectId: "p1", kanbanStatus: "IN_PROGRESS", kanbanOrder: 4 });
       stubTargetProject({ workspaceId: WORKSPACE });

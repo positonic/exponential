@@ -1827,6 +1827,33 @@ describe("action router (mocked)", () => {
       ]);
     });
 
+    it("bulkAssignProject moves each readable action through the module, re-seeding the board", async () => {
+      // Caller owns the target project and both actions.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockResolvedValue([{ id: "a1" }, { id: "a2" }] as any);
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: null });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.bulkAssignProject({ actionIds: ["a1", "a2"], projectId: "p1" });
+
+      expect(result).toEqual({ count: 2, actionIds: ["a1", "a2"], projectId: "p1" });
+      expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+      expect(updatedWith()).toMatchObject({ projectId: "p1", workspaceId: "w1", kanbanStatus: "TODO", kanbanOrder: 1 });
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
     it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 

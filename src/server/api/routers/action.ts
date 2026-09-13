@@ -1067,54 +1067,47 @@ export const actionRouter = createTRPCRouter({
         throw new Error(`Failed to find actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
-      // Update all actions associated with this transcription session
-      let result;
-      try {
-        // Verify edit access on the target project (no-op when clearing project)
-        let targetProject: { workspaceId: string | null } | null = null;
-        if (input.projectId) {
-          const access = await getProjectAccess(
-            ctx.db,
-            ctx.session.user.id,
-            input.projectId,
-          );
-          if (!canEditProject(access)) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message:
-                "You don't have permission to assign actions to this project",
-            });
-          }
-          targetProject = await ctx.db.project.findUnique({
-            where: { id: input.projectId },
-            select: { workspaceId: true },
+      // Verify edit access on the target project once, up front (no-op when
+      // clearing the project), so the batch is refused as a whole.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "You don't have permission to assign actions to this project",
           });
         }
-
-        result = await ctx.db.action.updateMany({
-          where: {
-            transcriptionSessionId: input.transcriptionSessionId,
-            createdById: ctx.session.user.id, // Ensure user can only update their own actions
-          },
-          data: {
-            projectId: input.projectId,
-            workspaceId: targetProject?.workspaceId ?? undefined,
-          },
-        });
-
-        console.log('✅ Update result:', {
-          count: result.count,
-          message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
-          existingActionsFound: existingActions.length
-        });
-      } catch (error) {
-        console.error('❌ Error updating actions:', error);
-        throw new Error(`Failed to update actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
+      // Each of the caller's own actions from this transcript goes through
+      // applyActionUpdate: target re-check, workspace from the project,
+      // kanban re-seed (or clear) and the activity event.
+      const deps = actionWriteDeps(ctx);
+      let count = 0;
+      for (const { id } of existingActions) {
+        try {
+          await applyActionUpdate(deps, id, { projectId: input.projectId });
+          count += 1;
+        } catch (error) {
+          console.error('❌ Error updating action:', id, error);
+          throw new Error(`Failed to update actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+
+      console.log('✅ Update result:', {
+        count,
+        message: `Updated ${count} action${count === 1 ? '' : 's'}`,
+        existingActionsFound: existingActions.length
+      });
+
       return {
-        count: result.count,
-        message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
+        count,
+        message: `Updated ${count} action${count === 1 ? '' : 's'}`,
       };
     }),
 
@@ -1335,9 +1328,8 @@ export const actionRouter = createTRPCRouter({
       projectId: z.string().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Fetch project's workspaceId to keep actions in sync. Verify the
-      // current user can edit the destination project before reassigning.
-      let bulkWorkspaceId: string | null | undefined;
+      // Verify the caller can edit the destination project once, up front,
+      // so the batch is refused as a whole rather than skipped per Action.
       if (input.projectId) {
         const access = await getProjectAccess(
           ctx.db,
@@ -1351,27 +1343,35 @@ export const actionRouter = createTRPCRouter({
               "You don't have permission to assign actions to this project",
           });
         }
-        const proj = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        bulkWorkspaceId = proj?.workspaceId ?? undefined;
       }
 
-      const result = await ctx.db.action.updateMany({
+      // Same reader set as before: the actions the caller may touch. Each
+      // then goes through applyActionUpdate, which re-checks the target,
+      // takes its workspace and re-seeds (or clears) the kanban column.
+      const accessible = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
           ...buildActionAccessWhere(ctx.session.user.id),
         },
-        data: {
-          projectId: input.projectId,
-          kanbanStatus: input.projectId ? "TODO" : null,
-          ...(bulkWorkspaceId !== undefined ? { workspaceId: bulkWorkspaceId } : {}),
-        },
+        select: { id: true },
       });
 
+      const deps = actionWriteDeps(ctx);
+      let count = 0;
+      for (const { id } of accessible) {
+        try {
+          await applyActionUpdate(deps, id, { projectId: input.projectId });
+          count += 1;
+        } catch (err) {
+          // The target was checked above, so a FORBIDDEN here is one Action
+          // the caller may read but not edit: skipped, as updateMany did.
+          if (err instanceof TRPCError && err.code === "FORBIDDEN") continue;
+          throw err;
+        }
+      }
+
       return {
-        count: result.count,
+        count,
         actionIds: input.actionIds,
         projectId: input.projectId,
       };
