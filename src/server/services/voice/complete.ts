@@ -9,15 +9,17 @@
  *   - several matches     → ask which one, nothing mutated;
  *   - one match, !confirm → return needsConfirmation=true, voice asks to confirm,
  *                           NOTHING is mutated;
- *   - one match, confirm  → mark COMPLETED (status + completedAt, mirroring the
- *                           existing action.update completion path), confirmed.
+ *   - one match, confirm  → mark COMPLETED through the Action write module
+ *                           (status, completedAt, and the card to DONE), confirmed.
  *
  * The mutation is scoped to the user's accessible actions, so a confirm can only
  * ever complete an action the user could already edit.
  */
 import type { PrismaClient } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 
 import { buildActionAccessWhere } from "~/server/services/access";
+import { applyActionUpdate } from "~/server/services/actions";
 import { resolveActionByDescription } from "~/server/services/voice/actionResolver";
 // (resolveActionByDescription internally uses the pure matcher in actionMatch.ts)
 import { boundLength, stripMarkdown } from "~/server/services/voice/speakable";
@@ -98,10 +100,14 @@ export async function completeAction(
 }
 
 /**
- * Complete exactly one action by id. Scope the update by the user's access so a
- * confirm can only ever complete an action the user may edit (defence in depth
- * on top of the resolver already being user-scoped). updateMany returns a count,
- * so a race or access mismatch completes 0 rows rather than the wrong row.
+ * Complete exactly one action by id. The candidate is looked up within the
+ * user's access, not yet completed, and (defence in depth) in the session's
+ * workspace — so a pinned confirm can only ever reach an action the user
+ * could already see, and never one resolved from a different workspace. The
+ * write itself is the Action module's: central edit gate, the kanban ⇄
+ * status lockstep and the activity event. When the action sits on a board
+ * its card moves to DONE alongside the status, which the old set-based
+ * updateMany never could.
  */
 async function completeById(
   id: string,
@@ -110,23 +116,20 @@ async function completeById(
   workspaceId?: string,
   knownName?: string,
 ): Promise<CompleteResult> {
-  const res = await db.action.updateMany({
+  const candidate = await db.action.findFirst({
     where: {
       AND: [
         { id },
         buildActionAccessWhere(userId),
         { status: { notIn: ["COMPLETED", "DELETED"] } },
-        // Defence in depth: a pinned confirm can only complete an action in the
-        // session's workspace, never one resolved from a different workspace.
         ...(workspaceId ? [{ workspaceId }] : []),
       ],
     },
-    data: { status: "COMPLETED", completedAt: new Date() },
+    select: { id: true, name: true, kanbanStatus: true },
   });
 
-  // Resolve a name for the spoken reply. On the pinned path we don't have it yet;
-  // look it up within the user's access (falls back gracefully if not visible).
-  let name = knownName;
+  // Resolve a name for the spoken reply even when nothing can be completed.
+  let name = knownName ?? candidate?.name;
   if (name === undefined) {
     const found = await db.action.findFirst({
       where: {
@@ -141,7 +144,24 @@ async function completeById(
     name = found?.name ?? "that action";
   }
 
-  if (res.count === 0) {
+  let completed = false;
+  if (candidate) {
+    try {
+      await applyActionUpdate({ db, actor: { userId, isAdmin: false } }, candidate.id, {
+        status: "COMPLETED",
+        // A card on a board moves to DONE with the status (the status → column
+        // direction is otherwise not synced; here the caller asks for it).
+        ...(candidate.kanbanStatus ? { kanbanStatus: "DONE" } : {}),
+      });
+      completed = true;
+    } catch (err) {
+      // Readable but not editable (the access where-clause is wider than the
+      // edit gate): report it as not completed rather than failing the turn.
+      if (!(err instanceof TRPCError && err.code === "FORBIDDEN")) throw err;
+    }
+  }
+
+  if (!completed) {
     return {
       speakable: boundLength(
         `I couldn't complete "${stripMarkdown(name)}" — it may already be done.`,
