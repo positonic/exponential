@@ -3029,9 +3029,13 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 1. The workspace / project write gate is `createAction`'s, applied
-      //    per item below; a FORBIDDEN from it is re-thrown rather than
-      //    skipped, since it holds for every item alike.
+      // 1. Refuse anyone without a write role in the workspace before any
+      //    lookup, so the transcript and project probes below can never act
+      //    as an existence oracle for a stranger. The write itself is still
+      //    gated per item by `createAction` (project edit access, or this
+      //    same workspace role); a FORBIDDEN from there is re-thrown rather
+      //    than skipped, since it holds for every item alike.
+      await assertCanWriteToWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
 
       // 2. Verify the transcript exists and belongs to this workspace.
       const transcript = await ctx.db.transcriptionSession.findUnique({

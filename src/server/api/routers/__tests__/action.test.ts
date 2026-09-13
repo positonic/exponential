@@ -169,17 +169,23 @@ describe("action router (mocked)", () => {
     const sessionId = "s1";
 
     /** Stub the workspace-membership and transcript-lookup probes used by
-     *  every successful path. Returns the membership object so tests can
-     *  override it if needed. */
-    function stubAuthChecks(opts?: { transcriptWorkspaceId?: string }) {
-      // Caller is a member of `workspaceId`
-      dbMock.workspaceUser.findUnique.mockResolvedValue({
-        userId: callerId,
-        workspaceId,
-        role: "member",
-        joinedAt: new Date(),
+     *  every successful path. Membership is keyed by user id, because the
+     *  same `workspaceUser.findUnique` serves the caller's write gate (the
+     *  router's up-front check and the module's per-item one) and the
+     *  assignee lookup in `findUserByEmailInWorkspace`. */
+    function stubAuthChecks(opts?: { transcriptWorkspaceId?: string; members?: string[] }) {
+      const members = opts?.members ?? [callerId];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+      dbMock.workspaceUser.findUnique.mockImplementation((args: any) => {
+        const userId = args?.where?.userId_workspaceId?.userId as string | undefined;
+        return Promise.resolve(
+          userId && members.includes(userId)
+            ? { userId, workspaceId, role: "member", joinedAt: new Date() }
+            : null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ) as any;
+      });
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
 
       // Transcript belongs to the same workspace by default
       dbMock.transcriptionSession.findUnique.mockResolvedValue({
@@ -190,40 +196,18 @@ describe("action router (mocked)", () => {
     }
 
     it("creates actions for all items, resolves user assignee to ActionAssignee", async () => {
-      stubAuthChecks();
-
       // findUserByEmailInWorkspace performs two lookups under the hood:
       //   db.user.findUnique(...) -> the user
       //   db.workspaceUser.findUnique(...) -> the membership
-      // The membership probe is the same call as the caller's auth check, so
-      // we use mockImplementation to disambiguate by where-clause.
+      // Jane is a member, so she resolves to a workspace user, not a participant.
       const memberId = "member-1";
+      stubAuthChecks({ members: [callerId, memberId] });
       dbMock.user.findUnique.mockResolvedValue({
         id: memberId,
         email: "jane@example.com",
         name: "Jane",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      // After resolveAssignee runs the membership lookup for the assignee,
-      // return a non-null record so the assignee is treated as a workspace
-      // user (not a participant).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const callerMembership: any = {
-        userId: callerId,
-        workspaceId,
-        role: "member",
-        joinedAt: new Date(),
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const assigneeMembership: any = {
-        userId: memberId,
-        workspaceId,
-        role: "member",
-        joinedAt: new Date(),
-      };
-      dbMock.workspaceUser.findUnique
-        .mockResolvedValueOnce(callerMembership) // bulkCreate auth check
-        .mockResolvedValueOnce(assigneeMembership); // findUserByEmailInWorkspace
 
       const createdAction = {
         id: "a1",
@@ -280,19 +264,14 @@ describe("action router (mocked)", () => {
     it("falls back to participant assignee when email is not a workspace user", async () => {
       stubAuthChecks();
 
-      // Email matches a User row, but that user is NOT in the workspace.
+      // Email matches a User row, but that user is NOT in the workspace
+      // (only the caller is stubbed as a member).
       dbMock.user.findUnique.mockResolvedValue({
         id: "external-user",
         email: "external@example.com",
         name: "External Person",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      // Caller's auth check returns the membership; assignee's membership
-      // probe returns null (not a workspace member).
-      dbMock.workspaceUser.findUnique
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .mockResolvedValueOnce({ userId: callerId, workspaceId, role: "member", joinedAt: new Date() } as any)
-        .mockResolvedValueOnce(null);
 
       // Existing participant matching the email
       dbMock.transcriptionSessionParticipant.findUnique.mockResolvedValue({
@@ -346,12 +325,6 @@ describe("action router (mocked)", () => {
 
       // No user with this email
       dbMock.user.findUnique.mockResolvedValue(null);
-      // Caller's membership only — second findUnique would be skipped because
-      // findUserByEmailInWorkspace returns early on null user.
-      dbMock.workspaceUser.findUnique.mockResolvedValueOnce(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { userId: callerId, workspaceId, role: "member", joinedAt: new Date() } as any,
-      );
 
       // No existing participant
       dbMock.transcriptionSessionParticipant.findUnique.mockResolvedValue(null);
@@ -448,6 +421,7 @@ describe("action router (mocked)", () => {
     it("rejects unauthorized workspace", async () => {
       // Caller is NOT a member of the workspace
       dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
 
       const caller = createMockCaller({ userId: "stranger", db: dbMock });
       await expect(
@@ -456,9 +430,11 @@ describe("action router (mocked)", () => {
           workspaceId,
           items: [{ description: "Nope", priority: "MEDIUM" }],
         }),
-      ).rejects.toThrow(TRPCError);
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      // No action.create attempts when auth fails up-front
+      // Refused before any lookup: the transcript probe must not run for a
+      // stranger (it would confirm whether the id exists), and no row lands.
+      expect(dbMock.transcriptionSession.findUnique).not.toHaveBeenCalled();
       expect(dbMock.action.create).not.toHaveBeenCalled();
     });
 
