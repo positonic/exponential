@@ -51,7 +51,7 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
 
   const utils = api.useUtils();
 
-  // Sprint / assignees / tags / screenshots, carried per submission.
+  // Pasted screenshots, carried per submission to the post-create upload.
   const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
@@ -294,12 +294,7 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     // the screenshots (blobs, not rows) still need the new action's id.
     // Filed against this exact object, which onSuccess gets back as its
     // `variables` argument. See useActionAttachments.
-    attachments.record(actionData, {
-      sprintListId: null,
-      assigneeIds: [],
-      tagIds: [],
-      screenshots: [...pastedScreenshots],
-    });
+    attachments.record(actionData, { screenshots: [...pastedScreenshots] });
 
     createAction.mutate(actionData);
   };

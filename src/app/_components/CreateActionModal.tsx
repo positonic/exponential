@@ -71,7 +71,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
   const utils = api.useUtils();
   
-  // Sprint / assignees / tags / screenshots, carried per submission.
+  // Pasted screenshots, carried per submission to the post-create upload.
   const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
@@ -378,12 +378,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     // the screenshots (blobs, not rows) still need the new action's id.
     // Filed against the exact object handed to mutate(), which onSuccess
     // gets back as its `variables`.
-    attachments.record(actionData, {
-      sprintListId: null,
-      assigneeIds: [],
-      tagIds: [],
-      screenshots: [...pastedScreenshots],
-    });
+    attachments.record(actionData, { screenshots: [...pastedScreenshots] });
 
     // Trigger mutation in background
     createAction.mutate(actionData);
