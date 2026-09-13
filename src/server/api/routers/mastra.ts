@@ -8,6 +8,7 @@ import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
 import { deriveActionSource } from "~/server/utils/actionSource";
+import { actionWriteDeps, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -1122,32 +1123,19 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, userId=${userId}`);
 
-      // Verify user has access to this project via all access paths
-      const access = await getProjectAccess(ctx.db, userId, input.projectId);
-      if (!hasProjectAccess(access)) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Project not found or access denied'
-        });
-      }
-
-      // Inherit workspaceId from the target project
-      const mastraProject = await ctx.db.project.findUnique({
-        where: { id: input.projectId },
-        select: { workspaceId: true },
-      });
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: input.name,
-          description: input.description,
-          priority: input.priority,
-          dueDate: parseAgentDate(input.dueDate, "dueDate"),
-          scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart"),
-          projectId: input.projectId,
-          createdById: userId,
-          workspaceId: mastraProject?.workspaceId ?? null,
-        },
+      // The write is the Action module's: it gates on project EDIT access
+      // (ADR-0016 — Zoe can do exactly what the user's own hands can; the
+      // old view-access gate here let an agent create in a project the user
+      // could only look at), takes the project's workspace, seeds the kanban
+      // column and records the activity event.
+      const action = await createAction(actionWriteDeps(ctx), {
+        name: input.name,
+        description: input.description,
+        priority: input.priority,
+        dueDate: parseAgentDate(input.dueDate, "dueDate") ?? undefined,
+        scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart") ?? undefined,
+        projectId: input.projectId,
+        source: deriveActionSource(ctx.tokenType) ?? "agent",
       });
 
       console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);

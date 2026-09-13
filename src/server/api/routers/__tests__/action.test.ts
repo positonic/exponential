@@ -1893,6 +1893,77 @@ describe("action router (mocked)", () => {
       expect(updatedWith().completedAt).toBeInstanceOf(Date);
     });
 
+    it("mastra.createAction refuses a project the user can only view (ADR-0016)", async () => {
+      // Public project owned by someone else: visible, not editable. The old
+      // agent gate was view access, so Zoe could create here; the UI never could.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: true,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.mastra.createAction({ projectId: "p-public", name: "Trespass", priority: "Quick" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    it("mastra.createAction creates through the module with source agent", async () => {
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+      dbMock.action.create.mockResolvedValue({
+        id: "a1",
+        name: "Ship it",
+        description: null,
+        status: "ACTIVE",
+        priority: "Quick",
+        dueDate: null,
+        scheduledStart: new Date("2026-09-14T00:00:00.000Z"),
+        projectId: "p1",
+        workspaceId: "w1",
+        project: { id: "p1", workspaceId: "w1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const { action } = await caller.mastra.createAction({
+        projectId: "p1",
+        name: "Ship it",
+        priority: "Quick",
+        scheduledStart: "2026-09-14T00:00:00.000Z",
+      });
+
+      expect(action).toMatchObject({ id: "a1", projectId: "p1", scheduledStart: "2026-09-14T00:00:00.000Z" });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        name: "Ship it",
+        projectId: "p1",
+        workspaceId: "w1",
+        source: "agent",
+        kanbanStatus: "TODO",
+        kanbanOrder: 1,
+        createdById: callerId,
+      });
+    });
+
     it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 
