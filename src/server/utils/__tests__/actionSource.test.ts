@@ -15,8 +15,10 @@ describe("deriveActionSource", () => {
     expect(deriveActionSource("whatsapp-gateway")).toBe("whatsapp");
   });
 
-  it("keeps the historical 'whatsapp' default for unknown or absent token types", () => {
-    expect(deriveActionSource("agent-context")).toBe("whatsapp");
-    expect(deriveActionSource(undefined)).toBe("whatsapp");
+  it("returns undefined for unknown or absent token types instead of defaulting", () => {
+    // No silent "whatsapp" fallback: the caller must name the surface or fail.
+    expect(deriveActionSource("agent-context")).toBeUndefined();
+    expect(deriveActionSource("agent-key")).toBeUndefined();
+    expect(deriveActionSource(undefined)).toBeUndefined();
   });
 });

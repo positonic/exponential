@@ -5,13 +5,13 @@ import {
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { PRIORITY_VALUES } from "~/types/priority";
+import { PRIORITY_VALUES, type Priority } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
-import { findUserByEmailInWorkspace, getWorkspaceMembership, canEditWorkspaceContent } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
+import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -24,35 +24,64 @@ import {
   PROJECT_ACTIVITY_TYPES,
 } from "~/server/services/projectActivity";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import {
+  actionWriteSchema,
+  actionCreateAttachmentsSchema,
+  assertAssignableUsers,
+  assertCanWriteToWorkspace,
+  createAction,
+  isActionSource,
+  type ActionSource,
+  type ActionWriteDeps,
+} from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
 /**
- * Guard a caller-supplied `workspaceId` on a write.
- *
- * `workspaceId` arrives as free-form input on `create`/`update`, so membership
- * is never implied by having reached the mutation: without this check any
- * authenticated user could inject rows into an arbitrary workspace's task list
- * by guessing its CUID.
- *
- * Membership alone isn't sufficient either — `viewer` is a read-only role — so
- * this asserts `canEditWorkspaceContent` (member and above). Project-only
- * members ("guests") have no WorkspaceUser row and are refused here by design;
- * their writes are authorised through the project path instead, which is why
- * callers must skip this check for a workspace derived from the project.
+ * The plain dependencies every Action write takes (`ActionWriteDeps`): the
+ * three actor fields `createTRPCContext` already resolved. Routers build it
+ * from `ctx`; nothing else about the tRPC context crosses into the module.
  */
-async function assertCanWriteToWorkspace(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-) {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!canEditWorkspaceContent(membership?.role ?? null)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You don't have permission to add actions to this workspace",
-    });
-  }
+function actionWriteDeps(ctx: {
+  db: PrismaClient;
+  session: { user: { id: string; isAdmin: boolean } };
+  tokenType?: string;
+}): ActionWriteDeps {
+  return {
+    db: ctx.db,
+    actor: {
+      userId: ctx.session.user.id,
+      tokenType: ctx.tokenType,
+      isAdmin: ctx.session.user.isAdmin,
+    },
+  };
+}
+
+/**
+ * Which surface a session-authenticated write came from, by principal: an
+ * external-agent key is an agent (ADR-0049), a personal API token is the
+ * CLI / SDK, anything else (browser session, extension, device) is the UI.
+ */
+function sourceForPrincipal(tokenType: string | undefined): ActionSource {
+  if (tokenType === "agent-key") return "agent";
+  if (tokenType === "api-token") return "cli";
+  return "ui";
+}
+
+/**
+ * `quickCreate` keeps its free-form `source` input (the iOS shortcut has sent
+ * its legacy default for years), but `createAction` only accepts the closed
+ * set. A value in the set passes through; the legacy `ios-shortcut` default
+ * is the iOS shortcut, as is any call authenticated by an x-api-key header;
+ * anything else is named from the principal.
+ */
+function resolveQuickCreateSource(
+  requested: string,
+  ctx: { tokenType?: string; viaApiKey: boolean },
+): ActionSource {
+  if (isActionSource(requested)) return requested;
+  if (requested === "ios-shortcut" || ctx.viaApiKey) return "ios";
+  return sourceForPrincipal(ctx.tokenType);
 }
 
 export const actionRouter = createTRPCRouter({
@@ -390,195 +419,24 @@ export const actionRouter = createTRPCRouter({
     }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        name: z.string().min(1),
-        description: z.string().optional(),
-        projectId: z.string().optional(),
-        workspaceId: z.string().optional(),
-        dueDate: z.date().optional(),
-        scheduledStart: z.date().optional(),
-        scheduledEnd: z.date().optional(),
-        duration: z.number().min(1).optional(), // Duration in minutes
-        priority: z.enum(PRIORITY_VALUES).default("Quick"),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).default("ACTIVE"),
-        epicId: z.string().optional(),
-        effortEstimate: z.number().min(0).optional(),
-        blockedByIds: z.array(z.string()).optional(),
-        // Bounty fields
-        isBounty: z.boolean().optional(),
-        bountyAmount: z.number().positive().optional(),
-        bountyToken: z.string().optional(),
-        bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
-        bountySkills: z.array(z.string()).optional(),
-        bountyDeadline: z.date().optional(),
-        bountyMaxClaimants: z.number().int().min(1).optional(),
-        bountyExternalUrl: z.string().url().optional(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Project-scoped reads run in parallel: access check, project workspace,
-      // and the two kanban-order lookups are all independent.
-      let projectWorkspaceId: string | null = null;
-      let nextKanbanOrder: number | null = null;
-
-      if (input.projectId) {
-        const [access, project, maxOrderAcrossBoard, maxOrderInTodo] =
-          await Promise.all([
-            getProjectAccess(ctx.db, ctx.session.user.id, input.projectId),
-            ctx.db.project.findUnique({
-              where: { id: input.projectId },
-              select: { workspaceId: true },
-            }),
-            ctx.db.action.findFirst({
-              where: {
-                projectId: input.projectId,
-                kanbanOrder: { not: null },
-              },
-              orderBy: { kanbanOrder: "desc" },
-              select: { kanbanOrder: true },
-            }),
-            ctx.db.action.findFirst({
-              where: {
-                projectId: input.projectId,
-                kanbanStatus: "TODO",
-                kanbanOrder: { not: null },
-              },
-              orderBy: { kanbanOrder: "desc" },
-              select: { kanbanOrder: true },
-            }),
-          ]);
-
-        if (!canEditProject(access)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have permission to create actions on this project",
-          });
-        }
-
-        projectWorkspaceId = project?.workspaceId ?? null;
-
-        if (maxOrderInTodo?.kanbanOrder) {
-          nextKanbanOrder = maxOrderInTodo.kanbanOrder + 1;
-        } else if (maxOrderAcrossBoard?.kanbanOrder) {
-          nextKanbanOrder = maxOrderAcrossBoard.kanbanOrder + 1;
-        } else {
-          nextKanbanOrder = 1;
-        }
-      }
-
-      // `input.workspaceId` is spread straight into the create below, so an
-      // unchecked value plants the action — and the `created` activity event
-      // fired for it further down — inside a workspace the caller has no
-      // relationship to, where that workspace's members then see it in their
-      // feed. The project branch above only gates the *project*.
-      //
-      // A project dictates its own workspace, so it takes precedence over any
-      // caller-supplied `workspaceId`. The old precedence ran the other way,
-      // which let a caller attach a project they can genuinely edit while
-      // naming a foreign workspace, laundering the row into that workspace.
-      // `input.workspaceId` therefore only applies when there is no project, or
-      // when the project is personal (no workspace of its own).
-      const targetWorkspaceId = projectWorkspaceId ?? input.workspaceId ?? null;
-
-      // Authorise the destination workspace whenever it came from the caller
-      // rather than from the project. Skipping the project-derived case keeps
-      // project-only members ("guests") working — `canEditProject` above is
-      // their authorisation, and a bare `input.workspaceId` check would refuse
-      // them, since a guest has no WorkspaceUser row but every client sends
-      // workspaceId alongside projectId.
-      if (targetWorkspaceId && targetWorkspaceId !== projectWorkspaceId) {
-        await assertCanWriteToWorkspace(
-          ctx.db,
-          ctx.session.user.id,
-          targetWorkspaceId,
-        );
-      }
-
-      // A linked epic must live in the action's own workspace, or its name and
-      // status leak back through the `epic` include below (PR 481). Resolved
-      // against `targetWorkspaceId` — the workspace the action will actually
-      // land in — rather than a caller-supplied id that may not be it.
-      if (input.epicId) {
-        await assertWorkspaceScopedRefs(
-          ctx.db,
-          ctx.session.user.id,
-          targetWorkspaceId,
-          { epicId: input.epicId },
-        );
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const actionData: any = {
+    // The shared write shape plus the optional attachments: a client may
+    // send tags, assignees and a sprint with the create and get them in one
+    // transaction, or keep sending its follow-up calls. Widening only.
+    .input(actionWriteSchema.merge(actionCreateAttachmentsSchema))
+    .mutation(({ ctx, input }) =>
+      createAction(actionWriteDeps(ctx), {
         ...input,
-        // Overrides the `workspaceId` spread from `...input`, which is exactly
-        // the field that was previously written through unchecked.
-        workspaceId: targetWorkspaceId ?? undefined,
-        createdById: ctx.session.user.id,
-        ...(input.isBounty ? { bountyStatus: "OPEN" } : {}),
-        // External-agent principals stamp their surface (ADR-0049); the *who*
-        // is createdById (the agent's shadow user), the *how* is source.
-        ...(ctx.tokenType === "agent-key" ? { source: "agent" } : {}),
-      };
-
-      if (input.projectId) {
-        actionData.kanbanStatus = "TODO";
-        actionData.kanbanOrder = nextKanbanOrder;
-      }
-
-      const createdAction = await ctx.db.action.create({
-        data: actionData,
-        include: {
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
-          },
-          project: true,
-          syncs: true,
-          createdBy: { select: { id: true, name: true, email: true, image: true } },
-          tags: { include: { tag: true } },
-          epic: { select: { id: true, name: true, status: true } },
-        },
-      });
-
-      // T7: workspace activity feed instrumentation. Helper never throws in
-      // production (it catches its own write failures), but we add `.catch`
-      // here as a belt-and-braces guard so instrumentation can NEVER break
-      // the user's mutation, even if the helper is later refactored.
-      const activityWorkspaceId =
-        createdAction.workspaceId ?? createdAction.project?.workspaceId ?? null;
-      if (activityWorkspaceId) {
-        await recordActivity(ctx.db, {
-          workspaceId: activityWorkspaceId,
-          userId: ctx.session.user.id,
-          entityType: "action",
-          entityId: createdAction.id,
-          action: "created",
-          metadata: { name: createdAction.name },
-        }).catch(() => {
-          /* instrumentation failure is non-fatal */
-        });
-      }
-
-      // Sync onboarding progress if action is linked to a project (fire-and-forget)
-      if (input.projectId) {
-
-        void logProjectActivity(ctx.db, {
-          projectId: input.projectId,
-          actionId: createdAction.id,
-          type: PROJECT_ACTIVITY_TYPES.ACTION_CREATED,
-          toValue: createdAction.name,
-          changedById: ctx.session.user.id,
-        }).catch((err: unknown) => {
-          console.error("[projectActivity] ACTION_CREATED:", err);
-        });
-      }
-
-      return createdAction;
-    }),
+        // The *who* is createdById (for an agent, its shadow user; ADR-0049),
+        // the *how* is source, named from the principal.
+        source: sourceForPrincipal(ctx.tokenType),
+      }),
+    ),
 
   /**
    * Idempotently ensure a "Do daily plan" prompt Action exists for today.
-   * Deduped via source="daily-plan-prompt". Safe to call on every app load.
+   * Deduped via source="daily-plan-prompt" (kept distinct from "daily-plan",
+   * the source of a task converted from a plan, or a planned task due today
+   * would suppress the prompt). Safe to call on every app load.
    */
   ensureDailyPlanPromptAction: protectedProcedure
     .input(
@@ -589,10 +447,9 @@ export const actionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Same free-form `workspaceId` as `create`, and it lands in the same
-      // place — `db.action.create` below — so it needs the same guard. Without
-      // it, any authenticated user can drop a prompt action into an arbitrary
-      // workspace's task list by guessing its CUID.
+      // `createAction` gates the write itself; this up-front check is so the
+      // existence probe below never runs against a workspace the caller
+      // cannot write to (the same free-form `workspaceId` as `create`).
       if (input?.workspaceId) {
         await assertCanWriteToWorkspace(ctx.db, userId, input.workspaceId);
       }
@@ -616,18 +473,17 @@ export const actionRouter = createTRPCRouter({
         return { created: false, actionId: existing.id };
       }
 
-      const created = await ctx.db.action.create({
-        data: {
-          name: "Do daily plan",
-          description: "Set aside 5 minutes to plan your day.",
-          dueDate: today,
-          priority: "High",
-          status: "ACTIVE",
-          source: "daily-plan-prompt",
-          createdById: userId,
-          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
-        },
-        select: { id: true },
+      const created = await createAction(actionWriteDeps(ctx), {
+        name: "Do daily plan",
+        description: "Set aside 5 minutes to plan your day.",
+        dueDate: today,
+        // The canonical top priority. The row used to carry the legacy
+        // integration value "High", which is outside PRIORITY_VALUES and
+        // which the shared write schema refuses.
+        priority: "1st Priority",
+        status: "ACTIVE",
+        source: "daily-plan-prompt",
+        workspaceId: input?.workspaceId,
       });
 
       return { created: true, actionId: created.id };
@@ -1895,29 +1751,7 @@ export const actionRouter = createTRPCRouter({
       // Verify the action exists and user has permission to modify it
       const action = await ctx.db.action.findUnique({
         where: { id: input.actionId },
-        include: { 
-          project: {
-            include: {
-              projectMembers: {
-                select: { userId: true }
-              },
-              team: {
-                include: {
-                  members: {
-                    select: { userId: true }
-                  }
-                }
-              }
-            }
-          },
-          team: {
-            include: {
-              members: {
-                select: { userId: true }
-              }
-            }
-          }
-        },
+        select: { id: true, projectId: true, teamId: true, workspaceId: true },
       });
 
       if (!action) {
@@ -1937,65 +1771,19 @@ export const actionRouter = createTRPCRouter({
         throw new Error("You don't have permission to modify this action");
       }
 
-      // Validate that all users can be assigned to this action.
-      // Restricted projects: only ProjectMembers, the creator, and workspace
-      // owners/admins can be assigned. Team/workspace fallback is disabled.
-      for (const userId of input.userIds) {
-        let canAssign = false;
-
-        if (action.projectId && action.project) {
-          const candidateAccess = await getProjectAccess(
-            ctx.db,
-            userId,
-            action.projectId,
-          );
-          canAssign = hasProjectAccess(candidateAccess);
-
-          // Unrestricted-only fallback: shared-team membership with the
-          // assigning user (legacy assignment ergonomics).
-          if (!canAssign && !candidateAccess.isRestricted) {
-            const sharedTeam = await ctx.db.team.findFirst({
-              where: {
-                AND: [
-                  { members: { some: { userId } } },
-                  { members: { some: { userId: ctx.session.user.id } } },
-                ],
-              },
-              select: { id: true },
-            });
-            canAssign = !!sharedTeam;
-          }
-        }
-        // Action has a team (but no project) - users must be team members
-        else if (action.teamId && action.team) {
-          canAssign = action.team.members.some(
-            (member: { userId: string }) => member.userId === userId,
-          );
-        }
-        // No project and no team: this used to allow assigning ANY user id,
-        // and the include below returns `user.email` — the same PII leak the
-        // ticket assignee guard closes. Fall back to the action's workspace
-        // and the caller's teams, which is exactly what the picker offers.
-        else {
-          canAssign = await canAssignToUnscopedAction(
-            ctx.db,
-            ctx.session.user.id,
-            action.workspaceId,
-            userId,
-          );
-        }
-
-        if (!canAssign) {
-          // Deliberately does NOT name the rejected user. The old message
-          // looked them up and echoed `name ?? email` back, which handed the
-          // caller a stranger's identity on exactly the path where they had
-          // just been told they have no relationship to them.
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"}`,
-          });
-        }
-      }
+      // Same containment rule `createAction` applies to assignees attached on
+      // create, so attaching later cannot reach further than attaching at
+      // creation. Rejects with NOT_FOUND and never names the rejected user.
+      await assertAssignableUsers(
+        ctx.db,
+        ctx.session.user.id,
+        {
+          projectId: action.projectId,
+          teamId: action.teamId,
+          workspaceId: action.workspaceId,
+        },
+        input.userIds,
+      );
 
       // Snapshot existing assignees so we can compute the diff for activity logging.
       const priorAssignees = await ctx.db.actionAssignee.findMany({
@@ -2137,75 +1925,35 @@ export const actionRouter = createTRPCRouter({
           id: { in: input.actionIds },
           createdById: ctx.session.user.id, // Ensure user owns all actions
         },
-        include: { 
-          project: {
-            include: {
-              projectMembers: {
-                select: { userId: true }
-              },
-              team: {
-                include: {
-                  members: {
-                    select: { userId: true }
-                  }
-                }
-              }
-            }
-          },
-          team: {
-            include: {
-              members: {
-                select: { userId: true }
-              }
-            }
-          }
-        },
+        select: { id: true, name: true, projectId: true, teamId: true, workspaceId: true },
       });
 
       if (actions.length !== input.actionIds.length) {
         throw new Error("Some actions not found or you don't have permission to modify them");
       }
 
-      // Validate assignments for each action-user combination.
-      // Restricted projects: only project access paths grant assignment;
-      // team/workspace fallback is gated by hasProjectAccess.
+      // Same containment rule as `assign` and `createAction`, per action.
+      // Names the action (the caller owns it) but never the rejected user.
       for (const action of actions) {
-        for (const userId of input.userIds) {
-          let canAssign = false;
-
-          if (action.projectId && action.project) {
-            const candidateAccess = await getProjectAccess(
-              ctx.db,
-              userId,
-              action.projectId,
-            );
-            canAssign = hasProjectAccess(candidateAccess);
-          }
-          // Action has a team (but no project) - users must be team members
-          else if (action.teamId && action.team) {
-            canAssign = action.team.members.some(
-              (member: { userId: string }) => member.userId === userId,
-            );
-          }
-          // Same fallback as `assign`: no project and no team means the
-          // action's workspace and the caller's teams decide, not "anyone".
-          else {
-            canAssign = await canAssignToUnscopedAction(
-              ctx.db,
-              ctx.session.user.id,
-              action.workspaceId,
-              userId,
-            );
-          }
-
-          if (!canAssign) {
-            // Names the action (the caller owns it) but never the rejected
-            // user — see the matching guard in `assign`.
+        try {
+          await assertAssignableUsers(
+            ctx.db,
+            ctx.session.user.id,
+            {
+              projectId: action.projectId,
+              teamId: action.teamId,
+              workspaceId: action.workspaceId,
+            },
+            input.userIds,
+          );
+        } catch (err) {
+          if (err instanceof TRPCError && err.code === "NOT_FOUND") {
             throw new TRPCError({
               code: "NOT_FOUND",
-              message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"} (action "${action.name}")`,
+              message: `${err.message} (action "${action.name}")`,
             });
           }
+          throw err;
         }
       }
 
@@ -2907,83 +2655,48 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      // Parse natural language input using shared helper
+      // Parse natural language input using shared helper. Parsing stays
+      // here (it is the quick-create callers' concern); the create itself is
+      // the module's, which gates on the project the parser actually resolved.
       const parsed = await parseActionInput(input.name, userId, ctx.db, {
         projectId: input.projectId,
         parseNaturalLanguage: input.parseNaturalLanguage,
       });
 
-      // If explicit projectId provided, verify the caller can write to it.
-      // Uses the same gate as `action.create` so shared workspace/team
-      // projects (which appear in project.getUserProjects) are accepted, not
-      // only projects the caller personally created.
-      if (input.projectId) {
-        const projectAccess = await getProjectAccess(
-          ctx.db,
-          userId,
-          input.projectId,
-        );
-        if (!canEditProject(projectAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have permission to create actions on this project",
-          });
-        }
-      }
-
-      // Calculate kanban order if this is a project action
-      let kanbanOrder: number | null = null;
-      if (parsed.projectId) {
-        const maxOrderAction = await ctx.db.action.findFirst({
-          where: {
-            projectId: parsed.projectId,
-            kanbanOrder: { not: null },
+      const created = await createAction(
+        {
+          db: ctx.db,
+          actor: {
+            userId,
+            tokenType: ctx.tokenType,
+            isAdmin: ctx.session?.user?.isAdmin ?? false,
           },
-          orderBy: { kanbanOrder: "desc" },
-          select: { kanbanOrder: true },
-        });
-        kanbanOrder = (maxOrderAction?.kanbanOrder ?? 0) + 1;
-      }
-
-      // Inherit workspaceId from project
-      let quickCreateWorkspaceId: string | null = null;
-      if (parsed.projectId) {
-        const proj = await ctx.db.project.findUnique({
-          where: { id: parsed.projectId },
-          select: { workspaceId: true },
-        });
-        quickCreateWorkspaceId = proj?.workspaceId ?? null;
-      }
-
-      // Create the action
-      const action = await ctx.db.action.create({
-        data: {
+        },
+        {
           name: parsed.name,
-          projectId: parsed.projectId,
+          projectId: parsed.projectId ?? undefined,
           priority: input.priority,
           status: "ACTIVE",
-          createdById: userId,
-          scheduledStart: parsed.scheduledStart,
-          dueDate: parsed.dueDate,
-          source: input.source,
-          kanbanStatus: parsed.projectId ? "TODO" : null,
-          kanbanOrder,
-          workspaceId: quickCreateWorkspaceId,
+          scheduledStart: parsed.scheduledStart ?? undefined,
+          dueDate: parsed.dueDate ?? undefined,
+          source: resolveQuickCreateSource(input.source, {
+            tokenType: ctx.tokenType,
+            viaApiKey: !ctx.session?.user?.id,
+          }),
         },
-        select: {
-          id: true,
-          name: true,
-          priority: true,
-          status: true,
-          dueDate: true,
-          project: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-      });
+      );
+
+      // Same projection this procedure has always returned.
+      const action = {
+        id: created.id,
+        name: created.name,
+        priority: created.priority,
+        status: created.status,
+        dueDate: created.dueDate,
+        project: created.project
+          ? { id: created.project.id, name: created.project.name }
+          : null,
+      };
 
       return {
         success: true,
@@ -3285,21 +2998,13 @@ export const actionRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
-      // 1. Verify caller workspace membership.
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: { userId, workspaceId: input.workspaceId },
-        },
-        select: { userId: true },
-      });
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You are not a member of this workspace",
-        });
-      }
+      // 1. Refuse anyone without a write role in the workspace before any
+      //    lookup, so the transcript and project probes below can never act
+      //    as an existence oracle for a stranger. The write itself is still
+      //    gated per item by `createAction` (project edit access, or this
+      //    same workspace role); a FORBIDDEN from there is re-thrown rather
+      //    than skipped, since it holds for every item alike.
+      await assertCanWriteToWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
 
       // 2. Verify the transcript exists and belongs to this workspace.
       const transcript = await ctx.db.transcriptionSession.findUnique({
@@ -3335,7 +3040,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // 4. Map agent priority strings to internal priority values.
-      const mapPriority = (p: "HIGH" | "MEDIUM" | "LOW"): string => {
+      const mapPriority = (p: "HIGH" | "MEDIUM" | "LOW"): Priority => {
         if (p === "HIGH") return "1st Priority";
         if (p === "LOW") return "5th Priority";
         return "Quick";
@@ -3360,27 +3065,23 @@ export const actionRouter = createTRPCRouter({
       //    doesn't abort the whole batch. We deliberately do NOT wrap the
       //    loop in an outer transaction - each item is logically independent
       //    and we want partial successes to persist.
+      const deps = actionWriteDeps(ctx);
       for (const item of input.items) {
         try {
-          const dueDate = item.dueDate ? new Date(item.dueDate) : null;
-
-          const action = await ctx.db.action.create({
-            data: {
-              name: item.description,
-              description: item.rawText ?? null,
-              dueDate,
-              priority: mapPriority(item.priority),
-              status: "ACTIVE",
-              workspaceId: input.workspaceId,
-              projectId: resolvedProjectId,
-              transcriptionSessionId: input.transcriptionSessionId,
-              createdById: userId,
-              source: "agent-transcript",
-              sourceType: "meeting",
-              sourceId: input.transcriptionSessionId,
-              lastUpdatedBy: "AGENT",
-              lastUpdatedSource: "agent-action-items-tool",
-            },
+          const action = await createAction(deps, {
+            name: item.description,
+            description: item.rawText ?? undefined,
+            dueDate: item.dueDate ? new Date(item.dueDate) : undefined,
+            priority: mapPriority(item.priority),
+            status: "ACTIVE",
+            workspaceId: input.workspaceId,
+            projectId: resolvedProjectId ?? undefined,
+            source: "meeting",
+            transcriptionSessionId: input.transcriptionSessionId,
+            sourceType: "meeting",
+            sourceId: input.transcriptionSessionId,
+            lastUpdatedBy: "AGENT",
+            lastUpdatedSource: "agent-action-items-tool",
           });
 
           // 5b. Resolve assignee using 3-tier strategy.
@@ -3437,6 +3138,10 @@ export const actionRouter = createTRPCRouter({
           });
           created.push(hydrated);
         } catch (err) {
+          // Not a member, or cannot edit the project: the same answer for
+          // every item, so refuse the batch as before rather than reporting
+          // N skipped rows.
+          if (err instanceof TRPCError && err.code === "FORBIDDEN") throw err;
           const reason =
             err instanceof Error ? err.message : "Unknown error creating action";
           skipped.push({ rawText: item.rawText, reason });

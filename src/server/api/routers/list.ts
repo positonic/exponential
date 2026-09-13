@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { assertListMembership } from "~/server/services/actions";
 
 const listTypeSchema = z.enum(["SPRINT", "BACKLOG", "CUSTOM"]);
 const listStatusSchema = z.enum(["PLANNED", "ACTIVE", "COMPLETED", "ARCHIVED"]);
@@ -258,32 +259,22 @@ export const listRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const list = await ctx.db.list.findUnique({
-        where: { id: input.listId },
+      // Same rule `createAction` applies to a sprint attached on create —
+      // member of the list's workspace, and the list in the Action's own
+      // workspace — so attaching later keeps one implementation.
+      const action = await ctx.db.action.findUnique({
+        where: { id: input.actionId },
+        select: { workspaceId: true, project: { select: { workspaceId: true } } },
       });
-
-      if (!list) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "List not found",
-        });
+      if (!action) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
-
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: list.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace",
-        });
-      }
+      await assertListMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.listId,
+        action.workspaceId ?? action.project?.workspaceId ?? null,
+      );
 
       return ctx.db.actionList.create({
         data: {

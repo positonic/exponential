@@ -1247,7 +1247,10 @@ export const mastraRouter = createTRPCRouter({
           createdById: userId,
           scheduledStart,
           dueDate,
-          source: deriveActionSource(ctx.tokenType),
+          // Gateway tokens name their surface; any other principal reaching
+          // this agent tool is an agent. `deriveActionSource` no longer
+          // defaults, so the choice is explicit here.
+          source: deriveActionSource(ctx.tokenType) ?? "agent",
           kanbanStatus: parsed.projectId ? "TODO" : null,
           kanbanOrder,
           workspaceId: quickMastraWsId,

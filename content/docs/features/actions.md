@@ -171,15 +171,21 @@ You can add multiple blockers, and each one appears as a chip that you can remov
 
 ## Action Sources
 
-Actions can be created from multiple sources:
+Every Action records which surface created it:
 
 | Source | Description |
 |--------|-------------|
-| `app` | Created in Exponential web/mobile |
-| `ios-shortcut` | Created via iOS Shortcuts integration |
-| `notion` | Synced from Notion database |
-| `api` | Created via API or browser extension |
-| `transcription` | Extracted from meeting transcriptions |
+| `ui` | Created in the Exponential web app or extension |
+| `ios` | Created via the iOS Shortcuts integration |
+| `cli` | Created via the CLI or SDK (personal API token) |
+| `voice` | Captured by voice |
+| `meeting` | Extracted from a meeting transcript |
+| `daily-plan` | Converted from a daily plan task |
+| `daily-plan-prompt` | The daily "Do daily plan" prompt |
+| `whatsapp`, `telegram`, `matrix` | Created by the assistant from a chat gateway |
+| `agent` | Created by an external agent or the in-app assistant |
+
+Actions created before this set existed may still show older values such as `app`, `ios-shortcut` or `agent-transcript`.
 
 ## External Integration
 
