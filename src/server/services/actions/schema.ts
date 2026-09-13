@@ -94,10 +94,9 @@ export function isActionSource(value: unknown): value is ActionSource {
 }
 
 /**
- * Attachments a client may send with a create. Optional, so the current
- * four-call client (create, then tag / assign / add-to-sprint) keeps working
- * until it sends one payload; `createAction` writes them in the same
- * transaction as the Action.
+ * Attachments a client may send with a create; `createAction` writes them in
+ * the same transaction as the Action. Optional, so a caller that creates and
+ * then attaches (an external SDK / CLI client) keeps working.
  */
 export const actionCreateAttachmentsSchema = z.object({
   /** Tags to attach, written in the same transaction as the Action. */

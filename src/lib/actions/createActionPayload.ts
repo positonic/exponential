@@ -14,7 +14,7 @@ export interface CreateActionFormValues {
   description?: string;
   projectId?: string | null;
   workspaceId?: string | null;
-  priority?: string;
+  priority?: Priority;
   status?: CreateActionPayload["status"];
   dueDate?: Date | null;
   scheduledStart?: Date | null;
@@ -75,7 +75,7 @@ export function buildCreateActionPayload(
     description: description ? description : undefined,
     projectId: projectId ? projectId : undefined,
     workspaceId: workspaceId ?? undefined,
-    priority: (priority ? priority : "Quick") as Priority,
+    priority: priority ?? "Quick",
     ...(status !== undefined ? { status } : {}),
     dueDate: dueDate ?? undefined,
     scheduledStart: scheduledStart ?? undefined,

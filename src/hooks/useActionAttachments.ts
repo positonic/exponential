@@ -47,7 +47,8 @@ export function useActionAttachments() {
     /**
      * Files this submission's screenshots against the object handed to
      * `mutate()`. Call it with the same object you pass as the mutation's
-     * variables.
+     * variables. A submission with no screenshots files nothing, so its
+     * `apply` and `discard` are no-ops.
      */
     record(variables: object, attachments: ActionAttachments) {
       if (attachments.screenshots.length === 0) return;

@@ -241,7 +241,9 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
   });
 
   const handleSubmit = () => {
-    if (!name) return;
+    // The payload builder trims the name; a whitespace-only name would be
+    // refused by the server after the modal had already closed.
+    if (!name.trim()) return;
 
     // Close the modal immediately. Creation is optimistic and every
     // post-create step reports its own failure, so there is nothing for the

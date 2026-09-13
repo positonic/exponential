@@ -300,7 +300,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   });
 
   const handleSubmit = () => {
-    if (!name) return;
+    // The payload builder trims the name; a whitespace-only name would be
+    // refused by the server after the modal had already closed.
+    if (!name.trim()) return;
 
     // Close modal immediately for better UX
     close();

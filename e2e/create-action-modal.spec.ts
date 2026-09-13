@@ -4,9 +4,10 @@
  *
  * It used to call close() only at the end of `onSuccess`, i.e. after the
  * `action.create` round-trip *and* the sequential sprint / assignee /
- * screenshot chain that follows it - so the submit button sat spinning for as
- * long as the network took. Creation is optimistic and every post-create step
- * reports its own failure, so there is nothing to wait on.
+ * screenshot chain that followed it - so the submit button sat spinning for as
+ * long as the network took. Creation is optimistic, and tags, assignees and
+ * sprint now travel in the create request itself (the server writes them in
+ * one transaction), so there is nothing to wait on.
  *
  * Both tests hold the create response open until the assertions are done,
  * rather than for a fixed delay: what matters is that the UI is usable *while
@@ -26,24 +27,54 @@ const SECOND_NAME = "second in flight";
 /** First hit on a `next dev` route pays the compile + client fetch cost. */
 const FIRST_PAINT_TIMEOUT = 60_000;
 
+/** The parts of an `action.create` payload these tests look at. */
+interface CreatePayload {
+  name?: string;
+  tagIds?: string[];
+  assigneeIds?: string[];
+  sprintListId?: string;
+}
+
+/** Every `action.create` payload the page sent, in order (a batch may carry several). */
+function readCreatePayloads(body: unknown): CreatePayload[] {
+  const entries = Object.values((body ?? {}) as Record<string, { json?: CreatePayload }>);
+  return entries.flatMap((entry) => (entry?.json ? [entry.json] : []));
+}
+
 /**
  * Holds every `action.create` request at the browser until the returned
- * `release` is called - nothing reaches the server before then.
+ * `release` is called - nothing reaches the server before then - and records
+ * each request's payload as it was sent.
  */
 async function holdCreateResponses(page: Page) {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const started: number[] = [];
+  const payloads: CreatePayload[] = [];
 
   await page.route("**/api/trpc/action.create**", async (route) => {
-    started.push(Date.now());
+    payloads.push(...readCreatePayloads(route.request().postDataJSON()));
     await gate;
     await route.continue();
   });
 
-  return { release, inFlight: () => started.length };
+  return { release, inFlight: () => payloads.length, payloads };
+}
+
+/**
+ * Counts hits on the three post-create attach procedures. None of them may
+ * fire from a create surface any more: the attachments ride the create.
+ */
+async function countFollowUps(page: Page) {
+  const hits: string[] = [];
+  for (const proc of ["tag.setActionTags", "action.assign", "list.addAction"]) {
+    await page.route(`**/api/trpc/${proc}**`, async (route) => {
+      hits.push(proc);
+      await route.continue();
+    });
+  }
+  return hits;
 }
 
 /**
@@ -104,36 +135,19 @@ test("submitting the create-action modal dismisses it without waiting for the se
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
-test("two creates in flight at once keep their own post-create attachments", async ({
+test("two creates in flight at once each carry their own assignees in the create request", async ({
   page,
 }) => {
   // Closing on submit means a second action can be composed while the first is
-  // still in flight. Each submission's post-create attachments (assignees,
-  // sprint, screenshots) are recorded against that submission.
+  // still in flight. Each submission's selections must travel with *its own*
+  // create request - not the cleared form's, and not the other submission's.
   //
-  // The first action gets an assignee and the second gets none, which makes the
-  // old single-shared-ref behaviour observable without resolving any ids: the
-  // second submit overwrote the ref with an empty list, so the first create's
-  // onSuccess found nothing and the assignment was silently dropped. Correct
-  // behaviour issues exactly one assign.
-  const { release, inFlight } = await holdCreateResponses(page);
-
-  const assigned: { actionId: string; userIds: string[] }[] = [];
-  await page.route("**/api/trpc/action.assign**", async (route) => {
-    const body = route.request().postDataJSON() as Record<
-      string,
-      { json?: { actionId?: string; userIds?: string[] } }
-    >;
-    for (const entry of Object.values(body)) {
-      if (entry?.json?.actionId) {
-        assigned.push({
-          actionId: entry.json.actionId,
-          userIds: entry.json.userIds ?? [],
-        });
-      }
-    }
-    await route.continue();
-  });
+  // The first action gets an assignee and the second gets none, which makes
+  // any shared-state bug observable without resolving any ids: the first
+  // create's payload must carry the assignee, the second's must not, and no
+  // post-create assign call may fire at all.
+  const { release, inFlight, payloads } = await holdCreateResponses(page);
+  const followUps = await countFollowUps(page);
 
   await page.goto(`/w/${fixture.workspaceSlug}/projects`);
   const submit = page.getByRole("button", { name: "New action", exact: true });
@@ -157,42 +171,38 @@ test("two creates in flight at once keep their own post-create attachments", asy
   // Both reached the browser's create route before either was let through.
   expect(inFlight()).toBe(2);
 
-  release();
+  // The first action's assignee rode its own create; the second sent none.
+  const first = payloads.find((p) => p.name === FIRST_NAME);
+  const second = payloads.find((p) => p.name === SECOND_NAME);
+  expect(first?.assigneeIds?.length ?? 0).toBeGreaterThan(0);
+  expect(second?.assigneeIds).toBeUndefined();
 
-  // The first action's assignee survived the second submission.
-  await expect.poll(() => assigned.length, { timeout: 15_000 }).toBe(1);
-  expect(assigned[0]!.userIds.length).toBeGreaterThan(0);
+  release();
+  // Nothing attaches after the fact any more.
+  await page.waitForTimeout(1_000);
+  expect(followUps).toEqual([]);
 
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
 /**
- * Tags are applied on a *separate* mutation after the action exists, which is
- * the path that used to lose them: one modal never sent them at all, and the
- * other read them off state that submit had already cleared. Both now go
- * through the same per-submission record, as does the sprint assignment that
- * shared the second bug.
+ * Tags used to be applied on a *separate* mutation after the action existed,
+ * which is the path that lost them: one modal never sent them at all, and the
+ * other read them off state that submit had already cleared. They now ride
+ * the create request from both entry points, and the server writes them in
+ * the same transaction as the Action - so the assertion is on the create
+ * payload, and on the old follow-up never firing.
  */
 for (const entry of ENTRY_POINTS) {
-  test(`tags selected before submit reach the created action - ${entry.label}`, async ({
+  test(`tags selected before submit ride the create request - ${entry.label}`, async ({
     page,
   }) => {
-    const tagged: { actionId: string; tagIds: string[] }[] = [];
-    await page.route("**/api/trpc/tag.setActionTags**", async (route) => {
-      const body = route.request().postDataJSON() as Record<
-        string,
-        { json?: { actionId?: string; tagIds?: string[] } }
-      >;
-      for (const call of Object.values(body)) {
-        if (call?.json?.actionId) {
-          tagged.push({
-            actionId: call.json.actionId,
-            tagIds: call.json.tagIds ?? [],
-          });
-        }
-      }
+    const payloads: CreatePayload[] = [];
+    await page.route("**/api/trpc/action.create**", async (route) => {
+      payloads.push(...readCreatePayloads(route.request().postDataJSON()));
       await route.continue();
     });
+    const followUps = await countFollowUps(page);
 
     await page.goto(entry.url);
     const nameBox = await compose(page, `tagged via ${entry.label}`, entry.trigger);
@@ -211,8 +221,10 @@ for (const entry of ENTRY_POINTS) {
     await page.getByRole("button", { name: "New action", exact: true }).click();
     await expect(nameBox).toHaveCount(0, { timeout: 5_000 });
 
-    await expect.poll(() => tagged.length, { timeout: 15_000 }).toBe(1);
-    expect(tagged[0]!.tagIds).toEqual([fixture.tagId]);
+    await expect.poll(() => payloads.length, { timeout: 15_000 }).toBe(1);
+    expect(payloads[0]!.tagIds).toEqual([fixture.tagId]);
+    await page.waitForTimeout(1_000);
+    expect(followUps).toEqual([]);
 
     await page.unrouteAll({ behavior: "ignoreErrors" });
   });

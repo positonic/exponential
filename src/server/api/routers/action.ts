@@ -401,9 +401,9 @@ export const actionRouter = createTRPCRouter({
     }),
 
   create: protectedProcedure
-    // The shared write shape plus the optional attachments: a client may
-    // send tags, assignees and a sprint with the create and get them in one
-    // transaction, or keep sending its follow-up calls. Widening only.
+    // The shared write shape plus the optional attachments: the app sends
+    // tags, assignees and sprint with the create and gets them in one
+    // transaction; an external caller may still create and then attach.
     .input(actionWriteSchema.merge(actionCreateAttachmentsSchema))
     .mutation(({ ctx, input }) =>
       createAction(actionWriteDeps(ctx), {
