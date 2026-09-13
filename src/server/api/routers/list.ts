@@ -259,9 +259,22 @@ export const listRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Same membership rule `createAction` applies to a sprint attached on
-      // create, so attaching later keeps one implementation.
-      await assertListMembership(ctx.db, ctx.session.user.id, input.listId);
+      // Same rule `createAction` applies to a sprint attached on create —
+      // member of the list's workspace, and the list in the Action's own
+      // workspace — so attaching later keeps one implementation.
+      const action = await ctx.db.action.findUnique({
+        where: { id: input.actionId },
+        select: { workspaceId: true, project: { select: { workspaceId: true } } },
+      });
+      if (!action) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+      }
+      await assertListMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.listId,
+        action.workspaceId ?? action.project?.workspaceId ?? null,
+      );
 
       return ctx.db.actionList.create({
         data: {

@@ -148,14 +148,16 @@ export async function assertAssignableUsers(
 }
 
 /**
- * Throw unless `listId` exists and `userId` is a member of its workspace.
- * Returns the list's id and workspace so the caller can apply containment
- * against the Action's own workspace.
+ * Throw unless `listId` exists, `userId` is a member of its workspace
+ * (directly or through a team, the same resolver as the write gate), and —
+ * when the Action has a workspace — the list is in that same workspace.
+ * Returns the list's id and workspace.
  */
 export async function assertListMembership(
   db: PrismaClient,
   userId: string,
   listId: string,
+  actionWorkspaceId: string | null,
 ): Promise<{ id: string; workspaceId: string }> {
   const list = await db.list.findUnique({
     where: { id: listId },
@@ -165,14 +167,18 @@ export async function assertListMembership(
     throw new TRPCError({ code: "NOT_FOUND", message: "List not found" });
   }
 
-  const member = await db.workspaceUser.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId: list.workspaceId } },
-    select: { userId: true },
-  });
-  if (!member) {
+  const membership = await getWorkspaceMembership(db, userId, list.workspaceId);
+  if (!membership) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "You must be a member of this workspace",
+    });
+  }
+
+  if (actionWorkspaceId && list.workspaceId !== actionWorkspaceId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "List is not in this workspace",
     });
   }
 

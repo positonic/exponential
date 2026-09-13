@@ -174,24 +174,38 @@ describe("containment", () => {
   describe("assertListMembership", () => {
     it("returns the list for a member of its workspace", async () => {
       db.list.findUnique.mockResolvedValue({ id: "l1", workspaceId: WORKSPACE } as never);
-      db.workspaceUser.findUnique.mockResolvedValue({ userId: CALLER } as never);
+      db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: WORKSPACE } as never);
 
-      await expect(assertListMembership(db, CALLER, "l1")).resolves.toEqual({
+      await expect(assertListMembership(db, CALLER, "l1", WORKSPACE)).resolves.toEqual({
         id: "l1",
         workspaceId: WORKSPACE,
       });
     });
 
-    it("is NOT_FOUND for a missing list and FORBIDDEN for a non-member", async () => {
+    it("accepts a team-based workspace member, like the write gate does", async () => {
+      db.list.findUnique.mockResolvedValue({ id: "l1", workspaceId: WORKSPACE } as never);
+      db.workspaceUser.findUnique.mockResolvedValue(null);
+      db.teamUser.findFirst.mockResolvedValue({ role: "member", team: { workspaceId: WORKSPACE } } as never);
+
+      await expect(assertListMembership(db, CALLER, "l1", null)).resolves.toMatchObject({ id: "l1" });
+    });
+
+    it("is NOT_FOUND for a missing list, FORBIDDEN for a non-member, BAD_REQUEST for another workspace", async () => {
       db.list.findUnique.mockResolvedValue(null);
-      await expect(assertListMembership(db, CALLER, "l-missing")).rejects.toMatchObject({
+      await expect(assertListMembership(db, CALLER, "l-missing", null)).rejects.toMatchObject({
         code: "NOT_FOUND",
       });
 
       db.list.findUnique.mockResolvedValue({ id: "l1", workspaceId: WORKSPACE } as never);
       db.workspaceUser.findUnique.mockResolvedValue(null);
-      await expect(assertListMembership(db, CALLER, "l1")).rejects.toMatchObject({
+      db.teamUser.findFirst.mockResolvedValue(null);
+      await expect(assertListMembership(db, CALLER, "l1", null)).rejects.toMatchObject({
         code: "FORBIDDEN",
+      });
+
+      db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: WORKSPACE } as never);
+      await expect(assertListMembership(db, CALLER, "l1", "w-other")).rejects.toMatchObject({
+        code: "BAD_REQUEST",
       });
     });
   });

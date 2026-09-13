@@ -17,7 +17,11 @@ import {
 } from "~/server/services/projectActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { createActionInputSchema, type CreateActionInput } from "./schema";
+import {
+  createActionInputSchema,
+  SYSTEM_ACTION_SOURCES,
+  type CreateActionInput,
+} from "./schema";
 import {
   assertAssignableUsers,
   assertListMembership,
@@ -214,13 +218,7 @@ export async function createAction(
     );
   }
   if (sprintListId) {
-    const list = await assertListMembership(db, actor.userId, sprintListId);
-    if (targetWorkspaceId && list.workspaceId !== targetWorkspaceId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "List is not in this workspace",
-      });
-    }
+    await assertListMembership(db, actor.userId, sprintListId, targetWorkspaceId);
   }
 
   // 4. One transaction: the row and every attachment, so an Action with
@@ -269,7 +267,7 @@ export async function createAction(
   //    caller's mutation even if the helper is later refactored.
   const activityWorkspaceId =
     created.workspaceId ?? created.project?.workspaceId ?? null;
-  if (activityWorkspaceId) {
+  if (activityWorkspaceId && !SYSTEM_ACTION_SOURCES.has(source)) {
     await recordActivity(db, {
       workspaceId: activityWorkspaceId,
       userId: actor.userId,

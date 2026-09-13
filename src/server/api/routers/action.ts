@@ -11,7 +11,7 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs, canAssignToUnscopedAction } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -58,21 +58,30 @@ function actionWriteDeps(ctx: {
 }
 
 /**
+ * Which surface a session-authenticated write came from, by principal: an
+ * external-agent key is an agent (ADR-0049), a personal API token is the
+ * CLI / SDK, anything else (browser session, extension, device) is the UI.
+ */
+function sourceForPrincipal(tokenType: string | undefined): ActionSource {
+  if (tokenType === "agent-key") return "agent";
+  if (tokenType === "api-token") return "cli";
+  return "ui";
+}
+
+/**
  * `quickCreate` keeps its free-form `source` input (the iOS shortcut has sent
  * its legacy default for years), but `createAction` only accepts the closed
  * set. A value in the set passes through; the legacy `ios-shortcut` default
- * is the iOS shortcut; anything else is named from how the call was
- * authenticated: an agent key is an agent, an API key is the iOS shortcut,
- * a session or Bearer JWT is the CLI.
+ * is the iOS shortcut, as is any call authenticated by an x-api-key header;
+ * anything else is named from the principal.
  */
 function resolveQuickCreateSource(
   requested: string,
   ctx: { tokenType?: string; viaApiKey: boolean },
 ): ActionSource {
   if (isActionSource(requested)) return requested;
-  if (requested === "ios-shortcut") return "ios";
-  if (ctx.tokenType === "agent-key") return "agent";
-  return ctx.viaApiKey ? "ios" : "cli";
+  if (requested === "ios-shortcut" || ctx.viaApiKey) return "ios";
+  return sourceForPrincipal(ctx.tokenType);
 }
 
 export const actionRouter = createTRPCRouter({
@@ -417,9 +426,9 @@ export const actionRouter = createTRPCRouter({
     .mutation(({ ctx, input }) =>
       createAction(actionWriteDeps(ctx), {
         ...input,
-        // External-agent principals stamp their surface (ADR-0049); the *who*
-        // is createdById (the agent's shadow user), the *how* is source.
-        source: ctx.tokenType === "agent-key" ? "agent" : "ui",
+        // The *who* is createdById (for an agent, its shadow user; ADR-0049),
+        // the *how* is source, named from the principal.
+        source: sourceForPrincipal(ctx.tokenType),
       }),
     ),
 
@@ -1916,75 +1925,35 @@ export const actionRouter = createTRPCRouter({
           id: { in: input.actionIds },
           createdById: ctx.session.user.id, // Ensure user owns all actions
         },
-        include: { 
-          project: {
-            include: {
-              projectMembers: {
-                select: { userId: true }
-              },
-              team: {
-                include: {
-                  members: {
-                    select: { userId: true }
-                  }
-                }
-              }
-            }
-          },
-          team: {
-            include: {
-              members: {
-                select: { userId: true }
-              }
-            }
-          }
-        },
+        select: { id: true, name: true, projectId: true, teamId: true, workspaceId: true },
       });
 
       if (actions.length !== input.actionIds.length) {
         throw new Error("Some actions not found or you don't have permission to modify them");
       }
 
-      // Validate assignments for each action-user combination.
-      // Restricted projects: only project access paths grant assignment;
-      // team/workspace fallback is gated by hasProjectAccess.
+      // Same containment rule as `assign` and `createAction`, per action.
+      // Names the action (the caller owns it) but never the rejected user.
       for (const action of actions) {
-        for (const userId of input.userIds) {
-          let canAssign = false;
-
-          if (action.projectId && action.project) {
-            const candidateAccess = await getProjectAccess(
-              ctx.db,
-              userId,
-              action.projectId,
-            );
-            canAssign = hasProjectAccess(candidateAccess);
-          }
-          // Action has a team (but no project) - users must be team members
-          else if (action.teamId && action.team) {
-            canAssign = action.team.members.some(
-              (member: { userId: string }) => member.userId === userId,
-            );
-          }
-          // Same fallback as `assign`: no project and no team means the
-          // action's workspace and the caller's teams decide, not "anyone".
-          else {
-            canAssign = await canAssignToUnscopedAction(
-              ctx.db,
-              ctx.session.user.id,
-              action.workspaceId,
-              userId,
-            );
-          }
-
-          if (!canAssign) {
-            // Names the action (the caller owns it) but never the rejected
-            // user — see the matching guard in `assign`.
+        try {
+          await assertAssignableUsers(
+            ctx.db,
+            ctx.session.user.id,
+            {
+              projectId: action.projectId,
+              teamId: action.teamId,
+              workspaceId: action.workspaceId,
+            },
+            input.userIds,
+          );
+        } catch (err) {
+          if (err instanceof TRPCError && err.code === "NOT_FOUND") {
             throw new TRPCError({
               code: "NOT_FOUND",
-              message: `Assignee not found in this ${action.projectId ? "project" : action.teamId ? "team" : "workspace"} (action "${action.name}")`,
+              message: `${err.message} (action "${action.name}")`,
             });
           }
+          throw err;
         }
       }
 

@@ -68,6 +68,13 @@ export const ACTION_SOURCES = [
 
 export const actionSourceSchema = z.enum(ACTION_SOURCES);
 
+/**
+ * Sources whose creates are system-generated, not something a person did:
+ * they get no workspace activity event, or the feed fills with one
+ * "created Do daily plan" row per member per day.
+ */
+export const SYSTEM_ACTION_SOURCES: ReadonlySet<string> = new Set(["daily-plan-prompt"]);
+
 export type ActionSource = (typeof ACTION_SOURCES)[number];
 
 export function isActionSource(value: unknown): value is ActionSource {

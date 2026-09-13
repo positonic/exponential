@@ -1535,6 +1535,20 @@ describe("action router (mocked)", () => {
       expect(data).not.toHaveProperty("kanbanStatus");
     });
 
+    it("names an unknown source from the principal rather than storing it", async () => {
+      // A session caller sending a value outside the closed set (say a
+      // stale client) is the UI; the input shape is not narrowed, the
+      // stored value is.
+      stubUser();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "x", project: null } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.quickCreate({ name: "x", source: "notion-legacy" });
+
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source: "ui" });
+    });
+
     it("passes a source from the closed set straight through", async () => {
       stubUser();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

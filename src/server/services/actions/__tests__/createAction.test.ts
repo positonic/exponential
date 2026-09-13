@@ -331,7 +331,10 @@ describe("createAction", () => {
       expect(db.action.create).not.toHaveBeenCalled();
     });
 
-    it("rolls the whole create back when an attachment write fails inside the transaction", async () => {
+    it("propagates an attachment write failure from inside the transaction and runs no post-commit effects", async () => {
+      // The mocked $transaction cannot prove Prisma's rollback; it proves
+      // the row and the attachments share one callback (so a throw discards
+      // both) and that nothing after the commit runs on failure.
       stubAttachableWorkspace();
       db.actionTag.createMany.mockRejectedValue(new Error("unique violation"));
 
@@ -411,6 +414,23 @@ describe("createAction", () => {
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
       expect(db.action.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("system sources", () => {
+    it("records no workspace activity event for the daily-plan prompt", async () => {
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      db.action.create.mockResolvedValue(createdRow({ source: "daily-plan-prompt" }));
+
+      await createAction(deps(db), {
+        source: "daily-plan-prompt",
+        name: "Do daily plan",
+        workspaceId: WORKSPACE,
+      });
+
+      expect(db.action.create).toHaveBeenCalledTimes(1);
+      // One "created Do daily plan" row per member per day is not activity.
+      expect(recordActivity).not.toHaveBeenCalled();
     });
   });
 
