@@ -9,6 +9,16 @@
  *
  * Nothing crosses this seam except plain dependencies (`ActionWriteDeps`), so
  * voice, webhooks, sync engines and cron can call it without a tRPC context.
+ *
+ * Outside the seam, on purpose: `action.bulkReschedule` and `action.bulkDefer`
+ * stay set-based `updateMany` writes. They touch dates only — never `status`,
+ * `kanbanStatus`, `completedAt` or `projectId` — so none of the rules this
+ * module owns apply to them, and a per-row loop would only make a pile of
+ * two hundred overdue actions slower to clear. If either ever needs to
+ * change a status or a column, it moves behind `applyActionUpdate` first.
+ * Likewise `uploadImage` / `saveScreenshot` (blobs, not rows) and the
+ * assignment, tagging and list-membership procedures for existing Actions,
+ * which share this module's containment helpers rather than its writes.
  */
 export {
   createAction,
