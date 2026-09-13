@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import {
   createTRPCRouter,
   protectedProcedure,
@@ -9,9 +9,8 @@ import { PRIORITY_VALUES, type Priority } from "~/types/priority";
 import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
-import { validateScheduledTimes } from "~/lib/dateUtils";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, assertWorkspaceScopedRefs } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -27,35 +26,18 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   actionWriteSchema,
   actionCreateAttachmentsSchema,
+  actionUpdatePatchSchema,
+  applyActionUpdate,
   assertAssignableUsers,
   assertCanWriteToWorkspace,
   createAction,
   isActionSource,
+  KANBAN_STATUS_VALUES,
+  actionWriteDeps,
   type ActionSource,
-  type ActionWriteDeps,
 } from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
-
-/**
- * The plain dependencies every Action write takes (`ActionWriteDeps`): the
- * three actor fields `createTRPCContext` already resolved. Routers build it
- * from `ctx`; nothing else about the tRPC context crosses into the module.
- */
-function actionWriteDeps(ctx: {
-  db: PrismaClient;
-  session: { user: { id: string; isAdmin: boolean } };
-  tokenType?: string;
-}): ActionWriteDeps {
-  return {
-    db: ctx.db,
-    actor: {
-      userId: ctx.session.user.id,
-      tokenType: ctx.tokenType,
-      isAdmin: ctx.session.user.isAdmin,
-    },
-  };
-}
 
 /**
  * Which surface a session-authenticated write came from, by principal: an
@@ -490,298 +472,41 @@ export const actionRouter = createTRPCRouter({
     }),
 
   update: protectedProcedure
+    // The shared update patch, minus the with-order callers' `kanbanOrder`
+    // and with `projectId` as this procedure always took it (no clearing).
     .input(
-      z.object({
+      actionUpdatePatchSchema.omit({ kanbanOrder: true }).extend({
         id: z.string(),
-        name: z.string().min(1).optional(),
-        description: z.string().optional(),
         projectId: z.string().optional(),
-        workspaceId: z.string().nullable().optional(),
-        dueDate: z.date().nullable().optional(), // nullable allows explicitly setting to null
-        scheduledStart: z.date().nullable().optional(),
-        scheduledEnd: z.date().nullable().optional(),
-        duration: z.number().min(1).nullable().optional(), // Duration in minutes
-        priority: z.enum(PRIORITY_VALUES).optional(),
-        status: z.enum(["ACTIVE", "COMPLETED", "CANCELLED", "DELETED", "DRAFT"]).optional(),
-        kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]).optional(),
-        epicId: z.string().nullable().optional(),
-        /** Link to a Ticket whose product lives in the action's workspace; null unlinks. */
-        ticketId: z.string().nullable().optional(),
-        effortEstimate: z.number().min(0).nullable().optional(),
-        blockedByIds: z.array(z.string()).optional(),
-        // Bounty fields
-        isBounty: z.boolean().optional(),
-        bountyAmount: z.number().positive().nullable().optional(),
-        bountyToken: z.string().nullable().optional(),
-        bountyStatus: z.enum(["OPEN", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED"]).nullable().optional(),
-        bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).nullable().optional(),
-        bountySkills: z.array(z.string()).optional(),
-        bountyDeadline: z.date().nullable().optional(),
-        bountyMaxClaimants: z.number().int().min(1).optional(),
-        bountyExternalUrl: z.string().url().nullable().optional(),
-        // Source attribution - set by agents and external integrations
-        // so we can track which channel last touched the action.
-        lastUpdatedBy: z.enum(["AGENT", "USER_EMAIL", "USER_WHATSAPP", "USER_UI"]).optional(),
-        lastUpdatedSource: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
+      const { id, ...patch } = input;
 
-      // Verify user has edit access to this action
-      const access = await getActionAccess(ctx.db, ctx.session.user.id, id);
-      if (!access || !canEditAction(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have permission to edit this action",
-        });
-      }
+      const { action: updatedAction, previous, transitions } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        id,
+        patch,
+        { include: { dailyPlanActions: { include: { dailyPlan: true } } } },
+      );
 
-      // Check if action is being marked as completed
-      const isCompleting = updateData.status === "COMPLETED" || updateData.kanbanStatus === "DONE";
-      const isUncompleting = updateData.status === "ACTIVE" || (updateData.kanbanStatus && updateData.kanbanStatus !== "DONE");
-
-      // Get current action to check previous state
-      const currentAction = await ctx.db.action.findUnique({
-        where: { id },
-        select: {
-          status: true,
-          kanbanStatus: true,
-          completedAt: true,
-          scheduledStart: true,
-          scheduledEnd: true,
-          projectId: true,
-          dueDate: true,
-          workspaceId: true,
-          name: true,
-          description: true,
-          priority: true,
-          epicId: true,
-          effortEstimate: true,
-          // T7: include workspaceId and any fields we diff against `updateData`
-          // so we can compute fieldsChanged without an extra query.
-          project: { select: { workspaceId: true } },
-        },
-      });
-
-      const wasCompleted = currentAction?.status === "COMPLETED" || currentAction?.kanbanStatus === "DONE";
-
-      // Validate scheduledEnd >= scheduledStart (resolve against existing values for partial updates)
-      const resolvedStart = updateData.scheduledStart !== undefined ? updateData.scheduledStart : currentAction?.scheduledStart;
-      const resolvedEnd = updateData.scheduledEnd !== undefined ? updateData.scheduledEnd : currentAction?.scheduledEnd;
-
-      // If scheduledStart was moved past scheduledEnd, auto-clear scheduledEnd
-      if (resolvedStart && resolvedEnd && resolvedEnd < resolvedStart && updateData.scheduledEnd === undefined) {
-        updateData.scheduledEnd = null;
-      } else {
-        validateScheduledTimes(resolvedStart, resolvedEnd);
-      }
-
-      // Re-targeting the action. `projectId` and `workspaceId` are both
-      // free-form input, and `canEditAction` above only proves the caller may
-      // edit the action where it currently lives — not that they may move it
-      // somewhere else. Each destination needs its own authorisation.
-      if (updateData.projectId) {
-        const [targetProjectAccess, newProject] = await Promise.all([
-          getProjectAccess(ctx.db, ctx.session.user.id, updateData.projectId),
-          ctx.db.project.findUnique({
-            where: { id: updateData.projectId },
-            select: { workspaceId: true },
-          }),
-        ]);
-
-        if (!canEditProject(targetProjectAccess)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have permission to move this action to that project",
-          });
-        }
-
-        // Sync workspaceId from the project, which wins over any caller-supplied
-        // value (same precedence as `create`). Only a personal project — one
-        // with no workspace — leaves `input.workspaceId` in play.
-        if (newProject?.workspaceId) {
-          updateData.workspaceId = newProject.workspaceId;
-        } else if (updateData.workspaceId) {
-          await assertCanWriteToWorkspace(
-            ctx.db,
-            ctx.session.user.id,
-            updateData.workspaceId,
-          );
-        }
-      } else if (updateData.workspaceId) {
-        // Moving the action into a workspace by id alone. `null` falls through
-        // unchecked on purpose: detaching an action the caller can already edit
-        // grants no access to anything.
-        await assertCanWriteToWorkspace(
-          ctx.db,
-          ctx.session.user.id,
-          updateData.workspaceId,
-        );
-      }
-
-      // A Ticket link is a second read path into another product's data, so
-      // the ticket must belong to a product in the action's own workspace
-      // (the workspace it is moving to, else the one it lives in). Mismatches
-      // are NOT_FOUND so the error does not confirm the id exists elsewhere.
-      if (updateData.ticketId) {
-        const effectiveWorkspaceId =
-          updateData.workspaceId ??
-          currentAction?.workspaceId ??
-          currentAction?.project?.workspaceId ??
-          null;
-        const ticket = await ctx.db.ticket.findUnique({
-          where: { id: updateData.ticketId },
-          select: { product: { select: { workspaceId: true } } },
-        });
-        if (!ticket || !effectiveWorkspaceId || ticket.product.workspaceId !== effectiveWorkspaceId) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
-        }
-      }
-
-      // Same-workspace guard as create, resolved against the workspace the
-      // action will have *after* any projectId-driven move above.
-      if (updateData.epicId) {
-        await assertWorkspaceScopedRefs(
-          ctx.db,
-          ctx.session.user.id,
-          updateData.workspaceId ??
-            currentAction?.workspaceId ??
-            currentAction?.project?.workspaceId ??
-            null,
-          { epicId: updateData.epicId },
-        );
-      }
-
-      // Set completedAt timestamp when completing, clear when uncompleting
-      // Clear kanbanOrder when priority is updated to restore automatic sorting
-      // A kanban column actually changing, as opposed to a full payload
-      // re-sending the current column: un-completing must only happen on a
-      // real change, or any unrelated edit that includes kanbanStatus would
-      // resurrect a completed action and clear its timestamp.
-      const kanbanChanged =
-        updateData.kanbanStatus !== undefined &&
-        updateData.kanbanStatus !== currentAction?.kanbanStatus;
-      const finalUpdateData = {
-        ...updateData,
-        // Gated on the stored timestamp, not wasCompleted, so re-completing a
-        // legacy row (kanban DONE, completedAt never written) backfills it.
-        ...(isCompleting && !currentAction?.completedAt && { completedAt: new Date() }),
-        ...((updateData.status === "ACTIVE" ||
-          (kanbanChanged && updateData.kanbanStatus !== "DONE")) &&
-          currentAction?.completedAt && { completedAt: null }),
-        // Callers that complete via kanbanStatus alone must move the coarse
-        // `status` too — list views filter on status === "ACTIVE" and would
-        // otherwise keep showing a kanban-DONE action (and vice versa). An
-        // explicit `status` in the input always wins; DELETED/DRAFT rows are
-        // left alone; the sync toward ACTIVE fires only on a real column
-        // change, while DONE/CANCELLED also repair an already-matching column.
-        ...(updateData.status === undefined &&
-          updateData.kanbanStatus !== undefined &&
-          currentAction &&
-          ["ACTIVE", "COMPLETED", "CANCELLED"].includes(currentAction.status) &&
-          (updateData.kanbanStatus === "DONE" ||
-            updateData.kanbanStatus === "CANCELLED" ||
-            kanbanChanged) && {
-            status:
-              updateData.kanbanStatus === "DONE"
-                ? ("COMPLETED" as const)
-                : updateData.kanbanStatus === "CANCELLED"
-                  ? ("CANCELLED" as const)
-                  : ("ACTIVE" as const),
-          }),
-        ...(updateData.priority !== undefined && { kanbanOrder: null }),
-      };
-
-      const updatedAction = await ctx.db.action.update({
-        where: { id },
-        data: finalUpdateData,
-        include: {
-          dailyPlanActions: {
-            include: {
-              dailyPlan: true,
-            },
-          },
-        },
-      });
-
-      // T7: workspace activity feed instrumentation. Branches:
-      //  - status moved → fire `status_changed` with {from, to}
-      //  - otherwise compute the set of input keys whose value diverges from
-      //    the pre-update row and fire `updated` with fieldsChanged.
-      const activityWorkspaceId =
-        updatedAction.workspaceId ?? currentAction?.project?.workspaceId ?? null;
-      if (activityWorkspaceId && currentAction) {
-        const statusChanged =
-          updateData.status !== undefined &&
-          updateData.status !== currentAction.status;
-        if (statusChanged) {
-          await recordActivity(ctx.db, {
-            workspaceId: activityWorkspaceId,
-            userId: ctx.session.user.id,
-            entityType: "action",
-            entityId: id,
-            action: "status_changed",
-            metadata: { from: currentAction.status, to: updateData.status! },
-          }).catch(() => {
-            /* instrumentation failure is non-fatal */
-          });
-        } else {
-          // Compute fieldsChanged: keys in `updateData` whose value differs
-          // from the persisted row, excluding identifiers and source
-          // attribution fields that aren't user-meaningful.
-          const skipKeys = new Set([
-            "lastUpdatedBy",
-            "lastUpdatedSource",
-            "blockedByIds",
-          ]);
-          const currentRecord = currentAction as unknown as Record<
-            string,
-            unknown
-          >;
-          const fieldsChanged = Object.keys(updateData).filter((key) => {
-            if (skipKeys.has(key)) return false;
-            const incoming = (updateData as Record<string, unknown>)[key];
-            if (incoming === undefined) return false;
-            // Only diff against fields we actually selected on currentAction -
-            // anything outside that select is treated as changed.
-            if (!(key in currentRecord)) return true;
-            const existing = currentRecord[key];
-            // Dates need .getTime() comparison; other primitives use ===.
-            if (existing instanceof Date && incoming instanceof Date) {
-              return existing.getTime() !== incoming.getTime();
-            }
-            return existing !== incoming;
-          });
-          if (fieldsChanged.length > 0) {
-            await recordActivity(ctx.db, {
-              workspaceId: activityWorkspaceId,
-              userId: ctx.session.user.id,
-              entityType: "action",
-              entityId: id,
-              action: "updated",
-              metadata: { fieldsChanged },
-            }).catch(() => {
-              /* instrumentation failure is non-fatal */
-            });
-          }
-        }
-      }
-
-      // Project activity audit log: status + dueDate diffs (fire-and-forget)
-      if (currentAction?.projectId) {
+      // Project activity audit log: explicit status + dueDate diffs
+      // (fire-and-forget). A kanban-driven status change is already logged
+      // by the module as the column move; logging the coarse diff too would
+      // record one drag twice.
+      if (previous.projectId) {
         const statusDiff =
-          updateData.status !== undefined && updateData.status !== currentAction.status
-            ? { from: currentAction.status, to: updateData.status }
+          patch.status !== undefined && transitions.statusChanged
+            ? { from: previous.status, to: transitions.nextStatus }
             : undefined;
         const dueDateDiff =
-          updateData.dueDate !== undefined
-            ? { from: currentAction.dueDate ?? null, to: updateData.dueDate ?? null }
+          patch.dueDate !== undefined
+            ? { from: previous.dueDate ?? null, to: patch.dueDate ?? null }
             : undefined;
 
         if (statusDiff || dueDateDiff) {
           void logActionDiffActivities(ctx.db, {
-            projectId: currentAction.projectId,
+            projectId: previous.projectId,
             actionId: id,
             changedById: ctx.session.user.id,
             diff: { status: statusDiff, dueDate: dueDateDiff },
@@ -791,13 +516,9 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
-      // Sync onboarding progress on first action completion (fire-and-forget)
-      if (isCompleting && !wasCompleted) {
-      }
-
       // Recalculate score if completion status changed and action is linked to daily plan
       // Run async without blocking the response for faster UI
-      if ((isCompleting && !wasCompleted) || (isUncompleting && wasCompleted)) {
+      if (transitions.completing || transitions.uncompleting) {
         if (updatedAction.dailyPlanActions.length > 0) {
           // Fire and forget - don't await scoring calculation
           void Promise.all(
@@ -815,10 +536,10 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Recalculate score if an overdue task's date was changed (overdue count affects score)
-      const dateChanged = updateData.scheduledStart !== undefined || updateData.dueDate !== undefined;
-      if (dateChanged && currentAction?.scheduledStart) {
+      const dateChanged = patch.scheduledStart !== undefined || patch.dueDate !== undefined;
+      if (dateChanged && previous.scheduledStart) {
         const today = startOfDay(new Date());
-        const wasOverdue = startOfDay(currentAction.scheduledStart) < today;
+        const wasOverdue = startOfDay(previous.scheduledStart) < today;
 
         if (wasOverdue) {
           // Check if all overdue tasks are now cleared
@@ -871,129 +592,28 @@ export const actionRouter = createTRPCRouter({
   updateKanbanStatus: protectedProcedure
     .input(z.object({
       actionId: z.string(),
-      kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]),
+      kanbanStatus: z.enum(KANBAN_STATUS_VALUES),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the action exists and user has permission to modify it
-      const action = await ctx.db.action.findFirst({
-        where: {
-          id: input.actionId,
-          ...buildActionAccessWhere(ctx.session.user.id),
+      // Gate, kanban ⇄ status lockstep, analytics row and activity are all
+      // the module's; this procedure only names the column.
+      const { action } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        input.actionId,
+        { kanbanStatus: input.kanbanStatus },
+        {
+          include: {
+            project: true,
+            assignees: {
+              include: { user: { select: { id: true, name: true, email: true, image: true } } },
+            },
+          },
         },
-        select: {
-          id: true,
-          status: true,
-          kanbanStatus: true,
-          completedAt: true,
-          projectId: true,
-        }
-      });
-
-      if (!action) {
-        // Check if action exists to give appropriate error message
-        const actionExists = await ctx.db.action.findUnique({
-          where: { id: input.actionId },
-          select: { id: true },
-        });
-
-        if (!actionExists) {
-          throw new Error("Action not found");
-        }
-        throw new Error("You don't have permission to modify this action");
-      }
-
-      // Check if action is being completed or uncompleted
-      const isCompleting = input.kanbanStatus === "DONE";
-      const isUncompleting = input.kanbanStatus !== "DONE";
-      const wasCompleted = action.kanbanStatus === "DONE";
-
-      // Prepare update data with completion timestamp. The coarse `status`
-      // field moves in lockstep: list views (home overdue, "Assigned to you")
-      // filter on status === "ACTIVE", so a kanban DONE that left status
-      // ACTIVE would resurrect the action there on every load. DELETED/DRAFT
-      // rows are left alone — kanban moves must not resurrect them. Toward
-      // DONE/CANCELLED the sync fires even without a column change so legacy
-      // rows get repaired; toward ACTIVE only on a real column change —
-      // re-sending the current column (e.g. a same-column reorder) must not
-      // resurrect an action whose status was completed by another path.
-      const kanbanChanged = input.kanbanStatus !== action.kanbanStatus;
-      const statusForKanban =
-        input.kanbanStatus === "DONE"
-          ? ("COMPLETED" as const)
-          : input.kanbanStatus === "CANCELLED"
-            ? ("CANCELLED" as const)
-            : ("ACTIVE" as const);
-      const statusIsSyncable = ["ACTIVE", "COMPLETED", "CANCELLED"].includes(
-        action.status,
       );
-      const shouldSyncStatus =
-        statusIsSyncable &&
-        action.status !== statusForKanban &&
-        (statusForKanban !== "ACTIVE" || kanbanChanged);
-      // completedAt is gated on the stored timestamp, not on wasCompleted:
-      // on the legacy repair path (kanbanStatus already DONE, status still
-      // ACTIVE, completedAt never written) wasCompleted is true and would
-      // leave a COMPLETED row with a null completedAt. Clearing follows the
-      // same rule as the ACTIVE sync: only on a real column change.
-      const updateData = {
-        kanbanStatus: input.kanbanStatus,
-        ...(statusIsSyncable &&
-          isCompleting &&
-          !action.completedAt && { completedAt: new Date() }),
-        ...(statusIsSyncable &&
-          isUncompleting &&
-          kanbanChanged &&
-          action.completedAt && { completedAt: null }),
-        ...(shouldSyncStatus && { status: statusForKanban }),
-      };
-
-      // Update the kanban status
-      const updated = await ctx.db.action.update({
-        where: { id: input.actionId },
-        data: updateData,
-        include: {
-          project: true,
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
-          },
-        },
-      });
-
-      // Sync onboarding progress on first action completion via kanban (fire-and-forget)
-      if (isCompleting && !wasCompleted) {
-      }
-
-      // Track status change for PM agent analytics (cycle time, lead time)
-      if (action.kanbanStatus !== input.kanbanStatus) {
-        await ctx.db.actionStatusChange.create({
-          data: {
-            actionId: input.actionId,
-            fromStatus: action.kanbanStatus,
-            toStatus: input.kanbanStatus,
-            changedById: ctx.session.user.id,
-          },
-        }).catch((err: unknown) => {
-          console.error("Failed to record status change:", err);
-        });
-
-        if (action.projectId) {
-          void logProjectActivity(ctx.db, {
-            projectId: action.projectId,
-            actionId: input.actionId,
-            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
-            fromValue: action.kanbanStatus,
-            toValue: input.kanbanStatus,
-            changedById: ctx.session.user.id,
-          }).catch((err: unknown) => {
-            console.error("[projectActivity] updateKanbanStatus:", err);
-          });
-        }
-      }
-
-      return updated;
+      return action;
     }),
 
-  getToday: protectedProcedure
+ getToday: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().optional(),
@@ -1431,54 +1051,47 @@ export const actionRouter = createTRPCRouter({
         throw new Error(`Failed to find actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
-      // Update all actions associated with this transcription session
-      let result;
-      try {
-        // Verify edit access on the target project (no-op when clearing project)
-        let targetProject: { workspaceId: string | null } | null = null;
-        if (input.projectId) {
-          const access = await getProjectAccess(
-            ctx.db,
-            ctx.session.user.id,
-            input.projectId,
-          );
-          if (!canEditProject(access)) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message:
-                "You don't have permission to assign actions to this project",
-            });
-          }
-          targetProject = await ctx.db.project.findUnique({
-            where: { id: input.projectId },
-            select: { workspaceId: true },
+      // Verify edit access on the target project once, up front (no-op when
+      // clearing the project), so the batch is refused as a whole.
+      if (input.projectId) {
+        const access = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(access)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "You don't have permission to assign actions to this project",
           });
         }
-
-        result = await ctx.db.action.updateMany({
-          where: {
-            transcriptionSessionId: input.transcriptionSessionId,
-            createdById: ctx.session.user.id, // Ensure user can only update their own actions
-          },
-          data: {
-            projectId: input.projectId,
-            workspaceId: targetProject?.workspaceId ?? undefined,
-          },
-        });
-
-        console.log('✅ Update result:', {
-          count: result.count,
-          message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
-          existingActionsFound: existingActions.length
-        });
-      } catch (error) {
-        console.error('❌ Error updating actions:', error);
-        throw new Error(`Failed to update actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
+      // Each of the caller's own actions from this transcript goes through
+      // applyActionUpdate: target re-check, workspace from the project,
+      // kanban re-seed (or clear) and the activity event.
+      const deps = actionWriteDeps(ctx);
+      let count = 0;
+      for (const { id } of existingActions) {
+        try {
+          await applyActionUpdate(deps, id, { projectId: input.projectId });
+          count += 1;
+        } catch (error) {
+          console.error('❌ Error updating action:', id, error);
+          throw new Error(`Failed to update actions: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+
+      console.log('✅ Update result:', {
+        count,
+        message: `Updated ${count} action${count === 1 ? '' : 's'}`,
+        existingActionsFound: existingActions.length
+      });
+
       return {
-        count: result.count,
-        message: `Updated ${result.count} action${result.count === 1 ? '' : 's'}`,
+        count,
+        message: `Updated ${count} action${count === 1 ? '' : 's'}`,
       };
     }),
 
@@ -1699,9 +1312,8 @@ export const actionRouter = createTRPCRouter({
       projectId: z.string().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Fetch project's workspaceId to keep actions in sync. Verify the
-      // current user can edit the destination project before reassigning.
-      let bulkWorkspaceId: string | null | undefined;
+      // Verify the caller can edit the destination project once, up front,
+      // so the batch is refused as a whole rather than skipped per Action.
       if (input.projectId) {
         const access = await getProjectAccess(
           ctx.db,
@@ -1715,27 +1327,36 @@ export const actionRouter = createTRPCRouter({
               "You don't have permission to assign actions to this project",
           });
         }
-        const proj = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        bulkWorkspaceId = proj?.workspaceId ?? undefined;
       }
 
-      const result = await ctx.db.action.updateMany({
+      // Same reader set as before: the actions the caller may touch. Each
+      // then goes through applyActionUpdate, which re-checks the target,
+      // takes its workspace and re-seeds (or clears) the kanban column.
+      const accessible = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
           ...buildActionAccessWhere(ctx.session.user.id),
         },
-        data: {
-          projectId: input.projectId,
-          kanbanStatus: input.projectId ? "TODO" : null,
-          ...(bulkWorkspaceId !== undefined ? { workspaceId: bulkWorkspaceId } : {}),
-        },
+        select: { id: true },
       });
 
+      const deps = actionWriteDeps(ctx);
+      let count = 0;
+      for (const { id } of accessible) {
+        try {
+          await applyActionUpdate(deps, id, { projectId: input.projectId });
+          count += 1;
+        } catch (err) {
+          // The target was checked above, so a FORBIDDEN here is one Action
+          // the caller may read but not edit, and a NOT_FOUND one that went
+          // away since the lookup: both skipped, as updateMany did.
+          if (err instanceof TRPCError && (err.code === "FORBIDDEN" || err.code === "NOT_FOUND")) continue;
+          throw err;
+        }
+      }
+
       return {
-        count: result.count,
+        count,
         actionIds: input.actionIds,
         projectId: input.projectId,
       };
@@ -2271,156 +1892,98 @@ export const actionRouter = createTRPCRouter({
   updateKanbanStatusWithOrder: protectedProcedure
     .input(z.object({
       actionId: z.string(),
-      kanbanStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]),
+      kanbanStatus: z.enum(KANBAN_STATUS_VALUES),
       targetPosition: z.number().optional(),
       droppedOnTaskId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { actionId, kanbanStatus, targetPosition, droppedOnTaskId } = input;
 
-      // Verify user has edit access to this action
-      const access = await getActionAccess(ctx.db, ctx.session.user.id, actionId);
-      if (!access) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
-      }
-      if (!canEditAction(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have permission to update this action",
-        });
-      }
-
-      // Get the action being moved
+      // Column bookkeeping (reads only; nothing read here is returned). The
+      // write — and the edit gate, and the kanban ⇄ status lockstep this
+      // procedure used to skip — is `applyActionUpdate`'s.
       const action = await ctx.db.action.findUnique({
         where: { id: actionId },
-        include: { project: true }
+        select: { projectId: true },
       });
-
       if (!action) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
 
       let newOrder: number;
+      let tasksToShift: { id: string; kanbanOrder: number | null }[] = [];
 
       if (droppedOnTaskId) {
-        // Get the target task details
         const targetTask = await ctx.db.action.findUnique({
           where: { id: droppedOnTaskId },
-          select: { kanbanOrder: true, kanbanStatus: true }
+          select: { kanbanOrder: true, kanbanStatus: true },
         });
-
         if (!targetTask) {
-          throw new Error("Target task not found");
+          throw new TRPCError({ code: "NOT_FOUND", message: "Target task not found" });
         }
-
-        // Get the target task's order
         const targetOrder = targetTask.kanbanOrder ?? 1;
 
-        // Find all tasks in the same column that need to be shifted down
-        const tasksToShift = await ctx.db.action.findMany({
+        // Everything in the column from the target down moves one slot.
+        tasksToShift = await ctx.db.action.findMany({
           where: {
             projectId: action.projectId,
             kanbanStatus,
             kanbanOrder: { gte: targetOrder },
-            id: { not: actionId } // Don't include the task being moved
+            id: { not: actionId },
           },
           select: { id: true, kanbanOrder: true },
-          orderBy: { kanbanOrder: 'asc' }
+          orderBy: { kanbanOrder: "asc" },
         });
-
-        // Use a transaction to update all affected tasks
-        await ctx.db.$transaction(async (tx: any) => {
-          // First, shift all tasks down by 1
-          for (const task of tasksToShift) {
-            await tx.action.update({
-              where: { id: task.id },
-              data: { kanbanOrder: (task.kanbanOrder ?? 0) + 1 }
-            });
-          }
-        });
-
-        // Set the moved task to take the target position
         newOrder = targetOrder;
       } else if (targetPosition !== undefined) {
-        // Use provided position
         newOrder = targetPosition;
       } else {
-        // Get the highest order in this status column
-        const maxOrderInColumn = await ctx.db.action.findFirst({
-          where: {
-            projectId: action.projectId,
-            kanbanStatus,
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
-        // Get the highest order across the entire board
-        const maxOrderAcrossBoard = await ctx.db.action.findFirst({
-          where: {
-            projectId: action.projectId,
-            kanbanOrder: { not: null }
-          },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true }
-        });
-
+        const [maxOrderInColumn, maxOrderAcrossBoard] = await Promise.all([
+          ctx.db.action.findFirst({
+            where: { projectId: action.projectId, kanbanStatus, kanbanOrder: { not: null } },
+            orderBy: { kanbanOrder: "desc" },
+            select: { kanbanOrder: true },
+          }),
+          ctx.db.action.findFirst({
+            where: { projectId: action.projectId, kanbanOrder: { not: null } },
+            orderBy: { kanbanOrder: "desc" },
+            select: { kanbanOrder: true },
+          }),
+        ]);
         if (maxOrderInColumn?.kanbanOrder) {
-          // Add to the end of the specific column
           newOrder = maxOrderInColumn.kanbanOrder + 1;
         } else if (maxOrderAcrossBoard?.kanbanOrder) {
-          // Column is empty, but board has tasks - place at end of board order
           newOrder = maxOrderAcrossBoard.kanbanOrder + 1;
         } else {
-          // First task in the entire project
           newOrder = 1;
         }
       }
 
-      // Update the action
-      const updated = await ctx.db.action.update({
-        where: { id: actionId },
-        data: {
-          kanbanStatus,
-          kanbanOrder: newOrder,
-          // Track completion timestamp
-          ...(kanbanStatus === "DONE" && action.kanbanStatus !== "DONE" && { completedAt: new Date() }),
-          ...(kanbanStatus !== "DONE" && action.kanbanStatus === "DONE" && { completedAt: null }),
-        },
-        include: {
-          assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+      const { action: updated } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        actionId,
+        { kanbanStatus, kanbanOrder: newOrder },
+        {
+          include: {
+            assignees: {
+              include: { user: { select: { id: true, name: true, email: true, image: true } } },
+            },
+            project: { select: { id: true, name: true } },
           },
-          project: { select: { id: true, name: true } },
         },
-      });
+      );
 
-      // Track status change for PM agent analytics (cycle time, lead time)
-      if (action.kanbanStatus !== kanbanStatus) {
-        await ctx.db.actionStatusChange.create({
-          data: {
-            actionId,
-            fromStatus: action.kanbanStatus,
-            toStatus: kanbanStatus,
-            changedById: ctx.session.user.id,
-          },
-        }).catch((err: unknown) => {
-          console.error("Failed to record status change:", err);
-        });
-
-        if (action.projectId) {
-          void logProjectActivity(ctx.db, {
-            projectId: action.projectId,
-            actionId,
-            type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
-            fromValue: action.kanbanStatus,
-            toValue: kanbanStatus,
-            changedById: ctx.session.user.id,
-          }).catch((err: unknown) => {
-            console.error("[projectActivity] moveKanbanCard:", err);
-          });
-        }
+      // Shift the displaced cards after the gated write, so a refused move
+      // displaces nothing.
+      if (tasksToShift.length > 0) {
+        await ctx.db.$transaction(
+          tasksToShift.map((task) =>
+            ctx.db.action.update({
+              where: { id: task.id },
+              data: { kanbanOrder: (task.kanbanOrder ?? 0) + 1 },
+            }),
+          ),
+        );
       }
 
       return updated;
@@ -2430,81 +1993,40 @@ export const actionRouter = createTRPCRouter({
     .input(z.object({
       actionId: z.string(),
       newPosition: z.number(), // 0-based index position
-      targetColumnStatus: z.enum(["BACKLOG", "TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"]),
+      targetColumnStatus: z.enum(KANBAN_STATUS_VALUES),
     }))
     .mutation(async ({ ctx, input }) => {
       const { actionId, newPosition, targetColumnStatus } = input;
 
-      // Verify user has edit access to this action
-      const access = await getActionAccess(ctx.db, ctx.session.user.id, actionId);
-      if (!access) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
-      }
-      if (!canEditAction(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have permission to reorder this action",
-        });
-      }
-
-      // Get the action for the ordering logic below
-      const action = await ctx.db.action.findUnique({
-        where: { id: actionId },
-        select: {
-          id: true,
-          projectId: true,
-          kanbanStatus: true,
-          kanbanOrder: true,
-        }
+      // The moved card first: the gated write (and the lockstep, if the
+      // column changed). A refused move renumbers nothing.
+      const { previous } = await applyActionUpdate(actionWriteDeps(ctx), actionId, {
+        kanbanStatus: targetColumnStatus,
+        kanbanOrder: newPosition + 1, // Convert 0-based to 1-based
       });
 
-      if (!action) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
-      }
-
-      // Get all tasks in the target column, ordered
+      // Then renumber the rest of the target column around it.
       const columnTasks = await ctx.db.action.findMany({
         where: {
-          projectId: action.projectId,
+          projectId: previous.projectId,
           kanbanStatus: targetColumnStatus,
-          id: { not: actionId } // Exclude the task being moved
+          id: { not: actionId },
         },
         select: { id: true, kanbanOrder: true },
-        orderBy: { kanbanOrder: 'asc' }
+        orderBy: { kanbanOrder: "asc" },
       });
 
-      // Calculate new order values for all tasks in the column
-      return ctx.db.$transaction(async (tx: any) => {
-        // Update the moved task first
-        await tx.action.update({
-          where: { id: actionId },
-          data: {
-            kanbanStatus: targetColumnStatus,
-            kanbanOrder: newPosition + 1 // Convert 0-based to 1-based
-          }
-        });
+      await ctx.db.$transaction(
+        columnTasks.map((task, i) =>
+          ctx.db.action.update({
+            where: { id: task.id },
+            // Cards before the insertion point keep their slot; the rest shift down one.
+            data: { kanbanOrder: i < newPosition ? i + 1 : i + 2 },
+          }),
+        ),
+      );
 
-        // Reorder all other tasks in the column
-        for (let i = 0; i < columnTasks.length; i++) {
-          const task = columnTasks[i];
-          let newOrder: number;
-          
-          if (i < newPosition) {
-            // Tasks before the insertion point keep their relative position
-            newOrder = i + 1;
-          } else {
-            // Tasks at and after the insertion point are shifted down by 1
-            newOrder = i + 2;
-          }
-
-          await tx.action.update({
-            where: { id: task!.id },
-            data: { kanbanOrder: newOrder }
-          });
-        }
-
-        return { message: "Reordering completed successfully" };
-      });
+      return { message: "Reordering completed successfully" };
     }),
 
   // Utility endpoint to initialize kanban orders for existing tasks

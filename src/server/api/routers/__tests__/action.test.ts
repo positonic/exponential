@@ -1707,117 +1707,17 @@ describe("action router (mocked)", () => {
   // status === "ACTIVE", so a kanban DONE that left status ACTIVE
   // resurrected the "done" action on every page load.
   // ────────────────────────────────────────────────────────────────────
-  describe("kanbanStatus ↔ status lockstep", () => {
+  // ────────────────────────────────────────────────────────────────────
+  // kanban procedures delegate to applyActionUpdate
+  //
+  // The kanban ⇄ status lockstep itself is pinned as a table in
+  // src/server/services/actions/__tests__/deriveActionPatch.test.ts; the
+  // cases here only prove each procedure reaches it.
+  // ────────────────────────────────────────────────────────────────────
+  describe("kanban procedures delegate to applyActionUpdate", () => {
     const callerId = "caller-1";
 
-    /** The row updateKanbanStatus fetches (access check + current state). */
-    function stubKanbanRow(row: { status: string; kanbanStatus: string | null; completedAt?: Date | null }) {
-      dbMock.action.findFirst.mockResolvedValue({
-        id: "a1",
-        status: row.status,
-        kanbanStatus: row.kanbanStatus,
-        completedAt: row.completedAt ?? null,
-        projectId: null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-      dbMock.action.update.mockResolvedValue({
-        id: "a1",
-        project: null,
-        assignees: [],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.actionStatusChange.create.mockResolvedValue({} as any);
-    }
-
-    function updatedWith() {
-      return dbMock.action.update.mock.calls[0]![0]!.data as Record<string, unknown>;
-    }
-
-    it("updateKanbanStatus DONE completes the coarse status", async () => {
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "COMPLETED" });
-      expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("updateKanbanStatus DONE repairs a legacy DONE-but-ACTIVE row", async () => {
-      // The bug's leftover data shape: kanban already DONE, status still ACTIVE.
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: new Date() });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
-      // Timestamp already present — must not be rewritten.
-      expect(updatedWith().completedAt).toBeUndefined();
-    });
-
-    it("updateKanbanStatus DONE backfills a missing completedAt on a legacy row", async () => {
-      // Same legacy shape but completedAt was never written; wasCompleted is
-      // true here, so gating the timestamp on it would leave a COMPLETED row
-      // with a null completedAt forever.
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: null });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
-      expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("updateKanbanStatus out of DONE reactivates the coarse status", async () => {
-      stubKanbanRow({ status: "COMPLETED", kanbanStatus: "DONE", completedAt: new Date() });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "IN_PROGRESS" });
-
-      expect(updatedWith()).toMatchObject({
-        kanbanStatus: "IN_PROGRESS",
-        status: "ACTIVE",
-        completedAt: null,
-      });
-    });
-
-    it("updateKanbanStatus CANCELLED cancels the coarse status", async () => {
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "CANCELLED" });
-
-      expect(updatedWith()).toMatchObject({ status: "CANCELLED" });
-    });
-
-    it("updateKanbanStatus re-sending the current column never resurrects", async () => {
-      // Pre-lockstep rows completed via checkbox: status COMPLETED but the
-      // kanban column untouched. A same-column reorder re-sends that column
-      // and must not flip the action back to ACTIVE or clear its timestamp.
-      stubKanbanRow({
-        status: "COMPLETED",
-        kanbanStatus: "TODO",
-        completedAt: new Date(),
-      });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "TODO" });
-
-      expect(updatedWith().status).toBeUndefined();
-      expect(updatedWith().completedAt).toBeUndefined();
-    });
-
-    it("updateKanbanStatus never resurrects a DRAFT row", async () => {
-      stubKanbanRow({ status: "DRAFT", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "IN_PROGRESS" });
-
-      expect(updatedWith().status).toBeUndefined();
-    });
-
-    /** The row `update` fetches — one shape serves the access check and currentAction. */
+    /** The row every update path fetches — one shape serves the access check and the snapshot. */
     function stubUpdateRow(row: {
       status: string;
       kanbanStatus: string | null;
@@ -1829,6 +1729,7 @@ describe("action router (mocked)", () => {
         assignees: [],
         status: row.status,
         kanbanStatus: row.kanbanStatus,
+        kanbanOrder: null,
         completedAt: row.completedAt ?? null,
         scheduledStart: null,
         scheduledEnd: null,
@@ -1845,12 +1746,154 @@ describe("action router (mocked)", () => {
       dbMock.action.update.mockResolvedValue({
         id: "a1",
         workspaceId: null,
+        projectId: null,
+        project: null,
+        assignees: [],
         dailyPlanActions: [],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.actionStatusChange.create.mockResolvedValue({} as any);
     }
 
-    it("update with kanbanStatus DONE alone completes the coarse status", async () => {
+    function updatedWith() {
+      return dbMock.action.update.mock.calls[0]![0]!.data as Record<string, unknown>;
+    }
+
+    it("updateKanbanStatus DONE completes the coarse status through the module", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("updateKanbanStatus refuses a caller the central resolver denies", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+      dbMock.action.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        projectId: null,
+        assignees: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.update).not.toHaveBeenCalled();
+    });
+
+    it("updateKanbanStatusWithOrder moving to DONE finally completes the coarse status", async () => {
+      // This procedure never synced `status` before; it now delegates the
+      // write to applyActionUpdate like every other update path.
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatusWithOrder({ actionId: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", kanbanOrder: 1, status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("reorderKanbanCard writes the moved card through the module, then renumbers the column", async () => {
+      stubUpdateRow({ status: "COMPLETED", kanbanStatus: "DONE", completedAt: new Date() });
+      dbMock.action.findMany.mockResolvedValue([
+        { id: "b", kanbanOrder: 1 },
+        { id: "c", kanbanOrder: 2 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.reorderKanbanCard({ actionId: "a1", newPosition: 1, targetColumnStatus: "TODO" });
+
+      // Out of DONE on a real change: reactivated and cleared, at slot 2.
+      expect(updatedWith()).toMatchObject({
+        kanbanStatus: "TODO",
+        kanbanOrder: 2,
+        status: "ACTIVE",
+        completedAt: null,
+      });
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      // b keeps slot 1, c shifts to slot 3.
+      const renumbered = dbMock.action.update.mock.calls.slice(1).map((c) => c[0]);
+      expect(renumbered).toEqual([
+        { where: { id: "b" }, data: { kanbanOrder: 1 } },
+        { where: { id: "c" }, data: { kanbanOrder: 3 } },
+      ]);
+    });
+
+    it("bulkAssignProject moves each readable action through the module, re-seeding the board", async () => {
+      // Caller owns the target project and both actions.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockResolvedValue([{ id: "a1" }, { id: "a2" }] as any);
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: null });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.bulkAssignProject({ actionIds: ["a1", "a2"], projectId: "p1" });
+
+      expect(result).toEqual({ count: 2, actionIds: ["a1", "a2"], projectId: "p1" });
+      expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+      expect(updatedWith()).toMatchObject({ projectId: "p1", workspaceId: "w1", kanbanStatus: "TODO", kanbanOrder: 1 });
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("updateActionsProject moves each of the caller's transcript actions through the module", async () => {
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findMany.mockResolvedValue([
+        { id: "a1", name: "One", projectId: null, transcriptionSessionId: "s1" },
+        { id: "a2", name: "Two", projectId: null, transcriptionSessionId: "s1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any);
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: null });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.updateActionsProject({ transcriptionSessionId: "s1", projectId: "p1" });
+
+      expect(result.count).toBe(2);
+      expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+      expect(updatedWith()).toMatchObject({ projectId: "p1", workspaceId: "w1", kanbanStatus: "TODO" });
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("view.updateKanbanStatus (workspace board) completes the coarse status through the module", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "IN_PROGRESS" });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.view.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE", kanbanOrder: 4 });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", kanbanOrder: 4, status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -1858,59 +1901,6 @@ describe("action router (mocked)", () => {
 
       expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "COMPLETED" });
       expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("update leaving DONE alone reactivates the coarse status", async () => {
-      stubUpdateRow({
-        status: "COMPLETED",
-        kanbanStatus: "DONE",
-        completedAt: new Date(),
-      });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", kanbanStatus: "TODO" });
-
-      expect(updatedWith()).toMatchObject({
-        kanbanStatus: "TODO",
-        status: "ACTIVE",
-        completedAt: null,
-      });
-    });
-
-    it("update re-sending the current column never resurrects", async () => {
-      // A full-payload edit (rename, due date, …) that includes the current,
-      // unchanged kanban column must not flip a completed action to ACTIVE
-      // or clear its timestamp.
-      stubUpdateRow({
-        status: "COMPLETED",
-        kanbanStatus: "TODO",
-        completedAt: new Date(),
-      });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", name: "Renamed", kanbanStatus: "TODO" });
-
-      expect(updatedWith().status).toBeUndefined();
-      expect(updatedWith().completedAt).toBeUndefined();
-    });
-
-    it("update re-sending DONE still repairs a legacy DONE-but-ACTIVE row", async () => {
-      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: null });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
-      expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("update with an explicit status wins over the kanban sync", async () => {
-      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", kanbanStatus: "DONE", status: "ACTIVE" });
-
-      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "ACTIVE" });
     });
   });
 });

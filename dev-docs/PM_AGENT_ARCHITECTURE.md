@@ -234,7 +234,7 @@ Each handler is called with the parsed webhook body and the `X-GitHub-Delivery` 
 
 ## ActionStatusChange Tracking
 
-When kanban status changes via `action.updateKanbanStatus` or `action.updateKanbanStatusWithOrder`, an `ActionStatusChange` record is created using a non-blocking `.catch()` pattern. This ensures the main mutation is never blocked or failed by audit trail writes:
+Whenever an Action moves between kanban columns — through any update path, since they all go through `applyActionUpdate` in `src/server/services/actions/` (`action.update`, `action.updateKanbanStatus`, `action.updateKanbanStatusWithOrder`, `action.reorderKanbanCard`, `view.updateKanbanStatus`, and the agent and voice paths once they delegate) — an `ActionStatusChange` record is created after the write, with the failure logged and never failing the mutation. Seeding a column on a project move (no column → TODO) and clearing it on leaving a project are not moves and write no row. The write looks like:
 
 ```typescript
 void db.actionStatusChange.create({

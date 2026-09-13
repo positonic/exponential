@@ -1,9 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import type { Prisma, PrismaClient } from "@prisma/client";
-import {
-  getWorkspaceMembership,
-  canEditWorkspaceContent,
-} from "~/server/services/access/resolvers/workspaceResolver";
+import type { Prisma } from "@prisma/client";
 import {
   getProjectAccess,
   canEditProject,
@@ -27,6 +23,8 @@ import {
   assertListMembership,
   assertTagsInWorkspace,
 } from "./containment";
+import { nextKanbanOrder } from "./kanban";
+import { assertCanWriteToWorkspace } from "./workspaceGate";
 import type { ActionWriteDeps } from "./types";
 
 /**
@@ -50,60 +48,6 @@ export const createdActionInclude = {
 export type CreatedAction = Prisma.ActionGetPayload<{
   include: typeof createdActionInclude;
 }>;
-
-/**
- * Guard a caller-supplied `workspaceId` on a write.
- *
- * `workspaceId` arrives as free-form input, so membership is never implied by
- * having reached the mutation: without this check any authenticated user
- * could inject rows into an arbitrary workspace's task list by guessing its
- * CUID.
- *
- * Membership alone isn't sufficient either — `viewer` is a read-only role —
- * so this asserts `canEditWorkspaceContent` (member and above). Project-only
- * members ("guests") have no WorkspaceUser row and are refused here by
- * design; their writes are authorised through the project path instead,
- * which is why `createAction` skips this check for a workspace derived from
- * the project.
- */
-export async function assertCanWriteToWorkspace(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-): Promise<void> {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!canEditWorkspaceContent(membership?.role ?? null)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You don't have permission to add actions to this workspace",
-    });
-  }
-}
-
-/**
- * Next `kanbanOrder` for a new TODO card in `projectId`: after the last TODO
- * card, else after the last card on the board, else 1.
- */
-async function nextKanbanOrder(
-  db: PrismaClient,
-  projectId: string,
-): Promise<number> {
-  const [maxOrderAcrossBoard, maxOrderInTodo] = await Promise.all([
-    db.action.findFirst({
-      where: { projectId, kanbanOrder: { not: null } },
-      orderBy: { kanbanOrder: "desc" },
-      select: { kanbanOrder: true },
-    }),
-    db.action.findFirst({
-      where: { projectId, kanbanStatus: "TODO", kanbanOrder: { not: null } },
-      orderBy: { kanbanOrder: "desc" },
-      select: { kanbanOrder: true },
-    }),
-  ]);
-  if (maxOrderInTodo?.kanbanOrder) return maxOrderInTodo.kanbanOrder + 1;
-  if (maxOrderAcrossBoard?.kanbanOrder) return maxOrderAcrossBoard.kanbanOrder + 1;
-  return 1;
-}
 
 /**
  * Create an Action. The single implementation behind every create path.
