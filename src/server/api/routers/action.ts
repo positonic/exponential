@@ -26,6 +26,7 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   actionWriteSchema,
+  actionCreateAttachmentsSchema,
   assertAssignableUsers,
   assertCanWriteToWorkspace,
   createAction,
@@ -409,7 +410,10 @@ export const actionRouter = createTRPCRouter({
     }),
 
   create: protectedProcedure
-    .input(actionWriteSchema)
+    // The shared write shape plus the optional attachments: a client may
+    // send tags, assignees and a sprint with the create and get them in one
+    // transaction, or keep sending its follow-up calls. Widening only.
+    .input(actionWriteSchema.merge(actionCreateAttachmentsSchema))
     .mutation(({ ctx, input }) =>
       createAction(actionWriteDeps(ctx), {
         ...input,

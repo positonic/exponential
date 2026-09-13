@@ -74,16 +74,26 @@ export function isActionSource(value: unknown): value is ActionSource {
   return actionSourceSchema.safeParse(value).success;
 }
 
-/** `actionWriteSchema` plus the create-only extras. */
-export const createActionInputSchema = actionWriteSchema.extend({
-  /** Which surface the Action came from (`Action.source`). Required. */
-  source: actionSourceSchema,
+/**
+ * Attachments a client may send with a create. Optional, so the current
+ * four-call client (create, then tag / assign / add-to-sprint) keeps working
+ * until it sends one payload; `createAction` writes them in the same
+ * transaction as the Action.
+ */
+export const actionCreateAttachmentsSchema = z.object({
   /** Tags to attach, written in the same transaction as the Action. */
   tagIds: z.array(z.string()).optional(),
   /** Users to assign, written in the same transaction as the Action. */
   assigneeIds: z.array(z.string()).optional(),
   /** Sprint (List) to add the Action to, written in the same transaction. */
   sprintListId: z.string().optional(),
+});
+
+/** `actionWriteSchema` plus the create-only extras. */
+export const createActionInputSchema = actionWriteSchema.extend({
+  /** Which surface the Action came from (`Action.source`). Required. */
+  source: actionSourceSchema,
+  ...actionCreateAttachmentsSchema.shape,
   /**
    * Provenance for Actions extracted from somewhere (a meeting transcript):
    * the meeting row, the `(sourceType, sourceId)` pair `findBySource` and

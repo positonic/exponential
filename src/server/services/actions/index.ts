@@ -16,6 +16,7 @@ export {
 } from "./createAction";
 export {
   actionWriteSchema,
+  actionCreateAttachmentsSchema,
   createActionInputSchema,
   actionSourceSchema,
   isActionSource,

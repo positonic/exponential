@@ -1129,6 +1129,55 @@ describe("action router (mocked)", () => {
       expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
       expect(dbMock.action.create).toHaveBeenCalled();
     });
+
+    it("writes tags, assignees and sprint with the create in one transaction (V1 tracer)", async () => {
+      // A member creating in their own workspace; the tag, the colleague and
+      // the sprint all live there.
+      stubMembers([callerId, "user-colleague"]);
+      dbMock.tag.findMany.mockResolvedValue([{ id: "tag-1" }] as never);
+      dbMock.list.findUnique.mockResolvedValue({ id: "list-1", workspaceId } as never);
+      const row = { id: "a1", name: "Tracer", workspaceId, projectId: null, project: null };
+      dbMock.action.create.mockResolvedValue(row as never);
+      dbMock.action.findUniqueOrThrow.mockResolvedValue({
+        ...row,
+        tags: [{ tag: { id: "tag-1" } }],
+        assignees: [{ user: { id: "user-colleague" } }],
+      } as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Tracer",
+        workspaceId,
+        tagIds: ["tag-1"],
+        assigneeIds: ["user-colleague"],
+        sprintListId: "list-1",
+      });
+
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(dbMock.actionTag.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", tagId: "tag-1" }],
+      });
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: "user-colleague" }],
+      });
+      expect(dbMock.actionList.create).toHaveBeenCalledWith({
+        data: { actionId: "a1", listId: "list-1" },
+      });
+      expect(result.tags).toHaveLength(1);
+      expect(result.assignees).toHaveLength(1);
+    });
+
+    it("refuses a tag from another workspace through the procedure, leaving no row", async () => {
+      stubMembers([callerId]);
+      dbMock.tag.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.create({ name: "Tracer", workspaceId, tagIds: ["tag-foreign"] }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────
