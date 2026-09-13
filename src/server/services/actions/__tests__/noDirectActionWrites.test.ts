@@ -15,15 +15,19 @@ function read(relative: string): string {
 }
 
 /** The body of one tRPC procedure in a router file, up to the next procedure. */
+const PROCEDURE_START = /\n  ([a-zA-Z]+): (protectedProcedure|humanOnlyProcedure|publicProcedure|apiKeyMiddleware)/g;
+
 function procedureBody(source: string, name: string): string {
-  const start = source.indexOf(`  ${name}: protectedProcedure`);
-  if (start === -1) throw new Error(`procedure ${name} not found`);
-  const rest = source.slice(start + name.length + 4);
-  const next = rest.search(/\n  [a-zA-Z]+: (protectedProcedure|humanOnlyProcedure|publicProcedure)/);
-  return next === -1 ? rest : rest.slice(0, next);
+  const starts = [...source.matchAll(PROCEDURE_START)];
+  const index = starts.findIndex((m) => m[1] === name);
+  if (index === -1) throw new Error(`procedure ${name} not found`);
+  const from = starts[index]!.index!;
+  const to = starts[index + 1]?.index ?? source.length;
+  return source.slice(from, to);
 }
 
-const DIRECT_WRITE = /\.action\.(create|update|updateMany|upsert)\(/;
+const DIRECT_WRITE =
+  /\.action\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(/;
 
 describe("no direct Action writes outside the module", () => {
   const mastra = read("src/server/api/routers/mastra.ts");
@@ -34,6 +38,26 @@ describe("no direct Action writes outside the module", () => {
       expect(procedureBody(mastra, name)).not.toMatch(DIRECT_WRITE);
     },
   );
+
+  const action = read("src/server/api/routers/action.ts");
+
+  // The V1/V2 procedures that were switched over. Not listed: the with-order
+  // and reorder procedures, whose sibling kanbanOrder-only updates of the
+  // displaced cards are theirs by design; bulkReschedule / bulkDefer, which
+  // are date-only set writes outside the seam; upsertBySource, which is
+  // outside the PRD's inventory.
+  it.each([
+    "create",
+    "update",
+    "quickCreate",
+    "updateKanbanStatus",
+    "bulkAssignProject",
+    "updateActionsProject",
+    "bulkCreateFromTranscript",
+    "ensureDailyPlanPromptAction",
+  ])("action.%s writes only through the module", (name) => {
+    expect(procedureBody(action, name)).not.toMatch(DIRECT_WRITE);
+  });
 
   it.each(["src/server/services/voice/capture.ts", "src/server/services/voice/complete.ts"])(
     "%s writes only through the module",

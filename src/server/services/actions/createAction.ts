@@ -109,6 +109,12 @@ export async function createAction(
       nextKanbanOrder(db, columns.projectId),
     ]);
 
+    // A project id that does not exist (an agent's stale or hallucinated id,
+    // say) is NOT_FOUND, so the caller re-resolves it rather than being told
+    // it lacks permission.
+    if (!project) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+    }
     if (!canEditProject(access)) {
       throw new TRPCError({
         code: "FORBIDDEN",
@@ -116,7 +122,7 @@ export async function createAction(
       });
     }
 
-    projectWorkspaceId = project?.workspaceId ?? null;
+    projectWorkspaceId = project.workspaceId ?? null;
     kanbanSeed = { kanbanStatus: "TODO", kanbanOrder };
   }
 

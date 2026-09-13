@@ -375,6 +375,9 @@ describe("mastra action creation — do-date (scheduledStart) handling", () => {
     const project = await createProject(db, { createdById: owner.id, isPublic: true });
 
     const caller = createTestCaller(viewer.id);
+    // View access is real: the project resolves for the viewer …
+    await expect(caller.project.getById({ id: project.id })).resolves.toMatchObject({ id: project.id });
+    // … and creating in it is still refused.
     await expect(
       caller.mastra.createAction({
         projectId: project.id,

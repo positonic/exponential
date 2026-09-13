@@ -8,7 +8,10 @@
  * module like `action.quickCreate` / `mastra.quickCreateAction`; only the
  * `source` differs ("voice").
  *
- * Capture is non-destructive: it never raises the confirmation gate.
+ * Capture is non-destructive: it never raises the confirmation gate. It does
+ * apply the Action write gate (ADR-0016): a read-only workspace, or a matched
+ * project the user can only view, throws FORBIDDEN, which the voice router
+ * turns into a spoken refusal.
  */
 import type { PrismaClient } from "@prisma/client";
 
@@ -33,7 +36,7 @@ export interface CaptureResult {
 /**
  * Parse `phrase` and create an Action for `userId`. Returns the created action
  * and whether it landed in the inbox. Never throws on ambiguous/absent
- * projects — those fall back to the inbox so capture always succeeds.
+ * projects — those fall back to the inbox; only the write gate can refuse.
  */
 export async function captureAction(
   phrase: string,

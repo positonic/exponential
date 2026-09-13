@@ -2026,8 +2026,9 @@ describe("action router (mocked)", () => {
 
       expect(viaAgent.status).toBe("COMPLETED");
       expect(viaAgent.completedAt).toBeInstanceOf(Date);
-      expect(viaUi.status).toBe(viaAgent.status);
       expect(viaUi.completedAt).toBeInstanceOf(Date);
+      // Same write, timestamp aside.
+      expect({ ...viaUi, completedAt: undefined }).toEqual({ ...viaAgent, completedAt: undefined });
     });
 
     it("mastra.updateAction refuses an action the user can only view", async () => {

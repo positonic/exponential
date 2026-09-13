@@ -144,7 +144,7 @@ async function completeById(
     name = found?.name ?? "that action";
   }
 
-  let completed = false;
+  let outcome: "completed" | "forbidden" | "unavailable" = "unavailable";
   if (candidate) {
     try {
       await applyActionUpdate({ db, actor: { userId, isAdmin: false } }, candidate.id, {
@@ -153,15 +153,35 @@ async function completeById(
         // direction is otherwise not synced; here the caller asks for it).
         ...(candidate.kanbanStatus ? { kanbanStatus: "DONE" } : {}),
       });
-      completed = true;
+      outcome = "completed";
     } catch (err) {
-      // Readable but not editable (the access where-clause is wider than the
-      // edit gate): report it as not completed rather than failing the turn.
-      if (!(err instanceof TRPCError && err.code === "FORBIDDEN")) throw err;
+      if (err instanceof TRPCError && err.code === "FORBIDDEN") {
+        // Readable but not editable: the access where-clause above is wider
+        // than the edit gate. Say so, and leave a trace — a voice user who
+        // keeps hitting this is a permissions question, not a lost turn.
+        console.warn("[voice.complete] edit refused", { actionId: candidate.id, userId });
+        outcome = "forbidden";
+      } else if (err instanceof TRPCError && err.code === "NOT_FOUND") {
+        // Gone between the lookup and the write — the same race updateMany
+        // answered with a zero count.
+        outcome = "unavailable";
+      } else {
+        throw err;
+      }
     }
   }
 
-  if (!completed) {
+  if (outcome === "forbidden") {
+    return {
+      speakable: boundLength(
+        `I can't edit "${stripMarkdown(name)}" — you have read-only access to it.`,
+      ),
+      structured: { resolution: "one", completed: false, id, error: "forbidden" },
+      needsConfirmation: false,
+    };
+  }
+
+  if (outcome === "unavailable") {
     return {
       speakable: boundLength(
         `I couldn't complete "${stripMarkdown(name)}" — it may already be done.`,
