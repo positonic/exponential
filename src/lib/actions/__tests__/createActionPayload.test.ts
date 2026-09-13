@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 
 import { buildCreateActionPayload } from "../createActionPayload";
+import {
+  actionWriteSchema,
+  actionCreateAttachmentsSchema,
+} from "~/server/services/actions/schema";
+
+/** The exact input schema `action.create` parses. */
+const createInput = actionWriteSchema.merge(actionCreateAttachmentsSchema);
 
 describe("buildCreateActionPayload", () => {
   it("sends tags, assignees and sprint with the create, and nothing empty", () => {
@@ -85,5 +92,37 @@ describe("buildCreateActionPayload", () => {
     expect(payload.status).toBe("ACTIVE");
     expect(payload.tagIds).toEqual(["t1"]);
     expect(payload.tagIds).not.toBe(tagIds);
+  });
+
+  it("produces a payload the server's create input accepts, attachments included", () => {
+    const payload = buildCreateActionPayload({
+      name: "Ship it",
+      projectId: "p1",
+      workspaceId: "w1",
+      priority: "2nd Priority",
+      dueDate: new Date("2026-09-20T00:00:00.000Z"),
+      duration: 30,
+      tagIds: ["t1"],
+      assigneeIds: ["u2"],
+      sprintListId: "s1",
+      bounty: { amount: 10, token: "USDC", maxClaimants: 1 },
+    });
+
+    const parsed = createInput.safeParse(payload);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data).toMatchObject({
+      tagIds: ["t1"],
+      assigneeIds: ["u2"],
+      sprintListId: "s1",
+      isBounty: true,
+    });
+  });
+
+  it("trims the name, so a whitespace-only name is the caller's to refuse before submit", () => {
+    const payload = buildCreateActionPayload({ name: "   " });
+
+    expect(payload.name).toBe("");
+    // The server refuses it; both modals guard with `name.trim()` first.
+    expect(createInput.safeParse(payload).success).toBe(false);
   });
 });
