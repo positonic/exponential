@@ -11,7 +11,6 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { DateTimePicker } from "@mantine/dates";
 import { notifications } from "@mantine/notifications";
 import {
   IconPencil,
@@ -21,6 +20,7 @@ import {
 
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { DateTimeField } from "./DateTimeField";
 import { EditActionModal } from "./EditActionModal";
 import { formatElapsedClock } from "~/hooks/useActiveTimer";
 import type { CalendarTimeEntry } from "./calendar/types";
@@ -233,20 +233,16 @@ export function TimeEntryModal({
             )}
           </div>
 
-          <DateTimePicker
+          <DateTimeField
             label="Started"
             value={startedAt}
-            onChange={(v) => setStartedAt(v ? new Date(v) : null)}
-            withSeconds={false}
-            popoverProps={{ withinPortal: true }}
+            onChange={setStartedAt}
           />
 
-          <DateTimePicker
+          <DateTimeField
             label="Ended"
             value={endedAt}
-            onChange={(v) => setEndedAt(v ? new Date(v) : null)}
-            withSeconds={false}
-            popoverProps={{ withinPortal: true }}
+            onChange={setEndedAt}
             description="Leave blank to keep this entry running"
           />
 

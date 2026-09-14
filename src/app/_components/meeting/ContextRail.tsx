@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { DateTimePicker } from "@mantine/dates";
+import { DateTimeField } from "~/app/_components/DateTimeField";
 import {
   IconPlayerPlay,
   IconShare,
@@ -270,14 +270,13 @@ export function ContextRail({
           </div>
         </div>
         <div className="mp-rail__field">
-          <DateTimePicker
+          <DateTimeField
             label="Meeting date"
             value={meetingDate}
-            onChange={(value) => onMeetingDateChange(value ? new Date(value) : null)}
+            onChange={onMeetingDateChange}
             clearable
             size="xs"
             valueFormat="MMM D, YYYY h:mm A"
-            popoverProps={{ withinPortal: true }}
           />
         </div>
       </div>

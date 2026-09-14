@@ -154,8 +154,13 @@ export function TimePageContent() {
             allowDeselect={false}
             w={220}
           />
+          {/* Keyed: without one React reconciles these two into a single
+              DatePickerInput whose `type` flips between "default" and
+              "range", which trips Mantine's own type-change guard (a console
+              error, and a value reset for an uncontrolled picker). */}
           {view === "day" ? (
             <DatePickerInput
+              key="day"
               value={day}
               onChange={(v) => v && setDay(startOfDay(new Date(v)))}
               valueFormat="ddd, MMM D"
@@ -163,6 +168,7 @@ export function TimePageContent() {
             />
           ) : (
             <DatePickerInput
+              key="range"
               type="range"
               value={range}
               onChange={(v) =>
@@ -243,7 +249,11 @@ export function TimePageContent() {
                           }}
                         >
                           <div className="min-w-0 flex-1">
+                            {/* `component="div"`: Text is a <p> by default and
+                                the Badges below it are <div>s, which is invalid
+                                HTML and a hydration error. */}
                             <Text
+                              component="div"
                               size="sm"
                               className="truncate text-text-primary"
                               fw={500}

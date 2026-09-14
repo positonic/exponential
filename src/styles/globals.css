@@ -33,6 +33,18 @@
     --color-border-tertiary: #f1f3f5;
     --color-border-focus: #339af0;
 
+    /* Overlay chrome: a panel floating above another surface (a calendar
+       popover, say). `bg-elevated` is ALSO the Modal surface in both themes,
+       so an overlay painted with it dissolves into a modal that hosts it -
+       it needs its own edge and a shadow that actually reads. The composite
+       below is declared once and picks up whichever theme's colour is in
+       scope. */
+    --color-border-overlay: #ced4da;
+    --color-shadow-overlay: rgba(15, 23, 42, 0.22);
+    --shadow-overlay:
+      0 12px 32px -10px var(--color-shadow-overlay),
+      0 4px 12px -6px var(--color-shadow-overlay);
+
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
     --color-brand-primary-hover: #3D75FF;
@@ -254,6 +266,12 @@
     --color-border-tertiary: #0F1728;
     --color-border-focus: #339af0;
 
+    /* Overlay chrome - see the light block for why this exists. On dark the
+       edge does most of the work (a black shadow on a near-black surface
+       barely registers), so it sits a step lighter than border-primary. */
+    --color-border-overlay: #2C3E63;
+    --color-shadow-overlay: rgba(0, 0, 0, 0.7);
+
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
     --color-brand-primary-hover: #3D75FF;
@@ -413,6 +431,7 @@
     --color-border-primary: #373a40;
     --color-border-secondary: #2c2e33;
     --color-border-tertiary: #25262b;
+    --color-border-overlay: #4d5157;
     --color-onboarding-illustration-bg: #2c2e33;
     --color-gradient-hero-end: #1a1b1e;
     --color-bg-nav: rgba(26, 27, 30, 0.95);
@@ -484,6 +503,7 @@ body {
 .mantine-DateInput-input:not([data-variant="unstyled"]),
 .mantine-DateTimePicker-input:not([data-variant="unstyled"]),
 .mantine-DatePickerInput-input:not([data-variant="unstyled"]),
+.mantine-TimeInput-input:not([data-variant="unstyled"]),
 .mantine-MultiSelect-input:not([data-variant="unstyled"]) {
   background-color: var(--color-bg-secondary);
   border-color: var(--color-border-primary);
@@ -496,6 +516,7 @@ body {
 .mantine-DateInput-input:focus,
 .mantine-DateTimePicker-input:focus,
 .mantine-DatePickerInput-input:focus,
+.mantine-TimeInput-input:focus,
 .mantine-MultiSelect-input:focus {
   border-color: var(--color-border-focus);
 }
@@ -505,7 +526,8 @@ body {
 .mantine-Textarea-input::placeholder,
 .mantine-DateInput-input::placeholder,
 .mantine-DateTimePicker-input::placeholder,
-.mantine-DatePickerInput-input::placeholder {
+.mantine-DatePickerInput-input::placeholder,
+.mantine-TimeInput-input::placeholder {
   color: var(--color-text-muted);
 }
 
