@@ -13,6 +13,7 @@ import {
   requireWorkspaceMembership,
 } from "~/server/services/access";
 import {
+  adoptDecisionActionsIntoTicket,
   confirmDraft,
   createDecision,
   decisionDetailInclude,
@@ -603,11 +604,14 @@ export const decisionRouter = createTRPCRouter({
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
-      return linkEntity(ctx.db, {
+      const link = await linkEntity(ctx.db, {
         decisionId: subject.id,
         userId: ctx.session.user.id,
         ticketId: ticket.id,
       });
+      // The decision's actions follow the ticket it implements.
+      const adopted = await adoptDecisionActionsIntoTicket(ctx.db, subject.id);
+      return { ...link, adoptedActions: adopted.adopted };
     }),
 
   /** "Implemented by": link a feature from this workspace's products. */
@@ -639,11 +643,15 @@ export const decisionRouter = createTRPCRouter({
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
       await assertActionsInWorkspace(ctx.db, input.workspaceId, [input.actionId]);
-      return linkEntity(ctx.db, {
+      const link = await linkEntity(ctx.db, {
         decisionId: subject.id,
         userId: ctx.session.user.id,
         actionId: input.actionId,
       });
+      // An action logged against a decision belongs to the ticket that
+      // decision implements, whichever of the two was linked first.
+      const adopted = await adoptDecisionActionsIntoTicket(ctx.db, subject.id);
+      return { ...link, adoptedActions: adopted.adopted };
     }),
 
   /** Remove one implemented-by link. */

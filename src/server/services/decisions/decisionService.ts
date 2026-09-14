@@ -1067,6 +1067,37 @@ export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
   }
 }
 
+/**
+ * A decision that implements exactly one ticket pulls its linked actions
+ * into that ticket, so work logged against the decision also shows up in
+ * the ticket's own Actions block. Runs whenever either arm of the pair is
+ * linked, so the order the user builds the decision in does not matter.
+ *
+ * Only actions that belong to no ticket are adopted — an action already
+ * sitting on another ticket is never moved out from under it, and a
+ * decision spanning two tickets has no single right answer, so it adopts
+ * nothing. Returns how many actions moved, for the caller to report.
+ */
+export async function adoptDecisionActionsIntoTicket(
+  db: PrismaClient,
+  decisionId: string,
+): Promise<{ adopted: number; ticketId: string | null }> {
+  const links = await db.decisionLink.findMany({
+    where: { decisionId },
+    select: { ticketId: true, actionId: true },
+  });
+  const ticketIds = [...new Set(links.map((l) => l.ticketId).filter((id): id is string => !!id))];
+  const ticketId = ticketIds.length === 1 ? ticketIds[0]! : null;
+  if (!ticketId) return { adopted: 0, ticketId: null };
+  const actionIds = links.map((l) => l.actionId).filter((id): id is string => !!id);
+  if (actionIds.length === 0) return { adopted: 0, ticketId };
+  const { count } = await db.action.updateMany({
+    where: { id: { in: actionIds }, ticketId: null },
+    data: { ticketId },
+  });
+  return { adopted: count, ticketId };
+}
+
 /** Remove one implemented-by link. */
 export async function unlinkEntity(db: PrismaClient, input: { linkId: string; workspaceId: string }) {
   await db.decisionLink.delete({ where: { id: input.linkId, decision: { workspaceId: input.workspaceId } } });

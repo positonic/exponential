@@ -76,7 +76,15 @@ export function DecisionLinksPanel({
     notifications.show({ title, message: error.message, color: "red" });
 
   const linkTicket = api.decision.linkTicket.useMutation({
-    onSuccess: invalidate,
+    onSuccess: async (result) => {
+      await invalidate();
+      // Linking the ticket pulls the decision's own actions onto it.
+      if (result.adoptedActions > 0) {
+        notifications.show({
+          message: `${result.adoptedActions} action${result.adoptedActions === 1 ? "" : "s"} from this decision added to the ticket`,
+        });
+      }
+    },
     onError: onError("Couldn't link"),
   });
   const linkFeature = api.decision.linkFeature.useMutation({

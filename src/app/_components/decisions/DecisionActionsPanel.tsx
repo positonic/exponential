@@ -41,7 +41,19 @@ export function DecisionActionsPanel({
     notifications.show({ title, message: error.message, color: "red" });
 
   const linkAction = api.decision.linkAction.useMutation({
-    onSuccess: invalidate,
+    onSuccess: async (result) => {
+      await invalidate();
+      // Adoption moves an action onto a ticket. Say so — a silent change of
+      // an action's ticket is the kind the user only finds out about later.
+      if (result.adoptedActions > 0) {
+        notifications.show({
+          message:
+            result.adoptedActions === 1
+              ? "Also added to the ticket this decision implements"
+              : `${result.adoptedActions} actions added to the ticket this decision implements`,
+        });
+      }
+    },
     onError: onError("Couldn't link the action"),
   });
   // One unconfirmed click, closed by an undo toast — re-linking is
