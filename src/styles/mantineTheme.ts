@@ -111,14 +111,23 @@ const dateInputStyles = {
 // merges defaultProps shallowly, so doing so replaces this whole object and
 // the calendar goes back to floating on nothing. Use the shared
 // `DateTimeField` component instead, which forbids the prop outright.
+// Exported because two calendars don't come from @mantine/dates' own popover
+// and so can't be reached by the theme entries below: UnifiedDatePicker and
+// DeadlinePicker put a `DatePicker` inside a hand-rolled `<Popover>`, which
+// picks up the generic `Popover` entry (a much weaker shadow) instead. They
+// spread this onto their own dropdown so all four calendars share one chrome.
+// Keep it a single object - a second copy of these three tokens is how the
+// looks drift apart again.
+export const calendarDropdownStyles = {
+  backgroundColor: 'var(--color-bg-elevated)',
+  borderColor: 'var(--color-border-overlay)',
+  boxShadow: 'var(--shadow-overlay)',
+};
+
 const datePopoverProps = {
   popoverProps: {
     styles: {
-      dropdown: {
-        backgroundColor: 'var(--color-bg-elevated)',
-        borderColor: 'var(--color-border-overlay)',
-        boxShadow: 'var(--shadow-overlay)',
-      },
+      dropdown: calendarDropdownStyles,
     },
   },
 };
