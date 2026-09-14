@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
+import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
 
 vi.hoisted(() => {
   process.env.OPENAI_API_KEY ??= "sk-test-dummy";
@@ -404,12 +405,17 @@ describe("decision router", () => {
         actionIds: ["act-1", "act-2"],
       });
 
-      // Reachable through the action's own workspace or its project's.
+      // Reachable through the action's own workspace or its project's, AND
+      // readable by the caller - linking publishes the action to everyone who
+      // can see the decision, so a restricted project's action must not pass.
       expect(db.action.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
             id: { in: ["act-1", "act-2"] },
-            OR: [{ workspaceId: WORKSPACE_ID }, { project: { workspaceId: WORKSPACE_ID } }],
+            AND: [
+              { OR: [{ workspaceId: WORKSPACE_ID }, { project: { workspaceId: WORKSPACE_ID } }] },
+              buildActionAccessWhere(USER_ID),
+            ],
           },
         }),
       );
@@ -1000,9 +1006,14 @@ describe("decision router", () => {
       });
 
       expect(link.adoptedActions).toBe(1);
-      // Never steals an action that already belongs to a ticket.
+      // Never steals an action that already belongs to a ticket, and never
+      // moves one the caller could not have put on the ticket directly.
       expect(db.action.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ["act-1"] }, ticketId: null },
+        where: {
+          id: { in: ["act-1"] },
+          ticketId: null,
+          ...buildActionAccessWhere(USER_ID),
+        },
         data: { ticketId: "t-1" },
       });
     });

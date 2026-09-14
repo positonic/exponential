@@ -25,6 +25,7 @@ import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidenc
 // Imported from the resolver module rather than the access barrel: the
 // barrel pulls in the Prisma singleton at module load.
 import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
+import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -1077,10 +1078,15 @@ export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
  * sitting on another ticket is never moved out from under it, and a
  * decision spanning two tickets has no single right answer, so it adopts
  * nothing. Returns how many actions moved, for the caller to report.
+ *
+ * Scoped to what `userId` may read: the direct path onto a ticket
+ * (`product.ticket.linkAction`) refuses an action the caller does not own,
+ * so adoption must not be the looser way in.
  */
 export async function adoptDecisionActionsIntoTicket(
   db: PrismaClient,
   decisionId: string,
+  userId: string,
 ): Promise<{ adopted: number; ticketId: string | null }> {
   const links = await db.decisionLink.findMany({
     where: { decisionId },
@@ -1092,7 +1098,7 @@ export async function adoptDecisionActionsIntoTicket(
   const actionIds = links.map((l) => l.actionId).filter((id): id is string => !!id);
   if (actionIds.length === 0) return { adopted: 0, ticketId };
   const { count } = await db.action.updateMany({
-    where: { id: { in: actionIds }, ticketId: null },
+    where: { id: { in: actionIds }, ticketId: null, ...buildActionAccessWhere(userId) },
     data: { ticketId },
   });
   return { adopted: count, ticketId };

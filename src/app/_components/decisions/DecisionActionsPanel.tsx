@@ -85,8 +85,12 @@ export function DecisionActionsPanel({
     });
   };
 
+  // `action` is a to-one relation, so the include cannot filter it — every
+  // other action read in the app drops DELETED/DRAFT rows, and a soft-deleted
+  // action must not linger here with a live checkbox on it.
   const actionLinks = links.filter(
-    (l): l is DecisionActionLink & { action: LinkedAction } => l.action !== null,
+    (l): l is DecisionActionLink & { action: LinkedAction } =>
+      l.action !== null && l.action.status !== "DELETED" && l.action.status !== "DRAFT",
   );
   const actions = actionLinks.map((l) => l.action);
 

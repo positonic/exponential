@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
+  buildActionAccessWhere,
   buildDecisionAccessWhere,
   canEditDecision,
   canEditTranscription,
@@ -99,19 +100,34 @@ async function loadDecisionSubject(
 
 /**
  * An action is linkable when it sits in the workspace — directly or through
- * its project. Same reach as `action.searchForDependencies`, which feeds the
- * picker, so nothing offered there is refused here.
+ * its project — AND the caller may read it. The access clause is the load
+ * bearing half: a linked action's name, dates and assignees are rendered to
+ * everyone who can see the decision, so linking one out of a restricted
+ * project would publish it to people the project deliberately excludes.
+ *
+ * `action.searchForDependencies`, which feeds the picker, checks workspace
+ * membership only — so it can still offer an action this refuses. That is
+ * the safe direction of the mismatch; the search wants the same clause
+ * (see the PR notes), but narrowing a picker several other surfaces share
+ * does not belong in this change.
  */
-async function assertActionsInWorkspace(
+async function assertLinkableActions(
   db: PrismaClient,
   workspaceId: string,
+  userId: string,
   actionIds: string[],
 ): Promise<string[]> {
   if (actionIds.length === 0) return [];
   const rows = await db.action.findMany({
     where: {
       id: { in: actionIds },
-      OR: [{ workspaceId }, { project: { workspaceId } }],
+      // Both clauses are `OR`-shaped, so they have to be AND-ed explicitly -
+      // spreading the second over the first silently drops the workspace
+      // scope and widens the check instead of narrowing it.
+      AND: [
+        { OR: [{ workspaceId }, { project: { workspaceId } }] },
+        buildActionAccessWhere(userId),
+      ],
     },
     select: { id: true },
   });
@@ -533,9 +549,10 @@ export const decisionRouter = createTRPCRouter({
         }
         evidence = checked.kept.length > 0 ? checked.kept : undefined;
       }
-      const actionIds = await assertActionsInWorkspace(
+      const actionIds = await assertLinkableActions(
         ctx.db,
         input.workspaceId,
+        ctx.session.user.id,
         input.actionIds ?? [],
       );
       const decision = await createDecision(ctx.db, {
@@ -610,7 +627,11 @@ export const decisionRouter = createTRPCRouter({
         ticketId: ticket.id,
       });
       // The decision's actions follow the ticket it implements.
-      const adopted = await adoptDecisionActionsIntoTicket(ctx.db, subject.id);
+      const adopted = await adoptDecisionActionsIntoTicket(
+        ctx.db,
+        subject.id,
+        ctx.session.user.id,
+      );
       return { ...link, adoptedActions: adopted.adopted };
     }),
 
@@ -642,7 +663,9 @@ export const decisionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      await assertActionsInWorkspace(ctx.db, input.workspaceId, [input.actionId]);
+      await assertLinkableActions(ctx.db, input.workspaceId, ctx.session.user.id, [
+        input.actionId,
+      ]);
       const link = await linkEntity(ctx.db, {
         decisionId: subject.id,
         userId: ctx.session.user.id,
@@ -650,7 +673,11 @@ export const decisionRouter = createTRPCRouter({
       });
       // An action logged against a decision belongs to the ticket that
       // decision implements, whichever of the two was linked first.
-      const adopted = await adoptDecisionActionsIntoTicket(ctx.db, subject.id);
+      const adopted = await adoptDecisionActionsIntoTicket(
+        ctx.db,
+        subject.id,
+        ctx.session.user.id,
+      );
       return { ...link, adoptedActions: adopted.adopted };
     }),
 

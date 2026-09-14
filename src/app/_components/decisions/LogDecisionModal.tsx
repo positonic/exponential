@@ -284,9 +284,9 @@ export function LogDecisionModal({
               Actions
             </Text>
             <Text size="xs" className="text-text-muted">
-              {actionIds.length === 0
+              {linkedActions.length === 0
                 ? "what this decision puts in motion"
-                : `${actionIds.length} linked`}
+                : `${linkedActions.length} linked`}
             </Text>
           </Group>
           <LinkedActionsPanel
