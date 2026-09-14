@@ -25,6 +25,7 @@ import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidenc
 // Imported from the resolver module rather than the access barrel: the
 // barrel pulls in the Prisma singleton at module load.
 import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
+import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -51,6 +52,12 @@ export interface CreateDecisionInput {
   /** When omitted for a meeting-linked decision, the meeting's participants. */
   deciders?: DecisionDeciderInput[];
   evidence?: DecisionEvidenceTurn[];
+  /**
+   * "Implemented by" actions staged in the create form. The caller checks
+   * they belong to the workspace before handing them over (the same
+   * contract every other id on this input has).
+   */
+  actionIds?: string[];
 }
 
 /** Dedupe deciders on email (the DB unique) and drop blank names. */
@@ -117,6 +124,24 @@ export const decisionDetailInclude = {
         },
       },
       feature: { select: { id: true, name: true, status: true } },
+      // Everything the shared Actions block renders for a row.
+      action: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          kanbanStatus: true,
+          priority: true,
+          dueDate: true,
+          projectId: true,
+          assignees: {
+            select: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+        },
+      },
       createdBy: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "asc" },
@@ -264,6 +289,8 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
       : [];
   }
 
+  const actionIds = [...new Set(input.actionIds ?? [])];
+
   const evidence = (input.evidence ?? []).map((turn) => ({
     turnIndex: turn.turnIndex,
     speaker: turn.speaker ?? null,
@@ -304,6 +331,16 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
                 userId: d.userId ?? null,
                 name: d.name,
                 email: d.email ?? null,
+              })),
+            }
+          : undefined,
+        // Actions linked in the create form land with the decision, so a
+        // half-written decision can never outlive a failed link.
+        links: actionIds.length
+          ? {
+              create: actionIds.map((actionId) => ({
+                actionId,
+                createdById: input.createdById,
               })),
             }
           : undefined,
@@ -996,18 +1033,20 @@ export interface LinkEntityInput {
   userId: string;
   ticketId?: string | null;
   featureId?: string | null;
+  actionId?: string | null;
 }
 
 /**
- * "Implemented by": link a ticket or feature to a decision (DecisionLink
- * mirrors AdrTicketLink). Idempotent — an existing link is returned, and a
- * race past the findFirst is settled by the DB unique.
+ * "Implemented by": link a ticket, feature or action to a decision
+ * (DecisionLink mirrors AdrTicketLink). Idempotent — an existing link is
+ * returned, and a race past the findFirst is settled by the DB unique.
  */
 export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
   const where = {
     decisionId: input.decisionId,
     ticketId: input.ticketId ?? null,
     featureId: input.featureId ?? null,
+    actionId: input.actionId ?? null,
   };
   const existing = await db.decisionLink.findFirst({ where });
   if (existing) return existing;
@@ -1027,6 +1066,42 @@ export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
     }
     throw error;
   }
+}
+
+/**
+ * A decision that implements exactly one ticket pulls its linked actions
+ * into that ticket, so work logged against the decision also shows up in
+ * the ticket's own Actions block. Runs whenever either arm of the pair is
+ * linked, so the order the user builds the decision in does not matter.
+ *
+ * Only actions that belong to no ticket are adopted — an action already
+ * sitting on another ticket is never moved out from under it, and a
+ * decision spanning two tickets has no single right answer, so it adopts
+ * nothing. Returns how many actions moved, for the caller to report.
+ *
+ * Scoped to what `userId` may read: the direct path onto a ticket
+ * (`product.ticket.linkAction`) refuses an action the caller does not own,
+ * so adoption must not be the looser way in.
+ */
+export async function adoptDecisionActionsIntoTicket(
+  db: PrismaClient,
+  decisionId: string,
+  userId: string,
+): Promise<{ adopted: number; ticketId: string | null }> {
+  const links = await db.decisionLink.findMany({
+    where: { decisionId },
+    select: { ticketId: true, actionId: true },
+  });
+  const ticketIds = [...new Set(links.map((l) => l.ticketId).filter((id): id is string => !!id))];
+  const ticketId = ticketIds.length === 1 ? ticketIds[0]! : null;
+  if (!ticketId) return { adopted: 0, ticketId: null };
+  const actionIds = links.map((l) => l.actionId).filter((id): id is string => !!id);
+  if (actionIds.length === 0) return { adopted: 0, ticketId };
+  const { count } = await db.action.updateMany({
+    where: { id: { in: actionIds }, ticketId: null, ...buildActionAccessWhere(userId) },
+    data: { ticketId },
+  });
+  return { adopted: count, ticketId };
 }
 
 /** Remove one implemented-by link. */

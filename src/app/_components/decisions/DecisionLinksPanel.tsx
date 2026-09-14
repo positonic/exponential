@@ -32,6 +32,8 @@ interface DecisionLinkRow {
     status: string;
   } | null;
   feature: { id: string; name: string; status: string } | null;
+  /** The third arm of DecisionLink; rendered by DecisionActionsPanel. */
+  action: { id: string } | null;
 }
 
 interface DecisionLinksPanelProps {
@@ -44,9 +46,11 @@ interface DecisionLinksPanelProps {
 export function DecisionLinksPanel({
   workspaceId,
   decisionId,
-  links,
+  links: allLinks,
   canEdit,
 }: DecisionLinksPanelProps) {
+  // Actions share the DecisionLink table but have their own block.
+  const links = allLinks.filter((l) => l.action === null);
   const utils = api.useUtils();
   const [adding, setAdding] = useState(false);
   const [productId, setProductId] = useState<string | null>(null);
@@ -72,7 +76,15 @@ export function DecisionLinksPanel({
     notifications.show({ title, message: error.message, color: "red" });
 
   const linkTicket = api.decision.linkTicket.useMutation({
-    onSuccess: invalidate,
+    onSuccess: async (result) => {
+      await invalidate();
+      // Linking the ticket pulls the decision's own actions onto it.
+      if (result.adoptedActions > 0) {
+        notifications.show({
+          message: `${result.adoptedActions} action${result.adoptedActions === 1 ? "" : "s"} from this decision added to the ticket`,
+        });
+      }
+    },
     onError: onError("Couldn't link"),
   });
   const linkFeature = api.decision.linkFeature.useMutation({

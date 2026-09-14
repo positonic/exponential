@@ -917,6 +917,8 @@ model Action {
   bountyExternalUrl  String?
   bountyClaims       BountyClaim[]
 
+  decisionLinks DecisionLink[]
+
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
@@ -5731,24 +5733,29 @@ model DecisionDecider {
   @@index([userId])
 }
 
-/// "Implemented by" links to tickets and features (mirrors `AdrTicketLink`).
+/// "Implemented by" links to tickets, features and actions (mirrors
+/// `AdrTicketLink`). Exactly one of the three target columns is set per row.
 model DecisionLink {
   id          String   @id @default(cuid())
   decisionId  String
   ticketId    String?
   featureId   String?
+  actionId    String?
   createdById String
   createdAt   DateTime @default(now())
 
   decision  Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
   ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   feature   Feature? @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  action    Action?  @relation(fields: [actionId], references: [id], onDelete: Cascade)
   createdBy User     @relation("DecisionLinkCreatedBy", fields: [createdById], references: [id])
 
   @@unique([decisionId, ticketId])
   @@unique([decisionId, featureId])
+  @@unique([decisionId, actionId])
   @@index([ticketId])
   @@index([featureId])
+  @@index([actionId])
 }
 
 model AdrSyncRun {

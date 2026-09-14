@@ -17,6 +17,10 @@ import { notifications } from "@mantine/notifications";
 import { IconQuote, IconX } from "@tabler/icons-react";
 import Link from "next/link";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import {
+  LinkedActionsPanel,
+  type LinkedAction,
+} from "~/app/_components/shared/LinkedActionsPanel";
 import { formatEvidenceTime, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 import { api } from "~/trpc/react";
 
@@ -72,6 +76,11 @@ export function LogDecisionModal({
   const [status, setStatus] = useState<CreatableStatus>("ACCEPTED");
   const [decidedAt, setDecidedAt] = useState<Date | null>(null);
   const [deciderIds, setDeciderIds] = useState<string[]>([]);
+  // "Implemented by" actions are staged as ids until the decision exists —
+  // `decision.create` writes the links in the same transaction. An action
+  // created from the picker is a real action from that moment, so closing
+  // the modal leaves it behind unlinked rather than deleting it.
+  const [actionIds, setActionIds] = useState<string[]>([]);
 
   // Reset to the meeting's defaults each time the modal opens: the date the
   // meeting happened and everyone who was in the room.
@@ -82,7 +91,18 @@ export function LogDecisionModal({
     setStatus("ACCEPTED");
     setDecidedAt(meeting?.meetingDate ?? new Date());
     setDeciderIds(meeting?.participants.map((p) => p.id) ?? []);
+    setActionIds([]);
   }, [opened, meeting]);
+
+  const { data: stagedActions, refetch: refetchActions } = api.action.getByIds.useQuery(
+    { ids: actionIds },
+    { enabled: opened && actionIds.length > 0 },
+  );
+  // Keep the rows in the order they were linked, not the order the DB
+  // happened to return them in.
+  const linkedActions: LinkedAction[] = actionIds
+    .map((id) => (stagedActions ?? []).find((a) => a.id === id))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a));
 
   const create = api.decision.create.useMutation({
     onSuccess: (decision) => {
@@ -131,6 +151,7 @@ export function LogDecisionModal({
       productId,
       deciders,
       evidence: meeting ? evidence : undefined,
+      actionIds: actionIds.length > 0 ? actionIds : undefined,
     });
   }
 
@@ -256,6 +277,29 @@ export function LogDecisionModal({
             ) : null}
           </div>
         ) : null}
+
+        <div>
+          <Group gap={6} mb={6}>
+            <Text size="sm" fw={500}>
+              Actions
+            </Text>
+            <Text size="xs" className="text-text-muted">
+              {linkedActions.length === 0
+                ? "what this decision puts in motion"
+                : `${linkedActions.length} linked`}
+            </Text>
+          </Group>
+          <LinkedActionsPanel
+            actions={linkedActions}
+            workspaceId={workspaceId}
+            viewName="decision"
+            onLink={(actionId) =>
+              setActionIds((ids) => (ids.includes(actionId) ? ids : [...ids, actionId]))
+            }
+            onUnlink={(actionId) => setActionIds((ids) => ids.filter((id) => id !== actionId))}
+            onChanged={() => void refetchActions()}
+          />
+        </div>
 
         <div>
           <Text size="sm" fw={500} mb={4}>

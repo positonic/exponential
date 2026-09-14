@@ -18,6 +18,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
+import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
 
 vi.hoisted(() => {
   process.env.OPENAI_API_KEY ??= "sk-test-dummy";
@@ -377,6 +378,72 @@ describe("decision router", () => {
           }),
         }),
       );
+    });
+
+    it("links the staged actions in the same create, and refuses one from outside the workspace", async () => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      db.user.findUnique.mockResolvedValue({
+        id: USER_ID,
+        name: "Dev Fixture",
+        email: "dev@example.test",
+      } as never);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 7 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-7",
+        number: 7,
+        statement: "Use tRPC",
+        status: "ACCEPTED",
+        source: "MANUAL",
+        transcriptionSessionId: null,
+      } as never);
+      db.action.findMany.mockResolvedValue([{ id: "act-1" }, { id: "act-2" }] as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Use tRPC",
+        actionIds: ["act-1", "act-2"],
+      });
+
+      // Reachable through the action's own workspace or its project's, AND
+      // readable by the caller - linking publishes the action to everyone who
+      // can see the decision, so a restricted project's action must not pass.
+      expect(db.action.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: { in: ["act-1", "act-2"] },
+            AND: [
+              { OR: [{ workspaceId: WORKSPACE_ID }, { project: { workspaceId: WORKSPACE_ID } }] },
+              buildActionAccessWhere(USER_ID),
+            ],
+          },
+        }),
+      );
+      expect(db.decision.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            links: {
+              create: [
+                { actionId: "act-1", createdById: USER_ID },
+                { actionId: "act-2", createdById: USER_ID },
+              ],
+            },
+          }),
+        }),
+      );
+
+      // One id the caller cannot reach fails the whole create - no decision
+      // is written without the links it was logged with.
+      db.decision.create.mockClear();
+      db.action.findMany.mockResolvedValue([{ id: "act-1" }] as never);
+      await expect(
+        caller(db).decision.create({
+          workspaceId: WORKSPACE_ID,
+          statement: "Use tRPC",
+          actionIds: ["act-1", "act-elsewhere"],
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(db.decision.create).not.toHaveBeenCalled();
     });
 
     it("manual create: deciders default to the creator when none are named", async () => {
@@ -855,6 +922,8 @@ describe("decision router", () => {
         projectId: null,
       };
       db.decision.findFirst.mockResolvedValue(row as never);
+      // The link set every adoption check reads; tests that care override it.
+      db.decisionLink.findMany.mockResolvedValue([] as never);
       return row;
     }
 
@@ -878,6 +947,111 @@ describe("decision router", () => {
       );
     });
 
+    it("linkAction refuses an action outside the workspace", async () => {
+      withWorkspaceRole(db, "member");
+      withConfirmedDecision();
+      db.action.findMany.mockResolvedValue([] as never);
+      await expect(
+        caller(db).decision.linkAction({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-1",
+          actionId: "act-elsewhere",
+        }),
+      ).rejects.toThrow(/action not found/i);
+      expect(db.decisionLink.create).not.toHaveBeenCalled();
+    });
+
+    it("linkAction writes the actionId arm of the link", async () => {
+      withWorkspaceRole(db, "member");
+      withConfirmedDecision();
+      db.action.findMany.mockResolvedValue([{ id: "act-1" }] as never);
+      db.decisionLink.findFirst.mockResolvedValueOnce(null);
+      db.decisionLink.create.mockResolvedValue({ id: "link-9" } as never);
+
+      const link = await caller(db).decision.linkAction({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        actionId: "act-1",
+      });
+
+      expect(link.id).toBe("link-9");
+      expect(db.decisionLink.create).toHaveBeenCalledWith({
+        data: {
+          decisionId: "dec-1",
+          ticketId: null,
+          featureId: null,
+          actionId: "act-1",
+          createdById: USER_ID,
+        },
+      });
+    });
+
+    it("adopts the decision's actions into the one ticket it implements, whichever arm is linked first", async () => {
+      withWorkspaceRole(db, "member");
+      withConfirmedDecision();
+      db.action.findMany.mockResolvedValue([{ id: "act-1" }] as never);
+      db.decisionLink.findFirst.mockResolvedValueOnce(null);
+      db.decisionLink.create.mockResolvedValue({ id: "link-9" } as never);
+      // The decision already implements exactly one ticket.
+      db.decisionLink.findMany.mockResolvedValue([
+        { ticketId: "t-1", actionId: null },
+        { ticketId: null, actionId: "act-1" },
+      ] as never);
+      db.action.updateMany.mockResolvedValue({ count: 1 } as never);
+
+      const link = await caller(db).decision.linkAction({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        actionId: "act-1",
+      });
+
+      expect(link.adoptedActions).toBe(1);
+      // Never steals an action that already belongs to a ticket, and never
+      // moves one the caller could not have put on the ticket directly.
+      expect(db.action.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: { in: ["act-1"] },
+          ticketId: null,
+          ...buildActionAccessWhere(USER_ID),
+        },
+        data: { ticketId: "t-1" },
+      });
+    });
+
+    it("adopts nothing when the decision implements no ticket or more than one", async () => {
+      withWorkspaceRole(db, "member");
+      withConfirmedDecision();
+      db.action.findMany.mockResolvedValue([{ id: "act-1" }] as never);
+      db.decisionLink.findFirst.mockResolvedValue(null);
+      db.decisionLink.create.mockResolvedValue({ id: "link-9" } as never);
+
+      // No ticket at all.
+      db.decisionLink.findMany.mockResolvedValueOnce([
+        { ticketId: null, actionId: "act-1" },
+      ] as never);
+      const none = await caller(db).decision.linkAction({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        actionId: "act-1",
+      });
+      expect(none.adoptedActions).toBe(0);
+
+      // Two tickets — no single right answer, so it leaves them alone.
+      db.decisionLink.findMany.mockResolvedValueOnce([
+        { ticketId: "t-1", actionId: null },
+        { ticketId: "t-2", actionId: null },
+        { ticketId: null, actionId: "act-1" },
+      ] as never);
+      const many = await caller(db).decision.linkAction({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-1",
+        actionId: "act-1",
+      });
+      expect(many.adoptedActions).toBe(0);
+
+      expect(db.action.updateMany).not.toHaveBeenCalled();
+    });
+
     it("linkTicket creates the link once and returns the existing one after", async () => {
       withWorkspaceRole(db, "member");
       withConfirmedDecision();
@@ -892,7 +1066,13 @@ describe("decision router", () => {
       });
       expect(first.id).toBe("link-1");
       expect(db.decisionLink.create).toHaveBeenCalledWith({
-        data: { decisionId: "dec-1", ticketId: "t-1", featureId: null, createdById: USER_ID },
+        data: {
+          decisionId: "dec-1",
+          ticketId: "t-1",
+          featureId: null,
+          actionId: null,
+          createdById: USER_ID,
+        },
       });
 
       db.decisionLink.findFirst.mockResolvedValueOnce({ id: "link-1" } as never);

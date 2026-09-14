@@ -15,6 +15,7 @@ import {
 import { IconArrowLeft, IconMicrophone, IconPencil, IconQuote } from "@tabler/icons-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { DecisionActionsPanel } from "~/app/_components/decisions/DecisionActionsPanel";
 import { DecisionLinksPanel } from "~/app/_components/decisions/DecisionLinksPanel";
 import { DecisionScopePanel } from "~/app/_components/decisions/DecisionScopePanel";
 import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
@@ -292,6 +293,14 @@ export default function DecisionPage() {
 
       <Divider my="lg" />
       <DecisionLinksPanel
+        workspaceId={workspace.id}
+        decisionId={decision.id}
+        links={decision.links}
+        canEdit={decision.canEdit}
+      />
+
+      <Divider my="lg" />
+      <DecisionActionsPanel
         workspaceId={workspace.id}
         decisionId={decision.id}
         links={decision.links}
