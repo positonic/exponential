@@ -30,6 +30,7 @@ import {
 
 import { api } from "~/trpc/react";
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
+import { toPlainText } from "~/lib/content/plainText";
 import type { DayReportEntry } from "~/server/services/timeEntry/dayReport";
 
 export function formatMins(totalMins: number): string {
@@ -167,7 +168,9 @@ export function TimeDayView({ date, workspaceId, onEntryClick }: TimeDayViewProp
             rows={report.byAction
               .filter((r) => r.minutes > 0)
               .slice(0, 10)
-              .map((r) => ({ name: r.name, mins: r.minutes }))}
+              // A chart label is SVG text and cannot render the legacy HTML
+              // some Action names still carry — it shows the text instead.
+              .map((r) => ({ name: toPlainText(r.name) || "Untitled", mins: r.minutes }))}
             width={160}
           />
         </Group>
@@ -350,7 +353,7 @@ function LaneTimeline({
                   const isProposed = e.status === "PROPOSED";
                   const label = `${format(new Date(e.startedAt), "h:mm a")} – ${
                     e.endedAt ? format(new Date(e.endedAt), "h:mm a") : "now"
-                  } · ${e.action.name}${e.note ? ` · ${e.note}` : ""}`;
+                  } · ${toPlainText(e.action.name)}${e.note ? ` · ${e.note}` : ""}`;
                   return (
                     <Tooltip key={e.id} label={label} withArrow>
                       <button
@@ -368,7 +371,7 @@ function LaneTimeline({
                           width: `${Math.max(0.4, ((end - start) / 1440) * 100)}%`,
                         }}
                       >
-                        <span className="truncate">{e.action.name}</span>
+                        <span className="truncate">{toPlainText(e.action.name)}</span>
                         {isProposed && (
                           <Badge size="xs" variant="outline" color="yellow" ml={4} className="align-middle">
                             proposed
@@ -433,7 +436,7 @@ function ActionTicketTable({
               <Table.Tr key={r.actionId} data-unassigned={!r.ticket && !r.projectId}>
                 <Table.Td>
                   <Text size="sm" className="text-text-primary">
-                    {r.name}
+                    {toPlainText(r.name)}
                     {r.proposedCount > 0 && (
                       <Badge size="xs" variant="outline" color="yellow" ml={6} className="align-middle">
                         {r.proposedCount} proposed
@@ -527,7 +530,9 @@ function AssignPicker({ row, onAssigned }: { row: ActionRow; onAssigned: () => P
       await onAssigned();
       notifications.show({
         title: "Assigned",
-        message: remember ? `${row.name} is placed; the same title will land here next time.` : `${row.name} is placed.`,
+        message: remember
+          ? `${toPlainText(row.name)} is placed; the same title will land here next time.`
+          : `${toPlainText(row.name)} is placed.`,
         color: "green",
       });
     },
