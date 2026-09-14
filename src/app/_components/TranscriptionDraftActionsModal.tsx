@@ -15,6 +15,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { EditActionModal } from "./EditActionModal";
+import { HTMLContent } from "./HTMLContent";
 import type { RouterOutputs } from "~/trpc/react";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 
@@ -205,7 +206,9 @@ export function TranscriptionDraftActionsModal({
                       className="mt-1"
                     />
                     <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
-                      <Text fw={500}>{action.name}</Text>
+                      <Text fw={500} component="div">
+                        <HTMLContent html={action.name} compactUrls />
+                      </Text>
                       {action.description && (
                         <Text size="sm" c="dimmed">
                           {action.description}

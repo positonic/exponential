@@ -5,6 +5,7 @@ import { IconLink } from '@tabler/icons-react';
 import { useState } from 'react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { api } from '~/trpc/react';
+import { toPlainText } from '~/lib/content/plainText';
 
 interface DependencyPickerProps {
   selectedIds: string[];
@@ -125,8 +126,10 @@ export function DependencyPicker({ selectedIds, onChange, excludeActionId, works
                     onClick={() => handleAdd(action.id)}
                     className="rounded-md px-3 py-2 hover:bg-surface-hover transition-colors"
                   >
+                    {/* The row is a button and the label is single-line
+                        truncated, so a legacy-HTML name shows as its text. */}
                     <Text size="sm" lineClamp={1}>
-                      {action.name}
+                      {toPlainText(action.name) || 'Untitled'}
                     </Text>
                     {action.project && (
                       <Text size="xs" c="dimmed">

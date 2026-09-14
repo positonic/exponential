@@ -2,6 +2,9 @@ import type { CSSProperties } from "react";
 import { Stack, Text, Tooltip } from "@mantine/core";
 import { format } from "date-fns";
 
+import { HTMLContent } from "~/app/_components/HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
+
 import type { CalendarTimeEntry } from "./types";
 
 interface TimeEntryBlockProps {
@@ -27,12 +30,18 @@ export function CalendarTimeEntryBlock({
     ? format(new Date(entry.endedAt), "h:mm a")
     : "now";
 
+  // The tooltip line and the aria-label are single-line strings, so neither
+  // can render the legacy Tiptap HTML an Action name may still hold — they
+  // show the text a reader would see instead. The block body renders it, the
+  // way the scheduled-action block beside it does.
+  const plainName = toPlainText(entry.action.name) || "Untitled";
+
   return (
     <Tooltip
       label={
         <Stack gap={4}>
           <Text size="sm" fw={600}>
-            {entry.action.name}
+            {plainName}
           </Text>
           <Text size="xs">
             {format(new Date(entry.startedAt), "h:mm a")} – {endLabel}
@@ -51,7 +60,7 @@ export function CalendarTimeEntryBlock({
         style={{ ...style, cursor: onClick ? "pointer" : "default" }}
         onClick={() => onClick?.(entry)}
         role="button"
-        aria-label={`Time entry: ${entry.action.name}`}
+        aria-label={`Time entry: ${plainName}`}
       >
         <div className="flex items-center gap-1.5">
           {isRunning && (
@@ -76,7 +85,7 @@ export function CalendarTimeEntryBlock({
               wordBreak: "break-word",
             }}
           >
-            {entry.action.name}
+            <HTMLContent html={entry.action.name} className="text-text-inverse" compactUrls />
           </Text>
         </div>
         {height >= 35 && (

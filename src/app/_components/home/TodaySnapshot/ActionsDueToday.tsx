@@ -3,6 +3,7 @@
 import { Stack, Text, Group, Checkbox, Badge, Paper } from "@mantine/core";
 import { IconChecklist } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { toPlainText } from "~/lib/content/plainText";
 
 interface ActionsDueTodayProps {
   workspaceId?: string;
@@ -94,7 +95,9 @@ export function ActionsDueToday({ workspaceId }: ActionsDueTodayProps) {
                   }
                   lineClamp={1}
                 >
-                  {action.name}
+                  {/* Single-line truncated label: show the text of a
+                      legacy-HTML name, not its markup. */}
+                  {toPlainText(action.name) || "Untitled"}
                 </Text>
                 {action.isOverdue && (
                   <Badge size="xs" variant="light" color="gray">

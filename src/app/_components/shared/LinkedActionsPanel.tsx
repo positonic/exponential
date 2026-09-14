@@ -16,6 +16,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { api } from "~/trpc/react";
 import { CreateActionModal } from "~/app/_components/CreateActionModal";
 import { EditActionModal, type Action } from "~/app/_components/EditActionModal";
+import { toPlainText } from "~/lib/content/plainText";
 
 /**
  * The Actions block — linked action rows plus one "Link or create an
@@ -104,7 +105,9 @@ function ActionRow({
         onClick={(e) => { e.stopPropagation(); onOpen(action); }}
         className={`flex-1 min-w-0 truncate text-left text-sm ${isDone ? "line-through opacity-30" : "text-text-primary"}`}
       >
-        {action.name}
+        {/* An UnstyledButton is a <button>: it cannot hold the anchor a legacy
+            HTML name carries, so it shows that name's text. */}
+        {toPlainText(action.name) || "Untitled"}
       </UnstyledButton>
 
       {/* Assignees */}

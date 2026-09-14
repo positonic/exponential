@@ -6,6 +6,8 @@ import { type CalendarEvent } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction } from "./calendar/types";
 import { useMemo } from "react";
 import { stripHtml } from "~/lib/utils";
+import { HTMLContent } from "./HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 
 interface CalendarDayViewProps {
   events: CalendarEvent[];
@@ -324,7 +326,9 @@ export function CalendarDayView({
               key={action.id}
               label={
                 <Stack gap={4}>
-                  <Text size="sm" fw={600}>{action.name}</Text>
+                  {/* A tooltip line is a single-line label: it shows the text
+                      of a legacy-HTML Action name, not its markup. */}
+                  <Text size="sm" fw={600}>{toPlainText(action.name) || 'Untitled'}</Text>
                   <Text size="xs">
                     {format(new Date(action.scheduledStart), 'h:mm a')}
                     {action.duration && ` (${action.duration} min)`}
@@ -383,7 +387,7 @@ export function CalendarDayView({
                         overflow: 'hidden',
                       }}
                     >
-                      {action.name}
+                      <HTMLContent html={action.name} compactUrls />
                     </Text>
 
                     {height >= 35 && (

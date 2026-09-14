@@ -27,6 +27,7 @@ import { CreateGoalModal } from "./CreateGoalModal";
 import { ProjectCalendarCard } from "./ProjectCalendarCard";
 import { ProjectOverviewTimeline } from "./ProjectOverviewTimeline";
 import styles from "./ProjectOverviewLegacy.module.css";
+import { toPlainText } from "~/lib/content/plainText";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
@@ -347,7 +348,11 @@ export function ProjectOverviewLegacy({ project, goals }: ProjectOverviewLegacyP
                       )}
                     </div>
                     <div className={styles.actionBody}>
-                      <div className={styles.actionTitle}>{action.name}</div>
+                      {/* The row is a <button>, so the title shows the text
+                          of a legacy-HTML name rather than nesting its anchor. */}
+                      <div className={styles.actionTitle}>
+                        {toPlainText(action.name) || "Untitled"}
+                      </div>
                       <div className={styles.actionMeta}>
                         <span className={styles.actionMetaTag}>
                           {action.priority ?? "Action"}

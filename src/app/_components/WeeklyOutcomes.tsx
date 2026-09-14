@@ -5,6 +5,7 @@ import { api } from "~/trpc/react";
 import { Text, Group, Title, Container, ScrollArea, Badge, Button, Select, Loader, Alert } from "@mantine/core";
 import { IconChevronDown, IconChevronRight, IconPlus, IconCalendarWeek, IconAlertCircle } from "@tabler/icons-react";
 import { WeeklyOutcomeModal } from "./WeeklyOutcomeModal";
+import { HTMLContent } from "./HTMLContent";
 import Link from "next/link";
 
 
@@ -343,8 +344,8 @@ export function WeeklyOutcomes({ projectId }: WeeklyOutcomesProps) {
                                     <div className="space-y-2">
                                       {outcome.relatedActions.slice(0, 3).map((action) => (
                                         <div key={action.id} className="flex items-center justify-between p-2 rounded bg-surface-primary border border-border-primary">
-                                          <Text size="sm" className="text-text-primary flex-1">
-                                            {action.name}
+                                          <Text size="sm" component="div" className="text-text-primary flex-1">
+                                            <HTMLContent html={action.name} compactUrls />
                                           </Text>
                                           <Group gap="xs">
                                             <Badge size="xs" variant="light" color={action.priority === 'HIGH' ? 'red' : action.priority === 'MEDIUM' ? 'orange' : 'cyan'}>

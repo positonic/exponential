@@ -23,6 +23,7 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { toPlainText } from "~/lib/content/plainText";
 import { format } from "date-fns";
 
 interface MorningBriefingProps {
@@ -172,8 +173,10 @@ export function MorningBriefing({ workspaceId, compact = false }: MorningBriefin
                 {briefing.overdueActions.map((action) => (
                   <div key={action.id} className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-red-500" />
+                    {/* Single-line truncated label: show the text of a
+                        legacy-HTML name, not its markup. */}
                     <Text className="text-text-primary text-sm flex-1" lineClamp={1}>
-                      {action.name}
+                      {toPlainText(action.name) || "Untitled"}
                     </Text>
                     {action.projectName && (
                       <Text className="text-text-muted text-xs">{action.projectName}</Text>
@@ -239,8 +242,10 @@ export function MorningBriefing({ workspaceId, compact = false }: MorningBriefin
                 {briefing.actionsDueToday.map((action) => (
                   <div key={action.id} className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    {/* Single-line truncated label: show the text of a
+                        legacy-HTML name, not its markup. */}
                     <Text className="text-text-primary text-sm flex-1" lineClamp={1}>
-                      {action.name}
+                      {toPlainText(action.name) || "Untitled"}
                     </Text>
                     {action.projectName && (
                       <Text className="text-text-muted text-xs">{action.projectName}</Text>

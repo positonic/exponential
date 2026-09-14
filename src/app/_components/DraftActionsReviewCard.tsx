@@ -16,6 +16,7 @@ import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react";
 import { EditActionModal } from "./EditActionModal";
+import { HTMLContent } from "./HTMLContent";
 
 type DraftAction =
   RouterOutputs["action"]["getDraftByTranscription"][number];
@@ -203,7 +204,9 @@ export function DraftActionsReviewCard({
                   className="mt-1"
                 />
                 <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
-                  <Text fw={500}>{action.name}</Text>
+                  <Text fw={500} component="div">
+                    <HTMLContent html={action.name} compactUrls />
+                  </Text>
                   {action.description && (
                     <Text size="sm" c="dimmed">
                       {action.description}

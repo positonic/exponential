@@ -175,7 +175,7 @@ export function TimeEntryDragOverlay({ entry }: { entry: CalendarTimeEntry }) {
         className="text-text-inverse"
         style={{ fontSize: "11px" }}
       >
-        {entry.action.name}
+        <HTMLContent html={entry.action.name} className="text-text-inverse" compactUrls />
       </Text>
       <Text size="xs" className="text-text-inverse" style={{ fontSize: "10px", opacity: 0.85 }}>
         {format(new Date(entry.startedAt), "h:mm a")}
