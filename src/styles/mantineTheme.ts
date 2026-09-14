@@ -102,13 +102,22 @@ const dateInputStyles = {
   ...calendarStyles,
 };
 
+// The calendar popover has to read as a panel floating above whatever hosts
+// it. `bg-elevated` is also the Modal surface (see the Modal entry below), so
+// inside a modal the dropdown is the same colour as its host and the only
+// things separating the two are this edge and this shadow - both overlay
+// tokens from globals.css, both deliberately stronger than the generic
+// Popover entry's. A call site must NOT pass its own `popoverProps`: Mantine
+// merges defaultProps shallowly, so doing so replaces this whole object and
+// the calendar goes back to floating on nothing. Use the shared
+// `DateTimeField` component instead, which forbids the prop outright.
 const datePopoverProps = {
   popoverProps: {
     styles: {
       dropdown: {
         backgroundColor: 'var(--color-bg-elevated)',
-        borderColor: 'var(--color-border-primary)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+        borderColor: 'var(--color-border-overlay)',
+        boxShadow: 'var(--shadow-overlay)',
       },
     },
   },
@@ -316,16 +325,15 @@ const componentStyles = {
     styles: dateInputStyles,
   },
 
+  // The `timeInput` selector is the TimeInput WRAPPER, not the field, so
+  // painting it here did nothing visible and the clock at the foot of the
+  // dropdown kept Mantine's stock grey input. The field itself is
+  // `.mantine-TimeInput-input`, and input surfaces live in the "Input
+  // surface" block of globals.css for the reasons documented at the top of
+  // this file.
   DateTimePicker: {
     defaultProps: datePopoverProps,
-    styles: {
-      ...dateInputStyles,
-      timeInput: {
-        backgroundColor: 'var(--color-bg-secondary)',
-        color: 'var(--color-text-primary)',
-        borderColor: 'var(--color-border-primary)',
-      },
-    },
+    styles: dateInputStyles,
   },
 
   DatePickerInput: {

@@ -240,11 +240,27 @@ Rules:
   and never add `backgroundColor`/`color` to `day` in the theme. Mantine `styles` render as
   inline styles, and an inline value on a day cell silently beats every `[data-selected]` /
   `[data-today]` rule — that is how a selected day became invisible.
+- Never pass `popoverProps` at a call site either. Mantine merges theme `defaultProps` SHALLOWLY
+  (`{...defaults, ...props}`), so any `popoverProps` object — even one as innocent as
+  `{ withinPortal: true }`, which is Mantine's default anyway — replaces the theme's
+  `datePopoverProps` wholesale and the dropdown loses its edge and shadow. That matters most
+  inside a `Modal`, whose content is painted with the same `--color-bg-elevated` as the dropdown:
+  with nothing separating them the month grid appears to float directly on the modal.
 - Size-only overrides (day width/height, font size) at a call site are fine.
 - Adding a new dates component? Add its static selector to the `:is()` lists — don't copy a block.
 - Form fields with quick options ("Today / Tomorrow / Next week") use `UnifiedDatePicker`
-  (single date) or `DeadlinePicker` (date + time). Filters and range inputs use Mantine's
-  `DatePickerInput` directly; it inherits the same calendar.
+  (single date) or `DeadlinePicker` (date + time). Date **and time** in one field uses the shared
+  `DateTimeField` (`src/app/_components/DateTimeField.tsx`), which wraps `DateTimePicker`, takes
+  a plain `Date | null`, and makes `popoverProps` a type error so the rule above cannot be broken
+  by accident. Filters and range inputs use Mantine's `DatePickerInput` directly; it inherits the
+  same calendar.
+
+### Issue: A popover/dropdown is invisible against the surface behind it
+`--color-bg-elevated` is both the Modal surface and the Popover surface, so an overlay opened
+inside a modal has no colour difference to rely on. Overlay chrome has its own tokens in
+`globals.css` — `--color-border-overlay` (a step lighter than `--color-border-primary`) and
+`--shadow-overlay` — and the `@mantine/dates` popover uses them. Reach for those rather than
+recolouring the dropdown's background, which only moves the clash to a different host surface.
 
 ### Issue: Component doesn't respond to theme changes
 **Solution:** Check that:
