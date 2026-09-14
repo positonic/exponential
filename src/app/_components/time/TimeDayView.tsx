@@ -436,7 +436,7 @@ function ActionTicketTable({
               <Table.Tr key={r.actionId} data-unassigned={!r.ticket && !r.projectId}>
                 <Table.Td>
                   <Text size="sm" className="text-text-primary">
-                    {toPlainText(r.name)}
+                    {toPlainText(r.name) || "Untitled"}
                     {r.proposedCount > 0 && (
                       <Badge size="xs" variant="outline" color="yellow" ml={6} className="align-middle">
                         {r.proposedCount} proposed
