@@ -96,6 +96,33 @@ async function loadDecisionSubject(
   return decision;
 }
 
+/**
+ * An action is linkable when it sits in the workspace — directly or through
+ * its project. Same reach as `action.searchForDependencies`, which feeds the
+ * picker, so nothing offered there is refused here.
+ */
+async function assertActionsInWorkspace(
+  db: PrismaClient,
+  workspaceId: string,
+  actionIds: string[],
+): Promise<string[]> {
+  if (actionIds.length === 0) return [];
+  const rows = await db.action.findMany({
+    where: {
+      id: { in: actionIds },
+      OR: [{ workspaceId }, { project: { workspaceId } }],
+    },
+    select: { id: true },
+  });
+  if (rows.length !== new Set(actionIds).size) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Action not found in this workspace",
+    });
+  }
+  return rows.map((row) => row.id);
+}
+
 /** Throwing wrapper around the decision resolver for one row. */
 async function ensureDecisionAccess(
   db: PrismaClient,
@@ -431,6 +458,8 @@ export const decisionRouter = createTRPCRouter({
         keyResultId: z.string().nullable().optional(),
         deciders: z.array(deciderSchema).max(50).optional(),
         evidence: z.array(evidenceTurnSchema).max(50).optional(),
+        /** "Implemented by" actions picked in the create form. */
+        actionIds: z.array(z.string()).max(50).optional(),
       }),
     )
     .use(requireWorkspaceMembership("edit"))
@@ -503,8 +532,14 @@ export const decisionRouter = createTRPCRouter({
         }
         evidence = checked.kept.length > 0 ? checked.kept : undefined;
       }
+      const actionIds = await assertActionsInWorkspace(
+        ctx.db,
+        input.workspaceId,
+        input.actionIds ?? [],
+      );
       const decision = await createDecision(ctx.db, {
         ...input,
+        actionIds,
         evidence,
         createdById: ctx.session.user.id,
       });
@@ -593,6 +628,21 @@ export const decisionRouter = createTRPCRouter({
         decisionId: subject.id,
         userId: ctx.session.user.id,
         featureId: feature.id,
+      });
+    }),
+
+  /** "Implemented by": link an action from this workspace. */
+  linkAction: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string(), actionId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      await assertActionsInWorkspace(ctx.db, input.workspaceId, [input.actionId]);
+      return linkEntity(ctx.db, {
+        decisionId: subject.id,
+        userId: ctx.session.user.id,
+        actionId: input.actionId,
       });
     }),
 

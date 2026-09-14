@@ -181,6 +181,38 @@ export const actionRouter = createTRPCRouter({
       return action;
     }),
 
+  /**
+   * The rows behind a set of action ids, for surfaces that hold ids rather
+   * than actions — the "Log a decision" modal stages its linked actions
+   * client-side until the decision itself exists. Access-scoped like every
+   * other read; ids the caller may not see are simply absent.
+   */
+  getByIds: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).max(50) }))
+    .query(async ({ ctx, input }) => {
+      if (input.ids.length === 0) return [];
+      return ctx.db.action.findMany({
+        where: {
+          id: { in: input.ids },
+          status: { notIn: ["DELETED", "DRAFT"] },
+          ...buildActionAccessWhere(ctx.session.user.id),
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          kanbanStatus: true,
+          priority: true,
+          dueDate: true,
+          projectId: true,
+          assignees: {
+            select: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+        },
+      });
+    }),
+
   getByTranscription: protectedProcedure
     .input(
       z.object({

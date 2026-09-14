@@ -51,6 +51,12 @@ export interface CreateDecisionInput {
   /** When omitted for a meeting-linked decision, the meeting's participants. */
   deciders?: DecisionDeciderInput[];
   evidence?: DecisionEvidenceTurn[];
+  /**
+   * "Implemented by" actions staged in the create form. The caller checks
+   * they belong to the workspace before handing them over (the same
+   * contract every other id on this input has).
+   */
+  actionIds?: string[];
 }
 
 /** Dedupe deciders on email (the DB unique) and drop blank names. */
@@ -117,6 +123,24 @@ export const decisionDetailInclude = {
         },
       },
       feature: { select: { id: true, name: true, status: true } },
+      // Everything the shared Actions block renders for a row.
+      action: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          kanbanStatus: true,
+          priority: true,
+          dueDate: true,
+          projectId: true,
+          assignees: {
+            select: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+        },
+      },
       createdBy: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "asc" },
@@ -264,6 +288,8 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
       : [];
   }
 
+  const actionIds = [...new Set(input.actionIds ?? [])];
+
   const evidence = (input.evidence ?? []).map((turn) => ({
     turnIndex: turn.turnIndex,
     speaker: turn.speaker ?? null,
@@ -304,6 +330,16 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
                 userId: d.userId ?? null,
                 name: d.name,
                 email: d.email ?? null,
+              })),
+            }
+          : undefined,
+        // Actions linked in the create form land with the decision, so a
+        // half-written decision can never outlive a failed link.
+        links: actionIds.length
+          ? {
+              create: actionIds.map((actionId) => ({
+                actionId,
+                createdById: input.createdById,
               })),
             }
           : undefined,
@@ -996,18 +1032,20 @@ export interface LinkEntityInput {
   userId: string;
   ticketId?: string | null;
   featureId?: string | null;
+  actionId?: string | null;
 }
 
 /**
- * "Implemented by": link a ticket or feature to a decision (DecisionLink
- * mirrors AdrTicketLink). Idempotent — an existing link is returned, and a
- * race past the findFirst is settled by the DB unique.
+ * "Implemented by": link a ticket, feature or action to a decision
+ * (DecisionLink mirrors AdrTicketLink). Idempotent — an existing link is
+ * returned, and a race past the findFirst is settled by the DB unique.
  */
 export async function linkEntity(db: PrismaClient, input: LinkEntityInput) {
   const where = {
     decisionId: input.decisionId,
     ticketId: input.ticketId ?? null,
     featureId: input.featureId ?? null,
+    actionId: input.actionId ?? null,
   };
   const existing = await db.decisionLink.findFirst({ where });
   if (existing) return existing;

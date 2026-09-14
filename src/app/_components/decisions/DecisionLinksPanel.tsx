@@ -32,6 +32,8 @@ interface DecisionLinkRow {
     status: string;
   } | null;
   feature: { id: string; name: string; status: string } | null;
+  /** The third arm of DecisionLink; rendered by DecisionActionsPanel. */
+  action: { id: string } | null;
 }
 
 interface DecisionLinksPanelProps {
@@ -44,9 +46,11 @@ interface DecisionLinksPanelProps {
 export function DecisionLinksPanel({
   workspaceId,
   decisionId,
-  links,
+  links: allLinks,
   canEdit,
 }: DecisionLinksPanelProps) {
+  // Actions share the DecisionLink table but have their own block.
+  const links = allLinks.filter((l) => l.action === null);
   const utils = api.useUtils();
   const [adding, setAdding] = useState(false);
   const [productId, setProductId] = useState<string | null>(null);
