@@ -84,7 +84,7 @@ export function WorkspaceTopbar() {
   const section = getSectionCrumb(pathname, workspaceSlug);
 
   return (
-    <div className={styles.topbar}>
+    <div className={styles.topbar} data-print="hide">
       <div className={styles.crumb}>
         <IconFolder size={14} stroke={1.75} style={{ color: 'var(--color-text-muted)' }} />
         <Link href={`/w/${workspaceSlug}`} className={styles.crumbRoot}>

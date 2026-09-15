@@ -2,13 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ActionIcon, Skeleton, Text, TextInput, Tooltip } from '@mantine/core';
+import { Skeleton, Text, TextInput } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
+import {
+  PageActionsMenu,
+  FULL_WIDTH_STORAGE_KEY,
+} from '~/app/_components/pages/PageActionsMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
@@ -28,11 +31,21 @@ function PageTitle({
   const [title, setTitle] = useState(initialTitle);
   const utils = api.useUtils();
   const updateTitle = api.page.update.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       void utils.page.list.invalidate();
       // Favourite titles are resolved live from the page, so a rename should
       // show up in the sidebar immediately.
       void utils.favorite.list.invalidate();
+      // Patch the cached page rather than invalidating it: everything else on
+      // this route (the actions menu's delete gate, Copy markdown) reads the
+      // same `page.get` entry, and a refetch would swap `bodyDoc`/`docVersion`
+      // under the open editor.
+      const renamed = vars.title;
+      if (renamed) {
+        utils.page.get.setData({ id: pageId }, (old) =>
+          old ? { ...old, title: renamed } : old,
+        );
+      }
     },
   });
 
@@ -82,12 +95,6 @@ function PageTitle({
   );
 }
 
-/** Reading-column width preference. Pages default to the same centred column
- * the published (/p/...) render uses; "Full width" is the opt-in. Stored per
- * browser (not on the page) so it stays a reader-side view preference rather
- * than something one editor imposes on everyone. */
-const FULL_WIDTH_STORAGE_KEY = 'pages:full-width';
-
 function PageEditorContent({
   pageId,
   workspaceSlug,
@@ -96,7 +103,9 @@ function PageEditorContent({
   workspaceSlug: string;
 }) {
   const { data: page, isLoading, error } = api.page.get.useQuery({ id: pageId });
-  const [fullWidth, setFullWidth] = useLocalStorage({
+  // Read-only here: the toggle itself lives in the Page actions menu, which
+  // writes the same key.
+  const [fullWidth] = useLocalStorage({
     key: FULL_WIDTH_STORAGE_KEY,
     defaultValue: false,
   });
@@ -153,31 +162,15 @@ function PageEditorContent({
   }
 
   return (
-    <div className={`${widthClass} px-6 py-8`}>
+    // The reading column; `data-print="column"` lets the print stylesheet
+    // widen exactly this element without guessing at Tailwind classes.
+    <div className={`${widthClass} px-6 py-8`} data-print="column">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
         </div>
-        <div className="flex items-center gap-2">
-          <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              aria-label={fullWidth ? 'Use narrow width' : 'Use full width'}
-              aria-pressed={fullWidth}
-              // Value form, not the updater form: Mantine's setter writes to
-              // localStorage *inside* the state updater, and React replays
-              // updaters, which would persist the toggle a second time and
-              // land back on the old value.
-              onClick={() => setFullWidth(!fullWidth)}
-            >
-              {fullWidth ? (
-                <IconViewportNarrow size={18} />
-              ) : (
-                <IconViewportWide size={18} />
-              )}
-            </ActionIcon>
-          </Tooltip>
+        {/* Chrome, not content: Print / Save as PDF drops this row. */}
+        <div className="flex items-center gap-2" data-print="hide">
           <FavoriteButton
             entityType="page"
             entityId={`pages/${page.id}`}
@@ -186,12 +179,21 @@ function PageEditorContent({
           />
           <PageShareMenu
             pageId={page.id}
-            workspaceSlug={workspaceSlug}
             isPublic={page.isPublic}
             publicId={page.publicId}
             publicSlug={page.publicSlug}
             publicSeoIndexed={page.publicSeoIndexed}
             canEdit={page.canEdit}
+          />
+          <PageActionsMenu
+            pageId={page.id}
+            pageTitle={page.title}
+            workspaceId={page.workspaceId}
+            workspaceSlug={workspaceSlug}
+            projectId={page.projectId}
+            includeInSearch={page.includeInSearch}
+            canEdit={page.canEdit}
+            getDoc={() => editorHandleRef.current?.editor?.getJSON() ?? null}
           />
         </div>
       </div>
