@@ -10,6 +10,7 @@ import { Extension, type Editor, type Range } from "@tiptap/core";
 import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
 import { ReactRenderer } from "@tiptap/react";
 import { Paper, Text, UnstyledButton } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconH1,
   IconH2,
@@ -18,11 +19,19 @@ import {
   IconListCheck,
   IconListNumbers,
   IconCode,
+  IconPhoto,
   IconQuote,
+  IconSeparator,
   IconTable,
+  IconTypography,
   type TablerIcon,
 } from "@tabler/icons-react";
 import tippy, { type Instance, type GetReferenceClientRect } from "tippy.js";
+import {
+  pickImageFile,
+  uploadImageFile,
+  type UploadImage,
+} from "./image-upload";
 
 /**
  * `/` slash-command block menu for the PRD editor (ADR-0024 Tier B). Built on
@@ -39,6 +48,13 @@ export interface SlashCommandItem {
 }
 
 const COMMANDS: SlashCommandItem[] = [
+  {
+    title: "Text",
+    description: "Plain paragraph",
+    icon: IconTypography,
+    run: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setParagraph().run(),
+  },
   {
     title: "Heading 1",
     description: "Big section heading",
@@ -96,6 +112,13 @@ const COMMANDS: SlashCommandItem[] = [
       editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
   },
   {
+    title: "Divider",
+    description: "Horizontal rule",
+    icon: IconSeparator,
+    run: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
+  },
+  {
     title: "Table",
     description: "Insert a table with a header row",
     icon: IconTable,
@@ -108,6 +131,91 @@ const COMMANDS: SlashCommandItem[] = [
         .run(),
   },
 ];
+
+/**
+ * The `/image` block: pick a file, push it through the host's uploader, drop
+ * the returned URL in as an `image` node. Only offered when the host supplied
+ * an uploader — without one the command would have nowhere to put the bytes.
+ *
+ * The range is deleted up front so the `/image` text doesn't sit in the doc
+ * while the file dialog is open. Everything after that is a long await — an OS
+ * dialog, then a base64 upload of up to 5MB — and the document stays fully
+ * editable throughout, so the insert has to be careful about *where* it lands:
+ *
+ *  - after the caret's top-level block, never at the caret. `image` is a block
+ *    node, and inserting one at an inline position splits whatever the user is
+ *    now typing in — a paragraph, or worse, a code block — in half.
+ *  - not at all if the editor is gone. The upload succeeded and the blob is
+ *    stored either way, so say so rather than dropping it silently.
+ *  - without stealing focus, which by now may be in another editor entirely.
+ */
+function imageCommand(upload: UploadImage): SlashCommandItem {
+  return {
+    title: "Image",
+    description: "Upload an image",
+    icon: IconPhoto,
+    run: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      void (async () => {
+        const file = await pickImageFile();
+        if (!file) return;
+        const url = await uploadImageFile(file, upload, {
+          reportWrongType: true,
+        });
+        if (!url) return;
+        if (editor.isDestroyed) {
+          notifications.show({
+            title: "Image not inserted",
+            message: "The page was closed before the upload finished.",
+            color: "yellow",
+          });
+          return;
+        }
+        const { $from } = editor.state.selection;
+        // depth 0 is the doc, so depth 1 is the top-level block the caret sits
+        // in (or under). `after` is the position just past it.
+        const at = $from.depth > 0 ? $from.after(1) : editor.state.doc.content.size;
+        editor.chain().insertContentAt(at, { type: "image", attrs: { src: url } }).run();
+      })();
+    },
+  };
+}
+
+/**
+ * Narrow the block list to what the user has typed after `/`.
+ *
+ * Substring, not prefix: "list" should reach "Bullet list" and "Task list",
+ * and "div" should reach "Divider" — a prefix match makes you know the first
+ * word of a block's name before you can find it. Case-insensitive both ways.
+ *
+ * Two things temper it, because `/` is live inside prose (the suggestion
+ * plugin fires after any space) and Enter runs whatever is selected:
+ *
+ *  - a single character matches prefixes only, so a stray "/1" mid-sentence
+ *    can't put "Heading 1" under the Enter key;
+ *  - prefix matches sort above substring ones, so "/task" selects "Task list"
+ *    rather than whichever block merely contains the word.
+ *
+ * Exported for its unit test; the extension is the only production caller.
+ */
+export function filterSlashCommands(
+  items: SlashCommandItem[],
+  query: string,
+): SlashCommandItem[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return items;
+
+  const prefixed = items.filter((item) =>
+    item.title.toLowerCase().startsWith(needle),
+  );
+  if (needle.length < 2) return prefixed;
+
+  const contained = items.filter(
+    (item) =>
+      !prefixed.includes(item) && item.title.toLowerCase().includes(needle),
+  );
+  return [...prefixed, ...contained];
+}
 
 interface SlashCommandListProps {
   items: SlashCommandItem[];
@@ -126,6 +234,11 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
 
     useImperativeHandle(ref, () => ({
       onKeyDown: ({ event }) => {
+        // Nothing to move through or run, but the menu is still open on
+        // "No matches" — swallow navigation rather than modulo by zero.
+        if (items.length === 0) {
+          return ["ArrowUp", "ArrowDown", "Enter"].includes(event.key);
+        }
         if (event.key === "ArrowUp") {
           setSelected((s) => (s + items.length - 1) % items.length);
           return true;
@@ -137,13 +250,13 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
         if (event.key === "Enter") {
           const item = items[selected];
           if (item) command(item);
+          // Swallow Enter even with nothing to run, so it can't break the
+          // line under an open menu that is showing "No matches".
           return true;
         }
         return false;
       },
     }));
-
-    if (items.length === 0) return null;
 
     return (
       <Paper
@@ -153,6 +266,14 @@ const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
         p={4}
         className="bg-surface-secondary max-h-72 w-72 overflow-y-auto"
       >
+        {/* An empty list used to unmount the popup, which read as "the menu
+            closed" — indistinguishable from a typo having cancelled it.
+            Saying so keeps the `/` mode visible until Escape or a match. */}
+        {items.length === 0 ? (
+          <Text size="sm" className="text-text-muted px-2 py-1.5">
+            No matches
+          </Text>
+        ) : null}
         {items.map((item, index) => {
           const Icon = item.icon;
           return (
@@ -240,6 +361,8 @@ const suggestion: Omit<SuggestionOptions<SlashCommandItem>, "editor" | "items"> 
 export interface SlashCommandOptions {
   /** Host-injected commands appended after the built-in block commands. */
   extraCommands: SlashCommandItem[];
+  /** Enables the `/image` block. Same uploader the paste/drop path uses. */
+  uploadImage?: UploadImage;
 }
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -252,10 +375,17 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
       Suggestion({
         editor: this.editor,
         ...suggestion,
-        items: ({ query }) =>
-          [...COMMANDS, ...this.options.extraCommands].filter((item) =>
-            item.title.toLowerCase().startsWith(query.toLowerCase()),
-          ),
+        items: ({ query }) => {
+          const upload = this.options.uploadImage;
+          return filterSlashCommands(
+            [
+              ...COMMANDS,
+              ...(upload ? [imageCommand(upload)] : []),
+              ...this.options.extraCommands,
+            ],
+            query,
+          );
+        },
       }),
     ];
   },

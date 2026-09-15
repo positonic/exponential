@@ -76,6 +76,58 @@ describe("PRD document codec", () => {
       expect(docToMarkdown(doc)).toBe("![shot](https://blob.example/shot.png)");
     });
 
+    it("strike round-trips as ~~", () => {
+      const md = "A ~~struck~~ word.";
+      expect(roundTrip(md)).toBe(md);
+    });
+
+    it("underline and highlight round-trip through their HTML tags", () => {
+      // Markdown has no syntax for either, so the projection is <u>/<mark>
+      // (see ~/lib/prd/marks). Pinned exactly: an off-editor reader — the
+      // CLI, an agent, the public render — sees this string.
+      const md = "An <u>underlined</u> and <mark>highlighted</mark> word.";
+      expect(roundTrip(md)).toBe(md);
+      // Stable on a second pass: the tags parse back to marks, not to text.
+      expect(roundTrip(roundTrip(md))).toBe(md);
+    });
+
+    it("serialises doc-authored underline and highlight marks", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", marks: [{ type: "underline" }], text: "under" },
+              { type: "text", text: " " },
+              { type: "text", marks: [{ type: "highlight" }], text: "high" },
+            ],
+          },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe("<u>under</u> <mark>high</mark>");
+    });
+
+    it("a divider round-trips as a thematic break", () => {
+      const md = "Above\n\n---\n\nBelow";
+      const out = roundTrip(md);
+      expect(out).toContain("Above");
+      expect(out).toContain("Below");
+      expect(out).toMatch(/\n-{3,}\n/);
+      // And a doc-authored horizontalRule node serialises to the same break,
+      // which is what the `/divider` slash command inserts.
+      const doc = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Above" }] },
+          { type: "horizontalRule" },
+          { type: "paragraph", content: [{ type: "text", text: "Below" }] },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe(out);
+      expect(roundTrip(out)).toBe(out);
+    });
+
     it("nested lists survive and serialise stably", () => {
       const md = ["- Parent", "  - Child", "  - Child 2", "- Sibling"].join("\n");
       const out = roundTrip(md);

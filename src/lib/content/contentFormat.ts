@@ -17,9 +17,19 @@ import { gfm } from "turndown-plugin-gfm";
 
 export type ContentType = "html" | "markdown" | "text";
 
-/** Matches a recognisable block/inline HTML tag produced by the legacy editors. */
+/**
+ * Matches a recognisable HTML tag produced by the legacy editors.
+ *
+ * `u` and `mark` are deliberately absent. Markdown has no syntax for underline
+ * or highlight, so the canonical Markdown projection emits `<u>` and `<mark>`
+ * for them (see `~/lib/prd/marks`) — their presence is evidence of *our own
+ * Markdown*, not of legacy HTML, and treating a Markdown document as HTML
+ * because it underlines one word renders its headings and lists as literal
+ * text. They are still parsed on the HTML read path when a real tag puts a
+ * document there.
+ */
 const HTML_TAG_PATTERN =
-  /<(?:p|div|span|br|a|strong|em|b|i|u|s|ul|ol|li|h[1-6]|table|thead|tbody|tr|th|td|img|blockquote|pre|code|hr|mark)\b[^>]*>/i;
+  /<(?:p|div|span|br|a|strong|em|b|i|s|ul|ol|li|h[1-6]|table|thead|tbody|tr|th|td|img|blockquote|pre|code|hr)\b[^>]*>/i;
 
 /** Common Markdown constructs. Any one is enough to treat the string as Markdown. */
 const MARKDOWN_PATTERNS: RegExp[] = [
