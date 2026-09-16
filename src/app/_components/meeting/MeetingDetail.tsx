@@ -40,6 +40,8 @@ interface MeetingDetailProps {
   /** True while a summary is being auto-generated on view for this meeting. */
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
+  /** Rename the meeting; the header only offers in-place editing to editors. */
+  onRenameTitle: (title: string) => Promise<void>;
   onMeetingDateChange: (value: Date | null) => void;
   /** Place the meeting onto a project (null clears placement). */
   onProjectChange: (projectId: string | null) => void;
@@ -80,6 +82,7 @@ export function MeetingDetail({
   isIdeatingFeatures,
   isGeneratingSummary,
   onSaveSummary,
+  onRenameTitle,
   onMeetingDateChange,
   onProjectChange,
   onCreateActions,
@@ -371,6 +374,7 @@ export function MeetingDetail({
       <div className="meeting-detail">
         <MeetingHeader
           title={session.title ?? "Meeting"}
+          onRenameTitle={session.canEdit ? onRenameTitle : undefined}
           meetingType={vm.meetingType}
           dateLabel={dateLabel}
           timeLabel={timeLabel}

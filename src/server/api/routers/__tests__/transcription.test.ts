@@ -930,6 +930,8 @@ describe("transcription router (mocked) — getById feature links", () => {
 
     expect(result.featureLinks).toHaveLength(1);
     expect(result.canLinkFeatures).toBe(true);
+    // An editor gets the in-place title rename on the meeting page.
+    expect(result.canEdit).toBe(true);
   });
 
   it("strips links for a viewer outside the workspace (e.g. an attendee)", async () => {
@@ -945,6 +947,8 @@ describe("transcription router (mocked) — getById feature links", () => {
 
     expect(result.featureLinks).toEqual([]);
     expect(result.canLinkFeatures).toBe(false);
+    // An attendee can view but not rename.
+    expect(result.canEdit).toBe(false);
   });
 });
 
@@ -997,6 +1001,7 @@ describe("transcription router (mocked) — getDetail / getTranscript", () => {
     expect(result.talkTime).toEqual({ Ana: "25%", Ben: "75%" });
     expect(result.featureLinks).toHaveLength(1);
     expect(result.canLinkFeatures).toBe(true);
+    expect(result.canEdit).toBe(true);
   });
 
   it("strips feature links for a viewer outside the workspace", async () => {
@@ -1012,6 +1017,7 @@ describe("transcription router (mocked) — getDetail / getTranscript", () => {
 
     expect(result.featureLinks).toEqual([]);
     expect(result.canLinkFeatures).toBe(false);
+    expect(result.canEdit).toBe(false);
   });
 
   it("refuses the detail and the transcript to a non-viewer", async () => {

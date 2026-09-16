@@ -221,7 +221,8 @@ const meetingDetailInclude = {
  * viewer may see and link its Features. Features are workspace-member-visible,
  * but meeting viewers reach a meeting by attendance or project membership too,
  * so links are stripped for anyone outside the workspace — and only editors
- * who are members may link. The access and membership reads run in parallel.
+ * who are members may link. `canEdit` gates in-place edits such as renaming.
+ * The access and membership reads run in parallel.
  */
 async function resolveMeetingViewerAccess(
   db: PrismaClient,
@@ -232,7 +233,7 @@ async function resolveMeetingViewerAccess(
     projectId: string | null;
     workspaceId: string | null;
   },
-): Promise<{ isWorkspaceMember: boolean; canLinkFeatures: boolean }> {
+): Promise<{ isWorkspaceMember: boolean; canLinkFeatures: boolean; canEdit: boolean }> {
   const [access, projectSessionMembership] = await Promise.all([
     getTranscriptionAccess(db, userId, session),
     // A project-less session's access check already resolves workspace
@@ -252,9 +253,11 @@ async function resolveMeetingViewerAccess(
   const isWorkspaceMember = session.projectId
     ? Boolean(projectSessionMembership)
     : access.workspaceRole !== null;
+  const canEdit = canEditTranscription(access);
   return {
     isWorkspaceMember,
-    canLinkFeatures: isWorkspaceMember && canEditTranscription(access),
+    canLinkFeatures: isWorkspaceMember && canEdit,
+    canEdit,
   };
 }
 
@@ -760,13 +763,14 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      const { isWorkspaceMember, canLinkFeatures } =
+      const { isWorkspaceMember, canLinkFeatures, canEdit } =
         await resolveMeetingViewerAccess(ctx.db, ctx.session.user.id, session);
 
       return {
         ...session,
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures,
+        canEdit,
       };
     }),
 
@@ -797,7 +801,7 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      const { isWorkspaceMember, canLinkFeatures } =
+      const { isWorkspaceMember, canLinkFeatures, canEdit } =
         await resolveMeetingViewerAccess(ctx.db, ctx.session.user.id, session);
 
       const { transcription, sentencesJson, analyticsJson, notes: _notes, ...rest } =
@@ -807,6 +811,7 @@ export const transcriptionRouter = createTRPCRouter({
         ...rest,
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures,
+        canEdit,
         hasTranscript: Boolean(transcription),
         // Same canonical parser the Transcript tab renders with (ADR-0032).
         transcriptTurnCount: parseTranscript({
@@ -1017,7 +1022,7 @@ export const transcriptionRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        title: z.string(),
+        title: z.string().trim().min(1, "Title is required"),
       }),
     )
     .mutation(async ({ ctx, input }) => {

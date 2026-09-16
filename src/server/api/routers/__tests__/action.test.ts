@@ -145,6 +145,7 @@ vi.mock("~/server/services/parsing", () => ({
 import { createMockCaller } from "~/test/trpc-helpers";
 import { createCaller } from "~/server/api/root";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { buildActionAccessWhere } from "~/server/services/access";
 
 describe("action router (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -704,17 +705,112 @@ describe("action router (mocked)", () => {
         workspaceId,
       });
 
-      expect(result).toHaveLength(1);
-      // Ownership scope is dropped: no createdById in the where clause, but
-      // the workspace OR filter is applied.
+      expect(result).toEqual([{ id: "a1", name: "Found" }]);
+      // Ownership scope is dropped: no createdById at the top level.
       const where = dbMock.action.findMany.mock.calls[0]![0]!.where!;
       expect(where).not.toHaveProperty("createdById");
+      // The filters that were there before the access clause are untouched.
       expect(where).toMatchObject({
-        OR: [
-          { workspaceId },
-          { project: { workspaceId } },
-        ],
+        name: { contains: "Fo", mode: "insensitive" },
+        status: { notIn: ["COMPLETED", "CANCELLED", "DELETED"] },
       });
+    });
+
+    it("AND-s the workspace scope with the action access clause", async () => {
+      stubMembership(true);
+      dbMock.action.findMany.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.searchForDependencies({ query: "Fo", workspaceId });
+
+      const where = dbMock.action.findMany.mock.calls[0]![0]!.where!;
+      // Both halves are OR-shaped. Spread into one object, the second OR would
+      // overwrite the first and widen the search - so neither may sit at the
+      // top level; they have to be explicit AND operands.
+      expect(where).not.toHaveProperty("OR");
+      expect(where.AND).toEqual([
+        { OR: [{ workspaceId }, { project: { workspaceId } }] },
+        buildActionAccessWhere(callerId),
+      ]);
+    });
+
+    it("does not return a restricted-project action the member has no path into", async () => {
+      stubMembership(true);
+
+      // A member-role caller, and an action in a restricted project they
+      // didn't create, aren't assigned to, and aren't a project member of.
+      const restricted = {
+        id: "secret",
+        name: "Fo secret",
+        workspaceId,
+        createdById: "someone-else",
+        assignees: [] as { userId: string }[],
+        project: {
+          workspaceId,
+          isRestricted: true,
+          isPublic: false,
+          createdById: "someone-else",
+          projectMembers: [] as { userId: string }[],
+          workspace: { members: [{ userId: callerId, role: "member" }] },
+        },
+      };
+      const open = {
+        id: "open",
+        name: "Fo open",
+        workspaceId,
+        createdById: "someone-else",
+        assignees: [] as { userId: string }[],
+        project: {
+          workspaceId,
+          isRestricted: false,
+          isPublic: false,
+          createdById: "someone-else",
+          projectMembers: [] as { userId: string }[],
+          workspace: { members: [{ userId: callerId, role: "member" }] },
+        },
+      };
+      type Row = typeof restricted;
+
+      // Evaluate the access clause's paths against the rows, so the mock only
+      // returns what the real query would.
+      const readable = (row: Row) =>
+        row.createdById === callerId ||
+        row.assignees.some((a) => a.userId === callerId) ||
+        row.project.createdById === callerId ||
+        row.project.projectMembers.some((m) => m.userId === callerId) ||
+        row.project.isPublic ||
+        (!row.project.isRestricted &&
+          row.project.workspace.members.some((m) => m.userId === callerId)) ||
+        (row.project.isRestricted &&
+          row.project.workspace.members.some(
+            (m) => m.userId === callerId && ["owner", "admin"].includes(m.role),
+          ));
+
+      dbMock.action.findMany.mockImplementation((async (args: {
+        where: { AND?: unknown[] };
+      }) => {
+        // Only filter when the access clause is actually in the query; without
+        // it the query would hand back every workspace row.
+        const hasAccessClause = (args.where.AND ?? []).some(
+          (clause) =>
+            JSON.stringify(clause) ===
+            JSON.stringify(buildActionAccessWhere(callerId)),
+        );
+        const rows = [restricted, open];
+        return (hasAccessClause ? rows.filter(readable) : rows).map((r) => ({
+          id: r.id,
+          name: r.name,
+        }));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.searchForDependencies({
+        query: "Fo",
+        workspaceId,
+      });
+
+      expect(result.map((r) => r.id)).toEqual(["open"]);
     });
 
     it("rejects a non-member with FORBIDDEN", async () => {

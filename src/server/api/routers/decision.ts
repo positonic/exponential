@@ -105,11 +105,10 @@ async function loadDecisionSubject(
  * everyone who can see the decision, so linking one out of a restricted
  * project would publish it to people the project deliberately excludes.
  *
- * `action.searchForDependencies`, which feeds the picker, checks workspace
- * membership only — so it can still offer an action this refuses. That is
- * the safe direction of the mismatch; the search wants the same clause
- * (see the PR notes), but narrowing a picker several other surfaces share
- * does not belong in this change.
+ * `action.searchForDependencies`, which feeds the picker, applies this same
+ * workspace-plus-access clause on top of its membership check, so the picker
+ * only offers actions this accepts. Keep the two in step: if one narrows or
+ * widens, the other has to follow.
  */
 async function assertLinkableActions(
   db: PrismaClient,
