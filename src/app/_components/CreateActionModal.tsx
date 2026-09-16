@@ -25,16 +25,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | undefined>(initProjectId || undefined);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
-  const [dueDate, setDueDate] = useState<Date | null>(() => {
-    // If we're on the /today or /workspace page, default to today's date
-    const lowerViewName = viewName.toLowerCase();
-    if (lowerViewName === 'today' || lowerViewName === 'workspace') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return today;
-    }
-    return null;
-  });
+  const [dueDate, setDueDate] = useState<Date | null>(() => defaultDueDateForView(viewName));
   const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
@@ -344,16 +335,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     // Reset projectId to initial value (current project if on project page)
     setProjectId(initProjectId || undefined);
     setPriority("Quick");
-    // Reset dueDate to today if on /today or /workspace page, otherwise null
-    setDueDate(() => {
-      const lowerView = viewName.toLowerCase();
-      if (lowerView === 'today' || lowerView === 'workspace') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return today;
-      }
-      return null;
-    });
+    setDueDate(defaultDueDateForView(viewName));
     setScheduledStart(null);
     setDuration(null);
     setSelectedAssigneeIds([]);
@@ -521,4 +503,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       />
     </>
   );
+}
+
+// Today / workspace views default a new action to today, the Tomorrow tab to
+// tomorrow; everywhere else starts undated.
+function defaultDueDateForView(viewName: string): Date | null {
+  const lowerView = viewName.toLowerCase();
+  const offset =
+    lowerView === 'today' || lowerView === 'workspace' ? 0 : lowerView === 'tomorrow' ? 1 : null;
+  if (offset === null) return null;
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + offset);
+  return date;
 }

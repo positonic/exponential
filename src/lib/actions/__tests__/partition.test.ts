@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  groupUpcomingByDay,
   overdueAnchor,
   partitionActions,
   type PartitionableAction,
@@ -246,5 +247,52 @@ describe("overdueAnchor", () => {
     const anchor = overdueAnchor({ scheduledStart: at("2026-06-26"), dueDate: null });
     expect(anchor?.getHours()).toBe(0);
     expect(anchor?.getMinutes()).toBe(0);
+  });
+});
+
+describe("groupUpcomingByDay", () => {
+  it("groups ACTIVE actions from tomorrow on by their do-day, in date order", () => {
+    const set = [
+      action({ id: "later", dueDate: at("2026-07-03") }),
+      action({ id: "tomorrow-due", dueDate: at("2026-06-30") }),
+      action({ id: "tomorrow-sched", scheduledStart: at("2026-06-30", "15:00:00.000Z") }),
+      action({ id: "today", dueDate: at("2026-06-29") }),
+      action({ id: "overdue", dueDate: at("2026-06-20") }),
+      action({ id: "undated" }),
+      action({ id: "done", status: "COMPLETED", dueDate: at("2026-06-30") }),
+    ];
+
+    const groups = groupUpcomingByDay(set, { today: TODAY });
+
+    expect(groups.map((g) => g.actions.map((a) => a.id).sort())).toEqual([
+      ["tomorrow-due", "tomorrow-sched"],
+      ["later"],
+    ]);
+    expect(groups[0]?.day.getHours()).toBe(0);
+  });
+
+  it("lets the schedule win over the due date, like partitionActions", () => {
+    const moved = action({
+      id: "moved",
+      scheduledStart: at("2026-07-02"),
+      dueDate: at("2026-06-30"),
+    });
+    const groups = groupUpcomingByDay([moved], { today: TODAY });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.day.getDate()).toBe(new Date(at("2026-07-02")).getDate());
+  });
+
+  it("its first group is the Tomorrow tab: partitionActions shifted a day", () => {
+    const set = [
+      action({ id: "a", dueDate: at("2026-06-30") }),
+      action({ id: "b", scheduledStart: at("2026-06-30"), dueDate: at("2026-06-25") }),
+      action({ id: "c", scheduledStart: at("2026-07-01") }),
+    ];
+    const tomorrow = new Date(TODAY);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const first = groupUpcomingByDay(set, { today: TODAY })[0]?.actions ?? [];
+    const shifted = partitionActions(set, { today: tomorrow }).todays;
+    expect(first.map((a) => a.id)).toEqual(shifted.map((a) => a.id));
   });
 });
