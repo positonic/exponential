@@ -7,15 +7,13 @@ import {
   IconSparkles,
   IconCopy,
   IconPencil,
-  IconCheck,
-  IconAlertCircle,
   IconPlus,
   IconRefresh,
   IconBulb,
 } from "@tabler/icons-react";
-import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { ActionsList } from "~/app/_components/actions/ActionsList";
 import type { MeetingViewModel } from "~/lib/meeting-view-model";
@@ -185,7 +183,9 @@ export function SummaryTab({
               <FirefliesSummaryDisplay summary={vm.firefliesSummary} />
             ) : vm.plainSummary ? (
               <div className="mp-tldr__text">
-                <SmartContentRenderer content={vm.plainSummary} />
+                {/* Freeform summaries are markdown or plain text; the canonical
+                    renderer handles both (ADR-0017). */}
+                <MarkdownRenderer content={vm.plainSummary} variant="compact" />
               </div>
             ) : isGeneratingSummary ? (
               <p
@@ -234,22 +234,6 @@ export function SummaryTab({
             <span className="mp-sec__rule" />
           </div>
         </section>
-      )}
-
-      {/* ===== Decisions / Open questions (dormant until AI extraction lands) ===== */}
-      {(vm.decisions.length > 0 || vm.questions.length > 0) && (
-        <div className="mp-twocard">
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--decision">
-              <IconCheck size={11} /> Decisions
-            </div>
-          </div>
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--question">
-              <IconAlertCircle size={11} /> Open questions
-            </div>
-          </div>
-        </div>
       )}
 
       {/* ===== Actions ===== */}

@@ -1149,7 +1149,7 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.workspaceInvitation.findMany({
+      const invitations = await ctx.db.workspaceInvitation.findMany({
         where: {
           workspaceId: input.workspaceId,
           status: "pending",
@@ -1161,6 +1161,14 @@ export const workspaceRouter = createTRPCRouter({
         },
         orderBy: { createdAt: "desc" },
       });
+
+      // Built server-side, like the invitation email's link. The client used to
+      // read NEXT_PUBLIC_APP_URL, which production doesn't set, so "Copy invite
+      // link" handed out http://localhost:3000/invite/<token>.
+      return invitations.map((invitation) => ({
+        ...invitation,
+        inviteUrl: generateInviteUrl(invitation.token),
+      }));
     }),
 
   // Cancel a pending invitation

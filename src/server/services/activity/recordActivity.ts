@@ -16,7 +16,17 @@ export type ActivityAction =
   | "synced"
   | "reverted"
   | "checked_in"
-  | "deleted";
+  | "deleted"
+  // Decision lifecycle (ADR-0060): each terminal transition is its own
+  // action so the feed reads as a lifecycle rather than "status changed".
+  | "accepted"
+  | "superseded"
+  | "deprecated"
+  | "confirmed"
+  /** A recorded meeting was linked to a ceremony occurrence (ADR-0059). */
+  | "captured"
+  /** An occurrence's agenda was generated and sent to its participants (ADR-0059). */
+  | "agenda_circulated";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -44,7 +54,9 @@ export type ActivityEntityType =
   | "meeting"
   | "time_entry"
   | "channel_summary"
-  | "ticket_sync_run";
+  | "ticket_sync_run"
+  | "decision"
+  | "ceremony_occurrence";
 
 export interface RecordActivityInput {
   workspaceId: string;

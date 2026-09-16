@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Group, Paper, Select, Stack, Text, Title } from "@mantine/core";
+import { Badge, Group, Paper, SegmentedControl, Select, Stack, Text, Title, Tooltip } from "@mantine/core";
 import { DatePickerInput } from "@mantine/dates";
 import {
   endOfDay,
@@ -15,7 +15,9 @@ import {
 import { api } from "~/trpc/react";
 import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
 import { TimeReports } from "./TimeReports";
+import { TimeDayView } from "./TimeDayView";
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
+import { flagForgottenTimers } from "~/lib/time/forgottenTimer";
 
 // Stable reference so the `entries` memo doesn't re-run on every render when
 // the query is undefined (a fresh `[]` literal would change identity).
@@ -55,6 +57,10 @@ export function TimePageContent() {
 
   const [selectedEntry, setSelectedEntry] = useState<CalendarTimeEntry | null>(null);
   const [modalOpened, setModalOpened] = useState(false);
+  // Day: the worklog's day view (dayReport). Week: the list this page has
+  // always shown. Both open the same TimeEntryModal.
+  const [view, setView] = useState<"day" | "week">("week");
+  const [day, setDay] = useState<Date>(() => startOfDay(new Date()));
 
   const startDate = range[0] ?? startOfWeek(new Date(), { weekStartsOn: 1 });
   const endDate = endOfDay(range[1] ?? endOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -131,6 +137,15 @@ export function TimePageContent() {
           </Text>
         </div>
         <Group gap="sm">
+          <SegmentedControl
+            value={view}
+            onChange={(v) => setView(v as "day" | "week")}
+            data={[
+              { label: "Day", value: "day" },
+              { label: "Week", value: "week" },
+            ]}
+            size="sm"
+          />
           <Select
             placeholder="All workspaces"
             value={workspaceId ?? ""}
@@ -139,18 +154,43 @@ export function TimePageContent() {
             allowDeselect={false}
             w={220}
           />
-          <DatePickerInput
-            type="range"
-            value={range}
-            onChange={(v) =>
-              setRange([v[0] ? new Date(v[0]) : null, v[1] ? new Date(v[1]) : null])
-            }
-            valueFormat="MMM D"
-            w={260}
-          />
+          {/* Keyed: without one React reconciles these two into a single
+              DatePickerInput whose `type` flips between "default" and
+              "range", which trips Mantine's own type-change guard (a console
+              error, and a value reset for an uncontrolled picker). */}
+          {view === "day" ? (
+            <DatePickerInput
+              key="day"
+              value={day}
+              onChange={(v) => v && setDay(startOfDay(new Date(v)))}
+              valueFormat="ddd, MMM D"
+              w={180}
+            />
+          ) : (
+            <DatePickerInput
+              key="range"
+              type="range"
+              value={range}
+              onChange={(v) =>
+                setRange([v[0] ? new Date(v[0]) : null, v[1] ? new Date(v[1]) : null])
+              }
+              valueFormat="MMM D"
+              w={260}
+            />
+          )}
         </Group>
       </Group>
 
+      {view === "day" ? (
+        <TimeDayView
+          date={day}
+          workspaceId={workspaceId}
+          onEntryClick={(e) => {
+            setSelectedEntry(e);
+            setModalOpened(true);
+          }}
+        />
+      ) : (
       <Paper
         p="md"
         radius="md"
@@ -174,6 +214,9 @@ export function TimePageContent() {
                   }),
                 0,
               );
+              // A manual entry ending over an hour after the day's last other
+              // activity is probably a Timer nobody stopped: flagged, never edited.
+              const forgotten = flagForgottenTimers(group.entries);
               return (
                 <div key={group.date.toISOString()}>
                   <Group justify="space-between" mb="xs">
@@ -191,18 +234,26 @@ export function TimePageContent() {
                         endedAt: e.endedAt ? new Date(e.endedAt) : null,
                       });
                       const isRunning = e.endedAt === null;
+                      const isProposed = e.status === "PROPOSED";
                       return (
                         <button
                           key={e.id}
                           type="button"
-                          className="flex w-full items-center justify-between rounded border border-border-primary bg-background-primary px-3 py-2 text-left hover:bg-surface-hover"
+                          data-status={e.status}
+                          className={`flex w-full items-center justify-between rounded border border-border-primary bg-background-primary px-3 py-2 text-left hover:bg-surface-hover ${
+                            isProposed ? "border-dashed" : ""
+                          }`}
                           onClick={() => {
                             setSelectedEntry(e);
                             setModalOpened(true);
                           }}
                         >
                           <div className="min-w-0 flex-1">
+                            {/* `component="div"`: Text is a <p> by default and
+                                the Badges below it are <div>s, which is invalid
+                                HTML and a hydration error. */}
                             <Text
+                              component="div"
                               size="sm"
                               className="truncate text-text-primary"
                               fw={500}
@@ -213,12 +264,43 @@ export function TimePageContent() {
                                   · running
                                 </span>
                               )}
+                              {isProposed && (
+                                <Badge
+                                  size="xs"
+                                  variant="outline"
+                                  color="yellow"
+                                  ml={8}
+                                  className="align-middle"
+                                >
+                                  proposed
+                                </Badge>
+                              )}
+                              {forgotten.has(e.id) && (
+                                <Tooltip
+                                  label="Ends more than an hour after your last recorded activity that day. Left as you made it; edit it if the timer ran on."
+                                  withArrow
+                                  multiline
+                                  w={280}
+                                >
+                                  <Badge
+                                    size="xs"
+                                    variant="light"
+                                    color="orange"
+                                    ml={8}
+                                    className="align-middle"
+                                    data-flag="forgotten-timer"
+                                  >
+                                    forgotten timer?
+                                  </Badge>
+                                </Tooltip>
+                              )}
                             </Text>
                             <Text size="xs" c="dimmed">
                               {format(new Date(e.startedAt), "h:mm a")} –{" "}
                               {e.endedAt
                                 ? format(new Date(e.endedAt), "h:mm a")
                                 : "now"}
+                              {e.note ? ` · ${e.note}` : ""}
                             </Text>
                           </div>
                           <Text size="sm" className="font-mono" c="dimmed">
@@ -235,7 +317,9 @@ export function TimePageContent() {
         )}
       </Paper>
 
-      <TimeReports entries={entries} projectNames={projectNames} />
+      )}
+
+      {view === "week" && <TimeReports entries={entries} projectNames={projectNames} />}
 
       <TimeEntryModal
         entry={selectedEntry}

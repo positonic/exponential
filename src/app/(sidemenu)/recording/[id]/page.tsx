@@ -163,6 +163,76 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     generateDraftsMutation.mutate({ transcriptionId: session.id });
   }
 
+  // Decisions (ADR-0060): the same deterministic-then-review shape. Drafts
+  // land in the summary tab's Decisions block, where they are confirmed or
+  // rejected; nothing reaches the Decision Log until then.
+  const extractDecisionsMutation = api.decision.extractDrafts.useMutation({
+    onSuccess: (result) => {
+      if (!session) return;
+      void utils.decision.listForMeeting.invalidate({ transcriptionSessionId: session.id });
+      // Partial transcript coverage is a caveat on a successful run, not a
+      // failure — say so plainly rather than leaving the count unexplained.
+      for (const warning of result.warnings ?? []) {
+        notifications.show({
+          title: "Part of the transcript was not read",
+          message: warning,
+          color: "yellow",
+          autoClose: 10_000,
+        });
+      }
+      if (result.alreadyPublished) {
+        notifications.show({
+          title: "Decisions already logged",
+          message: "This meeting already has confirmed decisions.",
+          color: "orange",
+        });
+        return;
+      }
+      if (result.draftCount === 0) {
+        notifications.show({
+          title: "No decisions found",
+          message:
+            result.discardedWithoutEvidence > 0
+              ? "Candidates were found but none could be backed by a transcript turn."
+              : "No decisions were detected in this meeting.",
+          color: "gray",
+        });
+        return;
+      }
+      // Review card in the Zoe drawer, same as draft Actions: self-contained
+      // by meeting id, so it survives a reload and mirrors the summary tab.
+      const transcriptionId = session.id;
+      setMessages((prev) => {
+        const alreadyHasCard = prev.some(
+          (m) => m.card?.kind === "draft-decisions" && m.card.transcriptionId === transcriptionId,
+        );
+        if (alreadyHasCard) return prev;
+        const cardMessage: ChatMessage = {
+          type: "ai",
+          agentName: "Zoe",
+          content: result.alreadyDrafted
+            ? "Here are the draft decisions from this meeting — confirm the ones that were really made."
+            : `I found ${result.draftCount} draft ${result.draftCount === 1 ? "decision" : "decisions"} in this meeting — each quotes the transcript. Confirm the ones that were really made.`,
+          card: { kind: "draft-decisions", transcriptionId },
+        };
+        return [...prev, cardMessage];
+      });
+      openModal();
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message.length > 0 ? error.message : "Failed to extract decisions",
+        color: "red",
+      });
+    },
+  });
+
+  function handleExtractDecisions() {
+    if (!session) return;
+    extractDecisionsMutation.mutate({ transcriptionSessionId: session.id });
+  }
+
   // Same deterministic-then-review shape as Create Actions, one level up the
   // altitude ladder: an Action is a task, a Feature is a product capability.
   // Nothing is written to the feature registry until the card's accept step.
@@ -312,6 +382,8 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       onCreateActions={handleCreateActions}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
+      onExtractDecisions={handleExtractDecisions}
+      isExtractingDecisions={extractDecisionsMutation.isPending}
       onArchive={handleArchive}
     />
   );

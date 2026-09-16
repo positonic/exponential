@@ -1,0 +1,73 @@
+/**
+ * `blockers`: participants' ACTIVE actions that are past due, plus actions
+ * carrying a blocked marker (`blockedByIds`), in the ceremony's workspace
+ * (narrowed to its project when set). Unassigned overdue actions in the
+ * project count too — a standup is where they get an owner.
+ */
+import type { AgendaItem, SectionModule } from "../types";
+
+const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+
+export const blockersSection: SectionModule = {
+  type: "blockers",
+  async run(ctx, section) {
+    // Fail closed. With neither participants nor a project there is nothing
+    // to narrow on, and the query would return 50 arbitrary overdue actions
+    // from the whole workspace — which the narration then presents as this
+    // team's blockers. A template-created ceremony with nobody added yet is
+    // the default shape, so this is the first agenda a new user sees.
+    if (ctx.participantUserIds.length === 0 && !ctx.ceremony.projectId) return [];
+
+    // Narrowed to the participants when the ceremony has any — plus actions
+    // nobody owns, which the standup exists to give an owner (see the module
+    // docstring). Without that third branch an unassigned action created by a
+    // non-participant never reaches the agenda.
+    const participantOr = ctx.participantUserIds.length
+      ? [
+          { assignees: { some: { userId: { in: ctx.participantUserIds } } } },
+          { createdById: { in: ctx.participantUserIds } },
+          { assignees: { none: {} } },
+        ]
+      : null;
+    const actions = await ctx.db.action.findMany({
+      where: {
+        status: "ACTIVE",
+        workspaceId: ctx.workspaceId,
+        ...(ctx.ceremony.projectId ? { projectId: ctx.ceremony.projectId } : {}),
+        OR: [{ dueDate: { lt: ctx.now } }, { blockedByIds: { isEmpty: false } }],
+        ...(participantOr ? { AND: [{ OR: participantOr }] } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        dueDate: true,
+        blockedByIds: true,
+        projectId: true,
+        // The action rolls up to its project's objective, when the project has one (goal chip).
+        project: { select: { goals: { select: { id: true, title: true }, take: 1 } } },
+        assignees: { select: { user: { select: { id: true, name: true } } } },
+      },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+      take: 50,
+    });
+    return actions.map<AgendaItem>((a, index) => {
+      const reasons: string[] = [];
+      if (a.dueDate && a.dueDate < ctx.now) reasons.push(`due ${a.dueDate.toLocaleDateString("en-GB", dateFmt)}`);
+      if (a.blockedByIds.length > 0) reasons.push(`blocked by ${a.blockedByIds.length} action${a.blockedByIds.length === 1 ? "" : "s"}`);
+      const owners = a.assignees.map((x) => x.user.name).filter((n): n is string => Boolean(n));
+      const goal = a.project?.goals[0] ?? null;
+      return {
+        id: `${section.key}:action:${a.id}`,
+        sectionKey: section.key,
+        title: a.name,
+        refType: "action",
+        refId: a.id,
+        goalId: goal?.id ?? null,
+        goalTitle: goal?.title ?? null,
+        order: index,
+        detail: [reasons.join(", "), owners.length ? owners.join(", ") : "unassigned"].join(" · "),
+        href: `${ctx.workspacePath}/actions/${a.id}`,
+      };
+    });
+  },
+};

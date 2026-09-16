@@ -23,6 +23,7 @@ import {
   Skeleton,
   Tooltip,
   Kbd,
+  Select,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
@@ -242,14 +243,12 @@ function projectTagClass(projectId: string): { bg: string; text: string; dot: st
   return PROJECT_TAG_VARIANTS[hash % PROJECT_TAG_VARIANTS.length]!;
 }
 
-function PeekTranscript({
-  transcription,
-  provider,
+function AiSummaryDisclosure({
   onContainerClick,
+  children,
 }: {
-  transcription: string;
-  provider?: string;
   onContainerClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
+  children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -264,18 +263,9 @@ function PeekTranscript({
           size={11}
           className={`transition-transform ${open ? "rotate-180" : "rotate-0"}`}
         />
-        <span>{open ? "Hide transcript" : "Peek at transcript"}</span>
+        <span>{open ? "Hide AI summary" : "Show AI summary"}</span>
       </button>
-      {open && (
-        <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
-          <TranscriptView
-            variant="preview"
-            transcription={transcription}
-            provider={provider}
-            previewCount={2}
-          />
-        </div>
-      )}
+      {open && <div className="mt-2.5">{children}</div>}
     </div>
   );
 }
@@ -519,6 +509,14 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const [activeTab, setActiveTab] = useState<TabValue>("all");
+  // Ceremony filter (ADR-0059): narrows every tab to meetings attached to an
+  // occurrence of the chosen ceremony. Client-side over the cached list, like
+  // the integration filter, so the tab counts stay in step.
+  const [selectedCeremonyId, setSelectedCeremonyId] = useState<string | null>(null);
+  const { data: ceremonies = [] } = api.ceremony.list.useQuery(
+    { workspaceId: workspaceId ?? "", includeInactive: true },
+    { enabled: Boolean(workspaceId) },
+  );
   const [_successMessages, setSuccessMessages] = useState<Record<string, string>>({}); // transcriptionId -> message (kept for future sync-status UI)
   const [_syncingToIntegration, setSyncingToIntegration] = useState<string | null>(null); // transcriptionId being synced to external integration
   
@@ -539,23 +537,28 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
-  const { data: transcriptions, isLoading } = api.transcription.getAllTranscriptions.useQuery(
-    { workspaceId },
+  // One card-shaped fetch covers every tab: active and archived meetings are
+  // split client-side from the same rows, so the page pays the list query
+  // once per mount instead of twice. `getMeetingCards` leaves transcript and
+  // notes bodies on the server; the details modal loads them via `getById`.
+  const meetingCardsInput = { includeArchived: true, workspaceId };
+  const { data: allMeetingCards, isLoading } = api.transcription.getMeetingCards.useQuery(
+    meetingCardsInput,
     {
       refetchOnMount: shouldUseCachedTranscriptions ? false : undefined,
       refetchOnWindowFocus: shouldUseCachedTranscriptions ? false : undefined,
       staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
     }
   );
-  const { data: archivedTranscriptions, isLoading: isLoadingArchived } = api.transcription.getAllTranscriptions.useQuery(
-    { includeArchived: true, workspaceId },
-    {
-      select: (data) => data.filter(t => t.archivedAt), // Only get archived ones
-      refetchOnMount: shouldUseCachedTranscriptions ? false : undefined,
-      refetchOnWindowFocus: shouldUseCachedTranscriptions ? false : undefined,
-      staleTime: shouldUseCachedTranscriptions ? 5 * 60 * 1000 : undefined,
-    }
+  const transcriptions = useMemo(
+    () => allMeetingCards?.filter((t) => !t.archivedAt),
+    [allMeetingCards],
   );
+  const archivedTranscriptions = useMemo(
+    () => allMeetingCards?.filter((t) => t.archivedAt),
+    [allMeetingCards],
+  );
+  const isLoadingArchived = isLoading;
   // Register lightweight page context for the AI agent. Counts only; the agent
   // fetches actual meetings on demand via its `get-meeting-transcriptions` tool.
   const meetingsPageContext = useMemo(() => {
@@ -605,7 +608,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     api.transcription.ensureMyMeetingSummaries.useMutation({
       onSuccess: (result) => {
         if (result.summarized > 0) {
-          void utils.transcription.getAllTranscriptions.invalidate();
+          void utils.transcription.getMeetingCards.invalidate();
         }
       },
     });
@@ -623,13 +626,13 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onMutate: async ({ transcriptionId, projectId }) => {
       // Cancel outgoing refetches
-      await utils.transcription.getAllTranscriptions.cancel();
+      await utils.transcription.getMeetingCards.cancel();
 
       // Snapshot previous value
-      const previousData = utils.transcription.getAllTranscriptions.getData({ workspaceId });
+      const previousData = utils.transcription.getMeetingCards.getData(meetingCardsInput);
 
       // Optimistically update the cache
-      utils.transcription.getAllTranscriptions.setData({ workspaceId }, (old) => {
+      utils.transcription.getMeetingCards.setData(meetingCardsInput, (old) => {
         if (!old) return old;
         return old.map((session) => {
           if (session.id === transcriptionId) {
@@ -654,7 +657,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     onError: (err, _variables, context) => {
       // Rollback on error
       if (context?.previousData) {
-        utils.transcription.getAllTranscriptions.setData({ workspaceId }, context.previousData);
+        utils.transcription.getMeetingCards.setData(meetingCardsInput, context.previousData);
       }
       notifications.show({
         title: 'Error',
@@ -670,7 +673,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
     },
     onSettled: () => {
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
   });
 
@@ -689,7 +692,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
           color: 'green',
         });
       }
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -709,7 +712,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -729,7 +732,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -747,7 +750,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         message: 'Meeting has been moved to archive',
         color: 'green',
       });
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -765,7 +768,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         message: 'Meeting has been restored from archive',
         color: 'green',
       });
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -785,7 +788,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       });
       // Clear selections and refresh data
       setSelectedTranscriptionIds(new Set());
-      void utils.transcription.getAllTranscriptions.invalidate();
+      void utils.transcription.getMeetingCards.invalidate();
     },
     onError: (error) => {
       notifications.show({
@@ -979,13 +982,20 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       );
     }
 
+    if (selectedCeremonyId) {
+      filtered = filtered.filter((session) => session.occurrence?.ceremonyId === selectedCeremonyId);
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       filtered = filtered.filter(session => {
         const title = (session.title ?? "").toLowerCase();
         const provider = session.sourceIntegration?.provider?.toLowerCase() ?? "";
-        const transcription = (session.transcription ?? "").toLowerCase();
-        return title.includes(q) || provider.includes(q) || transcription.includes(q);
+        const preview = session.transcriptPreview
+          .map((turn) => turn.text)
+          .join(" ")
+          .toLowerCase();
+        return title.includes(q) || provider.includes(q) || preview.includes(q);
       });
     }
 
@@ -1152,6 +1162,21 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 })}
               </Tabs.List>
               <Group gap={6} wrap="nowrap" className="shrink-0">
+                {workspaceId && ceremonies.length > 0 && (
+                  <Select
+                    size="xs"
+                    className="w-[200px]"
+                    styles={{ input: { height: 30, minHeight: 30 } }}
+                    placeholder="All ceremonies"
+                    aria-label="Filter by ceremony"
+                    data-testid="ceremony-filter"
+                    data={ceremonies.map((c) => ({ value: c.id, label: c.name }))}
+                    value={selectedCeremonyId}
+                    onChange={setSelectedCeremonyId}
+                    clearable
+                    searchable
+                  />
+                )}
                 <TextInput
                   leftSection={<IconSearch size={14} />}
                   placeholder="Search transcripts, people, topics..."
@@ -1319,7 +1344,6 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                         sessionId: session.sessionId,
                         title: session.title,
                         summary: session.summary,
-                        transcription: session.transcription,
                         project: session.project ? { id: session.project.id, name: session.project.name } : null,
                         actions: session.actions ?? [],
                       };
@@ -1531,42 +1555,35 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           </div>
                         </div>
 
-                        {/* Zoe gradient panel — leads the card with AI summary + Actions chip + Open transcript link */}
-                        <div className="mb-2.5 flex gap-2.5 rounded-lg border border-accent-meetings/20 bg-gradient-to-b from-accent-meetings/[0.06] to-accent-meetings/[0.02] px-3.5 py-3">
-                          <IconSparkles size={14} className="mt-0.5 shrink-0 text-accent-meetings" />
-                          <div className="min-w-0 flex-1">
-                            <p className="m-0 text-[13px] leading-[1.55] text-text-primary">
-                              {vm.highlight ?? "Summary not yet extracted."}
-                            </p>
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-background-primary px-2 py-[3px] text-[11px] font-medium text-brand-400">
-                                <IconCheckbox size={10} />
-                                <span className="font-semibold tabular-nums text-text-primary">
-                                  {vm.actionCount}
+                        {/* AI summary — collapsed by default; Zoe gradient panel with summary + Actions chip + Open transcript link */}
+                        <AiSummaryDisclosure onContainerClick={stopBubble}>
+                          <div className="flex gap-2.5 rounded-lg border border-accent-meetings/20 bg-gradient-to-b from-accent-meetings/[0.06] to-accent-meetings/[0.02] px-3.5 py-3">
+                            <IconSparkles size={14} className="mt-0.5 shrink-0 text-accent-meetings" />
+                            <div className="min-w-0 flex-1">
+                              <p className="m-0 text-[13px] leading-[1.55] text-text-primary">
+                                {vm.highlight ?? "Summary not yet extracted."}
+                              </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-background-primary px-2 py-[3px] text-[11px] font-medium text-brand-400">
+                                  <IconCheckbox size={10} />
+                                  <span className="font-semibold tabular-nums text-text-primary">
+                                    {vm.actionCount}
+                                  </span>
+                                  <span>action{vm.actionCount === 1 ? "" : "s"}</span>
                                 </span>
-                                <span>action{vm.actionCount === 1 ? "" : "s"}</span>
-                              </span>
-                              <span className="flex-1" />
-                              <Link
-                                href={detailHref}
-                                onClick={stopBubble}
-                                className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-text-muted hover:text-brand-400"
-                              >
-                                Open transcript
-                                <IconArrowRight size={11} />
-                              </Link>
+                                <span className="flex-1" />
+                                <Link
+                                  href={detailHref}
+                                  onClick={stopBubble}
+                                  className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-text-muted hover:text-brand-400"
+                                >
+                                  Open transcript
+                                  <IconArrowRight size={11} />
+                                </Link>
+                              </div>
                             </div>
                           </div>
-                        </div>
-
-                        {/* Peek at transcript — button toggles inline transcript block */}
-                        {session.transcription && (
-                          <PeekTranscript
-                            transcription={session.transcription}
-                            provider={provider}
-                            onContainerClick={stopBubble}
-                          />
-                        )}
+                        </AiSummaryDisclosure>
                       </div>
                       );
                     })}
@@ -1690,11 +1707,13 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           )}
 
                           {/* Meeting Preview */}
-                          {session.transcription && (
+                          {session.hasTranscript && (
                             <Paper p="sm" radius="sm" className="bg-gray-50 dark:bg-gray-800 opacity-75">
                               <TranscriptView
                                 variant="preview"
-                                transcription={session.transcription}
+                                transcription={null}
+                                turns={session.transcriptPreview}
+                                totalTurnCount={session.transcriptTurnCount}
                                 provider={session.sourceIntegration?.provider}
                                 previewCount={2}
                               />

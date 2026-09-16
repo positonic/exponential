@@ -471,6 +471,58 @@ describe("goal.getAllMyGoals filters", () => {
     expect(byStatus.map((g) => g.title)).toEqual(["Last quarter"]);
   });
 
+  // "Mine" on the goals page mirrors the OKR dashboard's DRI rule: creating
+  // the goal is not enough, being the DRI on it or one of its KRs is.
+  it("onlyMine keeps goals the caller is the DRI on, directly or via a key result", async () => {
+    const owner = await createUser(db);
+    const dri = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: owner.id });
+    await addWorkspaceMember(db, ws.id, dri.id);
+    await createGoal(db, {
+      userId: owner.id,
+      workspaceId: ws.id,
+      title: "Created by owner",
+    });
+    await createGoal(db, {
+      userId: owner.id,
+      workspaceId: ws.id,
+      title: "DRI on goal",
+      driUserId: dri.id,
+    });
+    const viaKr = await createGoal(db, {
+      userId: owner.id,
+      workspaceId: ws.id,
+      title: "DRI on a key result",
+    });
+    await db.keyResult.create({
+      data: {
+        goalId: viaKr.id,
+        userId: owner.id,
+        driUserId: dri.id,
+        workspaceId: ws.id,
+        title: "Owned KR",
+        startValue: 0,
+        currentValue: 0,
+        targetValue: 100,
+        period: "Q3-2026",
+      },
+    });
+
+    const mine = await createTestCaller(dri.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+      onlyMine: true,
+    });
+    expect(mine.map((g) => g.title).sort()).toEqual([
+      "DRI on a key result",
+      "DRI on goal",
+    ]);
+
+    const everyone = await createTestCaller(dri.id).goal.getAllMyGoals({
+      workspaceId: ws.id,
+    });
+    expect(everyone).toHaveLength(3);
+  });
+
   // A goal list with no progress number can't answer "which goal is starving",
   // which is the whole point of reading goals outside the app.
   it("resolves progress from the goal's key results", async () => {

@@ -121,8 +121,29 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
   recordActivity: vi.fn().mockResolvedValue(true),
 }));
 
+// Natural-language parsing is the quick-create caller's concern and has its
+// own tests; here it is a pass-through so the suite can pin what the router
+// does with the parse result.
+vi.mock("~/server/services/parsing", () => ({
+  parseActionInput: vi.fn(
+    async (
+      name: string,
+      _userId: string,
+      _db: unknown,
+      options?: { projectId?: string },
+    ) => ({
+      name: name.trim(),
+      scheduledStart: null,
+      dueDate: null,
+      projectId: options?.projectId ?? null,
+      parsingMetadata: null,
+    }),
+  ),
+}));
+
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import { createCaller } from "~/server/api/root";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 
 describe("action router (mocked)", () => {
@@ -131,6 +152,13 @@ describe("action router (mocked)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // `createAction` writes the row and its attachments in one interactive
+    // transaction; run the callback against the same mock so the per-model
+    // stubs below see the writes.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.$transaction.mockImplementation(async (arg: any) =>
+      typeof arg === "function" ? arg(dbMock) : Promise.all(arg),
+    );
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -142,17 +170,23 @@ describe("action router (mocked)", () => {
     const sessionId = "s1";
 
     /** Stub the workspace-membership and transcript-lookup probes used by
-     *  every successful path. Returns the membership object so tests can
-     *  override it if needed. */
-    function stubAuthChecks(opts?: { transcriptWorkspaceId?: string }) {
-      // Caller is a member of `workspaceId`
-      dbMock.workspaceUser.findUnique.mockResolvedValue({
-        userId: callerId,
-        workspaceId,
-        role: "member",
-        joinedAt: new Date(),
+     *  every successful path. Membership is keyed by user id, because the
+     *  same `workspaceUser.findUnique` serves the caller's write gate (the
+     *  router's up-front check and the module's per-item one) and the
+     *  assignee lookup in `findUserByEmailInWorkspace`. */
+    function stubAuthChecks(opts?: { transcriptWorkspaceId?: string; members?: string[] }) {
+      const members = opts?.members ?? [callerId];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+      dbMock.workspaceUser.findUnique.mockImplementation((args: any) => {
+        const userId = args?.where?.userId_workspaceId?.userId as string | undefined;
+        return Promise.resolve(
+          userId && members.includes(userId)
+            ? { userId, workspaceId, role: "member", joinedAt: new Date() }
+            : null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ) as any;
+      });
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
 
       // Transcript belongs to the same workspace by default
       dbMock.transcriptionSession.findUnique.mockResolvedValue({
@@ -163,40 +197,18 @@ describe("action router (mocked)", () => {
     }
 
     it("creates actions for all items, resolves user assignee to ActionAssignee", async () => {
-      stubAuthChecks();
-
       // findUserByEmailInWorkspace performs two lookups under the hood:
       //   db.user.findUnique(...) -> the user
       //   db.workspaceUser.findUnique(...) -> the membership
-      // The membership probe is the same call as the caller's auth check, so
-      // we use mockImplementation to disambiguate by where-clause.
+      // Jane is a member, so she resolves to a workspace user, not a participant.
       const memberId = "member-1";
+      stubAuthChecks({ members: [callerId, memberId] });
       dbMock.user.findUnique.mockResolvedValue({
         id: memberId,
         email: "jane@example.com",
         name: "Jane",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      // After resolveAssignee runs the membership lookup for the assignee,
-      // return a non-null record so the assignee is treated as a workspace
-      // user (not a participant).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const callerMembership: any = {
-        userId: callerId,
-        workspaceId,
-        role: "member",
-        joinedAt: new Date(),
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const assigneeMembership: any = {
-        userId: memberId,
-        workspaceId,
-        role: "member",
-        joinedAt: new Date(),
-      };
-      dbMock.workspaceUser.findUnique
-        .mockResolvedValueOnce(callerMembership) // bulkCreate auth check
-        .mockResolvedValueOnce(assigneeMembership); // findUserByEmailInWorkspace
 
       const createdAction = {
         id: "a1",
@@ -253,19 +265,14 @@ describe("action router (mocked)", () => {
     it("falls back to participant assignee when email is not a workspace user", async () => {
       stubAuthChecks();
 
-      // Email matches a User row, but that user is NOT in the workspace.
+      // Email matches a User row, but that user is NOT in the workspace
+      // (only the caller is stubbed as a member).
       dbMock.user.findUnique.mockResolvedValue({
         id: "external-user",
         email: "external@example.com",
         name: "External Person",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      // Caller's auth check returns the membership; assignee's membership
-      // probe returns null (not a workspace member).
-      dbMock.workspaceUser.findUnique
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .mockResolvedValueOnce({ userId: callerId, workspaceId, role: "member", joinedAt: new Date() } as any)
-        .mockResolvedValueOnce(null);
 
       // Existing participant matching the email
       dbMock.transcriptionSessionParticipant.findUnique.mockResolvedValue({
@@ -319,12 +326,6 @@ describe("action router (mocked)", () => {
 
       // No user with this email
       dbMock.user.findUnique.mockResolvedValue(null);
-      // Caller's membership only — second findUnique would be skipped because
-      // findUserByEmailInWorkspace returns early on null user.
-      dbMock.workspaceUser.findUnique.mockResolvedValueOnce(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { userId: callerId, workspaceId, role: "member", joinedAt: new Date() } as any,
-      );
 
       // No existing participant
       dbMock.transcriptionSessionParticipant.findUnique.mockResolvedValue(null);
@@ -421,6 +422,7 @@ describe("action router (mocked)", () => {
     it("rejects unauthorized workspace", async () => {
       // Caller is NOT a member of the workspace
       dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null as never);
 
       const caller = createMockCaller({ userId: "stranger", db: dbMock });
       await expect(
@@ -429,9 +431,11 @@ describe("action router (mocked)", () => {
           workspaceId,
           items: [{ description: "Nope", priority: "MEDIUM" }],
         }),
-      ).rejects.toThrow(TRPCError);
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-      // No action.create attempts when auth fails up-front
+      // Refused before any lookup: the transcript probe must not run for a
+      // stranger (it would confirm whether the id exists), and no row lands.
+      expect(dbMock.transcriptionSession.findUnique).not.toHaveBeenCalled();
       expect(dbMock.action.create).not.toHaveBeenCalled();
     });
 
@@ -1102,6 +1106,55 @@ describe("action router (mocked)", () => {
       expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
       expect(dbMock.action.create).toHaveBeenCalled();
     });
+
+    it("writes tags, assignees and sprint with the create in one transaction (V1 tracer)", async () => {
+      // A member creating in their own workspace; the tag, the colleague and
+      // the sprint all live there.
+      stubMembers([callerId, "user-colleague"]);
+      dbMock.tag.findMany.mockResolvedValue([{ id: "tag-1" }] as never);
+      dbMock.list.findUnique.mockResolvedValue({ id: "list-1", workspaceId } as never);
+      const row = { id: "a1", name: "Tracer", workspaceId, projectId: null, project: null };
+      dbMock.action.create.mockResolvedValue(row as never);
+      dbMock.action.findUniqueOrThrow.mockResolvedValue({
+        ...row,
+        tags: [{ tag: { id: "tag-1" } }],
+        assignees: [{ user: { id: "user-colleague" } }],
+      } as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Tracer",
+        workspaceId,
+        tagIds: ["tag-1"],
+        assigneeIds: ["user-colleague"],
+        sprintListId: "list-1",
+      });
+
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(dbMock.actionTag.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", tagId: "tag-1" }],
+      });
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: "user-colleague" }],
+      });
+      expect(dbMock.actionList.create).toHaveBeenCalledWith({
+        data: { actionId: "a1", listId: "list-1" },
+      });
+      expect(result.tags).toHaveLength(1);
+      expect(result.assignees).toHaveLength(1);
+    });
+
+    it("refuses a tag from another workspace through the procedure, leaving no row", async () => {
+      stubMembers([callerId]);
+      dbMock.tag.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.create({ name: "Tracer", workspaceId, tagIds: ["tag-foreign"] }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -1437,6 +1490,135 @@ describe("action router (mocked)", () => {
     });
   });
 
+  // ────────────────────────────────────────────────────────────────────
+  // quickCreate — the iOS shortcut / CLI path, now through createAction
+  // ────────────────────────────────────────────────────────────────────
+  describe("quickCreate", () => {
+    const callerId = "caller-1";
+
+    function stubUser() {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.user.findUnique.mockResolvedValue({ id: callerId } as any);
+    }
+
+    it("creates through the module and maps the legacy ios-shortcut default to source ios", async () => {
+      stubUser();
+      dbMock.action.create.mockResolvedValue({
+        id: "a1",
+        name: "Call John",
+        priority: "Quick",
+        status: "ACTIVE",
+        dueDate: null,
+        project: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.quickCreate({ name: "Call John" });
+
+      expect(result.success).toBe(true);
+      expect(result.action).toEqual({
+        id: "a1",
+        name: "Call John",
+        priority: "Quick",
+        status: "ACTIVE",
+        dueDate: null,
+        project: null,
+      });
+      const data = dbMock.action.create.mock.calls[0]![0]!.data;
+      expect(data).toMatchObject({
+        name: "Call John",
+        createdById: callerId,
+        status: "ACTIVE",
+        source: "ios",
+      });
+      // No project: no kanban seed.
+      expect(data).not.toHaveProperty("kanbanStatus");
+    });
+
+    it("names an unknown source from the principal rather than storing it", async () => {
+      // A session caller sending a value outside the closed set (say a
+      // stale client) is the UI; the input shape is not narrowed, the
+      // stored value is.
+      stubUser();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "x", project: null } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.quickCreate({ name: "x", source: "notion-legacy" });
+
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source: "ui" });
+    });
+
+    it("passes a source from the closed set straight through", async () => {
+      stubUser();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "x", project: null } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.quickCreate({ name: "x", source: "cli" });
+
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source: "cli" });
+    });
+
+    it("refuses a project the caller can only view, with FORBIDDEN and no row", async () => {
+      stubUser();
+      // Public project: visible, not editable. Same gate as action.create.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: true,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.quickCreate({ name: "Trespass", projectId: "p1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    it("seeds the kanban column and inherits the workspace from an editable project", async () => {
+      stubUser();
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+      dbMock.action.create.mockResolvedValue({
+        id: "a1",
+        name: "In project",
+        project: { id: "p1", name: "Proj", workspaceId: "w1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.quickCreate({ name: "In project", projectId: "p1" });
+
+      expect(result.action.project).toEqual({ id: "p1", name: "Proj" });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        projectId: "p1",
+        workspaceId: "w1",
+        kanbanStatus: "TODO",
+        kanbanOrder: 1,
+      });
+    });
+  });
+
   describe("bulkReschedule", () => {
     const callerId = "u-resched";
     const actionIds = ["a1", "a2", "a3"];
@@ -1526,117 +1708,17 @@ describe("action router (mocked)", () => {
   // status === "ACTIVE", so a kanban DONE that left status ACTIVE
   // resurrected the "done" action on every page load.
   // ────────────────────────────────────────────────────────────────────
-  describe("kanbanStatus ↔ status lockstep", () => {
+  // ────────────────────────────────────────────────────────────────────
+  // kanban procedures delegate to applyActionUpdate
+  //
+  // The kanban ⇄ status lockstep itself is pinned as a table in
+  // src/server/services/actions/__tests__/deriveActionPatch.test.ts; the
+  // cases here only prove each procedure reaches it.
+  // ────────────────────────────────────────────────────────────────────
+  describe("kanban procedures delegate to applyActionUpdate", () => {
     const callerId = "caller-1";
 
-    /** The row updateKanbanStatus fetches (access check + current state). */
-    function stubKanbanRow(row: { status: string; kanbanStatus: string | null; completedAt?: Date | null }) {
-      dbMock.action.findFirst.mockResolvedValue({
-        id: "a1",
-        status: row.status,
-        kanbanStatus: row.kanbanStatus,
-        completedAt: row.completedAt ?? null,
-        projectId: null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-      dbMock.action.update.mockResolvedValue({
-        id: "a1",
-        project: null,
-        assignees: [],
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.actionStatusChange.create.mockResolvedValue({} as any);
-    }
-
-    function updatedWith() {
-      return dbMock.action.update.mock.calls[0]![0]!.data as Record<string, unknown>;
-    }
-
-    it("updateKanbanStatus DONE completes the coarse status", async () => {
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "COMPLETED" });
-      expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("updateKanbanStatus DONE repairs a legacy DONE-but-ACTIVE row", async () => {
-      // The bug's leftover data shape: kanban already DONE, status still ACTIVE.
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: new Date() });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
-      // Timestamp already present — must not be rewritten.
-      expect(updatedWith().completedAt).toBeUndefined();
-    });
-
-    it("updateKanbanStatus DONE backfills a missing completedAt on a legacy row", async () => {
-      // Same legacy shape but completedAt was never written; wasCompleted is
-      // true here, so gating the timestamp on it would leave a COMPLETED row
-      // with a null completedAt forever.
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: null });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
-      expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("updateKanbanStatus out of DONE reactivates the coarse status", async () => {
-      stubKanbanRow({ status: "COMPLETED", kanbanStatus: "DONE", completedAt: new Date() });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "IN_PROGRESS" });
-
-      expect(updatedWith()).toMatchObject({
-        kanbanStatus: "IN_PROGRESS",
-        status: "ACTIVE",
-        completedAt: null,
-      });
-    });
-
-    it("updateKanbanStatus CANCELLED cancels the coarse status", async () => {
-      stubKanbanRow({ status: "ACTIVE", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "CANCELLED" });
-
-      expect(updatedWith()).toMatchObject({ status: "CANCELLED" });
-    });
-
-    it("updateKanbanStatus re-sending the current column never resurrects", async () => {
-      // Pre-lockstep rows completed via checkbox: status COMPLETED but the
-      // kanban column untouched. A same-column reorder re-sends that column
-      // and must not flip the action back to ACTIVE or clear its timestamp.
-      stubKanbanRow({
-        status: "COMPLETED",
-        kanbanStatus: "TODO",
-        completedAt: new Date(),
-      });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "TODO" });
-
-      expect(updatedWith().status).toBeUndefined();
-      expect(updatedWith().completedAt).toBeUndefined();
-    });
-
-    it("updateKanbanStatus never resurrects a DRAFT row", async () => {
-      stubKanbanRow({ status: "DRAFT", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "IN_PROGRESS" });
-
-      expect(updatedWith().status).toBeUndefined();
-    });
-
-    /** The row `update` fetches — one shape serves the access check and currentAction. */
+    /** The row every update path fetches — one shape serves the access check and the snapshot. */
     function stubUpdateRow(row: {
       status: string;
       kanbanStatus: string | null;
@@ -1648,6 +1730,7 @@ describe("action router (mocked)", () => {
         assignees: [],
         status: row.status,
         kanbanStatus: row.kanbanStatus,
+        kanbanOrder: null,
         completedAt: row.completedAt ?? null,
         scheduledStart: null,
         scheduledEnd: null,
@@ -1664,12 +1747,319 @@ describe("action router (mocked)", () => {
       dbMock.action.update.mockResolvedValue({
         id: "a1",
         workspaceId: null,
+        projectId: null,
+        project: null,
+        assignees: [],
         dailyPlanActions: [],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.actionStatusChange.create.mockResolvedValue({} as any);
     }
 
-    it("update with kanbanStatus DONE alone completes the coarse status", async () => {
+    function updatedWith() {
+      return dbMock.action.update.mock.calls[0]![0]!.data as Record<string, unknown>;
+    }
+
+    it("updateKanbanStatus DONE completes the coarse status through the module", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("updateKanbanStatus refuses a caller the central resolver denies", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+      dbMock.action.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        projectId: null,
+        assignees: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.action.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.update).not.toHaveBeenCalled();
+    });
+
+    it("updateKanbanStatusWithOrder moving to DONE finally completes the coarse status", async () => {
+      // This procedure never synced `status` before; it now delegates the
+      // write to applyActionUpdate like every other update path.
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.updateKanbanStatusWithOrder({ actionId: "a1", kanbanStatus: "DONE" });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", kanbanOrder: 1, status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("reorderKanbanCard writes the moved card through the module, then renumbers the column", async () => {
+      stubUpdateRow({ status: "COMPLETED", kanbanStatus: "DONE", completedAt: new Date() });
+      dbMock.action.findMany.mockResolvedValue([
+        { id: "b", kanbanOrder: 1 },
+        { id: "c", kanbanOrder: 2 },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.action.reorderKanbanCard({ actionId: "a1", newPosition: 1, targetColumnStatus: "TODO" });
+
+      // Out of DONE on a real change: reactivated and cleared, at slot 2.
+      expect(updatedWith()).toMatchObject({
+        kanbanStatus: "TODO",
+        kanbanOrder: 2,
+        status: "ACTIVE",
+        completedAt: null,
+      });
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      // b keeps slot 1, c shifts to slot 3.
+      const renumbered = dbMock.action.update.mock.calls.slice(1).map((c) => c[0]);
+      expect(renumbered).toEqual([
+        { where: { id: "b" }, data: { kanbanOrder: 1 } },
+        { where: { id: "c" }, data: { kanbanOrder: 3 } },
+      ]);
+    });
+
+    it("bulkAssignProject moves each readable action through the module, re-seeding the board", async () => {
+      // Caller owns the target project and both actions.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockResolvedValue([{ id: "a1" }, { id: "a2" }] as any);
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: null });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.bulkAssignProject({ actionIds: ["a1", "a2"], projectId: "p1" });
+
+      expect(result).toEqual({ count: 2, actionIds: ["a1", "a2"], projectId: "p1" });
+      expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+      expect(updatedWith()).toMatchObject({ projectId: "p1", workspaceId: "w1", kanbanStatus: "TODO", kanbanOrder: 1 });
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("updateActionsProject moves each of the caller's transcript actions through the module", async () => {
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findMany.mockResolvedValue([
+        { id: "a1", name: "One", projectId: null, transcriptionSessionId: "s1" },
+        { id: "a2", name: "Two", projectId: null, transcriptionSessionId: "s1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any);
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: null });
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.updateActionsProject({ transcriptionSessionId: "s1", projectId: "p1" });
+
+      expect(result.count).toBe(2);
+      expect(dbMock.action.update).toHaveBeenCalledTimes(2);
+      expect(updatedWith()).toMatchObject({ projectId: "p1", workspaceId: "w1", kanbanStatus: "TODO" });
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("view.updateKanbanStatus (workspace board) completes the coarse status through the module", async () => {
+      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "IN_PROGRESS" });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.view.updateKanbanStatus({ actionId: "a1", kanbanStatus: "DONE", kanbanOrder: 4 });
+
+      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", kanbanOrder: 4, status: "COMPLETED" });
+      expect(updatedWith().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("mastra.createAction refuses a project the user can only view (ADR-0016)", async () => {
+      // Public project owned by someone else: visible, not editable. The old
+      // agent gate was view access, so Zoe could create here; the UI never could.
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: true,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.mastra.createAction({ projectId: "p-public", name: "Trespass", priority: "Quick" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    it("mastra.createAction creates through the module with source agent", async () => {
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+      dbMock.action.create.mockResolvedValue({
+        id: "a1",
+        name: "Ship it",
+        description: null,
+        status: "ACTIVE",
+        priority: "Quick",
+        dueDate: null,
+        scheduledStart: new Date("2026-09-14T00:00:00.000Z"),
+        projectId: "p1",
+        workspaceId: "w1",
+        project: { id: "p1", workspaceId: "w1" },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const { action } = await caller.mastra.createAction({
+        projectId: "p1",
+        name: "Ship it",
+        priority: "Quick",
+        scheduledStart: "2026-09-14T00:00:00.000Z",
+      });
+
+      expect(action).toMatchObject({ id: "a1", projectId: "p1", scheduledStart: "2026-09-14T00:00:00.000Z" });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        name: "Ship it",
+        projectId: "p1",
+        workspaceId: "w1",
+        source: "agent",
+        kanbanStatus: "TODO",
+        kanbanOrder: 1,
+        createdById: callerId,
+      });
+    });
+
+    /** A caller authenticated by a gateway-typed JWT (a chat-gateway callback). */
+    function createGatewayCaller(tokenType: string) {
+      return createCaller({
+        db: dbMock,
+        session: {
+          user: { id: callerId, email: `${callerId}@test.com`, name: "Test", image: null, isAdmin: false },
+          expires: new Date(Date.now() + 60_000).toISOString(),
+        },
+        headers: new Headers(),
+        tokenType,
+      });
+    }
+
+    it("mastra.quickCreateAction creates through the module with the gateway's mapped source", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Buy milk", priority: "Quick", dueDate: null, scheduledStart: null, project: null } as any);
+
+      const result = await createGatewayCaller("whatsapp-gateway").mastra.quickCreateAction({ text: "Buy milk" });
+
+      expect(result.success).toBe(true);
+      expect(result.action).toMatchObject({ id: "a1", name: "Buy milk", project: null });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        name: "Buy milk",
+        source: "whatsapp",
+        status: "ACTIVE",
+        createdById: callerId,
+      });
+    });
+
+    it("mastra.quickCreateAction rejects an unmapped gateway token type with BAD_REQUEST and no row", async () => {
+      await expect(
+        createGatewayCaller("signal-gateway").mastra.quickCreateAction({ text: "Buy milk" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    it("mastra.updateAction yields the same status and completedAt as action.update for the same patch", async () => {
+      // A legacy row: kanban already DONE, status never followed, no stamp.
+      // The agent copy used to stamp only on ACTIVE → COMPLETED; both paths
+      // now run the same lockstep, so both complete and backfill.
+      const legacy = { status: "ACTIVE", kanbanStatus: "DONE", completedAt: null };
+      stubUpdateRow(legacy);
+      dbMock.action.update.mockResolvedValue({
+        id: "a1", name: "X", description: null, status: "COMPLETED", priority: "Quick",
+        dueDate: null, scheduledStart: null, scheduledEnd: null, duration: null,
+        projectId: null, workspaceId: null, project: null, dailyPlanActions: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const { action } = await caller.mastra.updateAction({ actionId: "a1", status: "COMPLETED" });
+      const viaAgent = updatedWith();
+      expect(action).toMatchObject({ id: "a1", status: "COMPLETED", project: null });
+
+      dbMock.action.update.mockClear();
+      await caller.action.update({ id: "a1", status: "COMPLETED" });
+      const viaUi = updatedWith();
+
+      expect(viaAgent.status).toBe("COMPLETED");
+      expect(viaAgent.completedAt).toBeInstanceOf(Date);
+      expect(viaUi.completedAt).toBeInstanceOf(Date);
+      // Same write, timestamp aside.
+      expect({ ...viaUi, completedAt: undefined }).toEqual({ ...viaAgent, completedAt: undefined });
+    });
+
+    it("mastra.updateAction refuses an action the user can only view", async () => {
+      // Someone else's action in a public project: view access, no edit.
+      dbMock.action.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        projectId: "p-public",
+        assignees: [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: "someone-else",
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: true,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.mastra.updateAction({ actionId: "a1", name: "Renamed by Zoe" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+      expect(dbMock.action.update).not.toHaveBeenCalled();
+    });
+
+    it("update with kanbanStatus DONE alone completes the coarse status through the module", async () => {
       stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -1677,59 +2067,6 @@ describe("action router (mocked)", () => {
 
       expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "COMPLETED" });
       expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("update leaving DONE alone reactivates the coarse status", async () => {
-      stubUpdateRow({
-        status: "COMPLETED",
-        kanbanStatus: "DONE",
-        completedAt: new Date(),
-      });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", kanbanStatus: "TODO" });
-
-      expect(updatedWith()).toMatchObject({
-        kanbanStatus: "TODO",
-        status: "ACTIVE",
-        completedAt: null,
-      });
-    });
-
-    it("update re-sending the current column never resurrects", async () => {
-      // A full-payload edit (rename, due date, …) that includes the current,
-      // unchanged kanban column must not flip a completed action to ACTIVE
-      // or clear its timestamp.
-      stubUpdateRow({
-        status: "COMPLETED",
-        kanbanStatus: "TODO",
-        completedAt: new Date(),
-      });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", name: "Renamed", kanbanStatus: "TODO" });
-
-      expect(updatedWith().status).toBeUndefined();
-      expect(updatedWith().completedAt).toBeUndefined();
-    });
-
-    it("update re-sending DONE still repairs a legacy DONE-but-ACTIVE row", async () => {
-      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "DONE", completedAt: null });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", kanbanStatus: "DONE" });
-
-      expect(updatedWith()).toMatchObject({ status: "COMPLETED" });
-      expect(updatedWith().completedAt).toBeInstanceOf(Date);
-    });
-
-    it("update with an explicit status wins over the kanban sync", async () => {
-      stubUpdateRow({ status: "ACTIVE", kanbanStatus: "TODO" });
-
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-      await caller.action.update({ id: "a1", kanbanStatus: "DONE", status: "ACTIVE" });
-
-      expect(updatedWith()).toMatchObject({ kanbanStatus: "DONE", status: "ACTIVE" });
     });
   });
 });

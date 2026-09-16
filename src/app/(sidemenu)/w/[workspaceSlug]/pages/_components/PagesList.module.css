@@ -1,0 +1,302 @@
+/*
+ * Pages listing — same toolbar language as the projects page
+ * (WorkspaceProjectsConceptD.module.css): text tabs on the left, a compact
+ * search box that opens on demand, bordered pill action buttons on the right,
+ * then a flat, hairline-separated row list.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── top bar: tabs left, actions right ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--color-border-primary);
+  flex-shrink: 0;
+}
+
+.tabs {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 100ms;
+}
+
+/* The active tab is the only one with a sliver of surface behind the label. */
+.tab::before {
+  content: '';
+  position: absolute;
+  inset: 8px 0;
+  border-radius: 6px;
+  background: transparent;
+  transition: background 100ms;
+}
+
+.tab:hover {
+  color: var(--color-text-primary);
+}
+
+.tab:hover::before {
+  background: var(--color-bg-hover);
+}
+
+.tab[data-active='true'] {
+  color: var(--color-text-primary);
+}
+
+.tab[data-active='true']::before {
+  background: var(--color-bg-secondary);
+}
+
+/* Underline for the active tab, flush with the bar's bottom border. */
+.tab[data-active='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--color-text-primary);
+}
+
+.tabLabel {
+  position: relative;
+}
+
+.tabCount {
+  position: relative;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.searchWrap {
+  position: relative;
+}
+
+.searchInput {
+  height: 32px;
+  padding: 0 10px 0 30px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  outline: none;
+  width: 200px;
+  transition: border-color 120ms, width 120ms;
+}
+
+.searchInput:focus {
+  border-color: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--color-brand-glow);
+  width: 240px;
+}
+
+.searchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 100ms, color 100ms;
+}
+
+.iconBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-primary);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 100ms, color 100ms, border-color 100ms;
+  text-decoration: none;
+}
+
+.actionBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.actionBtn[data-active='true'] {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border-color: var(--brand-500);
+}
+
+.newBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--brand-500);
+  color: var(--color-text-inverse);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.newBtn:hover {
+  opacity: 0.88;
+}
+
+.newBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── filter row ── */
+.filterRow {
+  padding: 12px 32px 0;
+  flex-shrink: 0;
+}
+
+/* ── row list ── */
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 32px;
+  min-height: 56px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  transition: background 100ms;
+}
+
+.row:hover {
+  background: var(--color-surface-hover);
+}
+
+/* The clickable part of the row: fills everything left of the controls. */
+.rowLink {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  color: inherit;
+  text-decoration: none;
+}
+
+.rowIcon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rowTitle {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Right-hand cluster: visibility, author, star, menu. */
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
+
+.rowSlot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+.empty {
+  padding: 64px 32px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13.5px;
+}

@@ -1,14 +1,17 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import type { Prisma, CrmContact, PrismaClient } from "@prisma/client";
 import { ContactSyncService } from "~/server/services/ContactSyncService";
 import {
+  CSV_IMPORT_MAX_CHUNK,
   CSV_IMPORT_MAX_ROWS,
-  startCsvContactImport,
+  createCsvImportBatch,
+  processCsvChunk,
 } from "~/server/services/crm/CsvContactImportService";
-import { CSV_TARGET_VALUES, parseCsv } from "~/lib/contactCsvImport";
+import { CSV_TARGET_VALUES } from "~/lib/contactCsvImport";
 import { ConnectionStrengthCalculator } from "~/server/services/ConnectionStrengthCalculator";
 import { GoogleTokenManager } from "~/server/services/GoogleTokenManager";
 import { dispatchContactTypeAutomations } from "~/server/services/crm/automation/dispatchContactTypeAutomations";
@@ -210,6 +213,20 @@ export const crmContactRouter = createTRPCRouter({
         search: z.string().optional(),
         tags: z.array(z.string()).optional(),
         organizationId: z.string().optional(),
+        organizationIds: z.array(z.string()).optional(),
+        profileTypes: z.array(z.string()).optional(),
+        /**
+         * Hide contacts already on this Collection. Passed as a collection id
+         * rather than an id list so the wire format stays small no matter how
+         * many members the list has. Exclusion has to happen in the WHERE:
+         * filtering the returned page client-side means a list whose members
+         * dominate the first page leaves almost nothing selectable.
+         */
+        excludeCollectionId: z.string().optional(),
+        sortBy: z
+          .enum(["lastInteractionAt", "name", "createdAt", "connectionScore"])
+          .optional(),
+        sortDir: z.enum(["asc", "desc"]).optional(),
         limit: z.number().min(1).max(100).optional(),
         cursor: z.string().optional(),
       }),
@@ -222,6 +239,11 @@ export const crmContactRouter = createTRPCRouter({
         search,
         tags,
         organizationId,
+        organizationIds,
+        profileTypes,
+        excludeCollectionId,
+        sortBy,
+        sortDir,
         limit = 50,
         cursor,
       } = input;
@@ -241,51 +263,113 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const contacts = await ctx.db.crmContact.findMany({
-        where: {
-          workspaceId,
-          ...(search
-            ? {
+      // Tokenize so "ada lovelace" matches first + last name across columns;
+      // a single contains against either column would return nothing.
+      // Note: email is encrypted and cannot be searched.
+      // CollectionMember.memberId has no FK to CrmContact (member types are a
+      // convention, not a relation), so there is no relation filter to use --
+      // read the ids and exclude them directly.
+      const excludedIds = excludeCollectionId
+        ? (
+            await ctx.db.collectionMember.findMany({
+              where: { collectionId: excludeCollectionId },
+              select: { memberId: true },
+            })
+          ).map((m) => m.memberId)
+        : [];
+
+      const searchTokens = search?.split(/\s+/).filter(Boolean) ?? [];
+      const where = {
+        workspaceId,
+        ...(searchTokens.length > 0
+          ? {
+              AND: searchTokens.map((token) => ({
                 OR: [
-                  { firstName: { contains: search, mode: "insensitive" } },
-                  { lastName: { contains: search, mode: "insensitive" } },
-                  // Note: email is encrypted and cannot be searched
+                  { firstName: { contains: token, mode: "insensitive" as const } },
+                  { lastName: { contains: token, mode: "insensitive" as const } },
                 ],
-              }
-            : {}),
-          ...(tags && tags.length > 0 ? { tags: { hasSome: tags } } : {}),
-          ...(organizationId ? { organizationId } : {}),
-        },
-        include: {
-          organization: includeOrganization ?? false,
-          interactions: includeInteractions
-            ? {
-                orderBy: { createdAt: "desc" },
-                take: 5,
-              }
-            : false,
-          createdBy: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
+              })),
+            }
+          : {}),
+        ...(tags && tags.length > 0 ? { tags: { hasSome: tags } } : {}),
+        ...(organizationId ? { organizationId } : {}),
+        ...(organizationIds && organizationIds.length > 0
+          ? { organizationId: { in: organizationIds } }
+          : {}),
+        ...(profileTypes && profileTypes.length > 0
+          ? { profileType: { in: profileTypes } }
+          : {}),
+        ...(excludedIds.length > 0 ? { id: { notIn: excludedIds } } : {}),
+      };
+
+      const dir = sortDir ?? "desc";
+      // The trailing `id` keeps the order total — cursor pagination over a
+      // non-unique sort key would otherwise skip or repeat rows at page joins.
+      const orderBy =
+        sortBy === "name"
+          ? [
+              { firstName: { sort: dir, nulls: "last" as const } },
+              { lastName: { sort: dir, nulls: "last" as const } },
+              { id: "asc" as const },
+            ]
+          : sortBy === "createdAt"
+            ? [{ createdAt: dir }, { id: "asc" as const }]
+            : sortBy === "connectionScore"
+              ? [
+                  { connectionScore: { sort: dir, nulls: "last" as const } },
+                  { id: "asc" as const },
+                ]
+              : [
+                  { lastInteractionAt: { sort: dir, nulls: "last" as const } },
+                  { createdAt: "desc" as const },
+                  { id: "asc" as const },
+                ];
+
+      const [contacts, totalCount] = await Promise.all([
+        ctx.db.crmContact.findMany({
+          where,
+          include: {
+            organization: includeOrganization ?? false,
+            interactions: includeInteractions
+              ? {
+                  orderBy: { createdAt: "desc" },
+                  take: 5,
+                }
+              : false,
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                image: true,
+              },
+            },
+            // Latest uploaded image doubles as the contact's avatar.
+            screenshots: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { screenshot: { select: { url: true } } },
             },
           },
-          // Latest uploaded image doubles as the contact's avatar.
-          screenshots: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: { screenshot: { select: { url: true } } },
-          },
-        },
-        orderBy: [
-          { lastInteractionAt: { sort: "desc", nulls: "last" } },
-          { createdAt: "desc" },
-        ],
-        take: limit + 1,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      });
+          orderBy,
+          take: limit + 1,
+          // Prisma cursors are inclusive: the popped peek row below is the next
+          // page's first row. Adding `skip: 1` here would drop that contact at
+          // every page boundary.
+          ...(cursor ? { cursor: { id: cursor } } : {}),
+        }),
+        // Only the first page's count is read by callers; skip the extra
+        // (search: ILIKE full-scan) query on cursor pages.
+        cursor ? undefined : ctx.db.crmContact.count({ where }),
+      ]);
+
+      // Trim the peek row before decrypting — popping after the map would
+      // leave the extra row in the returned page.
+      let nextCursor: string | undefined;
+      if (contacts.length > limit) {
+        const nextItem = contacts.pop();
+        nextCursor = nextItem?.id;
+      }
 
       // Decrypt PII fields before returning
       const decrypted = contacts.map((c) => {
@@ -309,15 +393,78 @@ export const crmContactRouter = createTRPCRouter({
         }
       });
 
-      let nextCursor: string | undefined;
-      if (contacts.length > limit) {
-        const nextItem = contacts.pop();
-        nextCursor = nextItem?.id;
-      }
-
       return {
         contacts: decrypted,
         nextCursor,
+        totalCount,
+      };
+    }),
+
+  // Neighbours of a contact in the workspace-wide "All People" ordering, for the
+  // prev/next arrows on the detail page. Resolved server-side: the detail page
+  // used to page `getAll` and walk the result, which silently confined the
+  // arrows (and the "N of M" counter) to the first page of contacts.
+  getNeighbors: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), contactId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const { workspaceId, contactId } = input;
+
+      // ROW_NUMBER over the same total ordering `getAll` uses by default, so the
+      // arrows walk the list in the order the contacts page shows. The ranking
+      // mirrors that default branch exactly -- same WHERE (an unfiltered
+      // `getAll` scopes on workspaceId alone; CrmContact has no soft-delete or
+      // archived column) and the same `id ASC` final tie-breaker, which is what
+      // keeps contacts sharing a null `lastInteractionAt` in a stable, total
+      // order. Change one and you must change the other.
+      //
+      // Deliberately ignores any sort or filter the user applied to the list:
+      // the counter reads "in All People", and these arrows walk that whole
+      // set. Reflecting the active view would mean threading its filters
+      // through here. A keyset
+      // predicate would need to special-case the NULLS LAST column, and without
+      // a matching composite index it would still seq-scan, so ranking the
+      // workspace once is both simpler and no slower.
+      //
+      // Cost is linear in workspace size: measured ~5ms of DB work at 1k
+      // contacts and ~60-75ms at 50k (seq scan + an external merge sort). The
+      // CTE is materialized once, so the four references below read a temp
+      // result rather than re-scanning. Acceptable for a detail-page load at
+      // today's sizes; if a workspace grows past ~50k contacts, add a composite
+      // index on (workspaceId, lastInteractionAt DESC NULLS LAST, createdAt
+      // DESC, id) to turn the scan+sort into an index scan.
+      const rows = await ctx.db.$queryRaw<
+        Array<{
+          prevId: string | null;
+          nextId: string | null;
+          position: bigint | null;
+          total: bigint;
+        }>
+      >`
+        WITH ordered AS (
+          SELECT
+            id,
+            ROW_NUMBER() OVER (
+              ORDER BY "lastInteractionAt" DESC NULLS LAST, "createdAt" DESC, id ASC
+            ) AS rn
+          FROM "CrmContact"
+          WHERE "workspaceId" = ${workspaceId}
+        ),
+        target AS (SELECT rn FROM ordered WHERE id = ${contactId})
+        SELECT
+          (SELECT id FROM ordered WHERE rn = (SELECT rn FROM target) - 1) AS "prevId",
+          (SELECT id FROM ordered WHERE rn = (SELECT rn FROM target) + 1) AS "nextId",
+          (SELECT rn FROM target) AS "position",
+          (SELECT COUNT(*) FROM ordered) AS "total"
+      `;
+
+      const row = rows[0];
+      return {
+        prevId: row?.prevId ?? null,
+        nextId: row?.nextId ?? null,
+        // 1-based rank of this contact; null when it isn't in the workspace.
+        position: row?.position != null ? Number(row.position) : null,
+        total: Number(row?.total ?? 0),
       };
     }),
 
@@ -1247,16 +1394,32 @@ export const crmContactRouter = createTRPCRouter({
       return { batchId };
     }),
 
-  // Import contacts from an uploaded CSV. Returns a batchId polled via
-  // getImportStatus, same contract as the Google import above. The heavy
-  // lifting (and the deliberate automation suppression) lives in
+  // Import contacts from an uploaded CSV, one chunk of rows per call. The
+  // client parses the file, creates the batch with its first chunk
+  // (batchId: null), then streams the remaining chunks sequentially with the
+  // returned batchId. Each chunk is processed synchronously inside its own
+  // request — fire-and-forget background work does not survive serverless
+  // (Vercel freezes the function after the response), which is why this is
+  // not the poll-a-background-batch contract the Google import uses. The
+  // heavy lifting (and the deliberate automation suppression) lives in
   // CsvContactImportService.
   importFromCsv: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string(),
-        // Raw file text. ~2MB cap keeps us inside the platform body limit.
-        csvText: z.string().min(1).max(2_000_000),
+        // Null on the first chunk (creates the batch), set on the rest.
+        batchId: z.string().nullish(),
+        // Data-row count of the whole file; used to size the batch on the
+        // first chunk and to detect completion.
+        totalRows: z.number().int().min(1).max(CSV_IMPORT_MAX_ROWS),
+        headers: z.array(z.string().max(500)).min(1).max(200),
+        // This chunk's rows, in file order.
+        rows: z
+          .array(z.array(z.string().max(10_000)).max(200))
+          .min(1)
+          .max(CSV_IMPORT_MAX_CHUNK),
+        // Index of this chunk's first row within the file's data rows.
+        rowOffset: z.number().int().min(0),
         // Column header → destination field, as chosen in the mapping step.
         mapping: z.record(z.string(), z.enum(CSV_TARGET_VALUES)),
         // Required when a column is mapped to dealValue: where the created
@@ -1283,30 +1446,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      let parsed;
-      try {
-        parsed = parseCsv(input.csvText);
-      } catch (error) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            error instanceof Error ? error.message : "Could not parse the file",
-        });
-      }
-      if (parsed.rows.length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "The file has no data rows",
-        });
-      }
-      if (parsed.rows.length > CSV_IMPORT_MAX_ROWS) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `The file has ${parsed.rows.length} rows — the maximum per import is ${CSV_IMPORT_MAX_ROWS}. Split it and import in parts.`,
-        });
-      }
-
-      const emailColumns = parsed.headers.filter(
+      const emailColumns = input.headers.filter(
         (h) => input.mapping[h] === "email",
       );
       if (emailColumns.length !== 1) {
@@ -1317,7 +1457,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const hasDealColumn = parsed.headers.some(
+      const hasDealColumn = input.headers.some(
         (h) => input.mapping[h] === "dealValue",
       );
       if (hasDealColumn && !input.dealConfig) {
@@ -1348,16 +1488,33 @@ export const crmContactRouter = createTRPCRouter({
         }
       }
 
-      const batchId = await startCsvContactImport({
-        workspaceId: input.workspaceId,
-        userId: ctx.session.user.id,
-        headers: parsed.headers,
-        rows: parsed.rows,
-        mapping: input.mapping,
-        dealConfig: hasDealColumn ? input.dealConfig : null,
-      });
+      const batchId =
+        input.batchId ??
+        (await createCsvImportBatch(
+          { workspaceId: input.workspaceId, userId: ctx.session.user.id },
+          input.totalRows,
+        ));
 
-      return { batchId };
+      try {
+        return await processCsvChunk({
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+          batchId,
+          headers: input.headers,
+          rows: input.rows,
+          rowOffset: input.rowOffset,
+          mapping: input.mapping,
+          dealConfig: hasDealColumn ? input.dealConfig : null,
+        });
+      } catch (error) {
+        // Batch-level violations (missing, finished, over-count) surface as
+        // BAD_REQUEST; row-level failures are recorded on the batch instead.
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            error instanceof Error ? error.message : "CSV import failed",
+        });
+      }
     }),
 
   // Get import batch status

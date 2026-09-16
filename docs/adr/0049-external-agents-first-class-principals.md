@@ -4,6 +4,8 @@
 
 Accepted — 2026-08-03
 
+Amended by [ADR-0061](0061-time-entries-belong-to-the-owner.md): for `TimeEntry` only, an agent may write a row owned by its owner, recording itself as author.
+
 ## Context
 
 A user wants to point third-party autonomous agent software — the trigger was Nous

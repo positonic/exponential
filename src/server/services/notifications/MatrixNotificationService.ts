@@ -23,6 +23,18 @@ function appendDeeplink(message: string, meta: NotificationPayload['metadata']):
 }
 
 /**
+ * The body to POST: a rich markdown variant when the notification carries one
+ * (`metadata.markdown`, ADR-0059 — the gateway renders markdown to HTML), else
+ * the plain `message` with its deep link appended. A markdown variant carries
+ * its links inline, so no deeplink is appended to it.
+ */
+function messageBody(payload: NotificationPayload): string {
+  const markdown = payload.metadata?.markdown as unknown;
+  if (typeof markdown === 'string' && markdown.length > 0) return markdown;
+  return appendDeeplink(payload.message, payload.metadata);
+}
+
+/**
  * Delivers notifications to a user's Matrix DM with the Zoe bot (V2, ADR-0043).
  *
  * Unlike Slack/WhatsApp/Zulip, this service holds NO per-user credential: the
@@ -63,7 +75,7 @@ export class MatrixNotificationService extends NotificationService {
         body: JSON.stringify({
           userId: this.config.userId,
           title: payload.title,
-          message: appendDeeplink(payload.message, payload.metadata),
+          message: messageBody(payload),
         }),
       });
 

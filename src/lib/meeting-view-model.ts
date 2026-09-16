@@ -2,6 +2,7 @@ import type { RouterOutputs } from "~/trpc/react";
 import { getInitial } from "~/utils/avatarColors";
 import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
 import { parseTranscript } from "~/lib/transcript";
+import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 import type { FirefliesSummary } from "~/server/services/FirefliesService";
 
 /**
@@ -36,6 +37,64 @@ export interface MeetingChapter {
   endTime: number;
 }
 
+export type MeetingDecisionStatus =
+  | "OPEN"
+  | "PROPOSED"
+  | "ACCEPTED"
+  | "SUPERSEDED"
+  | "DEPRECATED";
+
+/** One Decision logged from this meeting, as the summary tab renders it (ADR-0060). */
+export interface MeetingDecision {
+  id: string;
+  /** `D-0042` — rendered from the workspace sequence, never stored. */
+  label: string;
+  statement: string;
+  status: MeetingDecisionStatus;
+  decidedAt: Date | string | null;
+  /** Number of quoted transcript turns backing it. */
+  evidenceCount: number;
+  /** Markdown body (context, alternatives, consequences) shown under the statement. */
+  body: string | null;
+  /** Detail page; null when the meeting has no workspace slug to route under. */
+  href: string | null;
+}
+
+/** A draft the extractor proposed and nobody has confirmed yet (V2). */
+export interface MeetingDraftDecision extends MeetingDecision {
+  /** Markdown body (context, alternatives) the extractor wrote. */
+  body: string | null;
+  /** Quoted transcript turns backing the draft. */
+  evidence: DecisionEvidenceTurn[];
+  /**
+   * When set, confirming applies a status change to this existing decision
+   * instead of publishing a new row (the extractor resolved an open one).
+   */
+  resolves: { id: string; label: string; statement: string } | null;
+}
+
+/** The row shape `decision.listForMeeting` returns, minus what the tab ignores. */
+export interface MeetingDecisionInput {
+  id: string;
+  label: string;
+  statement: string;
+  status: MeetingDecisionStatus;
+  decidedAt: Date | string | null;
+  evidenceCount: number;
+  /** Absent on rows from surfaces that never carry drafts; treated as confirmed. */
+  reviewState?: "DRAFT" | "CONFIRMED" | "REJECTED";
+  body?: string | null;
+  evidence?: unknown;
+  supersededBy?: { id: string; label: string; statement?: string } | null;
+}
+
+export interface MeetingOccurrenceRef {
+  id: string;
+  ceremonyId: string;
+  ceremonyName: string;
+  scheduledStart: Date;
+}
+
 export interface MeetingViewModel {
   /** Fireflies meeting_type, capitalised; null → no type pill shown. */
   meetingType: string | null;
@@ -46,11 +105,18 @@ export interface MeetingViewModel {
   durationLabel: string | null;
   participants: MeetingParticipant[];
   chapters: MeetingChapter[];
-  /** Derived AI sections we have no source for yet → empty until extraction
+  /** Derived AI section we have no source for yet → empty until extraction
    *  lands. Kept on the model so the UI shape is stable. */
   keyMoments: never[];
-  decisions: never[];
-  questions: never[];
+  /** Decisions logged from this meeting that have been answered (every
+   *  status except OPEN). An open question is a Decision in OPEN status. */
+  decisions: MeetingDecision[];
+  /** The OPEN subset — open questions raised in this meeting. */
+  questions: MeetingDecision[];
+  /** Extracted drafts awaiting review; only editors ever receive them. */
+  drafts: MeetingDraftDecision[];
+  /** The ceremony occurrence this meeting captured (ADR-0059), or null. */
+  occurrence: MeetingOccurrenceRef | null;
   hasVideo: boolean;
   captureCount: number;
   /** Number of canonical transcript turns; 0 for an empty/absent transcript
@@ -168,15 +234,46 @@ export function assignParticipantFlavors<
 }
 
 /**
+ * The DRAFT subset of `decision.listForMeeting` rows as the review surfaces
+ * (summary tab block, Zoe drawer card) render them. Shared so both show the
+ * same drafts with the same evidence and resolution target.
+ */
+export function meetingDraftsFromRows(rows: MeetingDecisionInput[]): MeetingDraftDecision[] {
+  return rows
+    .filter((d) => d.reviewState === "DRAFT")
+    .map((d) => ({
+      id: d.id,
+      label: d.label,
+      statement: d.statement,
+      status: d.status,
+      decidedAt: d.decidedAt,
+      evidenceCount: d.evidenceCount,
+      // A draft has no detail page: it is reviewed where it was extracted.
+      href: null,
+      body: d.body ?? null,
+      evidence: parseEvidence(d.evidence),
+      resolves: d.supersededBy
+        ? { id: d.supersededBy.id, label: d.supersededBy.label, statement: d.supersededBy.statement ?? "" }
+        : null,
+    }));
+}
+
+/**
  * Map a `TranscriptionSession` (+ parsed Fireflies summary/analytics) into the
  * view model the meeting-detail UI consumes. Derives meeting type, summary
  * (rich Fireflies object or plain text), duration, participants with talk-time,
- * and transcript chapters. Sections we have no source for yet (key moments,
- * decisions, open questions) are returned empty so the UI self-hides them.
+ * and transcript chapters. Decisions logged from the meeting
+ * (`decision.listForMeeting`) split into answered decisions and open
+ * questions; key moments have no source yet and stay empty so the UI
+ * self-hides them.
  * @param session The transcription session record from `transcription.getById`.
+ * @param meetingDecisions Decisions logged from this meeting, if loaded.
  * @returns The derived {@link MeetingViewModel}.
  */
-export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel {
+export function buildMeetingViewModel(
+  session: MeetingSession,
+  meetingDecisions: MeetingDecisionInput[] = [],
+): MeetingViewModel {
   const firefliesSummary = parseFirefliesSummary(session.summary);
   const hasRichSummary =
     firefliesSummary !== null && !isEmptyFirefliesSummary(firefliesSummary);
@@ -212,6 +309,24 @@ export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel
     (c) => ({ title: c.title, startTime: c.start_time, endTime: c.end_time }),
   );
 
+  const workspaceSlug = session.workspace?.slug ?? null;
+  const toDecision = (d: MeetingDecisionInput): MeetingDecision => ({
+    id: d.id,
+    label: d.label,
+    statement: d.statement,
+    status: d.status,
+    decidedAt: d.decidedAt,
+    evidenceCount: d.evidenceCount,
+    body: d.body ?? null,
+    href: workspaceSlug ? `/w/${workspaceSlug}/decisions/d/${d.id}` : null,
+  });
+  // Drafts never count as decisions or questions (ADR-0060): they render in
+  // their own review block until a person confirms them.
+  const allDecisions: MeetingDecision[] = meetingDecisions
+    .filter((d) => d.reviewState !== "DRAFT")
+    .map(toDecision);
+  const drafts = meetingDraftsFromRows(meetingDecisions);
+
   return {
     meetingType,
     firefliesSummary: hasRichSummary ? firefliesSummary : null,
@@ -220,8 +335,17 @@ export function buildMeetingViewModel(session: MeetingSession): MeetingViewModel
     participants,
     chapters,
     keyMoments: [],
-    decisions: [],
-    questions: [],
+    decisions: allDecisions.filter((d) => d.status !== "OPEN"),
+    questions: allDecisions.filter((d) => d.status === "OPEN"),
+    drafts,
+    occurrence: session.occurrence
+      ? {
+          id: session.occurrence.id,
+          ceremonyId: session.occurrence.ceremony.id,
+          ceremonyName: session.occurrence.ceremony.name,
+          scheduledStart: new Date(session.occurrence.scheduledStart),
+        }
+      : null,
     hasVideo: Boolean(session.videoUrl),
     captureCount: session.screenshots.length,
     transcriptCount: countTranscriptTurns(session.transcription, session.sentencesJson),

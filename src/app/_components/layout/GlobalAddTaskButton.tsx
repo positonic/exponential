@@ -2,7 +2,7 @@
 
 import { Modal, ActionIcon, Tooltip } from "@mantine/core";
 import { useDisclosure, useViewportSize, useHotkeys } from "@mantine/hooks";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { api } from "~/trpc/react";
 import type { ActionPriority } from "~/types/action";
 import { ActionModalForm, type PastedScreenshot } from "../ActionModalForm";
@@ -12,6 +12,9 @@ import type { ActionStatus } from "@prisma/client";
 import { useSession } from "next-auth/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import type { EffortUnit } from "~/types/effort";
+import { notifications } from "@mantine/notifications";
+import { useActionAttachments } from "~/hooks/useActionAttachments";
+import { buildCreateActionPayload } from "~/lib/actions/createActionPayload";
 
 export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "sidebar" } = {}) {
   const { data: session } = useSession();
@@ -48,26 +51,8 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
 
   const utils = api.useUtils();
 
-  // Assignment mutation for post-creation assignment
-  const assignMutation = api.action.assign.useMutation({
-    onError: (error) => {
-      console.error("Assignment failed:", error);
-    },
-  });
-
-  // Screenshot upload mutation
-  const uploadImageMutation = api.action.uploadImage.useMutation({
-    onError: (error) => {
-      console.error("Screenshot upload failed:", error);
-    },
-  });
-
-  // List mutation for post-creation sprint assignment
-  const addToListMutation = api.list.addAction.useMutation({
-    onError: (error) => {
-      console.error("Sprint assignment failed:", error);
-    },
-  });
+  // Pasted screenshots, carried per submission to the post-create upload.
+  const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
@@ -200,13 +185,25 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     },
 
     onError: (err, variables, context) => {
-      if (!context) return;
+      if (context) {
+        // Restore all previous states
+        const { projects, actions, todayActions } = context;
+        utils.project.getAll.setData(undefined, projects);
+        utils.action.getAll.setData(undefined, actions);
+        utils.action.getToday.setData(undefined, todayActions);
+      }
 
-      // Restore all previous states
-      const { projects, actions, todayActions } = context;
-      utils.project.getAll.setData(undefined, projects);
-      utils.action.getAll.setData(undefined, actions);
-      utils.action.getToday.setData(undefined, todayActions);
+      // This submission will never reach onSuccess; drop its attachments.
+      attachments.discard(variables);
+
+      // The modal closed the instant the user submitted, so a failure is
+      // otherwise invisible - the optimistic row just disappears again.
+      notifications.show({
+        title: "Failed to Create Action",
+        message: err.message || "Something went wrong. Please try again.",
+        color: "red",
+        autoClose: 5000,
+      });
     },
 
     onSettled: async (data, error, variables) => {
@@ -231,90 +228,75 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
       await Promise.all(invalidatePromises);
     },
 
-    onSuccess: async (data) => {
-      setCreatedActionId(data.id);
+    onSuccess: (data, variables) => {
+      // Deliberately don't store data.id into createdActionId: the modal is
+      // already closed for this submission, and a stored value would race a
+      // new compose cycle - if the user starts a second task before this
+      // success fires, AssignActionModal would re-scope to the prior action's
+      // id and route the next assignee pick to the wrong task.
 
-      // Handle sprint assignment
-      if (sprintListId) {
-        try {
-          await addToListMutation.mutateAsync({
-            listId: sprintListId,
-            actionId: data.id,
-          });
-        } catch (error) {
-          console.error("Failed to assign sprint:", error);
-        }
-      }
-
-      if (selectedAssigneeIds.length > 0) {
-        try {
-          await assignMutation.mutateAsync({
-            actionId: data.id,
-            userIds: selectedAssigneeIds,
-          });
-        } catch (error) {
-          console.error("Failed to assign users:", error);
-        }
-      }
-
-      // Upload any pasted screenshots
-      if (pendingScreenshotsRef.current.length > 0) {
-        for (const screenshot of pendingScreenshotsRef.current) {
-          try {
-            await uploadImageMutation.mutateAsync({
-              actionId: data.id,
-              base64Data: screenshot.base64,
-            });
-          } catch (error) {
-            console.error("Failed to upload screenshot:", error);
-          }
-        }
-        pendingScreenshotsRef.current = [];
-        // Re-invalidate so EditActionModal sees the uploaded screenshots
-        await utils.action.getAll.invalidate();
-      }
-
-      // Reset form state
-      setName("");
-      setDescription("");
-      setProjectId(undefined);
-      setPriority("Quick");
-      setDueDate(null);
-      setScheduledStart(null);
-      setDuration(null);
-      setSelectedAssigneeIds([]);
-      setSelectedTagIds([]);
-      setSprintListId(null);
-      setEpicId(null);
-      setEffortEstimate(null);
-      setBlockedByIds([]);
-      setPastedScreenshots([]);
-      close();
+      // This submission's own selections. See useActionAttachments.
+      attachments.apply(variables, data.id);
     },
   });
 
-  // Ref to hold screenshots for upload after action creation
-  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
-
   const handleSubmit = () => {
-    if (!name) return;
+    // The payload builder trims the name; a whitespace-only name would be
+    // refused by the server after the modal had already closed.
+    if (!name.trim()) return;
 
-    // Capture screenshots before resetting
-    pendingScreenshotsRef.current = [...pastedScreenshots];
+    // Close the modal immediately. Creation is optimistic and every
+    // post-create step reports its own failure, so there is nothing for the
+    // user to wait on here - previously the modal stayed open, spinner and
+    // all, for the whole server round-trip plus the sequential sprint /
+    // assignee / screenshot chain.
+    close();
 
-    const actionData = {
+    // One request: the write fields plus tags, assignees and sprint, which
+    // the server writes in the same transaction as the Action. Same builder
+    // as CreateActionModal, so the two surfaces cannot drift again.
+    const actionData = buildCreateActionPayload({
       name,
-      description: description || undefined,
-      projectId: projectId || undefined,
-      workspaceId: currentWorkspaceId ?? undefined,
-      priority: priority || "Quick",
-      dueDate: dueDate || undefined,
-      scheduledStart: scheduledStart || undefined,
-      duration: duration || undefined,
-      epicId: epicId || undefined,
-      effortEstimate: effortEstimate || undefined,
-      blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
-    };
+      description,
+      projectId,
+      workspaceId: currentWorkspaceId,
+      priority,
+      dueDate,
+      scheduledStart,
+      duration,
+      epicId,
+      effortEstimate,
+      blockedByIds,
+      sprintListId,
+      assigneeIds: selectedAssigneeIds,
+      tagIds: selectedTagIds,
+    });
+
+    // Reset the form now rather than in onSuccess, so reopening the modal
+    // during an in-flight create starts from a clean compose.
+    setName("");
+    setDescription("");
+    setProjectId(undefined);
+    setPriority("Quick");
+    setDueDate(null);
+    setScheduledStart(null);
+    setDuration(null);
+    setSelectedAssigneeIds([]);
+    setSelectedTagIds([]);
+    // Clear the previously-created action's id; otherwise the next assignee
+    // pick would target the prior task instead of the one being composed now.
+    setCreatedActionId(null);
+    setSprintListId(null);
+    setEpicId(null);
+    setEffortEstimate(null);
+    setBlockedByIds([]);
+    setPastedScreenshots([]);
+
+    // Tags, assignees and sprint travel in the create request above; only
+    // the screenshots (blobs, not rows) still need the new action's id.
+    // Filed against this exact object, which onSuccess gets back as its
+    // `variables` argument. See useActionAttachments.
+    attachments.record(actionData, { screenshots: [...pastedScreenshots] });
 
     createAction.mutate(actionData);
   };
@@ -395,7 +377,12 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
           onSubmit={handleSubmit}
           onClose={close}
           submitLabel="New action"
-          isSubmitting={createAction.isPending}
+          // The modal dismisses on submit and creation is optimistic, so there
+          // is nothing to spin for. Passing isPending here would also disable
+          // the submit button of a *reopened* modal while the previous create
+          // is still in flight (Mantine's Button sets disabled={disabled ||
+          // loading}), blocking back-to-back task entry.
+          isSubmitting={false}
           {...(advancedActionsEnabled ? {
             sprintListId,
             setSprintListId,

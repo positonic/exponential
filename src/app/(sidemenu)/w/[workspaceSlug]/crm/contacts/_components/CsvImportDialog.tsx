@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -22,7 +22,6 @@ import {
   IconFileSpreadsheet,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
-import { notifications } from "@mantine/notifications";
 import {
   CONTACT_CSV_TARGETS,
   parseCsv,
@@ -38,6 +37,23 @@ interface CsvImportDialogProps {
 }
 
 type ImportStep = "upload" | "mapping" | "progress" | "success";
+
+/**
+ * Rows per importFromCsv call. Each chunk is processed synchronously inside
+ * one request (~2 queries per row), so this keeps a call to a few seconds —
+ * background processing doesn't survive serverless, so the client drives the
+ * whole import chunk by chunk.
+ */
+const IMPORT_CHUNK_SIZE = 100;
+
+interface ImportProgress {
+  processed: number;
+  total: number;
+  created: number;
+  updated: number;
+  errorCount: number;
+  errors: string[];
+}
 
 const TARGET_OPTIONS = CONTACT_CSV_TARGETS.map((t) => ({
   value: t.value,
@@ -61,12 +77,19 @@ export function CsvImportDialog({
   const [step, setStep] = useState<ImportStep>("upload");
   const [file, setFile] = useState<File | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
-  const [csvText, setCsvText] = useState<string>("");
   const [parsed, setParsed] = useState<ParsedCsv | null>(null);
   const [mapping, setMapping] = useState<CsvColumnMapping>({});
   const [pipelineId, setPipelineId] = useState<string | null>(null);
   const [stageId, setStageId] = useState<string | null>(null);
-  const [batchId, setBatchId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  // Where to pick the chunk loop back up: the server batch (created by the
+  // first chunk) and the next unsent row. Lets "Retry" resume after a failed
+  // chunk instead of re-importing from row 0.
+  const resumeRef = useRef<{ batchId: string | null; offset: number }>({
+    batchId: null,
+    offset: 0,
+  });
 
   const hasDealColumn = Object.values(mapping).includes("dealValue");
   const emailColumnCount = Object.values(mapping).filter(
@@ -93,46 +116,52 @@ export function CsvImportDialog({
     }
   }, [hasDealColumn, pipelines, pipelineId, stageId]);
 
-  const importMutation = api.crmContact.importFromCsv.useMutation({
-    onSuccess: (data) => {
-      setBatchId(data.batchId);
-      setStep("progress");
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Import Failed",
-        message: error.message,
-        color: "red",
-        icon: <IconAlertCircle />,
-      });
-    },
-  });
+  const importMutation = api.crmContact.importFromCsv.useMutation();
 
-  const { data: importStatus } = api.crmContact.getImportStatus.useQuery(
-    { batchId: batchId ?? "" },
-    {
-      enabled: step === "progress" && batchId !== null,
-      refetchInterval: 2000,
-    },
-  );
-
-  useEffect(() => {
-    if (
-      importStatus?.status === "COMPLETED" ||
-      importStatus?.status === "PARTIAL_SUCCESS"
-    ) {
+  // Send the file chunk by chunk, sequentially; each response carries the
+  // batch's cumulative counters. Continues from resumeRef, so calling it
+  // again after a failed chunk resumes rather than restarts.
+  const runImport = async () => {
+    if (!parsed) return;
+    setStep("progress");
+    setImportError(null);
+    const rows = parsed.rows;
+    const dealConfig =
+      hasDealColumn && pipelineId && stageId ? { pipelineId, stageId } : null;
+    try {
+      while (resumeRef.current.offset < rows.length) {
+        const offset = resumeRef.current.offset;
+        const chunk = rows.slice(offset, offset + IMPORT_CHUNK_SIZE);
+        const result = await importMutation.mutateAsync({
+          workspaceId,
+          batchId: resumeRef.current.batchId,
+          totalRows: rows.length,
+          headers: parsed.headers,
+          rows: chunk,
+          rowOffset: offset,
+          mapping,
+          dealConfig,
+        });
+        resumeRef.current = {
+          batchId: result.batchId,
+          offset: offset + chunk.length,
+        };
+        setProgress({
+          processed: result.processedContacts,
+          total: rows.length,
+          created: result.newContacts,
+          updated: result.updatedContacts,
+          errorCount: result.errorCount,
+          errors: result.errors,
+        });
+      }
       setStep("success");
+    } catch (error) {
+      setImportError(
+        error instanceof Error ? error.message : "The import was interrupted",
+      );
     }
-  }, [importStatus?.status]);
-
-  const importErrors = useMemo(() => {
-    const meta = importStatus?.metadata;
-    if (!meta || typeof meta !== "object" || Array.isArray(meta)) return [];
-    const errors = (meta as { errors?: unknown }).errors;
-    return Array.isArray(errors)
-      ? errors.filter((e): e is string => typeof e === "string")
-      : [];
-  }, [importStatus?.metadata]);
+  };
 
   const handleFile = (selected: File | null) => {
     setFile(selected);
@@ -146,7 +175,6 @@ export function CsvImportDialog({
           setParseError("The file has no data rows below the header.");
           return;
         }
-        setCsvText(text);
         setParsed(result);
         const suggested: CsvColumnMapping = {};
         for (const header of result.headers) {
@@ -166,37 +194,28 @@ export function CsvImportDialog({
     setStep("upload");
     setFile(null);
     setParseError(null);
-    setCsvText("");
     setParsed(null);
     setMapping({});
     setPipelineId(null);
     setStageId(null);
-    setBatchId(null);
+    setProgress(null);
+    setImportError(null);
+    resumeRef.current = { batchId: null, offset: 0 };
     onClose();
   };
 
   const handleStartImport = () => {
-    importMutation.mutate({
-      workspaceId,
-      csvText,
-      mapping,
-      dealConfig:
-        hasDealColumn && pipelineId && stageId
-          ? { pipelineId, stageId }
-          : null,
-    });
+    resumeRef.current = { batchId: null, offset: 0 };
+    setProgress(null);
+    void runImport();
   };
 
   const canStart =
     emailColumnCount === 1 && (!hasDealColumn || (pipelineId && stageId));
 
   const progressPercentage =
-    (importStatus?.totalContacts ?? 0) > 0
-      ? Math.round(
-          ((importStatus?.processedContacts ?? 0) /
-            (importStatus?.totalContacts ?? 1)) *
-            100,
-        )
+    progress && progress.total > 0
+      ? Math.round((progress.processed / progress.total) * 100)
       : 0;
 
   const selectedPipeline = pipelines?.find((p) => p.id === pipelineId);
@@ -207,8 +226,8 @@ export function CsvImportDialog({
       onClose={handleClose}
       title="Import Contacts from CSV"
       size="xl"
-      closeOnClickOutside={step !== "progress"}
-      closeOnEscape={step !== "progress"}
+      closeOnClickOutside={step !== "progress" || importError !== null}
+      closeOnEscape={step !== "progress" || importError !== null}
     >
       <Stack gap="lg">
         {step === "upload" && (
@@ -374,14 +393,14 @@ export function CsvImportDialog({
                     Progress
                   </Text>
                   <Text size="sm" c="dimmed">
-                    {importStatus?.processedContacts ?? 0} of{" "}
-                    {importStatus?.totalContacts ?? 0} rows
+                    {progress?.processed ?? 0} of{" "}
+                    {progress?.total ?? parsed?.rows.length ?? 0} rows
                   </Text>
                 </Group>
                 <Progress
                   value={progressPercentage}
                   size="lg"
-                  animated
+                  animated={importError === null}
                   striped
                 />
               </div>
@@ -391,43 +410,59 @@ export function CsvImportDialog({
                   <Group justify="space-between">
                     <Text size="sm">Status:</Text>
                     <Badge
-                      color={
-                        importStatus?.status === "IN_PROGRESS" ? "blue" : "gray"
-                      }
+                      color={importError === null ? "blue" : "red"}
                       variant="light"
                     >
-                      {importStatus?.status ?? "PENDING"}
+                      {importError === null ? "IN_PROGRESS" : "INTERRUPTED"}
                     </Badge>
                   </Group>
                   <Group justify="space-between">
                     <Text size="sm">New Contacts:</Text>
                     <Text size="sm" fw={500}>
-                      {importStatus?.newContacts ?? 0}
+                      {progress?.created ?? 0}
                     </Text>
                   </Group>
                   <Group justify="space-between">
                     <Text size="sm">Updated Contacts:</Text>
                     <Text size="sm" fw={500}>
-                      {importStatus?.updatedContacts ?? 0}
+                      {progress?.updated ?? 0}
                     </Text>
                   </Group>
-                  {(importStatus?.errorCount ?? 0) > 0 && (
+                  {(progress?.errorCount ?? 0) > 0 && (
                     <Group justify="space-between">
                       <Text size="sm" c="red">
                         Errors:
                       </Text>
                       <Text size="sm" fw={500} c="red">
-                        {importStatus?.errorCount}
+                        {progress?.errorCount}
                       </Text>
                     </Group>
                   )}
                 </Stack>
               </Paper>
 
-              <Alert icon={<IconAlertCircle />} color="blue">
-                Please keep this window open while importing. You can continue
-                working in other tabs.
-              </Alert>
+              {importError !== null ? (
+                <Alert
+                  icon={<IconAlertCircle />}
+                  color="red"
+                  title="Import interrupted"
+                >
+                  <Stack gap="xs" align="flex-start">
+                    <Text size="sm">
+                      {importError} — nothing was lost; Retry continues from
+                      where it stopped.
+                    </Text>
+                    <Button size="xs" onClick={() => void runImport()}>
+                      Retry
+                    </Button>
+                  </Stack>
+                </Alert>
+              ) : (
+                <Alert icon={<IconAlertCircle />} color="blue">
+                  Please keep this window open while importing. You can
+                  continue working in other tabs.
+                </Alert>
+              )}
             </Stack>
           </>
         )}
@@ -447,7 +482,7 @@ export function CsvImportDialog({
                 <Group justify="space-between">
                   <Text size="sm">Rows Processed:</Text>
                   <Text size="sm" fw={500}>
-                    {importStatus?.processedContacts ?? 0}
+                    {progress?.processed ?? 0}
                   </Text>
                 </Group>
                 <Group justify="space-between">
@@ -455,7 +490,7 @@ export function CsvImportDialog({
                     New Contacts:
                   </Text>
                   <Text size="sm" fw={500} c="green">
-                    {importStatus?.newContacts ?? 0}
+                    {progress?.created ?? 0}
                   </Text>
                 </Group>
                 <Group justify="space-between">
@@ -463,33 +498,33 @@ export function CsvImportDialog({
                     Updated Contacts:
                   </Text>
                   <Text size="sm" fw={500} c="blue">
-                    {importStatus?.updatedContacts ?? 0}
+                    {progress?.updated ?? 0}
                   </Text>
                 </Group>
-                {(importStatus?.errorCount ?? 0) > 0 && (
+                {(progress?.errorCount ?? 0) > 0 && (
                   <>
                     <Group justify="space-between">
                       <Text size="sm" c="red">
                         Rows Skipped:
                       </Text>
                       <Text size="sm" fw={500} c="red">
-                        {importStatus?.errorCount}
+                        {progress?.errorCount}
                       </Text>
                     </Group>
-                    {importErrors.length > 0 && (
+                    {(progress?.errors.length ?? 0) > 0 && (
                       <Alert icon={<IconAlertCircle />} color="yellow" mt="xs">
                         <Stack gap={2}>
-                          {importErrors.slice(0, 10).map((err) => (
+                          {progress?.errors.slice(0, 10).map((err) => (
                             <Text size="xs" key={err}>
                               {err}
                             </Text>
                           ))}
-                          {(importStatus?.errorCount ?? 0) >
-                            importErrors.length && (
+                          {(progress?.errorCount ?? 0) >
+                            (progress?.errors.length ?? 0) && (
                             <Text size="xs" c="dimmed">
                               …and{" "}
-                              {(importStatus?.errorCount ?? 0) -
-                                importErrors.length}{" "}
+                              {(progress?.errorCount ?? 0) -
+                                (progress?.errors.length ?? 0)}{" "}
                               more
                             </Text>
                           )}

@@ -78,6 +78,38 @@ describe("MatrixNotificationService", () => {
     expect(body.message).toBe("Due in 1 hour");
   });
 
+  it("prefers metadata.markdown as the body and does not append the deeplink to it", async () => {
+    fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
+    const svc = new MatrixNotificationService({ userId: "u1" });
+    const markdown = "**⏭ Up next**\n1. [C-154 Thunderdome](https://app.test/w/acme/products/clear/tickets/t1)";
+
+    await svc.sendNotification({
+      title: "☀️ Daily summary",
+      message: "⏭ Up next\n1. C-154 Thunderdome\n   https://app.test/w/acme/products/clear/tickets/t1",
+      metadata: { category: "summary", markdown, deeplink: "/today" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as { message: string };
+    expect(body.message).toBe(markdown);
+  });
+
+  it("falls back to message (with deeplink) when metadata.markdown is absent or empty", async () => {
+    fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
+    const svc = new MatrixNotificationService({ userId: "u1" });
+
+    await svc.sendNotification({
+      title: "t",
+      message: "Plain body",
+      metadata: { category: "summary", markdown: "", deeplink: "/today" },
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as { message: string };
+    expect(body.message.startsWith("Plain body")).toBe(true);
+    expect(body.message).toMatch(/View action: https?:\/\/\S+\/today$/);
+  });
+
   it("fails cleanly when the gateway secret is missing (no fetch)", async () => {
     delete process.env.GATEWAY_SECRET;
     const svc = new MatrixNotificationService({ userId: "u1" });

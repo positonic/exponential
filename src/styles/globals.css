@@ -33,6 +33,18 @@
     --color-border-tertiary: #f1f3f5;
     --color-border-focus: #339af0;
 
+    /* Overlay chrome: a panel floating above another surface (a calendar
+       popover, say). `bg-elevated` is ALSO the Modal surface in both themes,
+       so an overlay painted with it dissolves into a modal that hosts it -
+       it needs its own edge and a shadow that actually reads. The composite
+       below is declared once and picks up whichever theme's colour is in
+       scope. */
+    --color-border-overlay: #ced4da;
+    --color-shadow-overlay: rgba(15, 23, 42, 0.22);
+    --shadow-overlay:
+      0 12px 32px -10px var(--color-shadow-overlay),
+      0 4px 12px -6px var(--color-shadow-overlay);
+
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
     --color-brand-primary-hover: #3D75FF;
@@ -254,6 +266,12 @@
     --color-border-tertiary: #0F1728;
     --color-border-focus: #339af0;
 
+    /* Overlay chrome - see the light block for why this exists. On dark the
+       edge does most of the work (a black shadow on a near-black surface
+       barely registers), so it sits a step lighter than border-primary. */
+    --color-border-overlay: #2C3E63;
+    --color-shadow-overlay: rgba(0, 0, 0, 0.7);
+
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
     --color-brand-primary-hover: #3D75FF;
@@ -413,24 +431,10 @@
     --color-border-primary: #373a40;
     --color-border-secondary: #2c2e33;
     --color-border-tertiary: #25262b;
+    --color-border-overlay: #4d5157;
     --color-onboarding-illustration-bg: #2c2e33;
     --color-gradient-hero-end: #1a1b1e;
     --color-bg-nav: rgba(26, 27, 30, 0.95);
-  }
-}
-
-/* Custom styles for UnifiedDatePicker today highlighting */
-@layer components {
-  /* High specificity selector to override inline styles */
-  .unified-datepicker-day[data-today][data-highlight-today] {
-    background-color: var(--color-brand-primary) !important;
-    font-weight: 600 !important;
-  }
-
-  /* Handle selected state as well */
-  .unified-datepicker-day[data-today][data-highlight-today][data-selected] {
-    background-color: var(--color-brand-primary) !important;
-    font-weight: 600 !important;
   }
 }
 
@@ -479,11 +483,40 @@ body {
   background-color: var(--color-surface-hover);
 }
 
+/* --- Input surface ---
+   These two tokens live here rather than in mantineTheme.ts's `styles` because
+   both reasons for wanting them there fail. The theme object is built in a
+   server layout and handed to MantineProvider (a client component), so it has
+   to stay serializable - a `(theme, props) => styles` function breaks the
+   production build with "Functions cannot be passed directly to Client
+   Components". And `variant="unstyled"` must stay unpainted: Mantine clears its
+   background with a stylesheet rule, which an inline style from the theme would
+   override, turning every bare-text field (the inline pickers on ticket,
+   feature and epic pages) into a visible pill. Both need a selector, so a
+   selector is what they get. A call site that sets its own `backgroundColor`
+   inline still wins over these rules, which is the intended precedence. */
+.mantine-Select-input:not([data-variant="unstyled"]),
+.mantine-TextInput-input:not([data-variant="unstyled"]),
+.mantine-InputBase-input:not([data-variant="unstyled"]),
+.mantine-Textarea-input:not([data-variant="unstyled"]),
+.mantine-NumberInput-input:not([data-variant="unstyled"]),
+.mantine-DateInput-input:not([data-variant="unstyled"]),
+.mantine-DateTimePicker-input:not([data-variant="unstyled"]),
+.mantine-DatePickerInput-input:not([data-variant="unstyled"]),
+.mantine-TimeInput-input:not([data-variant="unstyled"]),
+.mantine-MultiSelect-input:not([data-variant="unstyled"]) {
+  background-color: var(--color-bg-secondary);
+  border-color: var(--color-border-primary);
+}
+
 /* --- Input focus & placeholder --- */
 .mantine-Select-input:focus,
 .mantine-TextInput-input:focus,
 .mantine-Textarea-input:focus,
 .mantine-DateInput-input:focus,
+.mantine-DateTimePicker-input:focus,
+.mantine-DatePickerInput-input:focus,
+.mantine-TimeInput-input:focus,
 .mantine-MultiSelect-input:focus {
   border-color: var(--color-border-focus);
 }
@@ -491,7 +524,10 @@ body {
 .mantine-Select-input::placeholder,
 .mantine-TextInput-input::placeholder,
 .mantine-Textarea-input::placeholder,
-.mantine-DateInput-input::placeholder {
+.mantine-DateInput-input::placeholder,
+.mantine-DateTimePicker-input::placeholder,
+.mantine-DatePickerInput-input::placeholder,
+.mantine-TimeInput-input::placeholder {
   color: var(--color-text-muted);
 }
 
@@ -557,103 +593,175 @@ body {
   background-color: var(--color-surface-hover);
 }
 
-/* --- Calendar header controls (DateInput, DatePicker, Calendar) --- */
-.mantine-DateInput-calendarHeaderControl:hover,
-.mantine-DatePicker-calendarHeaderControl:hover,
-.mantine-Calendar-calendarHeaderControl:hover {
+/* =================================================================
+   @mantine/dates - ONE calendar look for every component
+   DateInput, DateTimePicker, DatePickerInput, DatePicker and Calendar are
+   five separate Mantine components with five static selectors, so every
+   rule below is written once against the :is() list. The theme entries in
+   mantineTheme.ts hold only inert container paint; all state paint lives
+   here, because Mantine `styles` render inline and an inline background or
+   colour on a day cell beats every [data-*] rule (that bug is why a
+   selected day used to render invisibly). Add a new dates component to
+   the list, never a component-specific copy.
+   ================================================================= */
+
+/* --- Calendar header (month/year label + prev/next) --- */
+:is(
+  .mantine-DateInput-calendarHeaderControl,
+  .mantine-DateTimePicker-calendarHeaderControl,
+  .mantine-DatePickerInput-calendarHeaderControl,
+  .mantine-DatePicker-calendarHeaderControl,
+  .mantine-Calendar-calendarHeaderControl,
+  .mantine-DateInput-calendarHeaderLevel,
+  .mantine-DateTimePicker-calendarHeaderLevel,
+  .mantine-DatePickerInput-calendarHeaderLevel,
+  .mantine-DatePicker-calendarHeaderLevel,
+  .mantine-Calendar-calendarHeaderLevel
+):hover:not(:disabled, [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
 
-.mantine-DateInput-calendarHeaderLevel:hover,
-.mantine-DatePicker-calendarHeaderLevel:hover,
-.mantine-Calendar-calendarHeaderLevel:hover {
+/* --- Month / year pickers (the header-label drill-down) --- */
+:is(
+  .mantine-DateInput-monthsListControl,
+  .mantine-DateTimePicker-monthsListControl,
+  .mantine-DatePickerInput-monthsListControl,
+  .mantine-DatePicker-monthsListControl,
+  .mantine-Calendar-monthsListControl,
+  .mantine-DateInput-yearsListControl,
+  .mantine-DateTimePicker-yearsListControl,
+  .mantine-DatePickerInput-yearsListControl,
+  .mantine-DatePicker-yearsListControl,
+  .mantine-Calendar-yearsListControl
+) {
+  color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-monthsListControl,
+  .mantine-DateTimePicker-monthsListControl,
+  .mantine-DatePickerInput-monthsListControl,
+  .mantine-DatePicker-monthsListControl,
+  .mantine-Calendar-monthsListControl,
+  .mantine-DateInput-yearsListControl,
+  .mantine-DateTimePicker-yearsListControl,
+  .mantine-DatePickerInput-yearsListControl,
+  .mantine-DatePicker-yearsListControl,
+  .mantine-Calendar-yearsListControl
+):hover:not([data-selected], [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
-
-/* --- Months/Years list controls --- */
-.mantine-DateInput-monthsListControl:hover,
-.mantine-DatePicker-monthsListControl:hover,
-.mantine-Calendar-monthsListControl:hover,
-.mantine-DateInput-yearsListControl:hover,
-.mantine-DatePicker-yearsListControl:hover,
-.mantine-Calendar-yearsListControl:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.mantine-DateInput-monthsListControl[data-selected],
-.mantine-DatePicker-monthsListControl[data-selected],
-.mantine-Calendar-monthsListControl[data-selected],
-.mantine-DateInput-yearsListControl[data-selected],
-.mantine-DatePicker-yearsListControl[data-selected],
-.mantine-Calendar-yearsListControl[data-selected] {
+:is(
+  .mantine-DateInput-monthsListControl,
+  .mantine-DateTimePicker-monthsListControl,
+  .mantine-DatePickerInput-monthsListControl,
+  .mantine-DatePicker-monthsListControl,
+  .mantine-Calendar-monthsListControl,
+  .mantine-DateInput-yearsListControl,
+  .mantine-DateTimePicker-yearsListControl,
+  .mantine-DatePickerInput-yearsListControl,
+  .mantine-DatePicker-yearsListControl,
+  .mantine-Calendar-yearsListControl
+)[data-selected] {
   background-color: var(--color-brand-primary);
   color: var(--color-text-inverse);
 }
 
-/* --- Day states (DateInput) --- */
-.mantine-DateInput-day:hover:not([data-selected], [data-disabled]) {
+/* --- Day cells ---
+   Order matters: later rules win at equal specificity, so `selected`
+   comes last and overrides `today` when the selected day IS today. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+) {
+  color: var(--color-text-primary);
+}
+/* Weekends are plain text, not Mantine's default red. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-weekend] {
+  color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+):hover:not([data-selected], [data-in-range], [data-disabled]) {
   background-color: var(--color-surface-hover);
 }
-.mantine-DateInput-day[data-selected] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-}
-.mantine-DateInput-day[data-in-range] {
-  background-color: var(--color-brand-primary);
-  opacity: 0.2;
-}
-.mantine-DateInput-day[data-outside] {
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-outside] {
   color: var(--color-text-disabled);
 }
-.mantine-DateInput-day[data-today] {
+/* Today is ringed in brand so it stays visible when another day is
+   selected; the selected day is the only filled cell. The ring is an inset
+   box-shadow, not a border: Mantine's button reset (`border: 0`) loads after
+   this sheet at equal specificity and would strip a border. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-today] {
+  color: var(--color-brand-primary);
+  box-shadow: inset 0 0 0 1px var(--color-brand-primary);
+  font-weight: 600;
+}
+/* Range interior: a translucent brand wash. Mantine keeps the cells'
+   flattened corners so the run reads as one bar. */
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-in-range]:not([data-selected]) {
+  background-color: color-mix(in oklab, var(--color-brand-primary) 22%, transparent);
+  color: var(--color-text-primary);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-in-range]:not([data-selected], [data-disabled]):hover {
+  background-color: color-mix(in oklab, var(--color-brand-primary) 36%, transparent);
+}
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-selected] {
   background-color: var(--color-brand-primary);
+  box-shadow: none;
   color: var(--color-text-inverse);
   font-weight: 600;
 }
-
-/* --- Day states (DatePicker) --- */
-.mantine-DatePicker-day:hover:not([data-selected], [data-disabled]) {
-  background-color: var(--color-surface-hover);
-}
-.mantine-DatePicker-day[data-selected] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-}
-.mantine-DatePicker-day[data-in-range] {
-  background-color: var(--color-brand-primary);
-  opacity: 0.2;
-}
-.mantine-DatePicker-day[data-outside] {
-  color: var(--color-text-disabled);
-}
-.mantine-DatePicker-day[data-today] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-  font-weight: 600;
-}
-
-/* --- Day states (Calendar) --- */
-.mantine-Calendar-day:hover:not([data-selected], [data-disabled]) {
-  background-color: var(--color-surface-hover);
-}
-.mantine-Calendar-day[data-selected] {
-  background-color: var(--color-brand-primary);
-  color: var(--color-text-inverse);
-}
-.mantine-Calendar-day[data-in-range] {
-  background-color: var(--color-brand-primary);
-  opacity: 0.2;
-}
-.mantine-Calendar-day[data-outside] {
-  color: var(--color-text-disabled);
-}
-.mantine-Calendar-day[data-weekend] {
-  color: var(--color-brand-primary) !important;
-}
-.mantine-Calendar-day[data-today] {
-  background-color: var(--color-brand-primary) !important;
-  color: var(--color-text-inverse) !important;
-  font-weight: 600 !important;
+:is(
+  .mantine-DateInput-day,
+  .mantine-DateTimePicker-day,
+  .mantine-DatePickerInput-day,
+  .mantine-DatePicker-day,
+  .mantine-Calendar-day
+)[data-selected]:hover:not([data-disabled]) {
+  background-color: var(--color-brand-primary-hover);
 }
 
 /* --- Tabs --- */
@@ -664,6 +772,26 @@ body {
 }
 .mantine-Tabs-list::-webkit-scrollbar {
   display: none;
+}
+/* Product page tab strip (products/[productSlug]/layout.tsx). Below the
+   `lg` breakpoint the list sits in its own horizontal scroller and grows to
+   max-content so the underline runs under every tab. From `lg` up it keeps
+   Mantine's default wrapping: on a 1024–1160px laptop with the sidebar open
+   the eight tabs don't fit either, and a second row is discoverable where a
+   scrollbar-less strip with the last tab clipped is not. Compound selector:
+   the bare `.mantine-Tabs-list` rule above is overridden by Mantine's own
+   stylesheet, which loads later. */
+@media (max-width: 1023.98px) {
+  .product-tabs-scroll {
+    scrollbar-width: none;
+  }
+  .product-tabs-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .mantine-Tabs-list.product-tabs-list {
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
 }
 .mantine-Tabs-tab[data-active] {
   border-color: var(--color-brand-primary);
@@ -2323,4 +2451,44 @@ body {
 .react-flow__attribution {
   background-color: transparent;
   color: var(--color-text-secondary);
+}
+/* ==========================================================================
+   Decisions surface (/w/[slug]/decisions and the product Decisions lens) -
+   scoped design tokens. Consumed by
+   src/app/_components/decisions/decisions-index.css, which uses only var().
+   Design handoff rule: surfaces hold ONE hue and one chroma ladder (blue
+   variant - hue 262, chroma 0.022-0.040), blue is reserved for interaction,
+   and the status accents share ~0.105-0.12 chroma so no status shouts louder
+   than another. The values are authored in oklch() deliberately - carry them
+   across as-is rather than approximating with hex.
+   Light scheme inherits the global light tokens and only fills the gaps.
+   ========================================================================== */
+.dec-surface {
+  --color-surface-raised: var(--color-surface-secondary);
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+}
+[data-mantine-color-scheme="dark"] .dec-surface {
+  --color-bg-primary: oklch(0.168 0.022 262);
+  --color-bg-secondary: oklch(0.202 0.024 262);
+  --color-bg-elevated: oklch(0.232 0.026 262);
+  --color-bg-hover: oklch(0.262 0.030 262);
+  --color-surface-muted: oklch(0.234 0.026 262);
+  --color-surface-raised: oklch(0.268 0.030 262);
+  --color-border-primary: oklch(0.300 0.030 262);
+  --color-border-subtle: oklch(0.248 0.026 262);
+  --color-border-strong: oklch(0.395 0.040 262);
+  --color-text-primary: oklch(0.960 0.010 262);
+  --color-text-secondary: oklch(0.750 0.026 262);
+  --color-text-muted: oklch(0.615 0.030 262);
+  --color-text-faint: oklch(0.490 0.030 262);
+  --brand-400: oklch(0.760 0.130 255);
+  --brand-500: oklch(0.640 0.150 255);
+  --brand-600: oklch(0.565 0.150 255);
+  /* status hues pulled toward the blue family: teal instead of grass green */
+  --accent-crm: oklch(0.780 0.105 178);
+  --accent-okr: oklch(0.800 0.110 88);
+  --accent-due: oklch(0.715 0.120 20);
 }

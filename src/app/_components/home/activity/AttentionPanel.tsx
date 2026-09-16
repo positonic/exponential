@@ -15,6 +15,7 @@ import {
   compactAge,
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
+import { toPlainText } from '~/lib/content/plainText';
 
 const MAX_ROWS = 5;
 
@@ -134,6 +135,9 @@ export function AttentionPanel() {
                 </button>
               </div>
               {unreadMentions.map((mention) => {
+                // The message is a Markdown comment excerpt; the row is an
+                // anchor and one line, so it shows the text.
+                const preview = toPlainText(mention.message);
                 const row = (
                   <>
                     <span className="wsa-item__icon">
@@ -141,8 +145,8 @@ export function AttentionPanel() {
                     </span>
                     <span className="wsa-item__label wsa-item__label--unread">
                       {mention.title}
-                      {mention.message && (
-                        <span className="wsa-item__sub">{mention.message}</span>
+                      {preview && (
+                        <span className="wsa-item__sub">{preview}</span>
                       )}
                     </span>
                     <span className="wsa-item__meta">
@@ -226,8 +230,9 @@ export function AttentionPanel() {
                   <span className="wsa-item__icon">
                     <IconClockExclamation size={14} stroke={1.75} />
                   </span>
+                  {/* Legacy HTML / Markdown name inside an anchor row: text only. */}
                   <span className="wsa-item__label">
-                    {action.name}
+                    {toPlainText(action.name)}
                     {action.project && (
                       <span className="wsa-item__sub">{action.project.name}</span>
                     )}

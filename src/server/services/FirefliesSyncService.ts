@@ -1,4 +1,5 @@
 import { db } from '~/server/db';
+import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { FirefliesService, type FirefliesTranscript } from './FirefliesService';
 import { getDecryptedKey } from '~/server/utils/credentialHelper';
 // import { ActionProcessorFactory } from './processors/ActionProcessorFactory';
@@ -306,6 +307,8 @@ export class FirefliesSyncService {
               }
             });
             result.newTranscripts++;
+            // Ceremony auto-attach (ADR-0059); never throws.
+            await attachMeetingToOccurrence(db, transcriptionSession);
           }
 
           // 5. Skip action processing during bulk sync

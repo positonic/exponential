@@ -383,26 +383,19 @@ export default function ContactDetailPage() {
   );
   const meetings = activityData?.meetings ?? [];
 
-  // Get all contacts for prev/next navigation
-  const { data: allContacts } = api.crmContact.getAll.useQuery(
-    { workspaceId: workspaceId! },
-    { enabled: !!workspaceId }
+  // Prev/next navigation. Resolved server-side against the whole workspace —
+  // walking a page of `getAll` here confined the arrows to the first 50 contacts.
+  const { data: neighbors } = api.crmContact.getNeighbors.useQuery(
+    { workspaceId: workspaceId!, contactId },
+    { enabled: !!workspaceId && !!contactId }
   );
 
-  // Calculate navigation info
-  const navigationInfo = useMemo(() => {
-    if (!allContacts?.contacts || !contactId) {
-      return { currentIndex: -1, total: 0, prevId: null, nextId: null };
-    }
-    const contacts = allContacts.contacts;
-    const currentIndex = contacts.findIndex((c) => c.id === contactId);
-    return {
-      currentIndex,
-      total: contacts.length,
-      prevId: currentIndex > 0 ? contacts[currentIndex - 1]?.id : null,
-      nextId: currentIndex < contacts.length - 1 ? contacts[currentIndex + 1]?.id : null,
-    };
-  }, [allContacts, contactId]);
+  const navigationInfo = {
+    position: neighbors?.position ?? null,
+    total: neighbors?.total ?? 0,
+    prevId: neighbors?.prevId ?? null,
+    nextId: neighbors?.nextId ?? null,
+  };
 
   // Build activity items from the merged interaction + meeting timeline
   // Extra columns kept from a CSV import, keyed by the file's original headers.
@@ -551,9 +544,9 @@ export default function ContactDetailPage() {
             </ActionIcon>
           </Tooltip>
 
-          {navigationInfo.total > 0 && (
+          {navigationInfo.position !== null && navigationInfo.total > 0 && (
             <Text size="xs" className="text-text-muted ml-2">
-              {navigationInfo.currentIndex + 1} of {navigationInfo.total} in All People
+              {navigationInfo.position} of {navigationInfo.total} in All People
             </Text>
           )}
         </div>

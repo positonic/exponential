@@ -18,7 +18,7 @@ import {
 import type { ProjectSortState } from "./useProjectSort";
 import type { TablerIcon } from "@tabler/icons-react";
 
-interface SortFieldDef {
+export interface SortFieldDef {
   key: string;
   label: string;
   icon: TablerIcon;
@@ -41,15 +41,17 @@ interface ProjectSortMenuProps {
   onClearSort: () => void;
   /** Optional custom trigger element. Falls back to a subtle icon-only ActionIcon. */
   trigger?: ReactNode;
+  /** Sortable fields to offer. Defaults to the project list's fields. */
+  fields?: SortFieldDef[];
 }
 
-export function ProjectSortMenu({ sortState, onSortChange, onClearSort, trigger }: ProjectSortMenuProps) {
+export function ProjectSortMenu({ sortState, onSortChange, onClearSort, trigger, fields = SORT_FIELDS }: ProjectSortMenuProps) {
   const [opened, setOpened] = useState(false);
   const [filterQuery, setFilterQuery] = useState("");
 
   const filteredFields = filterQuery.trim()
-    ? SORT_FIELDS.filter((f) => f.label.toLowerCase().includes(filterQuery.toLowerCase()))
-    : SORT_FIELDS;
+    ? fields.filter((f) => f.label.toLowerCase().includes(filterQuery.toLowerCase()))
+    : fields;
 
   const handleFieldClick = (key: string) => {
     if (sortState?.field === key) {

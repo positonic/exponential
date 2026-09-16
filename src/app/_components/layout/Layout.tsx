@@ -2,7 +2,7 @@ import { type PropsWithChildren } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { auth } from "~/server/auth";
-import { ThemeWrapper } from "./ThemeWrapper";
+import { RouteChildren, ThemeWrapper } from "./ThemeWrapper";
 import { type ValidDomain } from "~/config/themes";
 
 export default async function Layout({ children, domain, showSidebar = true }: PropsWithChildren<{ domain: ValidDomain, showSidebar?: boolean }>) {
@@ -23,7 +23,7 @@ export default async function Layout({ children, domain, showSidebar = true }: P
     <ThemeWrapper>
       {showSidebar && <Sidebar session={session} domain={domain} />}
       <main className="sidebar-offset flex-1 min-w-0 p-4 pt-16 sm:pt-4 lg:p-8 pb-20 sm:pb-4 lg:pb-8 w-full transition-all duration-300">
-        {children}
+        <RouteChildren>{children}</RouteChildren>
       </main>
     </ThemeWrapper>
   );

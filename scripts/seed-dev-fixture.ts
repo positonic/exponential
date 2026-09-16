@@ -24,6 +24,9 @@ async function main() {
     console.log(`  feature page:    ${fixture.featureUrl}`);
     console.log(`  peek view:       ${fixture.peekUrl}`);
     console.log(`  okr dashboard:   ${fixture.okrUrl}`);
+    console.log(`  ceremony:        ${FIXTURE.ceremonyName} (${fixture.ceremonyId}), occurrence ${fixture.occurrenceId}`);
+    console.log(`  meeting:         ${fixture.meetingUrl} (attached to that occurrence)`);
+    console.log(`  decision log:    ${fixture.decisionsUrl} (${fixture.decisionLabel} = ${fixture.decisionId})`);
     console.log(`\nMint a session for the fixture user with:\n  npx tsx scripts/dev-session.ts`);
   } finally {
     await db.$disconnect();

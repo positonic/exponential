@@ -11,8 +11,15 @@ import {
   IconMessageCircle,
   IconBriefcase,
   IconBulb,
+  IconLayoutKanban,
 } from "@tabler/icons-react";
 import { CreateGoalModal } from "~/app/_components/CreateGoalModal";
+import {
+  LINKED_WORK_LABEL,
+  linkedProjectKind,
+  pipelineBoardHref,
+  type LinkedWorkKind,
+} from "../utils/linkedWork";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import {
   clamp01,
@@ -50,6 +57,10 @@ interface LinkedProject {
     name: string;
     status: string;
     slug: string;
+    // "standard" | "pipeline" — a CRM pipeline is a Project (type = "pipeline")
+    // and links to a KR through the ordinary project edge; the row just wears
+    // a different chip.
+    type?: string;
   };
 }
 
@@ -70,10 +81,16 @@ interface LinkedFeature {
   };
 }
 
-/** One row in a KR's "executing work" list — a Project or a Feature. */
+/** One row in a KR's "executing work" list — a Project, Pipeline or Feature. */
+const LINKED_WORK_ICON: Record<LinkedWorkKind, typeof IconBriefcase> = {
+  project: IconBriefcase,
+  pipeline: IconLayoutKanban,
+  feature: IconBulb,
+};
+
 interface LinkedWorkRow {
   key: string;
-  kind: "project" | "feature";
+  kind: LinkedWorkKind;
   name: string;
   status: string;
   href: string | null;
@@ -319,16 +336,25 @@ function KrLine({
   // One merged "executing work" list: linked Projects and linked Features,
   // each row tagged with its type (ADR-0050) — mirrors the detail drawer.
   const linkedWork: LinkedWorkRow[] = [
-    ...projects.map(({ project }) => ({
-      key: `project-${project.id}`,
-      kind: "project" as const,
-      name: project.name,
-      status: project.status,
-      href: workspaceSlug
-        ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
-        : `/projects/${project.slug}-${project.id}`,
-      ticketProgress: null,
-    })),
+    ...projects.map(({ project }) => {
+      const kind = linkedProjectKind(project.type);
+      return {
+        key: `project-${project.id}`,
+        kind,
+        name: project.name,
+        status: project.status,
+        // A pipeline row opens the CRM board, not the project page.
+        href:
+          kind === "pipeline"
+            ? workspaceSlug
+              ? pipelineBoardHref(workspaceSlug, project.id)
+              : null
+            : workspaceSlug
+              ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}`
+              : `/projects/${project.slug}-${project.id}`,
+        ticketProgress: null,
+      };
+    }),
     ...features.map(({ feature }) => ({
       key: `feature-${feature.id}`,
       kind: "feature" as const,
@@ -344,127 +370,130 @@ function KrLine({
 
   return (
     <div className="border-t border-border-primary first:border-t-0">
-      <div
-        className="group grid cursor-pointer grid-cols-[4px_1fr_auto_24px_26px_auto] items-center gap-3 px-1 py-3 transition-colors hover:bg-surface-hover"
-        role="button"
-        tabIndex={0}
-        aria-expanded={isExpanded}
-        onClick={onToggleExpand}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggleExpand();
-          }
-        }}
-      >
-        {/* Status bar */}
+      <div className="group relative transition-colors hover:bg-surface-hover">
         <div
-          className="h-8 w-1 self-stretch rounded-sm"
-          style={{ background: color, opacity: confidence === "idle" ? 0.4 : 1 }}
-        />
-
-        {/* Title + meta */}
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <IconChevronRight
-              size={12}
-              className={`flex-shrink-0 text-text-muted transition-transform ${
-                isExpanded ? "rotate-90" : ""
-              }`}
-            />
-            <span
-              className="flex-shrink-0 text-[11px] uppercase tracking-wider text-text-muted"
-              style={{ fontFamily: "var(--mantine-font-family-monospace, ui-monospace, monospace)" }}
-            >
-              {code}
-            </span>
-            <Text size="sm" className="truncate font-medium text-text-primary">
-              {kr.title}
-            </Text>
-          </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
-            <span>Updated {updated}</span>
-            <span className="inline-block h-[3px] w-[3px] rounded-full bg-[color:var(--color-text-faint,currentColor)] opacity-60" />
-            <span>{Math.round(progress * 100)}% of target</span>
-          </div>
-        </div>
-
-        {/* Value + bar */}
-        <div className="flex w-[180px] flex-col items-end gap-1.5">
-          <div className="flex items-center gap-2">
-            {projectCount > 0 && (
-              <Tooltip
-                label={`${projectCount} linked ${
-                  projectCount === 1 ? "project" : "projects"
-                }`}
-              >
-                <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
-                  <IconBriefcase size={10} />
-                  {projectCount}
-                </span>
-              </Tooltip>
-            )}
-            {featureCount > 0 && (
-              <Tooltip
-                label={`${featureCount} linked ${
-                  featureCount === 1 ? "feature" : "features"
-                }`}
-              >
-                <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
-                  <IconBulb size={10} />
-                  {featureCount}
-                </span>
-              </Tooltip>
-            )}
-            <Text size="xs" className="font-medium tabular-nums text-text-primary">
-              {formatKrValue(kr)}{" "}
-              <span className="font-normal text-text-muted">/ {formatKrTarget(kr)}</span>
-            </Text>
-          </div>
-          <div className="relative h-1 w-[160px] overflow-visible rounded-sm bg-surface-tertiary">
-            <div
-              className="absolute left-0 top-0 h-full rounded-sm"
-              style={{
-                width: `${clamp01(progress) * 100}%`,
-                background: color,
-                opacity: confidence === "idle" ? 0.6 : 1,
-              }}
-            />
-            <div
-              className="absolute w-px bg-text-primary opacity-60"
-              style={{
-                left: `${clamp01(expected) * 100}%`,
-                top: "-2px",
-                bottom: "-2px",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Confidence dot */}
-        <div className="flex justify-center">
-          <Tooltip label={`Confidence: ${CONFIDENCE_PILL[confidence].label}`}>
-            <span
-              className="block h-2.5 w-2.5 rounded-full border border-border-primary"
-              style={{
-                background: color,
-                borderColor: color,
-                opacity: confidence === "idle" ? 0.4 : 1,
-              }}
-            />
-          </Tooltip>
-        </div>
-
-        {/* Owner avatar */}
-        <div className="flex justify-center">
-          <OwnerAvatar user={owner} size={24} />
-        </div>
-
-        {/* Discussion / edit / delete actions */}
-        <div
-          className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => e.stopPropagation()}
+          className="grid cursor-pointer grid-cols-[4px_1fr_auto_24px_26px_86px] items-center gap-3 px-1 py-3"
+          role="button"
+          tabIndex={0}
+          aria-expanded={isExpanded}
+          onClick={onToggleExpand}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggleExpand();
+            }
+          }}
         >
+          {/* Status bar */}
+          <div
+            className="h-8 w-1 self-stretch rounded-sm"
+            style={{ background: color, opacity: confidence === "idle" ? 0.4 : 1 }}
+          />
+
+          {/* Title + meta */}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <IconChevronRight
+                size={12}
+                className={`flex-shrink-0 text-text-muted transition-transform ${
+                  isExpanded ? "rotate-90" : ""
+                }`}
+              />
+              <span
+                className="flex-shrink-0 text-[11px] uppercase tracking-wider text-text-muted"
+                style={{ fontFamily: "var(--mantine-font-family-monospace, ui-monospace, monospace)" }}
+              >
+                {code}
+              </span>
+              <Text size="sm" className="truncate font-medium text-text-primary">
+                {kr.title}
+              </Text>
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
+              <span>Updated {updated}</span>
+              <span className="inline-block h-[3px] w-[3px] rounded-full bg-[color:var(--color-text-faint,currentColor)] opacity-60" />
+              <span>{Math.round(progress * 100)}% of target</span>
+            </div>
+          </div>
+
+          {/* Value + bar */}
+          <div className="flex w-[180px] flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2">
+              {projectCount > 0 && (
+                <Tooltip
+                  label={`${projectCount} linked ${
+                    projectCount === 1 ? "project" : "projects"
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
+                    <IconBriefcase size={10} />
+                    {projectCount}
+                  </span>
+                </Tooltip>
+              )}
+              {featureCount > 0 && (
+                <Tooltip
+                  label={`${featureCount} linked ${
+                    featureCount === 1 ? "feature" : "features"
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-1 rounded-sm bg-surface-tertiary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
+                    <IconBulb size={10} />
+                    {featureCount}
+                  </span>
+                </Tooltip>
+              )}
+              <Text size="xs" className="font-medium tabular-nums text-text-primary">
+                {formatKrValue(kr)}{" "}
+                <span className="font-normal text-text-muted">/ {formatKrTarget(kr)}</span>
+              </Text>
+            </div>
+            <div className="relative h-1 w-[160px] overflow-visible rounded-sm bg-surface-tertiary">
+              <div
+                className="absolute left-0 top-0 h-full rounded-sm"
+                style={{
+                  width: `${clamp01(progress) * 100}%`,
+                  background: color,
+                  opacity: confidence === "idle" ? 0.6 : 1,
+                }}
+              />
+              <div
+                className="absolute w-px bg-text-primary opacity-60"
+                style={{
+                  left: `${clamp01(expected) * 100}%`,
+                  top: "-2px",
+                  bottom: "-2px",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Confidence dot */}
+          <div className="flex justify-center">
+            <Tooltip label={`Confidence: ${CONFIDENCE_PILL[confidence].label}`}>
+              <span
+                className="block h-2.5 w-2.5 rounded-full border border-border-primary"
+                style={{
+                  background: color,
+                  borderColor: color,
+                  opacity: confidence === "idle" ? 0.4 : 1,
+                }}
+              />
+            </Tooltip>
+          </div>
+
+          {/* Owner avatar */}
+          <div className="flex justify-center">
+            <OwnerAvatar user={owner} size={24} />
+          </div>
+          {/* Spacer for the action group, which is rendered as a sibling below:
+              the clickable row must not be an ancestor of the action buttons. */}
+          <div aria-hidden="true" />
+        </div>
+
+        {/* Discussion / edit / delete actions — sibling of the row, overlaid on
+            the spacer column so the rest of the row stays clickable. */}
+        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center justify-end gap-1 opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
           {onView && (
             <Tooltip label="Discussion">
               <ActionIcon
@@ -520,7 +549,7 @@ function KrLine({
         <div className="space-y-1 pb-3 pl-7 pr-7 pt-1">
           {hasLinkedWork ? (
             linkedWork.map((row) => {
-              const RowIcon = row.kind === "feature" ? IconBulb : IconBriefcase;
+              const RowIcon = LINKED_WORK_ICON[row.kind];
               const rowClass =
                 "group/link flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-hover";
               const content = (
@@ -540,7 +569,7 @@ function KrLine({
                     </span>
                   )}
                   <span className="ml-auto flex-shrink-0 rounded border border-border-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
-                    {row.kind === "feature" ? "Feature" : "Project"}
+                    {LINKED_WORK_LABEL[row.kind]}
                   </span>
                 </>
               );
@@ -620,87 +649,91 @@ export function ObjectiveCardV2({
   return (
     <div className="mb-4 overflow-hidden rounded-lg border border-border-primary bg-surface-secondary">
       {/* Header row */}
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        className="group grid w-full grid-cols-[auto_1fr_auto_180px_auto_auto] items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-surface-hover"
-      >
-        <IconChevronRight
-          size={14}
-          className={`text-text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}
-        />
-
-        <div className="min-w-0">
-          <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
-            <span style={{ color: "var(--color-brand-primary)" }}>{code}</span>
-            <span className="inline-block h-[3px] w-[3px] rounded-full bg-text-muted opacity-60" />
-            <span>{objective.lifeDomain?.name ?? "Company"}</span>
-            <span className="inline-block h-[3px] w-[3px] rounded-full bg-text-muted opacity-60" />
-            <span>
-              {objective.keyResults.length} key result
-              {objective.keyResults.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          <div className="truncate text-base font-semibold text-text-primary">
-            {objective.title}
-          </div>
-        </div>
-
-        <Badge
-          size="sm"
-          radius="xl"
-          variant="filled"
-          styles={{
-            root: {
-              backgroundColor: pill.bg,
-              color: pill.color,
-              fontWeight: 500,
-              textTransform: "none",
-              border: "none",
-            },
-          }}
-          leftSection={
-            status !== "idle" ? (
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ background: pill.color }}
-              />
-            ) : undefined
-          }
+      <div className="group relative transition-colors hover:bg-surface-hover">
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          aria-expanded={isExpanded}
+          className="grid w-full grid-cols-[auto_1fr_auto_180px_auto_86px] items-center gap-4 px-4 py-3 text-left"
         >
-          {pill.label}
-        </Badge>
+          <IconChevronRight
+            size={14}
+            className={`text-text-muted transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
 
-        {/* Progress: bar + number */}
-        <div className="flex items-center gap-2.5">
-          <div className="relative h-1.5 flex-1 overflow-hidden rounded-sm bg-surface-tertiary">
-            <div
-              className="absolute left-0 top-0 h-full rounded-sm"
-              style={{
-                width: `${clamp01(objective.progress / 100) * 100}%`,
-                background: `linear-gradient(90deg, var(--color-brand-primary), ${pill.color})`,
-              }}
-            />
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+              <span style={{ color: "var(--color-brand-primary)" }}>{code}</span>
+              <span className="inline-block h-[3px] w-[3px] rounded-full bg-text-muted opacity-60" />
+              <span>{objective.lifeDomain?.name ?? "Company"}</span>
+              <span className="inline-block h-[3px] w-[3px] rounded-full bg-text-muted opacity-60" />
+              <span>
+                {objective.keyResults.length} key result
+                {objective.keyResults.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="truncate text-base font-semibold text-text-primary">
+              {objective.title}
+            </div>
           </div>
-          <Text
+
+          <Badge
             size="sm"
-            fw={600}
-            className="min-w-[44px] text-right tabular-nums text-text-primary"
+            radius="xl"
+            variant="filled"
+            styles={{
+              root: {
+                backgroundColor: pill.bg,
+                color: pill.color,
+                fontWeight: 500,
+                textTransform: "none",
+                border: "none",
+              },
+            }}
+            leftSection={
+              status !== "idle" ? (
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{ background: pill.color }}
+                />
+              ) : undefined
+            }
           >
-            {Math.round(objective.progress)}%
-          </Text>
-        </div>
+            {pill.label}
+          </Badge>
 
-        {/* Contributor stack (avatars only) */}
-        <div className="flex items-center gap-2">
-          <OwnerStack users={contributors} size={26} max={3} />
-        </div>
+          {/* Progress: bar + number */}
+          <div className="flex items-center gap-2.5">
+            <div className="relative h-1.5 flex-1 overflow-hidden rounded-sm bg-surface-tertiary">
+              <div
+                className="absolute left-0 top-0 h-full rounded-sm"
+                style={{
+                  width: `${clamp01(objective.progress / 100) * 100}%`,
+                  background: `linear-gradient(90deg, var(--color-brand-primary), ${pill.color})`,
+                }}
+              />
+            </div>
+            <Text
+              size="sm"
+              fw={600}
+              className="min-w-[44px] text-right tabular-nums text-text-primary"
+            >
+              {Math.round(objective.progress)}%
+            </Text>
+          </div>
 
-        {/* Edit/delete/discuss actions */}
-        <div
-          className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => e.stopPropagation()}
-        >
+          {/* Contributor stack (avatars only) */}
+          <div className="flex items-center gap-2">
+            <OwnerStack users={contributors} size={26} max={3} />
+          </div>
+          {/* Spacer for the action group, which is rendered as a sibling below:
+              a <button> must never be an ancestor of another button. */}
+          <div aria-hidden="true" />
+        </button>
+
+        {/* Edit/delete/discuss actions — sibling of the row button, overlaid on
+            the spacer column so the rest of the row stays clickable. */}
+        <div className="pointer-events-none absolute right-4 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
           {onViewObjective && (
             <Tooltip label="Discussion">
               <ActionIcon
@@ -745,7 +778,7 @@ export function ObjectiveCardV2({
             </ActionIcon>
           )}
         </div>
-      </button>
+      </div>
 
       {/* KR rows */}
       <Collapse in={isExpanded}>

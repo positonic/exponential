@@ -125,8 +125,22 @@ vi.mock("~/server/services/TranscriptionProcessingService", () => ({
   },
 }));
 
+// Ceremony side effects of createManualTranscription, stubbed so tests can
+// assert which path ran (hand-picked occurrence vs title/date auto-attach).
+vi.mock("~/server/services/ceremonies/autoAttach", () => ({
+  attachMeetingToOccurrence: vi.fn().mockResolvedValue({ match: null }),
+}));
+vi.mock("~/server/services/ceremonies/activity", () => ({
+  recordOccurrenceCaptured: vi.fn().mockResolvedValue(undefined),
+  recordOccurrencesScheduled: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
+import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
+import { uploadToBlob } from "~/lib/blob";
+import { MAX_MEETING_IMAGE_BASE64_LENGTH } from "~/lib/meetings/meetingImages";
 
 describe("transcription router (mocked) — findRelated", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -587,5 +601,349 @@ describe("transcription router (mocked) — saveTranscription notes", () => {
     // Replace semantics: the update sets notes to exactly the new value, never
     // appending to "old notes".
     expect(updateData()?.notes).toBe("edited notes");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// uploadScreenshot — images dropped onto the Add Meeting modal or the
+// meeting's Screenshots tab land as Screenshot rows on the session.
+// ──────────────────────────────────────────────────────────────────────
+describe("transcription router (mocked) — uploadScreenshot", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    vi.mocked(uploadToBlob).mockClear();
+    dbMock.screenshot.create.mockResolvedValue({
+      id: "shot1",
+      url: "blob://test",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  });
+
+  it("stores the image as a Screenshot linked to the meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: callerId,
+      projectId: null,
+      workspaceId: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.uploadScreenshot({
+      transcriptionSessionId: "sess1",
+      base64Data: "aGVsbG8=",
+      contentType: "image/jpeg",
+    });
+
+    expect(result).toEqual({ id: "shot1", url: "blob://test" });
+    const data = dbMock.screenshot.create.mock.calls[0]?.[0]?.data;
+    expect(data?.transcriptionSessionId).toBe("sess1");
+    expect(data?.url).toBe("blob://test");
+  });
+
+  it("rejects callers without edit access to the meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: "someone-else",
+      projectId: null,
+      workspaceId: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "sess1",
+        base64Data: "aGVsbG8=",
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.screenshot.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized payload before uploading anything", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "sess1",
+        base64Data: "A".repeat(MAX_MEETING_IMAGE_BASE64_LENGTH + 4),
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(uploadToBlob).not.toHaveBeenCalled();
+    expect(dbMock.transcriptionSession.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "missing",
+        base64Data: "aGVsbG8=",
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("transcription router (mocked) — createManualTranscription", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+  const base = { title: "Planning", transcription: "Pat: hello" };
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    vi.mocked(attachMeetingToOccurrence).mockClear();
+    vi.mocked(recordOccurrenceCaptured).mockClear();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (dbMock.$transaction as any).mockImplementation((fn: (tx: unknown) => unknown) => fn(dbMock));
+    dbMock.transcriptionSession.create.mockResolvedValue({
+      id: "m1",
+      title: "Planning",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  });
+
+  it("refuses to file a meeting into a project the caller can't see", async () => {
+    dbMock.project.findUnique.mockResolvedValue({
+      createdById: "someone-else",
+      teamId: null,
+      workspaceId: "ws-other",
+      isPublic: false,
+      isRestricted: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.createManualTranscription({ ...base, projectId: "p-secret" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.transcriptionSession.create).not.toHaveBeenCalled();
+  });
+
+  it("creates the meeting with its feature links in the same write", async () => {
+    dbMock.feature.count.mockResolvedValue(2);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.createManualTranscription({
+      ...base,
+      workspaceId: "ws-A",
+      featureIds: ["f1", "f2", "f1"],
+    });
+
+    const data = dbMock.transcriptionSession.create.mock.calls[0]?.[0]?.data;
+    expect(data?.featureLinks).toEqual({
+      create: [
+        { featureId: "f1", createdById: callerId },
+        { featureId: "f2", createdById: callerId },
+      ],
+    });
+    expect(attachMeetingToOccurrence).toHaveBeenCalled();
+  });
+
+  it("rejects features from another workspace before creating anything", async () => {
+    dbMock.feature.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.createManualTranscription({
+        ...base,
+        workspaceId: "ws-A",
+        featureIds: ["f-elsewhere"],
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(dbMock.transcriptionSession.create).not.toHaveBeenCalled();
+  });
+
+  it("links a hand-picked occurrence and skips auto-attach", async () => {
+    dbMock.ceremonyOccurrence.findUnique.mockResolvedValue({
+      id: "occ1",
+      workspaceId: "ws-A",
+      scheduledStart: new Date("2026-09-08T09:00:00Z"),
+      ceremony: { name: "Daily Standup", timezone: "Europe/Berlin" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.createManualTranscription({
+      ...base,
+      workspaceId: "ws-A",
+      occurrenceId: "occ1",
+    });
+
+    const data = dbMock.transcriptionSession.create.mock.calls[0]?.[0]?.data;
+    expect(data?.occurrenceId).toBe("occ1");
+    expect(recordOccurrenceCaptured).toHaveBeenCalledWith(
+      dbMock,
+      expect.objectContaining({ occurrenceId: "occ1", meetingId: "m1", via: "manual" }),
+    );
+    expect(attachMeetingToOccurrence).not.toHaveBeenCalled();
+  });
+
+  it("rejects an occurrence from another workspace", async () => {
+    dbMock.ceremonyOccurrence.findUnique.mockResolvedValue({
+      id: "occ1",
+      workspaceId: "ws-other",
+      scheduledStart: new Date(),
+      ceremony: { name: "Retro", timezone: "UTC" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.createManualTranscription({
+        ...base,
+        workspaceId: "ws-A",
+        occurrenceId: "occ1",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(dbMock.transcriptionSession.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcription router (mocked) — linkFeature / unlinkFeature", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+  const link = { transcriptionId: "m1", featureId: "f1" };
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.feature.count.mockResolvedValue(1);
+  });
+
+  it("upserts the link on the compound key, so relinking is a no-op", async () => {
+    meeting(callerId);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.linkFeature(link);
+
+    expect(dbMock.meetingFeature.upsert).toHaveBeenCalledWith({
+      where: { transcriptionSessionId_featureId: { transcriptionSessionId: "m1", featureId: "f1" } },
+      create: { transcriptionSessionId: "m1", featureId: "f1", createdById: callerId },
+      update: {},
+    });
+  });
+
+  it("rejects a feature outside the meeting's workspace", async () => {
+    meeting(callerId);
+    dbMock.feature.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(caller.transcription.linkFeature(link)).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    expect(dbMock.meetingFeature.upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects linking and unlinking without edit access to the meeting", async () => {
+    meeting("someone-else");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "viewer",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(caller.transcription.linkFeature(link)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(caller.transcription.unlinkFeature(link)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(dbMock.meetingFeature.upsert).not.toHaveBeenCalled();
+    expect(dbMock.meetingFeature.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("unlinks only this meeting's link to the feature", async () => {
+    meeting(callerId);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.unlinkFeature(link);
+
+    expect(dbMock.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: "m1", featureId: "f1" },
+    });
+  });
+});
+
+describe("transcription router (mocked) — getById feature links", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  function meetingWithLinks(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      featureLinks: [{ feature: { id: "f1", name: "Secret roadmap item" } }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  it("shows links, and lets a member who can edit link more", async () => {
+    meetingWithLinks(callerId);
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getById({ id: "m1" });
+
+    expect(result.featureLinks).toHaveLength(1);
+    expect(result.canLinkFeatures).toBe(true);
+  });
+
+  it("strips links for a viewer outside the workspace (e.g. an attendee)", async () => {
+    meetingWithLinks("someone-else");
+    dbMock.transcriptionSessionParticipant.findFirst.mockResolvedValue({
+      id: "p1",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getById({ id: "m1" });
+
+    expect(result.featureLinks).toEqual([]);
+    expect(result.canLinkFeatures).toBe(false);
   });
 });

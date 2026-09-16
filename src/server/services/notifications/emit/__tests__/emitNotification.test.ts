@@ -470,3 +470,318 @@ describe("emitNotification — Meeting notes ready", () => {
     expect(db.notification.create).not.toHaveBeenCalled();
   });
 });
+
+describe("emitNotification — Agenda ready (ADR-0059)", () => {
+  beforeEach(() => {
+    // Recipients: ceremony participants + owner + team members; the actor is dropped.
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      agenda: { sections: [{ items: [{}, {}] }, { items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }, { userId: "member2" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+    db.teamUser.findMany.mockResolvedValue([{ userId: "member3" }, { userId: "member1" }] as never);
+    // Everyone resolved is still a member of the workspace.
+    db.workspaceUser.findMany.mockResolvedValue(
+      [{ userId: "member1" }, { userId: "member2" }, { userId: "member3" }, { userId: "owner1" }] as never,
+    );
+  });
+
+  it("notifies participants, owner and team members once each, excluding the actor, with a deep link to the occurrence", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    const recipients = db.notification.create.mock.calls.map(
+      (c) => (c[0] as { data: { userId: string } }).data.userId,
+    );
+    expect(recipients.sort()).toEqual(["member1", "member2", "member3"]);
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          category: "agenda_ready",
+          title: "Agenda ready: Daily Standup",
+          message: expect.stringContaining("2 items to cover"),
+          deeplink: `/w/${WORKSPACE.slug}/ceremonies/cer-1/occ-1`,
+          dedupeKey: expect.stringMatching(/^agenda_ready:occ-1:\d+:member/),
+        }),
+      }),
+    );
+  });
+
+  it("offers a skip when a standup's agenda is empty and nobody flagged a blocker", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      status: "AGENDA_CIRCULATED",
+      skipReason: null,
+      agenda: { sections: [{ items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      updates: [],
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        kind: "STANDUP",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: "Nothing to cover: Daily Standup",
+          message: expect.stringContaining("nobody flagged a blocker"),
+        }),
+      }),
+    );
+  });
+
+  it("does not offer a skip when a participant flagged a blocker", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      status: "AGENDA_CIRCULATED",
+      skipReason: null,
+      agenda: { sections: [{ items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      updates: [{ id: "upd-1" }],
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        kind: "STANDUP",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ title: "Agenda ready: Daily Standup" }) }),
+    );
+  });
+
+  it("tells participants a skipped occurrence is off, with the reason", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      status: "SKIPPED",
+      skipReason: "Nothing on the agenda and nobody blocked",
+      updatedAt: new Date("2026-09-10T09:00:00Z"),
+      agenda: { sections: [{ items: [] }] },
+      agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+      updates: [],
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        kind: "STANDUP",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: "Skipped: Daily Standup",
+          message: expect.stringContaining("Nothing on the agenda and nobody blocked"),
+          // A skip notice must not collide with the agenda notice for the
+          // same generation, or nobody is told the standup is off.
+          dedupeKey: expect.stringMatching(/^agenda_ready:occ-1:skipped:\d+:member/),
+        }),
+      }),
+    );
+  });
+
+  it("a second skip after an undo gets a fresh dedupe key, so participants are told again", async () => {
+    const skipped = (updatedAt: Date) =>
+      ({
+        workspaceId: WORKSPACE.id,
+        scheduledStart: new Date("2026-09-11T07:00:00Z"),
+        status: "SKIPPED",
+        skipReason: "Nothing to cover",
+        updatedAt,
+        agenda: { sections: [{ items: [] }] },
+        agendaGeneratedAt: new Date("2026-09-10T08:00:00Z"),
+        updates: [],
+        ceremony: {
+          id: "cer-1",
+          name: "Daily Standup",
+          kind: "STANDUP",
+          timezone: "Europe/Berlin",
+          ownerId: "owner1",
+          teamId: null,
+          participants: [{ userId: "member1" }],
+          workspace: WORKSPACE,
+        },
+      }) as never;
+    db.teamUser.findMany.mockResolvedValue([] as never);
+
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(skipped(new Date("2026-09-10T09:00:00Z")));
+    await emitNotification({ category: NOTIFICATION_CATEGORIES.AGENDA_READY, actorUserId: "owner1", subject: { occurrenceId: "occ-1" }, db });
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(skipped(new Date("2026-09-10T09:30:00Z")));
+    await emitNotification({ category: NOTIFICATION_CATEGORIES.AGENDA_READY, actorUserId: "owner1", subject: { occurrenceId: "occ-1" }, db });
+
+    const rows = db.notification.create.mock.calls.map((c) => (c[0] as { data: { userId: string; dedupeKey: string } }).data);
+    const perRecipient = new Map<string, Set<string>>();
+    for (const r of rows) perRecipient.set(r.userId, (perRecipient.get(r.userId) ?? new Set()).add(r.dedupeKey));
+    expect(perRecipient.size).toBeGreaterThan(0);
+    // Every recipient was told twice, under two different keys.
+    for (const keys of perRecipient.values()) expect(keys.size).toBe(2);
+  });
+
+  it("drops a participant who is no longer a member of the workspace", async () => {
+    // member2 was removed from the workspace; their CeremonyParticipant row survives.
+    db.workspaceUser.findMany.mockResolvedValue(
+      [{ userId: "member1" }, { userId: "member3" }, { userId: "owner1" }] as never,
+    );
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: "owner1",
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+
+    const recipients = db.notification.create.mock.calls.map(
+      (c) => (c[0] as { data: { userId: string } }).data.userId,
+    );
+    expect(recipients.sort()).toEqual(["member1", "member3"]);
+  });
+
+  it("re-circulating a regenerated agenda gets a fresh dedupe key so participants are told again", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: null,
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+    const first = (db.notification.create.mock.calls[0]![0] as { data: { dedupeKey: string } }).data.dedupeKey;
+
+    db.notification.create.mockClear();
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({
+      workspaceId: WORKSPACE.id,
+      scheduledStart: new Date("2026-09-11T07:00:00Z"),
+      agenda: { sections: [{ items: [{}, {}, {}] }] },
+      // Regenerated: a later generation stamp.
+      agendaGeneratedAt: new Date("2026-09-10T09:30:00Z"),
+      ceremony: {
+        id: "cer-1",
+        name: "Daily Standup",
+        timezone: "Europe/Berlin",
+        ownerId: "owner1",
+        teamId: "team1",
+        participants: [{ userId: "member1" }, { userId: "member2" }],
+        workspace: WORKSPACE,
+      },
+    } as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: null,
+      subject: { occurrenceId: "occ-1" },
+      db,
+    });
+    const second = (db.notification.create.mock.calls[0]![0] as { data: { dedupeKey: string } }).data.dedupeKey;
+
+    expect(second).not.toBe(first);
+  });
+
+  it("is a no-op for an unknown occurrence", async () => {
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(null as never);
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId: null,
+      subject: { occurrenceId: "nope" },
+      db,
+    });
+    expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("emitNotification — Draft decisions ready (meeting_ready variant, ADR-0060 V2)", () => {
+  beforeEach(() => {
+    // Recipient is the meeting owner; content resolves title + workspace.
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      userId: "owner1",
+      title: "Daily Standup",
+      workspace: WORKSPACE,
+    } as never);
+  });
+
+  it("notifies the meeting owner with the draft count under its own dedupe key", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: null,
+      subject: { sessionId: "m1", draftDecisionCount: 3 },
+      db,
+    });
+
+    expect(db.transcriptionSessionParticipant.findMany).not.toHaveBeenCalled();
+    expect(db.notification.create).toHaveBeenCalledTimes(1);
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          userId: "owner1",
+          category: "meeting_ready",
+          title: "3 draft decisions to review",
+          message: "Daily Standup",
+          deeplink: "/recording/m1",
+          dedupeKey: "meeting_ready:decisions:m1:owner1",
+          metadata: expect.objectContaining({ draftDecisionCount: 3 }),
+        }),
+      }),
+    );
+  });
+
+  it("does not tell the owner about drafts they just extracted themselves", async () => {
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: "owner1",
+      subject: { sessionId: "m1", draftDecisionCount: 1 },
+      db,
+    });
+    expect(db.notification.create).not.toHaveBeenCalled();
+  });
+});

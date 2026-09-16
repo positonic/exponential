@@ -31,6 +31,22 @@ export interface MeetingParticipantAddedSubject {
  */
 export interface MeetingReadySubject {
   sessionId: string;
+  /**
+   * Draft-decisions variant (ADR-0060 V2): set when extraction produced
+   * drafts for the meeting. Recipient is the meeting owner (who reviews
+   * them), the content names the count, and the dedupe key is its own so
+   * it never collides with the notes-ready emit.
+   */
+  draftDecisionCount?: number;
+}
+
+/**
+ * Agenda ready (ADR-0059): a ceremony occurrence whose agenda was just
+ * generated. Recipients are the ceremony's participants plus the members of
+ * its team, resolved by the resolver; the acting user is dropped as always.
+ */
+export interface AgendaReadySubject {
+  occurrenceId: string;
 }
 
 /**
@@ -78,7 +94,14 @@ export interface SummarySubject {
   userId: string;
   kind: "daily" | "weekly";
   title: string;
+  /** Plain-text rendering with bare URLs — what every channel gets by default. */
   message: string;
+  /**
+   * Optional markdown rendering of the same digest (ADR-0059). Persisted as
+   * `metadata.markdown`; channels that render markdown (Matrix) prefer it,
+   * every other channel ignores it and sends `message`.
+   */
+  markdown?: string;
   /** Period id for dedup — e.g. "2026-07-23" (daily) or "2026-W30" (weekly). */
   periodKey: string;
 }
@@ -118,6 +141,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.MEETING_READY;
       subject: MeetingReadySubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.AGENDA_READY;
+      subject: AgendaReadySubject;
     }
 );
 

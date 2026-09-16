@@ -816,10 +816,10 @@ function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectio
 
   const defaultPeriod = goalPeriod ?? `${getCurrentQuarterType()}-${getCurrentYear()}`;
 
+  // EditKeyResultModal refreshes every okr.* query itself once its
+  // mutations settle; repeating them here would abort and re-issue that
+  // refetch. Only the goal record is ours.
   const handleSuccess = () => {
-    void utils.okr.getAll.invalidate({ goalId });
-    void utils.okr.getByObjective.invalidate();
-    void utils.okr.getStats.invalidate();
     void utils.goal.getById.invalidate({ id: goalId });
   };
 
