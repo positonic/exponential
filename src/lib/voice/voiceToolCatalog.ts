@@ -75,8 +75,20 @@ export const VOICE_TOOL_CATALOG: RealtimeToolDescriptor[] = [
   {
     type: "function",
     name: "get_todays_plan",
-    description: "Get the user's plan / daily brief for today. No phrase needed.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    description:
+      "Today's context: the user's meetings today, actions scheduled or due today, what's overdue, and where they are in the current cycle (progress, pace, their in-flight and up-next tickets). Call with no focus for the overview. Call it AGAIN with a focus to read one section in full — e.g. after the overview, 'what are they?' / 'which meetings?' / 'read me the overdue ones' / 'how's the cycle going?'. Also use it for 'what's overdue?' and 'what's due today?' so the answer matches the user's Today page.",
+    parameters: {
+      type: "object",
+      properties: {
+        focus: {
+          type: "string",
+          enum: ["overview", "meetings", "actions", "overdue", "cycle"],
+          description:
+            "Which section to read in full. Omit for the overview. 'meetings' = today's calendar; 'actions' = today's actions; 'overdue' = the overdue actions by name; 'cycle' = the current cycle with the user's tickets.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     type: "function",
@@ -147,10 +159,12 @@ FILLER — the brain takes a moment. The instant you call a tool, say a brief, n
 
 TOOLS — pick the most specific one. The first four are fast, focused tools; ask_exponential is the catch-all for everything else.
 - capture_action: the user wants to add/capture a task or action.
-- get_todays_plan: the user wants today's plan or daily brief (no phrase).
-- query: the user asks about their existing ACTIONS or PROJECTS (what's due, overdue, on a project).
+- get_todays_plan: the user wants to know what's on today, plan their day, or orient themselves — meetings, today's actions, overdue, and the current cycle. Also the tool for "what's overdue?" and "what's due today?". Optional \`focus\` reads one section in full.
+- query: the user asks about their existing ACTIONS or PROJECTS beyond today — due this week, the inbox, what's on a named project.
 - complete_action: the user wants to mark something done. DESTRUCTIVE.
 - ask_exponential: ANYTHING ELSE — goals/OKRs, calendar, email, Slack, meetings or transcripts, web lookups, or any richer/multi-step request. When in doubt and it's not clearly one of the first four, use this. Pass the user's words verbatim; this assistant will itself ask you to confirm before any destructive action.
+
+TODAY'S CONTEXT FOLLOW-UPS — get_todays_plan's overview names only a few items per section and counts the rest. When the user then asks to hear a section — "what are they?", "which meetings?", "tell me the overdue ones", "what am I working on in the cycle?", "what's up next?" — call get_todays_plan AGAIN with the matching \`focus\` (meetings, actions, overdue, or cycle) and read the items it returns. Do NOT send these follow-ups to query or ask_exponential, and never summarise a list the tool gave you down to "one example" — read the names it returned. Pick the focus from what the user is asking about; if they ask about "them" right after a section was mentioned, that section is the one they mean.
 
 REFERENTIAL REQUESTS — route to ask_exponential. The first four tools are memory-free: they take the user's words verbatim and cannot work out what "that", "it", "the first one", or "the high-priority one" refers to. So when a request points BACK at something from earlier in the conversation instead of naming it outright (earlier means spoken on this call OR typed in the block above) — e.g. "capture that one", "add that high-priority task", "complete the first one", "remind me about it" — do NOT send it to a coarse tool (capture_action would create an action literally titled "that high-priority one"; complete_action would fail to resolve it). Route it to ask_exponential, which can read the conversation and resolve what the user means. A request that fully names its object — "capture buy milk on Friday", "complete the JWT refactor" — is self-contained: keep it on the fast coarse tool. When you're unsure whether the object is self-contained, prefer ask_exponential. (A referential "complete that one" therefore self-confirms inside ask_exponential rather than via the complete_action handshake below — that's expected.)
 
