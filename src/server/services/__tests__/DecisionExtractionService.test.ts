@@ -142,6 +142,12 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
     expect(result[0]!.evidence.map((e) => e.turnIndex)).toEqual([2]);
   });
 
+  it("counts a response with neither array as a failed chunk, not an empty one", async () => {
+    modelReturns({});
+    const run = await DecisionExtractionService.extractFromTranscript(TURNS);
+    expect(run).toMatchObject({ candidates: [], chunksFailed: 1 });
+  });
+
   it("dedupes per kind: a captured decision does not suppress an open question on the same wording", async () => {
     modelReturns({
       decisions: [
@@ -280,6 +286,14 @@ describe("extractFromNotes", () => {
       ["Who reviews the ontology?", true],
     ]);
     expect(result[1]!.context).toEqual(["CDC or Redis"]);
+  });
+
+  it("treats a response with neither array as a failed chunk, so notes fall back", async () => {
+    invokeMock.mockResolvedValue({ content: JSON.stringify({ items: [{ statement: "Wrong shape" }] }) });
+    const result = await DecisionExtractionService.extractFromNotes(
+      "## Decisions\n- Park prioritisation debates for the ceremony",
+    );
+    expect(result.map((c) => c.statement)).toEqual(["Park prioritisation debates for the ceremony"]);
   });
 
   it("falls back to the deterministic parser when every chunk fails", async () => {
