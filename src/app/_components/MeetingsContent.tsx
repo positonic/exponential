@@ -1404,8 +1404,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             onClick={stopBubble}
                             size="xs"
                             aria-label={`Select ${vm.title}`}
-                            // Hidden until hover but keeps its width, so nothing shifts; stays visible while anything is selected.
-                            className={`transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
+                            // Hidden until hover but keeps its width, so nothing shifts; stays visible while anything is selected,
+                            // and always on touch screens, which have no hover to reveal it.
+                            className={`transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 ${
                               selectedTranscriptionIds.size > 0 ? "opacity-100" : "opacity-0"
                             }`}
                           />
