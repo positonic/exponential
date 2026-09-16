@@ -121,6 +121,16 @@ describe("transcription.getMeetingCards", () => {
     });
   });
 
+  it("narrows to one project for a project's Meetings tab, keeping the visibility rule", async () => {
+    const caller = createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient });
+    await caller.transcription.getMeetingCards({ projectId: "proj-1" });
+
+    const args = db.transcriptionSession.findMany.mock.calls[0]![0]!;
+    const and = (args.where as { AND: unknown[] }).AND;
+    expect(and[0]).toHaveProperty("OR");
+    expect(and).toContainEqual({ projectId: "proj-1" });
+  });
+
   it("selects the card fields only — no notes, sentencesJson or analyticsJson", async () => {
     const caller = createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient });
     await caller.transcription.getMeetingCards({ workspaceId: "ws-1" });
