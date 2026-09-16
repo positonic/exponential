@@ -566,3 +566,15 @@
   text-transform: uppercase;
   color: var(--color-text-faint);
 }
+
+/* The row whose peek drawer is open keeps its hover treatment, so the list
+   shows where you are while flipping through it with j/k. */
+.dec-row[data-peeked] {
+  background: color-mix(in oklab, var(--brand-400) 8%, var(--color-bg-secondary));
+}
+.dec-row[data-peeked]::before {
+  background: var(--brand-400);
+}
+.dec-row[data-peeked] .dec-label {
+  color: var(--brand-400);
+}

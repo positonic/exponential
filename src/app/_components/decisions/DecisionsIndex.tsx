@@ -1,6 +1,14 @@
 "use client";
 
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Menu, Skeleton } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import {
@@ -21,10 +29,14 @@ import {
 } from "@tabler/icons-react";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WORKSPACE_PERMISSION_MAP, hasMinimumWorkspaceRole } from "~/server/services/access/types";
 import { LogDecisionModal } from "./LogDecisionModal";
+import { AdrDetail } from "./AdrDetail";
+import { DecisionDetail } from "./DecisionDetail";
+import { PeekDrawer } from "~/app/_components/product/peek/PeekDrawer";
 import {
   decisionToLogRow,
   filterLogRows,
@@ -88,6 +100,43 @@ const SOURCE_ORDER: Array<{ value: LogSource; label: string; icon: ReactNode }> 
 ];
 
 const WORKSPACE_SCOPE = "workspace";
+
+/**
+ * Peek keys carry the row kind — ADRs and Decisions are separate tables with
+ * separate detail views, and the URL has to say which one to open without
+ * waiting for either list to load.
+ */
+type PeekKey = `adr-${string}` | `decision-${string}`;
+
+function parsePeekKey(raw: string | null): { kind: "adr" | "decision"; id: string } | null {
+  if (!raw) return null;
+  const dash = raw.indexOf("-");
+  const kind = raw.slice(0, dash);
+  const id = raw.slice(dash + 1);
+  if ((kind !== "adr" && kind !== "decision") || !id) return null;
+  return { kind, id };
+}
+
+/** Plain click peeks; modified and middle clicks keep the link's own behaviour
+ *  (new tab, new window), so the full page stays one gesture away. */
+const PeekContext = createContext<{
+  active: string | null;
+  open: (key: PeekKey) => void;
+} | null>(null);
+
+function usePeekLink(key: PeekKey) {
+  const peek = useContext(PeekContext);
+  return {
+    "data-peeked": peek?.active === key ? "" : undefined,
+    onClick: (e: MouseEvent<HTMLAnchorElement>) => {
+      if (!peek || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+        return;
+      }
+      e.preventDefault();
+      peek.open(key);
+    },
+  };
+}
 
 /** `17 Jun 2026` — short, unambiguous, tabular. */
 function formatDecided(date: Date | string | null): string | null {
@@ -196,9 +245,14 @@ function DecRow({
   }
   const status = STATUS_META[adr.status];
   const decided = formatDecided(adr.decidedAt);
+  const peekLink = usePeekLink(`adr-${adr.id}`);
 
   return (
-    <Link href={`/w/${workspaceSlug}/decisions/${adr.id}`} className="dec-row">
+    <Link
+      href={`/w/${workspaceSlug}/decisions/${adr.id}`}
+      className="dec-row"
+      {...peekLink}
+    >
       <span className="dec-label">{adr.label ?? "—"}</span>
       <span className="dec-main">
         <span className="dec-title">{renderTitle(adr.title)}</span>
@@ -285,12 +339,14 @@ function DecisionLogRow({
   }
   const status = STATUS_META[decision.status];
   const decided = formatDecided(decision.decidedAt);
+  const peekLink = usePeekLink(`decision-${decision.id}`);
 
   return (
     <Link
       href={`/w/${workspaceSlug}/decisions/d/${decision.id}`}
       className="dec-row"
       data-kind="decision"
+      {...peekLink}
     >
       <span className="dec-label">{decision.label}</span>
       <span className="dec-main">
@@ -723,220 +779,288 @@ export function DecisionsIndex({
   const repoCount = scopedConfigs.length;
   const repoWord = repoCount === 1 ? "repository" : "repositories";
 
+  // ── Peek drawer (?peek=adr-<id> | decision-<id>) - detail over the list,
+  // the list never unmounts. Same shell and URL contract as the backlog.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const peekRaw = searchParams.get("peek");
+  const peek = parsePeekKey(peekRaw);
+  const setPeek = (key: PeekKey | null) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (key) next.set("peek", key);
+    else next.delete("peek");
+    const qs = next.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  // Prev/next walk the rows in on-screen order: ADR items then Decisions,
+  // grouped or flat to match what is rendered.
+  const visibleKeys = useMemo<PeekKey[]>(() => {
+    const adrKeys = (items: ListItem[]): PeekKey[] =>
+      items.flatMap((it) =>
+        (it.kind === "conflict" ? it.adrs : [it.adr]).map((a): PeekKey => `adr-${a.id}`),
+      );
+    if (effectiveGrouped) {
+      return [
+        ...groups.flatMap((g) => adrKeys(g.items)),
+        ...decisionGroups.flatMap((g) => g.rows.map((r): PeekKey => `decision-${r.id}`)),
+      ];
+    }
+    return [
+      ...adrKeys(flatItems),
+      ...visibleDecisions.map((r): PeekKey => `decision-${r.id}`),
+    ];
+  }, [effectiveGrouped, groups, decisionGroups, flatItems, visibleDecisions]);
+  const peekIndex = peekRaw ? visibleKeys.indexOf(peekRaw as PeekKey) : -1;
+  const peekPrev = peekIndex > 0 ? () => setPeek(visibleKeys[peekIndex - 1]!) : undefined;
+  const peekNext =
+    peekIndex !== -1 && peekIndex < visibleKeys.length - 1
+      ? () => setPeek(visibleKeys[peekIndex + 1]!)
+      : undefined;
+  const peekContext = { active: peek ? peekRaw : null, open: setPeek };
+
   return (
-    <div className="dec-surface">
-      <div className="dec-canvas">
-        <div className="dec-head">
-          <div className="dec-head__main">
-            <h2>Decisions</h2>
-            <div className="dec-head__sub">{description}</div>
+    <PeekContext.Provider value={peekContext}>
+      <div className="dec-surface">
+        <div className="dec-canvas">
+          <div className="dec-head">
+            <div className="dec-head__main">
+              <h2>Decisions</h2>
+              <div className="dec-head__sub">{description}</div>
+            </div>
+            <Link href={graphHref} className="dec-ghost">
+              <IconAffiliate size={14} stroke={1.75} />
+              Open graph
+            </Link>
+            {canCreate ? (
+              <button
+                type="button"
+                className="dec-primary"
+                onClick={() => setNewDecisionOpen(true)}
+              >
+                <IconPlus size={14} stroke={1.75} />
+                New decision
+              </button>
+            ) : null}
           </div>
-          <Link href={graphHref} className="dec-ghost">
-            <IconAffiliate size={14} stroke={1.75} />
-            Open graph
-          </Link>
           {canCreate ? (
-            <button
-              type="button"
-              className="dec-primary"
-              onClick={() => setNewDecisionOpen(true)}
-            >
-              <IconPlus size={14} stroke={1.75} />
-              New decision
-            </button>
+            <LogDecisionModal
+              opened={newDecisionOpen}
+              onClose={() => setNewDecisionOpen(false)}
+              workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
+              productId={defaultProductId ?? null}
+            />
+          ) : null}
+
+          <div className="dec-bar">
+            <div className="dec-bar__row">
+              <label className="dec-search">
+                <IconSearch size={14} stroke={1.75} />
+                <input
+                  type="search"
+                  placeholder="Search decisions"
+                  value={search}
+                  onChange={(e) => setSearch(e.currentTarget.value)}
+                  aria-label="Search decisions"
+                />
+              </label>
+              <div className="dec-seg" role="group" aria-label="Filter by status">
+                <button
+                  type="button"
+                  className={statusFilter === "all" ? "on" : ""}
+                  aria-pressed={statusFilter === "all"}
+                  onClick={() => setStatusFilter("all")}
+                >
+                  All <span className="dec-seg__n">{totalCount}</span>
+                </button>
+                {/* Zero-count statuses hide, except the active one — a filter
+                    that is still applied must stay visible and clearable. */}
+                {STATUS_ORDER.filter(
+                  (s) => (counts.get(s) ?? 0) > 0 || statusFilter === s,
+                ).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={statusFilter === s ? "on" : ""}
+                    aria-pressed={statusFilter === s}
+                    onClick={() => setStatusFilter(s)}
+                  >
+                    <span className={`dot dot--${STATUS_META[s].dot}`} />
+                    {STATUS_META[s].label}{" "}
+                    <span className="dec-seg__n">{counts.get(s) ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="dec-bar__spacer" />
+              <ProductScopeChip
+                value={productFilter}
+                options={scopeOptions}
+                onChange={setProductFilter}
+              />
+              <div className="dec-seg" role="group" aria-label="Grouping">
+                <button
+                  type="button"
+                  className={grouped ? "on" : ""}
+                  aria-pressed={grouped}
+                  onClick={() => setGrouped(true)}
+                >
+                  <IconFolder size={12} stroke={1.75} />
+                  Grouped
+                </button>
+                <button
+                  type="button"
+                  className={!grouped ? "on" : ""}
+                  aria-pressed={!grouped}
+                  onClick={() => setGrouped(false)}
+                >
+                  <IconList size={12} stroke={1.75} />
+                  Flat
+                </button>
+              </div>
+            </div>
+            {/* The source filter always sits on its own row under the search
+                box, so it never wraps into the status row at in-between widths. */}
+            <div className="dec-bar__row">
+              <div className="dec-seg" role="group" aria-label="Filter by source">
+                <button
+                  type="button"
+                  className={sourceFilter === "all" ? "on" : ""}
+                  aria-pressed={sourceFilter === "all"}
+                  onClick={() => setSourceFilter("all")}
+                >
+                  All sources
+                </button>
+                {SOURCE_ORDER.filter(
+                  (s) => (sourceCounts.get(s.value) ?? 0) > 0 || sourceFilter === s.value,
+                ).map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    className={sourceFilter === s.value ? "on" : ""}
+                    aria-pressed={sourceFilter === s.value}
+                    onClick={() => setSourceFilter(s.value)}
+                  >
+                    {s.icon}
+                    {s.label} <span className="dec-seg__n">{sourceCounts.get(s.value) ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="dec-skeleton" aria-busy="true">
+              {Array.from({ length: 6 }, (_, i) => (
+                <Skeleton key={i} height={34} radius="sm" />
+              ))}
+            </div>
+          ) : loadError ? (
+            <div className="dec-empty">
+              <b>Couldn&apos;t load decisions</b>
+              {loadError.data?.code === "FORBIDDEN"
+                ? "Decisions are visible to workspace members only."
+                : loadError.message}
+            </div>
+          ) : noDecisionsAtAll && !scopeChanged ? (
+            <div className="dec-empty">
+              <b>No decisions yet</b>
+              {canCreate ? "Log one with New decision or from a meeting's summary tab, " : "Decisions are logged from a meeting's summary tab, "}
+              or enrol repositories under{" "}
+              <Link href={`/w/${workspaceSlug}/settings/decisions`}>Settings → Decisions</Link>
+              {" "}to sync ADRs.
+            </div>
+          ) : nothingVisible ? (
+            <div className="dec-empty">
+              <b>No decisions match</b>
+              Try a different status or source, or clear the search.
+            </div>
+          ) : effectiveGrouped ? (
+            <>
+              {groups.map((g) => (
+                <DecGroup
+                  key={g.repositoryId}
+                  fullName={g.fullName}
+                  items={g.items}
+                  workspaceSlug={workspaceSlug}
+                />
+              ))}
+              {decisionGroups.map((g) => (
+                <GroupShell
+                  key={g.group.key}
+                  name={g.group.name}
+                  kind={g.group.kind}
+                  count={g.rows.length}
+                >
+                  {g.rows.map((row) => {
+                    const decision = decisionById.get(row.id);
+                    return decision ? (
+                      <DecisionLogRow
+                        key={row.id}
+                        decision={decision}
+                        workspaceSlug={workspaceSlug}
+                        showGroup={false}
+                      />
+                    ) : null;
+                  })}
+                </GroupShell>
+              ))}
+            </>
+          ) : (
+            <div className="dec-rows dec-rows--flat">
+              <DecItems items={flatItems} workspaceSlug={workspaceSlug} showRepo />
+              {visibleDecisions.map((row) => {
+                const decision = decisionById.get(row.id);
+                return decision ? (
+                  <DecisionLogRow
+                    key={row.id}
+                    decision={decision}
+                    workspaceSlug={workspaceSlug}
+                    showGroup
+                  />
+                ) : null;
+              })}
+            </div>
+          )}
+
+          {configs ? (
+            <div className="dec-foot">
+              <IconClock size={12} stroke={1.75} />
+              {lastSyncedAt
+                ? `Synced from git ${formatDistanceToNow(lastSyncedAt, { addSuffix: true })}`
+                : "Not synced from git yet"}
+              {" · "}
+              {repoCount} {repoWord} {lastSyncedAt ? "scanned" : "enrolled"}
+            </div>
           ) : null}
         </div>
-        {canCreate ? (
-          <LogDecisionModal
-            opened={newDecisionOpen}
-            onClose={() => setNewDecisionOpen(false)}
-            workspaceId={workspaceId}
-            workspaceSlug={workspaceSlug}
-            productId={defaultProductId ?? null}
-          />
-        ) : null}
 
-        <div className="dec-bar">
-          <div className="dec-bar__row">
-            <label className="dec-search">
-              <IconSearch size={14} stroke={1.75} />
-              <input
-                type="search"
-                placeholder="Search decisions"
-                value={search}
-                onChange={(e) => setSearch(e.currentTarget.value)}
-                aria-label="Search decisions"
-              />
-            </label>
-            <div className="dec-seg" role="group" aria-label="Filter by status">
-              <button
-                type="button"
-                className={statusFilter === "all" ? "on" : ""}
-                aria-pressed={statusFilter === "all"}
-                onClick={() => setStatusFilter("all")}
-              >
-                All <span className="dec-seg__n">{totalCount}</span>
-              </button>
-              {/* Zero-count statuses hide, except the active one — a filter
-                  that is still applied must stay visible and clearable. */}
-              {STATUS_ORDER.filter(
-                (s) => (counts.get(s) ?? 0) > 0 || statusFilter === s,
-              ).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={statusFilter === s ? "on" : ""}
-                  aria-pressed={statusFilter === s}
-                  onClick={() => setStatusFilter(s)}
-                >
-                  <span className={`dot dot--${STATUS_META[s].dot}`} />
-                  {STATUS_META[s].label}{" "}
-                  <span className="dec-seg__n">{counts.get(s) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-            <div className="dec-bar__spacer" />
-            <ProductScopeChip
-              value={productFilter}
-              options={scopeOptions}
-              onChange={setProductFilter}
+        <PeekDrawer
+          label="Decision details"
+          opened={!!peek}
+          onClose={() => setPeek(null)}
+          fullPageHref={
+            peek
+              ? peek.kind === "adr"
+                ? `/w/${workspaceSlug}/decisions/${peek.id}`
+                : `/w/${workspaceSlug}/decisions/d/${peek.id}`
+              : null
+          }
+          onPrev={peekPrev}
+          onNext={peekNext}
+        >
+          {peek?.kind === "adr" ? (
+            <AdrDetail key={peek.id} workspaceId={workspaceId} workspaceSlug={workspaceSlug} adrId={peek.id} />
+          ) : peek?.kind === "decision" ? (
+            <DecisionDetail
+              key={peek.id}
+              workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
+              decisionId={peek.id}
             />
-            <div className="dec-seg" role="group" aria-label="Grouping">
-              <button
-                type="button"
-                className={grouped ? "on" : ""}
-                aria-pressed={grouped}
-                onClick={() => setGrouped(true)}
-              >
-                <IconFolder size={12} stroke={1.75} />
-                Grouped
-              </button>
-              <button
-                type="button"
-                className={!grouped ? "on" : ""}
-                aria-pressed={!grouped}
-                onClick={() => setGrouped(false)}
-              >
-                <IconList size={12} stroke={1.75} />
-                Flat
-              </button>
-            </div>
-          </div>
-          {/* The source filter always sits on its own row under the search
-              box, so it never wraps into the status row at in-between widths. */}
-          <div className="dec-bar__row">
-            <div className="dec-seg" role="group" aria-label="Filter by source">
-              <button
-                type="button"
-                className={sourceFilter === "all" ? "on" : ""}
-                aria-pressed={sourceFilter === "all"}
-                onClick={() => setSourceFilter("all")}
-              >
-                All sources
-              </button>
-              {SOURCE_ORDER.filter(
-                (s) => (sourceCounts.get(s.value) ?? 0) > 0 || sourceFilter === s.value,
-              ).map((s) => (
-                <button
-                  key={s.value}
-                  type="button"
-                  className={sourceFilter === s.value ? "on" : ""}
-                  aria-pressed={sourceFilter === s.value}
-                  onClick={() => setSourceFilter(s.value)}
-                >
-                  {s.icon}
-                  {s.label} <span className="dec-seg__n">{sourceCounts.get(s.value) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="dec-skeleton" aria-busy="true">
-            {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} height={34} radius="sm" />
-            ))}
-          </div>
-        ) : loadError ? (
-          <div className="dec-empty">
-            <b>Couldn&apos;t load decisions</b>
-            {loadError.data?.code === "FORBIDDEN"
-              ? "Decisions are visible to workspace members only."
-              : loadError.message}
-          </div>
-        ) : noDecisionsAtAll && !scopeChanged ? (
-          <div className="dec-empty">
-            <b>No decisions yet</b>
-            {canCreate ? "Log one with New decision or from a meeting's summary tab, " : "Decisions are logged from a meeting's summary tab, "}
-            or enrol repositories under{" "}
-            <Link href={`/w/${workspaceSlug}/settings/decisions`}>Settings → Decisions</Link>
-            {" "}to sync ADRs.
-          </div>
-        ) : nothingVisible ? (
-          <div className="dec-empty">
-            <b>No decisions match</b>
-            Try a different status or source, or clear the search.
-          </div>
-        ) : effectiveGrouped ? (
-          <>
-            {groups.map((g) => (
-              <DecGroup
-                key={g.repositoryId}
-                fullName={g.fullName}
-                items={g.items}
-                workspaceSlug={workspaceSlug}
-              />
-            ))}
-            {decisionGroups.map((g) => (
-              <GroupShell
-                key={g.group.key}
-                name={g.group.name}
-                kind={g.group.kind}
-                count={g.rows.length}
-              >
-                {g.rows.map((row) => {
-                  const decision = decisionById.get(row.id);
-                  return decision ? (
-                    <DecisionLogRow
-                      key={row.id}
-                      decision={decision}
-                      workspaceSlug={workspaceSlug}
-                      showGroup={false}
-                    />
-                  ) : null;
-                })}
-              </GroupShell>
-            ))}
-          </>
-        ) : (
-          <div className="dec-rows dec-rows--flat">
-            <DecItems items={flatItems} workspaceSlug={workspaceSlug} showRepo />
-            {visibleDecisions.map((row) => {
-              const decision = decisionById.get(row.id);
-              return decision ? (
-                <DecisionLogRow
-                  key={row.id}
-                  decision={decision}
-                  workspaceSlug={workspaceSlug}
-                  showGroup
-                />
-              ) : null;
-            })}
-          </div>
-        )}
-
-        {configs ? (
-          <div className="dec-foot">
-            <IconClock size={12} stroke={1.75} />
-            {lastSyncedAt
-              ? `Synced from git ${formatDistanceToNow(lastSyncedAt, { addSuffix: true })}`
-              : "Not synced from git yet"}
-            {" · "}
-            {repoCount} {repoWord} {lastSyncedAt ? "scanned" : "enrolled"}
-          </div>
-        ) : null}
+          ) : null}
+        </PeekDrawer>
       </div>
-    </div>
+    </PeekContext.Provider>
   );
 }
