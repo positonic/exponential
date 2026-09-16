@@ -8,7 +8,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mockDeep, mockReset } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { assertFeaturesLinkable } from "../meetingFeatures";
+import {
+  assertFeaturesLinkable,
+  dropStrandedFeatureMeetingLinks,
+  dropStrandedMeetingFeatureLinks,
+} from "../meetingFeatures";
 import { getWorkspaceMembership } from "~/server/services/access";
 
 vi.mock("~/server/services/access", () => ({
@@ -63,5 +67,47 @@ describe("assertFeaturesLinkable", () => {
     await expect(
       assertFeaturesLinkable(db, USER, { workspaceId: "ws-A", featureIds: ["f1", "f1"] }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("dropStrandedMeetingFeatureLinks", () => {
+  it("drops links to features outside the meeting's new workspace", async () => {
+    await dropStrandedMeetingFeatureLinks(db, { meetingIds: ["m1"], workspaceId: "ws-B" });
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: {
+        transcriptionSessionId: { in: ["m1"] },
+        feature: { product: { workspaceId: { not: "ws-B" } } },
+      },
+    });
+  });
+
+  it("drops every link when the meeting loses its workspace", async () => {
+    await dropStrandedMeetingFeatureLinks(db, { meetingIds: ["m1"], workspaceId: null });
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: { in: ["m1"] } },
+    });
+  });
+});
+
+describe("dropStrandedFeatureMeetingLinks", () => {
+  it("drops a moved feature's links to meetings left in another workspace", async () => {
+    await dropStrandedFeatureMeetingLinks(db, { featureIds: ["f1"], workspaceId: "ws-B" });
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: {
+        feature: { id: { in: ["f1"] } },
+        transcriptionSession: {
+          OR: [{ workspaceId: null }, { workspaceId: { not: "ws-B" } }],
+        },
+      },
+    });
+  });
+
+  it("scopes a product move to that product's features", async () => {
+    await dropStrandedFeatureMeetingLinks(db, { productId: "p1", workspaceId: "ws-B" });
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ feature: { productId: "p1" } }),
+      }),
+    );
   });
 });

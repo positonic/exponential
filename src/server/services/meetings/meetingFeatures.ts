@@ -46,3 +46,47 @@ export async function assertFeaturesLinkable(
     });
   }
 }
+
+type MeetingFeatureClient = Pick<PrismaClient, "meetingFeature">;
+
+/**
+ * Drop the feature links a meeting move strands: every link on `meetingIds`
+ * whose feature isn't in `workspaceId` (all of them when it is null, since a
+ * workspace-less meeting can't carry links). Call it wherever a meeting's
+ * `workspaceId` changes. Returns the Prisma promise un-awaited so it can join
+ * an array `$transaction`.
+ */
+export function dropStrandedMeetingFeatureLinks(
+  db: MeetingFeatureClient,
+  input: { meetingIds: string[]; workspaceId: string | null },
+) {
+  return db.meetingFeature.deleteMany({
+    where: {
+      transcriptionSessionId: { in: input.meetingIds },
+      ...(input.workspaceId
+        ? { feature: { product: { workspaceId: { not: input.workspaceId } } } }
+        : {}),
+    },
+  });
+}
+
+/**
+ * The feature-side twin: when features move to `workspaceId` (a Feature move,
+ * or a whole Product moving workspace), drop their links to meetings that stay
+ * behind. Pass exactly one of `featureIds` or `productId`.
+ */
+export function dropStrandedFeatureMeetingLinks(
+  db: MeetingFeatureClient,
+  input: { featureIds?: string[]; productId?: string; workspaceId: string },
+) {
+  return db.meetingFeature.deleteMany({
+    where: {
+      feature: input.productId
+        ? { productId: input.productId }
+        : { id: { in: input.featureIds ?? [] } },
+      transcriptionSession: {
+        OR: [{ workspaceId: null }, { workspaceId: { not: input.workspaceId } }],
+      },
+    },
+  });
+}

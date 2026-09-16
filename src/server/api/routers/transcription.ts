@@ -31,7 +31,10 @@ import {
 import { parseTranscript } from "~/lib/transcript";
 import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
-import { assertFeaturesLinkable } from "~/server/services/meetings/meetingFeatures";
+import {
+  assertFeaturesLinkable,
+  dropStrandedMeetingFeatureLinks,
+} from "~/server/services/meetings/meetingFeatures";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
@@ -856,6 +859,17 @@ export const transcriptionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Moving workspace strands feature links to the old one.
+      if (
+        updateData.workspaceId !== undefined &&
+        updateData.workspaceId !== existing.workspaceId
+      ) {
+        await dropStrandedMeetingFeatureLinks(ctx.db, {
+          meetingIds: [existing.id],
+          workspaceId: updateData.workspaceId,
+        });
+      }
       return session;
     }),
 
@@ -1582,14 +1596,21 @@ export const transcriptionRouter = createTRPCRouter({
         projectId = null;
       }
 
-      return ctx.db.transcriptionSession.update({
-        where: { id: input.transcriptionId },
-        data: {
+      const [updated] = await ctx.db.$transaction([
+        ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: {
+            workspaceId: input.workspaceId,
+            projectId,
+            updatedAt: new Date(),
+          },
+        }),
+        dropStrandedMeetingFeatureLinks(ctx.db, {
+          meetingIds: [input.transcriptionId],
           workspaceId: input.workspaceId,
-          projectId,
-          updatedAt: new Date(),
-        },
-      });
+        }),
+      ]);
+      return updated;
     }),
 
   // Add to your transcriptionRouter
