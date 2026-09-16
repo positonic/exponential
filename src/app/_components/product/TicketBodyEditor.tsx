@@ -2,7 +2,9 @@
 
 import { useMemo } from "react";
 import type { JSONContent } from "@tiptap/core";
-import { api } from "~/trpc/react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { RichDocEditor } from "~/app/_components/shared/RichDocEditor";
 import { useAnchoredComments } from "~/app/_components/prd/useAnchoredComments";
 import type { FeatureCommentRow } from "~/app/_components/prd/PrdCommentsPanel";
@@ -35,6 +37,7 @@ export function TicketBodyEditor({
   docVersion = 0,
 }: TicketBodyEditorProps) {
   const utils = api.useUtils();
+  const queryClient = useQueryClient();
   const initBodyDoc = api.product.ticket.initBodyDoc.useMutation();
   const updateTicket = api.product.ticket.update.useMutation();
   const uploadImage = api.product.ticket.uploadImage.useMutation();
@@ -119,14 +122,30 @@ export function TicketBodyEditor({
           message:
             "Someone else saved a newer version of this ticket's description. Reload to get the latest? Unsaved changes in this tab will be lost.",
         }}
-        onSave={async ({ doc, markdown, baseVersion }) =>
-          updateTicket.mutateAsync({
+        onSave={async ({ doc, markdown, baseVersion }) => {
+          const saved = await updateTicket.mutateAsync({
             id: ticketId,
             bodyDoc: doc,
             body: markdown,
             baseVersion,
-          })
-        }
+          });
+          // The engine loads its content once per mount, from whatever the
+          // cache holds. Hosts remount it on every ticket switch, so without
+          // this, returning to the ticket would show the pre-edit body and
+          // the next keystroke would CONFLICT against this tab's own save.
+          const patch = { body: markdown, bodyDoc: doc, docVersion: saved.docVersion };
+          utils.product.ticket.getById.setData({ id: ticketId }, (old) =>
+            old ? { ...old, ...patch } : old,
+          );
+          queryClient.setQueriesData<RouterOutputs["product"]["ticket"]["getByRef"]>(
+            { queryKey: getQueryKey(api.product.ticket.getByRef) },
+            (old) =>
+              old?.ticket.id === ticketId
+                ? { ...old, ticket: { ...old.ticket, ...patch } }
+                : old,
+          );
+          return saved;
+        }}
         onInitDoc={(doc) => initBodyDoc.mutate({ id: ticketId, doc })}
         uploadImage={(base64Data) =>
           uploadImage.mutateAsync({ id: ticketId, base64Data })
