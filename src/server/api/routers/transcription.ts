@@ -24,7 +24,10 @@ import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStat
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 import { tokenizeTitle } from "~/lib/meetings/titleTokens";
-import { MEETING_IMAGE_CONTENT_TYPES } from "~/lib/meetings/meetingImages";
+import {
+  MAX_MEETING_IMAGE_BASE64_LENGTH,
+  MEETING_IMAGE_CONTENT_TYPES,
+} from "~/lib/meetings/meetingImages";
 import { parseTranscript } from "~/lib/transcript";
 import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
@@ -1494,7 +1497,9 @@ export const transcriptionRouter = createTRPCRouter({
     .input(
       z.object({
         transcriptionSessionId: z.string(),
-        base64Data: z.string().min(1),
+        // Same cap the client resizes to, so non-browser callers can't push
+        // an unbounded payload into memory and Blob storage.
+        base64Data: z.string().min(1).max(MAX_MEETING_IMAGE_BASE64_LENGTH),
         contentType: z.enum(MEETING_IMAGE_CONTENT_TYPES),
       }),
     )

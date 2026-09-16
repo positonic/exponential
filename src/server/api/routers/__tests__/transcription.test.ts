@@ -127,6 +127,8 @@ vi.mock("~/server/services/TranscriptionProcessingService", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import { uploadToBlob } from "~/lib/blob";
+import { MAX_MEETING_IMAGE_BASE64_LENGTH } from "~/lib/meetings/meetingImages";
 
 describe("transcription router (mocked) — findRelated", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -601,6 +603,7 @@ describe("transcription router (mocked) — uploadScreenshot", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    vi.mocked(uploadToBlob).mockClear();
     dbMock.screenshot.create.mockResolvedValue({
       id: "shot1",
       url: "blob://test",
@@ -648,6 +651,20 @@ describe("transcription router (mocked) — uploadScreenshot", () => {
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(dbMock.screenshot.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized payload before uploading anything", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "sess1",
+        base64Data: "A".repeat(MAX_MEETING_IMAGE_BASE64_LENGTH + 4),
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(uploadToBlob).not.toHaveBeenCalled();
+    expect(dbMock.transcriptionSession.findUnique).not.toHaveBeenCalled();
   });
 
   it("404s for an unknown meeting", async () => {
