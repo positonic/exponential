@@ -268,7 +268,11 @@ export function TicketDetailClient() {
     { workspaceSlug, productSlug, identifier: routeParam },
     { staleTime: Infinity },
   );
-  const ticketId = ref?.ticket.id ?? cachedRef?.id ?? "";
+  // The cached ticket only stands in while getByRef is still pending. Once it
+  // answers null (deleted since the peek cached it, or access revoked) that
+  // answer wins, or the page would render a stale, editable ticket.
+  const ticketId =
+    ref === undefined ? (cachedRef?.id ?? "") : (ref?.ticket.id ?? "");
   const seed = ref && ref.ticket.id === ticketId ? ref : undefined;
   // On a hard load the streamed result is already in the HTML, so hydration
   // builds getByRef with its data but dataUpdatedAt 0 (it was dehydrated while
