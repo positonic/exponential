@@ -1,172 +1,164 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { RichTextEditor } from "@mantine/tiptap";
-import { BubbleMenu, useEditor } from "@tiptap/react";
-import type { EditorView } from "@tiptap/pm/view";
-import { notifications } from "@mantine/notifications";
-import { api } from "~/trpc/react";
-import { buildPrdExtensions } from "~/lib/prd/extensions";
-import { markdownToDoc, EMPTY_DOC } from "~/lib/prd/codec";
-import "@mantine/tiptap/styles.css";
-
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+import { useMemo } from "react";
+import type { JSONContent } from "@tiptap/core";
+import { useQueryClient } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
+import { api, type RouterOutputs } from "~/trpc/react";
+import { RichDocEditor } from "~/app/_components/shared/RichDocEditor";
+import { useAnchoredComments } from "~/app/_components/prd/useAnchoredComments";
+import type { FeatureCommentRow } from "~/app/_components/prd/PrdCommentsPanel";
 
 interface TicketBodyEditorProps {
   ticketId: string;
-  initialContent: string | null;
+  /** Canonical ProseMirror document; null until the ticket is first opened here. */
+  bodyDoc: JSONContent | null;
+  /** Legacy/derived Markdown projection — source of the one-time migration. */
+  body: string | null;
+  /** Stored doc version, the base for the optimistic-concurrency check. */
+  docVersion?: number;
 }
 
-export function TicketBodyEditor({ ticketId, initialContent }: TicketBodyEditorProps) {
+/**
+ * The ticket body editor: the shared {@link RichDocEditor} engine (ADR-0024)
+ * wired to the Ticket `bodyDoc`/`body`/`docVersion` storage, plus the shared
+ * anchored-comments layer ({@link useAnchoredComments}) over the ticket
+ * comment procedures — select text, pin a thread to it, same interaction as
+ * the PRD body and Knowledge Pages.
+ *
+ * Hosts must key this component by ticket (`key={ticketId}`): the detail
+ * page's nav arrows and the peek's j/k navigation swap tickets without
+ * unmounting, and the engine loads its content exactly once.
+ */
+export function TicketBodyEditor({
+  ticketId,
+  bodyDoc,
+  body,
+  docVersion = 0,
+}: TicketBodyEditorProps) {
   const utils = api.useUtils();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const loadedForTicketId = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  const updateTicket = api.product.ticket.update.useMutation({
-    onSuccess: async () => {
-      await utils.product.ticket.getById.invalidate({ id: ticketId });
-    },
-  });
-
+  const queryClient = useQueryClient();
+  const initBodyDoc = api.product.ticket.initBodyDoc.useMutation();
+  const updateTicket = api.product.ticket.update.useMutation();
   const uploadImage = api.product.ticket.uploadImage.useMutation();
 
-  const saveBody = useCallback(
-    (markdown: string) => {
-      updateTicket.mutate({ id: ticketId, body: markdown.trim() === "" ? "" : markdown });
-    },
-    [ticketId, updateTicket],
+  const addComment = api.product.ticket.addComment.useMutation();
+  const replyComment = api.product.ticket.replyComment.useMutation();
+  const updateComment = api.product.ticket.updateComment.useMutation();
+  const deleteComment = api.product.ticket.deleteComment.useMutation();
+  const resolveThread = api.product.ticket.resolveCommentThread.useMutation();
+  const unresolveThread = api.product.ticket.unresolveCommentThread.useMutation();
+
+  // Deduped with the host detail page / peek's own query. Anchored threads
+  // only (threadId set) — the Activity timeline renders the rest.
+  const ticketQuery = api.product.ticket.getById.useQuery({ id: ticketId });
+  const comments = useMemo<FeatureCommentRow[]>(
+    () =>
+      (ticketQuery.data?.comments ?? [])
+        .filter((c) => c.threadId != null)
+        .map((c) => ({
+          id: c.id,
+          threadId: c.threadId,
+          parentId: c.parentId,
+          quotedText: c.quotedText,
+          resolvedAt: c.resolvedAt,
+          body: c.content,
+          createdAt: c.createdAt,
+          createdBy: c.author,
+        }))
+        // getById returns comments newest-first; threads render in input order.
+        .sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        ),
+    [ticketQuery.data?.comments],
   );
+  const invalidateComments = () =>
+    utils.product.ticket.getById.invalidate({ id: ticketId });
 
-  const debouncedSave = useCallback(
-    (markdown: string) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => saveBody(markdown), 1000);
-    },
-    [saveBody],
-  );
-
-  const imageHandlers = useMemo(() => {
-    const insertImage = (view: EditorView, file: File, pos?: number): boolean => {
-      if (!file.type.startsWith("image/")) return false;
-      if (file.size > MAX_IMAGE_BYTES) {
-        notifications.show({ title: "Image too large", message: "Please use an image under 5MB.", color: "red" });
-        return true;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result !== "string") return;
-        const base64 = result.split(",")[1];
-        if (!base64) return;
-        uploadImage
-          .mutateAsync({ id: ticketId, base64Data: base64, mimeType: file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif" })
-          .then((res) => {
-            const { state } = view;
-            const node = state.schema.nodes.image?.create({ src: res.url });
-            if (!node) return;
-            const at = pos ?? state.selection.from;
-            view.dispatch(state.tr.insert(at, node));
-          })
-          .catch(() => {
-            notifications.show({ title: "Upload failed", message: "Could not upload the image. Please try again.", color: "red" });
-          });
-      };
-      reader.readAsDataURL(file);
-      return true;
-    };
-
-    const firstImage = (list?: FileList | null): File | null => {
-      if (!list) return null;
-      for (const file of Array.from(list)) {
-        if (file.type.startsWith("image/")) return file;
-      }
-      return null;
-    };
-
-    return {
-      handlePaste: (view: EditorView, event: ClipboardEvent): boolean => {
-        const file = firstImage(event.clipboardData?.files);
-        if (!file) return false;
-        event.preventDefault();
-        return insertImage(view, file);
+  const anchored = useAnchoredComments({
+    enabled: true,
+    editable: true,
+    adapter: {
+      comments,
+      createThread: async ({ threadId, body: content, quotedText }) => {
+        await addComment.mutateAsync({ ticketId, threadId, content, quotedText });
+        await invalidateComments();
       },
-      handleDrop: (view: EditorView, event: DragEvent): boolean => {
-        const file = firstImage(event.dataTransfer?.files);
-        if (!file) return false;
-        event.preventDefault();
-        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
-        return insertImage(view, file, coords?.pos);
+      reply: async ({ parentId, body: content }) => {
+        await replyComment.mutateAsync({ parentId, content });
+        await invalidateComments();
       },
-    };
-  }, [ticketId, uploadImage]);
-
-  const editor = useEditor({
-    extensions: buildPrdExtensions({ placeholder: "Add a description..." }),
-    content: "",
-    immediatelyRender: false,
-    onUpdate: ({ editor: e }) => {
-      debouncedSave(
-        (e.storage.markdown as { getMarkdown: () => string }).getMarkdown(),
-      );
-    },
-    onBlur: ({ editor: e }) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      saveBody(
-        (e.storage.markdown as { getMarkdown: () => string }).getMarkdown(),
-      );
-    },
-    editorProps: {
-      attributes: { class: "prose prose-invert max-w-none focus:outline-none" },
-      handlePaste: imageHandlers.handlePaste,
-      handleDrop: imageHandlers.handleDrop,
+      editComment: async ({ commentId, body: content }) => {
+        await updateComment.mutateAsync({ id: commentId, content });
+        await invalidateComments();
+      },
+      deleteComment: async ({ commentId }) => {
+        await deleteComment.mutateAsync({ id: commentId });
+        await invalidateComments();
+      },
+      resolveThread: async (threadId) => {
+        await resolveThread.mutateAsync({ ticketId, threadId });
+        await invalidateComments();
+      },
+      unresolveThread: async (threadId) => {
+        await unresolveThread.mutateAsync({ ticketId, threadId });
+        await invalidateComments();
+      },
+      isSubmitting: addComment.isPending || replyComment.isPending,
     },
   });
 
-  useEffect(() => {
-    if (editor && loadedForTicketId.current !== ticketId) {
-      loadedForTicketId.current = ticketId;
-      const doc = initialContent?.trim() ? markdownToDoc(initialContent) : EMPTY_DOC;
-      editor.commands.setContent(doc);
-    }
-  }, [editor, ticketId, initialContent]);
-
   return (
-    <RichTextEditor
-      editor={editor}
-      className="prd-document"
-      styles={{
-        root: { border: "none", backgroundColor: "transparent" },
-        content: {
-          backgroundColor: "transparent",
-          color: "var(--color-text-primary)",
-          fontSize: "14px",
-          padding: 0,
-        },
-      }}
-    >
-      {editor && (
-        <BubbleMenu editor={editor} tippyOptions={{ duration: 150 }}>
-          <RichTextEditor.ControlsGroup>
-            <RichTextEditor.Bold />
-            <RichTextEditor.Italic />
-            <RichTextEditor.Strikethrough />
-            <RichTextEditor.Code />
-            <RichTextEditor.Link />
-            <RichTextEditor.H1 />
-            <RichTextEditor.H2 />
-            <RichTextEditor.H3 />
-            <RichTextEditor.BulletList />
-            <RichTextEditor.OrderedList />
-          </RichTextEditor.ControlsGroup>
-        </BubbleMenu>
-      )}
-      <RichTextEditor.Content />
-    </RichTextEditor>
+    <>
+      <RichDocEditor
+        initialDoc={bodyDoc}
+        initialMarkdown={body}
+        docVersion={docVersion}
+        editable
+        placeholder="Add a description..."
+        conflict={{
+          title: "This ticket changed",
+          message:
+            "Someone else saved a newer version of this ticket's description. Reload to get the latest? Unsaved changes in this tab will be lost.",
+        }}
+        onSave={async ({ doc, markdown, baseVersion }) => {
+          const saved = await updateTicket.mutateAsync({
+            id: ticketId,
+            bodyDoc: doc,
+            body: markdown,
+            baseVersion,
+          });
+          // The engine loads its content once per mount, from whatever the
+          // cache holds. Hosts remount it on every ticket switch, so without
+          // this, returning to the ticket would show the pre-edit body and
+          // the next keystroke would CONFLICT against this tab's own save.
+          const patch = { body: markdown, bodyDoc: doc, docVersion: saved.docVersion };
+          utils.product.ticket.getById.setData({ id: ticketId }, (old) =>
+            old ? { ...old, ...patch } : old,
+          );
+          queryClient.setQueriesData<RouterOutputs["product"]["ticket"]["getByRef"]>(
+            { queryKey: getQueryKey(api.product.ticket.getByRef) },
+            (old) =>
+              old?.ticket.id === ticketId
+                ? { ...old, ticket: { ...old.ticket, ...patch } }
+                : old,
+          );
+          return saved;
+        }}
+        onInitDoc={(doc) => initBodyDoc.mutate({ id: ticketId, doc })}
+        uploadImage={(base64Data) =>
+          uploadImage.mutateAsync({ id: ticketId, base64Data })
+        }
+        extraExtensions={anchored.extraExtensions}
+        bubbleExtras={anchored.bubbleExtras}
+        onDocUpdate={anchored.onDocUpdate}
+        onReady={anchored.handleReady}
+        wrapperRef={anchored.wrapperRef}
+        editorClick={anchored.editorClick}
+        overlay={anchored.overlay}
+      />
+      {anchored.panel}
+    </>
   );
 }

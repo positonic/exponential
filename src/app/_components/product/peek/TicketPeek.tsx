@@ -24,6 +24,7 @@ import {
   IconUser,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_components/product/PropertyPill";
@@ -513,8 +514,15 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
 
       <div className="border-t border-border-primary" />
 
-      {/* Body */}
-      <TicketBodyEditor ticketId={ticketId} initialContent={ticket.body} />
+      {/* Body — keyed on the ticket: j/k navigation swaps tickets without
+          unmounting the peek, and the editor loads its content once. */}
+      <TicketBodyEditor
+        key={ticketId}
+        ticketId={ticketId}
+        bodyDoc={(ticket.bodyDoc as JSONContent | null) ?? null}
+        body={ticket.body ?? null}
+        docVersion={ticket.docVersion}
+      />
 
       {/* Sections get pt-2 on top of the Stack's 16px gap: 24px between
           sections vs 8px header-to-content inside one - the grouping ratio
