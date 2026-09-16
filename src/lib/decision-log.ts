@@ -211,3 +211,23 @@ export function groupLogRows(rows: LogRow[]): LogGroupRows[] {
         a.group.name.localeCompare(b.group.name),
     );
 }
+
+/**
+ * A Decision Log peek key, the `?peek=` value: the row kind plus its id.
+ * ADRs and Decisions are separate tables with separate detail views, and the
+ * URL has to say which one to open without waiting for either list to load.
+ * Ids are CUIDs, which contain no dash.
+ */
+export type PeekKey = `adr-${string}` | `decision-${string}`;
+
+export function parsePeekKey(
+  raw: string | null,
+): { kind: "adr" | "decision"; id: string } | null {
+  if (!raw) return null;
+  const dash = raw.indexOf("-");
+  if (dash === -1) return null;
+  const kind = raw.slice(0, dash);
+  const id = raw.slice(dash + 1);
+  if ((kind !== "adr" && kind !== "decision") || !id) return null;
+  return { kind, id };
+}

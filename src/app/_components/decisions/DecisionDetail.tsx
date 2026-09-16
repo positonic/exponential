@@ -6,7 +6,6 @@ import {
   Divider,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Text,
   Title,
@@ -19,6 +18,7 @@ import { DecisionScopePanel } from "~/app/_components/decisions/DecisionScopePan
 import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
 import { DraftAdrButton } from "~/app/_components/decisions/DraftAdrModal";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { DetailPreview, decisionStatusBadge, type PeekPreview } from "./DetailPreview";
 import {
   evidenceHref,
   formatEvidenceTime,
@@ -35,22 +35,6 @@ import { api } from "~/trpc/react";
  * Log's peek drawer, so the two can never drift apart.
  */
 
-const STATUS_COLOR: Record<string, string> = {
-  OPEN: "yellow",
-  PROPOSED: "blue",
-  ACCEPTED: "green",
-  SUPERSEDED: "orange",
-  DEPRECATED: "red",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  OPEN: "open question",
-  PROPOSED: "proposed",
-  ACCEPTED: "accepted",
-  SUPERSEDED: "superseded",
-  DEPRECATED: "deprecated",
-};
-
 function formatDate(value: Date | string | null): string | null {
   if (!value) return null;
   return new Date(value).toLocaleDateString("en-GB", {
@@ -64,10 +48,13 @@ export function DecisionDetail({
   workspaceId,
   workspaceSlug,
   decisionId,
+  preview,
 }: {
   workspaceId: string;
   workspaceSlug: string;
   decisionId: string;
+  /** The Decision Log row's header, painted while the detail loads. */
+  preview?: PeekPreview;
 }) {
   const {
     data: decision,
@@ -78,14 +65,7 @@ export function DecisionDetail({
     { enabled: !!workspaceId && !!decisionId },
   );
 
-  if (isLoading) {
-    return (
-      <>
-        <Skeleton height={40} width={280} mb="lg" />
-        <Skeleton height={400} />
-      </>
-    );
-  }
+  if (isLoading) return <DetailPreview preview={preview} />;
 
   if (error ?? !decision) {
     return (
@@ -101,6 +81,7 @@ export function DecisionDetail({
   const meeting = decision.transcriptionSession;
   const decided = formatDate(decision.decidedAt);
   const decisionHref = (id: string) => `/w/${workspaceSlug}/decisions/d/${id}`;
+  const statusBadge = decisionStatusBadge(decision.status);
 
   return (
     <>
@@ -110,8 +91,8 @@ export function DecisionDetail({
             <Text size="sm" fw={700} className="text-text-secondary">
               {decision.label}
             </Text>
-            <Badge variant="light" color={STATUS_COLOR[decision.status] ?? "gray"}>
-              {STATUS_LABEL[decision.status] ?? decision.status.toLowerCase()}
+            <Badge variant="light" color={statusBadge.color}>
+              {statusBadge.label}
             </Badge>
             <Badge
               variant="outline"
