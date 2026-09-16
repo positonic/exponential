@@ -261,6 +261,31 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
+  // The workspace you land in when a URL doesn't name one (getDefault falls
+  // back to your first workspace when none has been chosen).
+  const { data: defaultWorkspace } = api.workspace.getDefault.useQuery();
+  const isDefaultWorkspace = !!workspaceId && defaultWorkspace?.id === workspaceId;
+
+  const setDefaultMutation = api.workspace.setDefault.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getDefault.invalidate();
+      notifications.show({
+        title: 'Default workspace updated',
+        message: `${workspace?.name ?? 'This workspace'} is now your default workspace.`,
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Could not set default workspace',
+        message: error.message,
+        color: 'red',
+        autoClose: 5000,
+      });
+    },
+  });
+
   const uploadLogoMutation = api.workspace.uploadLogo.useMutation({
     onSuccess: () => {
       refetchWorkspace();
@@ -733,6 +758,33 @@ export default function WorkspaceSettingsPage() {
               <SettingsPill variant={workspace.type === 'personal' ? 'neutral' : 'team'}>
                 {workspaceTypeLabel}
               </SettingsPill>
+            </SettingsField>
+
+            <SettingsField
+              label="Default workspace"
+              sublabel="Where you land when a link doesn't name a workspace. Only affects you."
+              action={
+                !isDefaultWorkspace && workspaceId ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (setDefaultMutation.isPending) return;
+                      setDefaultMutation.mutate({ workspaceId });
+                    }}
+                  >
+                    {setDefaultMutation.isPending ? 'Saving…' : 'Set as default'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {isDefaultWorkspace ? (
+                <SettingsPill variant="active">Default</SettingsPill>
+              ) : (
+                <span className="text-text-muted text-[12px]">
+                  {defaultWorkspace
+                    ? `Your default is ${defaultWorkspace.name}`
+                    : 'No default set'}
+                </span>
+              )}
             </SettingsField>
 
             <SettingsField
