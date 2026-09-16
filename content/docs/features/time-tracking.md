@@ -139,7 +139,7 @@ Install the CLI, then sign in with a **JWT Token** created under **Tokens** in t
 
 ```bash
 npm install -g exponential-cli
-exponential auth login --token <your-token>
+exponential auth login --token <your-token> --api-url https://www.exponential.im
 ```
 
 To let an agent log time for you, give the agent its own key instead. Under an agent key, every entry is created as **proposed** and belongs to you. See [External Agents](/docs/features/external-agents).
