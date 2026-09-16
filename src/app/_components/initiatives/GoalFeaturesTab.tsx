@@ -22,7 +22,7 @@ import {
   PriorityIcon,
   PRIORITY_LABELS,
 } from "~/app/_components/product/PriorityIcon";
-import { ProductBadge } from "~/app/_components/products/ProductRoadmapBoard";
+import { ProductBadge } from "~/app/_components/product/ProductBadge";
 import {
   FEATURE_STATUSES,
   HIDDEN_FEATURE_STATUSES,
@@ -49,8 +49,11 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
   const [showHidden, setShowHidden] = useState(false);
   const [peekFeature, setPeekFeature] = useState<GoalFeature | null>(null);
 
-  const { data: features, isLoading } =
-    api.product.feature.listForGoal.useQuery({ goalId });
+  const {
+    data: features,
+    isLoading,
+    isError,
+  } = api.product.feature.listForGoal.useQuery({ goalId });
 
   const hiddenCount = useMemo(
     () =>
@@ -76,6 +79,16 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
 
   if (isLoading) {
     return <Skeleton height={160} />;
+  }
+
+  // An error must not read as "nothing aligned" - that invites re-aligning
+  // Features that already are.
+  if (isError) {
+    return (
+      <Text size="sm" className="text-text-secondary">
+        Couldn&apos;t load this goal&apos;s features. Refresh to try again.
+      </Text>
+    );
   }
 
   const roadmapHref = `/w/${workspaceSlug}/products-roadmap`;
@@ -149,6 +162,7 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
                   <FeatureRow
                     key={feature.id}
                     feature={feature}
+                    href={`/w/${workspaceSlug}/products/${feature.product.slug}/features/${feature.id}`}
                     onOpen={() => setPeekFeature(feature)}
                   />
                 ))}
@@ -158,8 +172,8 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
         </Table>
       )}
 
-      {/* No onPrev/onNext: the peek opens over this tab without list
-          navigation, so its j/k keys never fight the goal page's. */}
+      {/* No onPrev/onNext: this tab has no list navigation, so the peek
+          shows no prev/next controls. */}
       <PeekDrawer
         label="Feature details"
         opened={!!peekFeature}
@@ -180,34 +194,43 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
 
 function FeatureRow({
   feature,
+  href,
   onOpen,
 }: {
   feature: GoalFeature;
+  href: string;
   onOpen: () => void;
 }) {
   const keyResults = feature.keyResultLinks.map((link) => link.keyResult);
   const priorityLabel = PRIORITY_LABELS[feature.priority ?? 4] ?? "No priority";
 
+  // The name is a real link (keyboard, screen readers, cmd/middle-click to a
+  // new tab); a plain click opens the peek instead, as on the product's
+  // Features list. Clicking elsewhere on the row is a mouse convenience.
+  const openPeek = (e: React.MouseEvent) => {
+    // Never reach the row's handler: a modifier-click navigates natively and
+    // must not also open the peek behind the new tab.
+    e.stopPropagation();
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    onOpen();
+  };
+
   return (
     <Table.Tr
       className="cursor-pointer transition-colors hover:bg-surface-hover"
-      tabIndex={0}
-      role="button"
-      aria-label={`Open ${feature.name}`}
       onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
     >
       <Table.Td>
         <Group gap="sm" wrap="nowrap">
           <IconBulb size={14} className="flex-shrink-0 text-text-muted" />
-          <Text size="sm" className="text-text-primary">
+          <Link
+            href={href}
+            onClick={openPeek}
+            className="text-sm text-text-primary no-underline hover:underline"
+          >
             {feature.name}
-          </Text>
+          </Link>
         </Group>
       </Table.Td>
       <Table.Td>
