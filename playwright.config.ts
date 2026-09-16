@@ -18,6 +18,8 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/perf/ has its own config (production build, one worker).
+  testIgnore: "perf/**",
   globalSetup: "./e2e/global-setup",
   outputDir: "./e2e/.results",
   // First hit on a `next dev` route pays compile + data-fetch cost; give each
