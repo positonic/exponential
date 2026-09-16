@@ -2,12 +2,11 @@
  * Unit tests for `ticket.update`'s body/doc storage paths (ADR-0024, mirrors
  * feature-doc-sync.test.ts).
  *
- * A CLI/SDK caller sends `body` (Markdown) with no `bodyDoc`. When a canonical
- * doc already exists the router must re-derive it server-side and bump
- * `docVersion` — otherwise the edit is invisible in the rich editor (which
- * renders the doc) and gets clobbered by its next save. While `bodyDoc` is
- * still null, Markdown writes pass through untouched (the editor migrates
- * lazily on first open).
+ * A CLI/SDK caller sends `body` (Markdown) with no `bodyDoc`. The router must
+ * re-derive the doc server-side and bump `docVersion` — otherwise the edit is
+ * invisible in the rich editor (which renders the doc) and gets clobbered by
+ * its next save. That holds even before the ticket was ever migrated: a tab
+ * may already be holding the older `body` it is about to migrate.
  *
  * Uses `vitest-mock-extended`'s `mockDeep<PrismaClient>()`; mirrors the mock
  * layout from `ticket.test.ts`.
@@ -15,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 // Seed env vars before any module imports — `vi.hoisted` runs before regular
 // top-level statements. Mirrors ticket.test.ts.
@@ -163,14 +162,8 @@ describe("ticket.update — Markdown-only body sync (mocked)", () => {
     );
   });
 
-  it("re-derives bodyDoc and bumps docVersion when a doc already exists", async () => {
-    // Call 1: loadTicketWithAccess. Call 2: the bodyDoc probe.
-    dbMock.ticket.findUnique
-      .mockResolvedValueOnce(accessTicket({ body: "old" }))
-      .mockResolvedValueOnce(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { bodyDoc: { type: "doc", content: [] } } as any,
-      );
+  it("re-derives bodyDoc and bumps docVersion on a Markdown-only write", async () => {
+    stubTicketAccess(dbMock, { body: "old" });
     const caller = createMockCaller({ userId: callerId, db: dbMock });
     const markdown = "# New body\n\n- [ ] a task";
 
@@ -189,21 +182,18 @@ describe("ticket.update — Markdown-only body sync (mocked)", () => {
     expect(doc.content.map((n) => n.type)).toEqual(["heading", "taskList"]);
   });
 
-  it("passes the Markdown through untouched while bodyDoc is still null", async () => {
-    // Lazy migration: the editor derives the doc from `body` on first open,
-    // so there is no canonical doc to go stale yet.
-    dbMock.ticket.findUnique
-      .mockResolvedValueOnce(accessTicket({ body: "old" }))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .mockResolvedValueOnce({ bodyDoc: null } as any);
+  it("bumps docVersion even for a ticket never opened in the rich editor", async () => {
+    // A tab holding the pre-write `body` would otherwise migrate it and save
+    // from base 0 without a CONFLICT, silently undoing this write.
+    stubTicketAccess(dbMock, { body: "old", docVersion: 0 });
     const caller = createMockCaller({ userId: callerId, db: dbMock });
 
     await caller.product.ticket.update({ id: ticketId, body: "# New body" });
 
     const data = updateData(dbMock);
     expect(data?.body).toBe("# New body");
-    expect(data).not.toHaveProperty("bodyDoc");
-    expect(data).not.toHaveProperty("docVersion");
+    expect(data?.bodyDoc).toMatchObject({ type: "doc" });
+    expect(data?.docVersion).toEqual({ increment: 1 });
   });
 
   it("skips the doc rewrite when the incoming Markdown is unchanged", async () => {
@@ -224,19 +214,19 @@ describe("ticket.update — Markdown-only body sync (mocked)", () => {
     expect(data?.priority).toBe(1);
     expect(data).not.toHaveProperty("bodyDoc");
     expect(data).not.toHaveProperty("docVersion");
-    // The bodyDoc probe never ran: only loadTicketWithAccess touched findUnique.
-    expect(dbMock.ticket.findUnique).toHaveBeenCalledTimes(1);
   });
 
-  it("saves the editor's doc via compare-and-set and returns the new version", async () => {
+  it("saves the editor's doc via compare-and-set and returns the version it produced", async () => {
     const doc = { type: "doc", content: [{ type: "paragraph" }] };
     // Call 1: loadTicketWithAccess (docVersion 3). Call 2: the post-CAS
-    // re-read returning the updated ticket.
+    // re-read — which here already sees a concurrent write (v9) that landed
+    // after the compare-and-set. The response must still report v4, or the
+    // editor would adopt v9 as its base and silently overwrite that write.
     dbMock.ticket.findUnique
       .mockResolvedValueOnce(accessTicket({ docVersion: 3 }))
       .mockResolvedValueOnce(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { id: ticketId, docVersion: 4, body: "New body" } as any,
+        { id: ticketId, docVersion: 9, body: "Someone else's body" } as any,
       );
     dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
     const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -274,5 +264,43 @@ describe("ticket.update — Markdown-only body sync (mocked)", () => {
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(dbMock.ticket.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("ticket.initBodyDoc — lazy migration (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubTicketAccess(dbMock);
+  });
+
+  it("writes only where bodyDoc is still null, in a single conditional write", async () => {
+    // A save or Markdown write landing between a read and a write must win,
+    // so there must be no read-then-write.
+    dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const doc = { type: "doc", content: [{ type: "paragraph" }] };
+
+    const result = await caller.product.ticket.initBodyDoc({ id: ticketId, doc });
+
+    const args = dbMock.ticket.updateMany.mock.calls[0]?.[0];
+    expect(args?.where).toMatchObject({ id: ticketId, bodyDoc: { equals: Prisma.DbNull } });
+    expect(args?.data).toEqual({ bodyDoc: doc });
+    expect(dbMock.ticket.update).not.toHaveBeenCalled();
+    expect(result).toEqual({ migrated: true });
+  });
+
+  it("reports no migration when a doc already exists", async () => {
+    dbMock.ticket.updateMany.mockResolvedValue({ count: 0 });
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.product.ticket.initBodyDoc({
+      id: ticketId,
+      doc: { type: "doc", content: [] },
+    });
+
+    expect(result).toEqual({ migrated: false });
   });
 });

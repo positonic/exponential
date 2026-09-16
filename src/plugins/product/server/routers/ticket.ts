@@ -7,7 +7,7 @@ import {
   assertWorkspaceScopedRefs,
   assertAssignableUser,
 } from "~/server/services/access";
-import type { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
@@ -608,29 +608,24 @@ export const ticketRouter = createTRPCRouter({
       // clobbered by its next save). Bumping `docVersion` turns any open
       // editor tab's next autosave into a CONFLICT instead of a silent
       // overwrite. Skipped when the Markdown is unchanged (agents retry-write
-      // a lot) so no-op writes don't hand open tabs spurious conflicts, and
-      // skipped while `bodyDoc` is still null — the editor migrates lazily
-      // from `body` on first open, so there is no doc to go stale.
+      // a lot) so no-op writes don't hand open tabs spurious conflicts. This
+      // runs even while `bodyDoc` is still null: a tab may already hold the
+      // older `body` it is about to migrate, and without the doc + bump its
+      // lazy migration and first save would silently undo this write.
       const syncDoc =
         bodyDoc === undefined &&
         rest.body !== undefined &&
         rest.body !== previousTicket.body;
       if (syncDoc) {
-        const current = await ctx.db.ticket.findUnique({
-          where: { id },
-          select: { bodyDoc: true },
-        });
-        if (current?.bodyDoc != null) {
-          try {
-            data.bodyDoc = markdownToDocServer(rest.body);
-            data.docVersion = { increment: 1 };
-          } catch (err) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: "Failed to derive the ticket document from the Markdown body",
-              cause: err,
-            });
-          }
+        try {
+          data.bodyDoc = markdownToDocServer(rest.body);
+          data.docVersion = { increment: 1 };
+        } catch (err) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to derive the ticket document from the Markdown body",
+            cause: err,
+          });
         }
       }
 
@@ -674,10 +669,14 @@ export const ticketRouter = createTRPCRouter({
               "This ticket was updated concurrently. Reload to get the latest version.",
           });
         }
-        updatedTicket = await ctx.db.ticket.findUnique({ where: { id } });
-        if (!updatedTicket) {
+        const row = await ctx.db.ticket.findUnique({ where: { id } });
+        if (!row) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
         }
+        // Report the version THIS save produced, not whatever the re-read
+        // saw: a write landing between the compare-and-set and the read would
+        // otherwise hand the editor a base that silently absorbs it.
+        updatedTicket = { ...row, docVersion: decision.nextVersion };
       } else {
         updatedTicket = await ctx.db.ticket.update({
           where: { id },
@@ -768,18 +767,13 @@ export const ticketRouter = createTRPCRouter({
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
       await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
-      const existing = await ctx.db.ticket.findUnique({
-        where: { id: input.id },
-        select: { bodyDoc: true },
-      });
-      if (existing?.bodyDoc != null) {
-        return { migrated: false };
-      }
-      await ctx.db.ticket.update({
-        where: { id: input.id },
+      // Conditional write, not read-then-write: an editor save or a Markdown
+      // API write landing in between must win over this migration.
+      const res = await ctx.db.ticket.updateMany({
+        where: { id: input.id, bodyDoc: { equals: Prisma.DbNull } },
         data: { bodyDoc: input.doc as Prisma.InputJsonValue },
       });
-      return { migrated: true };
+      return { migrated: res.count > 0 };
     }),
 
   /**
