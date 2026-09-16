@@ -36,10 +36,14 @@ type ManyChatComponent = typeof ManyChatDefault;
 
 const loadManyChat = () => import("../ManyChat").then((m) => m.default);
 
-function ChatLoading() {
+function ChatLoading({ failed }: { failed: boolean }) {
   return (
     <div className="flex h-full items-center justify-center">
-      <div className="animate-pulse text-text-muted">Loading chat…</div>
+      {failed ? (
+        <div className="text-text-muted">Chat couldn’t load. Close and reopen Zoe to try again.</div>
+      ) : (
+        <div className="animate-pulse text-text-muted">Loading chat…</div>
+      )}
     </div>
   );
 }
@@ -95,32 +99,47 @@ export function ZoeDrawer() {
   // held as a plain component rather than next/dynamic: a lazy component
   // suspends on its first render even when its chunk is already loaded, which
   // would flash the loading state on every first open.
+  // `loadAttempt` 0 means not requested yet; each increment is one import. A
+  // failed load (a flaky network, a stale chunk after a deploy) is retried the
+  // next time the drawer opens rather than leaving it stuck for the session.
   const [ManyChat, setManyChat] = useState<ManyChatComponent | null>(null);
-  const [loadRequested, setLoadRequested] = useState(false);
-  if (isOpen && !loadRequested) setLoadRequested(true);
+  const [loadAttempt, setLoadAttempt] = useState(isOpen ? 1 : 0);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen && !ManyChat && (loadAttempt === 0 || loadFailed)) {
+      setLoadFailed(false);
+      setLoadAttempt(loadAttempt + 1);
+    }
+  }
 
   useEffect(() => {
+    const request = () => setLoadAttempt((attempt) => attempt || 1);
     if (typeof window.requestIdleCallback === "function") {
-      const id = window.requestIdleCallback(() => setLoadRequested(true));
+      const id = window.requestIdleCallback(request);
       return () => window.cancelIdleCallback(id);
     }
-    const id = window.setTimeout(() => setLoadRequested(true), 200);
+    const id = window.setTimeout(request, 200);
     return () => window.clearTimeout(id);
   }, []);
 
   useEffect(() => {
-    if (!loadRequested) return;
+    if (loadAttempt === 0) return;
     let cancelled = false;
     loadManyChat().then(
       (component) => {
         if (!cancelled) setManyChat(() => component);
       },
-      (error: unknown) => reportHandledError(error, { area: "zoe-drawer.load-chat" }),
+      (error: unknown) => {
+        reportHandledError(error, { area: "zoe-drawer.load-chat" });
+        if (!cancelled) setLoadFailed(true);
+      },
     );
     return () => {
       cancelled = true;
     };
-  }, [loadRequested]);
+  }, [loadAttempt]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
   // Cmd+J toggle + Esc close. With a Zoe canvas engagement active, ⌘J is the
@@ -499,7 +518,7 @@ export function ZoeDrawer() {
                 defaultAgentId={defaultAgent?.id}
               />
             ) : (
-              <ChatLoading />
+              <ChatLoading failed={loadFailed} />
             ))}
         </div>
       </div>
