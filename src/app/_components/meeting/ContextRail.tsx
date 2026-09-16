@@ -44,6 +44,9 @@ interface ContextRailProps {
   /** Current placement + candidates. Workspace is derived from the project. */
   projectId: string | null;
   assignableProjects: MeetingProjectOption[];
+  /** The project picker opened — fetch candidates. */
+  onProjectPickerOpen?: () => void;
+  isLoadingProjects?: boolean;
   onProjectChange: (projectId: string | null) => void;
   /** Read-only workspace label, derived from the placed project. */
   workspaceName: string | null;
@@ -54,6 +57,9 @@ interface ContextRailProps {
   occurrenceOptions: MeetingOccurrenceOption[];
   /** Link the meeting to an occurrence (null unlinks). Absent → read-only row. */
   onOccurrenceChange?: (occurrenceId: string | null) => void;
+  /** The occurrence picker opened — fetch candidates. */
+  onOccurrencePickerOpen?: () => void;
+  isLoadingOccurrences?: boolean;
   /** Features this meeting discussed, in link order. */
   linkedFeatures: { id: string; name: string; productName: string; href: string | null }[];
   /** Candidate features in the meeting's workspace. */
@@ -88,12 +94,16 @@ export function ContextRail({
   onMeetingDateChange,
   projectId,
   assignableProjects,
+  onProjectPickerOpen,
+  isLoadingProjects,
   onProjectChange,
   workspaceName,
   occurrence,
   occurrenceHref,
   occurrenceOptions,
   onOccurrenceChange,
+  onOccurrencePickerOpen,
+  isLoadingOccurrences,
   linkedFeatures,
   featureOptions,
   onFeatureToggle,
@@ -166,6 +176,8 @@ export function ContextRail({
           projects={assignableProjects}
           value={projectId}
           onChange={onProjectChange}
+          loading={isLoadingProjects}
+          onOpen={onProjectPickerOpen}
         >
           {({ toggle }) => (
             <button
@@ -205,6 +217,8 @@ export function ContextRail({
           value={occurrence?.id ?? null}
           onChange={(id) => onOccurrenceChange?.(id)}
           disabled={!onOccurrenceChange}
+          loading={isLoadingOccurrences}
+          onOpen={onOccurrencePickerOpen}
         >
           {({ toggle }) => (
             <button

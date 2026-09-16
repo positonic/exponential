@@ -1,7 +1,6 @@
 import type { RouterOutputs } from "~/trpc/react";
 import { getInitial } from "~/utils/avatarColors";
 import { parseFirefliesSummary, isEmptyFirefliesSummary } from "~/lib/fireflies-summary";
-import { parseTranscript } from "~/lib/transcript";
 import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 import type { FirefliesSummary } from "~/server/services/FirefliesService";
 
@@ -13,7 +12,10 @@ import type { FirefliesSummary } from "~/server/services/FirefliesService";
  * empty so the corresponding sections self-hide (graceful degradation).
  */
 
-export type MeetingSession = NonNullable<RouterOutputs["transcription"]["getById"]>;
+/** The lean meeting record from `transcription.getDetail`: the transcript
+ *  itself is fetched separately (`transcription.getTranscript`), and talk-time
+ *  and the turn count arrive precomputed. */
+export type MeetingSession = NonNullable<RouterOutputs["transcription"]["getDetail"]>;
 
 /** Avatar/name identity tones. Blue (`me`) for the host/you, others rotate
  *  through the identity palette — never the blue page chrome. */
@@ -124,16 +126,6 @@ export interface MeetingViewModel {
   transcriptCount: number;
 }
 
-/** Count canonical transcript turns via the shared parser registry (ADR-0032).
- *  One source of truth — the same normalization the renderer consumes. */
-function countTranscriptTurns(
-  transcription: string | null,
-  sentencesJson: unknown,
-): number {
-  // Turn count is independent of speaker flavor, so participants aren't needed.
-  return parseTranscript({ transcription, sentencesJson, participants: [] }).length;
-}
-
 function capitalise(value: string): string {
   if (!value) return value;
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -151,39 +143,6 @@ export function formatDuration(seconds: number | null | undefined): string | nul
   const hours = Math.floor(mins / 60);
   const rem = mins % 60;
   return rem === 0 ? `${hours} hr` : `${hours} hr ${rem} min`;
-}
-
-/** Tolerant extraction of per-speaker talk-time from Fireflies analyticsJson.
- *  Fireflies stores `{ speakers: [{ name, duration }] }`; we sum durations to a
- *  percentage. Returns a name→"NN%" map, empty when the shape isn't present. */
-function extractTalkTime(analyticsJson: unknown): Map<string, string> {
-  const result = new Map<string, string>();
-  if (!analyticsJson || typeof analyticsJson !== "object") return result;
-  const speakers = (analyticsJson as { speakers?: unknown }).speakers;
-  if (!Array.isArray(speakers)) return result;
-
-  const rows = speakers
-    .map((s) => {
-      if (!s || typeof s !== "object") return null;
-      const obj = s as Record<string, unknown>;
-      const name = typeof obj.name === "string" ? obj.name : null;
-      const durationRaw =
-        typeof obj.duration === "number"
-          ? obj.duration
-          : typeof obj.duration_pct === "number"
-            ? obj.duration_pct
-            : null;
-      if (!name || durationRaw === null) return null;
-      return { name, duration: durationRaw };
-    })
-    .filter((r): r is { name: string; duration: number } => r !== null);
-
-  const total = rows.reduce((sum, r) => sum + r.duration, 0);
-  if (total <= 0) return result;
-  for (const row of rows) {
-    result.set(row.name, `${Math.round((row.duration / total) * 100)}%`);
-  }
-  return result;
 }
 
 /** Identity of the meeting owner/recorder — the "me" side of the conversation. */
@@ -266,7 +225,7 @@ export function meetingDraftsFromRows(rows: MeetingDecisionInput[]): MeetingDraf
  * (`decision.listForMeeting`) split into answered decisions and open
  * questions; key moments have no source yet and stay empty so the UI
  * self-hides them.
- * @param session The transcription session record from `transcription.getById`.
+ * @param session The meeting record from `transcription.getDetail`.
  * @param meetingDecisions Decisions logged from this meeting, if loaded.
  * @returns The derived {@link MeetingViewModel}.
  */
@@ -282,7 +241,7 @@ export function buildMeetingViewModel(
     ? capitalise(firefliesSummary.meeting_type)
     : null;
 
-  const talkTime = extractTalkTime(session.analyticsJson);
+  const talkTime = session.talkTime;
 
   const flavors = assignParticipantFlavors(session.participants, {
     userId: session.userId ?? null,
@@ -299,7 +258,7 @@ export function buildMeetingViewModel(
       name,
       initial: getInitial(p.name, p.email),
       role: isMe ? "Host" : "",
-      talk: talkTime.get(speakerKey) ?? talkTime.get(name) ?? null,
+      talk: talkTime[speakerKey] ?? talkTime[name] ?? null,
       flavor,
       isHost: isMe,
     };
@@ -348,6 +307,6 @@ export function buildMeetingViewModel(
       : null,
     hasVideo: Boolean(session.videoUrl),
     captureCount: session.screenshots.length,
-    transcriptCount: countTranscriptTurns(session.transcription, session.sentencesJson),
+    transcriptCount: session.transcriptTurnCount,
   };
 }

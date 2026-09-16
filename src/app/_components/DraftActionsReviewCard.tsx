@@ -53,6 +53,7 @@ export function DraftActionsReviewCard({
       utils.transcription.getAllTranscriptions.invalidate(),
       utils.transcription.getMeetingCards.invalidate(),
       utils.transcription.getById.invalidate({ id: transcriptionId }),
+      utils.transcription.getDetail.invalidate({ id: transcriptionId }),
     ]);
   }, [utils, transcriptionId]);
 

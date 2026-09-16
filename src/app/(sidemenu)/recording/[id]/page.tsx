@@ -12,14 +12,19 @@ import { MeetingDetail } from "~/app/_components/meeting/MeetingDetail";
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
 
-  const { data: session, isLoading } = api.transcription.getById.useQuery({ id });
+  const { data: session, isLoading } = api.transcription.getDetail.useQuery({ id });
   const { data: transcriptActions = [], isLoading: isActionsLoading } =
     api.action.getByTranscription.useQuery(
       { transcriptionId: id },
       { enabled: Boolean(id) },
     );
-  const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
   const utils = api.useUtils();
+  // Decisions only need the meeting id, which the URL already carries: start
+  // them alongside the meeting instead of after it. MeetingDetail reads the
+  // same cache entry.
+  useEffect(() => {
+    void utils.decision.listForMeeting.prefetch({ transcriptionSessionId: id });
+  }, [utils, id]);
   const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
   const updateTitleMutation = api.transcription.updateTitle.useMutation();
@@ -30,7 +35,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         message: "Meeting placement updated",
         color: "green",
       });
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
       void utils.action.getByTranscription.invalidate({ transcriptionId: id });
     },
     onError: (error) => {
@@ -68,7 +73,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const summaryAttemptedRef = useRef<Set<string>>(new Set());
   const generateSummaryMutation = api.transcription.generateSummary.useMutation({
     onSuccess: () => {
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
     },
   });
   const { mutate: generateSummary } = generateSummaryMutation;
@@ -100,8 +105,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   useEffect(() => {
     if (!session) return;
     const hasSummary = Boolean(session.summary?.trim());
-    const hasTranscript = Boolean(session.transcription);
-    if (hasSummary || !hasTranscript) return;
+    if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
     summaryAttemptedRef.current.add(session.id);
     generateSummary({ transcriptionId: session.id });
@@ -130,7 +134,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           });
           return;
         }
-        void utils.transcription.getById.invalidate({ id });
+        void utils.transcription.getDetail.invalidate({ id });
         const transcriptionId = session.id;
         setMessages((prev) => {
           const alreadyHasCard = prev.some(
@@ -298,7 +302,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     try {
       await updateDetailsMutation.mutateAsync({ id: session.id, summary: value });
       notifications.show({ title: "Saved", message: "Summary updated", color: "green" });
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
     } catch (error) {
       notifications.show({
         title: "Error",
@@ -312,7 +316,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     if (!session) return;
     try {
       await updateTitleMutation.mutateAsync({ id: session.id, title });
-      utils.transcription.getById.setData({ id }, (prev) =>
+      utils.transcription.getDetail.setData({ id }, (prev) =>
         prev ? { ...prev, title } : prev,
       );
       // Meeting lists (workspace, project tab, recordings) show the title too.
@@ -336,7 +340,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         message: value ? "Meeting date updated" : "Meeting date cleared",
         color: "green",
       });
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
     } catch (error) {
       notifications.show({
         title: "Error",
@@ -366,7 +370,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         summary: session.summary ?? null,
         description: session.description ?? null,
         actionsCount: transcriptActions.length,
-        hasTranscription: Boolean(session.transcription),
+        hasTranscription: session.hasTranscript,
         meetingDate: session.meetingDate ? String(session.meetingDate) : null,
         workspaceName: session.workspace?.name ?? null,
       },
@@ -392,7 +396,6 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       session={session}
       actions={transcriptActions}
       isActionsLoading={isActionsLoading}
-      assignableProjects={assignableProjects}
       isCreatingActions={generateDraftsMutation.isPending}
       isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}

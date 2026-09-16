@@ -51,8 +51,9 @@ export function DraftFeaturesReviewCard({
       transcriptionId,
     });
 
-  // The meeting knows its workspace; the workspace knows its products.
-  const { data: meeting } = api.transcription.getById.useQuery({
+  // The meeting knows its workspace; the workspace knows its products. The
+  // lean record is enough, and shares its cache with the meeting page.
+  const { data: meeting } = api.transcription.getDetail.useQuery({
     id: transcriptionId,
   });
   const workspaceId = meeting?.workspaceId ?? null;

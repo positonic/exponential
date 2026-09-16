@@ -35,6 +35,10 @@ interface MeetingOccurrencePickerProps {
   /** Custom trigger — receives a `toggle` to open/close the dropdown. */
   children: (args: { toggle: () => void }) => ReactNode;
   disabled?: boolean;
+  /** True while the candidate list is still loading. */
+  loading?: boolean;
+  /** Fires when the dropdown opens — lets callers fetch candidates lazily. */
+  onOpen?: () => void;
   dropdownWidth?: number | "target";
 }
 
@@ -50,9 +54,12 @@ export function MeetingOccurrencePicker({
   onChange,
   children,
   disabled = false,
+  loading = false,
+  onOpen,
   dropdownWidth = 280,
 }: MeetingOccurrencePickerProps) {
   const combobox = useCombobox({
+    onDropdownOpen: () => onOpen?.(),
     onDropdownClose: () => {
       combobox.resetSelectedOption();
       setSearch("");
@@ -118,7 +125,7 @@ export function MeetingOccurrencePicker({
           {groups.length === 0 && (
             <Combobox.Empty>
               <Text size="xs" className="text-text-muted">
-                No ceremony occurrences around this date
+                {loading ? "Loading ceremonies…" : "No ceremony occurrences around this date"}
               </Text>
             </Combobox.Empty>
           )}

@@ -74,7 +74,7 @@ export function ScreenshotsTab({
         setUploadingCount((n) => n - 1);
       }
     }
-    await utils.transcription.getById.invalidate({ id: transcriptionSessionId });
+    await utils.transcription.getDetail.invalidate({ id: transcriptionSessionId });
 
     if (failed > 0) {
       notifications.show({
