@@ -2275,9 +2275,12 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // When a workspaceId is provided, search all actions in that workspace —
-      // but only after verifying the caller is actually a member. Without this
-      // check any logged-in user could enumerate other workspaces' actions.
+      // When a workspaceId is provided, search the workspace's actions the
+      // caller can read — but only after verifying the caller is actually a
+      // member. Without this check any logged-in user could enumerate other
+      // workspaces' actions. Membership alone isn't access, though: actions in
+      // a restricted project stay out of reach unless the caller has a path
+      // into it, so the access clause is applied on top.
       // Without a workspaceId, fall back to only the caller's own actions.
       if (input.workspaceId) {
         const membership = await getWorkspaceMembership(
@@ -2294,11 +2297,20 @@ export const actionRouter = createTRPCRouter({
         ? {}
         : { createdById: userId };
 
+      // Both clauses are `OR`-shaped, so they have to be AND-ed explicitly -
+      // spreading the second over the first silently drops the workspace
+      // scope and widens the search instead of narrowing it. Same shape as
+      // `assertLinkableActions` in decision.ts, which guards the link itself.
       const workspaceFilter = input.workspaceId
         ? {
-            OR: [
-              { workspaceId: input.workspaceId },
-              { project: { workspaceId: input.workspaceId } },
+            AND: [
+              {
+                OR: [
+                  { workspaceId: input.workspaceId },
+                  { project: { workspaceId: input.workspaceId } },
+                ],
+              },
+              buildActionAccessWhere(userId),
             ],
           }
         : {};
