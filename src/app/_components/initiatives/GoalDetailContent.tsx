@@ -324,7 +324,12 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onChange={(val) => setActiveTab(val ?? "overview")}>
+        {/* If the Features tab disappears while selected (plugin disabled,
+            role change), fall back to Overview rather than a blank panel. */}
+        <Tabs
+          value={activeTab === "features" && !showFeaturesTab ? "overview" : activeTab}
+          onChange={(val) => setActiveTab(val ?? "overview")}
+        >
           <Tabs.List>
             <Tabs.Tab value="overview">Overview</Tabs.Tab>
             <Tabs.Tab value="activity">Activity</Tabs.Tab>
@@ -793,10 +798,14 @@ function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectio
 
   // The OKR dashboard's query, narrowed to this Objective. A goalId read
   // ignores the period, so every key result on the Objective is listed.
-  const { data: objectives, isLoading } = api.okr.getByObjective.useQuery({
-    workspaceId: workspaceId ?? undefined,
-    goalId,
-  });
+  const {
+    data: objectives,
+    isLoading,
+    isError,
+  } = api.okr.getByObjective.useQuery(
+    { workspaceId: workspaceId ?? undefined, goalId },
+    { enabled: terminology.showKeyResults },
+  );
   const keyResults = objectives?.[0]?.keyResults;
 
   if (!terminology.showKeyResults) return null;
@@ -837,10 +846,17 @@ function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectio
 
       {isLoading ? (
         <Skeleton height={80} />
+      ) : isError ? (
+        // Not the empty state: "Add measurable key results" would mislead
+        // when the Objective's key results simply failed to load.
+        <Text size="sm" className="text-text-secondary">
+          Couldn&apos;t load key results. Refresh to try again.
+        </Text>
       ) : keyResults && keyResults.length > 0 ? (
         <div className="rounded-lg border border-border-primary bg-surface-secondary px-4">
           <KeyResultAccordion
             keyResults={keyResults}
+            showPeriod
             onEditKeyResult={(kr) => {
               setEditingKr(kr);
               openEdit();
