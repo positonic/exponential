@@ -16,7 +16,7 @@ Most people end up using both. The agent fills in the work it can see, and you u
 
 ## The Time Page
 
-Open **Time** at [exponential.im/time](https://www.exponential.im/time). The header shows your totals for **Today** and this **Week**. Use the **Day / Week** switch to change view, and the workspace menu to narrow it to one workspace.
+Open **Time** from the sidebar, just below **Today**, or go to [exponential.im/time](https://www.exponential.im/time). The header shows your totals for **Today** and this **Week**. Use the **Day / Week** switch to change view, and the workspace menu to narrow it to one workspace.
 
 ### Week view
 
