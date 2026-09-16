@@ -702,14 +702,27 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      await ensureTranscriptionAccess(
-        ctx.db,
-        ctx.session.user.id,
-        session,
-        "view",
-      );
+      const userId = ctx.session.user.id;
+      const access = await getTranscriptionAccess(ctx.db, userId, session);
+      if (!canViewTranscription(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to view this transcription",
+        });
+      }
 
-      return session;
+      // Features are workspace-member-visible. Meeting viewers reach this page
+      // by attendance or project membership too, so strip the links for anyone
+      // outside the workspace — and only editors who are members may link.
+      const isWorkspaceMember = session.workspaceId
+        ? Boolean(await getWorkspaceMembership(ctx.db, userId, session.workspaceId))
+        : false;
+
+      return {
+        ...session,
+        featureLinks: isWorkspaceMember ? session.featureLinks : [],
+        canLinkFeatures: isWorkspaceMember && canEditTranscription(access),
+      };
     }),
 
   updateTranscription: protectedProcedure

@@ -60,6 +60,9 @@ interface ContextRailProps {
   featureOptions: MeetingFeatureOption[];
   /** Link (true) or unlink (false) a feature. Absent → read-only rows. */
   onFeatureToggle?: (featureId: string, linked: boolean) => void;
+  /** The feature picker opened — fetch candidates. */
+  onFeaturePickerOpen?: () => void;
+  isLoadingFeatures?: boolean;
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
@@ -94,6 +97,8 @@ export function ContextRail({
   linkedFeatures,
   featureOptions,
   onFeatureToggle,
+  onFeaturePickerOpen,
+  isLoadingFeatures,
   onShare,
   onExportTranscript,
   canExport,
@@ -269,11 +274,17 @@ export function ContextRail({
             )}
           </div>
         ))}
+        {/* Workspace members who can edit get the picker; a workspace-less
+            meeting gets the hint; anyone else (attendees, project guests)
+            gets nothing to click. */}
+        {(onFeatureToggle ?? !workspaceName) && (
         <MeetingFeaturePicker
           features={featureOptions}
           value={linkedFeatures.map((f) => f.id)}
           onToggle={(id, linked) => onFeatureToggle?.(id, linked)}
           disabled={!onFeatureToggle}
+          loading={isLoadingFeatures}
+          onOpen={onFeaturePickerOpen}
         >
           {({ toggle }) => (
             <button
@@ -297,6 +308,7 @@ export function ContextRail({
             </button>
           )}
         </MeetingFeaturePicker>
+        )}
       </div>
 
       {(hasVideo || sourceLabel) && (

@@ -26,6 +26,10 @@ interface MeetingFeaturePickerProps {
   /** Custom trigger — receives a `toggle` to open/close the dropdown. */
   children: (args: { toggle: () => void }) => ReactNode;
   disabled?: boolean;
+  /** True while the candidate list is still loading. */
+  loading?: boolean;
+  /** Fires when the dropdown opens — lets callers fetch candidates lazily. */
+  onOpen?: () => void;
   dropdownWidth?: number | "target";
   position?: "bottom-start" | "bottom-end";
 }
@@ -42,10 +46,13 @@ export function MeetingFeaturePicker({
   onToggle,
   children,
   disabled = false,
+  loading = false,
+  onOpen,
   dropdownWidth = 280,
   position = "bottom-end",
 }: MeetingFeaturePickerProps) {
   const combobox = useCombobox({
+    onDropdownOpen: () => onOpen?.(),
     onDropdownClose: () => {
       combobox.resetSelectedOption();
       setSearch("");
@@ -117,7 +124,11 @@ export function MeetingFeaturePicker({
           {groups.length === 0 && (
             <Combobox.Empty>
               <Text size="xs" className="text-text-muted">
-                {features.length === 0 ? "No features in this workspace" : "No matching features"}
+                {loading
+                  ? "Loading features…"
+                  : features.length === 0
+                    ? "No features in this workspace"
+                    : "No matching features"}
               </Text>
             </Combobox.Empty>
           )}

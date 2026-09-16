@@ -154,10 +154,11 @@ export function CreateTranscriptionModal({
     [occurrenceRows],
   );
 
-  const { data: workspaceFeatures = [] } =
+  const [featurePickerOpened, setFeaturePickerOpened] = useState(false);
+  const { data: workspaceFeatures = [], isLoading: isLoadingFeatures } =
     api.product.feature.listForWorkspace.useQuery(
       { workspaceId: effectiveWorkspaceId ?? "" },
-      { enabled: opened && Boolean(effectiveWorkspaceId) },
+      { enabled: opened && featurePickerOpened && Boolean(effectiveWorkspaceId) },
     );
   const featureOptions = useMemo<MeetingFeatureOption[]>(
     () =>
@@ -208,6 +209,20 @@ export function CreateTranscriptionModal({
       setPendingParticipants([]);
     }
     setSelectedProjectId(nextProjectId);
+  }
+
+  function handleMeetingDateChange(date: Date | null) {
+    setMeetingDate(date);
+    // Keep the picked occurrence only while it's still one the picker would
+    // offer for the new date (a week either side).
+    const anchor = date ?? new Date();
+    if (
+      occurrence &&
+      Math.abs(occurrence.scheduledStart.getTime() - anchor.getTime()) >
+        7 * 86_400_000
+    ) {
+      setOccurrence(null);
+    }
   }
 
   function handleOccurrenceChange(occurrenceId: string | null) {
@@ -447,7 +462,7 @@ export function CreateTranscriptionModal({
               <div>
                 <UnifiedDatePicker
                   value={meetingDate}
-                  onChange={setMeetingDate}
+                  onChange={handleMeetingDateChange}
                   placeholder="When did the meeting occur?"
                   notificationContext="meeting"
                 />
@@ -540,6 +555,8 @@ export function CreateTranscriptionModal({
                     value={featureIds}
                     onToggle={handleFeatureToggle}
                     disabled={!effectiveWorkspaceId}
+                    loading={isLoadingFeatures}
+                    onOpen={() => setFeaturePickerOpened(true)}
                     position="bottom-start"
                   >
                     {() => (

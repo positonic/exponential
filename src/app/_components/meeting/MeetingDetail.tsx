@@ -234,11 +234,17 @@ export function MeetingDetail({
       : null;
 
   // Features discussed (`MeetingFeature`): any feature in the meeting's
-  // workspace; like "Part of", read-only until the meeting has a workspace.
-  const { data: workspaceFeatures = [] } = api.product.feature.listForWorkspace.useQuery(
-    { workspaceId: session.workspaceId ?? "" },
-    { enabled: Boolean(session.workspaceId) },
-  );
+  // workspace. The server decides who may link (workspace members who can
+  // edit the meeting); the candidate list loads on the picker's first open.
+  const [featurePickerOpened, setFeaturePickerOpened] = useState(false);
+  const { data: workspaceFeatures = [], isLoading: isLoadingFeatures } =
+    api.product.feature.listForWorkspace.useQuery(
+      { workspaceId: session.workspaceId ?? "" },
+      {
+        enabled:
+          featurePickerOpened && session.canLinkFeatures && Boolean(session.workspaceId),
+      },
+    );
   const featureOptions = useMemo<MeetingFeatureOption[]>(
     () =>
       workspaceFeatures.map((f) => ({
@@ -271,8 +277,12 @@ export function MeetingDetail({
     onError: (error) =>
       notifications.show({ title: "Couldn't unlink feature", message: error.message, color: "red" }),
   });
-  const onFeatureToggle = session.workspaceId
+  const isSavingFeatureLink = linkFeature.isPending || unlinkFeature.isPending;
+  const onFeatureToggle = session.canLinkFeatures
     ? (featureId: string, linked: boolean) => {
+        // The picker's checked state comes from the refetch, so a second click
+        // mid-save would re-send the stale action.
+        if (isSavingFeatureLink) return;
         const payload = { transcriptionId: session.id, featureId };
         if (linked) linkFeature.mutate(payload);
         else unlinkFeature.mutate(payload);
@@ -501,6 +511,8 @@ export function MeetingDetail({
             linkedFeatures={linkedFeatures}
             featureOptions={featureOptions}
             onFeatureToggle={onFeatureToggle}
+            onFeaturePickerOpen={() => setFeaturePickerOpened(true)}
+            isLoadingFeatures={featurePickerOpened && isLoadingFeatures}
             onShare={handleShare}
             onExportTranscript={handleExportTranscript}
             canExport={Boolean(session.transcription)}

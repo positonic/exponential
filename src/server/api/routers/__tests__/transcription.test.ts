@@ -896,3 +896,54 @@ describe("transcription router (mocked) — linkFeature / unlinkFeature", () => 
     });
   });
 });
+
+describe("transcription router (mocked) — getById feature links", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  function meetingWithLinks(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      featureLinks: [{ feature: { id: "f1", name: "Secret roadmap item" } }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  it("shows links, and lets a member who can edit link more", async () => {
+    meetingWithLinks(callerId);
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getById({ id: "m1" });
+
+    expect(result.featureLinks).toHaveLength(1);
+    expect(result.canLinkFeatures).toBe(true);
+  });
+
+  it("strips links for a viewer outside the workspace (e.g. an attendee)", async () => {
+    meetingWithLinks("someone-else");
+    dbMock.transcriptionSessionParticipant.findFirst.mockResolvedValue({
+      id: "p1",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getById({ id: "m1" });
+
+    expect(result.featureLinks).toEqual([]);
+    expect(result.canLinkFeatures).toBe(false);
+  });
+});
