@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal, MultiSelect } from "@mantine/core";
@@ -11,8 +11,17 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useDayRollover } from "~/hooks/useDayRollover";
-import { formatRelativeDueAge, hourFloat } from "~/lib/actions/dates";
-import { overdueAnchor } from "~/lib/actions/partition";
+import {
+  addDays,
+  formatDayLabel,
+  formatRelativeDueAge,
+  hourFloat,
+} from "~/lib/actions/dates";
+import {
+  groupUpcomingByDay,
+  overdueAnchor,
+  partitionActions,
+} from "~/lib/actions/partition";
 import { groupOverdueCohorts } from "~/lib/actions/triage";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
@@ -47,6 +56,25 @@ interface TodayDesktopShellProps {
 }
 
 type ActionData = RouterOutputs["action"]["getAll"][number];
+
+const DAYS: { key: DayMode; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "tomorrow", label: "Tomorrow" },
+  { key: "upcoming", label: "Upcoming" },
+];
+
+const EMPTY_MESSAGE: Record<DayMode, string> = {
+  today: "Nothing scheduled. Enjoy the calm.",
+  tomorrow: "Nothing scheduled for tomorrow.",
+  upcoming: "Nothing upcoming.",
+};
+
+/** One labelled run of rows below Overdue — a single day, or one per day on Upcoming. */
+interface DaySection {
+  key: string;
+  label: string;
+  actions: ActionData[];
+}
 
 export function TodayDesktopShell({
   filter,
@@ -87,9 +115,11 @@ export function TodayDesktopShell({
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
   const gamificationEnabled = preferences?.showGamification !== false;
 
+  // Today's score on every tab — it's the day being played, and dropping the
+  // chip off-today would shift the top bar when switching tabs.
   const { data: score } = api.scoring.getTodayScore.useQuery(
     { date: today },
-    { enabled: gamificationEnabled && filter === "today" },
+    { enabled: gamificationEnabled },
   );
 
   const tagsQuery = api.tag.list.useQuery();
@@ -105,10 +135,22 @@ export function TodayDesktopShell({
   // Use undefined (not {}) to share the React Query cache key with
   // useActionMutations' optimistic updates.
   const actionsQuery = api.action.getAll.useQuery(undefined);
-  const calendarEventsQuery = api.calendar.getTodayEvents.useQuery(undefined, {
-    retry: false,
-    refetchOnWindowFocus: false,
-  });
+
+  // The rail shows one day: today, or tomorrow on the Tomorrow and Upcoming
+  // tabs (Upcoming's list starts at tomorrow). Today omits the input so it
+  // shares a cache entry with the other getTodayEvents callers.
+  const railIsToday = filter === "today";
+  const railDay = useMemo(
+    () => (railIsToday ? today : addDays(today, 1)),
+    [railIsToday, today],
+  );
+  const calendarEventsQuery = api.calendar.getTodayEvents.useQuery(
+    railIsToday ? undefined : { dayOffset: 1 },
+    {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  );
 
   const filteredActions = useMemo<ActionData[]>(() => {
     const all = actionsQuery.data ?? [];
@@ -120,6 +162,27 @@ export function TodayDesktopShell({
 
   const partition = useActionPartition(filteredActions, { today });
   const hasOverdue = partition.overdue.length > 0;
+
+  // Tomorrow is "today's" bucket one day on, so the two tabs share a rule.
+  const tomorrowActions = useMemo(
+    () => partitionActions(filteredActions, { today: addDays(today, 1) }).todays,
+    [filteredActions, today],
+  );
+
+  const daySections = useMemo<DaySection[]>(() => {
+    if (filter === "today") {
+      return [{ key: "today", label: "Today", actions: partition.todays }];
+    }
+    if (filter === "tomorrow") {
+      return [{ key: "tomorrow", label: "Tomorrow", actions: tomorrowActions }];
+    }
+    const tomorrowTime = addDays(today, 1).getTime();
+    return groupUpcomingByDay(filteredActions, { today }).map((g) => ({
+      key: String(g.day.getTime()),
+      label: g.day.getTime() === tomorrowTime ? "Tomorrow" : formatDayLabel(g.day),
+      actions: g.actions,
+    }));
+  }, [filter, partition.todays, tomorrowActions, filteredActions, today]);
 
   const suggestionsQuery = api.scheduling.getSchedulingSuggestions.useQuery(
     { days: 7, workspaceId: workspaceId ?? undefined },
@@ -219,28 +282,18 @@ export function TodayDesktopShell({
     () =>
       buildRailBlocks({
         events: calendarEventsQuery.data,
-        actions: partition.todays,
+        actions: railIsToday ? partition.todays : tomorrowActions,
       }),
-    [calendarEventsQuery.data, partition.todays],
+    [calendarEventsQuery.data, railIsToday, partition.todays, tomorrowActions],
   );
 
-  // ---- Day label -----------------------------------------------------------
-  const dayLabel = useMemo(() => {
-    const d = new Date();
-    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const MON = [
-      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-    return `${DOW[d.getDay()]} · ${MON[d.getMonth()]} ${d.getDate()}`;
-  }, []);
-
-  // ---- Rendered task list (bulk selection scope: overdue + todays) --------
-  const renderedActions = useMemo(() => {
-    const overdue = partition.overdue;
-    const todays = partition.todays;
-    return [...overdue, ...todays];
-  }, [partition.overdue, partition.todays]);
+  // ---- Rendered task list (bulk selection scope: overdue + day sections) --
+  const renderedActions = useMemo(
+    () => [...partition.overdue, ...daySections.flatMap((s) => s.actions)],
+    [partition.overdue, daySections],
+  );
+  // Completed-today only belongs to the Today tab.
+  const completedToday = filter === "today" ? partition.completedToday : [];
 
   // The current instant rather than the midnight `today` from useDayRollover.
   // The time-of-day is immaterial now that this only writes `dueDate`, which
@@ -307,12 +360,6 @@ export function TodayDesktopShell({
       ? `${selectedTagIds.length} tag${selectedTagIds.length === 1 ? "" : "s"}`
       : null;
 
-  const days: { key: DayMode; label: string }[] = [
-    { key: "today", label: "Today" },
-    { key: "tomorrow", label: "Tomorrow" },
-    { key: "upcoming", label: "Upcoming" },
-  ];
-
   return (
     <div className="-m-4 -mt-16 sm:-mt-4 lg:-m-8 -mb-20 sm:-mb-4 lg:-mb-8">
       <div className="today-surface">
@@ -320,7 +367,9 @@ export function TodayDesktopShell({
         <div className="td-main">
           {/* ===== Top bar (page title + actions in one row) ===== */}
           <div className="td-topbar">
-            <div className="td-topbar__title">Today</div>
+            <div className="td-topbar__title">
+              {DAYS.find((d) => d.key === filter)?.label ?? "Today"}
+            </div>
             <div className="td-topbar__spacer" />
 
             {gamificationEnabled && score && (
@@ -347,7 +396,7 @@ export function TodayDesktopShell({
             </Link>
 
             <div className="td-toggle">
-              {days.map((d) => (
+              {DAYS.map((d) => (
                 <button
                   key={d.key}
                   type="button"
@@ -440,9 +489,8 @@ export function TodayDesktopShell({
               <div className="td-tasklist__rows">
                 {actionsQuery.isLoading ? (
                   <div className="td-tasklist__empty">Loading…</div>
-                ) : renderedActions.length === 0 &&
-                  partition.completedToday.length === 0 ? (
-                  <div className="td-tasklist__empty">Nothing scheduled. Enjoy the calm.</div>
+                ) : renderedActions.length === 0 && completedToday.length === 0 ? (
+                  <div className="td-tasklist__empty">{EMPTY_MESSAGE[filter]}</div>
                 ) : (
                   <>
                     {hasOverdue && (
@@ -547,33 +595,39 @@ export function TodayDesktopShell({
                         );
                       })}
 
-                    {hasOverdue && partition.todays.length > 0 && (
-                      <div className="td-section">
-                        Today
-                        <span className="td-section__count">
-                          {partition.todays.length}
-                        </span>
-                      </div>
-                    )}
-                    {partition.todays.map((a) => (
-                      <TaskRow
-                        key={a.id}
-                        action={a as unknown as Action}
-                        bulkMode={bulkMode}
-                        bulkSelected={selection.isSelected(a.id)}
-                        onBulkToggle={selection.toggle}
-                        onComplete={handleComplete}
-                        onOpen={handleOpen}
-                        onReschedule={handleReschedule}
-                        onTagClick={(tagId) => {
-                          if (!selectedTagIds.includes(tagId)) {
-                            onSelectedTagIdsChange([...selectedTagIds, tagId]);
-                          }
-                        }}
-                      />
+                    {daySections.map((section) => (
+                      <Fragment key={section.key}>
+                        {/* A lone section needs no header unless Overdue sits above it. */}
+                        {section.actions.length > 0 &&
+                          (hasOverdue || daySections.length > 1) && (
+                            <div className="td-section">
+                              {section.label}
+                              <span className="td-section__count">
+                                {section.actions.length}
+                              </span>
+                            </div>
+                          )}
+                        {section.actions.map((a) => (
+                          <TaskRow
+                            key={a.id}
+                            action={a as unknown as Action}
+                            bulkMode={bulkMode}
+                            bulkSelected={selection.isSelected(a.id)}
+                            onBulkToggle={selection.toggle}
+                            onComplete={handleComplete}
+                            onOpen={handleOpen}
+                            onReschedule={handleReschedule}
+                            onTagClick={(tagId) => {
+                              if (!selectedTagIds.includes(tagId)) {
+                                onSelectedTagIdsChange([...selectedTagIds, tagId]);
+                              }
+                            }}
+                          />
+                        ))}
+                      </Fragment>
                     ))}
 
-                    {partition.completedToday.length > 0 && (
+                    {completedToday.length > 0 && (
                       <>
                         <div className="td-section">
                           <button
@@ -592,12 +646,12 @@ export function TodayDesktopShell({
                             />
                             Completed
                             <span className="td-section__count">
-                              {partition.completedToday.length}
+                              {completedToday.length}
                             </span>
                           </button>
                         </div>
                         {completedOpen &&
-                          partition.completedToday.map((a) => (
+                          completedToday.map((a) => (
                             <TaskRow
                               key={a.id}
                               action={a as unknown as Action}
@@ -612,15 +666,17 @@ export function TodayDesktopShell({
               </div>
 
               <div style={{ padding: "12px 24px" }}>
-                <CreateActionModal viewName="today" />
+                {/* Keyed so the default due date follows the tab. */}
+                <CreateActionModal key={filter} viewName={filter} />
               </div>
             </div>
 
             <AgendaRail
-              dayLabel={dayLabel}
+              dayLabel={formatDayLabel(railDay)}
               eventsCount={railBlocks.length}
               blocks={railBlocks}
-              now={now}
+              now={railIsToday ? now : null}
+              pillLabel={railIsToday ? "Today" : "Tomorrow"}
             />
           </div>
         </div>
