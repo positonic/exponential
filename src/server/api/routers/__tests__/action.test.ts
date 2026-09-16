@@ -2165,4 +2165,28 @@ describe("action router (mocked)", () => {
       expect(updatedWith().completedAt).toBeInstanceOf(Date);
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────
+  // getSidebarCounts
+  // ────────────────────────────────────────────────────────────────────
+  describe("getSidebarCounts", () => {
+    it("counts inbox and due-today actions without loading any rows", async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.count.mockImplementation((args: any) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Promise.resolve(args?.where?.projectId === null ? 3 : 5) as any,
+      );
+
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      const counts = await caller.action.getSidebarCounts();
+
+      expect(counts).toEqual({ inboxCount: 3, todayCount: 5 });
+      expect(dbMock.action.findMany).not.toHaveBeenCalled();
+      const wheres = dbMock.action.count.mock.calls.map((call) => call[0]?.where);
+      expect(wheres).toContainEqual(expect.objectContaining({ projectId: null, status: "ACTIVE" }));
+      expect(wheres).toContainEqual(
+        expect.objectContaining({ status: "ACTIVE", dueDate: expect.objectContaining({ gte: expect.any(Date) }) }),
+      );
+    });
+  });
 });

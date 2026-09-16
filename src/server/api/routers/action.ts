@@ -37,6 +37,11 @@ import {
   type ActionSource,
 } from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
+import {
+  myActionsDueTodayWhere,
+  myActionsOwnershipWhere,
+  myInboxActionsWhere,
+} from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
 /**
@@ -80,14 +85,7 @@ export const actionRouter = createTRPCRouter({
     // workspaceId so actions with no project (projectId=null) are still scoped correctly.
     const whereClause: any = {
       AND: [
-        {
-          OR: [
-            // Created by me AND no assignees
-            { createdById: userId, assignees: { none: {} } },
-            // Assigned to me via ActionAssignee
-            { assignees: { some: { userId: userId } } },
-          ],
-        },
+        myActionsOwnershipWhere(userId),
         ...(input?.workspaceId
           ? [
               {
@@ -652,29 +650,8 @@ export const actionRouter = createTRPCRouter({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const userId = ctx.session.user.id;
-
       return ctx.db.action.findMany({
-        where: {
-          OR: [
-            // Created by me AND no assignees
-            { createdById: userId, assignees: { none: {} } },
-            // Assigned to me via ActionAssignee
-            { assignees: { some: { userId: userId } } },
-          ],
-          dueDate: {
-            gte: today,
-            lt: tomorrow,
-          },
-          status: "ACTIVE",
-          // Filter by workspace via the action's project
-          ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
-        },
+        where: myActionsDueTodayWhere(ctx.session.user.id, new Date(), input?.workspaceId),
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
@@ -691,6 +668,19 @@ export const actionRouter = createTRPCRouter({
         },
       });
     }),
+
+  // The sidebar's Inbox and Today badges. Counts only: the badges used to
+  // download every action (action.getAll, ~2 MB for a busy user) on every
+  // page just to count them. Same sets as filtering getAll() by
+  // `!projectId && status === "ACTIVE"` and as getToday().length.
+  getSidebarCounts: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const [inboxCount, todayCount] = await Promise.all([
+      ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
+      ctx.db.action.count({ where: myActionsDueTodayWhere(userId, new Date()) }),
+    ]);
+    return { inboxCount, todayCount };
+  }),
 
   // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
   // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the
