@@ -164,7 +164,7 @@ describe("renderDailySummaryPlainText", () => {
       todaysActions: [{ name: `Read [Situation doc](${BASE}/doc)` }],
     };
     expect(renderDailySummaryMarkdown(linked)).toContain(`- Read [Situation doc](${BASE}/doc)\n`);
-    expect(renderDailySummaryPlainText(linked)).toContain("• Read Situation doc\n");
+    expect(renderDailySummaryPlainText(linked)).toContain(`• Read Situation doc\n   ${BASE}/doc\n`);
   });
 
   it("renders every heading and empty state for an empty digest", () => {
