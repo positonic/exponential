@@ -12,8 +12,8 @@ import {
   renderDailySummaryMarkdown,
   renderDailySummaryPlainText,
 } from "./dailySummary";
+import { DEFAULT_SUMMARY_TIME, resolveSummaryTimezone } from "./summarySchedule";
 
-const DEFAULT_TIME = "09:00";
 /**
  * A summary fires at the first cron tick at/after its configured local time,
  * within this window. Dedup (per user + period) makes it exactly-once; the
@@ -161,14 +161,15 @@ export async function generateScheduledSummaries(
       dailySummary: true,
       weeklySummary: true,
       weeklyDayOfWeek: true,
+      user: { select: { timezone: true } },
     },
   });
 
   let emitted = 0;
 
   for (const pref of prefs) {
-    const tz = pref.timezone ?? "UTC";
-    const time = pref.dailySummaryTime ?? DEFAULT_TIME;
+    const tz = resolveSummaryTimezone(pref);
+    const time = pref.dailySummaryTime ?? DEFAULT_SUMMARY_TIME;
 
     // One user's failing build must not cost every later user their digest:
     // report it and move on. Dedup means the user simply gets it on the next

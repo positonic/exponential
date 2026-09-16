@@ -4,6 +4,7 @@ import { useState } from "react";
 import { TextInput, Button, Group } from "@mantine/core";
 import { IconCheck, IconPlus } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { buildCreateActionPayload } from "~/lib/actions/createActionPayload";
 import { notifications } from "@mantine/notifications";
 import { type Action } from "~/app/_components/ActionItem";
 import { EditActionModal } from "~/app/_components/EditActionModal";
@@ -151,13 +152,18 @@ export function NextActionCapture({
 
   const handleSubmit = () => {
     if (!actionTitle.trim()) return;
-    createAction.mutate({
-      name: actionTitle.trim(),
-      projectId,
-      workspaceId: workspaceId ?? undefined,
-      status: "ACTIVE",
-      priority: "1st Priority",
-    });
+    // Same payload builder as the two create modals. This capture has no
+    // tag / assignee / sprint pickers, so it sends none; a project's
+    // workspace, the kanban seed and the activity event are the server's.
+    createAction.mutate(
+      buildCreateActionPayload({
+        name: actionTitle,
+        projectId,
+        workspaceId,
+        status: "ACTIVE",
+        priority: "1st Priority",
+      }),
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

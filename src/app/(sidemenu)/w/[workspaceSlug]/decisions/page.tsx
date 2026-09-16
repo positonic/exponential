@@ -5,9 +5,10 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DecisionsIndex } from "~/app/_components/decisions/DecisionsIndex";
 
 /**
- * Decision Log — workspace-level index of ADRs projected read-only from every
- * enrolled repo. Git is the source of truth; there is deliberately no write
- * path to ADR content anywhere in this UI.
+ * Decision Log — one index, two sources (ADR-0060): ADRs projected read-only
+ * from every enrolled repo (git is the source of truth; there is deliberately
+ * no write path to ADR content anywhere in this UI) beside Decisions logged
+ * from meetings, by hand or by Zoe.
  */
 export default function DecisionsPage() {
   const { workspace, workspaceId, isLoading } = useWorkspace();
@@ -36,8 +37,9 @@ export default function DecisionsPage() {
       graphHref={`/w/${workspace.slug}/decisions/graph`}
       description={
         <>
-          Architectural decisions across this workspace&apos;s enrolled
-          repositories. Read-only — <code>git</code> is the source of truth.
+          Decisions logged from meetings or by hand, beside the ADRs of this
+          workspace&apos;s enrolled repositories — those stay read-only,{" "}
+          <code>git</code> is their source of truth.
         </>
       }
     />

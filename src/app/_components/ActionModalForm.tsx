@@ -148,7 +148,12 @@ export function ActionModalForm({
   onScreenshotPaste,
   onScreenshotRemove,
 }: ActionModalFormProps) {
-  const projects = api.project.getAll.useQuery({});
+  // Scoped to the form's workspace when it has one: the tag and sprint
+  // pickers list the context workspace's rows, and the server attaches them
+  // in the same transaction as the Action resolved against the project's
+  // workspace — a project from another workspace would refuse the whole
+  // create with a containment error the user cannot act on.
+  const projects = api.project.getAll.useQuery(workspaceId ? { workspaceId } : {});
   const taskSchedules = api.taskSchedule.list.useQuery(
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId && !!setScheduleId }

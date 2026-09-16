@@ -155,6 +155,94 @@ export async function buildContent(
         dedupeKey: `meeting_participant_added:${sessionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.AGENDA_READY: {
+      const { occurrenceId } = input.subject;
+      const occurrence = await db.ceremonyOccurrence.findUnique({
+        where: { id: occurrenceId },
+        select: {
+          scheduledStart: true,
+          status: true,
+          skipReason: true,
+          updatedAt: true,
+          agenda: true,
+          agendaGeneratedAt: true,
+          ceremony: {
+            select: {
+              id: true,
+              name: true,
+              kind: true,
+              timezone: true,
+              workspace: { select: { id: true, slug: true, name: true } },
+            },
+          },
+          updates: { where: { flaggedBlocker: true, submittedAt: { not: null } }, select: { id: true }, take: 1 },
+        },
+      });
+      if (!occurrence) return null;
+      const { ceremony } = occurrence;
+      const agenda = occurrence.agenda as { sections?: Array<{ items?: unknown[] }> } | null;
+      const itemCount = (agenda?.sections ?? []).reduce((n, s) => n + (s.items?.length ?? 0), 0);
+      let when: string;
+      try {
+        when = occurrence.scheduledStart.toLocaleString("en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: ceremony.timezone,
+        });
+      } catch {
+        when = occurrence.scheduledStart.toISOString();
+      }
+      // The empty-agenda skip proposal (ADR-0059, V3): a standup with nothing
+      // to cover and nobody blocked is worth offering to skip, and saying so
+      // in the notification is the only place the owner reliably sees it.
+      const skipProposed =
+        itemCount === 0 && occurrence.ceremony.kind === "STANDUP" && occurrence.updates.length === 0;
+      const skipped = occurrence.status === "SKIPPED";
+      const title = skipped
+        ? `Skipped: ${ceremony.name}`
+        : skipProposed
+          ? `Nothing to cover: ${ceremony.name}`
+          : `Agenda ready: ${ceremony.name}`;
+      const message = skipped
+        ? `${when} · ${occurrence.skipReason ?? "skipped"} — the async summary stands in for it`
+        : skipProposed
+          ? `${when} · nobody flagged a blocker, so the owner can skip this one`
+          : `${when} · ${itemCount} item${itemCount === 1 ? "" : "s"} to cover`;
+      return {
+        category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+        title,
+        message,
+        deeplink: `/w/${ceremony.workspace.slug}/ceremonies/${ceremony.id}/${occurrenceId}`,
+        metadata: {
+          occurrenceId,
+          ceremonyId: ceremony.id,
+          ceremonyName: ceremony.name,
+          itemCount,
+          skipProposed,
+          skipped,
+          workspaceId: ceremony.workspace.id,
+          workspaceSlug: ceremony.workspace.slug,
+          workspaceName: ceremony.workspace.name,
+        },
+        workspaceId: ceremony.workspace.id,
+        // Keyed on the generation, not just the occurrence. Two sweeps over
+        // one generation must not double-notify, but a deliberate
+        // re-circulation after a regeneration ("Regenerate & send to
+        // participants") has a new `agendaGeneratedAt` and must reach people
+        // — otherwise the button reports success and notifies nobody.
+        // A skip notice is keyed by the skip write itself (`updatedAt` moves
+        // on every skip and nothing else touches a SKIPPED row), so skip →
+        // undo → skip again reaches people a second time instead of being
+        // swallowed as a duplicate of the first notice.
+        dedupeKey: `agenda_ready:${occurrenceId}:${
+          skipped ? `skipped:${occurrence.updatedAt.getTime()}` : (occurrence.agendaGeneratedAt?.getTime() ?? 0)
+        }:${recipientId}`,
+      };
+    }
+
     case NOTIFICATION_CATEGORIES.MEETING_READY: {
       const { sessionId } = input.subject;
 
@@ -168,10 +256,14 @@ export async function buildContent(
       if (!session?.workspace) return null;
 
       const meetingTitle = session.title ?? "a meeting";
+      const draftDecisionCount = input.subject.draftDecisionCount;
+      const isDraftVariant = draftDecisionCount !== undefined;
 
       return {
         category: NOTIFICATION_CATEGORIES.MEETING_READY,
-        title: "Meeting notes are ready",
+        title: isDraftVariant
+          ? `${draftDecisionCount} draft ${draftDecisionCount === 1 ? "decision" : "decisions"} to review`
+          : "Meeting notes are ready",
         message: meetingTitle,
         deeplink: `/recording/${sessionId}`,
         metadata: {
@@ -180,9 +272,12 @@ export async function buildContent(
           workspaceId: session.workspace.id,
           workspaceSlug: session.workspace.slug,
           workspaceName: session.workspace.name,
+          ...(isDraftVariant ? { draftDecisionCount } : {}),
         },
         workspaceId: session.workspace.id,
-        dedupeKey: `meeting_ready:${sessionId}:${recipientId}`,
+        dedupeKey: isDraftVariant
+          ? `meeting_ready:decisions:${sessionId}:${recipientId}`
+          : `meeting_ready:${sessionId}:${recipientId}`,
       };
     }
     case NOTIFICATION_CATEGORIES.MENTION:

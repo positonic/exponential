@@ -51,6 +51,14 @@ The bucket a meeting falls into for navigation. Resolved 2026-09-09 (ADR-0059) w
 A task extracted from a meeting by Zoe and persisted in the `Action` table. The canonical word everywhere — schema, tRPC routers, CLI, UI. Never "task" in user-facing copy, despite Beads/Task-Master using "task" for their own concepts.
 _Avoid_: Task, todo, item.
 
+**Action source**:
+Which surface an Action was created from, stored in `Action.source` and required on every create through the Action write module (`src/server/services/actions/`): one of `ui`, `ios`, `cli`, `voice`, `meeting`, `daily-plan`, `daily-plan-prompt`, `whatsapp`, `telegram`, `matrix`, `agent` (`ACTION_SOURCES`, validated in Zod — a string column, not a Prisma enum). Nothing defaults silently: a caller that cannot name its surface fails. `daily-plan-prompt` is the idempotent "Do daily plan" prompt and is deduplicated by source + due date, so it stays distinct from `daily-plan` (a task converted from a daily plan); it is also a **system source**, recording no activity event. Human procedures name the source from the principal (a browser session is `ui`, a personal API token is `cli`, an external-agent key is `agent`; the iOS shortcut's API-key calls are `ios`); the agent-facing procedures use `resolveAgentActionSource`: a chat-gateway JWT (`whatsapp-gateway`, `telegram-gateway`, `matrix-gateway`) maps to its surface, an unmapped `*-gateway` token type is refused with BAD_REQUEST rather than mislabelled, and any other principal reaching an agent tool (including the personal API token the Mastra agents call with) is `agent`. Rows written before the module, or by paths not yet behind it (`upsertBySource`, onboarding), may still carry legacy values (`app`, `ios-shortcut`, `agent-transcript`, `onboarding-welcome`); readers must not treat the set as the column's historical value set.
+_Avoid_: origin, channel (a channel is a notification or chat concept), provider.
+
+**Kanban ⇄ status lockstep**:
+The rule that an Action's kanban column (`kanbanStatus`) and its coarse lifecycle `status` move together, owned by the pure `deriveActionPatch(current, patch)` in the Action write module (`src/server/services/actions/`) and applied by every update path through `applyActionUpdate`. Only the kanban → status direction is synced: moving a card to DONE completes the Action and stamps `completedAt` (backfilling a legacy row whose column already said DONE), to CANCELLED cancels it, and out of DONE on a real move reactivates it and clears the stamp. Re-sending the current column is a no-op, DRAFT and DELETED rows never move through a kanban move, an explicit `status` in the patch always wins, and clearing the column (leaving a project) drives nothing. Whether an explicit `status: COMPLETED` should also move the card to DONE is an open question, not implemented. A move between columns also writes the `ActionStatusChange` analytics row, whichever procedure moved the card. Applies to every path that goes through `applyActionUpdate` — the action router's update, kanban and bulk-project procedures, the workspace board, the agent's update tool and voice completion; the sync engines (`SyncEngine`, Notion sync), the Slack webhook, `upsertBySource` and the legacy agent tools still carry their own partial copies and are outside the module until they are moved behind it.
+_Avoid_: "status sync" without saying which direction; treating `kanbanStatus` as the Action's status.
+
 **Participant**:
 A person on the meeting invite, stored in `TranscriptionSessionParticipant` with email, optional name, optional linked `User` or `CrmContact`. Authoritative source for "who was in this meeting". Silent attendees count. **Email is required and unique per meeting** (`@@unique([transcriptionSessionId, email])`), so every Participant carries an email even when it must be captured at link time. Participants are **user-managed from the meeting side** — both the manual-add modal and the `/recording/[id]` detail page let a user search workspace **CrmContacts** by name and link one, or add a name+email that **inline-creates a CrmContact** (emailHash dedup, `importSource: "MANUAL"`). Linking a contact that has no email captures one and writes it back to the contact. This is the *write* side of the Meeting↔CRM link; the contact-detail Meetings tab is the (separate) *read* side.
 _Avoid_: Attendee (only as a count word — "4 attendees"), invitee.
@@ -90,15 +98,16 @@ An architecture decision record: a markdown file in an enrolled git repository (
 _Avoid_: Decision (reserved for the Exponential-owned entity), design doc.
 
 **Decision Log**:
-The workspace index at `/w/[slug]/decisions` (and the per-product lens) over *both* sources — git-projected **ADRs** and Exponential-owned **Decisions** — with a Source facet, one shared status vocabulary, repository / product / status filters and search. Meeting decisions group by ceremony or project; ADRs by repository. Meeting-linked Decisions are visible only through **Meeting visibility** (they quote the transcript); ADRs are workspace-member-visible.
+The workspace index at `/w/[slug]/decisions` (and the per-product lens) over *both* sources — git-projected **ADRs** and Exponential-owned **Decisions** — with a Source facet, one shared status vocabulary, repository / product / status filters and search. Meeting decisions group by ceremony or project; ADRs by repository. Its **graph** (`/decisions/graph`) draws both sources too, in two views picked from a dropdown: a *Timeline* (default — time left to right, one lane per repository or ceremony / project, cards packed into rows, undated ones in a "No date" column) and the *Network* cluster view; edges are supersedes, detected mentions, and "formalised as" (Decision → ADR). Meeting-linked Decisions are visible only through **Meeting visibility** (they quote the transcript); ADRs are workspace-member-visible.
 _Avoid_: ADR viewer (that was v1; it is now half the log), decisions page.
 
 ## Relationships
 
 - A **Meeting** has zero or more **Participants** (`TranscriptionSessionParticipant`).
 - A **Meeting** has zero or more **Speakers** (derived from transcript). The Participant and Speaker sets overlap but are not identical.
-- A **Meeting** belongs to at most one **Project** and at most one **Workspace**. A **project-linked Meeting always inherits the project's Workspace** — a meeting with a Project but no Workspace is an incoherent state. Workspace-less ("personal") Meetings are legal **only** when there is also no Project. `createManualTranscription` enforces this server-side (derives `workspaceId` from the project when not supplied), since **Participants require a Workspace** (`TranscriptionSessionParticipant.workspaceId` is non-null).
+- A **Meeting** belongs to at most one **Project** and at most one **Workspace**. A **project-linked Meeting always inherits the project's Workspace** — a meeting with a Project but no Workspace is an incoherent state. Workspace-less ("personal") Meetings are legal **only** when there is also no Project. `createManualTranscription` enforces this server-side (derives `workspaceId` from the project when not supplied, and only files into a project the caller can view), since **Participants require a Workspace** (`TranscriptionSessionParticipant.workspaceId` is non-null).
 - A **Meeting** produces zero or more **Actions** (extracted by Zoe). An Action extracted from a Meeting **lives where the Meeting lives** — it inherits the Meeting's Project and Workspace at extraction, and **follows the Meeting on reassignment**: moving a Meeting to a new Project (and thus Workspace) re-homes its Actions' `projectId` *and* `workspaceId`. An Action from a Meeting never sits in a different Workspace than its Meeting.
+- A **Meeting** discussed zero or more **Features**, and a Feature is discussed in zero or more Meetings (`MeetingFeature`, set by hand from the meeting page or the Add Meeting modal). Both ends sit in the **same Workspace**: a link needs the Meeting to have one, and every move that changes either side's Workspace (a Meeting's placement or workspace change, a Feature move, a Product moving workspace) drops the links it strands. Links are shown only to members of that Workspace, and only members who can edit the Meeting may change them. Strictly distinct from a Feature's *source meeting* (`Feature.sourceTranscriptionId`), which is provenance — the one Meeting it was ideated from.
 - A **Ceremony** has zero or more **Occurrences**; an **Occurrence** belongs to exactly one Ceremony and snapshots the definition it was created under.
 - An **Occurrence** links to at most one **Scheduled meeting** and to zero or more recorded **Meetings**; a recorded Meeting belongs to at most one Occurrence (`TranscriptionSession.occurrenceId`, set by calendar recurrence id, title alias, or by hand).
 - An **Occurrence** collects outputs — **Decisions**, **Actions**, key-result check-ins, parking-lot items — and carries its unresolved items into the next Occurrence of the same Ceremony.
@@ -231,6 +240,40 @@ _Avoid_: Health score (that's one field of a digest entry, not the digest), need
 **Weekly plan session**:
 The single, server-persisted state of one in-progress **Weekly plan** — position, the set of reviewed Projects, the running change tally (`statusChanges`, `actionsAdded`, …), and `reviewMode` — keyed per `(userId, workspaceId, week)`, the same key as `weeklyReviewCompletion`. Shared by **both** surfaces: the `/weekly-plan` wizard and **Zoe**'s chat walk read and write the same session, so a user can review three projects in chat, open the wizard, and resume at the fourth (the ADR-0006 "two surfaces, one thread" pattern). A session is created at *start* and stamped `completedAt` at finish — so "completed this week" means `completedAt != null`, **not** mere row existence.
 _Avoid_: Review session (only in code), wizard state (it is no longer client-only).
+
+### Time
+
+**Time entry**:
+A stretch of one person's time spent on an **Action**, with a start and an end. It always *belongs to* the person whose time it was, even when something else *wrote* it — an **External agent** records itself as the author, never as the owner (decision 2026-09-12, [ADR-0061](docs/adr/0061-time-entries-belong-to-the-owner.md)). Rolls up to a **Ticket**, **Project** and **Product** through the Action's links; an entry whose Action has none of those is **Unassigned time**, a signal rather than an error.
+_Avoid_: Timesheet row, log, timer (that is the live way of making one).
+
+**Timer**:
+The live way to make a **Time entry**: start now, stop later, one running per person. Starting a new one silently stops the old one.
+_Avoid_: Stopwatch, clock.
+
+**Manual time**:
+A **Time entry** a person made by hand, with the **Timer** or by editing. Always authoritative over **Proposed time**: a proposed entry on the same Action is merged into it, one on a different Action is clipped to the minutes the manual entry does not cover (decision 2026-09-12). A manual entry that runs more than an hour past the person's last recorded activity is flagged as a likely forgotten timer, never edited.
+_Avoid_: Tracked time (both kinds are tracked), real time.
+
+**Proposed time**:
+A **Time entry** the **Daily worklog** created that its owner has not yet confirmed. Shown distinctly, counted in totals with a visible marker, and it does not move an Action's spent-time figure until confirmed. Confirming the day, or editing the entry, makes it confirmed; the worklog never touches a confirmed entry again (decision 2026-09-12). Same word as the Decision lifecycle's `PROPOSED` on purpose.
+_Avoid_: Draft (reserved for extracted Decisions), suggested time, estimate.
+
+**Agent-run time**:
+Time an agent spent on an **Action** with no human turns — an unattended ship pipeline, a background review. Stored as its own kind of **Time entry** on the same Action, shown on its own lane, and excluded from **Attention hours** by default (decision 2026-09-12: stored rather than dropped, because "how much did the agent do" is the first question an agentic workflow gets asked).
+_Avoid_: Agent time (ambiguous with an agent's own calendar), compute time, machine time.
+
+**Attention hours**:
+The minutes of a person's day covered by at least one of their **Time entries** (excluding **Agent-run time**), each minute counted once. Strictly distinct from **Session hours**, the plain sum of those entries, which exceeds attention hours whenever threads overlap. The day view leads with attention hours. Product and Project roll-ups split overlapping minutes evenly across the overlapping entries so the day adds up (decision 2026-09-12); raw entries stay whole.
+_Avoid_: Hours worked (which one?), wall-clock (attention is a subset of it), billable.
+
+**Worklog segment**:
+One contiguous stretch of a Claude Desktop conversation, cut wherever more than 30 minutes pass between the person's messages; it starts at the person's first message and ends at the last reply, rounded out to 5 minutes (decision 2026-09-12). The unit the **Daily worklog** turns into one **Proposed time** entry. A conversation is not a segment: a tab can stay open for days.
+_Avoid_: Session (reserved — see **Meeting**), thread (that is the whole conversation), block.
+
+**Daily worklog**:
+The morning routine that reads yesterday's Claude Desktop conversations, cuts them into **Worklog segments**, resolves each conversation to a **Ticket** (by branch or PR), else a **Product** (by repository), else the workspace alone, and writes one Action per conversation and one **Proposed time** entry per segment. Idempotent: the conversation is the Action's source, so a re-run updates rather than duplicates. Its output is read on the `/time` day view and as a Yesterday line in the **Daily summary**; it writes no page of its own (decision 2026-09-12: one source of truth).
+_Avoid_: Timesheet, standup report, activity import.
 
 ### Product
 

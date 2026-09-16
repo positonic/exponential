@@ -34,6 +34,11 @@ Align your daily work with strategic goals using a hierarchical system. Set goal
 
 [Learn more about Goals](/docs/features/goals)
 
+### Time Tracking
+See where your days actually go. Track time with a timer, or let an agent propose your day from the work it can see, then confirm it in one click. Your own entries always win, and a day view breaks time down by product and task.
+
+[Learn more about Time Tracking](/docs/features/time-tracking)
+
 ## Reflection & Planning
 
 ### Daily Journal

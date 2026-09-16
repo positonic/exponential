@@ -366,6 +366,30 @@ describe("mastra action creation — do-date (scheduledStart) handling", () => {
     expect(persisted?.dueDate).toBeNull();
   });
 
+  it("createAction refuses a project the user can only view, like the UI (ADR-0016)", async () => {
+    // A public project owned by someone else is visible to the caller but
+    // not editable. The agent path used to gate on view access and let Zoe
+    // create here; it now shares createAction's edit gate with action.create.
+    const owner = await createUser(db);
+    const viewer = await createUser(db);
+    const project = await createProject(db, { createdById: owner.id, isPublic: true });
+
+    const caller = createTestCaller(viewer.id);
+    // View access is real: the project resolves for the viewer …
+    await expect(caller.project.getById({ id: project.id })).resolves.toMatchObject({ id: project.id });
+    // … and creating in it is still refused.
+    await expect(
+      caller.mastra.createAction({
+        projectId: project.id,
+        name: "Should be refused",
+        priority: "Quick",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const rows = await db.action.findMany({ where: { projectId: project.id } });
+    expect(rows).toHaveLength(0);
+  });
+
   it("createAction rejects a malformed scheduledStart instead of persisting Invalid Date", async () => {
     const user = await createUser(db);
     const project = await createProject(db, { createdById: user.id });

@@ -15,6 +15,8 @@ export const NOTIFICATION_CATEGORIES = {
   SUMMARY: "summary",
   MEETING_READY: "meeting_ready",
   MEETING_PARTICIPANT_ADDED: "meeting_participant_added",
+  /** A ceremony occurrence's agenda was generated and circulated (ADR-0059). */
+  AGENDA_READY: "agenda_ready",
 } as const;
 
 export type NotificationCategory =
@@ -71,6 +73,7 @@ export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.SUMMARY,
   NOTIFICATION_CATEGORIES.MEETING_READY,
   NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+  NOTIFICATION_CATEGORIES.AGENDA_READY,
 ] as const;
 
 /** All channels, in stable delivery / matrix-column order. */
@@ -100,4 +103,7 @@ export const DEFAULT_MATRIX: Record<
   [NOTIFICATION_CATEGORIES.SUMMARY]: { push: false, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.MEETING_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  // Agenda ready: push + email on; chat channels off (the ceremony's own
+  // Matrix room gets the agenda through the ceremony post, not per person).
+  [NOTIFICATION_CATEGORIES.AGENDA_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
 };

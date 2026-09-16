@@ -62,6 +62,14 @@ export interface CycleTicketMetricsResult {
   completionRate: number;
   /** Count of tickets by `TicketStatus`. */
   statusCounts: Record<string, number>;
+  /**
+   * Untracked work (Daily worklog V4): CONFIRMED time entries in the cycle's
+   * workspace and window whose Action has no Ticket — shipped work nobody
+   * filed. Computed on request, never stored (ADR-0047). Zero when the cycle
+   * has no dates.
+   */
+  untrackedWorkEntries: number;
+  untrackedWorkMinutes: number;
 }
 
 export interface CycleSummary {
@@ -940,13 +948,35 @@ export class SprintAnalyticsService {
   ): Promise<CycleTicketMetricsResult> {
     const list = await this.prisma.list.findUniqueOrThrow({
       where: { id: listId },
-      select: { id: true, name: true, startDate: true, endDate: true },
+      select: { id: true, name: true, startDate: true, endDate: true, workspaceId: true },
     });
 
     const tickets = await this.prisma.ticket.findMany({
       where: { cycleId: listId },
       select: { status: true, points: true },
     });
+
+    // Untracked work: confirmed time in the cycle window on Actions with no
+    // Ticket. Only a dated cycle has a window; an undated one reports zero.
+    let untrackedWorkEntries = 0;
+    let untrackedWorkMinutes = 0;
+    if (list.startDate && list.endDate) {
+      const untracked = await this.prisma.timeEntry.findMany({
+        where: {
+          workspaceId: list.workspaceId,
+          status: "CONFIRMED",
+          startedAt: { gte: list.startDate, lt: list.endDate },
+          endedAt: { not: null },
+          action: { ticketId: null },
+        },
+        select: { startedAt: true, endedAt: true },
+      });
+      untrackedWorkEntries = untracked.length;
+      untrackedWorkMinutes = untracked.reduce(
+        (sum, e) => sum + Math.max(0, Math.round((e.endedAt!.getTime() - e.startedAt.getTime()) / 60_000)),
+        0,
+      );
+    }
 
     const statusCounts: Record<string, number> = {};
     for (const ticket of tickets) {
@@ -977,6 +1007,8 @@ export class SprintAnalyticsService {
       totalPoints,
       completionRate,
       statusCounts,
+      untrackedWorkEntries,
+      untrackedWorkMinutes,
     };
   }
 

@@ -91,7 +91,7 @@ export function YourWorkPanel() {
 
   // Meetings I owned or attended — 'mine' unions owner + Participant rows.
   const { data: meetings, isLoading: meetingsLoading } =
-    api.transcription.getAllTranscriptions.useQuery(
+    api.transcription.getMeetingCards.useQuery(
       { workspaceId: workspaceId ?? undefined, meetingType: 'mine' },
       { enabled: !!workspaceId },
     );

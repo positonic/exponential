@@ -36,6 +36,7 @@ function vmWith(summary: MeetingViewModel["firefliesSummary"]): MeetingViewModel
     keyMoments: [],
     decisions: [],
     questions: [],
+    drafts: [],
     hasVideo: false,
     captureCount: 0,
     transcriptCount: 0,

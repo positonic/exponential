@@ -26,22 +26,31 @@ type TicketRow = { status: string; points: number | null };
  * Minimal Prisma stub: a fixed cycle List and a canned ticket set. Only the
  * two methods getCycleTicketMetrics touches are implemented.
  */
-function makeService(tickets: TicketRow[]) {
+function makeService(
+  tickets: TicketRow[],
+  options: {
+    dates?: { startDate: Date; endDate: Date };
+    untracked?: Array<{ startedAt: Date; endedAt: Date }>;
+  } = {},
+) {
+  const timeEntryFindMany = vi.fn().mockResolvedValue(options.untracked ?? []);
   const prisma = {
     list: {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         id: "cycle-1",
         name: "Cycle 8",
-        startDate: null,
-        endDate: null,
+        startDate: options.dates?.startDate ?? null,
+        endDate: options.dates?.endDate ?? null,
+        workspaceId: "ws-1",
       }),
     },
     ticket: {
       findMany: vi.fn().mockResolvedValue(tickets),
     },
+    timeEntry: { findMany: timeEntryFindMany },
   } as unknown as PrismaClient;
 
-  return new SprintAnalyticsService(prisma);
+  return Object.assign(new SprintAnalyticsService(prisma), { timeEntryFindMany });
 }
 
 describe("SprintAnalyticsService.getCycleTicketMetrics", () => {
@@ -95,5 +104,41 @@ describe("SprintAnalyticsService.getCycleTicketMetrics", () => {
     expect(m.completedTickets).toBe(2);
     expect(m.completedPoints).toBe(0);
     expect(m.completionRate).toBe(100);
+  });
+});
+
+describe("SprintAnalyticsService.getCycleTicketMetrics — untracked work", () => {
+  const startDate = new Date("2026-09-01T00:00:00Z");
+  const endDate = new Date("2026-09-15T00:00:00Z");
+
+  it("counts confirmed entries in the cycle window whose Action has no Ticket, with their minutes", async () => {
+    const service = makeService([], {
+      dates: { startDate, endDate },
+      untracked: [
+        { startedAt: new Date("2026-09-11T09:00:00Z"), endedAt: new Date("2026-09-11T10:00:00Z") },
+        { startedAt: new Date("2026-09-12T13:38:00Z"), endedAt: new Date("2026-09-12T14:30:00Z") },
+      ],
+    });
+    const result = await service.getCycleTicketMetrics("cycle-1");
+    expect(result.untrackedWorkEntries).toBe(2);
+    expect(result.untrackedWorkMinutes).toBe(112);
+    expect(service.timeEntryFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "ws-1",
+          status: "CONFIRMED",
+          startedAt: { gte: startDate, lt: endDate },
+          action: { ticketId: null },
+        }),
+      }),
+    );
+  });
+
+  it("reports zero without touching time entries when the cycle has no dates", async () => {
+    const service = makeService([]);
+    const result = await service.getCycleTicketMetrics("cycle-1");
+    expect(result.untrackedWorkEntries).toBe(0);
+    expect(result.untrackedWorkMinutes).toBe(0);
+    expect(service.timeEntryFindMany).not.toHaveBeenCalled();
   });
 });

@@ -26,7 +26,7 @@ interface MeetingProjectPickerProps {
   children: (args: { toggle: () => void }) => ReactNode;
   /** Label for the clear-placement option. */
   noneLabel?: string;
-  dropdownWidth?: number;
+  dropdownWidth?: number | "target";
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   getTranscriptionAccess,
   canEditTranscription,
 } from "~/server/services/access";
+import { dropStrandedMeetingFeatureLinks } from "./meetingFeatures";
 
 /**
  * The single way a Meeting gets placed.
@@ -134,6 +135,9 @@ export async function assignMeetingPlacement(
       },
       data: { projectId, workspaceId },
     }),
+    // Feature links are workspace-bound: drop the ones the move strands in the
+    // old workspace (all of them when the meeting goes Personal).
+    dropStrandedMeetingFeatureLinks(db, { meetingIds: placeableIds, workspaceId }),
   ]);
 
   return { count: sessionResult.count, projectId, workspaceId };

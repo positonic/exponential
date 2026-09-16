@@ -6,6 +6,7 @@ import {
   Stack,
 } from "@mantine/core";
 import { DatePicker } from '@mantine/dates';
+import { calendarDropdownStyles } from '~/styles/mantineTheme';
 import { useMediaQuery } from "@mantine/hooks";
 import {
   IconCalendar,
@@ -226,6 +227,10 @@ export function UnifiedDatePicker({
       onClose={() => setOpened(false)}
       disabled={disabled}
       middlewares={{ flip: true, shift: true }}
+      // This is a hand-rolled Popover, so it misses the `datePopoverProps`
+      // the theme gives @mantine/dates' own popovers. Same chrome, one
+      // definition - see the export in mantineTheme.ts.
+      styles={{ dropdown: calendarDropdownStyles }}
     >
       <Popover.Target>
         {renderTrigger ? (
@@ -289,17 +294,6 @@ export function UnifiedDatePicker({
               highlightToday={true}
               minDate={minDate}
               maxDate={maxDate}
-              classNames={{
-                day: 'unified-datepicker-day'
-              }}
-              styles={{
-                calendarHeader: {
-                  backgroundColor: 'var(--color-bg-secondary)',
-                },
-                month: {
-                  backgroundColor: 'var(--color-bg-secondary)',
-                }
-              }}
             />
           </div>
         </Stack>

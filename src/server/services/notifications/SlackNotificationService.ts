@@ -1,6 +1,7 @@
 import { NotificationService, type NotificationPayload, type NotificationResult, type NotificationConfig } from './NotificationService';
 import { db } from '~/server/db';
 import { getDecryptedKey } from '~/server/utils/credentialHelper';
+import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 interface SlackChannel {
   id: string;
@@ -187,7 +188,7 @@ export class SlackNotificationService extends NotificationService {
             },
             style: 'primary',
             action_id: 'view_all_actions',
-            url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/act`
+            url: `${getPublicBaseUrlFromEnv()}/act`
           },
           {
             type: 'button',

@@ -6,10 +6,13 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { markOccurrenceCaptured } from "~/server/services/ceremonies/agenda/items";
 import {
   extractReadableTranscript,
   MAX_SUMMARY_TRANSCRIPT_CHARS,
 } from "~/server/services/meetings/extractReadableTranscript";
+import { isPostSummaryDecisionExtractionEnabled } from "~/server/services/decisions/postSummaryExtraction";
+import { generateDraftDecisions } from "~/server/services/decisions/generateDraftDecisions";
 
 /**
  * The one place a meeting transcript becomes a persisted summary.
@@ -35,6 +38,8 @@ export interface SummarizableMeetingRow {
   summary: string | null;
   workspaceId: string | null;
   userId: string | null;
+  /** The ceremony occurrence this recording captured (ADR-0059), when known. */
+  occurrenceId?: string | null;
 }
 
 export type EnsureMeetingSummaryStatus =
@@ -65,6 +70,16 @@ export interface SummarizeMeetingOptions {
    * a summary a user may have hand-edited.
    */
   overwriteExisting?: boolean;
+  /**
+   * Run post-summary decision extraction (Decisions V2, ADR-0060) once the
+   * first summary lands. Off by default and deliberately NOT set by the cron
+   * sweep: that path summarises up to 10 meetings in one 300s function, and
+   * chaining a chunked extraction onto each would blow the budget — while
+   * the sweep's `summary: null` selector means a meeting summarised just
+   * before the kill is never revisited, so the extraction would be lost
+   * silently and for good. Single-meeting callers may opt in.
+   */
+  extractDecisions?: boolean;
 }
 
 /**
@@ -161,6 +176,36 @@ export async function summarizeMeetingRow(
     });
   }
 
+  // A summarised recording means its ceremony occurrence was captured
+  // (ADR-0059): move the occurrence on and carry unresolved agenda items
+  // into the next one. Same first-summary transition, so it never repeats.
+  if (meeting.occurrenceId) {
+    await markOccurrenceCaptured(db, meeting.occurrenceId);
+  }
+
+  // Opt-in twice over (Decisions V2, ADR-0060): the caller must ask for it
+  // AND the workspace must be enabled. Same null → value transition as the
+  // event and the notification, so it never re-runs on a re-summarize; the
+  // service itself short-circuits on existing drafts. Awaited rather than
+  // void'd so it survives a serverless response ending; a failure here never
+  // fails the summary, and the service reports it to Sentry.
+  if (
+    options.extractDecisions &&
+    meeting.workspaceId &&
+    meeting.userId &&
+    isPostSummaryDecisionExtractionEnabled(meeting.workspaceId)
+  ) {
+    try {
+      await generateDraftDecisions(db, meeting.id, meeting.userId, { trigger: "post_summary" });
+    } catch (error) {
+      console.error(
+        "[ensureMeetingSummary] post-summary decision extraction failed",
+        meeting.id,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   return { status: "created", summary: summaryJson, eventEmitted };
 }
 
@@ -168,6 +213,10 @@ export async function summarizeMeetingRow(
  * Fetch a meeting by id and ensure it has a summary. The by-id wrapper for
  * single-meeting callers (the manual mutation, the on-view detail trigger).
  * Returns `not-found` when the id doesn't resolve.
+ *
+ * Decision extraction defaults ON here and OFF in the batch sweep: this path
+ * handles one meeting with a person waiting, so a partial failure is visible
+ * and re-triggerable from the summary tab's "Extract decisions" chip.
  */
 export async function ensureMeetingSummary(
   db: PrismaClient,
@@ -183,6 +232,7 @@ export async function ensureMeetingSummary(
       summary: true,
       workspaceId: true,
       userId: true,
+      occurrenceId: true,
     },
   });
 
@@ -190,5 +240,5 @@ export async function ensureMeetingSummary(
     return { status: "not-found", eventEmitted: false };
   }
 
-  return summarizeMeetingRow(db, meeting, options);
+  return summarizeMeetingRow(db, meeting, { extractDecisions: true, ...options });
 }

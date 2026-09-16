@@ -6,7 +6,7 @@
 
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, type CSSProperties } from "react";
 import "./OkrTimeline.css";
 
 export type OkrStatus = "ok" | "warn" | "bad" | "idle";
@@ -21,18 +21,23 @@ export interface TimelineUser {
 export interface TimelineKr {
   id: string;
   title: string;
-  owner: string;
+  /** Owner id for the avatar; omit to render the row without one. */
+  owner?: string;
   progress: number;
   currentLabel: string;
   targetLabel: string;
-  due: string;
+  /** Due label; omitted when the row has no meaningful due date. */
+  due?: string;
   endFrac?: number;
   startFrac?: number;
   status: OkrStatus;
+  /** Replaces the "current / target" text under the title when set. */
+  meta?: string;
 }
 
 export interface TimelineObjective {
   id: string;
+  /** Short code ("O1"); an empty string hides the code column. */
   code: string;
   title: string;
   owner: string;
@@ -40,6 +45,11 @@ export interface TimelineObjective {
   progress: number;
   status: OkrStatus;
   krs: TimelineKr[];
+  /** Bar span as fractions of the axis; defaults to the full width. */
+  startFrac?: number;
+  endFrac?: number;
+  /** Replaces the "N% · M KRs" text under the title when set. */
+  meta?: string;
 }
 
 export interface OkrTimelineProps {
@@ -49,7 +59,8 @@ export interface OkrTimelineProps {
   weekLabels?: string[];
   monthStarts?: number[];
   monthLabels?: string[];
-  todayFrac?: number;
+  /** null hides the TODAY marker (axis does not contain today). */
+  todayFrac?: number | null;
   dueMap?: Record<string, number>;
   renderHeader?: () => React.ReactNode;
   onObjectiveClick?: (objective: TimelineObjective) => void;
@@ -77,6 +88,36 @@ const DEFAULT_MONTH_STARTS = [0, 5, 9];
 const DEFAULT_MONTH_LABELS = ["Apr", "May", "Jun"];
 const DEFAULT_TODAY = 0.61;
 const DEFAULT_DUE_MAP: Record<string, number> = {};
+
+/**
+ * Narrowest a week column may get before the gantt scrolls horizontally
+ * inside its own container instead of squeezing 52+ labels into the page
+ * width (an Annual or multi-year axis).
+ */
+const MIN_WEEK_PX = 26;
+
+/**
+ * Props for a row that acts as a button. The goals table rows this replaces
+ * in timeline view were real links, so leaving these as bare `div onClick`
+ * would take navigation away from keyboard and screen-reader users.
+ */
+function clickableRowProps(onActivate: (() => void) | undefined) {
+  if (!onActivate) return {};
+  return {
+    onClick: onActivate,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onActivate();
+      }
+    },
+    role: "button",
+    tabIndex: 0,
+    style: { cursor: "pointer" },
+  };
+}
+/** Label column + row padding + column gap, from OkrTimeline.css. */
+const LABEL_COLUMN_PX = 320 + 18 * 2 + 18;
 
 const Avatar = ({
   user,
@@ -178,7 +219,7 @@ export function OkrTimeline({
 }: OkrTimelineProps) {
   const resolveEnd = (kr: TimelineKr): number => {
     if (typeof kr.endFrac === "number") return kr.endFrac;
-    return dueMap[kr.due] ?? 1.0;
+    return (kr.due ? dueMap[kr.due] : undefined) ?? 1.0;
   };
 
   const header = renderHeader ? (
@@ -218,80 +259,90 @@ export function OkrTimeline({
     </div>
   );
 
+  const sizing = {
+    minWidth: LABEL_COLUMN_PX + weekCount * MIN_WEEK_PX,
+    "--okrt-weeks": weekCount,
+  } as CSSProperties;
+
   return (
-    <div className={`okrt ${className}`}>
-      {header}
+    <div className={`okrt-scroll ${className}`}>
+      <div className="okrt" style={sizing}>
+        {header}
 
-      <div className="okrt-rows">
-        {objectives.map((obj) => (
-          <Fragment key={obj.id}>
-            <div
-              className="okrt-row okrt-row--obj"
-              onClick={
-                onObjectiveClick ? () => onObjectiveClick(obj) : undefined
-              }
-              style={onObjectiveClick ? { cursor: "pointer" } : undefined}
-            >
-              <div className="okrt-label">
-                <div className="okrt-label__code">{obj.code}</div>
-                <div className="okrt-label__title">{obj.title}</div>
-                <div className="okrt-label__meta">
-                  <OwnerStack
-                    ids={[obj.owner, ...(obj.coOwners ?? [])]}
-                    getUser={getUser}
-                  />
-                  <span>
-                    {Math.round(obj.progress * 100)}% · {obj.krs.length} KRs
-                  </span>
-                </div>
-              </div>
-              <Track
-                start={0}
-                end={1.0}
-                progress={obj.progress}
-                status={obj.status}
-              />
-            </div>
-
-            {obj.krs.map((kr) => (
+        <div className="okrt-rows">
+          {objectives.map((obj) => (
+            <Fragment key={obj.id}>
               <div
-                key={kr.id}
-                className="okrt-row"
-                onClick={
-                  onKeyResultClick
-                    ? () => onKeyResultClick(kr, obj)
-                    : undefined
-                }
-                style={onKeyResultClick ? { cursor: "pointer" } : undefined}
+                className="okrt-row okrt-row--obj"
+                {...clickableRowProps(
+                  onObjectiveClick ? () => onObjectiveClick(obj) : undefined,
+                )}
               >
-                <div className="okrt-label okrt-label--kr">
-                  <div className="okrt-label__title">{kr.title}</div>
+                <div className="okrt-label">
+                  {obj.code && (
+                    <div className="okrt-label__code">{obj.code}</div>
+                  )}
+                  <div className="okrt-label__title">{obj.title}</div>
                   <div className="okrt-label__meta">
-                    <Avatar user={getUser(kr.owner)} size={18} />
+                    <OwnerStack
+                      ids={[obj.owner, ...(obj.coOwners ?? [])]}
+                      getUser={getUser}
+                    />
                     <span>
-                      {kr.currentLabel} / {kr.targetLabel}
+                      {obj.meta ??
+                        `${Math.round(obj.progress * 100)}% · ${obj.krs.length} KRs`}
                     </span>
-                    <span>· due {kr.due}</span>
                   </div>
                 </div>
                 <Track
-                  start={kr.startFrac ?? 0.05}
-                  end={resolveEnd(kr)}
-                  progress={kr.progress}
-                  status={kr.status}
+                  start={obj.startFrac ?? 0}
+                  end={obj.endFrac ?? 1.0}
+                  progress={obj.progress}
+                  status={obj.status}
                 />
               </div>
-            ))}
-          </Fragment>
-        ))}
 
-        <div className="okrt-today" aria-hidden="true">
-          <div
-            className="okrt-today__line"
-            style={{ left: `${todayFrac * 100}%` }}
-          >
-            <span className="okrt-today__label">TODAY</span>
-          </div>
+              {obj.krs.map((kr) => (
+                <div
+                  key={kr.id}
+                  className="okrt-row"
+                  {...clickableRowProps(
+                    onKeyResultClick
+                      ? () => onKeyResultClick(kr, obj)
+                      : undefined,
+                  )}
+                >
+                  <div className="okrt-label okrt-label--kr">
+                    <div className="okrt-label__title">{kr.title}</div>
+                    <div className="okrt-label__meta">
+                      {kr.owner && <Avatar user={getUser(kr.owner)} size={18} />}
+                      <span>
+                        {kr.meta ?? `${kr.currentLabel} / ${kr.targetLabel}`}
+                      </span>
+                      {kr.due && <span>· due {kr.due}</span>}
+                    </div>
+                  </div>
+                  <Track
+                    start={kr.startFrac ?? 0.05}
+                    end={resolveEnd(kr)}
+                    progress={kr.progress}
+                    status={kr.status}
+                  />
+                </div>
+              ))}
+            </Fragment>
+          ))}
+
+          {todayFrac !== null && (
+            <div className="okrt-today" aria-hidden="true">
+              <div
+                className="okrt-today__line"
+                style={{ left: `${todayFrac * 100}%` }}
+              >
+                <span className="okrt-today__label">TODAY</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -449,6 +449,8 @@
   border-top: 0;
   width: 100%;
   font-family: inherit;
+  color: inherit;
+  text-decoration: none;
   cursor: pointer;
   transition: background 120ms;
 }

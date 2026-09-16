@@ -56,6 +56,7 @@ import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
+import { useCoalescedSave } from "./useCoalescedSave";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
@@ -106,6 +107,17 @@ interface TicketFilters {
 
 // Arrays are never mutated in place (all updates spread), so a shared empty
 // reference is safe to use as the default / cleared state.
+/** The per-user, per-product view prefs the page persists (saveViewPrefs input). */
+interface SavedViewPrefs {
+  view: string;
+  groupBy: string;
+  sortField: string;
+  sortDir: string;
+  visibleColumns: string[];
+  entity: "tickets" | "epics";
+  filters: TicketFilters;
+}
+
 const EMPTY_FILTERS: TicketFilters = {
   status: [], priority: [], type: [], assignee: [], epic: [], cycle: [], labels: [],
 };
@@ -347,15 +359,15 @@ export default function TicketsBacklogPage() {
   const savePrefs = api.product.product.saveViewPrefs.useMutation();
   const saveMutateRef = useRef(savePrefs.mutate);
   saveMutateRef.current = savePrefs.mutate;
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const debouncedSave = useCallback((prefs: Record<string, unknown>) => {
-    if (!workspaceId) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      saveMutateRef.current({ productSlug, workspaceId, prefs: prefs as { view?: string; groupBy?: string; sortField?: string; sortDir?: string; visibleColumns?: string[]; entity?: "tickets" | "epics"; filters?: TicketFilters } });
-    }, 500);
-  }, [workspaceId, productSlug]);
+  // Every control saves only the key it owns; the hook merges saves that land
+  // inside one debounce window so none of them is dropped (see its doc).
+  const { push: debouncedSave } = useCoalescedSave<SavedViewPrefs>(
+    useCallback((prefs: Partial<SavedViewPrefs>) => {
+      if (!workspaceId) return;
+      saveMutateRef.current({ productSlug, workspaceId, prefs });
+    }, [workspaceId, productSlug]),
+  );
 
   // Restore prefs on load
   useEffect(() => {
@@ -1055,7 +1067,7 @@ export default function TicketsBacklogPage() {
   return (
     <Stack gap="sm">
       {/* Action bar */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <SegmentedControl
           value={view}
           onChange={(v) => { setView(v); debouncedSave({ view: v }); }}
@@ -1130,8 +1142,8 @@ export default function TicketsBacklogPage() {
           size="xs"
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
+          className="w-full sm:w-[200px]"
           styles={{
-            root: { width: 200 },
             input: { backgroundColor: "transparent", border: "1px solid var(--color-border-primary)", fontSize: "0.8rem", height: 30, minHeight: 30 },
           }}
         />
@@ -1225,6 +1237,7 @@ export default function TicketsBacklogPage() {
           }}
           disabled={!product}
           variant="light"
+          className="ml-auto"
           styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem", minWidth: 110 } }}
         >
           {entity === "epics" ? "New epic" : "New ticket"}

@@ -23,7 +23,8 @@ agenda input and decisions as an occurrence output.
 1. **A new `Decision` model, workspace-owned and writable.** Statement, Markdown body with ADR
    headings, deciders, owner, decided-at, source (`MEETING | MANUAL | AGENT`), provenance (meeting,
    occurrence, evidence = quoted transcript turns), scope (optional product, project, objective or
-   key result), and links (supersedes, formalised-as-ADR, tickets, features). Labels come from a
+   key result), and links (supersedes, formalised-as-ADR, tickets, features, actions — a decision
+   implemented by exactly one ticket adopts its linked actions into it). Labels come from a
    workspace sequence (`D-0042`). ADRs are untouched and stay read-only.
 2. **One index, two sources.** The Decision Log lists `Decision` and `AdrDocument` rows together
    under a Source facet (Code, Meeting, Manual). Status shares the ADR vocabulary

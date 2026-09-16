@@ -117,6 +117,7 @@ model User {
   actions                        Action[]
   actionAssignees                ActionAssignee[]                @relation("ActionAssignees")
   timeEntries                    TimeEntry[]
+  timeResolutionRules            TimeResolutionRule[]
   aiInteractionHistory           AiInteractionHistory[]
   feedback                       Feedback[]
   goals                          Goal[]
@@ -315,6 +316,8 @@ model User {
   ownedCeremonies             Ceremony[]                        @relation("CeremonyOwner")
   createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
   ceremonyParticipations      CeremonyParticipant[]
+  ceremonyOccurrenceUpdates   CeremonyOccurrenceUpdate[]        @relation("CeremonyOccurrenceUpdateUser")
+  meetingFeatureLinks         MeetingFeature[]                  @relation("MeetingFeatureCreatedBy")
   // Decisions (ADR-0060)
   ownedDecisions              Decision[]                        @relation("DecisionOwner")
   createdDecisions            Decision[]                        @relation("DecisionCreatedBy")
@@ -354,6 +357,8 @@ model ExternalAgent {
   owner      User               @relation("ExternalAgentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   shadowUser User               @relation("ExternalAgentShadowUser", fields: [shadowUserId], references: [id], onDelete: Cascade)
   keys       ExternalAgentKey[]
+  /// Time entries this agent wrote on its owner's behalf (ADR-0061).
+  timeEntries TimeEntry[]       @relation("TimeEntryAuthorAgent")
 
   @@index([ownerId])
 }
@@ -913,6 +918,8 @@ model Action {
   bountyExternalUrl  String?
   bountyClaims       BountyClaim[]
 
+  decisionLinks DecisionLink[]
+
   @@index([projectId])
   @@index([createdById])
   @@index([teamId])
@@ -931,25 +938,70 @@ model Action {
   @@index([sourceType, sourceId])
 }
 
+/// Lifecycle of a TimeEntry (ADR-0061). `PROPOSED` rows are written by the
+/// Daily worklog on the owner's behalf and stay out of `Action.timeSpentMins`
+/// until the owner confirms them; everything a human makes is `CONFIRMED`.
+enum TimeEntryStatus {
+  PROPOSED
+  CONFIRMED
+}
+
 model TimeEntry {
   id          String    @id @default(cuid())
+  /// Whose time this is. Under an External agent this is the agent's OWNER,
+  /// never the shadow user (ADR-0061); the writer is `createdByAgentId`.
   userId      String
   actionId    String
   workspaceId String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
+  /// "plugin" (legacy Timer / calendar grids), "manual", "claude-desktop"
+  /// (Proposed time from the Daily worklog) or "agent-run" (Agent-run time).
   source      String    @default("plugin")
+  status      TimeEntryStatus @default(CONFIRMED)
+  /// ExternalAgent that wrote the row; null for human-made entries.
+  createdByAgentId String?
+  /// Idempotency key, e.g. "claude-session:<sessionId>#<segmentIndex>".
+  sourceRef   String?
+  /// One line shown in the day view and list row.
+  note        String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    Action     @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action         Action         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  workspace      Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  createdByAgent ExternalAgent? @relation("TimeEntryAuthorAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
 
+  @@unique([userId, sourceRef])
   @@index([userId, endedAt])
   @@index([userId, startedAt])
+  @@index([userId, status, startedAt])
   @@index([actionId])
   @@index([workspaceId, startedAt])
+}
+
+/// A remembered answer to "which Project or Ticket is this conversation?"
+/// (Daily worklog V4). One row per person and conversation title; applied by
+/// action.upsertBySource when a later conversation with the same title arrives
+/// with no Project or Ticket. A table rather than a JSON column on User so
+/// rules can be listed, edited and indexed (decision 2026-09-12).
+model TimeResolutionRule {
+  id           String   @id @default(cuid())
+  userId       String
+  /// The conversation title, matched exactly and case-insensitively.
+  titlePattern String
+  projectId    String?
+  ticketId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ticket  Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, titlePattern])
+  @@index([userId])
 }
 
 model BountyClaim {
@@ -1083,6 +1135,8 @@ model Project {
   ceremonies            Ceremony[]
   // Decisions scoped to this project (ADR-0060)
   decisions             Decision[]
+
+  timeResolutionRules TimeResolutionRule[]
 
   @@index([name])
   @@index([status])
@@ -1446,6 +1500,7 @@ model TranscriptionSession {
   actions           Action[]
   featureDrafts     MeetingFeatureDraft[]
   sourcedFeatures   Feature[]                         @relation("FeatureSourceMeeting")
+  featureLinks      MeetingFeature[]
   screenshots       Screenshot[]
   project           Project?                          @relation(fields: [projectId], references: [id])
   sourceIntegration Integration?                      @relation(fields: [sourceIntegrationId], references: [id])
@@ -2217,6 +2272,8 @@ model Ceremony {
   aliases         String[]     @default([])
   /// Drives the default agenda template and (V3) the per-person questions.
   kind            CeremonyKind @default(CUSTOM)
+  /// Icon key from `~/lib/ceremonies/icons`; null shows the kind's default.
+  icon            String?
   /// Markdown (ADR-0017).
   purpose         String?      @db.Text
   /// Markdown (ADR-0017). What this ceremony is explicitly not for.
@@ -2311,10 +2368,41 @@ model CeremonyOccurrence {
   recordedMeetings   TranscriptionSession[]
   /// Decisions logged as outputs of this occurrence (ADR-0060).
   decisions          Decision[]
+  /// Per-participant async updates (V3).
+  updates            CeremonyOccurrenceUpdate[]
 
   @@unique([ceremonyId, scheduledStart])
   @@index([workspaceId, scheduledStart])
   @@index([status])
+}
+
+/// One participant's async-first update for an occurrence (ADR-0059, V3;
+/// mirrors `OkrCheckinUpdate`). `draftAnswers` is what the system proposed
+/// from that person's activity since the previous occurrence; `answers` is
+/// what they actually said. Both are keyed by the per-person question key
+/// for the ceremony's kind, with Markdown values (ADR-0017).
+model CeremonyOccurrenceUpdate {
+  id             String    @id @default(cuid())
+  occurrenceId   String
+  userId         String
+  /// `{ [questionKey]: markdown }` proposed by the draft builder.
+  draftAnswers   Json      @default("{}")
+  draftedAt      DateTime?
+  /// `{ [questionKey]: markdown }` as edited by the participant.
+  answers        Json      @default("{}")
+  submittedAt    DateTime?
+  /// The participant says something is blocking them; suppresses the
+  /// empty-agenda skip proposal.
+  flaggedBlocker Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  occurrence CeremonyOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  user       User               @relation("CeremonyOccurrenceUpdateUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([occurrenceId, userId])
+  @@index([occurrenceId])
+  @@index([userId])
 }
 
 model ScheduledNotification {
@@ -4565,6 +4653,7 @@ model Feature {
   keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
   adrLinks            AdrTicketLink[]
   decisionLinks       DecisionLink[]
+  meetingLinks        MeetingFeature[]
 
   @@index([productId])
   @@index([goalId])
@@ -4572,6 +4661,25 @@ model Feature {
   @@index([status])
   @@index([areaId])
   @@index([sourceTranscriptionId])
+}
+
+/// A Meeting discussed a Feature. Many-to-many and hand-set from the meeting
+/// page or the Add Meeting modal - distinct from `Feature.sourceTranscriptionId`,
+/// which is provenance (the one meeting a Feature was *ideated from*). Both ends
+/// must sit in the same workspace; the write path enforces it.
+model MeetingFeature {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  featureId              String
+  createdById            String
+  createdAt              DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  feature              Feature              @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy            User                 @relation("MeetingFeatureCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([transcriptionSessionId, featureId])
+  @@index([featureId])
 }
 
 /// A candidate Feature ideated from a meeting, held OUTSIDE the feature registry
@@ -4948,6 +5056,8 @@ model Ticket {
   syncs     TicketSync[]
   adrLinks  AdrTicketLink[]
   decisionLinks DecisionLink[]
+
+  timeResolutionRules TimeResolutionRule[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -5647,24 +5757,29 @@ model DecisionDecider {
   @@index([userId])
 }
 
-/// "Implemented by" links to tickets and features (mirrors `AdrTicketLink`).
+/// "Implemented by" links to tickets, features and actions (mirrors
+/// `AdrTicketLink`). Exactly one of the three target columns is set per row.
 model DecisionLink {
   id          String   @id @default(cuid())
   decisionId  String
   ticketId    String?
   featureId   String?
+  actionId    String?
   createdById String
   createdAt   DateTime @default(now())
 
   decision  Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
   ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   feature   Feature? @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  action    Action?  @relation(fields: [actionId], references: [id], onDelete: Cascade)
   createdBy User     @relation("DecisionLinkCreatedBy", fields: [createdById], references: [id])
 
   @@unique([decisionId, ticketId])
   @@unique([decisionId, featureId])
+  @@unique([decisionId, actionId])
   @@index([ticketId])
   @@index([featureId])
+  @@index([actionId])
 }
 
 model AdrSyncRun {

@@ -5,6 +5,7 @@ import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters } from "~/types/view";
 import type { Prisma } from "@prisma/client";
 import { buildProjectAccessWhere } from "~/server/services/access";
+import { actionWriteDeps, applyActionUpdate } from "~/server/services/actions";
 
 const kanbanStatusSchema = z.enum([
   "BACKLOG",
@@ -516,77 +517,27 @@ export const viewRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const action = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: {
-          id: true,
-          createdById: true,
-          workspaceId: true,
-          project: { select: { workspaceId: true } },
-        },
-      });
-
-      if (!action) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Action not found",
-        });
-      }
-
-      // Verify user has permission (creator, assignee, or workspace member)
-      const workspaceId = action.workspaceId ?? action.project?.workspaceId;
-
-      if (workspaceId) {
-        const member = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId,
+      // The workspace board's move goes through the same write as the
+      // project board's: central edit gate, kanban ⇄ status lockstep,
+      // analytics row and activity event are all applyActionUpdate's. This
+      // used to gate on bare workspace membership and stamp completedAt
+      // without ever moving the coarse status.
+      const { action } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        input.actionId,
+        { kanbanStatus: input.kanbanStatus, kanbanOrder: input.kanbanOrder },
+        {
+          include: {
+            project: { select: { id: true, name: true, slug: true } },
+            assignees: {
+              include: {
+                user: { select: { id: true, name: true, email: true, image: true } },
+              },
             },
+            tags: { include: { tag: true } },
           },
-        });
-
-        if (!member) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You must be a member of the workspace to update this action",
-          });
-        }
-      } else if (action.createdById !== ctx.session.user.id) {
-        // No workspace context, must be the creator
-        const isAssignee = await ctx.db.actionAssignee.findFirst({
-          where: {
-            actionId: input.actionId,
-            userId: ctx.session.user.id,
-          },
-        });
-
-        if (!isAssignee) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You don't have permission to update this action",
-          });
-        }
-      }
-
-      return ctx.db.action.update({
-        where: { id: input.actionId },
-        data: {
-          kanbanStatus: input.kanbanStatus,
-          kanbanOrder: input.kanbanOrder,
-          // Auto-set completedAt when marking as DONE
-          completedAt:
-            input.kanbanStatus === "DONE" ? new Date() : undefined,
         },
-        include: {
-          project: { select: { id: true, name: true, slug: true } },
-          assignees: {
-            include: {
-              user: { select: { id: true, name: true, email: true, image: true } },
-            },
-          },
-          tags: { include: { tag: true } },
-        },
-      });
+      );
+      return action;
     }),
 });

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import Link from "next/link";
 import {
   IconActivity,
   IconChecklist,
@@ -11,13 +12,11 @@ import {
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { ProjectTimeline } from "./ProjectTimeline";
-import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
 type ActivityRow = RouterOutputs["project"]["getRecentActivity"][number];
-type Transcription = NonNullable<Project["transcriptionSessions"]>[number];
 
 interface ProjectOverviewProps {
   project: Project;
@@ -133,7 +132,6 @@ function describeActivity(row: ActivityRow): { verb: string; target: string | nu
 }
 
 export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
-  const [openTranscription, setOpenTranscription] = useState<Transcription | null>(null);
 
   const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
   const { data: activity = [] } = api.project.getRecentActivity.useQuery({
@@ -334,11 +332,10 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                   : "";
               const liveActions = t.actions.filter((a) => a.status !== "DELETED").length;
               return (
-                <button
+                <Link
                   key={t.id}
-                  type="button"
+                  href={`/recording/${t.id}`}
                   className={styles.standup}
-                  onClick={() => setOpenTranscription(t)}
                 >
                   <div className={styles.standupTop}>
                     <span className={styles.standupTitle}>{t.title ?? "Standup"}</span>
@@ -350,19 +347,12 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                       {liveActions} action{liveActions === 1 ? "" : "s"} extracted
                     </span>
                   )}
-                </button>
+                </Link>
               );
             })
           )}
         </div>
       </section>
-
-      <TranscriptionDetailsModal
-        opened={!!openTranscription}
-        onClose={() => setOpenTranscription(null)}
-        transcription={openTranscription}
-        onTranscriptionUpdate={(updated) => setOpenTranscription(updated as Transcription)}
-      />
     </div>
   );
 }

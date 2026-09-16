@@ -42,20 +42,23 @@ export function DependencyPicker({ selectedIds, onChange, excludeActionId, works
     onChange(selectedIds.filter((sid) => sid !== id));
   };
 
-  // Get names for selected IDs (we fetch them from search to display)
-  const { data: selectedActions } = api.action.searchForDependencies.useQuery(
+  // Look the selected ids up directly rather than through the search: the
+  // search is capped and skips completed actions, so a selected blocker could
+  // fall outside it. getByIds is access-scoped and accepts at most 50 ids.
+  const { data: selectedActions, isFetched: selectedFetched } = api.action.getByIds.useQuery(
+    { ids: selectedIds.slice(0, 50) },
     {
-      query: '',
-      workspaceId,
-      excludeId: excludeActionId,
-      limit: 50,
-    },
-    { enabled: selectedIds.length > 0 && opened }
+      enabled: selectedIds.length > 0 && opened,
+      placeholderData: (previous) => previous,
+    }
   );
 
+  // An id the lookup doesn't return is one the caller can't read (or that was
+  // deleted) - label it neutrally instead of leaving it on "Loading..." forever.
   const selectedNames = selectedIds.map((id) => {
     const action = selectedActions?.find((a) => a.id === id);
-    return { id, name: action?.name ?? 'Loading...' };
+    const fallback = selectedFetched ? 'Unavailable action' : 'Loading...';
+    return { id, name: action?.name ?? fallback };
   });
 
   return (
