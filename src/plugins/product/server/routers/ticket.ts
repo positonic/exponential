@@ -175,6 +175,21 @@ function shapeTicketDetail(ticket: TicketDetailRow) {
   return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
 }
 
+/**
+ * Where-clause for a ticket URL segment within one product: the sequential
+ * number (`29`) or Linear-style id (`PLAT-29`), else a CUID or fun shortId.
+ * Shared by resolveId and getByRef so the accepted URL forms can't drift.
+ */
+function ticketRefWhere(
+  productId: string,
+  identifier: string,
+): Prisma.TicketWhereInput {
+  const number = parseTicketUrlId(identifier);
+  return number !== null
+    ? { productId, number }
+    : { productId, OR: [{ id: identifier }, { shortId: identifier }] };
+}
+
 function listTicketEvents(db: PrismaClient, workspaceId: string, ticketId: string) {
   return db.workspaceActivityEvent.findMany({
     where: { workspaceId, entityType: "ticket", entityId: ticketId },
@@ -316,18 +331,12 @@ export const ticketRouter = createTRPCRouter({
       });
       if (!product) return null;
 
-      const number = parseTicketUrlId(input.identifier);
       // Access is checked alongside the read, and nothing is returned unless it
       // passes.
       const [membership, ticket] = await Promise.all([
         getWorkspaceMembership(ctx.db, ctx.session.user.id, product.workspaceId),
         ctx.db.ticket.findFirst({
-          where: {
-            productId: product.id,
-            ...(number !== null
-              ? { number }
-              : { OR: [{ id: input.identifier }, { shortId: input.identifier }] }),
-          },
+          where: ticketRefWhere(product.id, input.identifier),
           include: TICKET_DETAIL_INCLUDE,
         }),
       ]);
@@ -408,20 +417,10 @@ export const ticketRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       }
 
-      const number = parseTicketUrlId(input.identifier);
-      const ticket =
-        number !== null
-          ? await ctx.db.ticket.findUnique({
-              where: { productId_number: { productId: product.id, number } },
-              select: { id: true, number: true },
-            })
-          : await ctx.db.ticket.findFirst({
-              where: {
-                productId: product.id,
-                OR: [{ id: input.identifier }, { shortId: input.identifier }],
-              },
-              select: { id: true, number: true },
-            });
+      const ticket = await ctx.db.ticket.findFirst({
+        where: ticketRefWhere(product.id, input.identifier),
+        select: { id: true, number: true },
+      });
 
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
