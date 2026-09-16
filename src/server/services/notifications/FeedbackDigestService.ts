@@ -1,5 +1,6 @@
 import { db } from "~/server/db";
 import { SlackNotificationService } from "./SlackNotificationService";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export interface DigestData {
   period: "daily" | "weekly";
@@ -129,7 +130,7 @@ export class FeedbackDigestService {
    */
   formatSlackBlocks(digest: DigestData): any[] {
     const blocks: any[] = [];
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const appUrl = getPublicBaseUrlFromEnv();
 
     // Header
     blocks.push({
