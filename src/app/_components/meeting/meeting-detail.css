@@ -59,6 +59,18 @@
   display: grid; place-items: center; flex-shrink: 0; transition: background 120ms, color 120ms;
 }
 .mp-title__edit:hover { color: var(--color-text-secondary); background: var(--color-bg-hover); }
+.mp-title--editable .mp-title__text { cursor: text; border-radius: 5px; }
+.mp-title--editable .mp-title__text:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 2px; }
+.mp-title--editable .mp-title__edit { opacity: 0; }
+.mp-title--editable:hover .mp-title__edit,
+.mp-title--editable .mp-title__edit:focus-visible { opacity: 1; }
+@media (hover: none) { .mp-title--editable .mp-title__edit { opacity: 1; } }
+.mp-title__input {
+  flex: 1; min-width: 0; font: inherit; letter-spacing: inherit; line-height: inherit; color: inherit;
+  background: transparent; border: 0; border-bottom: 1px solid var(--color-border-primary);
+  padding: 0; margin: 0; outline: none;
+}
+.mp-title__input:focus { border-bottom-color: var(--brand-400); }
 .mp-meta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: var(--color-text-secondary); }
 .mp-meta__item { display: inline-flex; align-items: center; gap: 7px; }
 .mp-meta__item svg { color: var(--color-text-muted); }
