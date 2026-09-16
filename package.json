@@ -45,8 +45,10 @@
     "okr:stats": "npx tsx scripts/okr-cli.ts stats",
     "okr:workspaces": "npx tsx scripts/okr-cli.ts workspaces",
     "test:e2e": "playwright test",
+    "test:perf": "playwright test --config playwright.perf.config.ts",
     "dev:session": "tsx scripts/dev-session.ts",
-    "dev:seed-fixture": "tsx scripts/seed-dev-fixture.ts"
+    "dev:seed-fixture": "tsx scripts/seed-dev-fixture.ts",
+    "dev:seed-perf": "tsx scripts/seed-perf-fixture.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
