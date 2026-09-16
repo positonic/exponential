@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Drawer,
@@ -22,6 +22,10 @@ import {
   Collapse,
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
+import {
+  ContactSelect,
+  OrganizationSelect,
+} from "~/app/_components/crm/CrmEntitySelect";
 import {
   IconArrowRight,
   IconBolt,
@@ -233,16 +237,6 @@ export function DealDetailDrawer({
     { enabled: !!dealId && opened },
   );
 
-  // Contacts/organizations for the edit form's link selectors.
-  const { data: contactsData } = api.crmContact.getAll.useQuery(
-    { workspaceId: workspaceId!, limit: 100 },
-    { enabled: opened && isEditing && !!workspaceId },
-  );
-  const { data: orgsData } = api.crmOrganization.getAll.useQuery(
-    { workspaceId: workspaceId!, limit: 100 },
-    { enabled: opened && isEditing && !!workspaceId },
-  );
-
   const addNoteMutation = api.pipeline.addNote.useMutation({
     onSuccess: () => {
       setNoteText("");
@@ -338,41 +332,30 @@ export function DealDetailDrawer({
     }).format(value);
   }
 
-  // The deal's current contact/organization may fall outside the first page of
-  // options, so make sure they are always selectable in the edit form.
-  const contactOptions = (() => {
-    const options = (contactsData?.contacts ?? []).map((c) => ({
-      value: c.id,
-      label: [c.firstName, c.lastName].filter(Boolean).join(" ") || "Unnamed",
-    }));
-    if (deal?.contact && !options.some((o) => o.value === deal.contact!.id)) {
-      options.unshift({
-        value: deal.contact.id,
-        label:
-          [deal.contact.firstName, deal.contact.lastName]
-            .filter(Boolean)
-            .join(" ") || "Unnamed",
-      });
-    }
-    return options;
-  })();
+  // The edit form searches contacts/organizations server-side, so the deal's
+  // current link is passed through separately — it stays selectable even when
+  // the active search doesn't match it.
+  const linkedContactOption = useMemo(
+    () =>
+      deal?.contact
+        ? {
+            value: deal.contact.id,
+            label:
+              [deal.contact.firstName, deal.contact.lastName]
+                .filter(Boolean)
+                .join(" ") || "Unnamed",
+          }
+        : null,
+    [deal?.contact],
+  );
 
-  const orgOptions = (() => {
-    const options = (orgsData?.organizations ?? []).map((o) => ({
-      value: o.id,
-      label: o.name,
-    }));
-    if (
-      deal?.organization &&
-      !options.some((o) => o.value === deal.organization!.id)
-    ) {
-      options.unshift({
-        value: deal.organization.id,
-        label: deal.organization.name,
-      });
-    }
-    return options;
-  })();
+  const linkedOrgOption = useMemo(
+    () =>
+      deal?.organization
+        ? { value: deal.organization.id, label: deal.organization.name }
+        : null,
+    [deal?.organization],
+  );
 
   const basePath = workspace ? `/w/${workspace.slug}/crm` : null;
   const contactName = deal?.contact
@@ -941,23 +924,19 @@ export function DealDetailDrawer({
               onChange={(val) => setEditProbability(typeof val === "number" ? val : undefined)}
             />
           </Group>
-          <Select
-            label="Contact"
-            placeholder="Link to a contact"
-            data={contactOptions}
+          <ContactSelect
+            workspaceId={workspaceId!}
             value={editContactId}
             onChange={setEditContactId}
-            searchable
-            clearable
+            selectedOption={linkedContactOption}
+            enabled={opened && isEditing && !!workspaceId}
           />
-          <Select
-            label="Organization"
-            placeholder="Link to an organization"
-            data={orgOptions}
+          <OrganizationSelect
+            workspaceId={workspaceId!}
             value={editOrganizationId}
             onChange={setEditOrganizationId}
-            searchable
-            clearable
+            selectedOption={linkedOrgOption}
+            enabled={opened && isEditing && !!workspaceId}
           />
           <Input.Wrapper label="Expected Close Date">
             <div>

@@ -113,9 +113,7 @@ export function PendingInvitationsTable({
       </Table.Thead>
       <Table.Tbody>
         {invitations.map((invitation) => {
-          const baseUrl =
-            process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-          const inviteUrl = `${baseUrl}/invite/${invitation.token}`;
+          const { inviteUrl } = invitation;
 
           return (
             <Table.Tr key={invitation.id}>

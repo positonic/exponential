@@ -17,6 +17,7 @@ import { IconBell, IconMail } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { PushNotificationToggle } from '~/app/_components/PushNotificationToggle';
 import { NotificationChannelMatrix } from './NotificationChannelMatrix';
+import { SummaryScheduleCard } from './SummaryScheduleCard';
 
 type OverrideValue = 'default' | 'on' | 'off';
 
@@ -91,6 +92,9 @@ export default function NotificationSettingsPage() {
 
         {/* Channel-first delivery matrix (category × channel) */}
         <NotificationChannelMatrix />
+
+        {/* When the Daily / Weekly summaries fire (times in the profile timezone) */}
+        <SummaryScheduleCard />
 
         <Divider />
 

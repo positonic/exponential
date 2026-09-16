@@ -113,6 +113,22 @@ export function generateLinearId(productName: string, number: number): string {
 }
 
 /**
+ * "CLR-241"-style display id for a ticket, honouring the product's fun-id
+ * setting: the `adjective.noun` shortId when the product uses fun ids, else
+ * the Linear-style `PREFIX-number`. Shared by the product overview and the
+ * Daily summary so a ticket reads the same everywhere.
+ */
+export function ticketDisplayId(
+  product: { name: string; funTicketIds: boolean },
+  ticket: { shortId: string | null; number: number },
+): string {
+  if (product.funTicketIds && ticket.shortId) return ticket.shortId;
+  return ticket.number > 0
+    ? generateLinearId(product.name, ticket.number)
+    : "—";
+}
+
+/**
  * The canonical, user-friendly identifier to put in a ticket URL.
  * Prefers the per-product sequential number (e.g. `/tickets/29`) and falls
  * back to the CUID for legacy tickets that never got a number (number === 0).

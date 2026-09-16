@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { TAG_COLORS } from "~/types/tag";
+import { assertTagsInWorkspace } from "~/server/services/actions";
 import {
   listForEntity as listForEntityService,
   setEntityTags as setEntityTagsService,
@@ -437,7 +438,12 @@ export const tagRouter = createTRPCRouter({
       // Verify action exists and user has permission
       const action = await ctx.db.action.findUnique({
         where: { id: input.actionId },
-        select: { id: true, createdById: true },
+        select: {
+          id: true,
+          createdById: true,
+          workspaceId: true,
+          project: { select: { workspaceId: true } },
+        },
       });
 
       if (!action) {
@@ -462,6 +468,15 @@ export const tagRouter = createTRPCRouter({
           message: "You don't have permission to tag this action",
         });
       }
+
+      // Same containment rule `createAction` applies to tags attached on
+      // create: global, or owned by the action's own workspace.
+      await assertTagsInWorkspace(
+        ctx.db,
+        ctx.session.user.id,
+        action.workspaceId ?? action.project?.workspaceId ?? null,
+        input.tagIds,
+      );
 
       // Transaction: delete all existing tags, then create new ones
       await ctx.db.$transaction([

@@ -23,6 +23,19 @@ import { createTicketWithNumber } from "~/plugins/product/server/services/create
 import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStats";
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
+import { tokenizeTitle } from "~/lib/meetings/titleTokens";
+import {
+  MAX_MEETING_IMAGE_BASE64_LENGTH,
+  MEETING_IMAGE_CONTENT_TYPES,
+} from "~/lib/meetings/meetingImages";
+import { parseTranscript } from "~/lib/transcript";
+import { extractTalkTime } from "~/lib/meetings/talkTime";
+import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
+import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
+import {
+  assertFeaturesLinkable,
+  dropStrandedMeetingFeatureLinks,
+} from "~/server/services/meetings/meetingFeatures";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
@@ -44,82 +57,12 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
 
 // ────────────────────────────────────────────────────────────────────
-// Title-token stopwords for `findRelated` matching.
-//
-// Tokens that appear in nearly every meeting title carry no signal, so we
-// strip them before computing overlap. The list is intentionally narrow
-// (meeting-pattern words + common articles/prepositions); domain-specific
-// vocabulary like project names or topics MUST pass through.
-// ────────────────────────────────────────────────────────────────────
-const TITLE_STOPWORDS: ReadonlySet<string> = new Set([
-  // meeting-pattern words
-  "meeting",
-  "call",
-  "sync",
-  "weekly",
-  "daily",
-  "monthly",
-  "quarterly",
-  "standup",
-  "checkin",
-  "check-in",
-  "review",
-  "1:1",
-  "1-1",
-  "1on1",
-  "one-on-one",
-  "discussion",
-  "session",
-  "huddle",
-  "catchup",
-  "catch-up",
-  // common articles / prepositions
-  "the",
-  "a",
-  "an",
-  "and",
-  "or",
-  "with",
-  "at",
-  "of",
-  "to",
-  "for",
-  "in",
-  "on",
-  "by",
-  "vs",
-  "via",
-  "re",
-]);
-
-/**
- * Tokenize a meeting title for related-meeting matching: lowercase, split
- * on non-alphanumeric, drop empty + stopwords. Returns a unique-token list
- * (caller wraps in Set if needed).
- */
-function tokenizeTitle(title: string): string[] {
-  const raw = title
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 0 && !TITLE_STOPWORDS.has(t));
-  // Dedupe while preserving order — score denominator should count each
-  // distinct token once even if the user repeats a word in the title.
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const t of raw) {
-    if (!seen.has(t)) {
-      seen.add(t);
-      out.push(t);
-    }
-  }
-  return out;
-}
 
 /**
  * Throwing wrapper around the centralized transcription access resolver
@@ -194,6 +137,128 @@ async function loadTranscriptionForAccess(db: PrismaClient, id: string) {
     });
   }
   return session;
+}
+
+/**
+ * Relations the meeting detail surfaces render. Shared by `getById` (the full
+ * record external clients — SDK, CLI, MCP, Mastra — read) and `getDetail` (the
+ * lean record the meeting page reads).
+ */
+const meetingDetailInclude = {
+  screenshots: {
+    orderBy: {
+      createdAt: "desc",
+    },
+  },
+  workspace: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+    },
+  },
+  sourceIntegration: {
+    select: {
+      id: true,
+      provider: true,
+      name: true,
+    },
+  },
+  participants: {
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      speakerLabel: true,
+      isHost: true,
+      userId: true,
+      contactId: true,
+    },
+  },
+  // Meeting owner/recorder — the "me" side a device Me:/Them: transcript
+  // is written from. Used to resolve participant identity tone.
+  user: {
+    select: {
+      id: true,
+      email: true,
+    },
+  },
+  project: {
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      taskManagementTool: true,
+      taskManagementConfig: true,
+    },
+  },
+  // The ceremony occurrence this recording captured (ADR-0059).
+  occurrence: {
+    select: {
+      id: true,
+      scheduledStart: true,
+      ceremony: { select: { id: true, name: true } },
+    },
+  },
+  // Features this meeting discussed (`MeetingFeature`).
+  featureLinks: {
+    orderBy: { createdAt: "asc" },
+    select: {
+      feature: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          product: { select: { id: true, name: true, slug: true } },
+        },
+      },
+    },
+  },
+} satisfies Prisma.TranscriptionSessionInclude;
+
+/**
+ * View access for a loaded meeting (FORBIDDEN otherwise), plus whether the
+ * viewer may see and link its Features. Features are workspace-member-visible,
+ * but meeting viewers reach a meeting by attendance or project membership too,
+ * so links are stripped for anyone outside the workspace — and only editors
+ * who are members may link. `canEdit` gates in-place edits such as renaming.
+ * The access and membership reads run in parallel.
+ */
+async function resolveMeetingViewerAccess(
+  db: PrismaClient,
+  userId: string,
+  session: {
+    id: string;
+    userId: string | null;
+    projectId: string | null;
+    workspaceId: string | null;
+  },
+): Promise<{ isWorkspaceMember: boolean; canLinkFeatures: boolean; canEdit: boolean }> {
+  const [access, projectSessionMembership] = await Promise.all([
+    getTranscriptionAccess(db, userId, session),
+    // A project-less session's access check already resolves workspace
+    // membership; only a project-assigned one needs its own lookup.
+    session.projectId && session.workspaceId
+      ? getWorkspaceMembership(db, userId, session.workspaceId)
+      : null,
+  ]);
+
+  if (!canViewTranscription(access)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Not authorized to view this transcription",
+    });
+  }
+
+  const isWorkspaceMember = session.projectId
+    ? Boolean(projectSessionMembership)
+    : access.workspaceRole !== null;
+  const canEdit = canEditTranscription(access);
+  return {
+    isWorkspaceMember,
+    canLinkFeatures: isWorkspaceMember && canEdit,
+    canEdit,
+  };
 }
 
 // Keep the denormalized `participantCount` in sync with the persisted
@@ -400,6 +465,100 @@ async function upsertMeetingParticipant(
 }
 
 
+/**
+ * Shared input for the two meeting list procedures. `getAllTranscriptions`
+ * returns full bodies (transcript, notes, Fireflies JSON) for the SDK, MCP
+ * server and agent tools; `getMeetingCards` returns the card-shaped rows the
+ * meetings page and home panels render.
+ */
+const meetingListInput = z
+  .object({
+    includeArchived: z.boolean().optional().default(false),
+    workspaceId: z.string().optional(),
+    // Only meetings placed in this project (a project's Meetings tab).
+    projectId: z.string().optional(),
+    // Meeting type filter for the Meetings v2 tab strip.
+    // - 'all' / undefined: no narrowing
+    // - 'mine': caller is the session owner OR a Participant on the
+    //   session (covers both creator and attendance)
+    // - 'one_on_one': only Meetings with exactly two Participants
+    //   (derived from `participantCount = 2` since no stored
+    //   `meetingType` column exists in v1)
+    // - 'customer' / 'internal': always empty — short-circuited in
+    //   `buildMeetingListFilters` until a meeting-tagging mechanism exists
+    meetingType: z
+      .enum(["all", "mine", "one_on_one", "customer", "internal"])
+      .optional(),
+    // Ceremony filter (ADR-0059): only meetings attached to an
+    // occurrence of this ceremony.
+    ceremonyId: z.string().optional(),
+  })
+  .optional();
+
+type MeetingListInput = z.infer<typeof meetingListInput>;
+
+/**
+ * Visibility plus tab, workspace and ceremony filters, shared by both list
+ * procedures so the card list can never show a meeting the full list hides.
+ * Returns null for the Customer and Internal tabs, which ship with honest
+ * empty states until a meeting-tagging mechanism exists.
+ */
+function buildMeetingListFilters(
+  userId: string,
+  input: MeetingListInput,
+): Prisma.TranscriptionSessionWhereInput[] | null {
+  if (input?.meetingType === "customer" || input?.meetingType === "internal") {
+    return null;
+  }
+
+  // Visibility: the centralized Meeting access rule (owner, Participant,
+  // project access, or workspace membership for project-less sessions).
+  const filters: Prisma.TranscriptionSessionWhereInput[] = [
+    buildTranscriptionAccessWhere(userId),
+  ];
+
+  if (!input?.includeArchived) {
+    filters.push({ archivedAt: null });
+  }
+
+  // Optional workspace filter — match either direct workspaceId or via the
+  // project's workspace.
+  if (input?.workspaceId) {
+    filters.push({
+      OR: [
+        { workspaceId: input.workspaceId },
+        { project: { workspaceId: input.workspaceId } },
+      ],
+    });
+  }
+
+  if (input?.projectId) {
+    filters.push({ projectId: input.projectId });
+  }
+
+  if (input?.meetingType === "one_on_one") {
+    filters.push({ participantCount: 2 });
+  }
+
+  if (input?.ceremonyId) {
+    filters.push({ occurrence: { ceremonyId: input.ceremonyId } });
+  }
+
+  if (input?.meetingType === "mine") {
+    // "Mine" = the caller owns the Meeting or appears in its
+    // Participant list. Participant userId may be null for email-only
+    // invitees we haven't linked yet; those are correctly excluded.
+    filters.push({
+      OR: [{ userId }, { participants: { some: { userId } } }],
+    });
+  }
+
+  return filters;
+}
+
+/** Transcript turns a meeting card shows before "+N more". */
+const MEETING_CARD_PREVIEW_TURNS = 2;
+
 export const transcriptionRouter = createTRPCRouter({
   startSession: apiKeyMiddleware
     .input(z.object({
@@ -436,6 +595,11 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Keep in-memory store for debugging
       transcriptionStore[session.id] = [];
+
+      // Ceremony auto-attach (ADR-0059). A device session is usually untitled
+      // at creation, in which case this is a no-op; a titled one recorded
+      // during an occurrence attaches immediately. Never throws.
+      await attachMeetingToOccurrence(ctx.db, { ...session, meetingDate: session.meetingDate ?? new Date() });
 
       // NOTE: no activity event here. A device session is created empty (no
       // transcript, title usually null) and may be abandoned, so emitting at
@@ -585,55 +749,9 @@ export const transcriptionRouter = createTRPCRouter({
       const session = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
         include: {
-          screenshots: {
-            orderBy: {
-              createdAt: "desc",
-            },
-          },
-          workspace: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-            },
-          },
-          sourceIntegration: {
-            select: {
-              id: true,
-              provider: true,
-              name: true,
-            },
-          },
-          participants: {
-            select: {
-              id: true,
-              email: true,
-              name: true,
-              speakerLabel: true,
-              isHost: true,
-              userId: true,
-              contactId: true,
-            },
-          },
-          // Meeting owner/recorder — the "me" side a device Me:/Them: transcript
-          // is written from. Used to resolve participant identity tone.
-          user: {
-            select: {
-              id: true,
-              email: true,
-            },
-          },
+          ...meetingDetailInclude,
           actions: {
             orderBy: { createdAt: "asc" },
-          },
-          project: {
-            select: {
-              id: true,
-              slug: true,
-              name: true,
-              taskManagementTool: true,
-              taskManagementConfig: true,
-            },
           },
         },
       });
@@ -645,14 +763,99 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      await ensureTranscriptionAccess(
-        ctx.db,
-        ctx.session.user.id,
-        session,
-        "view",
-      );
+      const { isWorkspaceMember, canLinkFeatures, canEdit } =
+        await resolveMeetingViewerAccess(ctx.db, ctx.session.user.id, session);
 
-      return session;
+      return {
+        ...session,
+        featureLinks: isWorkspaceMember ? session.featureLinks : [],
+        canLinkFeatures,
+        canEdit,
+      };
+    }),
+
+  /**
+   * The meeting page's record: `getById` minus the heavy columns. The
+   * transcript (`transcription`, `sentencesJson`) can run to megabytes and is
+   * only rendered on the Transcript tab, so it is served by `getTranscript`
+   * instead; talk-time and the transcript turn count arrive precomputed; the
+   * page loads Actions itself via `action.getByTranscription`. External
+   * clients keep reading the full record through `getById`.
+   */
+  getDetail: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+        include: meetingDetailInclude,
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+
+      const { isWorkspaceMember, canLinkFeatures, canEdit } =
+        await resolveMeetingViewerAccess(ctx.db, ctx.session.user.id, session);
+
+      const { transcription, sentencesJson, analyticsJson, notes: _notes, ...rest } =
+        session;
+
+      return {
+        ...rest,
+        featureLinks: isWorkspaceMember ? session.featureLinks : [],
+        canLinkFeatures,
+        canEdit,
+        hasTranscript: Boolean(transcription),
+        // Same canonical parser the Transcript tab renders with (ADR-0032).
+        transcriptTurnCount: parseTranscript({
+          transcription,
+          sentencesJson,
+          participants: [],
+        }).length,
+        talkTime: extractTalkTime(analyticsJson),
+      };
+    }),
+
+  /** The transcript behind `getDetail`, fetched when the Transcript tab opens. */
+  getTranscript: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          transcription: true,
+          sentencesJson: true,
+        },
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+
+      await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, session, "view");
+
+      return {
+        transcription: session.transcription,
+        sentencesJson: session.sentencesJson,
+      };
     }),
 
   updateTranscription: protectedProcedure
@@ -801,6 +1004,17 @@ export const transcriptionRouter = createTRPCRouter({
           },
         },
       });
+
+      // Moving workspace strands feature links to the old one.
+      if (
+        updateData.workspaceId !== undefined &&
+        updateData.workspaceId !== existing.workspaceId
+      ) {
+        await dropStrandedMeetingFeatureLinks(ctx.db, {
+          meetingIds: [existing.id],
+          workspaceId: updateData.workspaceId,
+        });
+      }
       return session;
     }),
 
@@ -808,7 +1022,7 @@ export const transcriptionRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        title: z.string(),
+        title: z.string().trim().min(1, "Title is required"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -850,10 +1064,16 @@ export const transcriptionRouter = createTRPCRouter({
         // contacts and/or new name+email people). Resolved via the same
         // helper as addParticipant.
         participants: z.array(participantPersonSchema).optional(),
+        // The ceremony occurrence this meeting captured (ADR-0059), picked by
+        // hand. When absent, title/date auto-attach runs instead.
+        occurrenceId: z.string().optional(),
+        // Features the meeting discussed (`MeetingFeature`).
+        featureIds: z.array(z.string()).max(50).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const participants = input.participants ?? [];
+      const featureIds = Array.from(new Set(input.featureIds ?? []));
 
       // A project-linked Meeting always inherits its Project's Workspace
       // (CONTEXT.md → Meeting↔Workspace): a meeting with a Project but no
@@ -865,6 +1085,20 @@ export const transcriptionRouter = createTRPCRouter({
       // project is a coherence bug, so reject it rather than silently override.
       let workspaceId = input.workspaceId ?? null;
       if (input.projectId) {
+        // You can only file a meeting into a project you can see. Deliberately
+        // view, not edit: the project page offers Add Meeting to every member,
+        // and agents create meetings the same way.
+        const projectAccess = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!hasProjectAccess(projectAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have access to this project",
+          });
+        }
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { workspaceId: true },
@@ -894,6 +1128,42 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
+      await assertFeaturesLinkable(ctx.db, ctx.session.user.id, {
+        workspaceId,
+        featureIds,
+      });
+
+      // A hand-picked occurrence must be one of the meeting's workspace's —
+      // the same rule `ceremony.attachMeeting` enforces after the fact.
+      let occurrence: {
+        id: string;
+        workspaceId: string;
+        scheduledStart: Date;
+        ceremony: { name: string; timezone: string };
+      } | null = null;
+      if (input.occurrenceId) {
+        const membership = workspaceId
+          ? await getWorkspaceMembership(ctx.db, ctx.session.user.id, workspaceId)
+          : null;
+        occurrence = membership
+          ? await ctx.db.ceremonyOccurrence.findUnique({
+              where: { id: input.occurrenceId },
+              select: {
+                id: true,
+                workspaceId: true,
+                scheduledStart: true,
+                ceremony: { select: { name: true, timezone: true } },
+              },
+            })
+          : null;
+        if (!occurrence || occurrence.workspaceId !== workspaceId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The ceremony occurrence must belong to the meeting's workspace",
+          });
+        }
+      }
+
       // Create the meeting and resolve every participant in ONE transaction: a
       // meeting is never created with participants silently failing to attach,
       // and there's no N+1 round-trip from the client. Any participant that
@@ -911,6 +1181,17 @@ export const transcriptionRouter = createTRPCRouter({
               projectId: input.projectId ?? null,
               workspaceId,
               userId: ctx.session.user.id,
+              occurrenceId: occurrence?.id ?? null,
+              ...(featureIds.length > 0
+                ? {
+                    featureLinks: {
+                      create: featureIds.map((featureId) => ({
+                        featureId,
+                        createdById: ctx.session.user.id,
+                      })),
+                    },
+                  }
+                : {}),
             },
             include: {
               sourceIntegration: {
@@ -949,6 +1230,25 @@ export const transcriptionRouter = createTRPCRouter({
         },
         { timeout: 20000 },
       );
+
+      // Ceremony auto-attach (ADR-0059): manual meetings carry a title and
+      // usually a date, so alias matching applies right away. Never throws.
+      // A hand-picked occurrence wins; it only needs its activity event.
+      if (occurrence) {
+        await recordOccurrenceCaptured(ctx.db, {
+          workspaceId: occurrence.workspaceId,
+          occurrenceId: occurrence.id,
+          ceremonyName: occurrence.ceremony.name,
+          scheduledStart: occurrence.scheduledStart,
+          timezone: occurrence.ceremony.timezone,
+          meetingId: session.id,
+          meetingTitle: session.title,
+          actorUserId: ctx.session.user.id,
+          via: "manual",
+        });
+      } else {
+        await attachMeetingToOccurrence(ctx.db, session);
+      }
 
       // Record a workspace activity event when a meeting lands (ADR-0018): one
       // write surfaces it in the workspace feed, the aggregated /activity feed,
@@ -1143,73 +1443,11 @@ export const transcriptionRouter = createTRPCRouter({
     }),
 
   getAllTranscriptions: protectedProcedure
-    .input(
-      z
-        .object({
-          includeArchived: z.boolean().optional().default(false),
-          workspaceId: z.string().optional(),
-          // Meeting type filter for the Meetings v2 tab strip.
-          // - 'all' / undefined: no narrowing
-          // - 'mine': caller is the session owner OR a Participant on the
-          //   session (covers both creator and attendance)
-          // - 'one_on_one': only Meetings with exactly two Participants
-          //   (derived from `participantCount = 2` since no stored
-          //   `meetingType` column exists in v1)
-          // - 'customer' / 'internal': always empty — short-circuited below
-          //   until a meeting-tagging mechanism exists
-          meetingType: z
-            .enum(["all", "mine", "one_on_one", "customer", "internal"])
-            .optional(),
-        })
-        .optional(),
-    )
+    .input(meetingListInput)
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-
-      // Customer and Internal tabs ship with honest empty states — no
-      // tagging mechanism exists yet.
-      if (
-        input?.meetingType === "customer" ||
-        input?.meetingType === "internal"
-      ) {
-        return [];
-      }
-
-      // Visibility: the centralized Meeting access rule (owner, Participant,
-      // project access, or workspace membership for project-less sessions).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const filters: any[] = [buildTranscriptionAccessWhere(userId)];
-
-      if (!input?.includeArchived) {
-        filters.push({ archivedAt: null });
-      }
-
-      // Optional workspace filter — match either direct workspaceId or via the
-      // project's workspace.
-      if (input?.workspaceId) {
-        filters.push({
-          OR: [
-            { workspaceId: input.workspaceId },
-            { project: { workspaceId: input.workspaceId } },
-          ],
-        });
-      }
-
-      if (input?.meetingType === "one_on_one") {
-        filters.push({ participantCount: 2 });
-      }
-
-      if (input?.meetingType === "mine") {
-        // "Mine" = the caller owns the Meeting or appears in its
-        // Participant list. Participant userId may be null for email-only
-        // invitees we haven't linked yet; those are correctly excluded.
-        filters.push({
-          OR: [
-            { userId },
-            { participants: { some: { userId } } },
-          ],
-        });
-      }
+      const filters = buildMeetingListFilters(userId, input);
+      if (!filters) return [];
 
       return ctx.db.transcriptionSession.findMany({
         where: { AND: filters },
@@ -1252,7 +1490,117 @@ export const transcriptionRouter = createTRPCRouter({
               contact: { select: { id: true, firstName: true, lastName: true } },
             },
           },
+          // The ceremony occurrence this meeting captured (ADR-0059), for
+          // the list's ceremony filter and chip.
+          occurrence: {
+            select: {
+              id: true,
+              ceremonyId: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true, kind: true, icon: true } },
+            },
+          },
         },
+      });
+    }),
+
+  /**
+   * Card-shaped rows for the meetings page and home panels. Same visibility
+   * and filters as `getAllTranscriptions`, but selects only what a card
+   * renders: the transcript, notes and Fireflies JSON blobs stay on the
+   * server (they were ~95% of the list payload), and the card's transcript
+   * peek is computed here from the first turns instead.
+   */
+  getMeetingCards: protectedProcedure
+    .input(meetingListInput)
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const filters = buildMeetingListFilters(userId, input);
+      if (!filters) return [];
+
+      const rows = await ctx.db.transcriptionSession.findMany({
+        where: { AND: filters },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          sessionId: true,
+          title: true,
+          description: true,
+          summary: true,
+          createdAt: true,
+          updatedAt: true,
+          meetingDate: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          archivedAt: true,
+          processedAt: true,
+          actionsSavedAt: true,
+          sourceIntegrationId: true,
+          occurrenceId: true,
+          durationSeconds: true,
+          participantCount: true,
+          // Read only to build the peek below; stripped before returning.
+          transcription: true,
+          project: {
+            select: {
+              id: true,
+              name: true,
+              taskManagementTool: true,
+              taskManagementConfig: true,
+            },
+          },
+          sourceIntegration: {
+            select: {
+              id: true,
+              provider: true,
+              name: true,
+            },
+          },
+          actions: {
+            where: { status: { not: "DRAFT" } },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              priority: true,
+            },
+          },
+          participants: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              user: { select: { id: true, name: true, image: true } },
+              contact: { select: { id: true, firstName: true, lastName: true } },
+            },
+          },
+          occurrence: {
+            select: {
+              id: true,
+              ceremonyId: true,
+              scheduledStart: true,
+              ceremony: { select: { id: true, name: true, kind: true, icon: true } },
+            },
+          },
+        },
+      });
+
+      return rows.map(({ transcription, ...row }) => {
+        // Same inputs the card used to parse with client-side: no
+        // sentencesJson and no participant mapping.
+        const turns = parseTranscript({
+          transcription,
+          sentencesJson: null,
+          provider: row.sourceIntegration?.provider,
+          participants: [],
+        });
+        return {
+          ...row,
+          hasTranscript: Boolean(transcription?.trim()),
+          transcriptPreview: turns.slice(0, MEETING_CARD_PREVIEW_TURNS),
+          transcriptTurnCount: turns.length,
+        };
       });
     }),
 
@@ -1296,6 +1644,46 @@ export const transcriptionRouter = createTRPCRouter({
       return ctx.db.transcriptionSession.findUniqueOrThrow({
         where: { id: input.transcriptionId },
       });
+    }),
+
+  /** Link the meeting to a Feature it discussed. Idempotent. */
+  linkFeature: protectedProcedure
+    .input(z.object({ transcriptionId: z.string(), featureId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const session = await loadTranscriptionForAccess(ctx.db, input.transcriptionId);
+      await ensureTranscriptionAccess(ctx.db, userId, session, "edit");
+      await assertFeaturesLinkable(ctx.db, userId, {
+        workspaceId: session.workspaceId,
+        featureIds: [input.featureId],
+      });
+      await ctx.db.meetingFeature.upsert({
+        where: {
+          transcriptionSessionId_featureId: {
+            transcriptionSessionId: session.id,
+            featureId: input.featureId,
+          },
+        },
+        create: {
+          transcriptionSessionId: session.id,
+          featureId: input.featureId,
+          createdById: userId,
+        },
+        update: {},
+      });
+      return { transcriptionId: session.id, featureId: input.featureId };
+    }),
+
+  /** Remove a meeting→Feature link. A missing link is a no-op. */
+  unlinkFeature: protectedProcedure
+    .input(z.object({ transcriptionId: z.string(), featureId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(ctx.db, input.transcriptionId);
+      await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, session, "edit");
+      await ctx.db.meetingFeature.deleteMany({
+        where: { transcriptionSessionId: session.id, featureId: input.featureId },
+      });
+      return { transcriptionId: session.id, featureId: input.featureId };
     }),
 
   bulkAssignProject: protectedProcedure
@@ -1354,14 +1742,21 @@ export const transcriptionRouter = createTRPCRouter({
         projectId = null;
       }
 
-      return ctx.db.transcriptionSession.update({
-        where: { id: input.transcriptionId },
-        data: {
+      const [updated] = await ctx.db.$transaction([
+        ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: {
+            workspaceId: input.workspaceId,
+            projectId,
+            updatedAt: new Date(),
+          },
+        }),
+        dropStrandedMeetingFeatureLinks(ctx.db, {
+          meetingIds: [input.transcriptionId],
           workspaceId: input.workspaceId,
-          projectId,
-          updatedAt: new Date(),
-        },
-      });
+        }),
+      ]);
+      return updated;
     }),
 
   // Add to your transcriptionRouter
@@ -1398,6 +1793,56 @@ export const transcriptionRouter = createTRPCRouter({
           message: "Failed to save screenshot",
         });
       }
+    }),
+
+  // Attach a user-supplied image (dropped/pasted in the Add Meeting modal) to a
+  // meeting. Lands as a Screenshot row on the session, so it shows on the
+  // meeting's Screenshots tab alongside extension-captured ones.
+  uploadScreenshot: protectedProcedure
+    .input(
+      z.object({
+        transcriptionSessionId: z.string(),
+        // Same cap the client resizes to, so non-browser callers can't push
+        // an unbounded payload into memory and Blob storage.
+        base64Data: z.string().min(1).max(MAX_MEETING_IMAGE_BASE64_LENGTH),
+        contentType: z.enum(MEETING_IMAGE_CONTENT_TYPES),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionSessionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      const now = new Date();
+      const extension = input.contentType.split("/")[1];
+      // Random suffix: several images dropped together upload within the same
+      // millisecond, and a shared filename would overwrite the earlier blob.
+      const filename = `screenshots/${session.id}/${now.toISOString().replace(/[/:]/g, "-")}-${randomUUID().slice(0, 8)}.${extension}`;
+      const blob = await uploadToBlob(
+        input.base64Data,
+        filename,
+        input.contentType,
+      );
+
+      const screenshot = await ctx.db.screenshot.create({
+        data: {
+          url: blob.url,
+          // `timestamp` is the capture position for extension frames. A hand-
+          // attached image has none, and the Screenshots tab hides an empty one
+          // rather than badging the image with a misleading time.
+          timestamp: "",
+          transcriptionSessionId: session.id,
+        },
+      });
+
+      return { id: screenshot.id, url: screenshot.url };
     }),
 
   // Fireflies bulk sync endpoints

@@ -327,6 +327,14 @@ function StatCard({
   );
 }
 
+function formatUntrackedMinutes(totalMins: number): string {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
 type CycleMetrics = NonNullable<
   RouterOutputs['sprintAnalytics']['getActiveCycleMetrics']
 >;
@@ -371,6 +379,16 @@ function SelectedCycleMetrics({
             </Group>
             <Text size="xs" className="text-text-muted">
               {data.completedPoints} of {data.totalPoints} points delivered
+            </Text>
+            {/* Untracked work (Daily worklog V4): confirmed time in the cycle
+                window on Actions with no Ticket — shipped work nobody filed.
+                Computed live beside velocity, never stored (ADR-0047). */}
+            <Text size="xs" className="text-text-muted" data-testid="untracked-work">
+              {data.untrackedWorkEntries === 0
+                ? 'No untracked work'
+                : `${data.untrackedWorkEntries} untracked ${
+                    data.untrackedWorkEntries === 1 ? 'entry' : 'entries'
+                  } (${formatUntrackedMinutes(data.untrackedWorkMinutes)}) with no ticket`}
             </Text>
           </Stack>
         </Card>

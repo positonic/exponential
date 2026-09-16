@@ -319,10 +319,11 @@ export function useVoiceSession(
       handledCallIdsRef.current.add(callId);
 
       const parsed = parseToolArgs(rawArgs);
+      const args = toolArgsFor(name, parsed);
       const input: BrainDispatchInput = {
         toolName: name,
         voiceSessionToken: token,
-        ...(parsed.phrase ? { args: { phrase: parsed.phrase } } : {}),
+        ...(args ? { args } : {}),
         ...(parsed.confirm ? { confirm: true } : {}),
         ...(parsed.confirm && pendingActionIdRef.current
           ? { pendingActionId: pendingActionIdRef.current }
@@ -603,18 +604,50 @@ export function useVoiceSession(
 interface ParsedToolArgs {
   phrase: string;
   confirm: boolean;
+  /** get_todays_plan only: which section to read in full. */
+  focus: string;
 }
+
+const EMPTY_ARGS: ParsedToolArgs = { phrase: "", confirm: false, focus: "" };
 
 /** Tolerant parse of the model's tool-call arguments JSON. */
 export function parseToolArgs(json: string): ParsedToolArgs {
   try {
     const obj: unknown = JSON.parse(json);
-    if (!isRecord(obj)) return { phrase: "", confirm: false };
+    if (!isRecord(obj)) return EMPTY_ARGS;
     const phrase = typeof obj.phrase === "string" ? obj.phrase.trim() : "";
     const confirm = obj.confirm === true;
-    return { phrase, confirm };
+    const focus = typeof obj.focus === "string" ? obj.focus.trim() : "";
+    return { phrase, confirm, focus };
   } catch {
-    return { phrase: "", confirm: false };
+    return EMPTY_ARGS;
+  }
+}
+
+/**
+ * The `args` the brain receives for a tool call. `get_todays_plan` carries the
+ * optional `focus` plus the browser's IANA timezone (so "today" is the user's
+ * day); every other tool carries the verbatim `phrase`.
+ */
+export function toolArgsFor(
+  toolName: string,
+  parsed: ParsedToolArgs,
+): Record<string, unknown> | undefined {
+  if (toolName === "get_todays_plan") {
+    const timezone = browserTimezone();
+    return {
+      ...(parsed.focus ? { focus: parsed.focus } : {}),
+      ...(timezone ? { timezone } : {}),
+    };
+  }
+  return parsed.phrase ? { phrase: parsed.phrase } : undefined;
+}
+
+function browserTimezone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
   }
 }
 

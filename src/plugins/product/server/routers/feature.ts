@@ -15,6 +15,7 @@ import {
   type FeatureMoveGraph,
   type FeatureMoveDestination,
 } from "../services/featureMove";
+import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
 
 /**
  * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
@@ -381,6 +382,60 @@ export const featureRouter = createTRPCRouter({
           // Lean Objective for the Product Roadmap's swimlane grouping
           // (ADR-0035) - id + title only, no Key results / nested graph.
           goal: { select: { id: true, title: true } },
+        },
+      });
+    }),
+
+  /**
+   * Features **aligned** to one Objective (`Feature.goalId`), for the Features
+   * tab on the Objective page. Alignment only - a Feature that merely executes
+   * one of the Objective's Key results (`KeyResultFeature`) is not aligned and
+   * does not appear here; that edge is shown in the Key results' "Executing
+   * work" panels instead (CONTEXT.md "Product alignment chain").
+   *
+   * Every status is returned, DEPRECATED/ARCHIVED included: the tab hides those
+   * behind a client-side toggle, same as the Product Roadmap.
+   */
+  listForGoal: protectedProcedure
+    .input(z.object({ goalId: z.number().int() }))
+    .query(async ({ ctx, input }) => {
+      const goal = await ctx.db.goal.findUnique({
+        where: { id: input.goalId },
+        select: { workspaceId: true },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+      }
+      // feature.create/update only accept a goal in the Product's workspace, so
+      // a workspace-less (personal) goal can have no aligned Features.
+      if (!goal.workspaceId) return [];
+
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, goal.workspaceId);
+
+      return ctx.db.feature.findMany({
+        where: {
+          goalId: input.goalId,
+          product: { workspaceId: goal.workspaceId },
+        },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          updatedAt: true,
+          product: {
+            select: { id: true, name: true, slug: true, icon: true, color: true },
+          },
+          area: { select: { id: true, name: true } },
+          // Only this Objective's Key results: executing another Objective's
+          // numbers is noise on this page.
+          keyResultLinks: {
+            where: { keyResult: { goalId: input.goalId } },
+            orderBy: { assignedAt: "asc" },
+            select: { keyResult: { select: { id: true, title: true } } },
+          },
+          _count: { select: { tickets: true } },
         },
       });
     }),
@@ -1156,6 +1211,12 @@ export const featureRouter = createTRPCRouter({
             },
           });
         }
+        // Meeting links are workspace-bound; a cross-workspace move strands
+        // the ones whose meeting stays behind.
+        await dropStrandedFeatureMeetingLinks(tx, {
+          featureIds: [mutations.featureId],
+          workspaceId: destProduct.workspaceId,
+        });
         if (mutations.nextTicketCounter !== destProduct.ticketCounter) {
           await tx.product.update({
             where: { id: destProduct.id },

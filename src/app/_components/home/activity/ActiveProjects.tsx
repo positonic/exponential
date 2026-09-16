@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useMemo } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { toPlainText } from '~/lib/content/plainText';
 
 interface ProjectLike {
   id: string;
@@ -79,8 +80,11 @@ export function ActiveProjects() {
           const actionCount = Array.isArray(project.actions)
             ? project.actions.length
             : null;
-          const sub = project.description
-            ? `Next: ${truncate(project.description)}`
+          // Descriptions are Markdown (or legacy HTML) prose; the sub-line
+          // is a one-line excerpt, so it takes the text.
+          const description = toPlainText(project.description);
+          const sub = description
+            ? `Next: ${truncate(description)}`
             : 'No next action set';
           return (
             <div key={project.id} className="wsa-active__row">

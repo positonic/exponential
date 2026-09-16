@@ -1,7 +1,7 @@
 import { Modal } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useViewportSize } from '@mantine/hooks';
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { type ActionPriority } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
@@ -12,6 +12,8 @@ import type { ActionStatus } from '@prisma/client';
 import { useSession } from 'next-auth/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
+import { useActionAttachments } from '~/hooks/useActionAttachments';
+import { buildCreateActionPayload } from '~/lib/actions/createActionPayload';
 
 export function CreateActionModal({ viewName, projectId: propProjectId, children, initialName, onActionCreated, externalOpened, onExternalClose }: { viewName: string; projectId?: string; children?: React.ReactNode; initialName?: string; onActionCreated?: (actionId: string) => void; externalOpened?: boolean; onExternalClose?: () => void }) {
   const { data: session } = useSession();
@@ -23,16 +25,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState<string | undefined>(initProjectId || undefined);
   const [priority, setPriority] = useState<ActionPriority>("Quick");
-  const [dueDate, setDueDate] = useState<Date | null>(() => {
-    // If we're on the /today or /workspace page, default to today's date
-    const lowerViewName = viewName.toLowerCase();
-    if (lowerViewName === 'today' || lowerViewName === 'workspace') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return today;
-    }
-    return null;
-  });
+  const [dueDate, setDueDate] = useState<Date | null>(() => defaultDueDateForView(viewName));
   const [scheduledStart, setScheduledStart] = useState<Date | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
@@ -69,33 +62,8 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
 
   const utils = api.useUtils();
   
-  // Assignment mutation for post-creation assignment
-  const assignMutation = api.action.assign.useMutation({
-    onError: (error) => {
-      console.error('Assignment failed:', error);
-    },
-  });
-
-  // List mutation for post-creation sprint assignment
-  const addToListMutation = api.list.addAction.useMutation({
-    onError: (error) => {
-      console.error('Sprint assignment failed:', error);
-    },
-  });
-
-  // Tag mutation for post-creation tagging
-  const setTagsMutation = api.tag.setActionTags.useMutation({
-    onError: (error) => {
-      console.error('Setting tags failed:', error);
-    },
-  });
-
-  // Screenshot upload mutation
-  const uploadImageMutation = api.action.uploadImage.useMutation({
-    onError: (error) => {
-      console.error('Screenshot upload failed:', error);
-    },
-  });
+  // Pasted screenshots, carried per submission to the post-create upload.
+  const attachments = useActionAttachments();
 
   const createAction = api.action.create.useMutation({
     onMutate: async (newAction) => {
@@ -240,6 +208,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     },
 
     onError: (err, variables, context) => {
+      // This submission will never reach onSuccess; drop its attachments.
+      attachments.discard(variables);
+
       if (!context) return;
 
       // Restore all previous states
@@ -303,103 +274,60 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       await Promise.all(invalidatePromises);
     },
 
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Don't store data.id into createdActionId here. The modal is already
       // closed for this submission, and a stored value would race a new
       // compose cycle: if the user starts a second task before this success
       // fires, AssignActionModal would re-scope to the prior action's id and
-      // route the next assignee pick to the wrong task. Assignees for this
-      // action are applied below via pendingAssigneesRef.
+      // route the next assignee pick to the wrong task.
 
-      // Run all post-create attachments concurrently. Each mutation has its own
-      // onError handler that surfaces failures independently, so we don't need
-      // to gate the modal flow or a success toast on these completing - the
-      // optimistic row is already visible.
-      const pendingAssignees = pendingAssigneesRef.current;
-      const pendingScreenshots = pendingScreenshotsRef.current;
-      pendingAssigneesRef.current = [];
-      pendingScreenshotsRef.current = [];
-
-      const postCreatePromises: Promise<unknown>[] = [];
-
-      if (sprintListId) {
-        postCreatePromises.push(
-          addToListMutation.mutateAsync({ listId: sprintListId, actionId: data.id }),
-        );
-      }
-
-      if (pendingAssignees.length > 0) {
-        postCreatePromises.push(
-          assignMutation.mutateAsync({ actionId: data.id, userIds: pendingAssignees }),
-        );
-      }
-
-      if (selectedTagIds.length > 0) {
-        postCreatePromises.push(
-          setTagsMutation.mutateAsync({ actionId: data.id, tagIds: selectedTagIds }),
-        );
-      }
-
-      for (const screenshot of pendingScreenshots) {
-        postCreatePromises.push(
-          uploadImageMutation.mutateAsync({
-            actionId: data.id,
-            base64Data: screenshot.base64,
-          }),
-        );
-      }
-
-      // Fire-and-forget; per-mutation onError handlers already log failures.
-      void Promise.allSettled(postCreatePromises);
+      // This submission's own selections - not whatever is being composed now,
+      // and not the cleared form. See useActionAttachments.
+      attachments.apply(variables, data.id);
 
       onActionCreated?.(data.id);
       onExternalClose?.();
     },
   });
 
-  // Ref to hold screenshots for upload after action creation
-  const pendingScreenshotsRef = useRef<PastedScreenshot[]>([]);
-  // Ref to hold assignees so the post-create assign call can read them after
-  // selectedAssigneeIds state has been reset.
-  const pendingAssigneesRef = useRef<string[]>([]);
-
   const handleSubmit = () => {
-    if (!name) return;
+    // The payload builder trims the name; a whitespace-only name would be
+    // refused by the server after the modal had already closed.
+    if (!name.trim()) return;
 
     // Close modal immediately for better UX
     close();
 
-    // Capture screenshots and assignees before resetting state. The
-    // post-create callbacks read these refs because the corresponding state
-    // is reset below before the mutation resolves.
-    pendingScreenshotsRef.current = [...pastedScreenshots];
-    pendingAssigneesRef.current = [...selectedAssigneeIds];
-
-    // Prepare action data before resetting form
-    const actionData = {
+    // One request: the write fields plus tags, assignees and sprint, which
+    // the server writes in the same transaction as the Action. Built before
+    // the form resets.
+    const actionData = buildCreateActionPayload({
       name,
-      description: description || undefined,
-      projectId: projectId || undefined,
-      workspaceId: currentWorkspaceId ?? undefined,
-      priority: priority || "Quick",
-      dueDate: dueDate || undefined,
-      scheduledStart: scheduledStart || undefined,
-      duration: duration || undefined,
-      epicId: epicId || undefined,
-      effortEstimate: effortEstimate || undefined,
-      blockedByIds: blockedByIds.length > 0 ? blockedByIds : undefined,
-      // Bounty fields
-      ...(isBounty ? {
-        isBounty: true,
-        bountyAmount: bountyAmount ?? undefined,
-        bountyToken: bountyToken ?? undefined,
-        bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | undefined,
-        bountySkills: bountySkills.length > 0 ? bountySkills : undefined,
-        bountyDeadline: bountyDeadline ?? undefined,
-        bountyMaxClaimants: bountyMaxClaimants,
-        bountyExternalUrl: bountyExternalUrl ?? undefined,
-      } : {}),
-    };
+      description,
+      projectId,
+      workspaceId: currentWorkspaceId,
+      priority,
+      dueDate,
+      scheduledStart,
+      duration,
+      epicId,
+      effortEstimate,
+      blockedByIds,
+      sprintListId,
+      assigneeIds: selectedAssigneeIds,
+      tagIds: selectedTagIds,
+      bounty: isBounty
+        ? {
+            amount: bountyAmount,
+            token: bountyToken,
+            difficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | undefined,
+            skills: bountySkills,
+            deadline: bountyDeadline,
+            maxClaimants: bountyMaxClaimants,
+            externalUrl: bountyExternalUrl,
+          }
+        : null,
+    });
 
     // Reset form immediately (moved from onSuccess)
     setName("");
@@ -407,16 +335,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     // Reset projectId to initial value (current project if on project page)
     setProjectId(initProjectId || undefined);
     setPriority("Quick");
-    // Reset dueDate to today if on /today or /workspace page, otherwise null
-    setDueDate(() => {
-      const lowerView = viewName.toLowerCase();
-      if (lowerView === 'today' || lowerView === 'workspace') {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return today;
-      }
-      return null;
-    });
+    setDueDate(defaultDueDateForView(viewName));
     setScheduledStart(null);
     setDuration(null);
     setSelectedAssigneeIds([]);
@@ -438,6 +357,12 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setBountyMaxClaimants(1);
     setBountyExternalUrl(null);
     setPastedScreenshots([]);
+
+    // Tags, assignees and sprint travel in the create request above; only
+    // the screenshots (blobs, not rows) still need the new action's id.
+    // Filed against the exact object handed to mutate(), which onSuccess
+    // gets back as its `variables`.
+    attachments.record(actionData, { screenshots: [...pastedScreenshots] });
 
     // Trigger mutation in background
     createAction.mutate(actionData);
@@ -525,7 +450,12 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
           onSubmit={handleSubmit}
           onClose={close}
           submitLabel="New action"
-          isSubmitting={createAction.isPending}
+          // The modal dismisses on submit and creation is optimistic, so there
+          // is nothing to spin for. Passing isPending here would also disable
+          // the submit button of a *reopened* modal while the previous create
+          // is still in flight (Mantine's Button sets disabled={disabled ||
+          // loading}), blocking back-to-back task entry.
+          isSubmitting={false}
           {...(advancedActionsEnabled ? {
             sprintListId,
             setSprintListId,
@@ -573,4 +503,17 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       />
     </>
   );
+}
+
+// Today / workspace views default a new action to today, the Tomorrow tab to
+// tomorrow; everywhere else starts undated.
+function defaultDueDateForView(viewName: string): Date | null {
+  const lowerView = viewName.toLowerCase();
+  const offset =
+    lowerView === 'today' || lowerView === 'workspace' ? 0 : lowerView === 'tomorrow' ? 1 : null;
+  if (offset === null) return null;
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + offset);
+  return date;
 }

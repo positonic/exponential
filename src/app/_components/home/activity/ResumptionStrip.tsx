@@ -22,7 +22,7 @@ export function ResumptionStrip() {
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId },
   );
-  const { data: meetings } = api.transcription.getAllTranscriptions.useQuery(
+  const { data: meetings } = api.transcription.getMeetingCards.useQuery(
     { workspaceId: workspaceId ?? undefined, meetingType: 'mine' },
     { enabled: !!workspaceId },
   );

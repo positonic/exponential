@@ -23,7 +23,10 @@ import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
 import { captureAction } from "~/server/services/voice/capture";
-import { getTodaysPlan } from "~/server/services/voice/dailyBrief";
+import {
+  getDailyContext,
+  parseDailyContextFocus,
+} from "~/server/services/voice/dailyContext";
 import { runQuery } from "~/server/services/voice/query";
 import { completeAction } from "~/server/services/voice/complete";
 import { askExponential } from "~/server/services/voice/brainPassthrough";
@@ -182,7 +185,23 @@ export const voiceRouter = createTRPCRouter({
               needsConfirmation: false,
             };
           }
-          const { action, inbox } = await captureAction(phrase, userId, ctx.db, workspaceId);
+          // The write applies the same gate as the user's own hands
+          // (ADR-0016): a read-only workspace or a project the user can only
+          // view refuses. That is a spoken answer, not a transport error.
+          let captured: Awaited<ReturnType<typeof captureAction>>;
+          try {
+            captured = await captureAction(phrase, userId, ctx.db, workspaceId);
+          } catch (err) {
+            if (err instanceof TRPCError && err.code === "FORBIDDEN") {
+              return {
+                speakable: "I can't add actions there — you have read-only access.",
+                structured: { error: "forbidden" },
+                needsConfirmation: false,
+              };
+            }
+            throw err;
+          }
+          const { action, inbox } = captured;
           return {
             speakable: speakableCaptureConfirmation({
               name: action.name,
@@ -195,19 +214,23 @@ export const voiceRouter = createTRPCRouter({
         }
 
         case "get_todays_plan": {
-          // Read-only briefing: never raises the confirmation gate. The verified
-          // token claim is authoritative; args.workspaceId is honoured only as a
-          // back-compat fallback for one release (see ticket #10 / PRD §33).
-          const argWorkspaceId =
-            typeof input.args?.workspaceId === "string"
-              ? input.args.workspaceId
-              : undefined;
-          const { speakable, data } = await getTodaysPlan(userId, ctx.db, {
-            workspaceId: workspaceId ?? argWorkspaceId,
-          });
+          // Read-only: never raises the confirmation gate. Today's context is
+          // the same digest the Daily summary (Matrix / email) is built from —
+          // cross-workspace actions, calendar, and the cycle in the user's
+          // default workspace — so it is NOT scoped by the session's workspace
+          // claim. `focus` reads one section in full; `timezone` is the
+          // device's IANA zone so "today" is the user's day, not the server's.
+          const focus = parseDailyContextFocus(input.args?.focus);
+          const timezone =
+            typeof input.args?.timezone === "string" ? input.args.timezone : undefined;
+          const { speakable, digest, timezone: resolvedTimezone } = await getDailyContext(
+            userId,
+            ctx.db,
+            { focus, timezone },
+          );
           return {
             speakable,
-            structured: { briefing: data },
+            structured: { briefing: digest, focus, timezone: resolvedTimezone },
             needsConfirmation: false,
           };
         }

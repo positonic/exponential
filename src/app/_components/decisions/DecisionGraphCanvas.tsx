@@ -11,41 +11,21 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import type { DecisionGraph, GraphEdgeType, GraphNode } from "~/lib/decision-graph";
 
 /**
- * Decision network canvas: one node per ADR, clustered by repo (one column
- * per repo with a header node), solid SUPERSEDES edges and dashed MENTIONS
- * edges (the same weaker treatment as the detail page's Related section).
- * Read-only — clicking a node navigates to the decision's detail page.
+ * Decision network canvas: one node per decision from either source,
+ * clustered into one column per lane (a repository for ADRs; a ceremony,
+ * project or the workspace bucket for Decisions) with a header node.
+ * SUPERSEDES edges solid, detected MENTIONS edges dashed (the same weaker
+ * treatment as the detail page's Related section), FORMALISED — a Decision
+ * that became an ADR through a pull request — dotted. Read-only: clicking
+ * a node navigates to its detail page.
  */
 
-export interface DecisionGraphNode {
-  id: string;
-  repositoryId: string;
-  label: string | null;
-  title: string;
-  status: string;
-}
-
-export interface DecisionGraphEdge {
-  id: string;
-  type: "SUPERSEDES" | "MENTIONS";
-  fromId: string;
-  toId: string;
-  evidence: string | null;
-}
-
-export interface DecisionGraphRepo {
-  repositoryId: string;
-  fullName: string;
-  shortCode: string;
-}
-
 interface Props {
-  repos: DecisionGraphRepo[];
-  nodes: DecisionGraphNode[];
-  edges: DecisionGraphEdge[];
-  onNodeClick?: (adrId: string) => void;
+  graph: DecisionGraph;
+  onNodeClick?: (node: GraphNode) => void;
 }
 
 const COLUMN_WIDTH = 280;
@@ -53,31 +33,54 @@ const NODE_HEIGHT = 64;
 const NODE_GAP = 18;
 const HEADER_HEIGHT = 40;
 
-const SOLID_EDGE_COLOR = "var(--mantine-color-blue-6)";
-const DASHED_EDGE_COLOR = "var(--color-border-primary)";
+const EDGE_COLOR: Record<GraphEdgeType, string> = {
+  SUPERSEDES: "var(--brand-400)",
+  MENTIONS: "var(--color-border-strong)",
+  FORMALISED: "var(--accent-crm)",
+};
+
+const EDGE_LABEL: Partial<Record<GraphEdgeType, string>> = {
+  SUPERSEDES: "supersedes",
+  FORMALISED: "formalised as",
+};
 
 const STATUS_BORDER: Record<string, string> = {
-  PROPOSED: "var(--mantine-color-blue-6)",
-  ACCEPTED: "var(--mantine-color-green-6)",
-  SUPERSEDED: "var(--mantine-color-orange-6)",
-  DEPRECATED: "var(--mantine-color-red-6)",
+  PROPOSED: "var(--color-text-muted)",
+  OPEN: "var(--accent-okr)",
+  ACCEPTED: "var(--accent-crm)",
+  SUPERSEDED: "var(--accent-okr)",
+  DEPRECATED: "var(--accent-due)",
   UNKNOWN: "var(--color-border-primary)",
 };
 
-export function DecisionGraphCanvas({ repos, nodes, edges, onNodeClick }: Props) {
+const LANE_KIND_WORD: Record<DecisionGraph["lanes"][number]["kind"], string> = {
+  repository: "repository",
+  ceremony: "ceremony",
+  project: "project",
+  workspace: "workspace",
+};
+
+export function DecisionGraphCanvas({ graph, onNodeClick }: Props) {
+  const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+
   const flowNodes: Node[] = useMemo(() => {
     const result: Node[] = [];
     let columnIndex = 0;
-    for (const repo of repos) {
-      const repoDocs = nodes.filter((n) => n.repositoryId === repo.repositoryId);
-      if (repoDocs.length === 0) continue;
+    for (const lane of graph.lanes) {
+      const laneNodes = graph.nodes
+        .filter((n) => n.laneKey === lane.key)
+        .sort((a, b) => a.order - b.order);
+      if (laneNodes.length === 0) continue;
       const x = columnIndex * COLUMN_WIDTH;
       columnIndex++;
 
       result.push({
-        id: `repo:${repo.repositoryId}`,
+        id: `lane:${lane.key}`,
         position: { x, y: 0 },
-        data: { label: repo.fullName },
+        data: {
+          label:
+            lane.kind === "repository" ? lane.name : `${lane.name} · ${LANE_KIND_WORD[lane.kind]}`,
+        },
         draggable: false,
         selectable: false,
         style: {
@@ -89,27 +92,31 @@ export function DecisionGraphCanvas({ repos, nodes, edges, onNodeClick }: Props)
           color: "var(--color-text-secondary)",
           fontSize: 12,
           fontWeight: 600,
+          fontFamily: lane.kind === "repository" ? "var(--font-mono)" : undefined,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
         },
       });
 
-      repoDocs.forEach((doc, docIndex) => {
+      laneNodes.forEach((node, index) => {
+        const title = node.title.replace(/`/g, "");
         result.push({
-          id: doc.id,
+          id: node.id,
           position: {
             x: x + 10,
-            y: HEADER_HEIGHT + docIndex * (NODE_HEIGHT + NODE_GAP),
+            y: HEADER_HEIGHT + index * (NODE_HEIGHT + NODE_GAP),
           },
           data: {
-            label: `${doc.label ?? "—"}\n${doc.title.length > 46 ? `${doc.title.slice(0, 46)}…` : doc.title}`,
+            label: `${node.label ?? "—"}\n${title.length > 46 ? `${title.slice(0, 46)}…` : title}`,
           },
           style: {
             width: COLUMN_WIDTH - 60,
             minHeight: NODE_HEIGHT - 12,
             background: "var(--color-background-primary)",
-            border: `1.5px solid ${STATUS_BORDER[doc.status] ?? STATUS_BORDER.UNKNOWN}`,
+            border: `1.5px ${node.kind === "decision" ? "dashed" : "solid"} ${
+              STATUS_BORDER[node.status] ?? STATUS_BORDER.UNKNOWN
+            }`,
             borderRadius: 8,
             color: "var(--color-text-primary)",
             fontSize: 11,
@@ -121,39 +128,40 @@ export function DecisionGraphCanvas({ repos, nodes, edges, onNodeClick }: Props)
       });
     }
     return result;
-  }, [repos, nodes]);
+  }, [graph.lanes, graph.nodes]);
 
   const flowEdges: Edge[] = useMemo(
     () =>
-      edges.map((edge) => {
-        const solid = edge.type === "SUPERSEDES";
+      graph.edges.map((edge) => {
+        const color = EDGE_COLOR[edge.type];
+        const label = EDGE_LABEL[edge.type];
         return {
           id: edge.id,
           source: edge.fromId,
           target: edge.toId,
-          label: solid ? "supersedes" : undefined,
+          label,
           labelStyle: { fontSize: 9, fill: "var(--color-text-muted)" },
           labelBgStyle: { fill: "var(--color-background-primary)" },
-          style: solid
-            ? { stroke: SOLID_EDGE_COLOR, strokeWidth: 2 }
-            : {
-                stroke: DASHED_EDGE_COLOR,
-                strokeWidth: 1.5,
-                strokeDasharray: "4 4",
-              },
+          style:
+            edge.type === "SUPERSEDES"
+              ? { stroke: color, strokeWidth: 2 }
+              : edge.type === "MENTIONS"
+                ? { stroke: color, strokeWidth: 1.5, strokeDasharray: "4 4" }
+                : { stroke: color, strokeWidth: 2, strokeDasharray: "1.5 3.5", strokeLinecap: "round" },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: solid ? SOLID_EDGE_COLOR : DASHED_EDGE_COLOR,
+            color,
             width: 16,
             height: 16,
           },
         };
       }),
-    [edges],
+    [graph.edges],
   );
 
-  const handleNodeClick: NodeMouseHandler = (_event, node) => {
-    if (!node.id.startsWith("repo:")) onNodeClick?.(node.id);
+  const handleNodeClick: NodeMouseHandler = (_event, flowNode) => {
+    const node = nodeById.get(flowNode.id);
+    if (node) onNodeClick?.(node);
   };
 
   return (

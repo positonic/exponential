@@ -9,6 +9,7 @@ import {
   formatElapsedClock,
 } from "~/hooks/useActiveTimer";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { toPlainText } from "~/lib/content/plainText";
 
 /**
  * Persistent active-timer widget for the side nav. Hidden when no timer is
@@ -26,6 +27,11 @@ export function ActiveTimerWidget() {
 
   if (!isRunning || !entry) return null;
 
+  // The row is itself a Link, so a rendered name cannot carry the anchor a
+  // legacy HTML Action name holds — nested <a>s are invalid and split the
+  // row link. Show the text a reader would see.
+  const actionName = toPlainText(entry.action?.name) || "Untitled";
+
   const actionHref =
     workspaceSlug && entry.action?.id
       ? `/w/${workspaceSlug}/actions/${entry.action.id}`
@@ -41,10 +47,10 @@ export function ActiveTimerWidget() {
       <Link
         href={actionHref}
         className="min-w-0 flex-1 truncate text-text-primary hover:text-brand-primary"
-        title={entry.action?.name ?? "Untitled"}
+        title={actionName}
       >
         <div className="truncate text-[13px] font-medium leading-tight">
-          {entry.action?.name ?? "Untitled"}
+          {actionName}
         </div>
         <div className="font-mono text-[11px] tabular-nums text-text-muted">
           {formatElapsedClock(elapsedMs)}

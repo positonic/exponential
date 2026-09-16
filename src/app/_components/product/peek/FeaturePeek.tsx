@@ -77,6 +77,13 @@ export function FeaturePeek({ featureId, basePath }: { featureId: string; basePa
     if (feature?.product.id) {
       await utils.product.feature.list.invalidate({ productId: feature.product.id });
     }
+    // The Objective page lists Features too: its Features tab (alignment,
+    // stage, priority, area) and its Key results' "Executing work" panels
+    // (name, status). Only mounted observers refetch.
+    await Promise.all([
+      utils.product.feature.listForGoal.invalidate(),
+      utils.okr.getByObjective.invalidate(),
+    ]);
   };
 
   // Optimistic single-field patches (see TicketPeek): instant pill feedback,

@@ -26,7 +26,11 @@ interface MeetingProjectPickerProps {
   children: (args: { toggle: () => void }) => ReactNode;
   /** Label for the clear-placement option. */
   noneLabel?: string;
-  dropdownWidth?: number;
+  dropdownWidth?: number | "target";
+  /** True while the candidate list is still loading. */
+  loading?: boolean;
+  /** Fires when the dropdown opens — lets callers fetch candidates lazily. */
+  onOpen?: () => void;
 }
 
 /**
@@ -43,8 +47,11 @@ export function MeetingProjectPicker({
   children,
   noneLabel = "Personal / no project",
   dropdownWidth = 260,
+  loading = false,
+  onOpen,
 }: MeetingProjectPickerProps) {
   const combobox = useCombobox({
+    onDropdownOpen: () => onOpen?.(),
     onDropdownClose: () => {
       combobox.resetSelectedOption();
       setSearch("");
@@ -111,7 +118,7 @@ export function MeetingProjectPicker({
           {groups.length === 0 && (
             <Combobox.Empty>
               <Text size="xs" className="text-text-muted">
-                No matching projects
+                {loading ? "Loading projects…" : "No matching projects"}
               </Text>
             </Combobox.Empty>
           )}

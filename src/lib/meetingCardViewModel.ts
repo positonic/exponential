@@ -15,7 +15,6 @@ export interface MeetingCardSession {
   title: string | null;
   sessionId: string;
   summary: string | null;
-  transcription: string | null;
   project: { id: string; name: string } | null;
   actions: Array<{ id: string }>;
 }
@@ -36,12 +35,6 @@ export interface MeetingCardAvatar {
   image: string | null;
 }
 
-export interface MeetingCardPeekLine {
-  time: string;
-  speaker: string;
-  text: string;
-}
-
 export interface MeetingCardViewModel {
   title: string;
   projectPill: { id: string; name: string } | null;
@@ -49,7 +42,6 @@ export interface MeetingCardViewModel {
   attendeeCount: number;
   highlight: string | null;
   actionCount: number;
-  peekLines: MeetingCardPeekLine[] | null;
 }
 
 // Tailwind palette for participant avatars. Stable assignment by hash means
@@ -138,41 +130,6 @@ function computeHighlight(summary: string | null): string | null {
   return null;
 }
 
-function formatTimestamp(seconds: number): string {
-  const safe = Math.max(0, Math.floor(seconds));
-  const hh = String(Math.floor(safe / 3600)).padStart(2, "0");
-  const mm = String(Math.floor((safe % 3600) / 60)).padStart(2, "0");
-  const ss = String(safe % 60).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
-
-interface TranscriptionSentence {
-  start_time?: number;
-  speaker_name?: string | null;
-  text?: string;
-}
-
-function computePeekLines(transcription: string | null): MeetingCardPeekLine[] | null {
-  if (!transcription) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(transcription);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null || !("sentences" in parsed)) {
-    return null;
-  }
-  const sentences = (parsed as { sentences?: TranscriptionSentence[] }).sentences;
-  if (!sentences?.length) return null;
-  const lines = sentences.slice(0, 2).map((s) => ({
-    time: formatTimestamp(s.start_time ?? 0),
-    speaker: s.speaker_name ?? "Unknown",
-    text: s.text ?? "",
-  }));
-  return lines.length > 0 ? lines : null;
-}
-
 /**
  * Build the view model that drives a Meeting card on the listing page.
  *
@@ -183,8 +140,6 @@ function computePeekLines(transcription: string | null): MeetingCardPeekLine[] |
  *   CrmContact → Participant `name` → email local part.
  * - `attendeeCount` is `participants.length` (silent attendees count).
  * - `actionCount` is `session.actions.length` — including zero.
- * - `peekLines` returns the first two transcript sentences as a parsed
- *   preview, or null when the transcript JSON is missing/invalid.
  */
 export function buildMeetingCardViewModel(
   session: MeetingCardSession,
@@ -202,6 +157,5 @@ export function buildMeetingCardViewModel(
     attendeeCount: participants.length,
     highlight: computeHighlight(session.summary),
     actionCount: session.actions.length,
-    peekLines: computePeekLines(session.transcription),
   };
 }

@@ -13,6 +13,10 @@ import {
   Input,
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
+import {
+  ContactSelect,
+  OrganizationSelect,
+} from "~/app/_components/crm/CrmEntitySelect";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 
@@ -80,24 +84,6 @@ export function CreateDealModal({
 
   const utils = api.useUtils();
 
-  // Fetch contacts for selector
-  const { data: contactsData } = api.crmContact.getAll.useQuery(
-    {
-      workspaceId,
-      limit: 100,
-    },
-    { enabled: opened },
-  );
-
-  // Fetch organizations for selector
-  const { data: orgsData } = api.crmOrganization.getAll.useQuery(
-    {
-      workspaceId,
-      limit: 100,
-    },
-    { enabled: opened },
-  );
-
   const createDealMutation = api.pipeline.createDeal.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -147,16 +133,6 @@ export function CreateDealModal({
       expectedCloseDate: expectedCloseDate ?? undefined,
     });
   }
-
-  const contactOptions = (contactsData?.contacts ?? []).map((c) => ({
-    value: c.id,
-    label: [c.firstName, c.lastName].filter(Boolean).join(" ") || "Unnamed",
-  }));
-
-  const orgOptions = (orgsData?.organizations ?? []).map((o) => ({
-    value: o.id,
-    label: o.name,
-  }));
 
   const pipelineOptions = pipelines.map((p) => ({
     value: p.id,
@@ -230,24 +206,18 @@ export function CreateDealModal({
           onChange={(val) => val && setStageId(val)}
         />
 
-        <Select
-          label="Contact"
-          placeholder="Link to a contact"
-          data={contactOptions}
+        <ContactSelect
+          workspaceId={workspaceId}
           value={contactId}
           onChange={setContactId}
-          searchable
-          clearable
+          enabled={opened}
         />
 
-        <Select
-          label="Organization"
-          placeholder="Link to an organization"
-          data={orgOptions}
+        <OrganizationSelect
+          workspaceId={workspaceId}
           value={organizationId}
           onChange={setOrganizationId}
-          searchable
-          clearable
+          enabled={opened}
         />
 
         <Input.Wrapper label="Expected Close Date">

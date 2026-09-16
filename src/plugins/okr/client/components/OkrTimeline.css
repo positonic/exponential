@@ -4,6 +4,12 @@
    Reads design-system CSS variables from globals.css.
 ============================================================ */
 
+/* Wide axes (Annual, multi-year) scroll here, never the page. */
+.okrt-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 .okrt {
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-primary);
@@ -176,7 +182,7 @@
     var(--color-surface-muted) 1px,
     transparent 1px
   );
-  background-size: calc(100% / 13) 100%;
+  background-size: calc(100% / var(--okrt-weeks, 13)) 100%;
   border-radius: 3px;
 }
 .okrt-row--obj .okrt-track {

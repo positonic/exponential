@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { TRPCError } from "@trpc/server";
+import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
@@ -12,7 +13,122 @@ import {
   getWorkspaceMembership,
 } from "~/server/services/access";
 
+/**
+ * Who a written entry belongs to (ADR-0061). A human writes their own time,
+ * `CONFIRMED` by default. An External agent (`tokenType === "agent-key"`)
+ * writes time that belongs to its OWNER, records itself as author, and is
+ * forced to `PROPOSED` whatever it asked for. This carve-out exists only for
+ * the explicit-bounds procedures below; `start`/`stop` stay principal-owned.
+ */
+interface TimeEntryPrincipal {
+  ownerUserId: string;
+  createdByAgentId: string | null;
+  isAgent: boolean;
+}
+
+async function resolveTimeEntryPrincipal(
+  db: PrismaClient,
+  callerUserId: string,
+  tokenType: string | undefined,
+): Promise<TimeEntryPrincipal> {
+  if (tokenType !== "agent-key") {
+    return { ownerUserId: callerUserId, createdByAgentId: null, isAgent: false };
+  }
+  const agent = await db.externalAgent.findUnique({
+    where: { shadowUserId: callerUserId },
+    select: { id: true, ownerId: true },
+  });
+  if (!agent) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Agent key is not bound to an external agent",
+    });
+  }
+  return { ownerUserId: agent.ownerId, createdByAgentId: agent.id, isAgent: true };
+}
+
+/**
+ * The OWNER must be able to view the Action — so an agent can only log time
+ * on Actions its owner can see, never on ones only its shadow user reaches.
+ */
+async function assertOwnerCanViewAction(
+  db: PrismaClient,
+  ownerUserId: string,
+  actionId: string,
+): Promise<void> {
+  const access = await getActionAccess(db, ownerUserId, actionId);
+  if (!access || !canViewAction(access)) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
+  }
+}
+
+/**
+ * Confirmation is a human act (ADR-0061). Keyed on the principal like
+ * `humanOnlyProcedure`: the token-type check is the fast path, the `isAgent`
+ * read catches a shadow user reaching here through any other token.
+ */
+async function assertHumanPrincipal(
+  db: PrismaClient,
+  userId: string,
+  tokenType: string | undefined,
+): Promise<void> {
+  const forbidden = new TRPCError({
+    code: "FORBIDDEN",
+    message: "Confirming a day is not available to external agents",
+  });
+  if (tokenType === "agent-key") throw forbidden;
+  const principal = await db.user.findUnique({
+    where: { id: userId },
+    select: { isAgent: true },
+  });
+  if (principal?.isAgent) throw forbidden;
+}
+
+const explicitEntryInput = z
+  .object({
+    actionId: z.string(),
+    startedAt: z.coerce.date(),
+    endedAt: z.coerce.date(),
+    source: z.enum(["manual", "claude-desktop", "agent-run"]).default("manual"),
+    status: z.enum(["PROPOSED", "CONFIRMED"]).optional(),
+    sourceRef: z.string().min(1).max(500).optional(),
+    note: z.string().max(1000).optional(),
+  })
+  .refine((v) => v.endedAt.getTime() > v.startedAt.getTime(), {
+    message: "endedAt must be after startedAt",
+    path: ["endedAt"],
+  });
+
 export const timeEntryRouter = createTRPCRouter({
+  /**
+   * Create a completed entry with explicit bounds. Never touches the running
+   * Timer. Under an agent key the entry belongs to the agent's owner and is
+   * `PROPOSED`; a human's entry defaults to `CONFIRMED`.
+   */
+  create: apiKeyMiddleware
+    .input(explicitEntryInput)
+    .mutation(async ({ ctx, input }) => {
+      const principal = await resolveTimeEntryPrincipal(
+        ctx.db,
+        ctx.userId,
+        ctx.tokenType,
+      );
+      await assertOwnerCanViewAction(ctx.db, principal.ownerUserId, input.actionId);
+
+      const service = new TimeEntryService(ctx.db);
+      return service.create({
+        userId: principal.ownerUserId,
+        actionId: input.actionId,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        source: input.source,
+        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        sourceRef: input.sourceRef,
+        note: input.note,
+        createdByAgentId: principal.createdByAgentId,
+      });
+    }),
+
   start: apiKeyMiddleware
     .input(
       z.object({
@@ -83,6 +199,137 @@ export const timeEntryRouter = createTRPCRouter({
         typedTitle: input.typedTitle,
         projectId: input.projectId ?? null,
         workspaceId: input.workspaceId ?? null,
+      });
+    }),
+
+  /**
+   * Idempotent create keyed on `(owner, sourceRef)`: re-running the Daily
+   * worklog updates a PROPOSED entry in place and leaves a CONFIRMED one
+   * alone. Same principal rules as `create`.
+   */
+  upsertBySourceRef: apiKeyMiddleware
+    .input(
+      explicitEntryInput.innerType().extend({ sourceRef: z.string().min(1).max(500) }).refine(
+        (v) => v.endedAt.getTime() > v.startedAt.getTime(),
+        { message: "endedAt must be after startedAt", path: ["endedAt"] },
+      ),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const principal = await resolveTimeEntryPrincipal(
+        ctx.db,
+        ctx.userId,
+        ctx.tokenType,
+      );
+      await assertOwnerCanViewAction(ctx.db, principal.ownerUserId, input.actionId);
+
+      const service = new TimeEntryService(ctx.db);
+      return service.upsertBySourceRef({
+        userId: principal.ownerUserId,
+        actionId: input.actionId,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        source: input.source,
+        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        sourceRef: input.sourceRef,
+        note: input.note,
+        createdByAgentId: principal.createdByAgentId,
+      });
+    }),
+
+  /**
+   * Confirm a day's Proposed time. `date` is the START of the day in the
+   * caller's timezone (the client sends local midnight); the window is the
+   * 24 hours from it. Human-only: confirmation turns a guess into a fact,
+   * so an agent principal is FORBIDDEN whichever way it authenticated.
+   */
+  confirmDay: apiKeyMiddleware
+    .input(
+      z.object({
+        date: z.coerce.date(),
+        workspaceId: z.string().nullish(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertHumanPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      const service = new TimeEntryService(ctx.db);
+      return service.confirmDay({
+        userId: ctx.userId,
+        dayStart: input.date,
+        dayEnd: new Date(input.date.getTime() + 24 * 60 * 60 * 1000),
+        workspaceId: input.workspaceId ?? null,
+      });
+    }),
+
+  /**
+   * The day view's and the Daily summary's numbers. `date` is the START of
+   * the day in the caller's timezone. An agent key reads its OWNER's day
+   * (the data is the owner's, ADR-0061); a human reads their own.
+   */
+  dayReport: apiKeyMiddleware
+    .input(
+      z.object({
+        date: z.coerce.date(),
+        workspaceId: z.string().nullish(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const principal = await resolveTimeEntryPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      const service = new TimeEntryService(ctx.db);
+      return service.dayReport({
+        userId: principal.ownerUserId,
+        dayStart: input.date,
+        dayEnd: new Date(input.date.getTime() + 24 * 60 * 60 * 1000),
+        workspaceId: input.workspaceId ?? null,
+      });
+    }),
+
+  /**
+   * Remember where a conversation title belongs (Daily worklog V4): the next
+   * Action upserted with this exact title and no Project or Ticket lands
+   * there without a click. One rule per person and title; saving again
+   * replaces it. Human-only — the picker is the person's own choice.
+   */
+  rememberResolution: apiKeyMiddleware
+    .input(
+      z
+        .object({
+          titlePattern: z.string().trim().min(1).max(500),
+          projectId: z.string().nullish(),
+          ticketId: z.string().nullish(),
+        })
+        .refine((v) => !!v.projectId !== !!v.ticketId, {
+          message: "Pass exactly one of projectId or ticketId",
+        }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertHumanPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      if (input.projectId) {
+        const access = await getProjectAccess(ctx.db, ctx.userId, input.projectId);
+        if (!access || !hasProjectAccess(access)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+        }
+      }
+      if (input.ticketId) {
+        const ticket = await ctx.db.ticket.findUnique({
+          where: { id: input.ticketId },
+          select: { product: { select: { workspaceId: true } } },
+        });
+        const membership = ticket
+          ? await getWorkspaceMembership(ctx.db, ctx.userId, ticket.product.workspaceId)
+          : null;
+        if (!ticket || !membership) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+      }
+      return ctx.db.timeResolutionRule.upsert({
+        where: { userId_titlePattern: { userId: ctx.userId, titlePattern: input.titlePattern } },
+        create: {
+          userId: ctx.userId,
+          titlePattern: input.titlePattern,
+          projectId: input.projectId ?? null,
+          ticketId: input.ticketId ?? null,
+        },
+        update: { projectId: input.projectId ?? null, ticketId: input.ticketId ?? null },
       });
     }),
 
@@ -176,9 +423,12 @@ export const timeEntryRouter = createTRPCRouter({
         }),
     )
     .query(async ({ ctx, input }) => {
+      // An agent key lists its OWNER's entries — the day it writes into
+      // (ADR-0061); the shadow user has no time of its own.
+      const principal = await resolveTimeEntryPrincipal(ctx.db, ctx.userId, ctx.tokenType);
       const service = new TimeEntryService(ctx.db);
       return service.listByDateRange({
-        userId: ctx.userId,
+        userId: principal.ownerUserId,
         startDate: input.startDate,
         endDate: input.endDate,
         workspaceId: input.workspaceId ?? null,

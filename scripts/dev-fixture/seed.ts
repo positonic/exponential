@@ -42,6 +42,23 @@ export const FIXTURE = {
   childGoalTitle: "Ship the goal hierarchy affordance",
   offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
   detachedChildGoalTitle: "Sub-goal whose parent is off-project",
+  // Ceremonies (ADR-0059) and Decisions (ADR-0060): one Daily Standup, one
+  // occurrence, a recorded meeting attached to it, one confirmed decision.
+  ceremonySlug: "daily-standup",
+  ceremonyName: "Daily Standup",
+  meetingSessionId: "dev-fixture-daily-standup-2026-09-08",
+  meetingTitle: "Daily Standup",
+  decisionStatement: "Park prioritisation debates for the prioritisation ceremony",
+  draftDecisionStatements: {
+    confirm: "Pat takes the accordion review today",
+    reject: "The accordion PR is otherwise clear",
+    resolve: "The peek drawer ships before the hover affordances",
+  },
+  /** An OPEN decision (open question) the `resolve` draft answers. */
+  openQuestionStatement: "Should the peek drawer ship before the hover affordances?",
+  /** A workspace tag, so the create-action modals' tag picker has something to pick. */
+  tagName: "Fixture label",
+  tagSlug: "fixture-label",
 } as const;
 
 export interface SeededFixture {
@@ -68,6 +85,28 @@ export interface SeededFixture {
   projectGoalsUrl: string;
   /** Goals on that project: a parent, its sub-goal, and a detached sub-goal. */
   goalIds: { parent: number; child: number; offProjectParent: number; detachedChild: number };
+  /** The seeded Daily Standup ceremony and its one occurrence. */
+  ceremonyId: string;
+  occurrenceId: string;
+  /** App-relative URL of the recorded meeting attached to that occurrence. */
+  meetingUrl: string;
+  /** A workspace tag the create-action modals can attach. */
+  tagId: string;
+  tagName: string;
+  /** The confirmed decision logged against that meeting. */
+  decisionId: string;
+  /** Its rendered label (`D-0001` on a fresh workspace). */
+  decisionLabel: string;
+  /** App-relative URL of the workspace Decision Log. */
+  decisionsUrl: string;
+  /**
+   * Two extracted draft decisions on the same meeting (Decisions V2), one to
+   * confirm and one to reject in the e2e spec. Re-seeding puts both back to
+   * DRAFT so the spec is re-runnable.
+   */
+  draftDecisionStatements: { confirm: string; reject: string; resolve: string };
+  /** The open question the `resolve` draft answers (re-asserted OPEN on every seed). */
+  openQuestionStatement: string;
 }
 
 interface TicketSpec {
@@ -88,6 +127,18 @@ const TICKETS: TicketSpec[] = [
   { number: 5, title: "Ticket row hover affordances", status: "BACKLOG", priority: null, assign: false },
   { number: 6, title: "Scope-only ticket (must NOT appear in the feature accordion)", status: "BACKLOG", priority: null, assign: false, scopeOnly: true },
 ];
+
+/** Weekdays at 09:00 in the fixture zone; the seeded occurrence sits on this tick. */
+const FIXTURE_AGENDA_TEMPLATE = [
+  { key: "blockers", type: "blockers", title: "Blockers", minutes: 5, config: {} },
+  { key: "carried", type: "carried_over", title: "Carried over", minutes: 5, config: {} },
+  { key: "free", type: "free_text", title: "Anything else", minutes: 5, config: {} },
+  // V2: the OKR review section gives the generated agenda a query with
+  // fixture data behind it (the seeded key result has no check-ins).
+  { key: "okr", type: "okr_review", title: "Key results at risk", minutes: 5, config: { days: 7 } },
+];
+
+const FIXTURE_CADENCE_RULE = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0";
 
 export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   const user = await db.user.upsert({
@@ -124,6 +175,22 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   await db.user.update({
     where: { id: user.id },
     data: { defaultWorkspaceId: workspace.id },
+  });
+
+  // One workspace tag. The create-action modals apply tags *after* the action
+  // exists, on a separate mutation, which is exactly the path that used to
+  // drop them - so the fixture needs a tag for that to be observable.
+  const tag = await db.tag.upsert({
+    where: { id: `${workspace.id}-fixture-label` },
+    update: { name: FIXTURE.tagName },
+    create: {
+      id: `${workspace.id}-fixture-label`,
+      name: FIXTURE.tagName,
+      slug: FIXTURE.tagSlug,
+      color: "brand-primary",
+      workspaceId: workspace.id,
+      createdById: user.id,
+    },
   });
 
   // A second workspace, so the fixture can express anything that only exists
@@ -391,8 +458,318 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     create: { keyResultId: keyResult.id, featureId: feature.id },
   });
 
+  // Ceremonies (ADR-0059): one Daily Standup definition, one occurrence that
+  // has already been captured, and a recorded meeting attached to it - the
+  // data behind the "Part of" rail row on /recording/[id] and the ceremony
+  // filter on the meetings list. The ceremony cascades with the workspace;
+  // the meeting (TranscriptionSession.workspace is SetNull) is re-homed on
+  // every seed the same way the OKR rows above are.
+  const ceremony = await db.ceremony.upsert({
+    where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.ceremonySlug } },
+    update: { ownerId: user.id, isActive: true, cadenceRule: FIXTURE_CADENCE_RULE, agendaTemplate: FIXTURE_AGENDA_TEMPLATE },
+    create: {
+      workspaceId: workspace.id,
+      slug: FIXTURE.ceremonySlug,
+      name: FIXTURE.ceremonyName,
+      aliases: ["Daily Standup", "Standup"],
+      kind: "STANDUP",
+      purpose: "Surface blockers and align on today's priorities in fifteen minutes.",
+      notFor: "Prioritisation debates - park them for the prioritisation ceremony.",
+      inputs: "Yesterday's completed Actions and anything flagged as blocked.",
+      outputs: "Blockers assigned an owner; parking-lot items carried to the next occurrence.",
+      cadenceRule: FIXTURE_CADENCE_RULE,
+      timezone: "Europe/Berlin",
+      startsOn: new Date("2026-09-01T00:00:00.000Z"),
+      durationMinutes: 15,
+      leadTimeHours: 12,
+      ownerId: user.id,
+      createdById: user.id,
+      agendaTemplate: FIXTURE_AGENDA_TEMPLATE,
+    },
+  });
+
+  await db.ceremonyParticipant.upsert({
+    where: { ceremonyId_userId: { ceremonyId: ceremony.id, userId: user.id } },
+    update: {},
+    create: { ceremonyId: ceremony.id, userId: user.id },
+  });
+
+  // 09:00 Europe/Berlin on Monday 8 September 2026 (CEST, UTC+2).
+  const occurrenceStart = new Date("2026-09-08T07:00:00.000Z");
+  const occurrenceEnd = new Date(occurrenceStart.getTime() + ceremony.durationMinutes * 60_000);
+  const occurrence = await db.ceremonyOccurrence.upsert({
+    where: {
+      ceremonyId_scheduledStart: { ceremonyId: ceremony.id, scheduledStart: occurrenceStart },
+    },
+    update: { workspaceId: workspace.id, status: "CAPTURED" },
+    create: {
+      ceremonyId: ceremony.id,
+      workspaceId: workspace.id,
+      scheduledStart: occurrenceStart,
+      scheduledEnd: occurrenceEnd,
+      status: "CAPTURED",
+      definitionSnapshot: {
+        name: ceremony.name,
+        slug: ceremony.slug,
+        kind: ceremony.kind,
+        cadenceRule: ceremony.cadenceRule,
+        timezone: ceremony.timezone,
+        durationMinutes: ceremony.durationMinutes,
+        agendaTemplate: ceremony.agendaTemplate,
+      },
+    },
+  });
+
+  // Plain `Name: text` lines - the labelled-turns parser (ADR-0032) turns each
+  // into one Transcript turn, so the decision's evidence `turnIndex` below
+  // resolves to a real turn on the recording page.
+  const transcriptTurns = [
+    "Dev Fixture: Morning. Blockers first - anything stuck?",
+    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear.",
+    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances?",
+    "Pat Reviewer: That is a prioritisation call, not a standup one. Let's park it for the prioritisation ceremony.",
+    "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
+    "Pat Reviewer: Noted. I'll take the accordion review today.",
+  ];
+  const meetingSummary =
+    "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.";
+  const meeting = await db.transcriptionSession.upsert({
+    where: { sessionId: FIXTURE.meetingSessionId },
+    // The update branch refreshes the content too: the decision's evidence
+    // `turnIndex` values are computed against `transcriptTurns` as written
+    // here, so a stale transcript would deep-link to the wrong turn.
+    update: {
+      workspaceId: workspace.id,
+      occurrenceId: occurrence.id,
+      userId: user.id,
+      title: FIXTURE.meetingTitle,
+      meetingDate: occurrenceStart,
+      transcription: transcriptTurns.join("\n"),
+      summary: meetingSummary,
+    },
+    create: {
+      sessionId: FIXTURE.meetingSessionId,
+      title: FIXTURE.meetingTitle,
+      meetingDate: occurrenceStart,
+      userId: user.id,
+      workspaceId: workspace.id,
+      occurrenceId: occurrence.id,
+      transcription: transcriptTurns.join("\n"),
+      summary: meetingSummary,
+      processedAt: occurrenceStart,
+      durationSeconds: 9 * 60,
+      participantCount: 2,
+    },
+  });
+
+  // Decisions (ADR-0060): one confirmed decision logged from that meeting with
+  // two quoted transcript turns as evidence. The label comes from the
+  // workspace sequence, advanced inside the create transaction the way the
+  // decision service will (like Product.ticketCounter), so the fixture shows
+  // `D-0001`. Matched on statement so a re-seed re-attaches rather than
+  // duplicates; the row cascades with the workspace.
+  const existingDecision = await db.decision.findFirst({
+    where: { workspaceId: workspace.id, statement: FIXTURE.decisionStatement },
+  });
+  // Every state-carrying field is re-asserted on re-seed so a decision that
+  // was edited in a dev session converges back on the declared fixture.
+  const decisionState = {
+    body: [
+      "## Context",
+      "Standups were drifting into prioritisation debates.",
+      "",
+      "## Decision",
+      "Prioritisation topics raised in a standup are parked and taken to the prioritisation ceremony.",
+      "",
+      "## Consequences",
+      "Standups stay inside fifteen minutes; the parking lot carries the topic forward.",
+    ].join("\n"),
+    status: "ACCEPTED",
+    reviewState: "CONFIRMED",
+    source: "MEETING",
+    decidedAt: occurrenceStart,
+    ownerId: user.id,
+    confirmedById: user.id,
+    confirmedAt: occurrenceStart,
+    transcriptionSessionId: meeting.id,
+    occurrenceId: occurrence.id,
+    productId: product.id,
+    evidence: [
+      { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+      { turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[4]!.replace(/^Dev Fixture: /, "") },
+    ],
+  } as const;
+  const decision = existingDecision
+    ? await db.decision.update({
+        where: { id: existingDecision.id },
+        data: decisionState,
+      })
+    : await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...decisionState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: FIXTURE.decisionStatement,
+            createdById: user.id,
+            deciders: {
+              create: [
+                { userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail },
+                { name: "Pat Reviewer", email: "pat.reviewer@exponential.test" },
+              ],
+            },
+          },
+        });
+      });
+
+  // An open question (a Decision in OPEN status, ADR-0060 decision 3) raised
+  // in the same meeting. The `resolve` draft below answers it; confirming
+  // that draft accepts this row instead of adding a new one, so the seed
+  // re-asserts OPEN and the original body every run.
+  const openQuestionState = {
+    body: "## Context\nRaised in the standup; parked for the prioritisation ceremony.",
+    status: "OPEN",
+    reviewState: "CONFIRMED",
+    source: "MEETING",
+    decidedAt: null,
+    confirmedById: user.id,
+    confirmedAt: occurrenceStart,
+    supersededById: null,
+    transcriptionSessionId: meeting.id,
+    occurrenceId: occurrence.id,
+    productId: product.id,
+    evidence: [
+      { turnIndex: 2, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[2]!.replace(/^Dev Fixture: /, "") },
+    ],
+  } as const;
+  const existingOpenQuestion = await db.decision.findFirst({
+    where: { workspaceId: workspace.id, statement: FIXTURE.openQuestionStatement },
+  });
+  const openQuestion = existingOpenQuestion
+    ? await db.decision.update({ where: { id: existingOpenQuestion.id }, data: openQuestionState })
+    : await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...openQuestionState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: FIXTURE.openQuestionStatement,
+            createdById: user.id,
+            deciders: { create: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }] },
+          },
+        });
+      });
+
+  // Draft decisions (Decisions V2): what the extractor would have produced
+  // from this transcript, persisted as `reviewState: DRAFT` rows so the review
+  // surfaces have something to confirm and reject without a model call.
+  // Re-asserted back to DRAFT on every seed, so a spec that confirmed or
+  // rejected one last run finds it pending again.
+  const draftSpecs = [
+    {
+      statement: FIXTURE.draftDecisionStatements.confirm,
+      evidence: [
+        { turnIndex: 5, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[5]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.reject,
+      evidence: [
+        { turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[1]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.resolve,
+      evidence: [
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+      // A resolution draft: points at the open question until confirm applies it.
+      resolvesId: openQuestion.id,
+    },
+  ] as const;
+  // Converge the meeting's decisions on the declared set: a draft edited or
+  // confirmed by a spec no longer matches its declared statement and would be
+  // duplicated (or shadow it) on re-seed. The fixture workspace is
+  // disposable, so the "confirmed decisions are never deleted" rule
+  // (ADR-0060) does not apply to its strays.
+  await db.decision.deleteMany({
+    where: {
+      transcriptionSessionId: meeting.id,
+      statement: {
+        notIn: [
+          FIXTURE.decisionStatement,
+          FIXTURE.openQuestionStatement,
+          ...draftSpecs.map((spec) => spec.statement),
+        ],
+      },
+    },
+  });
+  for (const spec of draftSpecs) {
+    const draftState = {
+      body: "## Context\nExtracted from the standup transcript.",
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      source: "MEETING",
+      decidedAt: occurrenceStart,
+      confirmedById: null,
+      confirmedAt: null,
+      supersededById: "resolvesId" in spec ? spec.resolvesId : null,
+      transcriptionSessionId: meeting.id,
+      occurrenceId: occurrence.id,
+      productId: product.id,
+      evidence: spec.evidence,
+    } as const;
+    const existingDraft = await db.decision.findFirst({
+      where: { workspaceId: workspace.id, statement: spec.statement },
+    });
+    if (existingDraft) {
+      await db.decision.update({ where: { id: existingDraft.id }, data: draftState });
+    } else {
+      await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...draftState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: spec.statement,
+            createdById: user.id,
+            deciders: { create: spec.deciders.map((d) => ({ ...d })) },
+          },
+        });
+      });
+    }
+  }
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    tagId: tag.id,
+    tagName: FIXTURE.tagName,
+    ceremonyId: ceremony.id,
+    occurrenceId: occurrence.id,
+    meetingUrl: `/recording/${meeting.id}`,
+    decisionId: decision.id,
+    decisionLabel: `D-${String(decision.number).padStart(4, "0")}`,
+    decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
+    draftDecisionStatements: FIXTURE.draftDecisionStatements,
+    openQuestionStatement: FIXTURE.openQuestionStatement,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,

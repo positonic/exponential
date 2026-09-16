@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import type {
   UseActivityReturn,
   ActivityItem,
@@ -18,6 +18,12 @@ import { STATUS_LABELS, STATUS_COLORS } from "~/lib/ticket-statuses";
 interface UseTicketActivityOptions {
   mentionCandidates?: MentionCandidate[];
   mentionNames?: string[];
+  /**
+   * Events the caller already has (the detail page gets them from getByRef),
+   * used to seed `listEvents` so the timeline doesn't wait on its own fetch.
+   */
+  initialEvents?: RouterOutputs["product"]["ticket"]["listEvents"];
+  initialEventsUpdatedAt?: number;
 }
 
 /** WorkspaceActivityEvent field keys → the UI's vocabulary. */
@@ -63,7 +69,11 @@ export function useTicketActivity(
   );
   const { data: events } = api.product.ticket.listEvents.useQuery(
     { id: ticketId },
-    { enabled: !!ticketId },
+    {
+      enabled: !!ticketId,
+      initialData: options?.initialEvents,
+      initialDataUpdatedAt: options?.initialEventsUpdatedAt,
+    },
   );
 
   const invalidate = useCallback(() => {
