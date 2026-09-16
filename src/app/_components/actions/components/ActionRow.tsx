@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { IconCalendar, IconClock, IconSparkles } from "@tabler/icons-react";
 import { HTMLContent } from "../../HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 import { ScheduledIndicator } from "../../shared/ScheduledIndicator";
 import { ActiveTimerIndicator } from "../../ActiveTimerIndicator";
 import { TagBadgeList } from "../../TagBadge";
@@ -87,6 +88,9 @@ export function ActionRow({
   ]
     .filter(Boolean)
     .join(" ");
+  // Accessible names are strings: they read the text of a legacy-HTML name,
+  // where the title below renders it.
+  const plainName = toPlainText(action.name) || "Untitled";
 
   return (
     <div className={className} onClick={handleRowClick}>
@@ -97,7 +101,7 @@ export function ActionRow({
           checked={bulkSelected}
           onChange={() => onBulkToggle?.(action.id)}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Select ${action.name}`}
+          aria-label={`Select ${plainName}`}
         />
       )}
       <PriorityCheckbox
@@ -105,7 +109,7 @@ export function ActionRow({
         status={action.status}
         isOverdue={isOverdue}
         onToggle={handleComplete}
-        ariaLabel={`Mark ${action.name} as complete`}
+        ariaLabel={`Mark ${plainName} as complete`}
       />
       <div className={styles.body}>
         <div className={styles.title}>
