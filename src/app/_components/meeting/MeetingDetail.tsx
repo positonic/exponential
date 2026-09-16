@@ -24,6 +24,7 @@ import { LogDecisionModal } from "~/app/_components/decisions/LogDecisionModal";
 import { DraftDecisionReviewList } from "~/app/_components/decisions/DraftDecisionReviewList";
 import type { MeetingProjectOption } from "./MeetingProjectPicker";
 import type { MeetingOccurrenceOption } from "./MeetingOccurrencePicker";
+import type { MeetingFeatureOption } from "./MeetingFeaturePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
@@ -231,6 +232,62 @@ export function MeetingDetail({
     vm.occurrence && session.workspace?.slug
       ? `/w/${session.workspace.slug}/ceremonies/${vm.occurrence.ceremonyId}`
       : null;
+
+  // Features discussed (`MeetingFeature`): any feature in the meeting's
+  // workspace. The server decides who may link (workspace members who can
+  // edit the meeting); the candidate list loads on the picker's first open.
+  const [featurePickerOpened, setFeaturePickerOpened] = useState(false);
+  const { data: workspaceFeatures = [], isLoading: isLoadingFeatures } =
+    api.product.feature.listForWorkspace.useQuery(
+      { workspaceId: session.workspaceId ?? "" },
+      {
+        enabled:
+          featurePickerOpened && session.canLinkFeatures && Boolean(session.workspaceId),
+      },
+    );
+  const featureOptions = useMemo<MeetingFeatureOption[]>(
+    () =>
+      workspaceFeatures.map((f) => ({
+        id: f.id,
+        name: f.name,
+        status: f.status,
+        productName: f.product.name,
+      })),
+    [workspaceFeatures],
+  );
+  const linkedFeatures = useMemo(
+    () =>
+      session.featureLinks.map(({ feature }) => ({
+        id: feature.id,
+        name: feature.name,
+        productName: feature.product.name,
+        href: session.workspace?.slug
+          ? `/w/${session.workspace.slug}/products/${feature.product.slug}/features/${feature.id}`
+          : null,
+      })),
+    [session.featureLinks, session.workspace?.slug],
+  );
+  const linkFeature = api.transcription.linkFeature.useMutation({
+    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onError: (error) =>
+      notifications.show({ title: "Couldn't link feature", message: error.message, color: "red" }),
+  });
+  const unlinkFeature = api.transcription.unlinkFeature.useMutation({
+    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onError: (error) =>
+      notifications.show({ title: "Couldn't unlink feature", message: error.message, color: "red" }),
+  });
+  const isSavingFeatureLink = linkFeature.isPending || unlinkFeature.isPending;
+  const onFeatureToggle = session.canLinkFeatures
+    ? (featureId: string, linked: boolean) => {
+        // The picker's checked state comes from the refetch, so a second click
+        // mid-save would re-send the stale action.
+        if (isSavingFeatureLink) return;
+        const payload = { transcriptionId: session.id, featureId };
+        if (linked) linkFeature.mutate(payload);
+        else unlinkFeature.mutate(payload);
+      }
+    : undefined;
 
   const meetingDateObj = session.meetingDate ? new Date(session.meetingDate) : null;
   const displayDate = meetingDateObj ?? new Date(session.createdAt);
@@ -451,6 +508,11 @@ export function MeetingDetail({
             occurrenceHref={occurrenceHref}
             occurrenceOptions={occurrenceOptions}
             onOccurrenceChange={onOccurrenceChange}
+            linkedFeatures={linkedFeatures}
+            featureOptions={featureOptions}
+            onFeatureToggle={onFeatureToggle}
+            onFeaturePickerOpen={() => setFeaturePickerOpened(true)}
+            isLoadingFeatures={featurePickerOpened && isLoadingFeatures}
             onShare={handleShare}
             onExportTranscript={handleExportTranscript}
             canExport={Boolean(session.transcription)}

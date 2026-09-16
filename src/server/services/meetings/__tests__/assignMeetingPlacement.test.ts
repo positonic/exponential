@@ -98,6 +98,42 @@ describe("assignMeetingPlacement", () => {
     );
   });
 
+  it("drops feature links that the move strands in another workspace", async () => {
+    vi.mocked(canEditProject).mockReturnValue(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: "ws-A" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }]);
+
+    await assignMeetingPlacement(db, USER, {
+      meetingIds: ["m1"],
+      projectId: "proj-1",
+      scope: "owner",
+    });
+
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: {
+        transcriptionSessionId: { in: ["m1"] },
+        feature: { product: { workspaceId: { not: "ws-A" } } },
+      },
+    });
+  });
+
+  it("drops every feature link when the meeting goes Personal", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }]);
+
+    await assignMeetingPlacement(db, USER, {
+      meetingIds: ["m1"],
+      projectId: null,
+      scope: "owner",
+    });
+
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: { in: ["m1"] } },
+    });
+  });
+
   it("clears project AND workspace on the meeting and its Actions when projectId is null", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }]);

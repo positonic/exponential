@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { buildProjectAccessWhere } from "~/server/services/access";
+import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
@@ -640,6 +641,11 @@ export const productRouter = createTRPCRouter({
         await tx.retrospective.updateMany({
           where: { productId: product.id },
           data: { workspaceId: input.targetWorkspaceId },
+        });
+        // Meeting links stay with their meetings' workspace, so they break.
+        await dropStrandedFeatureMeetingLinks(tx, {
+          productId: product.id,
+          workspaceId: input.targetWorkspaceId,
         });
 
         // Bring along epics used exclusively by this product.

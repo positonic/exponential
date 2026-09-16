@@ -35,7 +35,7 @@ interface MeetingOccurrencePickerProps {
   /** Custom trigger — receives a `toggle` to open/close the dropdown. */
   children: (args: { toggle: () => void }) => ReactNode;
   disabled?: boolean;
-  dropdownWidth?: number;
+  dropdownWidth?: number | "target";
 }
 
 /**
