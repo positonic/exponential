@@ -22,7 +22,9 @@ import { CeremonyKind } from "@prisma/client";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { CadencePicker } from "./CadencePicker";
+import { CeremonyIconPicker } from "./CeremonyIcon";
 import { DEFAULT_CADENCE, buildCadenceRule } from "~/lib/ceremonies/cadence";
+import { isCeremonyIconKey } from "~/lib/ceremonies/icons";
 import {
   AGENDA_SECTION_TYPES,
   type AgendaSectionTemplate,
@@ -46,6 +48,8 @@ export const CEREMONY_KIND_LABELS: Record<CeremonyKind, string> = {
 interface FormState {
   name: string;
   kind: CeremonyKind;
+  /** Null follows the kind's default icon. */
+  icon: string | null;
   aliases: string[];
   purpose: string;
   notFor: string;
@@ -83,6 +87,7 @@ function emptyForm(): FormState {
   return {
     name: "",
     kind: "CUSTOM",
+    icon: null,
     aliases: [],
     purpose: "",
     notFor: "",
@@ -143,6 +148,7 @@ function fromCeremony(c: CeremonyDetail): FormState {
   return {
     name: c.name,
     kind: c.kind,
+    icon: c.icon,
     aliases: [...c.aliases],
     purpose: c.purpose ?? "",
     notFor: c.notFor ?? "",
@@ -294,6 +300,7 @@ export function CeremonyEditorModal({
       workspaceId,
       name: form.name.trim(),
       kind: form.kind,
+      icon: isCeremonyIconKey(form.icon) ? form.icon : null,
       aliases: form.aliases,
       purpose: orNull(form.purpose),
       notFor: orNull(form.notFor),
@@ -362,6 +369,17 @@ export function CeremonyEditorModal({
               allowDeselect={false}
             />
           </Group>
+          <Stack gap={6}>
+            <div>
+              <Text size="sm" fw={500}>
+                Icon
+              </Text>
+              <Text size="xs" className="text-text-muted">
+                Shown on this ceremony&apos;s meeting cards. Follows the kind until you pick one.
+              </Text>
+            </div>
+            <CeremonyIconPicker value={form.icon} kind={form.kind} onChange={(icon) => set("icon", icon)} />
+          </Stack>
           <TagsInput
             label="Title aliases"
             description="Calendar or recording titles that match these attach automatically."

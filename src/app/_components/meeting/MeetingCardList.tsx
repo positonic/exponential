@@ -26,6 +26,7 @@ import {
   type MeetingCardSession,
 } from "~/lib/meetingCardViewModel";
 import { MeetingProjectPicker, type MeetingProjectOption } from "./MeetingProjectPicker";
+import { CeremonyIconTile } from "../ceremonies/CeremonyIcon";
 
 /** One row of `transcription.getMeetingCards` — the shape every card renders. */
 export type MeetingCardRow = RouterOutputs["transcription"]["getMeetingCards"][number];
@@ -130,16 +131,15 @@ function groupMeetingsByLocalDay<T extends MeetingDateLike>(
 }
 
 // ── Card helpers ───────────────────────────────────────────────────
-// Format a Meeting timestamp like "9:05a" / "11:30p" — lowercase shorthand
-// am/pm matching the design's tight font-mono gutter.
+// Format a Meeting timestamp like "9:05 AM" / "11:30 PM".
 function formatMeetingTime(raw: Date | string): string {
   const d = raw instanceof Date ? raw : new Date(raw);
   if (isNaN(d.getTime())) return "";
   const hours24 = d.getHours();
   const minutes = d.getMinutes();
-  const period = hours24 >= 12 ? "p" : "a";
+  const period = hours24 >= 12 ? "PM" : "AM";
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
-  return `${hours12}:${String(minutes).padStart(2, "0")}${period}`;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
 // "18m", "42m", "1h 04m". Null when durationSeconds is missing — caller hides.
@@ -313,20 +313,29 @@ export function MeetingCardList({
                   }}
                   className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-[18px] py-4 transition-colors hover:border-border-strong hover:bg-background-elevated"
                 >
-                  {/* Top row: checkbox + time + title block + project tag + avatars + kebab */}
-                  <div className="mb-3 flex items-start gap-3">
+                  {/* Checkbox + ceremony icon gutter; the title row and AI summary share one column so the summary lines up with the title */}
+                  <div className="flex items-start gap-3">
                     {selectedIds && onSelectedChange && (
                       <Checkbox
-                        mt={2}
+                        mt={10}
                         checked={selectedIds.has(session.id)}
                         onChange={(event) => onSelectedChange(session.id, event.currentTarget.checked)}
                         onClick={stopBubble}
                         size="xs"
+                        aria-label={`Select ${vm.title}`}
+                        // Hidden until hover but keeps its width, so nothing shifts; stays visible while anything is selected,
+                        // and always on touch screens, which have no hover to reveal it.
+                        className={`transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100 ${
+                          selectedIds.size > 0 ? "opacity-100" : "opacity-0"
+                        }`}
                       />
                     )}
-                    <div className="w-12 pt-[3px] font-mono text-[11.5px] tabular-nums text-text-muted">
-                      {time}
-                    </div>
+                    <CeremonyIconTile
+                      icon={session.occurrence?.ceremony.icon}
+                      kind={session.occurrence?.ceremony.kind}
+                    />
+                    <div className="min-w-0 flex-1">
+                  <div className="mb-3 flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <Link
                         href={detailHref}
@@ -354,6 +363,11 @@ export function MeetingCardList({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-start gap-3">
+                      {time && (
+                        <div className="whitespace-nowrap text-xs leading-[22px] tabular-nums text-text-muted">
+                          {time}
+                        </div>
+                      )}
                       {/* Project placement — searchable, grouped by workspace, across all editable workspaces */}
                       <div onClick={stopBubble}>
                         <MeetingProjectPicker
@@ -505,6 +519,8 @@ export function MeetingCardList({
                       </div>
                     </div>
                   </AiSummaryDisclosure>
+                    </div>
+                  </div>
                 </div>
               );
             })}

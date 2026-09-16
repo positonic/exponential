@@ -2272,6 +2272,8 @@ model Ceremony {
   aliases         String[]     @default([])
   /// Drives the default agenda template and (V3) the per-person questions.
   kind            CeremonyKind @default(CUSTOM)
+  /// Icon key from `~/lib/ceremonies/icons`; null shows the kind's default.
+  icon            String?
   /// Markdown (ADR-0017).
   purpose         String?      @db.Text
   /// Markdown (ADR-0017). What this ceremony is explicitly not for.
