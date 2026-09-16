@@ -56,6 +56,7 @@ import {
 } from "@tabler/icons-react";
 import { TranscriptView } from "./meeting/TranscriptView";
 import { MeetingProjectPicker } from "./meeting/MeetingProjectPicker";
+import { CeremonyIconTile } from "./ceremonies/CeremonyIcon";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import {
@@ -202,16 +203,15 @@ function computeInitials(name: string): string {
 }
 
 // ── Card helpers ───────────────────────────────────────────────────
-// Format a Meeting timestamp like "9:05a" / "11:30p" — lowercase shorthand
-// am/pm matching the design's tight font-mono gutter.
+// Format a Meeting timestamp like "9:05 AM" / "11:30 PM".
 function formatMeetingTime(raw: Date | string): string {
   const d = raw instanceof Date ? raw : new Date(raw);
   if (isNaN(d.getTime())) return "";
   const hours24 = d.getHours();
   const minutes = d.getMinutes();
-  const period = hours24 >= 12 ? "p" : "a";
+  const period = hours24 >= 12 ? "PM" : "AM";
   const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
-  return `${hours12}:${String(minutes).padStart(2, "0")}${period}`;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
 }
 
 // "18m", "42m", "1h 04m". Null when durationSeconds is missing — caller hides.
@@ -1366,6 +1366,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                       const stopBubble = (e: React.MouseEvent | React.KeyboardEvent) => e.stopPropagation();
 
                       const time = formatMeetingTime(session.meetingDate ?? session.createdAt);
+                      const isSelected = selectedTranscriptionIds.has(session.id);
                       const duration = formatDuration(session.durationSeconds);
                       const provider = session.sourceIntegration?.provider;
                       const tagClass = vm.projectPill
@@ -1386,11 +1387,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                         }}
                         className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-[18px] py-4 transition-colors hover:border-border-strong hover:bg-background-elevated"
                       >
-                        {/* Top row: checkbox + time + title block + project tag + avatars + kebab */}
-                        <div className="mb-3 flex items-start gap-3">
+                        {/* Checkbox + ceremony icon gutter; the title row and AI summary share one column so the summary lines up with the title */}
+                        <div className="flex items-start gap-3">
                           <Checkbox
-                            mt={2}
-                            checked={selectedTranscriptionIds.has(session.id)}
+                            mt={10}
+                            checked={isSelected}
                             onChange={(event) => {
                               const newSelected = new Set(selectedTranscriptionIds);
                               if (event.currentTarget.checked) {
@@ -1402,10 +1403,18 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             }}
                             onClick={stopBubble}
                             size="xs"
+                            aria-label={`Select ${vm.title}`}
+                            // Hidden until hover but keeps its width, so nothing shifts; stays visible while anything is selected.
+                            className={`transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
+                              selectedTranscriptionIds.size > 0 ? "opacity-100" : "opacity-0"
+                            }`}
                           />
-                          <div className="w-12 pt-[3px] font-mono text-[11.5px] tabular-nums text-text-muted">
-                            {time}
-                          </div>
+                          <CeremonyIconTile
+                            icon={session.occurrence?.ceremony.icon}
+                            kind={session.occurrence?.ceremony.kind}
+                          />
+                          <div className="min-w-0 flex-1">
+                        <div className="mb-3 flex items-start gap-3">
                           <div className="min-w-0 flex-1">
                             <Link
                               href={detailHref}
@@ -1433,6 +1442,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             </div>
                           </div>
                           <div className="flex shrink-0 items-start gap-3">
+                            {time && (
+                              <div className="whitespace-nowrap text-xs leading-[22px] tabular-nums text-text-muted">
+                                {time}
+                              </div>
+                            )}
                             {/* Project placement — searchable, grouped by workspace, across all editable workspaces */}
                             <div onClick={stopBubble}>
                               <MeetingProjectPicker
@@ -1584,6 +1598,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                             </div>
                           </div>
                         </AiSummaryDisclosure>
+                          </div>
+                        </div>
                       </div>
                       );
                     })}

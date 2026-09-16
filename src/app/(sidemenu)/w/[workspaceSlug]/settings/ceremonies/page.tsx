@@ -24,6 +24,7 @@ import {
   CeremonyEditorModal,
 } from "~/app/_components/ceremonies/CeremonyEditorModal";
 import { CeremonyAdminTools } from "~/app/_components/ceremonies/CeremonyAdminTools";
+import { CeremonyIconTile } from "~/app/_components/ceremonies/CeremonyIcon";
 import type { CeremonyTemplate } from "~/server/services/ceremonies/templates";
 
 /**
@@ -124,24 +125,29 @@ export default function CeremoniesSettingsPage() {
                 {ceremonies.map((c) => (
                   <Table.Tr key={c.id} data-testid={`ceremony-row-${c.slug}`}>
                     <Table.Td>
-                      <Group gap="xs" wrap="nowrap">
-                        <Link href={`/w/${workspace.slug}/ceremonies/${c.id}`} className="font-medium hover:underline">
-                          {c.name}
-                        </Link>
-                        <Badge size="xs" variant="light">
-                          {CEREMONY_KIND_LABELS[c.kind]}
-                        </Badge>
-                        {!c.isActive && (
-                          <Badge size="xs" variant="outline" color="gray">
-                            Inactive
-                          </Badge>
-                        )}
+                      <Group gap="sm" wrap="nowrap" align="flex-start">
+                        <CeremonyIconTile icon={c.icon} kind={c.kind} size="sm" />
+                        <div className="min-w-0">
+                          <Group gap="xs" wrap="nowrap">
+                            <Link href={`/w/${workspace.slug}/ceremonies/${c.id}`} className="font-medium hover:underline">
+                              {c.name}
+                            </Link>
+                            <Badge size="xs" variant="light">
+                              {CEREMONY_KIND_LABELS[c.kind]}
+                            </Badge>
+                            {!c.isActive && (
+                              <Badge size="xs" variant="outline" color="gray">
+                                Inactive
+                              </Badge>
+                            )}
+                          </Group>
+                          {c.aliases.length > 0 && (
+                            <Text size="xs" className="text-text-muted">
+                              aka {c.aliases.join(", ")}
+                            </Text>
+                          )}
+                        </div>
                       </Group>
-                      {c.aliases.length > 0 && (
-                        <Text size="xs" className="text-text-muted">
-                          aka {c.aliases.join(", ")}
-                        </Text>
-                      )}
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm">{describeCadence(c.cadenceRule)}</Text>
