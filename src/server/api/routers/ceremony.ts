@@ -11,6 +11,7 @@ import {
 import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
+import { CEREMONY_ICON_KEYS } from "~/lib/ceremonies/icons";
 import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
@@ -81,6 +82,8 @@ const ceremonyFieldsSchema = z.object({
   slug: z.string().min(1).max(60).optional(),
   aliases: z.array(z.string().min(1).max(120)).max(20).default([]),
   kind: z.nativeEnum(CeremonyKind).default(CeremonyKind.CUSTOM),
+  /** Null resets to the kind's default icon. */
+  icon: z.enum(CEREMONY_ICON_KEYS).nullish(),
   purpose: z.string().max(10_000).nullish(),
   notFor: z.string().max(10_000).nullish(),
   inputs: z.string().max(10_000).nullish(),
@@ -130,6 +133,7 @@ const ceremonySummarySelect = {
   slug: true,
   aliases: true,
   kind: true,
+  icon: true,
   cadenceRule: true,
   timezone: true,
   startsOn: true,

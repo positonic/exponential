@@ -17,6 +17,7 @@ import { TimeEntryModal } from "~/app/_components/TimeEntryModal";
 import { TimeReports } from "./TimeReports";
 import { TimeDayView } from "./TimeDayView";
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
+import { toPlainText } from "~/lib/content/plainText";
 import { flagForgottenTimers } from "~/lib/time/forgottenTimer";
 
 // Stable reference so the `entries` memo doesn't re-run on every render when
@@ -258,7 +259,7 @@ export function TimePageContent() {
                               className="truncate text-text-primary"
                               fw={500}
                             >
-                              {e.action?.name ?? "Untitled"}
+                              {toPlainText(e.action?.name) || "Untitled"}
                               {isRunning && (
                                 <span className="ml-2 text-xs text-brand-primary">
                                   · running

@@ -15,13 +15,14 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconArrowLeft, IconCalendarRepeat, IconSettings } from "@tabler/icons-react";
+import { IconArrowLeft, IconSettings } from "@tabler/icons-react";
 import type { CeremonyOccurrenceStatus } from "@prisma/client";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { describeCadence } from "~/lib/ceremonies/cadence";
 import { CEREMONY_KIND_LABELS } from "~/app/_components/ceremonies/CeremonyEditorModal";
+import { CeremonyIconTile } from "~/app/_components/ceremonies/CeremonyIcon";
 
 /**
  * Ceremony page (ADR-0059, V1 minimal): the definition summary and the
@@ -161,7 +162,7 @@ export default function CeremonyPage() {
               All ceremonies
             </Button>
             <Group gap="xs" mt={6}>
-              <IconCalendarRepeat size={22} />
+              <CeremonyIconTile icon={ceremony.icon} kind={ceremony.kind} />
               <Title order={2}>{ceremony.name}</Title>
               <Badge variant="light">{CEREMONY_KIND_LABELS[ceremony.kind]}</Badge>
               {!ceremony.isActive && (
