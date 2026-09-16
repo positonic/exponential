@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  Fragment,
-  useContext,
-  useMemo,
-  useState,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Menu, Skeleton } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import {
@@ -29,14 +21,12 @@ import {
 } from "@tabler/icons-react";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { WORKSPACE_PERMISSION_MAP, hasMinimumWorkspaceRole } from "~/server/services/access/types";
 import { LogDecisionModal } from "./LogDecisionModal";
-import { AdrDetail } from "./AdrDetail";
-import { DecisionDetail } from "./DecisionDetail";
-import { PeekDrawer } from "~/app/_components/product/peek/PeekDrawer";
+import { DecisionPeekDrawer, DecisionPeekProvider, usePeekLink } from "./DecisionPeek";
+import { adrStatusBadge, decisionStatusBadge, type PeekPreview } from "./DetailPreview";
 import {
   decisionToLogRow,
   filterLogRows,
@@ -45,6 +35,7 @@ import {
   type LogGroup,
   type LogSource,
   type LogStatus,
+  type PeekKey,
 } from "~/lib/decision-log";
 import "./decisions-index.css";
 
@@ -100,43 +91,6 @@ const SOURCE_ORDER: Array<{ value: LogSource; label: string; icon: ReactNode }> 
 ];
 
 const WORKSPACE_SCOPE = "workspace";
-
-/**
- * Peek keys carry the row kind — ADRs and Decisions are separate tables with
- * separate detail views, and the URL has to say which one to open without
- * waiting for either list to load.
- */
-type PeekKey = `adr-${string}` | `decision-${string}`;
-
-function parsePeekKey(raw: string | null): { kind: "adr" | "decision"; id: string } | null {
-  if (!raw) return null;
-  const dash = raw.indexOf("-");
-  const kind = raw.slice(0, dash);
-  const id = raw.slice(dash + 1);
-  if ((kind !== "adr" && kind !== "decision") || !id) return null;
-  return { kind, id };
-}
-
-/** Plain click peeks; modified and middle clicks keep the link's own behaviour
- *  (new tab, new window), so the full page stays one gesture away. */
-const PeekContext = createContext<{
-  active: string | null;
-  open: (key: PeekKey) => void;
-} | null>(null);
-
-function usePeekLink(key: PeekKey) {
-  const peek = useContext(PeekContext);
-  return {
-    "data-peeked": peek?.active === key ? "" : undefined,
-    onClick: (e: MouseEvent<HTMLAnchorElement>) => {
-      if (!peek || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
-        return;
-      }
-      e.preventDefault();
-      peek.open(key);
-    },
-  };
-}
 
 /** `17 Jun 2026` — short, unambiguous, tabular. */
 function formatDecided(date: Date | string | null): string | null {
@@ -779,20 +733,6 @@ export function DecisionsIndex({
   const repoCount = scopedConfigs.length;
   const repoWord = repoCount === 1 ? "repository" : "repositories";
 
-  // ── Peek drawer (?peek=adr-<id> | decision-<id>) - detail over the list,
-  // the list never unmounts. Same shell and URL contract as the backlog.
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const peekRaw = searchParams.get("peek");
-  const peek = parsePeekKey(peekRaw);
-  const setPeek = (key: PeekKey | null) => {
-    const next = new URLSearchParams(searchParams.toString());
-    if (key) next.set("peek", key);
-    else next.delete("peek");
-    const qs = next.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  };
   // Prev/next walk the rows in on-screen order: ADR items then Decisions,
   // grouped or flat to match what is rendered.
   const visibleKeys = useMemo<PeekKey[]>(() => {
@@ -811,16 +751,29 @@ export function DecisionsIndex({
       ...visibleDecisions.map((r): PeekKey => `decision-${r.id}`),
     ];
   }, [effectiveGrouped, groups, decisionGroups, flatItems, visibleDecisions]);
-  const peekIndex = peekRaw ? visibleKeys.indexOf(peekRaw as PeekKey) : -1;
-  const peekPrev = peekIndex > 0 ? () => setPeek(visibleKeys[peekIndex - 1]!) : undefined;
-  const peekNext =
-    peekIndex !== -1 && peekIndex < visibleKeys.length - 1
-      ? () => setPeek(visibleKeys[peekIndex + 1]!)
-      : undefined;
-  const peekContext = { active: peek ? peekRaw : null, open: setPeek };
+
+  // What the peek paints before its detail query lands.
+  const peekPreviews = useMemo(() => {
+    const previews = new Map<string, PeekPreview>();
+    for (const adr of adrs ?? []) {
+      previews.set(`adr-${adr.id}`, {
+        label: adr.label,
+        title: adr.title,
+        badge: adrStatusBadge(adr.status),
+      });
+    }
+    for (const decision of decisions ?? []) {
+      previews.set(`decision-${decision.id}`, {
+        label: decision.label,
+        title: decision.statement,
+        badge: decisionStatusBadge(decision.status),
+      });
+    }
+    return previews;
+  }, [adrs, decisions]);
 
   return (
-    <PeekContext.Provider value={peekContext}>
+    <DecisionPeekProvider workspaceId={workspaceId}>
       <div className="dec-surface">
         <div className="dec-canvas">
           <div className="dec-head">
@@ -1035,32 +988,13 @@ export function DecisionsIndex({
           ) : null}
         </div>
 
-        <PeekDrawer
-          label="Decision details"
-          opened={!!peek}
-          onClose={() => setPeek(null)}
-          fullPageHref={
-            peek
-              ? peek.kind === "adr"
-                ? `/w/${workspaceSlug}/decisions/${peek.id}`
-                : `/w/${workspaceSlug}/decisions/d/${peek.id}`
-              : null
-          }
-          onPrev={peekPrev}
-          onNext={peekNext}
-        >
-          {peek?.kind === "adr" ? (
-            <AdrDetail key={peek.id} workspaceId={workspaceId} workspaceSlug={workspaceSlug} adrId={peek.id} />
-          ) : peek?.kind === "decision" ? (
-            <DecisionDetail
-              key={peek.id}
-              workspaceId={workspaceId}
-              workspaceSlug={workspaceSlug}
-              decisionId={peek.id}
-            />
-          ) : null}
-        </PeekDrawer>
+        <DecisionPeekDrawer
+          workspaceId={workspaceId}
+          workspaceSlug={workspaceSlug}
+          visibleKeys={visibleKeys}
+          previews={peekPreviews}
+        />
       </div>
-    </PeekContext.Provider>
+    </DecisionPeekProvider>
   );
 }

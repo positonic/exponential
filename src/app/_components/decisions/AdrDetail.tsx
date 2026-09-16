@@ -7,7 +7,6 @@ import {
   Divider,
   Group,
   Paper,
-  Skeleton,
   Stack,
   Text,
   Title,
@@ -16,6 +15,7 @@ import { IconBrandGithub } from "@tabler/icons-react";
 import Link from "next/link";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { ImplementedByPicker } from "~/app/_components/decisions/ImplementedByPicker";
+import { DetailPreview, adrStatusBadge, type PeekPreview } from "./DetailPreview";
 import { api } from "~/trpc/react";
 
 /**
@@ -26,21 +26,17 @@ import { api } from "~/trpc/react";
  * and the Decision Log's peek drawer.
  */
 
-const STATUS_COLOR: Record<string, string> = {
-  PROPOSED: "blue",
-  ACCEPTED: "green",
-  SUPERSEDED: "orange",
-  DEPRECATED: "red",
-};
-
 export function AdrDetail({
   workspaceId,
   workspaceSlug,
   adrId,
+  preview,
 }: {
   workspaceId: string;
   workspaceSlug: string;
   adrId: string;
+  /** The Decision Log row's header, painted while the detail loads. */
+  preview?: PeekPreview;
 }) {
   const {
     data: adr,
@@ -57,14 +53,7 @@ export function AdrDetail({
     { enabled: !!workspaceId && !!adrId },
   );
 
-  if (isLoading) {
-    return (
-      <>
-        <Skeleton height={40} width={280} mb="lg" />
-        <Skeleton height={400} />
-      </>
-    );
-  }
+  if (isLoading) return <DetailPreview preview={preview} />;
 
   if (error ?? !adr) {
     return (
@@ -88,6 +77,7 @@ export function AdrDetail({
   ];
 
   const decisionHref = (id: string) => `/w/${workspaceSlug}/decisions/${id}`;
+  const statusBadge = adrStatusBadge(adr.status);
 
   return (
     <>
@@ -99,19 +89,9 @@ export function AdrDetail({
                 {adr.label}
               </Text>
             ) : null}
-            {adr.status === "UNKNOWN" ? (
-              <Badge variant="light" color="gray" title={adr.statusRaw ?? undefined}>
-                no status
-              </Badge>
-            ) : (
-              <Badge
-                variant="light"
-                color={STATUS_COLOR[adr.status] ?? "gray"}
-                title={adr.statusRaw ?? undefined}
-              >
-                {adr.status.toLowerCase()}
-              </Badge>
-            )}
+            <Badge variant="light" color={statusBadge.color} title={adr.statusRaw ?? undefined}>
+              {statusBadge.label}
+            </Badge>
             {adr.deletedAt ? (
               <Badge variant="light" color="red">
                 removed from repo

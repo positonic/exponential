@@ -13,6 +13,7 @@ import {
   filterLogRows,
   groupLogRows,
   isWorkspaceWide,
+  parsePeekKey,
   sortFlat,
   type AdrRowInput,
   type DecisionRowInput,
@@ -174,5 +175,28 @@ describe("ordering and grouping", () => {
     expect(groups.map((g) => g.group.kind)).toEqual(["repository", "ceremony", "project", "workspace"]);
     // ADRs keep number order inside their repository (conflict bracketing relies on it).
     expect(groups[0]!.rows.map((r) => r.id)).toEqual(["adr-a", "adr-b"]);
+  });
+});
+
+describe("parsePeekKey", () => {
+  it("reads the row kind and id", () => {
+    expect(parsePeekKey("adr-cmtlfwbzq000x9bndhdq1uzwi")).toEqual({
+      kind: "adr",
+      id: "cmtlfwbzq000x9bndhdq1uzwi",
+    });
+    expect(parsePeekKey("decision-cmtufthy50016xs0cfrubhq5r")).toEqual({
+      kind: "decision",
+      id: "cmtufthy50016xs0cfrubhq5r",
+    });
+  });
+
+  it("rejects anything that is not a peek key, so the drawer stays closed", () => {
+    expect(parsePeekKey(null)).toBeNull();
+    expect(parsePeekKey("")).toBeNull();
+    // A bare id (the tickets backlog's form) has no kind.
+    expect(parsePeekKey("cmtufthy50016xs0cfrubhq5r")).toBeNull();
+    expect(parsePeekKey("ticket-cmtufthy50016xs0cfrubhq5r")).toBeNull();
+    expect(parsePeekKey("adr-")).toBeNull();
+    expect(parsePeekKey("adr")).toBeNull();
   });
 });
