@@ -122,12 +122,26 @@ export default function ProductLayout({
   // Deferred to browser-idle so it never competes with the tab you're actually
   // looking at. Inputs must match each page's useQuery exactly (incl. their
   // default toggle state) or the cache key won't hit.
+  //
+  // Only from a tab page itself. A detail route (a ticket, a feature) is still
+  // streaming its own queries when the browser first goes idle, and the warm
+  // set includes the full ticket list with every body — the heaviest read in
+  // the product — for tabs the user may never open from there. It runs once
+  // per product, when they land on a tab.
   const productId = product?.id;
+  const isOnTab =
+    !!workspace &&
+    tabs.some(
+      (t) => pathname === `/w/${workspace.slug}/products/${productSlug}${t.href}`,
+    );
+  const warmedProductRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!productId || !workspaceId) return;
+    if (!productId || !workspaceId || !isOnTab) return;
+    if (warmedProductRef.current === productId) return;
     if (typeof window === "undefined") return;
 
     const warm = () => {
+      warmedProductRef.current = productId;
       void utils.product.ticket.list.prefetch({ productId });
       void utils.product.feature.list.prefetch({ productId });
       void utils.product.product.getDependencyGraph.prefetch({
@@ -149,7 +163,7 @@ export default function ProductLayout({
     }
     const id = window.setTimeout(warm, 200);
     return () => window.clearTimeout(id);
-  }, [productId, workspaceId, utils]);
+  }, [productId, workspaceId, isOnTab, utils]);
 
   // Tell the AI assistant which product (and tab) the user is looking at, so
   // "the tickets in cycle 10" resolves without the agent asking. The workspace

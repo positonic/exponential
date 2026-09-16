@@ -512,3 +512,87 @@ describe("ticket router — getAdjacent (mocked)", () => {
     expect(dbMock.ticket.findFirst).not.toHaveBeenCalled();
   });
 });
+
+describe("ticket router — getByRef (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const ticketRow = {
+    id: "ticket-47",
+    number: 47,
+    status: "IN_PROGRESS",
+    product: { id: productId, slug: "clear", workspaceId, name: "Clear", funTicketIds: false },
+    depsOut: [{ id: "d1", dependsOn: { id: "t-9", number: 9, status: "BACKLOG" } }],
+    depsIn: [{ id: "d2", ticket: { id: "t-50", number: 50, status: "DONE" } }],
+  };
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.product.findFirst.mockResolvedValue(
+      { id: productId, workspaceId } as never,
+    );
+    stubMembership(dbMock, true);
+    dbMock.ticket.findFirst.mockResolvedValue(ticketRow as never);
+    dbMock.workspaceActivityEvent.findMany.mockResolvedValue([]);
+  });
+
+  const ref = { workspaceSlug: "clear-ws", productSlug: "clear", identifier: "47" };
+
+  it("resolves the product by both slugs and the ticket by its number", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const result = await caller.product.ticket.getByRef(ref);
+
+    expect(dbMock.product.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { slug: "clear", workspace: { slug: "clear-ws" } },
+    });
+    expect(dbMock.ticket.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { productId, number: 47 },
+    });
+    // Same shape as getById, so it can seed that cache on the client.
+    expect(result?.ticket).toMatchObject({
+      id: "ticket-47",
+      dependsOn: [{ id: "t-9" }],
+      requiredFor: [{ id: "t-50" }],
+      openBlockerCount: 1,
+      isBlocked: true,
+    });
+    expect(result?.ticket).not.toHaveProperty("depsOut");
+    expect(result?.events).toEqual([]);
+    expect(dbMock.workspaceActivityEvent.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { workspaceId, entityType: "ticket", entityId: "ticket-47" },
+    });
+  });
+
+  it("matches a non-numeric segment against id or shortId", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.getByRef({ ...ref, identifier: "cmabc123" });
+
+    expect(dbMock.ticket.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { productId, OR: [{ id: "cmabc123" }, { shortId: "cmabc123" }] },
+    });
+  });
+
+  it("returns null (not a throw) for an unknown product", async () => {
+    // A server-prefetched query that rejects surfaces as an unhandled error on
+    // the client, so not-found has to be a value.
+    dbMock.product.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(caller.product.ticket.getByRef(ref)).resolves.toBeNull();
+    expect(dbMock.ticket.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("returns null for an unknown ticket", async () => {
+    dbMock.ticket.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(caller.product.ticket.getByRef(ref)).resolves.toBeNull();
+  });
+
+  it("returns null to a non-member even when the ticket exists", async () => {
+    stubMembership(dbMock, false);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(caller.product.ticket.getByRef(ref)).resolves.toBeNull();
+    expect(dbMock.workspaceActivityEvent.findMany).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,780 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getQueryKey } from "@trpc/react-query";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import {
+  ActionIcon,
+  Anchor,
+  Avatar,
+  Badge,
+  CheckIcon,
+  Combobox,
+  Group,
+  Menu,
+  NumberInput,
+  Select,
+  Skeleton,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
+  useCombobox,
+} from "@mantine/core";
+import { modals } from "@mantine/modals";
+import {
+  IconArrowLeft,
+  IconBug,
+  IconCalendar,
+  IconCategory,
+  IconCircleDot,
+  IconClock,
+  IconCopy,
+  IconDots,
+  IconFlag,
+  IconFlame,
+  IconFolder,
+  IconGitBranch,
+  IconLink,
+  IconRocket,
+  IconTag,
+  IconTool,
+  IconTrash,
+  IconUser,
+} from "@tabler/icons-react";
+import { api, type RouterOutputs } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import {
+  PropertiesSidebar,
+  PropertyRow,
+  PropertyDivider,
+} from "~/app/_components/PropertiesSidebar";
+import { generateLinearId, parseTicketUrlId } from "~/lib/fun-ids";
+import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
+import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
+import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
+import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
+import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
+import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
+import {
+  STATUS_OPTIONS,
+  STATUS_COLORS,
+  type TicketStatus,
+} from "~/lib/ticket-statuses";
+import { TagBadge } from "~/app/_components/TagBadge";
+import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
+import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import {
+  ActivityFilterMenu,
+  useActivityFilter,
+} from "~/app/_components/shared/ActivityFilterMenu";
+import { useTicketActivity } from "~/hooks/useTicketActivity";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const PRIORITY_OPTIONS = [
+  { value: "0", label: "Urgent" },
+  { value: "1", label: "High" },
+  { value: "2", label: "Medium" },
+  { value: "3", label: "Low" },
+  { value: "4", label: "No priority" },
+];
+
+function PrioritySelectOption({ option }: { option: { value: string; label: string } }) {
+  return (
+    <div className="flex items-center gap-2">
+      <PriorityIcon priority={Number(option.value)} size={14} />
+      <span>{option.label}</span>
+    </div>
+  );
+}
+
+const TYPE_OPTIONS = [
+  { value: "BUG", label: "Bug" },
+  { value: "FEATURE", label: "Feature" },
+  { value: "CHORE", label: "Chore" },
+  { value: "IMPROVEMENT", label: "Improvement" },
+  { value: "SPIKE", label: "Spike" },
+  { value: "RESEARCH", label: "Research" },
+];
+
+const TYPE_ICONS: Record<string, React.ReactNode> = {
+  BUG: <IconBug size={14} />,
+  FEATURE: <IconRocket size={14} />,
+  CHORE: <IconTool size={14} />,
+  IMPROVEMENT: <IconRocket size={14} />,
+  SPIKE: <IconFlame size={14} />,
+  RESEARCH: <IconCategory size={14} />,
+};
+
+const TYPE_COLORS: Record<string, string> = {
+  BUG: "red",
+  FEATURE: "blue",
+  CHORE: "gray",
+  IMPROVEMENT: "teal",
+  SPIKE: "violet",
+  RESEARCH: "yellow",
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getDisplayId(ticket: {
+  shortId: string | null;
+  number: number;
+  product: { name: string; funTicketIds: boolean };
+}) {
+  if (ticket.product.funTicketIds && ticket.shortId) return ticket.shortId;
+  if (ticket.number > 0) return generateLinearId(ticket.product.name, ticket.number);
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Combobox: Epic (single-select with create)
+// ---------------------------------------------------------------------------
+
+function EpicCombobox({
+  value,
+  epics,
+  onChange,
+  onCreate,
+}: {
+  value: string | null;
+  epics: Array<{ id: string; name: string }>;
+  onChange: (val: string | null) => void;
+  onCreate: (name: string) => void;
+}) {
+  const combobox = useCombobox({ onDropdownClose: () => { combobox.resetSelectedOption(); setSearch(""); } });
+  const [search, setSearch] = useState("");
+
+  const selected = epics.find((e) => e.id === value);
+  const filtered = epics.filter((e) => e.name.toLowerCase().includes(search.toLowerCase().trim()));
+  const exactMatch = epics.some((e) => e.name.toLowerCase() === search.toLowerCase().trim());
+
+  return (
+    <Combobox store={combobox} onOptionSubmit={(val) => {
+      if (val === "__create") {
+        onCreate(search.trim());
+      } else if (val === "__clear") {
+        onChange(null);
+      } else {
+        onChange(val);
+      }
+      combobox.closeDropdown();
+    }}>
+      <Combobox.Target>
+        <TextInput
+          value={combobox.dropdownOpened ? search : (selected?.name ?? "")}
+          onChange={(e) => { setSearch(e.currentTarget.value); combobox.openDropdown(); combobox.updateSelectedOptionIndex(); }}
+          onClick={() => combobox.toggleDropdown()}
+          onFocus={() => { combobox.openDropdown(); setSearch(""); }}
+          onBlur={() => combobox.closeDropdown()}
+          placeholder="None"
+          size="xs"
+          variant="unstyled"
+          classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+          styles={{ input: { height: 24, minHeight: 24 } }}
+        />
+      </Combobox.Target>
+      <Combobox.Dropdown>
+        <Combobox.Options>
+          {value && (
+            <Combobox.Option value="__clear" className="text-text-muted">
+              <Text size="xs">Clear</Text>
+            </Combobox.Option>
+          )}
+          {filtered.map((e) => (
+            <Combobox.Option key={e.id} value={e.id} active={e.id === value}>
+              <div className="flex items-center gap-2">
+                {e.id === value && <CheckIcon size={12} />}
+                <Text size="xs">{e.name}</Text>
+              </div>
+            </Combobox.Option>
+          ))}
+          {search.trim() && !exactMatch && (
+            <Combobox.Option value="__create">
+              <Text size="xs" className="text-blue-400">+ Create &quot;{search.trim()}&quot;</Text>
+            </Combobox.Option>
+          )}
+          {!search.trim() && filtered.length === 0 && (
+            <Combobox.Empty>
+              <Text size="xs" className="text-text-muted">No epics</Text>
+            </Combobox.Empty>
+          )}
+        </Combobox.Options>
+      </Combobox.Dropdown>
+    </Combobox>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+export function TicketDetailClient() {
+  const router = useRouter();
+  const params = useParams();
+  const routeParam = params.ticketId as string;
+  const productSlug = params.productSlug as string;
+  const workspaceSlug = params.workspaceSlug as string;
+  const { workspace, workspaceId } = useWorkspace();
+  const utils = api.useUtils();
+  const queryClient = useQueryClient();
+
+  // A ticket opened from the Backlog peek or the graph drawer is already in
+  // the getById cache. Resolve the URL against it so the page paints from
+  // cache without waiting for getByRef to land.
+  const cachedRef = useMemo(() => {
+    const urlNumber = parseTicketUrlId(routeParam);
+    const cached = queryClient.getQueriesData<
+      RouterOutputs["product"]["ticket"]["getById"]
+    >({ queryKey: getQueryKey(api.product.ticket.getById) });
+    for (const [, data] of cached) {
+      if (
+        !data ||
+        data.product.slug !== productSlug ||
+        data.product.workspaceId !== workspaceId
+      ) {
+        continue;
+      }
+      const matches =
+        urlNumber !== null
+          ? data.number === urlNumber
+          : data.id === routeParam || data.shortId === routeParam;
+      if (matches) return { id: data.id, number: data.number };
+    }
+    return undefined;
+  }, [queryClient, routeParam, productSlug, workspaceId]);
+
+  // Resolve the URL segment (sequential number, Linear-style `PLAT-29`, CUID,
+  // or fun shortId) to the full ticket in one call — page.tsx streams it with
+  // the RSC payload. Null means unknown ticket or no access.
+  //
+  // getByRef only bootstraps the page: its data seeds getById and listEvents,
+  // and everything below reads and invalidates those by ticket CUID, exactly
+  // as the peek drawer and the activity composer do. staleTime Infinity keeps
+  // it from refetching the whole ticket a second time alongside getById.
+  const {
+    data: ref,
+    dataUpdatedAt: refUpdatedAt,
+    isPending: isResolving,
+  } = api.product.ticket.getByRef.useQuery(
+    { workspaceSlug, productSlug, identifier: routeParam },
+    { staleTime: Infinity },
+  );
+  const ticketId = ref?.ticket.id ?? cachedRef?.id ?? "";
+  const seed = ref && ref.ticket.id === ticketId ? ref : undefined;
+  // On a hard load the streamed result is already in the HTML, so hydration
+  // builds getByRef with its data but dataUpdatedAt 0 (it was dehydrated while
+  // pending) and only stamps it a tick later. Passing that 0 through would mark
+  // the seeds stale and refetch the whole ticket at once; undefined means "now",
+  // which is what just-streamed data is.
+  const seedUpdatedAt = refUpdatedAt || undefined;
+
+  const { data: ticket, isLoading: isTicketLoading } =
+    api.product.ticket.getById.useQuery(
+      { id: ticketId },
+      {
+        enabled: !!ticketId,
+        initialData: seed?.ticket,
+        initialDataUpdatedAt: seedUpdatedAt,
+      },
+    );
+  const isLoading = ticketId ? isTicketLoading : isResolving;
+
+  // Data for selectors
+  const members = workspace?.members ?? [];
+  const { data: cycles } = api.product.cycle.list.useQuery(
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
+  );
+  // Only this ticket's own product's epics are linkable — the router rejects
+  // another product's epic, so offering it would be a dead option.
+  const { data: epics } = api.epic.list.useQuery(
+    { workspaceId: workspaceId ?? "", productId: ticket?.product.id },
+    { enabled: !!workspaceId && !!ticket?.product.id },
+  );
+  const { data: features } = api.product.feature.list.useQuery(
+    { productId: ticket?.product.id ?? "" },
+    { enabled: !!ticket?.product.id },
+  );
+  const { data: tags } = api.tag.list.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId },
+  );
+  const setTicketTags = api.tag.setTicketTags.useMutation({
+    onSuccess: async () => {
+      await utils.product.ticket.getById.invalidate({ id: ticketId });
+    },
+  });
+  const createTag = api.tag.create.useMutation({
+    onSuccess: async (newTag) => {
+      await utils.tag.list.invalidate();
+      // Auto-add new tag to this ticket
+      const currentIds = ticket?.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? [];
+      setTicketTags.mutate({ ticketId, tagIds: [...currentIds, newTag.id] });
+    },
+  });
+  const createEpic = api.epic.create.useMutation({
+    onSuccess: async (newEpic) => {
+      await utils.epic.list.invalidate();
+      handleFieldUpdate("epicId", newEpic.id);
+    },
+  });
+
+  const [status, setStatus] = useState<TicketStatus | null>(null);
+  const [titleValue, setTitleValue] = useState(ticket?.title ?? "");
+  const activity = useTicketActivity(ticketId, {
+    initialEvents: seed?.events,
+    initialEventsUpdatedAt: seedUpdatedAt,
+  });
+  const [activityFilter, setActivityFilter] = useActivityFilter();
+
+  useEffect(() => {
+    if (ticket) {
+      setStatus(ticket.status);
+      setTitleValue(ticket.title);
+    }
+  }, [ticket]);
+
+  // Canonicalise the address bar to the clean number form (`/tickets/29`) when
+  // the ticket was reached via CUID or a Linear-style id. Legacy tickets with
+  // no number (0) keep their CUID URL.
+  useEffect(() => {
+    if (!ticket || !workspace || ticket.number <= 0) return;
+    const canonical = String(ticket.number);
+    if (routeParam !== canonical) {
+      router.replace(
+        `/w/${workspace.slug}/products/${productSlug}/tickets/${canonical}`,
+      );
+    }
+  }, [ticket, workspace, routeParam, productSlug, router]);
+
+  const updateTicket = api.product.ticket.update.useMutation({
+    onSuccess: async () => {
+      await utils.product.ticket.getById.invalidate({ id: ticketId });
+      if (ticket?.product.id) {
+        await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
+      }
+    },
+  });
+
+  const deleteTicket = api.product.ticket.delete.useMutation({
+    onSuccess: async () => {
+      if (ticket?.product.id) {
+        await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
+      }
+      if (workspace) {
+        router.push(`/w/${workspace.slug}/products/${productSlug}/tickets`);
+      }
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <Stack gap="md">
+        <Skeleton height={24} width={120} />
+        <Skeleton height={36} width={400} />
+        <Skeleton height={200} />
+      </Stack>
+    );
+  }
+  if (!ticket) return <Text className="text-text-muted">Ticket not found</Text>;
+
+  const handleFieldUpdate = (field: string, value: unknown) => {
+    updateTicket.mutate({ id: ticketId, [field]: value });
+  };
+
+  const onStatusChange = (val: string | null) => {
+    if (!val) return;
+    setStatus(val as TicketStatus);
+    handleFieldUpdate("status", val);
+  };
+
+  const onDelete = () => {
+    modals.openConfirmModal({
+      title: "Delete ticket",
+      children: <Text size="sm">This will permanently delete the ticket and all comments.</Text>,
+      labels: { confirm: "Delete", cancel: "Cancel" },
+      confirmProps: { color: "red" },
+      onConfirm: () => deleteTicket.mutate({ id: ticketId }),
+    });
+  };
+
+  const backPath = `/w/${workspace?.slug}/products/${productSlug}/tickets`;
+  const displayId = getDisplayId(ticket);
+
+  return (
+    <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_18rem]">
+      {/* Main content */}
+      <div className="min-w-0 lg:pr-6">
+        <Stack gap="lg">
+          {/* Back nav + identifier */}
+          <div>
+            <Link
+              href={backPath}
+              className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors"
+            >
+              <IconArrowLeft size={14} />
+              Backlog
+            </Link>
+          </div>
+
+          {/* Type badge + ID + title + overflow menu */}
+          <div>
+            <Group gap="sm" mb={8}>
+              <Badge
+                size="xs"
+                variant="light"
+                color={TYPE_COLORS[ticket.type] ?? "gray"}
+                leftSection={TYPE_ICONS[ticket.type]}
+              >
+                {ticket.type.toLowerCase()}
+              </Badge>
+              <Badge
+                size="xs"
+                variant="filled"
+                color={STATUS_COLORS[ticket.status] ?? "gray"}
+                styles={{ label: { color: "var(--mantine-color-dark-9)" } }}
+              >
+                {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
+              </Badge>
+              {displayId && (
+                <Text size="xs" className="text-text-muted font-mono">
+                  {displayId}
+                </Text>
+              )}
+              <NotionSyncBadge syncs={ticket.syncs} />
+              {workspace && (
+                <TicketNavArrows
+                  productId={ticket.product.id}
+                  number={ticket.number}
+                  workspaceSlug={workspace.slug}
+                  productSlug={productSlug}
+                />
+              )}
+            </Group>
+
+            <Group justify="space-between" align="flex-start">
+              <Textarea
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.currentTarget.value)}
+                autosize
+                minRows={1}
+                maxRows={3}
+                variant="unstyled"
+                classNames={{ input: "text-text-primary font-bold text-xl p-0 leading-tight resize-none" }}
+                styles={{ root: { flex: 1 }, input: { fontWeight: 700, fontSize: "1.25rem" } }}
+                onBlur={() => {
+                  const trimmed = titleValue.trim();
+                  if (trimmed && trimmed !== ticket.title) {
+                    handleFieldUpdate("title", trimmed);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                }}
+              />
+              <Menu position="bottom-end" withinPortal>
+                <Menu.Target>
+                  <ActionIcon variant="subtle" className="text-text-muted">
+                    <IconDots size={18} />
+                  </ActionIcon>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={<IconCopy size={14} />}
+                    onClick={() => {
+                      const url = window.location.href;
+                      void navigator.clipboard.writeText(url);
+                    }}
+                  >
+                    Copy link
+                  </Menu.Item>
+                  {displayId && (
+                    <Menu.Item
+                      leftSection={<IconCopy size={14} />}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(displayId);
+                      }}
+                    >
+                      Copy ID
+                    </Menu.Item>
+                  )}
+                  <Menu.Divider />
+                  <Menu.Item
+                    color="red"
+                    leftSection={<IconTrash size={14} />}
+                    onClick={onDelete}
+                  >
+                    Delete ticket
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Group>
+          </div>
+
+          {/* Tags */}
+          {ticket.tags && ticket.tags.length > 0 && (
+            <Group gap="xs">
+              {ticket.tags.map((t: { tag: { id: string; name: string; color: string } }) => (
+                <TagBadge key={t.tag.id} tag={t.tag} size="sm" />
+              ))}
+            </Group>
+          )}
+
+          {/* Body */}
+          <TicketBodyEditor
+            ticketId={ticketId}
+            initialContent={ticket.body ?? null}
+          />
+
+          {/* Linked Actions */}
+          <LinkedActionsSection
+            ticketId={ticketId}
+            actions={ticket.actions ?? []}
+            workspaceId={workspaceId}
+            onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
+          />
+
+        </Stack>
+      </div>
+
+      {/* Properties sidebar. Spans both grid rows from lg up; below that it
+          stacks between the body and the activity feed (the GitHub-issue
+          ordering) so status/assignee stay one short scroll away instead of
+          being buried under the whole comment thread. */}
+      <PropertiesSidebar className="lg:row-span-2">
+        {/* Status */}
+        <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
+          <Select
+            value={status}
+            onChange={onStatusChange}
+            data={STATUS_OPTIONS}
+            size="xs"
+            variant="unstyled"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        {/* Priority */}
+        <PropertyRow icon={<IconFlag size={14} />} label="Priority">
+          <Select
+            value={ticket.priority != null ? String(ticket.priority) : undefined}
+            onChange={(val) => handleFieldUpdate("priority", val != null ? Number(val) : null)}
+            data={PRIORITY_OPTIONS}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            comboboxProps={{ withinPortal: true }}
+            renderOption={({ option }) => <PrioritySelectOption option={option} />}
+            leftSection={<PriorityIcon priority={ticket.priority} size={14} />}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24, paddingLeft: 24 } }}
+          />
+        </PropertyRow>
+
+        {/* Type */}
+        <PropertyRow icon={<IconCategory size={14} />} label="Type">
+          <Select
+            value={ticket.type}
+            onChange={(val) => val && handleFieldUpdate("type", val)}
+            data={TYPE_OPTIONS}
+            size="xs"
+            variant="unstyled"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        {/* Assignee */}
+        <PropertyRow icon={<IconUser size={14} />} label="Assignee">
+          <Select
+            value={ticket.assigneeId ?? null}
+            onChange={(val) => handleFieldUpdate("assigneeId", val)}
+            data={members.map((m) => ({ value: m.user.id, label: m.user.name ?? m.user.email ?? "Unknown" }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        {/* Points */}
+        <PropertyRow icon={<IconFlame size={14} />} label="Effort">
+          <NumberInput
+            value={ticket.points ?? ""}
+            onChange={(val) => handleFieldUpdate("points", val === "" ? null : Number(val))}
+            size="xs"
+            variant="unstyled"
+            placeholder="None"
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24, width: 80 } }}
+          />
+        </PropertyRow>
+
+        <PropertyDivider />
+
+        {/* Dependencies */}
+        <TicketDependenciesSection
+          ticketId={ticketId}
+          productId={ticket.product.id}
+          basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
+          dependsOn={ticket.dependsOn ?? []}
+          requiredFor={ticket.requiredFor ?? []}
+        />
+
+        <PropertyDivider />
+
+        {/* Feature */}
+        <PropertyRow icon={<IconFolder size={14} />} label="Feature">
+          <Select
+            value={ticket.featureId ?? null}
+            onChange={(val) => handleFieldUpdate("featureId", val)}
+            data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        {/* Epic */}
+        <PropertyRow icon={<IconFlag size={14} />} label="Epic">
+          <EpicCombobox
+            value={ticket.epicId ?? null}
+            epics={epics ?? []}
+            onChange={(val) => handleFieldUpdate("epicId", val)}
+            onCreate={(name) => {
+              // Inline creation lands the epic on this ticket's own product.
+              if (workspaceId && ticket.product.id) {
+                createEpic.mutate({
+                  workspaceId,
+                  productId: ticket.product.id,
+                  name,
+                });
+              }
+            }}
+          />
+        </PropertyRow>
+
+        {/* Cycle */}
+        <PropertyRow icon={<IconClock size={14} />} label="Cycle">
+          <Select
+            value={ticket.cycleId ?? null}
+            onChange={(val) => handleFieldUpdate("cycleId", val)}
+            data={(cycles ?? []).map((c) => ({ value: c.id, label: c.name }))}
+            size="xs"
+            variant="unstyled"
+            clearable
+            placeholder="None"
+            comboboxProps={{ withinPortal: true }}
+            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
+          />
+        </PropertyRow>
+
+        {/* Tags / Labels */}
+        <PropertyRow icon={<IconTag size={14} />} label="Labels">
+          <LabelsCombobox
+            selectedIds={ticket.tags?.map((t: { tag: { id: string } }) => t.tag.id) ?? []}
+            allTags={tags?.allTags ?? []}
+            entityTags={ticket.tags ?? []}
+            onChange={(tagIds) => setTicketTags.mutate({ ticketId, tagIds })}
+            onCreate={(name) => {
+              if (workspaceId) createTag.mutate({ name, color: "avatar-blue", workspaceId });
+            }}
+          />
+        </PropertyRow>
+
+        {/* Links */}
+        {(ticket.branchName ?? ticket.prUrl ?? ticket.designUrl ?? ticket.specUrl) && (
+          <>
+            <PropertyDivider />
+            {ticket.branchName && (
+              <PropertyRow icon={<IconGitBranch size={14} />} label="Branch">
+                <Text size="xs" className="text-text-primary font-mono truncate">{ticket.branchName}</Text>
+              </PropertyRow>
+            )}
+            {ticket.prUrl && (
+              <PropertyRow icon={<IconLink size={14} />} label="PR">
+                <Anchor href={ticket.prUrl} target="_blank" size="xs" className="truncate block">{ticket.prUrl}</Anchor>
+              </PropertyRow>
+            )}
+            {ticket.designUrl && (
+              <PropertyRow icon={<IconLink size={14} />} label="Design">
+                <Anchor href={ticket.designUrl} target="_blank" size="xs" className="truncate block">{ticket.designUrl}</Anchor>
+              </PropertyRow>
+            )}
+            {ticket.specUrl && (
+              <PropertyRow icon={<IconLink size={14} />} label="Spec">
+                <Anchor href={ticket.specUrl} target="_blank" size="xs" className="truncate block">{ticket.specUrl}</Anchor>
+              </PropertyRow>
+            )}
+          </>
+        )}
+
+        <PropertyDivider />
+
+        {/* Metadata */}
+        <PropertyRow icon={<IconUser size={14} />} label="Created by">
+          <Group gap="xs">
+            <Avatar src={ticket.createdBy?.image} size={18} radius="xl">
+              {(ticket.createdBy?.name ?? "?")[0]?.toUpperCase()}
+            </Avatar>
+            <Text size="xs" className="text-text-muted">
+              {ticket.createdBy?.name ?? "Unknown"}
+            </Text>
+          </Group>
+        </PropertyRow>
+
+        <PropertyRow icon={<IconCalendar size={14} />} label="Created">
+          <Text size="xs" className="text-text-muted">
+            {new Date(ticket.createdAt).toLocaleDateString()}
+          </Text>
+        </PropertyRow>
+
+        {ticket.completedAt && (
+          <PropertyRow icon={<IconCalendar size={14} />} label="Completed">
+            <Text size="xs" className="text-text-muted">
+              {new Date(ticket.completedAt).toLocaleDateString()}
+            </Text>
+          </PropertyRow>
+        )}
+      </PropertiesSidebar>
+
+      {/* Activity - the app-wide feed + composer, same block as TicketPeek */}
+      <div className="min-w-0 mt-2 lg:mt-9 lg:pr-6">
+        <CollapsibleSection
+          title="Activity"
+          action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+        >
+          {/* Keyed on the ticket: the nav arrows swap tickets without
+              unmounting this page, and the composer's draft state lives
+              inside ActivityTimeline — without the key a half-typed
+              comment would follow you to the next ticket. */}
+          <ActivityTimeline key={ticketId} activity={activity} filter={activityFilter} />
+        </CollapsibleSection>
+      </div>
+    </div>
+  );
+}
