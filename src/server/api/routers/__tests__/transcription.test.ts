@@ -947,3 +947,97 @@ describe("transcription router (mocked) — getById feature links", () => {
     expect(result.canLinkFeatures).toBe(false);
   });
 });
+
+describe("transcription router (mocked) — getDetail / getTranscript", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      notes: "private scratch notes",
+      transcription: "Me: hello\nThem: hi there\nMe: shall we start?",
+      sentencesJson: null,
+      analyticsJson: {
+        speakers: [
+          { name: "Ana", duration: 30 },
+          { name: "Ben", duration: 90 },
+        ],
+      },
+      featureLinks: [{ feature: { id: "f1", name: "Secret roadmap item" } }],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  it("omits the heavy columns and precomputes the transcript count and talk-time", async () => {
+    meeting(callerId);
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getDetail({ id: "m1" });
+
+    expect(result).not.toHaveProperty("transcription");
+    expect(result).not.toHaveProperty("sentencesJson");
+    expect(result).not.toHaveProperty("analyticsJson");
+    expect(result).not.toHaveProperty("notes");
+    expect(result.hasTranscript).toBe(true);
+    expect(result.transcriptTurnCount).toBeGreaterThan(0);
+    expect(result.talkTime).toEqual({ Ana: "25%", Ben: "75%" });
+    expect(result.featureLinks).toHaveLength(1);
+    expect(result.canLinkFeatures).toBe(true);
+  });
+
+  it("strips feature links for a viewer outside the workspace", async () => {
+    meeting("someone-else");
+    dbMock.transcriptionSessionParticipant.findFirst.mockResolvedValue({
+      id: "p1",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getDetail({ id: "m1" });
+
+    expect(result.featureLinks).toEqual([]);
+    expect(result.canLinkFeatures).toBe(false);
+  });
+
+  it("refuses the detail and the transcript to a non-viewer", async () => {
+    meeting("someone-else");
+    dbMock.transcriptionSessionParticipant.findFirst.mockResolvedValue(null);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(caller.transcription.getDetail({ id: "m1" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(caller.transcription.getTranscript({ id: "m1" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("serves the transcript to a viewer", async () => {
+    meeting(callerId);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getTranscript({ id: "m1" });
+
+    expect(result).toEqual({
+      transcription: "Me: hello\nThem: hi there\nMe: shall we start?",
+      sentencesJson: null,
+    });
+  });
+});

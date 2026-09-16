@@ -50,25 +50,19 @@ export async function getTranscriptionAccess(
 ): Promise<TranscriptionAccessInfo> {
   const isOwner = !!session.userId && session.userId === userId;
 
-  const participant = await db.transcriptionSessionParticipant.findFirst({
-    where: { transcriptionSessionId: session.id, userId },
-    select: { id: true },
-  });
-
-  let projectAccess = null;
-  if (session.projectId) {
-    projectAccess = await getProjectAccess(db, userId, session.projectId);
-  }
-
-  let workspaceRole: WorkspaceRole | null = null;
-  if (!session.projectId && session.workspaceId) {
-    const membership = await getWorkspaceMembership(
-      db,
-      userId,
-      session.workspaceId,
-    );
-    workspaceRole = membership?.role ?? null;
-  }
+  // Independent reads — run in parallel. Project access applies to
+  // project-assigned sessions, workspace membership to project-less ones.
+  const [participant, projectAccess, membership] = await Promise.all([
+    db.transcriptionSessionParticipant.findFirst({
+      where: { transcriptionSessionId: session.id, userId },
+      select: { id: true },
+    }),
+    session.projectId ? getProjectAccess(db, userId, session.projectId) : null,
+    !session.projectId && session.workspaceId
+      ? getWorkspaceMembership(db, userId, session.workspaceId)
+      : null,
+  ]);
+  const workspaceRole: WorkspaceRole | null = membership?.role ?? null;
 
   return {
     isOwner,

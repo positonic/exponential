@@ -29,6 +29,7 @@ import {
   MEETING_IMAGE_CONTENT_TYPES,
 } from "~/lib/meetings/meetingImages";
 import { parseTranscript } from "~/lib/transcript";
+import { extractTalkTime } from "~/lib/meetings/talkTime";
 import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
 import {
@@ -136,6 +137,125 @@ async function loadTranscriptionForAccess(db: PrismaClient, id: string) {
     });
   }
   return session;
+}
+
+/**
+ * Relations the meeting detail surfaces render. Shared by `getById` (the full
+ * record external clients — SDK, CLI, MCP, Mastra — read) and `getDetail` (the
+ * lean record the meeting page reads).
+ */
+const meetingDetailInclude = {
+  screenshots: {
+    orderBy: {
+      createdAt: "desc",
+    },
+  },
+  workspace: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+    },
+  },
+  sourceIntegration: {
+    select: {
+      id: true,
+      provider: true,
+      name: true,
+    },
+  },
+  participants: {
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      speakerLabel: true,
+      isHost: true,
+      userId: true,
+      contactId: true,
+    },
+  },
+  // Meeting owner/recorder — the "me" side a device Me:/Them: transcript
+  // is written from. Used to resolve participant identity tone.
+  user: {
+    select: {
+      id: true,
+      email: true,
+    },
+  },
+  project: {
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      taskManagementTool: true,
+      taskManagementConfig: true,
+    },
+  },
+  // The ceremony occurrence this recording captured (ADR-0059).
+  occurrence: {
+    select: {
+      id: true,
+      scheduledStart: true,
+      ceremony: { select: { id: true, name: true } },
+    },
+  },
+  // Features this meeting discussed (`MeetingFeature`).
+  featureLinks: {
+    orderBy: { createdAt: "asc" },
+    select: {
+      feature: {
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          product: { select: { id: true, name: true, slug: true } },
+        },
+      },
+    },
+  },
+} satisfies Prisma.TranscriptionSessionInclude;
+
+/**
+ * View access for a loaded meeting (FORBIDDEN otherwise), plus whether the
+ * viewer may see and link its Features. Features are workspace-member-visible,
+ * but meeting viewers reach a meeting by attendance or project membership too,
+ * so links are stripped for anyone outside the workspace — and only editors
+ * who are members may link. The access and membership reads run in parallel.
+ */
+async function resolveMeetingViewerAccess(
+  db: PrismaClient,
+  userId: string,
+  session: {
+    id: string;
+    userId: string | null;
+    projectId: string | null;
+    workspaceId: string | null;
+  },
+): Promise<{ isWorkspaceMember: boolean; canLinkFeatures: boolean }> {
+  const [access, projectSessionMembership] = await Promise.all([
+    getTranscriptionAccess(db, userId, session),
+    // A project-less session's access check already resolves workspace
+    // membership; only a project-assigned one needs its own lookup.
+    session.projectId && session.workspaceId
+      ? getWorkspaceMembership(db, userId, session.workspaceId)
+      : null,
+  ]);
+
+  if (!canViewTranscription(access)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Not authorized to view this transcription",
+    });
+  }
+
+  const isWorkspaceMember = session.projectId
+    ? Boolean(projectSessionMembership)
+    : access.workspaceRole !== null;
+  return {
+    isWorkspaceMember,
+    canLinkFeatures: isWorkspaceMember && canEditTranscription(access),
+  };
 }
 
 // Keep the denormalized `participantCount` in sync with the persisted
@@ -626,77 +746,9 @@ export const transcriptionRouter = createTRPCRouter({
       const session = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
         include: {
-          screenshots: {
-            orderBy: {
-              createdAt: "desc",
-            },
-          },
-          workspace: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-            },
-          },
-          sourceIntegration: {
-            select: {
-              id: true,
-              provider: true,
-              name: true,
-            },
-          },
-          participants: {
-            select: {
-              id: true,
-              email: true,
-              name: true,
-              speakerLabel: true,
-              isHost: true,
-              userId: true,
-              contactId: true,
-            },
-          },
-          // Meeting owner/recorder — the "me" side a device Me:/Them: transcript
-          // is written from. Used to resolve participant identity tone.
-          user: {
-            select: {
-              id: true,
-              email: true,
-            },
-          },
+          ...meetingDetailInclude,
           actions: {
             orderBy: { createdAt: "asc" },
-          },
-          project: {
-            select: {
-              id: true,
-              slug: true,
-              name: true,
-              taskManagementTool: true,
-              taskManagementConfig: true,
-            },
-          },
-          // The ceremony occurrence this recording captured (ADR-0059).
-          occurrence: {
-            select: {
-              id: true,
-              scheduledStart: true,
-              ceremony: { select: { id: true, name: true } },
-            },
-          },
-          // Features this meeting discussed (`MeetingFeature`).
-          featureLinks: {
-            orderBy: { createdAt: "asc" },
-            select: {
-              feature: {
-                select: {
-                  id: true,
-                  name: true,
-                  status: true,
-                  product: { select: { id: true, name: true, slug: true } },
-                },
-              },
-            },
           },
         },
       });
@@ -708,26 +760,96 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      const userId = ctx.session.user.id;
-      const access = await getTranscriptionAccess(ctx.db, userId, session);
-      if (!canViewTranscription(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to view this transcription",
-        });
-      }
-
-      // Features are workspace-member-visible. Meeting viewers reach this page
-      // by attendance or project membership too, so strip the links for anyone
-      // outside the workspace — and only editors who are members may link.
-      const isWorkspaceMember = session.workspaceId
-        ? Boolean(await getWorkspaceMembership(ctx.db, userId, session.workspaceId))
-        : false;
+      const { isWorkspaceMember, canLinkFeatures } =
+        await resolveMeetingViewerAccess(ctx.db, ctx.session.user.id, session);
 
       return {
         ...session,
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
-        canLinkFeatures: isWorkspaceMember && canEditTranscription(access),
+        canLinkFeatures,
+      };
+    }),
+
+  /**
+   * The meeting page's record: `getById` minus the heavy columns. The
+   * transcript (`transcription`, `sentencesJson`) can run to megabytes and is
+   * only rendered on the Transcript tab, so it is served by `getTranscript`
+   * instead; talk-time and the transcript turn count arrive precomputed; the
+   * page loads Actions itself via `action.getByTranscription`. External
+   * clients keep reading the full record through `getById`.
+   */
+  getDetail: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+        include: meetingDetailInclude,
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+
+      const { isWorkspaceMember, canLinkFeatures } =
+        await resolveMeetingViewerAccess(ctx.db, ctx.session.user.id, session);
+
+      const { transcription, sentencesJson, analyticsJson, notes: _notes, ...rest } =
+        session;
+
+      return {
+        ...rest,
+        featureLinks: isWorkspaceMember ? session.featureLinks : [],
+        canLinkFeatures,
+        hasTranscript: Boolean(transcription),
+        // Same canonical parser the Transcript tab renders with (ADR-0032).
+        transcriptTurnCount: parseTranscript({
+          transcription,
+          sentencesJson,
+          participants: [],
+        }).length,
+        talkTime: extractTalkTime(analyticsJson),
+      };
+    }),
+
+  /** The transcript behind `getDetail`, fetched when the Transcript tab opens. */
+  getTranscript: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          transcription: true,
+          sentencesJson: true,
+        },
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+
+      await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, session, "view");
+
+      return {
+        transcription: session.transcription,
+        sentencesJson: session.sentencesJson,
       };
     }),
 

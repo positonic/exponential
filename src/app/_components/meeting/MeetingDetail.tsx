@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { IconGavel, IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
 import "./meeting-detail.css";
@@ -22,7 +23,6 @@ import { turnToEvidence, type DecisionEvidenceTurn } from "~/lib/decision-eviden
 import type { TranscriptTurn } from "~/lib/transcript";
 import { LogDecisionModal } from "~/app/_components/decisions/LogDecisionModal";
 import { DraftDecisionReviewList } from "~/app/_components/decisions/DraftDecisionReviewList";
-import type { MeetingProjectOption } from "./MeetingProjectPicker";
 import type { MeetingOccurrenceOption } from "./MeetingOccurrencePicker";
 import type { MeetingFeatureOption } from "./MeetingFeaturePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
@@ -34,8 +34,6 @@ interface MeetingDetailProps {
   session: MeetingSession;
   actions: TranscriptAction[];
   isActionsLoading: boolean;
-  /** Candidate projects for placement (edit-scoped, across workspaces). */
-  assignableProjects: MeetingProjectOption[];
   isCreatingActions: boolean;
   /** True while feature ideation is running for this meeting. */
   isIdeatingFeatures: boolean;
@@ -78,7 +76,6 @@ export function MeetingDetail({
   session,
   actions,
   isActionsLoading,
-  assignableProjects,
   isCreatingActions,
   isIdeatingFeatures,
   isGeneratingSummary,
@@ -144,6 +141,13 @@ export function MeetingDetail({
   );
 
   const utils = api.useUtils();
+  // The transcript can run to megabytes, so it is fetched when the Transcript
+  // tab opens rather than with the meeting record.
+  const transcriptQuery = api.transcription.getTranscript.useQuery(
+    { id: session.id },
+    { enabled: tab === "transcript" && session.hasTranscript },
+  );
+
   // Identity keys already on the meeting so the picker hides existing people.
   const existingParticipants = useMemo(() => {
     const keys = new Set<string>();
@@ -157,7 +161,7 @@ export function MeetingDetail({
 
   const addParticipant = api.transcription.addParticipant.useMutation({
     onSuccess: () => {
-      void utils.transcription.getById.invalidate({ id: session.id });
+      void utils.transcription.getDetail.invalidate({ id: session.id });
     },
     onError: (error) =>
       notifications.show({
@@ -169,7 +173,7 @@ export function MeetingDetail({
 
   const removeParticipant = api.transcription.removeParticipant.useMutation({
     onSuccess: () => {
-      void utils.transcription.getById.invalidate({ id: session.id });
+      void utils.transcription.getDetail.invalidate({ id: session.id });
     },
     onError: (error) =>
       notifications.show({
@@ -198,10 +202,14 @@ export function MeetingDetail({
     const anchor = session.meetingDate ? new Date(session.meetingDate) : new Date(session.createdAt);
     return { from: new Date(anchor.getTime() - 7 * day), to: new Date(anchor.getTime() + 7 * day) };
   }, [session.meetingDate, session.createdAt]);
-  const { data: occurrenceRows = [] } = api.ceremony.listOccurrences.useQuery(
-    { workspaceId: session.workspaceId ?? "", from: occurrenceWindow.from, to: occurrenceWindow.to },
-    { enabled: Boolean(session.workspaceId) },
-  );
+  // Candidates load on the picker's first open — the row itself renders from
+  // the meeting record.
+  const [occurrencePickerOpened, setOccurrencePickerOpened] = useState(false);
+  const { data: occurrenceRows = [], isLoading: isLoadingOccurrences } =
+    api.ceremony.listOccurrences.useQuery(
+      { workspaceId: session.workspaceId ?? "", from: occurrenceWindow.from, to: occurrenceWindow.to },
+      { enabled: occurrencePickerOpened && Boolean(session.workspaceId) },
+    );
   const occurrenceOptions = useMemo<MeetingOccurrenceOption[]>(
     () =>
       occurrenceRows.map((o) => ({
@@ -213,12 +221,12 @@ export function MeetingDetail({
     [occurrenceRows],
   );
   const attachOccurrence = api.ceremony.attachMeeting.useMutation({
-    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onSuccess: () => void utils.transcription.getDetail.invalidate({ id: session.id }),
     onError: (error) =>
       notifications.show({ title: "Couldn't link ceremony", message: error.message, color: "red" }),
   });
   const detachOccurrence = api.ceremony.detachMeeting.useMutation({
-    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onSuccess: () => void utils.transcription.getDetail.invalidate({ id: session.id }),
     onError: (error) =>
       notifications.show({ title: "Couldn't unlink ceremony", message: error.message, color: "red" }),
   });
@@ -232,6 +240,13 @@ export function MeetingDetail({
     vm.occurrence && session.workspace?.slug
       ? `/w/${session.workspace.slug}/ceremonies/${vm.occurrence.ceremonyId}`
       : null;
+
+  // Placement candidates: every project the viewer can edit, across all their
+  // workspaces. Only the picker's dropdown needs them, so they load on its
+  // first open — the row itself renders from the meeting's own project.
+  const [projectPickerOpened, setProjectPickerOpened] = useState(false);
+  const { data: assignableProjects = [], isLoading: isLoadingProjects } =
+    api.project.getAssignable.useQuery(undefined, { enabled: projectPickerOpened });
 
   // Features discussed (`MeetingFeature`): any feature in the meeting's
   // workspace. The server decides who may link (workspace members who can
@@ -268,12 +283,12 @@ export function MeetingDetail({
     [session.featureLinks, session.workspace?.slug],
   );
   const linkFeature = api.transcription.linkFeature.useMutation({
-    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onSuccess: () => void utils.transcription.getDetail.invalidate({ id: session.id }),
     onError: (error) =>
       notifications.show({ title: "Couldn't link feature", message: error.message, color: "red" }),
   });
   const unlinkFeature = api.transcription.unlinkFeature.useMutation({
-    onSuccess: () => void utils.transcription.getById.invalidate({ id: session.id }),
+    onSuccess: () => void utils.transcription.getDetail.invalidate({ id: session.id }),
     onError: (error) =>
       notifications.show({ title: "Couldn't unlink feature", message: error.message, color: "red" }),
   });
@@ -324,9 +339,21 @@ export function MeetingDetail({
     notifications.show({ message: "Link copied to clipboard", color: "green" });
   }
 
-  function handleExportTranscript() {
-    if (!session.transcription || typeof window === "undefined") return;
-    const blob = new Blob([session.transcription], { type: "text/plain" });
+  async function handleExportTranscript() {
+    if (!session.hasTranscript || typeof window === "undefined") return;
+    let transcription: string | null;
+    try {
+      ({ transcription } = await utils.transcription.getTranscript.fetch({ id: session.id }));
+    } catch (error) {
+      notifications.show({
+        title: "Couldn't export transcript",
+        message: error instanceof Error ? error.message : "Failed to load the transcript",
+        color: "red",
+      });
+      return;
+    }
+    if (!transcription) return;
+    const blob = new Blob([transcription], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -412,7 +439,7 @@ export function MeetingDetail({
                 generatedStamp={generatedStamp}
                 actions={actions}
                 isActionsLoading={isActionsLoading}
-                hasTranscript={Boolean(session.transcription)}
+                hasTranscript={session.hasTranscript}
                 isCreatingActions={isCreatingActions}
                 isIdeatingFeatures={isIdeatingFeatures}
                 isGeneratingSummary={isGeneratingSummary}
@@ -425,7 +452,7 @@ export function MeetingDetail({
             {tab === "decisions" && (
               <DecisionsTab
                 vm={vm}
-                hasTranscript={Boolean(session.transcription)}
+                hasTranscript={session.hasTranscript}
                 canLogDecision={canLogDecision}
                 onLogDecision={() => setLogDecisionOpen(true)}
                 onExtractDecisions={onExtractDecisions}
@@ -443,15 +470,23 @@ export function MeetingDetail({
             )}
             {tab === "transcript" && (
               <>
+                {session.hasTranscript && transcriptQuery.isLoading ? (
+                  <div className="mp-empty">
+                    <Loader size="sm" />
+                  </div>
+                ) : transcriptQuery.isError ? (
+                  <div className="mp-empty">Couldn&apos;t load the transcript.</div>
+                ) : (
                 <TranscriptView
                   variant="full"
-                  transcription={session.transcription}
-                  sentencesJson={session.sentencesJson}
+                  transcription={transcriptQuery.data?.transcription ?? null}
+                  sentencesJson={transcriptQuery.data?.sentencesJson}
                   chapters={vm.chapters}
                   participants={vm.participants}
                   evidenceTurnIndices={evidenceTurnIndices}
                   onToggleEvidence={canLogDecision ? toggleEvidence : undefined}
                 />
+                )}
                 {evidence.length > 0 && (
                   <div className="mp-evtray" role="status">
                     <IconGavel size={14} />
@@ -502,20 +537,24 @@ export function MeetingDetail({
             onMeetingDateChange={onMeetingDateChange}
             projectId={session.projectId ?? null}
             assignableProjects={assignableProjects}
+            onProjectPickerOpen={() => setProjectPickerOpened(true)}
+            isLoadingProjects={projectPickerOpened && isLoadingProjects}
             onProjectChange={onProjectChange}
             workspaceName={session.workspace?.name ?? null}
             occurrence={vm.occurrence}
             occurrenceHref={occurrenceHref}
             occurrenceOptions={occurrenceOptions}
             onOccurrenceChange={onOccurrenceChange}
+            onOccurrencePickerOpen={() => setOccurrencePickerOpened(true)}
+            isLoadingOccurrences={occurrencePickerOpened && isLoadingOccurrences}
             linkedFeatures={linkedFeatures}
             featureOptions={featureOptions}
             onFeatureToggle={onFeatureToggle}
             onFeaturePickerOpen={() => setFeaturePickerOpened(true)}
             isLoadingFeatures={featurePickerOpened && isLoadingFeatures}
             onShare={handleShare}
-            onExportTranscript={handleExportTranscript}
-            canExport={Boolean(session.transcription)}
+            onExportTranscript={() => void handleExportTranscript()}
+            canExport={session.hasTranscript}
             onArchive={onArchive}
             onAddParticipant={handleAddParticipant}
             onRemoveParticipant={handleRemoveParticipant}
