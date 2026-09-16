@@ -75,18 +75,24 @@ export async function createUserDay({ ctx, input }: { ctx: Context, input: { dat
 }
 
 export async function getDayByDate({ ctx, input }: { ctx: Context, input: { date: Date } }) {
+  if (!ctx.session?.user?.id) {
+    throw new Error("User not authenticated");
+  }
+  const userId = ctx.session.user.id;
+
+  // Day rows are shared across users (keyed by date, no userId), so the
+  // included notes and exercises MUST be scoped to the caller — otherwise
+  // every user's journal entries for the date are returned.
   return await ctx.db.day.findFirst({
     where: {
       date: {
         gte: startOfDay(input.date),
         lt: endOfDay(input.date)
       },
-      // UserDay model removed
     },
     include: {
-      exercises: true,
-      notes: true,
-      // UserDay relations removed
+      exercises: { where: { userId } },
+      notes: { where: { userId } },
     }
   });
 }
