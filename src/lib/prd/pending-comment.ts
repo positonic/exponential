@@ -100,7 +100,13 @@ export function anchorPendingComment(editor: Editor, threadId: string): boolean 
   const markType = state.schema.marks.comment;
   if (!pending || pending.threadId !== threadId || !markType) return false;
   if (pending.from >= pending.to) return false;
-  view.dispatch(state.tr.addMark(pending.from, pending.to, markType.create({ threadId })));
+  // Kept off the undo stack: the mark is bookkeeping for a comment row, not a
+  // user edit, and undoing it would orphan the thread it anchors.
+  view.dispatch(
+    state.tr
+      .addMark(pending.from, pending.to, markType.create({ threadId }))
+      .setMeta("addToHistory", false),
+  );
   return true;
 }
 

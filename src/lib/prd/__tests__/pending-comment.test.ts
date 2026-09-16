@@ -126,6 +126,19 @@ describe("anchorPendingComment", () => {
     expect(threadMarkText(editor.state.doc, "t1")).toBe("world");
   });
 
+  it("keeps the mark out of undo history", () => {
+    const editor = makeEditor();
+    const { to } = rangeOf(editor, "world");
+    editor.commands.insertContentAt(to, " TYPED");
+    setPendingComment(editor, { threadId: "t1", ...rangeOf(editor, "brave") });
+    anchorPendingComment(editor, "t1");
+
+    editor.commands.undo();
+
+    expect(editor.getText()).not.toContain("TYPED");
+    expect(threadMarkText(editor.state.doc, "t1")).toBe("brave");
+  });
+
   it("does nothing for a different thread", () => {
     const editor = makeEditor();
     setPendingComment(editor, { threadId: "t1", ...rangeOf(editor, "brave") });
