@@ -617,6 +617,7 @@ export function ProjectContent({
                     <Title order={4}>Project Meetings</Title>
                     <CreateTranscriptionModal
                       projectId={resolvedProjectId}
+                      projectName={project.name}
                       workspaceId={project.workspaceId ?? undefined}
                     />
                   </Group>

@@ -43,7 +43,6 @@ import {
 } from "~/server/services/TranscriptSummarizerService";
 import {
   buildTranscriptionAccessWhere,
-  canEditProject,
   canEditTranscription,
   canEditWorkspaceContent,
   canViewTranscription,
@@ -940,17 +939,18 @@ export const transcriptionRouter = createTRPCRouter({
       // project is a coherence bug, so reject it rather than silently override.
       let workspaceId = input.workspaceId ?? null;
       if (input.projectId) {
-        // Filing a meeting into a project is a write to that project — the
-        // same bar `assignProject` holds placement to.
+        // You can only file a meeting into a project you can see. Deliberately
+        // view, not edit: the project page offers Add Meeting to every member,
+        // and agents create meetings the same way.
         const projectAccess = await getProjectAccess(
           ctx.db,
           ctx.session.user.id,
           input.projectId,
         );
-        if (!canEditProject(projectAccess)) {
+        if (!hasProjectAccess(projectAccess)) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "You do not have edit access to this project",
+            message: "You do not have access to this project",
           });
         }
         const project = await ctx.db.project.findUnique({

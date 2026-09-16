@@ -54,12 +54,15 @@ import { useFileDrop } from "~/hooks/useFileDrop";
 
 interface CreateTranscriptionModalProps {
   projectId?: string;
+  /** Name of `projectId`, so it stays pickable for members who can't edit it. */
+  projectName?: string;
   workspaceId?: string;
   trigger?: React.ReactNode;
 }
 
 export function CreateTranscriptionModal({
   projectId,
+  projectName,
   workspaceId,
   trigger,
 }: CreateTranscriptionModalProps) {
@@ -91,14 +94,30 @@ export function CreateTranscriptionModal({
     undefined,
     { enabled: opened },
   );
-  const projectOptions = useMemo(
-    () =>
-      workspaceId
-        ? assignableProjects.filter((p) => p.workspaceId === workspaceId)
-        : assignableProjects,
-    [assignableProjects, workspaceId],
-  );
-  const selectedProject = assignableProjects.find(
+  const projectOptions = useMemo(() => {
+    const options = workspaceId
+      ? assignableProjects.filter((p) => p.workspaceId === workspaceId)
+      : assignableProjects;
+    // The page's own project stays pickable even when the caller can only view
+    // it — `getAssignable` lists editable projects, and filing needs view.
+    if (projectId && projectName && !options.some((p) => p.id === projectId)) {
+      return [
+        {
+          id: projectId,
+          name: projectName,
+          workspaceId: workspaceId ?? null,
+          // Group it under its workspace (options are that workspace's when
+          // one is set); a workspace-less project groups as Personal.
+          workspaceName: workspaceId
+            ? (options[0]?.workspaceName ?? "Current project")
+            : null,
+        },
+        ...options,
+      ];
+    }
+    return options;
+  }, [assignableProjects, workspaceId, projectId, projectName]);
+  const selectedProject = projectOptions.find(
     (p) => p.id === selectedProjectId,
   );
   const effectiveWorkspaceId =
@@ -179,7 +198,7 @@ export function CreateTranscriptionModal({
     });
 
   function handleProjectChange(nextProjectId: string | null) {
-    const next = assignableProjects.find((p) => p.id === nextProjectId);
+    const next = projectOptions.find((p) => p.id === nextProjectId);
     const nextWorkspaceId = workspaceId ?? next?.workspaceId ?? null;
     // Ceremonies, features and participants are all workspace-scoped — a
     // project in another workspace strands whatever was picked for this one.
