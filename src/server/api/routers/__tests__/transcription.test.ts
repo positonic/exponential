@@ -127,6 +127,8 @@ vi.mock("~/server/services/TranscriptionProcessingService", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import { uploadToBlob } from "~/lib/blob";
+import { MAX_MEETING_IMAGE_BASE64_LENGTH } from "~/lib/meetings/meetingImages";
 
 describe("transcription router (mocked) — findRelated", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -587,5 +589,94 @@ describe("transcription router (mocked) — saveTranscription notes", () => {
     // Replace semantics: the update sets notes to exactly the new value, never
     // appending to "old notes".
     expect(updateData()?.notes).toBe("edited notes");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// uploadScreenshot — images dropped onto the Add Meeting modal or the
+// meeting's Screenshots tab land as Screenshot rows on the session.
+// ──────────────────────────────────────────────────────────────────────
+describe("transcription router (mocked) — uploadScreenshot", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    vi.mocked(uploadToBlob).mockClear();
+    dbMock.screenshot.create.mockResolvedValue({
+      id: "shot1",
+      url: "blob://test",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  });
+
+  it("stores the image as a Screenshot linked to the meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: callerId,
+      projectId: null,
+      workspaceId: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.uploadScreenshot({
+      transcriptionSessionId: "sess1",
+      base64Data: "aGVsbG8=",
+      contentType: "image/jpeg",
+    });
+
+    expect(result).toEqual({ id: "shot1", url: "blob://test" });
+    const data = dbMock.screenshot.create.mock.calls[0]?.[0]?.data;
+    expect(data?.transcriptionSessionId).toBe("sess1");
+    expect(data?.url).toBe("blob://test");
+  });
+
+  it("rejects callers without edit access to the meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: "someone-else",
+      projectId: null,
+      workspaceId: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "sess1",
+        base64Data: "aGVsbG8=",
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.screenshot.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized payload before uploading anything", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "sess1",
+        base64Data: "A".repeat(MAX_MEETING_IMAGE_BASE64_LENGTH + 4),
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(uploadToBlob).not.toHaveBeenCalled();
+    expect(dbMock.transcriptionSession.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "missing",
+        base64Data: "aGVsbG8=",
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

@@ -24,6 +24,10 @@ import { weeklyMeetingStats } from "~/server/services/meetings/weeklyMeetingStat
 import { summarizeMeetingRow } from "~/server/services/meetings/ensureMeetingSummary";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 import { tokenizeTitle } from "~/lib/meetings/titleTokens";
+import {
+  MAX_MEETING_IMAGE_BASE64_LENGTH,
+  MEETING_IMAGE_CONTENT_TYPES,
+} from "~/lib/meetings/meetingImages";
 import { parseTranscript } from "~/lib/transcript";
 import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
@@ -47,7 +51,7 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -1484,6 +1488,56 @@ export const transcriptionRouter = createTRPCRouter({
           message: "Failed to save screenshot",
         });
       }
+    }),
+
+  // Attach a user-supplied image (dropped/pasted in the Add Meeting modal) to a
+  // meeting. Lands as a Screenshot row on the session, so it shows on the
+  // meeting's Screenshots tab alongside extension-captured ones.
+  uploadScreenshot: protectedProcedure
+    .input(
+      z.object({
+        transcriptionSessionId: z.string(),
+        // Same cap the client resizes to, so non-browser callers can't push
+        // an unbounded payload into memory and Blob storage.
+        base64Data: z.string().min(1).max(MAX_MEETING_IMAGE_BASE64_LENGTH),
+        contentType: z.enum(MEETING_IMAGE_CONTENT_TYPES),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(
+        ctx.db,
+        input.transcriptionSessionId,
+      );
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        session,
+        "edit",
+      );
+
+      const now = new Date();
+      const extension = input.contentType.split("/")[1];
+      // Random suffix: several images dropped together upload within the same
+      // millisecond, and a shared filename would overwrite the earlier blob.
+      const filename = `screenshots/${session.id}/${now.toISOString().replace(/[/:]/g, "-")}-${randomUUID().slice(0, 8)}.${extension}`;
+      const blob = await uploadToBlob(
+        input.base64Data,
+        filename,
+        input.contentType,
+      );
+
+      const screenshot = await ctx.db.screenshot.create({
+        data: {
+          url: blob.url,
+          // `timestamp` is the capture position for extension frames. A hand-
+          // attached image has none, and the Screenshots tab hides an empty one
+          // rather than badging the image with a misleading time.
+          timestamp: "",
+          transcriptionSessionId: session.id,
+        },
+      });
+
+      return { id: screenshot.id, url: screenshot.url };
     }),
 
   // Fireflies bulk sync endpoints
