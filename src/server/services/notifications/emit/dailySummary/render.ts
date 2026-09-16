@@ -59,6 +59,11 @@ function urlLine(mode: Mode, url: string): string[] {
   return mode === "markdown" ? [] : [`   ${url}`];
 }
 
+/** Action names are Markdown; plain text shows a link as its label. */
+function inline(mode: Mode, text: string): string {
+  return mode === "markdown" ? text : text.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+}
+
 function bullet(mode: Mode): string {
   return mode === "markdown" ? "- " : "• ";
 }
@@ -180,7 +185,7 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
   if (digest.todaysActions.length === 0) {
     lines.push(DAILY_SUMMARY_EMPTY.todaysActions);
   } else {
-    for (const a of digest.todaysActions) lines.push(`${bullet(mode)}${a.name}`);
+    for (const a of digest.todaysActions) lines.push(`${bullet(mode)}${inline(mode, a.name)}`);
   }
   lines.push(
     mode === "markdown"

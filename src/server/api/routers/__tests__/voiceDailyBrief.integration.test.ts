@@ -64,8 +64,13 @@ describe("voice get_todays_plan (integration)", () => {
       briefing: BriefingShape;
       focus: string;
       timezone: string;
+      title: string;
+      markdown: string;
     };
     expect(structured.focus).toBe("overview");
+    // The same Markdown the Matrix Daily summary sends, for display clients.
+    expect(structured.title).toBe("☀️ Daily summary");
+    expect(structured.markdown).toContain("**✅ Today's actions**\n- ship the release\n1 overdue");
     expect(structured.timezone).toBe("UTC");
     expect(structured.briefing.todaysActions.length).toBe(1);
     expect(structured.briefing.overdueActions.length).toBe(1);
