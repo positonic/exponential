@@ -20,7 +20,7 @@ import {
   DEFAULT_MAX_DECISIONS,
   DecisionExtractionService,
   extractNotesDecisionItems,
-  filterNearDuplicateDecisions,
+  filterNearDuplicateCandidates,
   findSupportingTurns,
   normalizeDecisionStatement,
   type DecisionCandidate,
@@ -127,7 +127,8 @@ export function resolveDeciders(
  * breakdown, bullets and overview joined as one document, or the plain
  * string as-is. The summary prompts ask for "Decision:" / "Agreed:"
  * callouts and a "Key Decisions" section, which is exactly what the
- * deterministic notes parser reads.
+ * deterministic notes parser reads — along with the "Open question:" /
+ * "Still open:" callouts it turns into open questions.
  */
 export function summaryDecisionText(summary: string | null | undefined): string {
   if (!summary?.trim()) return "";
@@ -217,7 +218,7 @@ export async function generateDraftDecisions(
 
     const meetingRows = await db.decision.findMany({
       where: { transcriptionSessionId: meeting.id },
-      select: { id: true, reviewState: true, statement: true },
+      select: { id: true, reviewState: true, statement: true, status: true },
     });
     const existingDraftCount = meetingRows.filter((r) => r.reviewState === "DRAFT").length;
     if (existingDraftCount > 0) {
@@ -274,10 +275,14 @@ export async function generateDraftDecisions(
     ]);
     const workspaceDecisions = [...openRows, ...recentConfirmed];
     // A draft someone rejected from this meeting is not proposed again.
-    const rejectedStatements = meetingRows
-      .filter((r) => r.reviewState === "REJECTED")
-      .map((r) => r.statement);
-    const existingStatements = [...workspaceDecisions.map((d) => d.statement), ...rejectedStatements];
+    const rejectedRows = meetingRows.filter((r) => r.reviewState === "REJECTED");
+    // Split by kind (an open question is a Decision in OPEN): a captured item
+    // only suppresses candidates of its own kind, so a decision on a topic
+    // cannot hide the open question about it, nor an open question the
+    // decision that answers it.
+    const capturedRows = [...workspaceDecisions, ...rejectedRows];
+    const existingStatements = capturedRows.filter((r) => r.status !== "OPEN").map((r) => r.statement);
+    const existingQuestions = capturedRows.filter((r) => r.status === "OPEN").map((r) => r.statement);
     const openDecisions: OpenDecisionRef[] = openRows
       .filter((d): d is typeof d & { status: "OPEN" | "PROPOSED" } => d.status === "OPEN" || d.status === "PROPOSED")
       .map((d) => ({
@@ -288,19 +293,23 @@ export async function generateDraftDecisions(
       }));
 
     // Notes first: human-curated, near-verbatim. Then the stored summary's
-    // explicit decision callouts (deterministic, no model — the summary is
-    // itself model output, so only its "Decision:" / "Key Decisions" markup
-    // is trusted). Each curated candidate must still be backed by a
+    // explicit callouts (deterministic, no model — the summary is itself
+    // model output, so only its "Decision:" / "Key Decisions" and open-question
+    // markup is trusted, and "Agreed: to explore X" is read as the open
+    // question it is). Each curated candidate must still be backed by a
     // transcript turn, found deterministically; a candidate nothing in the
     // transcript supports is discarded.
     const notesCandidates: DecisionCandidate[] = [];
+    const capturedSoFar = () => ({
+      decisions: [...existingStatements, ...notesCandidates.filter((c) => !c.isOpenQuestion).map((c) => c.statement)],
+      questions: [...existingQuestions, ...notesCandidates.filter((c) => c.isOpenQuestion).map((c) => c.statement)],
+    });
     const backWithEvidence = (raw: DecisionCandidate[], label: string) => {
       for (const candidate of raw) {
         if (notesCandidates.length >= DEFAULT_MAX_DECISIONS) break;
         // Recomputed per candidate: snapshotting the comparison set before
         // the loop let two rewordings from the SAME source both through.
-        const already = [...existingStatements, ...notesCandidates.map((c) => c.statement)];
-        if (filterNearDuplicateDecisions([candidate], already).length === 0) continue;
+        if (filterNearDuplicateCandidates([candidate], capturedSoFar()).length === 0) continue;
         // A meeting with notes but no transcript is explicitly allowed
         // through above. `findSupportingTurns` over zero turns can only
         // return nothing, so requiring evidence there discarded 100% of
@@ -321,7 +330,7 @@ export async function generateDraftDecisions(
     };
     if (notesText) {
       backWithEvidence(
-        await DecisionExtractionService.extractFromNotes(notesText, { existingStatements }),
+        await DecisionExtractionService.extractFromNotes(notesText, { existingStatements, existingQuestions }),
         "Notes",
       );
     }
@@ -337,14 +346,15 @@ export async function generateDraftDecisions(
     // drafts and burn 30 labels from the workspace sequence.
     const remainingBudget = Math.max(0, DEFAULT_MAX_DECISIONS - notesCandidates.length);
     if (turns.length > 0 && remainingBudget > 0) {
-      const alreadyCaptured = [...existingStatements, ...notesCandidates.map((c) => c.statement)];
+      const alreadyCaptured = capturedSoFar();
       try {
         const run = await DecisionExtractionService.extractFromTranscript(turns, {
-          existingStatements: alreadyCaptured,
+          existingStatements: alreadyCaptured.decisions,
+          existingQuestions: alreadyCaptured.questions,
           openDecisions,
           maxDecisions: remainingBudget,
         });
-        transcriptCandidates = filterNearDuplicateDecisions(run.candidates, alreadyCaptured);
+        transcriptCandidates = filterNearDuplicateCandidates(run.candidates, alreadyCaptured);
         if (run.chunksSkipped > 0) {
           result.warnings.push(
             `The transcript was longer than one extraction pass covers, so ${run.chunksSkipped} of its ${run.chunksTotal} sections were not read. Decisions made only in those sections will be missing.`,
@@ -374,8 +384,10 @@ export async function generateDraftDecisions(
     const seen = new Set<string>();
     const candidates: DecisionCandidate[] = [];
     for (const candidate of [...notesCandidates, ...transcriptCandidates]) {
-      const key = normalizeDecisionStatement(candidate.statement);
-      if (!key || seen.has(key)) continue;
+      const normalized = normalizeDecisionStatement(candidate.statement);
+      if (!normalized) continue;
+      const key = `${candidate.isOpenQuestion ? "q" : "d"}:${normalized}`;
+      if (seen.has(key)) continue;
       seen.add(key);
       candidates.push(candidate);
     }

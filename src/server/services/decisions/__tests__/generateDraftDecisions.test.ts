@@ -214,10 +214,9 @@ describe("generateDraftDecisions", () => {
     const [turns, options] = extractFromTranscript.mock.calls[0]!;
     expect(turns).toHaveLength(5);
     expect(turns[4]).toMatchObject({ speaker: "Dev Fixture" });
-    expect(options.existingStatements).toEqual([
-      "Should the peek drawer ship first?",
-      "Standups stay inside fifteen minutes",
-    ]);
+    // Split by kind: an OPEN row only suppresses open-question candidates.
+    expect(options.existingStatements).toEqual(["Standups stay inside fifteen minutes"]);
+    expect(options.existingQuestions).toEqual(["Should the peek drawer ship first?"]);
     expect(options.openDecisions).toEqual([
       { id: "d-open", label: "D-0007", statement: "Should the peek drawer ship first?", status: "OPEN" },
     ]);
@@ -316,6 +315,71 @@ describe("generateDraftDecisions", () => {
     expect(extractFromTranscript.mock.calls[0]![1].existingStatements).toContain(
       "Prioritisation debates get parked for the prioritisation ceremony",
     );
+  });
+
+  it("stores a summary's 'Open question:' and 'Agreed: to explore…' callouts as open questions", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      ...MEETING,
+      summary: JSON.stringify({
+        overview: "Short standup.",
+        detailed_breakdown: [
+          "## Standup",
+          "- **Decision:** Prioritisation debates get parked for the prioritisation ceremony",
+          "- **Agreed:** To explore whether the peek drawer should ship before the hover affordances",
+          "- **Open question:** Is the accordion PR still waiting on a review?",
+        ].join("\n"),
+        keywords: [],
+      }),
+    } as never);
+    extractFromTranscript.mockResolvedValue(transcriptRun([]));
+
+    await generateDraftDecisions(db, "m1", "u-dev");
+
+    const byStatement = new Map(
+      db.decision.create.mock.calls.map((c) => {
+        const data = (c[0] as { data: { statement: string; status: string } }).data;
+        return [data.statement, data.status];
+      }),
+    );
+    expect(Object.fromEntries(byStatement)).toEqual({
+      "Prioritisation debates get parked for the prioritisation ceremony": "ACCEPTED",
+      "To explore whether the peek drawer should ship before the hover affordances": "OPEN",
+      "Is the accordion PR still waiting on a review?": "OPEN",
+    });
+    // The transcript pass is told which kind each captured item is.
+    const options = extractFromTranscript.mock.calls[0]![1];
+    expect(options.existingStatements).toContain("Prioritisation debates get parked for the prioritisation ceremony");
+    expect(options.existingQuestions).toContain(
+      "To explore whether the peek drawer should ship before the hover affordances",
+    );
+  });
+
+  it("keeps a transcript open question that rewords a decision captured from the notes", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      ...MEETING,
+      notes: "## Decisions\n- Park prioritisation debates for the prioritisation ceremony",
+    } as never);
+    extractFromNotes.mockResolvedValue([
+      candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes", context: undefined }),
+    ]);
+    extractFromTranscript.mockResolvedValue(transcriptRun([
+      // Same topic, different kind: before, the notes decision swallowed it.
+      candidate({ statement: "Which prioritisation debates get parked for the prioritisation ceremony?", isOpenQuestion: true }),
+      // Same topic, same kind: still a near-duplicate.
+      candidate({ statement: "Prioritisation debates get parked for the prioritisation ceremony" }),
+    ]));
+
+    await generateDraftDecisions(db, "m1", "u-dev");
+
+    expect(
+      db.decision.create.mock.calls.map((c) => {
+        const data = (c[0] as { data: { statement: string; status: string } }).data;
+        return [data.statement, data.status];
+      }),
+    ).toEqual([
+      ["Park prioritisation debates for the prioritisation ceremony", "ACCEPTED"],
+      ["Which prioritisation debates get parked for the prioritisation ceremony?", "OPEN"],
+    ]);
   });
 
   it("stores a resolution draft pointing at the open decision it resolves", async () => {

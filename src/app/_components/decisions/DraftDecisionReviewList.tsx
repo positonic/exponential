@@ -78,6 +78,15 @@ function DraftEvidence({
   );
 }
 
+/** "2 draft decisions and 1 open question" — counts both kinds a draft can be. */
+function draftSummary(decisions: number, questions: number): string {
+  const decisionsText = `${decisions} draft ${decisions === 1 ? "decision" : "decisions"}`;
+  if (questions === 0) return decisionsText;
+  const questionsText = `${questions} open ${questions === 1 ? "question" : "questions"}`;
+  if (decisions === 0) return `${questions} draft open ${questions === 1 ? "question" : "questions"}`;
+  return `${decisionsText} and ${questionsText}`;
+}
+
 interface DraftDecisionReviewListProps {
   transcriptionSessionId: string;
   workspaceId: string;
@@ -134,6 +143,8 @@ export function DraftDecisionReviewList({
   });
 
   const busy = confirmMutation.isPending || rejectMutation.isPending;
+  const questionCount = drafts.filter((d) => d.status === "OPEN").length;
+  const decisionCount = drafts.length - questionCount;
 
   if (drafts.length === 0) {
     return (
@@ -146,8 +157,8 @@ export function DraftDecisionReviewList({
   return (
     <Stack gap="sm" data-testid="draft-decisions">
       <Text size="xs" c="dimmed">
-        {drafts.length === 1 ? "One draft decision" : `${drafts.length} draft decisions`} extracted from
-        this meeting. Nothing enters the Decision Log until you confirm it.
+        {draftSummary(decisionCount, questionCount)} extracted from this meeting. Nothing enters the
+        Decision Log until you confirm it.
       </Text>
       {drafts.map((draft) => (
         <Paper
@@ -163,6 +174,11 @@ export function DraftDecisionReviewList({
               <Badge size="xs" variant="light" color="gray" className="shrink-0">
                 Draft {draft.label}
               </Badge>
+              {draft.status === "OPEN" && (
+                <Badge size="xs" variant="light" color="yellow" className="shrink-0" data-testid="draft-open-question">
+                  Open question
+                </Badge>
+              )}
               <Text fw={500} size="sm" style={{ flex: 1, minWidth: 0 }}>
                 {draft.statement}
               </Text>
