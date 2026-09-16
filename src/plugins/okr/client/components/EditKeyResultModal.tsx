@@ -293,6 +293,8 @@ export function EditKeyResultModal({
       utils.okr.getStats.invalidate(),
       utils.okr.getAll.invalidate(),
       utils.okr.getById.invalidate(),
+      // The Objective page's Features tab shows each Feature's Key results.
+      utils.product.feature.listForGoal.invalidate(),
     ]);
 
   /**
