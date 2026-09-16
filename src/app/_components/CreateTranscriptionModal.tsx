@@ -11,8 +11,10 @@ import {
   Textarea,
   Stack,
   Input,
+  InputBase,
   Pill,
   Text,
+  Combobox,
 } from "@mantine/core";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { useDisclosure } from "@mantine/hooks";
@@ -20,6 +22,7 @@ import { useMemo, useRef, useState } from "react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import {
+  IconBulb,
   IconPhoto,
   IconPlus,
   IconUpload,
@@ -31,6 +34,16 @@ import {
   ParticipantPicker,
   type PendingParticipant,
 } from "~/app/_components/meeting/ParticipantPicker";
+import { MeetingProjectPicker } from "~/app/_components/meeting/MeetingProjectPicker";
+import {
+  MeetingOccurrencePicker,
+  formatOccurrenceWhen,
+  type MeetingOccurrenceOption,
+} from "~/app/_components/meeting/MeetingOccurrencePicker";
+import {
+  MeetingFeaturePicker,
+  type MeetingFeatureOption,
+} from "~/app/_components/meeting/MeetingFeaturePicker";
 import {
   isImageFile,
   readMeetingImages,
@@ -41,12 +54,15 @@ import { useFileDrop } from "~/hooks/useFileDrop";
 
 interface CreateTranscriptionModalProps {
   projectId?: string;
+  /** Name of `projectId`, so it stays pickable for members who can't edit it. */
+  projectName?: string;
   workspaceId?: string;
   trigger?: React.ReactNode;
 }
 
 export function CreateTranscriptionModal({
   projectId,
+  projectName,
   workspaceId,
   trigger,
 }: CreateTranscriptionModalProps) {
@@ -63,6 +79,100 @@ export function CreateTranscriptionModal({
   const [images, setImages] = useState<PendingMeetingImage[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   const resetFileRef = useRef<() => void>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    projectId ?? null,
+  );
+  const [occurrence, setOccurrence] = useState<MeetingOccurrenceOption | null>(
+    null,
+  );
+  const [featureIds, setFeatureIds] = useState<string[]>([]);
+
+  // Placement is project-authoritative (CONTEXT.md → Meeting↔Workspace): the
+  // picked project's workspace wins. Opened from a workspace, the list is
+  // narrowed to that workspace so the meeting can't wander out of it.
+  const { data: assignableProjects = [] } = api.project.getAssignable.useQuery(
+    undefined,
+    { enabled: opened },
+  );
+  const projectOptions = useMemo(() => {
+    const options = workspaceId
+      ? assignableProjects.filter((p) => p.workspaceId === workspaceId)
+      : assignableProjects;
+    // The page's own project stays pickable even when the caller can only view
+    // it — `getAssignable` lists editable projects, and filing needs view.
+    if (projectId && projectName && !options.some((p) => p.id === projectId)) {
+      return [
+        {
+          id: projectId,
+          name: projectName,
+          workspaceId: workspaceId ?? null,
+          // Group it under its workspace (options are that workspace's when
+          // one is set); a workspace-less project groups as Personal.
+          workspaceName: workspaceId
+            ? (options[0]?.workspaceName ?? "Current project")
+            : null,
+        },
+        ...options,
+      ];
+    }
+    return options;
+  }, [assignableProjects, workspaceId, projectId, projectName]);
+  const selectedProject = projectOptions.find(
+    (p) => p.id === selectedProjectId,
+  );
+  const effectiveWorkspaceId =
+    workspaceId ?? selectedProject?.workspaceId ?? null;
+
+  // Ceremony occurrences a week either side of the meeting date (or now), as on
+  // the meeting page's "Part of" row.
+  const occurrenceWindow = useMemo(() => {
+    const day = 86_400_000;
+    const anchor = meetingDate ?? new Date();
+    return {
+      from: new Date(anchor.getTime() - 7 * day),
+      to: new Date(anchor.getTime() + 7 * day),
+    };
+    // `opened` re-anchors "now" each time the modal opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingDate, opened]);
+  const { data: occurrenceRows = [] } = api.ceremony.listOccurrences.useQuery(
+    {
+      workspaceId: effectiveWorkspaceId ?? "",
+      from: occurrenceWindow.from,
+      to: occurrenceWindow.to,
+    },
+    { enabled: opened && Boolean(effectiveWorkspaceId) },
+  );
+  const occurrenceOptions = useMemo<MeetingOccurrenceOption[]>(
+    () =>
+      occurrenceRows.map((o) => ({
+        id: o.id,
+        ceremonyId: o.ceremonyId,
+        ceremonyName: o.ceremony.name,
+        scheduledStart: new Date(o.scheduledStart),
+      })),
+    [occurrenceRows],
+  );
+
+  const [featurePickerOpened, setFeaturePickerOpened] = useState(false);
+  const { data: workspaceFeatures = [], isLoading: isLoadingFeatures } =
+    api.product.feature.listForWorkspace.useQuery(
+      { workspaceId: effectiveWorkspaceId ?? "" },
+      { enabled: opened && featurePickerOpened && Boolean(effectiveWorkspaceId) },
+    );
+  const featureOptions = useMemo<MeetingFeatureOption[]>(
+    () =>
+      workspaceFeatures.map((f) => ({
+        id: f.id,
+        name: f.name,
+        status: f.status,
+        productName: f.product.name,
+      })),
+    [workspaceFeatures],
+  );
+  const selectedFeatures = featureIds
+    .map((id) => featureOptions.find((f) => f.id === id))
+    .filter((f): f is MeetingFeatureOption => Boolean(f));
 
   const utils = api.useUtils();
   const uploadScreenshot = api.transcription.uploadScreenshot.useMutation();
@@ -70,7 +180,7 @@ export function CreateTranscriptionModal({
   const createTranscription =
     api.transcription.createManualTranscription.useMutation({
       onSuccess: () => {
-        if (projectId) {
+        if (selectedProjectId) {
           // Invalidate without input — query may be keyed by slug or id, so match all variants
           void utils.project.getById.invalidate();
         }
@@ -87,6 +197,50 @@ export function CreateTranscriptionModal({
         });
       },
     });
+
+  function handleProjectChange(nextProjectId: string | null) {
+    const next = projectOptions.find((p) => p.id === nextProjectId);
+    const nextWorkspaceId = workspaceId ?? next?.workspaceId ?? null;
+    // Ceremonies, features and participants are all workspace-scoped — a
+    // project in another workspace strands whatever was picked for this one.
+    if (nextWorkspaceId !== effectiveWorkspaceId) {
+      setOccurrence(null);
+      setFeatureIds([]);
+      setPendingParticipants([]);
+    }
+    setSelectedProjectId(nextProjectId);
+  }
+
+  function handleMeetingDateChange(date: Date | null) {
+    setMeetingDate(date);
+    // Keep the picked occurrence only while it's still one the picker would
+    // offer for the new date (a week either side).
+    const anchor = date ?? new Date();
+    if (
+      occurrence &&
+      Math.abs(occurrence.scheduledStart.getTime() - anchor.getTime()) >
+        7 * 86_400_000
+    ) {
+      setOccurrence(null);
+    }
+  }
+
+  function handleOccurrenceChange(occurrenceId: string | null) {
+    const picked = occurrenceOptions.find((o) => o.id === occurrenceId) ?? null;
+    setOccurrence(picked);
+    // An undated meeting takes its date from the occurrence it captured.
+    if (picked && !meetingDate) setMeetingDate(picked.scheduledStart);
+  }
+
+  function handleFeatureToggle(featureId: string, linked: boolean) {
+    setFeatureIds((prev) =>
+      linked
+        ? prev.includes(featureId)
+          ? prev
+          : [...prev, featureId]
+        : prev.filter((id) => id !== featureId),
+    );
+  }
 
   function handleAddPending(person: PendingParticipant) {
     setPendingParticipants((prev) =>
@@ -140,6 +294,9 @@ export function CreateTranscriptionModal({
     setMeetingDate(null);
     setPendingParticipants([]);
     setImages([]);
+    setSelectedProjectId(projectId ?? null);
+    setOccurrence(null);
+    setFeatureIds([]);
   }
 
   function handleClose() {
@@ -184,8 +341,10 @@ export function CreateTranscriptionModal({
         transcription: transcription.trim(),
         notes: notes.trim() || undefined,
         meetingDate: meetingDate ?? undefined,
-        projectId,
-        workspaceId,
+        projectId: selectedProjectId ?? undefined,
+        workspaceId: effectiveWorkspaceId ?? undefined,
+        occurrenceId: occurrence?.id,
+        featureIds: featureIds.length > 0 ? featureIds : undefined,
         participants:
           pendingParticipants.length > 0
             ? pendingParticipants.map((p) => p.payload)
@@ -303,11 +462,116 @@ export function CreateTranscriptionModal({
               <div>
                 <UnifiedDatePicker
                   value={meetingDate}
-                  onChange={setMeetingDate}
+                  onChange={handleMeetingDateChange}
                   placeholder="When did the meeting occur?"
                   notificationContext="meeting"
                 />
               </div>
+            </Input.Wrapper>
+
+            <Group grow align="flex-start">
+              <Input.Wrapper label="Project">
+                <MeetingProjectPicker
+                  projects={projectOptions}
+                  value={selectedProjectId}
+                  onChange={handleProjectChange}
+                  noneLabel={workspaceId ? "No project" : "Personal / no project"}
+                  dropdownWidth="target"
+                >
+                  {() => (
+                    <InputBase
+                      component="button"
+                      type="button"
+                      pointer
+                      rightSection={<Combobox.Chevron />}
+                      rightSectionPointerEvents="none"
+                      aria-label="Project"
+                    >
+                      {selectedProject ? (
+                        selectedProject.name
+                      ) : (
+                        <Input.Placeholder>No project</Input.Placeholder>
+                      )}
+                    </InputBase>
+                  )}
+                </MeetingProjectPicker>
+              </Input.Wrapper>
+
+              <Input.Wrapper label="Ceremony">
+                <MeetingOccurrencePicker
+                  occurrences={occurrenceOptions}
+                  value={occurrence?.id ?? null}
+                  onChange={handleOccurrenceChange}
+                  disabled={!effectiveWorkspaceId}
+                  dropdownWidth="target"
+                >
+                  {() => (
+                    <InputBase
+                      component="button"
+                      type="button"
+                      pointer
+                      disabled={!effectiveWorkspaceId}
+                      rightSection={<Combobox.Chevron />}
+                      rightSectionPointerEvents="none"
+                      aria-label="Ceremony"
+                    >
+                      {occurrence ? (
+                        `${occurrence.ceremonyName} · ${formatOccurrenceWhen(occurrence.scheduledStart)}`
+                      ) : (
+                        <Input.Placeholder>
+                          {effectiveWorkspaceId
+                            ? "Not part of a ceremony"
+                            : "Pick a project first"}
+                        </Input.Placeholder>
+                      )}
+                    </InputBase>
+                  )}
+                </MeetingOccurrencePicker>
+              </Input.Wrapper>
+            </Group>
+
+            <Input.Wrapper
+              label="Features"
+              description="Features this meeting discussed."
+            >
+              <Stack gap="xs" mt={4}>
+                {selectedFeatures.length > 0 && (
+                  <Pill.Group>
+                    {selectedFeatures.map((f) => (
+                      <Pill
+                        key={f.id}
+                        withRemoveButton
+                        onRemove={() => handleFeatureToggle(f.id, false)}
+                        title={`${f.name} · ${f.productName}`}
+                      >
+                        {f.name}
+                      </Pill>
+                    ))}
+                  </Pill.Group>
+                )}
+                <div style={{ alignSelf: "flex-start" }}>
+                  <MeetingFeaturePicker
+                    features={featureOptions}
+                    value={featureIds}
+                    onToggle={handleFeatureToggle}
+                    disabled={!effectiveWorkspaceId}
+                    loading={isLoadingFeatures}
+                    onOpen={() => setFeaturePickerOpened(true)}
+                    position="bottom-start"
+                  >
+                    {() => (
+                      <Button
+                        variant="light"
+                        size="xs"
+                        leftSection={<IconBulb size={14} />}
+                        disabled={!effectiveWorkspaceId}
+                      >
+                        Link feature
+                      </Button>
+                    )}
+                  </MeetingFeaturePicker>
+                </div>
+              </Stack>
             </Input.Wrapper>
 
             <Input.Wrapper
@@ -341,14 +605,14 @@ export function CreateTranscriptionModal({
                   size="xs"
                   leftSection={<IconUserPlus size={14} />}
                   onClick={() => setPickerOpen(true)}
-                  disabled={!workspaceId}
+                  disabled={!effectiveWorkspaceId}
                   style={{ alignSelf: "flex-start" }}
                 >
                   Add participant
                 </Button>
-                {!workspaceId && (
+                {!effectiveWorkspaceId && (
                   <Text size="xs" c="dimmed">
-                    Select a workspace to add participants.
+                    Pick a project in a workspace to add participants.
                   </Text>
                 )}
               </Stack>
@@ -468,7 +732,7 @@ export function CreateTranscriptionModal({
       <ParticipantPicker
         opened={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        workspaceId={workspaceId ?? null}
+        workspaceId={effectiveWorkspaceId}
         existing={existingParticipants}
         onAdd={handleAddPending}
       />

@@ -553,6 +553,7 @@ export function ProjectContent({
             <Tabs.Panel value="transcriptions">
               <ProjectMeetingsTab
                 projectId={resolvedProjectId}
+                projectName={project.name}
                 workspaceId={project.workspaceId}
                 hasFirefliesWorkflow={hasFirefliesWorkflow}
               />

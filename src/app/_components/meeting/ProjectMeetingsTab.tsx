@@ -10,6 +10,7 @@ import { MeetingCardList } from "./MeetingCardList";
 
 interface ProjectMeetingsTabProps {
   projectId: string;
+  projectName: string;
   workspaceId: string | null;
   hasFirefliesWorkflow: boolean;
 }
@@ -21,6 +22,7 @@ interface ProjectMeetingsTabProps {
  */
 export function ProjectMeetingsTab({
   projectId,
+  projectName,
   workspaceId,
   hasFirefliesWorkflow,
 }: ProjectMeetingsTabProps) {
@@ -127,6 +129,7 @@ export function ProjectMeetingsTab({
           <Title order={4}>Project Meetings</Title>
           <CreateTranscriptionModal
             projectId={projectId}
+            projectName={projectName}
             workspaceId={workspaceId ?? undefined}
           />
         </Group>

@@ -15,6 +15,7 @@ import {
   type FeatureMoveGraph,
   type FeatureMoveDestination,
 } from "../services/featureMove";
+import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
 
 /**
  * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
@@ -1156,6 +1157,12 @@ export const featureRouter = createTRPCRouter({
             },
           });
         }
+        // Meeting links are workspace-bound; a cross-workspace move strands
+        // the ones whose meeting stays behind.
+        await dropStrandedFeatureMeetingLinks(tx, {
+          featureIds: [mutations.featureId],
+          workspaceId: destProduct.workspaceId,
+        });
         if (mutations.nextTicketCounter !== destProduct.ticketCounter) {
           await tx.product.update({
             where: { id: destProduct.id },

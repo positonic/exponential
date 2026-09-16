@@ -23,6 +23,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DateTimeField } from "./DateTimeField";
 import { EditActionModal } from "./EditActionModal";
 import { formatElapsedClock } from "~/hooks/useActiveTimer";
+import { toPlainText } from "~/lib/content/plainText";
 import type { CalendarTimeEntry } from "./calendar/types";
 
 interface TimeEntryModalProps {
@@ -180,7 +181,7 @@ export function TimeEntryModal({
               Action
             </Text>
             <Group gap="xs" align="center">
-              <Text fw={500}>{actionName || "Untitled"}</Text>
+              <Text fw={500}>{toPlainText(actionName) || "Untitled"}</Text>
               <Tooltip
                 label={pickerOpen ? "Cancel reassignment" : "Reassign to another action"}
                 withArrow
