@@ -589,3 +589,77 @@ describe("transcription router (mocked) — saveTranscription notes", () => {
     expect(updateData()?.notes).toBe("edited notes");
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────
+// uploadScreenshot — images dropped onto the Add Meeting modal or the
+// meeting's Screenshots tab land as Screenshot rows on the session.
+// ──────────────────────────────────────────────────────────────────────
+describe("transcription router (mocked) — uploadScreenshot", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.screenshot.create.mockResolvedValue({
+      id: "shot1",
+      url: "blob://test",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  });
+
+  it("stores the image as a Screenshot linked to the meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: callerId,
+      projectId: null,
+      workspaceId: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.uploadScreenshot({
+      transcriptionSessionId: "sess1",
+      base64Data: "aGVsbG8=",
+      contentType: "image/jpeg",
+    });
+
+    expect(result).toEqual({ id: "shot1", url: "blob://test" });
+    const data = dbMock.screenshot.create.mock.calls[0]?.[0]?.data;
+    expect(data?.transcriptionSessionId).toBe("sess1");
+    expect(data?.url).toBe("blob://test");
+  });
+
+  it("rejects callers without edit access to the meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "sess1",
+      userId: "someone-else",
+      projectId: null,
+      workspaceId: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "sess1",
+        base64Data: "aGVsbG8=",
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.screenshot.create).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.uploadScreenshot({
+        transcriptionSessionId: "missing",
+        base64Data: "aGVsbG8=",
+        contentType: "image/png",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});

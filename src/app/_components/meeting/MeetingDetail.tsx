@@ -419,6 +419,7 @@ export function MeetingDetail({
             )}
             {tab === "screenshots" && (
               <ScreenshotsTab
+                transcriptionSessionId={session.id}
                 screenshots={session.screenshots.map((s) => ({
                   id: s.id,
                   url: s.url,
