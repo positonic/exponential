@@ -58,7 +58,6 @@ import { TranscriptView } from "./meeting/TranscriptView";
 import { MeetingProjectPicker } from "./meeting/MeetingProjectPicker";
 import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
-import type { TranscriptTurn } from "~/lib/transcript";
 import {
   buildMeetingCardViewModel,
   type MeetingCardParticipant,
@@ -244,16 +243,12 @@ function projectTagClass(projectId: string): { bg: string; text: string; dot: st
   return PROJECT_TAG_VARIANTS[hash % PROJECT_TAG_VARIANTS.length]!;
 }
 
-function PeekTranscript({
-  turns,
-  turnCount,
-  provider,
+function AiSummaryDisclosure({
   onContainerClick,
+  children,
 }: {
-  turns: TranscriptTurn[];
-  turnCount: number;
-  provider?: string;
   onContainerClick: (e: React.MouseEvent | React.KeyboardEvent) => void;
+  children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -268,20 +263,9 @@ function PeekTranscript({
           size={11}
           className={`transition-transform ${open ? "rotate-180" : "rotate-0"}`}
         />
-        <span>{open ? "Hide transcript" : "Peek at transcript"}</span>
+        <span>{open ? "Hide AI summary" : "Show AI summary"}</span>
       </button>
-      {open && (
-        <div className="mt-2.5 rounded-md border border-border-subtle bg-background-primary px-3 py-2.5">
-          <TranscriptView
-            variant="preview"
-            transcription={null}
-            turns={turns}
-            totalTurnCount={turnCount}
-            provider={provider}
-            previewCount={2}
-          />
-        </div>
-      )}
+      {open && <div className="mt-2.5">{children}</div>}
     </div>
   );
 }
@@ -1571,43 +1555,35 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                           </div>
                         </div>
 
-                        {/* Zoe gradient panel — leads the card with AI summary + Actions chip + Open transcript link */}
-                        <div className="mb-2.5 flex gap-2.5 rounded-lg border border-accent-meetings/20 bg-gradient-to-b from-accent-meetings/[0.06] to-accent-meetings/[0.02] px-3.5 py-3">
-                          <IconSparkles size={14} className="mt-0.5 shrink-0 text-accent-meetings" />
-                          <div className="min-w-0 flex-1">
-                            <p className="m-0 text-[13px] leading-[1.55] text-text-primary">
-                              {vm.highlight ?? "Summary not yet extracted."}
-                            </p>
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-background-primary px-2 py-[3px] text-[11px] font-medium text-brand-400">
-                                <IconCheckbox size={10} />
-                                <span className="font-semibold tabular-nums text-text-primary">
-                                  {vm.actionCount}
+                        {/* AI summary — collapsed by default; Zoe gradient panel with summary + Actions chip + Open transcript link */}
+                        <AiSummaryDisclosure onContainerClick={stopBubble}>
+                          <div className="flex gap-2.5 rounded-lg border border-accent-meetings/20 bg-gradient-to-b from-accent-meetings/[0.06] to-accent-meetings/[0.02] px-3.5 py-3">
+                            <IconSparkles size={14} className="mt-0.5 shrink-0 text-accent-meetings" />
+                            <div className="min-w-0 flex-1">
+                              <p className="m-0 text-[13px] leading-[1.55] text-text-primary">
+                                {vm.highlight ?? "Summary not yet extracted."}
+                              </p>
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 rounded border border-border-subtle bg-background-primary px-2 py-[3px] text-[11px] font-medium text-brand-400">
+                                  <IconCheckbox size={10} />
+                                  <span className="font-semibold tabular-nums text-text-primary">
+                                    {vm.actionCount}
+                                  </span>
+                                  <span>action{vm.actionCount === 1 ? "" : "s"}</span>
                                 </span>
-                                <span>action{vm.actionCount === 1 ? "" : "s"}</span>
-                              </span>
-                              <span className="flex-1" />
-                              <Link
-                                href={detailHref}
-                                onClick={stopBubble}
-                                className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-text-muted hover:text-brand-400"
-                              >
-                                Open transcript
-                                <IconArrowRight size={11} />
-                              </Link>
+                                <span className="flex-1" />
+                                <Link
+                                  href={detailHref}
+                                  onClick={stopBubble}
+                                  className="inline-flex items-center gap-1 whitespace-nowrap text-[11.5px] font-medium text-text-muted hover:text-brand-400"
+                                >
+                                  Open transcript
+                                  <IconArrowRight size={11} />
+                                </Link>
+                              </div>
                             </div>
                           </div>
-                        </div>
-
-                        {/* Peek at transcript — button toggles inline transcript block */}
-                        {session.hasTranscript && (
-                          <PeekTranscript
-                            turns={session.transcriptPreview}
-                            turnCount={session.transcriptTurnCount}
-                            provider={provider}
-                            onContainerClick={stopBubble}
-                          />
-                        )}
+                        </AiSummaryDisclosure>
                       </div>
                       );
                     })}
