@@ -27,6 +27,10 @@ import {
   getDailyContext,
   parseDailyContextFocus,
 } from "~/server/services/voice/dailyContext";
+import {
+  DAILY_SUMMARY_TITLE,
+  renderDailySummaryMarkdown,
+} from "~/server/services/notifications/emit/dailySummary";
 import { runQuery } from "~/server/services/voice/query";
 import { completeAction } from "~/server/services/voice/complete";
 import { askExponential } from "~/server/services/voice/brainPassthrough";
@@ -228,9 +232,18 @@ export const voiceRouter = createTRPCRouter({
             ctx.db,
             { focus, timezone },
           );
+          // `markdown` is the Daily summary exactly as Matrix receives it, for
+          // clients that display the reply rather than speak it (the iOS text
+          // shell); the voice model still only ever sees `speakable`.
           return {
             speakable,
-            structured: { briefing: digest, focus, timezone: resolvedTimezone },
+            structured: {
+              briefing: digest,
+              focus,
+              timezone: resolvedTimezone,
+              title: DAILY_SUMMARY_TITLE,
+              markdown: renderDailySummaryMarkdown(digest),
+            },
             needsConfirmation: false,
           };
         }

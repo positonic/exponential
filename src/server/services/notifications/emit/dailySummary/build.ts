@@ -18,6 +18,7 @@ import {
   type CalendarReader,
   type SummaryWindow,
 } from "./calendar";
+import { actionNameMarkdown } from "./actionName";
 import { matchRecordingsToEvents } from "./matcher";
 import type {
   DailySummaryActionItem,
@@ -128,8 +129,8 @@ async function loadTodaysActions(
   );
 
   return {
-    todaysActions: partition.todays.map((a) => ({ name: a.name })),
-    overdueActions: partition.overdue.map((a) => ({ name: a.name })),
+    todaysActions: partition.todays.map((a) => ({ name: actionNameMarkdown(a.name) })),
+    overdueActions: partition.overdue.map((a) => ({ name: actionNameMarkdown(a.name) })),
     overdueCount: partition.overdue.length,
   };
 }

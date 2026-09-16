@@ -158,6 +158,15 @@ describe("renderDailySummaryPlainText", () => {
     );
   });
 
+  it("shows a linked action name as a Markdown link, and as its label in plain text", () => {
+    const linked = {
+      ...fullDigest,
+      todaysActions: [{ name: `Read [Situation doc](${BASE}/doc)` }],
+    };
+    expect(renderDailySummaryMarkdown(linked)).toContain(`- Read [Situation doc](${BASE}/doc)\n`);
+    expect(renderDailySummaryPlainText(linked)).toContain(`• Read Situation doc\n   ${BASE}/doc\n`);
+  });
+
   it("renders every heading and empty state for an empty digest", () => {
     const text = renderDailySummaryPlainText(emptyDigest);
     for (const h of HEADINGS) expect(text).toContain(`\n${h}\n`);
