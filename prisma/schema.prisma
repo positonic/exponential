@@ -317,6 +317,7 @@ model User {
   createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
   ceremonyParticipations      CeremonyParticipant[]
   ceremonyOccurrenceUpdates   CeremonyOccurrenceUpdate[]        @relation("CeremonyOccurrenceUpdateUser")
+  meetingFeatureLinks         MeetingFeature[]                  @relation("MeetingFeatureCreatedBy")
   // Decisions (ADR-0060)
   ownedDecisions              Decision[]                        @relation("DecisionOwner")
   createdDecisions            Decision[]                        @relation("DecisionCreatedBy")
@@ -1499,6 +1500,7 @@ model TranscriptionSession {
   actions           Action[]
   featureDrafts     MeetingFeatureDraft[]
   sourcedFeatures   Feature[]                         @relation("FeatureSourceMeeting")
+  featureLinks      MeetingFeature[]
   screenshots       Screenshot[]
   project           Project?                          @relation(fields: [projectId], references: [id])
   sourceIntegration Integration?                      @relation(fields: [sourceIntegrationId], references: [id])
@@ -4649,6 +4651,7 @@ model Feature {
   keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
   adrLinks            AdrTicketLink[]
   decisionLinks       DecisionLink[]
+  meetingLinks        MeetingFeature[]
 
   @@index([productId])
   @@index([goalId])
@@ -4656,6 +4659,25 @@ model Feature {
   @@index([status])
   @@index([areaId])
   @@index([sourceTranscriptionId])
+}
+
+/// A Meeting discussed a Feature. Many-to-many and hand-set from the meeting
+/// page or the Add Meeting modal - distinct from `Feature.sourceTranscriptionId`,
+/// which is provenance (the one meeting a Feature was *ideated from*). Both ends
+/// must sit in the same workspace; the write path enforces it.
+model MeetingFeature {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  featureId              String
+  createdById            String
+  createdAt              DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  feature              Feature              @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy            User                 @relation("MeetingFeatureCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([transcriptionSessionId, featureId])
+  @@index([featureId])
 }
 
 /// A candidate Feature ideated from a meeting, held OUTSIDE the feature registry

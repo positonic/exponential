@@ -134,6 +134,16 @@ export async function assignMeetingPlacement(
       },
       data: { projectId, workspaceId },
     }),
+    // Feature links are workspace-bound: drop the ones the move strands in the
+    // old workspace (all of them when the meeting goes Personal).
+    db.meetingFeature.deleteMany({
+      where: {
+        transcriptionSessionId: { in: placeableIds },
+        ...(workspaceId
+          ? { feature: { product: { workspaceId: { not: workspaceId } } } }
+          : {}),
+      },
+    }),
   ]);
 
   return { count: sessionResult.count, projectId, workspaceId };

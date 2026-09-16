@@ -22,6 +22,10 @@ import {
   formatOccurrenceWhen,
   type MeetingOccurrenceOption,
 } from "./MeetingOccurrencePicker";
+import {
+  MeetingFeaturePicker,
+  type MeetingFeatureOption,
+} from "./MeetingFeaturePicker";
 import type { MeetingOccurrenceRef, MeetingParticipant } from "~/lib/meeting-view-model";
 
 interface ContextRailProps {
@@ -50,6 +54,12 @@ interface ContextRailProps {
   occurrenceOptions: MeetingOccurrenceOption[];
   /** Link the meeting to an occurrence (null unlinks). Absent → read-only row. */
   onOccurrenceChange?: (occurrenceId: string | null) => void;
+  /** Features this meeting discussed, in link order. */
+  linkedFeatures: { id: string; name: string; productName: string; href: string | null }[];
+  /** Candidate features in the meeting's workspace. */
+  featureOptions: MeetingFeatureOption[];
+  /** Link (true) or unlink (false) a feature. Absent → read-only rows. */
+  onFeatureToggle?: (featureId: string, linked: boolean) => void;
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
@@ -81,6 +91,9 @@ export function ContextRail({
   occurrenceHref,
   occurrenceOptions,
   onOccurrenceChange,
+  linkedFeatures,
+  featureOptions,
+  onFeatureToggle,
   onShare,
   onExportTranscript,
   canExport,
@@ -224,6 +237,66 @@ export function ContextRail({
             <IconExternalLink size={12} /> Open ceremony
           </Link>
         )}
+        {/* Features this meeting discussed — many per meeting, and
+            workspace-owned like ceremonies. */}
+        {linkedFeatures.map((f) => (
+          <div key={f.id} className="mp-linkrow mt-1.5" data-testid="meeting-linked-feature">
+            <span className="mp-linkrow__glyph mp-linkrow__glyph--okr">
+              {f.name.charAt(0).toUpperCase()}
+            </span>
+            {f.href ? (
+              <Link href={f.href} style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">{f.name}</div>
+                <div className="mp-linkrow__sub">Feature · {f.productName}</div>
+              </Link>
+            ) : (
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">{f.name}</div>
+                <div className="mp-linkrow__sub">Feature · {f.productName}</div>
+              </div>
+            )}
+            {onFeatureToggle && (
+              <button
+                type="button"
+                className="mp-person__remove"
+                style={{ width: 14, height: 14 }}
+                onClick={() => onFeatureToggle(f.id, false)}
+                aria-label={`Unlink ${f.name}`}
+                title={`Unlink ${f.name}`}
+              >
+                <IconX size={12} />
+              </button>
+            )}
+          </div>
+        ))}
+        <MeetingFeaturePicker
+          features={featureOptions}
+          value={linkedFeatures.map((f) => f.id)}
+          onToggle={(id, linked) => onFeatureToggle?.(id, linked)}
+          disabled={!onFeatureToggle}
+        >
+          {({ toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              className="mp-linkrow mt-1.5"
+              style={{ width: "100%", textAlign: "left", cursor: onFeatureToggle ? "pointer" : "default" }}
+              disabled={!onFeatureToggle}
+              aria-label="Link features"
+              data-testid="meeting-link-feature"
+            >
+              <span className="mp-linkrow__glyph mp-linkrow__glyph--okr">+</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">
+                  {linkedFeatures.length > 0 ? "Link another feature" : "Discussed a feature?"}
+                </div>
+                <div className="mp-linkrow__sub">
+                  {onFeatureToggle ? "Link to features" : "Assign to a workspace first"}
+                </div>
+              </div>
+            </button>
+          )}
+        </MeetingFeaturePicker>
       </div>
 
       {(hasVideo || sourceLabel) && (

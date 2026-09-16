@@ -30,6 +30,8 @@ import {
 } from "~/lib/meetings/meetingImages";
 import { parseTranscript } from "~/lib/transcript";
 import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAttach";
+import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
+import { assertFeaturesLinkable } from "~/server/services/meetings/meetingFeatures";
 import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
@@ -38,6 +40,7 @@ import {
 } from "~/server/services/TranscriptSummarizerService";
 import {
   buildTranscriptionAccessWhere,
+  canEditProject,
   canEditTranscription,
   canEditWorkspaceContent,
   canViewTranscription,
@@ -673,6 +676,20 @@ export const transcriptionRouter = createTRPCRouter({
               ceremony: { select: { id: true, name: true } },
             },
           },
+          // Features this meeting discussed (`MeetingFeature`).
+          featureLinks: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              feature: {
+                select: {
+                  id: true,
+                  name: true,
+                  status: true,
+                  product: { select: { id: true, name: true, slug: true } },
+                },
+              },
+            },
+          },
         },
       });
 
@@ -888,10 +905,16 @@ export const transcriptionRouter = createTRPCRouter({
         // contacts and/or new name+email people). Resolved via the same
         // helper as addParticipant.
         participants: z.array(participantPersonSchema).optional(),
+        // The ceremony occurrence this meeting captured (ADR-0059), picked by
+        // hand. When absent, title/date auto-attach runs instead.
+        occurrenceId: z.string().optional(),
+        // Features the meeting discussed (`MeetingFeature`).
+        featureIds: z.array(z.string()).max(50).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const participants = input.participants ?? [];
+      const featureIds = Array.from(new Set(input.featureIds ?? []));
 
       // A project-linked Meeting always inherits its Project's Workspace
       // (CONTEXT.md → Meeting↔Workspace): a meeting with a Project but no
@@ -903,6 +926,19 @@ export const transcriptionRouter = createTRPCRouter({
       // project is a coherence bug, so reject it rather than silently override.
       let workspaceId = input.workspaceId ?? null;
       if (input.projectId) {
+        // Filing a meeting into a project is a write to that project — the
+        // same bar `assignProject` holds placement to.
+        const projectAccess = await getProjectAccess(
+          ctx.db,
+          ctx.session.user.id,
+          input.projectId,
+        );
+        if (!canEditProject(projectAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have edit access to this project",
+          });
+        }
         const project = await ctx.db.project.findUnique({
           where: { id: input.projectId },
           select: { workspaceId: true },
@@ -932,6 +968,42 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
+      await assertFeaturesLinkable(ctx.db, ctx.session.user.id, {
+        workspaceId,
+        featureIds,
+      });
+
+      // A hand-picked occurrence must be one of the meeting's workspace's —
+      // the same rule `ceremony.attachMeeting` enforces after the fact.
+      let occurrence: {
+        id: string;
+        workspaceId: string;
+        scheduledStart: Date;
+        ceremony: { name: string; timezone: string };
+      } | null = null;
+      if (input.occurrenceId) {
+        const membership = workspaceId
+          ? await getWorkspaceMembership(ctx.db, ctx.session.user.id, workspaceId)
+          : null;
+        occurrence = membership
+          ? await ctx.db.ceremonyOccurrence.findUnique({
+              where: { id: input.occurrenceId },
+              select: {
+                id: true,
+                workspaceId: true,
+                scheduledStart: true,
+                ceremony: { select: { name: true, timezone: true } },
+              },
+            })
+          : null;
+        if (!occurrence || occurrence.workspaceId !== workspaceId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The ceremony occurrence must belong to the meeting's workspace",
+          });
+        }
+      }
+
       // Create the meeting and resolve every participant in ONE transaction: a
       // meeting is never created with participants silently failing to attach,
       // and there's no N+1 round-trip from the client. Any participant that
@@ -949,6 +1021,17 @@ export const transcriptionRouter = createTRPCRouter({
               projectId: input.projectId ?? null,
               workspaceId,
               userId: ctx.session.user.id,
+              occurrenceId: occurrence?.id ?? null,
+              ...(featureIds.length > 0
+                ? {
+                    featureLinks: {
+                      create: featureIds.map((featureId) => ({
+                        featureId,
+                        createdById: ctx.session.user.id,
+                      })),
+                    },
+                  }
+                : {}),
             },
             include: {
               sourceIntegration: {
@@ -990,7 +1073,22 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Ceremony auto-attach (ADR-0059): manual meetings carry a title and
       // usually a date, so alias matching applies right away. Never throws.
-      await attachMeetingToOccurrence(ctx.db, session);
+      // A hand-picked occurrence wins; it only needs its activity event.
+      if (occurrence) {
+        await recordOccurrenceCaptured(ctx.db, {
+          workspaceId: occurrence.workspaceId,
+          occurrenceId: occurrence.id,
+          ceremonyName: occurrence.ceremony.name,
+          scheduledStart: occurrence.scheduledStart,
+          timezone: occurrence.ceremony.timezone,
+          meetingId: session.id,
+          meetingTitle: session.title,
+          actorUserId: ctx.session.user.id,
+          via: "manual",
+        });
+      } else {
+        await attachMeetingToOccurrence(ctx.db, session);
+      }
 
       // Record a workspace activity event when a meeting lands (ADR-0018): one
       // write surfaces it in the workspace feed, the aggregated /activity feed,
@@ -1386,6 +1484,46 @@ export const transcriptionRouter = createTRPCRouter({
       return ctx.db.transcriptionSession.findUniqueOrThrow({
         where: { id: input.transcriptionId },
       });
+    }),
+
+  /** Link the meeting to a Feature it discussed. Idempotent. */
+  linkFeature: protectedProcedure
+    .input(z.object({ transcriptionId: z.string(), featureId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const session = await loadTranscriptionForAccess(ctx.db, input.transcriptionId);
+      await ensureTranscriptionAccess(ctx.db, userId, session, "edit");
+      await assertFeaturesLinkable(ctx.db, userId, {
+        workspaceId: session.workspaceId,
+        featureIds: [input.featureId],
+      });
+      await ctx.db.meetingFeature.upsert({
+        where: {
+          transcriptionSessionId_featureId: {
+            transcriptionSessionId: session.id,
+            featureId: input.featureId,
+          },
+        },
+        create: {
+          transcriptionSessionId: session.id,
+          featureId: input.featureId,
+          createdById: userId,
+        },
+        update: {},
+      });
+      return { transcriptionId: session.id, featureId: input.featureId };
+    }),
+
+  /** Remove a meeting→Feature link. A missing link is a no-op. */
+  unlinkFeature: protectedProcedure
+    .input(z.object({ transcriptionId: z.string(), featureId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await loadTranscriptionForAccess(ctx.db, input.transcriptionId);
+      await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, session, "edit");
+      await ctx.db.meetingFeature.deleteMany({
+        where: { transcriptionSessionId: session.id, featureId: input.featureId },
+      });
+      return { transcriptionId: session.id, featureId: input.featureId };
     }),
 
   bulkAssignProject: protectedProcedure
