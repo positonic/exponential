@@ -14,6 +14,7 @@ import {
 import { format, startOfDay } from "date-fns";
 
 import type { CalendarTimeEntry } from "~/app/_components/calendar/types";
+import { toPlainText } from "~/lib/content/plainText";
 import { RollupTooltip } from "./TimeDayView";
 
 function entryMinutes(e: CalendarTimeEntry): number {
@@ -53,7 +54,9 @@ export function TimeReports({ entries, projectNames }: TimeReportsProps) {
       const aid = e.action.id;
       const prev = actMap.get(aid);
       actMap.set(aid, {
-        name: e.action.name || "Untitled",
+        // A chart label is SVG text: it cannot render the legacy HTML some
+        // Action names still carry, so it shows the text a reader would see.
+        name: toPlainText(e.action.name) || "Untitled",
         mins: (prev?.mins ?? 0) + mins,
       });
 
