@@ -1408,11 +1408,12 @@ body {
 }
 /* Resolved threads keep their mark but hide the highlight (ADR-0024 §Resolve).
    The decoration may wrap the mark span, land on it directly, or nest inside
-   it (ProseMirror nests the inline decoration under the mark span when their
-   ranges coincide) - cover all three. */
+   it (ProseMirror nests the inline decoration under the mark spans) - cover all
+   three. The decoration only marks text whose threads are all resolved
+   (comment-resolution.ts), so any highlight containing one is resolved. */
 .prd-comment-resolved.prd-comment-highlight,
 .prd-comment-resolved .prd-comment-highlight,
-.prd-comment-highlight:has(> .prd-comment-resolved) {
+.prd-comment-highlight:has(.prd-comment-resolved) {
   background-color: transparent;
   border-bottom: none;
 }
