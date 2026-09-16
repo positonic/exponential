@@ -1,61 +1,33 @@
-'use client';
-
-import { useMemo } from 'react';
-import { usePathname } from 'next/navigation';
-import { WorkspaceProvider, useWorkspace } from '~/providers/WorkspaceProvider';
-import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
-import { WorkspaceTopbar } from '~/app/_components/layout/WorkspaceTopbar';
-import { GuestRouteGuard } from '~/app/_components/layout/GuestRouteGuard';
-import styles from './WorkspaceLayout.module.css';
+import SuperJSON from 'superjson';
+import { api } from '~/trpc/server';
+import { WorkspaceLayoutClient } from './WorkspaceLayoutClient';
 
 /**
- * Registers workspace context for the AI agent chat.
- * Must be rendered inside WorkspaceProvider so useWorkspace() is available.
+ * Server shell for every workspace page. Starts the `workspace.getBySlug`
+ * read here so it streams with the RSC payload, and the client layout seeds
+ * the query cache from it (see useSeedWorkspaceQuery).
+ *
+ * Never await the read: that would hold every hard load and cross-workspace
+ * navigation for a database round trip.
  */
-function WorkspaceContextRegistrar({ children }: { children: React.ReactNode }) {
-  const { workspace, workspaceId } = useWorkspace();
-  const pathname = usePathname();
-
-  const pageContext = useMemo(() => {
-    if (!workspace || !workspaceId) return null;
-    // Product routes register their own richer context (ProductLayout). Yield
-    // here: this registrar's effect re-runs on every pathname change and runs
-    // AFTER child effects (parent effects fire last), so registering the
-    // generic workspace context on product routes would clobber the product
-    // context on every product tab switch.
-    if (/\/products\/[^/]+/.test(pathname)) return null;
-    return {
-      pageType: 'workspace',
-      pageTitle: workspace.name,
-      pagePath: pathname,
-      data: {
-        workspaceId,
-        workspaceName: workspace.name,
-        workspaceSlug: workspace.slug,
-      },
-    };
-  }, [workspace, workspaceId, pathname]);
-
-  useRegisterPageContext(pageContext);
-
-  return (
-    <div className={styles.wrapper}>
-      <WorkspaceTopbar />
-      <GuestRouteGuard>{children}</GuestRouteGuard>
-    </div>
-  );
-}
-
-export default function WorkspaceLayout({
+export default async function WorkspaceLayout({
   children,
+  params,
 }: {
   children: React.ReactNode;
+  params: Promise<{ workspaceSlug: string }>;
 }) {
+  const { workspaceSlug } = await params;
+
+  const workspace = api.workspace.getBySlug({ slug: workspaceSlug }).then(
+    (data) => SuperJSON.serialize(data),
+    // No access or not found: the client's own fetch reports it.
+    () => null,
+  );
+
   return (
-    <WorkspaceProvider>
-      <WorkspaceContextRegistrar>
-        {children}
-      </WorkspaceContextRegistrar>
-    </WorkspaceProvider>
+    <WorkspaceLayoutClient workspaceSlug={workspaceSlug} workspace={workspace}>
+      {children}
+    </WorkspaceLayoutClient>
   );
 }
