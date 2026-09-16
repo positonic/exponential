@@ -83,7 +83,7 @@ When an external agent logs time for you, the entry is created as **proposed**:
 2. Pick the day and check the entries look right
 3. Click **Confirm day**
 
-Every proposed entry on that day becomes confirmed, and the tasks' time spent updates. If nothing was proposed, the button is disabled.
+Every proposed entry on that day becomes confirmed, and the tasks' time spent updates. If you've picked a workspace in the workspace menu, only that workspace's entries are confirmed. If nothing was proposed, the button is disabled.
 
 **Editing a proposed entry confirms it.** If you change its times or move it to another task, the agent treats it as settled and will never change it again, even if it runs again for the same day.
 
