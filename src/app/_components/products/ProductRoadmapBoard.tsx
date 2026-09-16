@@ -125,7 +125,7 @@ function resolveTargetStatus(
 // to a deterministic avatar color + the product's initial.
 // ---------------------------------------------------------------------------
 
-function ProductBadge({ product }: { product: RoadmapProduct }) {
+export function ProductBadge({ product }: { product: RoadmapProduct }) {
   const dotStyle = {
     backgroundColor: product.color ?? getAvatarColor(product.id),
   };

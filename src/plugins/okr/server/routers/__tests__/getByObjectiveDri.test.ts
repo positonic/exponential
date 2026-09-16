@@ -137,3 +137,48 @@ describe("okr.getByObjective — My Goals (onlyMine) DRI scoping", () => {
     expect(krFields).not.toContain("userId");
   });
 });
+
+describe("okr.getByObjective — single Objective (goalId)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: WORKSPACE_ID,
+    } as never);
+    db.goal.findMany.mockResolvedValue([]);
+  });
+
+  it("narrows to the goal and ignores the period filter", async () => {
+    const caller = createMockCaller({ userId: USER_ID, db });
+    await caller.okr.getByObjective({
+      workspaceId: WORKSPACE_ID,
+      period: "Q1-2026",
+      includePairedPeriod: true,
+      goalId: 62,
+    });
+
+    const arg = db.goal.findMany.mock.calls[0]![0]!;
+    const where = arg.where as Record<string, unknown>;
+    expect(where.id).toBe(62);
+    expect(JSON.stringify(where)).not.toContain("Q1-2026");
+
+    const include = arg.include as { keyResults?: { where?: unknown } };
+    expect(JSON.stringify(include.keyResults?.where)).not.toContain("period");
+  });
+
+  it("still applies the period filter when no goalId is given", async () => {
+    const caller = createMockCaller({ userId: USER_ID, db });
+    await caller.okr.getByObjective({
+      workspaceId: WORKSPACE_ID,
+      period: "Q1-2026",
+    });
+
+    const arg = db.goal.findMany.mock.calls[0]![0]!;
+    const where = arg.where as Record<string, unknown>;
+    expect(where.id).toBeUndefined();
+    expect(JSON.stringify(where)).toContain("Q1-2026");
+  });
+});

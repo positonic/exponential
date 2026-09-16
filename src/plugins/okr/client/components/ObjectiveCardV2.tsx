@@ -601,6 +601,68 @@ function KrLine({
   );
 }
 
+interface KeyResultAccordionProps {
+  keyResults: ObjectiveCardKeyResult[];
+  /**
+   * The owning Objective's number, for "KR1.2"-style codes (the OKR dashboard
+   * numbers objectives O1, O2...). Omit on a single-Objective page, where the
+   * rows read "KR1", "KR2"...
+   */
+  objectiveNumber?: string;
+  onEditKeyResult?: (keyResult: ObjectiveCardKeyResult) => void;
+  onViewKeyResult?: (kr: ObjectiveCardKeyResult) => void;
+  onDeleteKeyResult?: (id: string) => void;
+  deletingKeyResultId?: string | null;
+}
+
+/**
+ * An Objective's key results as expandable rows, each opening onto its
+ * "Executing work" panel (linked Projects, Pipelines and Features, ADR-0050).
+ * Shared by the OKR dashboard's {@link ObjectiveCardV2} and the Objective
+ * detail page. Owns which rows are expanded; renders nothing for an empty list,
+ * so callers keep their own empty state.
+ */
+export function KeyResultAccordion({
+  keyResults,
+  objectiveNumber,
+  onEditKeyResult,
+  onViewKeyResult,
+  onDeleteKeyResult,
+  deletingKeyResultId,
+}: KeyResultAccordionProps) {
+  const { workspaceSlug } = useWorkspace();
+  const [expandedKrs, setExpandedKrs] = useState<Set<string>>(new Set());
+  const toggleKr = (id: string) => {
+    setExpandedKrs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <>
+      {keyResults.map((kr, i) => (
+        <KrLine
+          key={kr.id}
+          kr={kr}
+          code={
+            objectiveNumber ? `KR${objectiveNumber}.${i + 1}` : `KR${i + 1}`
+          }
+          isExpanded={expandedKrs.has(kr.id)}
+          onToggleExpand={() => toggleKr(kr.id)}
+          workspaceSlug={workspaceSlug}
+          onEdit={onEditKeyResult ? () => onEditKeyResult(kr) : undefined}
+          onView={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
+          onDelete={onDeleteKeyResult}
+          isDeleting={deletingKeyResultId === kr.id}
+        />
+      ))}
+    </>
+  );
+}
+
 export function ObjectiveCardV2({
   objective,
   code,
@@ -625,17 +687,6 @@ export function ObjectiveCardV2({
   );
   const pill = CONFIDENCE_PILL[status];
   const owner = objective.driUser ?? objective.user;
-  const { workspaceSlug } = useWorkspace();
-
-  const [expandedKrs, setExpandedKrs] = useState<Set<string>>(new Set());
-  const toggleKr = (id: string) => {
-    setExpandedKrs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   // Contributor stack: owner first, then KR DRIs, then KR creators — deduped.
   const contributors = [
@@ -788,20 +839,14 @@ export function ObjectiveCardV2({
               No key results in this period yet.
             </Text>
           ) : (
-            objective.keyResults.map((kr, i) => (
-              <KrLine
-                key={kr.id}
-                kr={kr}
-                code={`KR${objNum}.${i + 1}`}
-                isExpanded={expandedKrs.has(kr.id)}
-                onToggleExpand={() => toggleKr(kr.id)}
-                workspaceSlug={workspaceSlug}
-                onEdit={onEditKeyResult ? () => onEditKeyResult(kr) : undefined}
-                onView={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
-                onDelete={onDeleteKeyResult}
-                isDeleting={deletingKeyResultId === kr.id}
-              />
-            ))
+            <KeyResultAccordion
+              keyResults={objective.keyResults}
+              objectiveNumber={objNum}
+              onEditKeyResult={onEditKeyResult}
+              onViewKeyResult={onViewKeyResult}
+              onDeleteKeyResult={onDeleteKeyResult}
+              deletingKeyResultId={deletingKeyResultId}
+            />
           )}
 
           {onAddKeyResult && (

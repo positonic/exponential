@@ -262,9 +262,16 @@ export const keyResultRouter = createTRPCRouter({
         period: z.string().optional(),
         includePairedPeriod: z.boolean().optional(),
         onlyMine: z.boolean().optional(),
+        // One Objective's detail page. Narrows to that goal and bypasses the
+        // period filter entirely: the page lists every key result on the
+        // Objective, so one filed under another quarter must not vanish.
+        goalId: z.number().int().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
+      // A goalId read ignores `period` / `includePairedPeriod`.
+      const period = input.goalId === undefined ? input.period : undefined;
+
       // When workspaceId is provided, validate membership and show all workspace OKRs
       // When no workspaceId, show only the current user's OKRs
       const isWorkspaceScoped = !!input.workspaceId;
@@ -280,28 +287,28 @@ export const keyResultRouter = createTRPCRouter({
 
       // Build period filter - optionally include parent annual period
       let periodFilter: { period: string } | { period: { in: string[] } } | undefined;
-      if (input.period) {
+      if (period) {
         if (input.includePairedPeriod) {
           // Include both the selected period and its parent annual period
-          const parentPeriod = getParentPeriodFromString(input.period);
+          const parentPeriod = getParentPeriodFromString(period);
           const periods = parentPeriod
-            ? [input.period, parentPeriod]
-            : [input.period];
+            ? [period, parentPeriod]
+            : [period];
           periodFilter = { period: { in: periods } };
         } else {
-          periodFilter = { period: input.period };
+          periodFilter = { period };
         }
       }
 
       // Build goal period filter to match goals by their period field
       // Include goals that match the period OR have no period set (legacy goals)
       let goalPeriodFilter: { OR: Array<{ period: string | null } | { period: { in: string[] } }> } | undefined;
-      if (input.period) {
+      if (period) {
         if (input.includePairedPeriod) {
-          const parentPeriod = getParentPeriodFromString(input.period);
+          const parentPeriod = getParentPeriodFromString(period);
           const periods = parentPeriod
-            ? [input.period, parentPeriod]
-            : [input.period];
+            ? [period, parentPeriod]
+            : [period];
           goalPeriodFilter = {
             OR: [
               { period: { in: periods } },
@@ -311,7 +318,7 @@ export const keyResultRouter = createTRPCRouter({
         } else {
           goalPeriodFilter = {
             OR: [
-              { period: input.period },
+              { period },
               { period: null }, // Include legacy goals without period
             ],
           };
@@ -325,6 +332,7 @@ export const keyResultRouter = createTRPCRouter({
           ...(isWorkspaceScoped
             ? { workspaceId: input.workspaceId }
             : { userId: ctx.session.user.id }),
+          ...(input.goalId !== undefined ? { id: input.goalId } : {}),
           // Both onlyMine and the period filter use `OR`, so combine them under
           // `AND` to avoid the two `OR` keys overwriting each other.
           AND: [

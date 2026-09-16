@@ -420,6 +420,7 @@ Objective (Goal)
 - A Feature aligns to **at most one** Objective. Key results are *siblings* of that alignment, not on the path — a Ticket does not link to a Key result directly.
 - A Ticket may have no Feature (orphan); a Feature may have no Objective.
 - Hierarchy edges in this chain are **containment/alignment**, never blocking. Roll-up of status (e.g. "this Objective has 3 blocked tickets") is computed by traversal, not stored.
+- **Aligned** and **executing** are different edges, and an Objective's Features are read on both axes separately. *Aligned* Features serve the Objective's outcome (`Feature.goalId`, at most one Objective). *Executing* Features move one of its Key results' numbers (`KeyResultFeature`, see **Key result**), and may be aligned to a different Objective or to none. The two sets legitimately differ: an aligned Feature tied to no Key result is work nobody has tied to a number, and an executing Feature that is unaligned is a governance gap. Never merge them into one "Features of this Objective" list.
 
 ### Ticket dependencies
 
