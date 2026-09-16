@@ -2,11 +2,12 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   assertWorkspaceScopedRefs,
   assertAssignableUser,
 } from "~/server/services/access";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
@@ -99,6 +100,104 @@ const DEP_TICKET_SELECT = {
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
 
+/** Everything the ticket detail page renders, shared by getById and getByRef. */
+const TICKET_DETAIL_INCLUDE = {
+  product: {
+    select: { id: true, slug: true, workspaceId: true, name: true, funTicketIds: true },
+  },
+  assignee: {
+    select: { id: true, name: true, email: true, image: true },
+  },
+  createdBy: { select: { id: true, name: true, image: true } },
+  feature: { select: { id: true, name: true, status: true } },
+  epic: { select: { id: true, name: true, status: true } },
+  cycle: { select: { id: true, name: true, startDate: true, endDate: true } },
+  scope: { select: { id: true, version: true } },
+  tags: { include: { tag: true } },
+  actions: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      status: true,
+      completedAt: true,
+      kanbanStatus: true,
+      priority: true,
+      dueDate: true,
+      projectId: true,
+      workspaceId: true,
+      assignees: {
+        include: {
+          user: { select: { id: true, name: true, email: true, image: true } },
+        },
+      },
+    },
+  },
+  comments: {
+    orderBy: { createdAt: "desc" },
+    include: {
+      author: { select: { id: true, name: true, image: true } },
+    },
+  },
+  depsOut: {
+    orderBy: { createdAt: "asc" },
+    select: { id: true, dependsOn: { select: DEP_TICKET_SELECT } },
+  },
+  depsIn: {
+    orderBy: { createdAt: "asc" },
+    select: { id: true, ticket: { select: DEP_TICKET_SELECT } },
+  },
+  syncs: {
+    select: {
+      provider: true,
+      externalId: true,
+      externalUrl: true,
+      lastSyncedAt: true,
+      tombstonedAt: true,
+    },
+  },
+} satisfies Prisma.TicketInclude;
+
+type TicketDetailRow = Prisma.TicketGetPayload<{
+  include: typeof TICKET_DETAIL_INCLUDE;
+}>;
+
+function shapeTicketDetail(ticket: TicketDetailRow) {
+  const dependsOn = ticket.depsOut.map((d) => d.dependsOn);
+  const requiredFor = ticket.depsIn.map((d) => d.ticket);
+  const openBlockerCount = dependsOn.filter(
+    (d) => !COMPLETED_TICKET_STATUSES.includes(d.status),
+  ).length;
+  const isBlocked =
+    openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(ticket.status);
+
+  const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
+  return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
+}
+
+/**
+ * Where-clause for a ticket URL segment within one product: the sequential
+ * number (`29`) or Linear-style id (`PLAT-29`), else a CUID or fun shortId.
+ * Shared by resolveId and getByRef so the accepted URL forms can't drift.
+ */
+function ticketRefWhere(
+  productId: string,
+  identifier: string,
+): Prisma.TicketWhereInput {
+  const number = parseTicketUrlId(identifier);
+  return number !== null
+    ? { productId, number }
+    : { productId, OR: [{ id: identifier }, { shortId: identifier }] };
+}
+
+function listTicketEvents(db: PrismaClient, workspaceId: string, ticketId: string) {
+  return db.workspaceActivityEvent.findMany({
+    where: { workspaceId, entityType: "ticket", entityId: ticketId },
+    orderBy: { createdAt: "asc" },
+    include: { user: { select: { id: true, name: true, image: true } } },
+  });
+}
+
 async function loadTemplateWithAccess(
   db: PrismaClient,
   userId: string,
@@ -188,62 +287,7 @@ export const ticketRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const ticket = await ctx.db.ticket.findUnique({
         where: { id: input.id },
-        include: {
-          product: {
-            select: { id: true, slug: true, workspaceId: true, name: true, funTicketIds: true },
-          },
-          assignee: {
-            select: { id: true, name: true, email: true, image: true },
-          },
-          createdBy: { select: { id: true, name: true, image: true } },
-          feature: { select: { id: true, name: true, status: true } },
-          epic: { select: { id: true, name: true, status: true } },
-          cycle: { select: { id: true, name: true, startDate: true, endDate: true } },
-          scope: { select: { id: true, version: true } },
-          tags: { include: { tag: true } },
-          actions: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              status: true,
-              completedAt: true,
-              kanbanStatus: true,
-              priority: true,
-              dueDate: true,
-              projectId: true,
-              workspaceId: true,
-              assignees: {
-                include: {
-                  user: { select: { id: true, name: true, email: true, image: true } },
-                },
-              },
-            },
-          },
-          comments: {
-            orderBy: { createdAt: "desc" },
-            include: {
-              author: { select: { id: true, name: true, image: true } },
-            },
-          },
-          depsOut: {
-            orderBy: { createdAt: "asc" },
-            select: { id: true, dependsOn: { select: DEP_TICKET_SELECT } },
-          },
-          depsIn: {
-            orderBy: { createdAt: "asc" },
-            select: { id: true, ticket: { select: DEP_TICKET_SELECT } },
-          },
-          syncs: {
-            select: {
-              provider: true,
-              externalId: true,
-              externalUrl: true,
-              lastSyncedAt: true,
-              tombstonedAt: true,
-            },
-          },
-        },
+        include: TICKET_DETAIL_INCLUDE,
       });
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
@@ -253,17 +297,53 @@ export const ticketRouter = createTRPCRouter({
         ctx.session.user.id,
         ticket.product.workspaceId,
       );
+      return shapeTicketDetail(ticket);
+    }),
 
-      const dependsOn = ticket.depsOut.map((d) => d.dependsOn);
-      const requiredFor = ticket.depsIn.map((d) => d.ticket);
-      const openBlockerCount = dependsOn.filter(
-        (d) => !COMPLETED_TICKET_STATUSES.includes(d.status),
-      ).length;
-      const isBlocked =
-        openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(ticket.status);
+  /**
+   * The ticket detail page's whole first paint in one call, keyed only on what
+   * the URL holds: workspace slug, product slug, and the ticket segment (any
+   * form resolveId accepts). Replaces the workspace → resolveId → getById
+   * waterfall, and because nothing in the key needs a lookup first, the page's
+   * server shell can prefetch it without awaiting — so navigating to a ticket
+   * never suspends on the server.
+   *
+   * Returns null rather than throwing for an unknown ticket or a caller outside
+   * the workspace: a server-prefetched query that rejects streams to the client
+   * as an unhandled error. Null for both also keeps the two cases
+   * indistinguishable to non-members.
+   */
+  getByRef: protectedProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        productSlug: z.string(),
+        identifier: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const product = await ctx.db.product.findFirst({
+        where: {
+          slug: input.productSlug,
+          workspace: { slug: input.workspaceSlug },
+        },
+        select: { id: true, workspaceId: true },
+      });
+      if (!product) return null;
 
-      const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
-      return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
+      // Access is checked alongside the read, and nothing is returned unless it
+      // passes.
+      const [membership, ticket] = await Promise.all([
+        getWorkspaceMembership(ctx.db, ctx.session.user.id, product.workspaceId),
+        ctx.db.ticket.findFirst({
+          where: ticketRefWhere(product.id, input.identifier),
+          include: TICKET_DETAIL_INCLUDE,
+        }),
+      ]);
+      if (!membership || !ticket) return null;
+
+      const events = await listTicketEvents(ctx.db, product.workspaceId, ticket.id);
+      return { ticket: shapeTicketDetail(ticket), events };
     }),
 
   /**
@@ -337,20 +417,10 @@ export const ticketRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       }
 
-      const number = parseTicketUrlId(input.identifier);
-      const ticket =
-        number !== null
-          ? await ctx.db.ticket.findUnique({
-              where: { productId_number: { productId: product.id, number } },
-              select: { id: true, number: true },
-            })
-          : await ctx.db.ticket.findFirst({
-              where: {
-                productId: product.id,
-                OR: [{ id: input.identifier }, { shortId: input.identifier }],
-              },
-              select: { id: true, number: true },
-            });
+      const ticket = await ctx.db.ticket.findFirst({
+        where: ticketRefWhere(product.id, input.identifier),
+        select: { id: true, number: true },
+      });
 
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
@@ -1059,15 +1129,7 @@ export const ticketRouter = createTRPCRouter({
         ctx.session.user.id,
         input.id,
       );
-      return ctx.db.workspaceActivityEvent.findMany({
-        where: {
-          workspaceId: ticket.product.workspaceId,
-          entityType: "ticket",
-          entityId: input.id,
-        },
-        orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, name: true, image: true } } },
-      });
+      return listTicketEvents(ctx.db, ticket.product.workspaceId, input.id);
     }),
 
   // ────────────────── Action ↔ Ticket linking ──────────────────
