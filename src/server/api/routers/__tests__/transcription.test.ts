@@ -930,6 +930,8 @@ describe("transcription router (mocked) — getById feature links", () => {
 
     expect(result.featureLinks).toHaveLength(1);
     expect(result.canLinkFeatures).toBe(true);
+    // An editor gets the in-place title rename on the meeting page.
+    expect(result.canEdit).toBe(true);
   });
 
   it("strips links for a viewer outside the workspace (e.g. an attendee)", async () => {
@@ -945,5 +947,7 @@ describe("transcription router (mocked) — getById feature links", () => {
 
     expect(result.featureLinks).toEqual([]);
     expect(result.canLinkFeatures).toBe(false);
+    // An attendee can view but not rename.
+    expect(result.canEdit).toBe(false);
   });
 });

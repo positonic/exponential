@@ -22,6 +22,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const utils = api.useUtils();
   const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
+  const updateTitleMutation = api.transcription.updateTitle.useMutation();
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -307,6 +308,25 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     }
   }
 
+  async function handleRenameTitle(title: string) {
+    if (!session) return;
+    try {
+      await updateTitleMutation.mutateAsync({ id: session.id, title });
+      utils.transcription.getById.setData({ id }, (prev) =>
+        prev ? { ...prev, title } : prev,
+      );
+      // Meeting lists (workspace, project tab, recordings) show the title too.
+      void utils.transcription.invalidate();
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to rename meeting",
+        color: "red",
+      });
+      throw error;
+    }
+  }
+
   async function handleMeetingDateChange(value: Date | null) {
     if (!session) return;
     try {
@@ -377,6 +397,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
+      onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
       onCreateActions={handleCreateActions}

@@ -728,6 +728,7 @@ export const transcriptionRouter = createTRPCRouter({
         ...session,
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures: isWorkspaceMember && canEditTranscription(access),
+        canEdit: canEditTranscription(access),
       };
     }),
 
@@ -895,7 +896,7 @@ export const transcriptionRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        title: z.string(),
+        title: z.string().trim().min(1, "Title is required"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
