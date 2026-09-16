@@ -352,6 +352,8 @@ const meetingListInput = z
   .object({
     includeArchived: z.boolean().optional().default(false),
     workspaceId: z.string().optional(),
+    // Only meetings placed in this project (a project's Meetings tab).
+    projectId: z.string().optional(),
     // Meeting type filter for the Meetings v2 tab strip.
     // - 'all' / undefined: no narrowing
     // - 'mine': caller is the session owner OR a Participant on the
@@ -405,6 +407,10 @@ function buildMeetingListFilters(
         { project: { workspaceId: input.workspaceId } },
       ],
     });
+  }
+
+  if (input?.projectId) {
+    filters.push({ projectId: input.projectId });
   }
 
   if (input?.meetingType === "one_on_one") {
