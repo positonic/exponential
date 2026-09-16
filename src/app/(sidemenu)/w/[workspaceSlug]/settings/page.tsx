@@ -263,7 +263,7 @@ export default function WorkspaceSettingsPage() {
 
   // The workspace you land in when a URL doesn't name one (getDefault falls
   // back to your first workspace when none has been chosen).
-  const { data: defaultWorkspace } = api.workspace.getDefault.useQuery();
+  const { data: defaultWorkspace, isLoading: isDefaultLoading } = api.workspace.getDefault.useQuery();
   const isDefaultWorkspace = !!workspaceId && defaultWorkspace?.id === workspaceId;
 
   const setDefaultMutation = api.workspace.setDefault.useMutation({
@@ -764,7 +764,7 @@ export default function WorkspaceSettingsPage() {
               label="Default workspace"
               sublabel="Where you land when a link doesn't name a workspace. Only affects you."
               action={
-                !isDefaultWorkspace && workspaceId ? (
+                !isDefaultLoading && !isDefaultWorkspace && workspaceId ? (
                   <SettingsFieldButton
                     onClick={() => {
                       if (setDefaultMutation.isPending) return;
@@ -776,7 +776,9 @@ export default function WorkspaceSettingsPage() {
                 ) : null
               }
             >
-              {isDefaultWorkspace ? (
+              {isDefaultLoading ? (
+                <Skeleton height={16} width={120} />
+              ) : isDefaultWorkspace ? (
                 <SettingsPill variant="active">Default</SettingsPill>
               ) : (
                 <span className="text-text-muted text-[12px]">
