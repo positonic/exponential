@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { notifications } from "@mantine/notifications";
 import { useEffect, useState } from "react";
+import { getCalendarErrorMessage } from "./calendar/calendarConnectionMessages";
 
 interface GoogleCalendarConnectProps {
   isConnected?: boolean;
@@ -40,24 +41,12 @@ export function GoogleCalendarConnect({
     }
 
     if (calendarError) {
-      let errorMessage = "Failed to connect Google Calendar.";
-      switch (calendarError) {
-        case "access_denied":
-          errorMessage = "Calendar access was denied. Please try again and grant permissions.";
-          break;
-        case "invalid_request":
-          errorMessage = "Invalid request. Please try connecting again.";
-          break;
-        case "no_google_account":
-          errorMessage = "Please sign in with Google first, then connect your calendar.";
-          break;
-        case "token_exchange_failed":
-          errorMessage = "Failed to connect calendar. Please try again.";
-          break;
-      }
       notifications.show({
         title: "Connection Failed",
-        message: errorMessage,
+        message: getCalendarErrorMessage(
+          calendarError,
+          "Failed to connect Google Calendar.",
+        ),
         color: "red",
       });
     }
