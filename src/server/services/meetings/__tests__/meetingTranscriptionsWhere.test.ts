@@ -13,6 +13,7 @@ import { buildTranscriptionAccessWhere } from "~/server/services/access";
 import {
   buildMeetingTranscriptionsWhere,
   meetingRangeEnd,
+  meetingRangeStart,
 } from "../meetingTranscriptionsWhere";
 
 const USER = "user-1";
@@ -56,6 +57,19 @@ describe("buildMeetingTranscriptionsWhere", () => {
 describe("meetingRangeEnd", () => {
   it("treats a date-only end as the end of that day, so a one-day range is not empty", () => {
     expect(meetingRangeEnd("2026-09-15").toISOString()).toBe("2026-09-15T23:59:59.999Z");
+  });
+
+  it("reads an unpadded date-only end the same way, in UTC", () => {
+    expect(meetingRangeEnd("2026-9-5").toISOString()).toBe("2026-09-05T23:59:59.999Z");
+    expect(meetingRangeStart("2026-9-5").toISOString()).toBe("2026-09-05T00:00:00.000Z");
+  });
+
+  it("covers the whole day when start and end name the same date", () => {
+    const where = buildMeetingTranscriptionsWhere(USER, { startDate: "2026-09-15", endDate: "2026-09-15" });
+    const range = { gte: new Date("2026-09-15T00:00:00.000Z"), lte: new Date("2026-09-15T23:59:59.999Z") };
+    expect((where.AND as unknown[])[1]).toEqual({
+      OR: [{ meetingDate: range }, { meetingDate: null, createdAt: range }],
+    });
   });
 
   it("keeps an explicit timestamp as given", () => {
