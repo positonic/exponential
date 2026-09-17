@@ -1,12 +1,11 @@
 "use client";
 
-import { Modal, ActionIcon, Tooltip } from "@mantine/core";
+import { Modal, ActionIcon, Tooltip, Center, Loader, Text } from "@mantine/core";
 import { useDisclosure, useViewportSize, useHotkeys } from "@mantine/hooks";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import type { ActionPriority } from "~/types/action";
-import { ActionModalForm, type PastedScreenshot } from "../ActionModalForm";
-import { AssignActionModal } from "../AssignActionModal";
+import type { PastedScreenshot } from "../ActionModalForm";
 import { IconPlus } from "@tabler/icons-react";
 import type { ActionStatus } from "@prisma/client";
 import { useSession } from "next-auth/react";
@@ -15,6 +14,18 @@ import type { EffortUnit } from "~/types/effort";
 import { notifications } from "@mantine/notifications";
 import { useActionAttachments } from "~/hooks/useActionAttachments";
 import { buildCreateActionPayload } from "~/lib/actions/createActionPayload";
+import { useIdleImport } from "~/hooks/useIdleImport";
+
+// The create form (rich-text editor, date and dependency pickers) is only
+// needed once the modal opens, but this button is in the sidebar on every
+// page. Loaded with useIdleImport it stays out of every page's initial JS.
+const loadActionForms = () =>
+  Promise.all([import("../ActionModalForm"), import("../AssignActionModal")]).then(
+    ([form, assign]) => ({
+      ActionModalForm: form.ActionModalForm,
+      AssignActionModal: assign.AssignActionModal,
+    }),
+  );
 
 export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "sidebar" } = {}) {
   const { data: session } = useSession();
@@ -31,6 +42,9 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [assignModalOpened, setAssignModalOpened] = useState(false);
+  const forms = useIdleImport(loadActionForms, opened || assignModalOpened, "global-add-task.load-form");
+  const ActionModalForm = forms.value?.ActionModalForm;
+  const AssignActionModal = forms.value?.AssignActionModal;
   const [createdActionId, setCreatedActionId] = useState<string | null>(null);
   // Advanced action fields
   const [sprintListId, setSprintListId] = useState<string | null>(null);
@@ -353,65 +367,79 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
           },
         }}
       >
-        <ActionModalForm
-          name={name}
-          setName={setName}
-          description={description}
-          setDescription={setDescription}
-          priority={priority}
-          setPriority={setPriority}
-          projectId={projectId}
-          setProjectId={setProjectId}
-          dueDate={dueDate}
-          setDueDate={setDueDate}
-          scheduledStart={scheduledStart}
-          setScheduledStart={setScheduledStart}
-          duration={duration}
-          setDuration={setDuration}
-          selectedAssigneeIds={selectedAssigneeIds}
-          selectedTagIds={selectedTagIds}
-          onTagChange={setSelectedTagIds}
-          actionId={createdActionId || undefined}
-          workspaceId={currentWorkspaceId ?? undefined}
-          onAssigneeClick={handleAssigneeClick}
-          onSubmit={handleSubmit}
-          onClose={close}
-          submitLabel="New action"
-          // The modal dismisses on submit and creation is optimistic, so there
-          // is nothing to spin for. Passing isPending here would also disable
-          // the submit button of a *reopened* modal while the previous create
-          // is still in flight (Mantine's Button sets disabled={disabled ||
-          // loading}), blocking back-to-back task entry.
-          isSubmitting={false}
-          {...(advancedActionsEnabled ? {
-            sprintListId,
-            setSprintListId,
-            epicId,
-            setEpicId,
-            effortEstimate,
-            setEffortEstimate,
-            effortUnit,
-            blockedByIds,
-            setBlockedByIds,
-          } : {})}
-          pastedScreenshots={pastedScreenshots}
-          onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
-          onScreenshotRemove={(id) => setPastedScreenshots(prev => prev.filter(s => s.id !== id))}
-        />
+        {ActionModalForm ? (
+          <ActionModalForm
+            name={name}
+            setName={setName}
+            description={description}
+            setDescription={setDescription}
+            priority={priority}
+            setPriority={setPriority}
+            projectId={projectId}
+            setProjectId={setProjectId}
+            dueDate={dueDate}
+            setDueDate={setDueDate}
+            scheduledStart={scheduledStart}
+            setScheduledStart={setScheduledStart}
+            duration={duration}
+            setDuration={setDuration}
+            selectedAssigneeIds={selectedAssigneeIds}
+            selectedTagIds={selectedTagIds}
+            onTagChange={setSelectedTagIds}
+            actionId={createdActionId ?? undefined}
+            workspaceId={currentWorkspaceId ?? undefined}
+            onAssigneeClick={handleAssigneeClick}
+            onSubmit={handleSubmit}
+            onClose={close}
+            submitLabel="New action"
+            // The modal dismisses on submit and creation is optimistic, so there
+            // is nothing to spin for. Passing isPending here would also disable
+            // the submit button of a *reopened* modal while the previous create
+            // is still in flight (Mantine's Button sets disabled={disabled ||
+            // loading}), blocking back-to-back task entry.
+            isSubmitting={false}
+            {...(advancedActionsEnabled ? {
+              sprintListId,
+              setSprintListId,
+              epicId,
+              setEpicId,
+              effortEstimate,
+              setEffortEstimate,
+              effortUnit,
+              blockedByIds,
+              setBlockedByIds,
+            } : {})}
+            pastedScreenshots={pastedScreenshots}
+            onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
+            onScreenshotRemove={(id) => setPastedScreenshots(prev => prev.filter(s => s.id !== id))}
+          />
+        ) : (
+          <Center mih={240} p="lg">
+            {forms.failed ? (
+              <Text size="sm" c="dimmed">
+                The form couldn’t load. Close and try again.
+              </Text>
+            ) : (
+              <Loader size="sm" />
+            )}
+          </Center>
+        )}
       </Modal>
 
-      <AssignActionModal
-        opened={assignModalOpened}
-        onClose={() => setAssignModalOpened(false)}
-        actionId={createdActionId ?? undefined}
-        actionName={name || "New action"}
-        projectId={projectId}
-        workspaceId={currentWorkspaceId ?? undefined}
-        currentAssignees={selectedAssigneeIds.map((id) => ({
-          user: { id, name: null, email: null, image: null },
-        }))}
-        onSelectionChange={setSelectedAssigneeIds}
-      />
+      {AssignActionModal && (
+        <AssignActionModal
+          opened={assignModalOpened}
+          onClose={() => setAssignModalOpened(false)}
+          actionId={createdActionId ?? undefined}
+          actionName={name || "New action"}
+          projectId={projectId}
+          workspaceId={currentWorkspaceId ?? undefined}
+          currentAssignees={selectedAssigneeIds.map((id) => ({
+            user: { id, name: null, email: null, image: null },
+          }))}
+          onSelectionChange={setSelectedAssigneeIds}
+        />
+      )}
     </>
   );
 }
