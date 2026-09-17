@@ -30,6 +30,9 @@ import { generateAgentJWT } from "~/server/utils/jwt";
 import { boundLength } from "~/server/services/voice/speakable";
 import { resolveWorkspaceId } from "~/server/services/voice/workspaceResolver";
 import { resolveVoiceThreadKey } from "~/server/services/voice/voiceTranscriptBridge";
+import { resolveUserTimezone } from "~/server/services/voice/dailyContext";
+import { parseTimezone } from "~/server/services/voice/dailyContextSpeakable";
+import { userClockNote } from "~/server/services/voice/userClock";
 import { withTimeout } from "~/server/utils/withTimeout";
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
@@ -54,6 +57,13 @@ const VOICE_SELF_CONFIRM_GUARD = `You are answering over a VOICE call, speaking 
 - Use your tools for any fact or action; never invent the user's data.
 - DEFAULT TO READ-ONLY. Only create, update, delete, complete, or send something if the user EXPLICITLY asked for that action in this message. If they only asked a question (e.g. "what are my goals?"), just answer with the read tools — do NOT create or modify anything, and never invent an item to fill a gap or be "helpful".
 - If a write IS explicitly requested, first say out loud what you're about to do and ask the user to confirm; only proceed after they clearly say yes.`;
+
+export interface BrainPassthroughOptions {
+  /** IANA timezone the client reports. Invalid or absent → the user's saved timezone, then UTC. */
+  timezone?: unknown;
+  /** Injectable clock for tests. */
+  now?: Date;
+}
 
 export interface BrainPassthroughResult {
   speakable: string;
@@ -83,9 +93,11 @@ export async function askExponential(
   db: PrismaClient,
   workspaceId?: string,
   conversationId?: string,
+  options: BrainPassthroughOptions = {},
 ): Promise<BrainPassthroughResult> {
   const agentJWT = generateAgentJWT({ id: userId });
   const effectiveWorkspaceId = workspaceId ?? (await resolveWorkspaceId(userId, db));
+  const timezone = parseTimezone(options.timezone) ?? (await resolveUserTimezone(userId, db));
 
   const client = new MastraClient({
     baseUrl: MASTRA_API_URL,
@@ -96,12 +108,14 @@ export async function askExponential(
   const entries: [string, string][] = [
     ["authToken", agentJWT],
     ["userId", userId],
+    ["timezone", timezone],
   ];
   if (effectiveWorkspaceId) entries.push(["workspaceId", effectiveWorkspaceId]);
   const requestContext = new RequestContext(entries);
 
   const messages: MessageListInput = [
     { role: "system", content: VOICE_SELF_CONFIRM_GUARD },
+    { role: "system", content: userClockNote(timezone, options.now ?? new Date()) },
     { role: "user", content: phrase },
   ];
 

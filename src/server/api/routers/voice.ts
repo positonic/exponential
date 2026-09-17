@@ -313,6 +313,8 @@ export const voiceRouter = createTRPCRouter({
               ctx.db,
               workspaceId,
               conversationId,
+              // The device's IANA zone, so zoe's "yesterday" is the user's day.
+              { timezone: input.args?.timezone },
             );
           } catch (error) {
             console.error("[voice.dispatch] ask_exponential failed:", error);
