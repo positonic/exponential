@@ -72,6 +72,98 @@ async function requireWorkspaceAccess(
   }
 }
 
+/**
+ * A workspace with its owner, members and counts, plus the caller's role in it
+ * — what `workspace.getBySlug` returns. Shared with `workspace.getDefault`, so
+ * the provider can seed the getBySlug cache from the default-workspace lookup
+ * instead of fetching the same workspace again.
+ */
+async function loadWorkspaceForUser(
+  db: PrismaClient,
+  userId: string,
+  where: { slug: string } | { id: string },
+) {
+  const workspace = await db.workspace.findUnique({
+    where,
+    include: {
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+        },
+      },
+      members: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              isAgent: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          projects: true,
+          goals: true,
+          teams: true,
+        },
+      },
+    },
+  });
+
+  if (!workspace) return { status: "not_found" as const };
+
+  // Direct WorkspaceUser membership wins
+  const currentMember = workspace.members.find(
+    (member) => member.userId === userId
+  );
+
+  if (currentMember) {
+    return {
+      status: "ok" as const,
+      workspace: { ...workspace, currentUserRole: currentMember.role },
+    };
+  }
+
+  // Team-based access synthesizes "member"
+  const teamBasedMembership = await getWorkspaceMembership(
+    db,
+    userId,
+    workspace.id,
+  );
+
+  if (teamBasedMembership) {
+    return {
+      status: "ok" as const,
+      workspace: { ...workspace, currentUserRole: teamBasedMembership.role },
+    };
+  }
+
+  // Project-only access synthesizes "guest"
+  const guestProjectMember = await db.projectMember.findFirst({
+    where: {
+      userId,
+      project: { workspaceId: workspace.id },
+    },
+    select: { id: true },
+  });
+
+  if (guestProjectMember) {
+    return {
+      status: "ok" as const,
+      workspace: { ...workspace, currentUserRole: "guest" as const },
+    };
+  }
+
+  return { status: "forbidden" as const };
+}
+
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
   getUserWorkspaces: apiKeyMiddleware
@@ -245,95 +337,22 @@ export const workspaceRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      const workspace = await ctx.db.workspace.findUnique({
-        where: { slug: input.slug },
-        include: {
-          owner: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          members: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  image: true,
-                  isAgent: true,
-                },
-              },
-            },
-          },
-          _count: {
-            select: {
-              projects: true,
-              goals: true,
-              teams: true,
-            },
-          },
-        },
+      const result = await loadWorkspaceForUser(ctx.db, ctx.session.user.id, {
+        slug: input.slug,
       });
-
-      if (!workspace) {
+      if (result.status === "not_found") {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Workspace not found",
         });
       }
-
-      const userId = ctx.session.user.id;
-
-      // Direct WorkspaceUser membership wins
-      const currentMember = workspace.members.find(
-        (member) => member.userId === userId
-      );
-
-      if (currentMember) {
-        return {
-          ...workspace,
-          currentUserRole: currentMember.role,
-        };
+      if (result.status === "forbidden") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
       }
-
-      // Team-based access synthesizes "member"
-      const teamBasedMembership = await getWorkspaceMembership(
-        ctx.db,
-        userId,
-        workspace.id,
-      );
-
-      if (teamBasedMembership) {
-        return {
-          ...workspace,
-          currentUserRole: teamBasedMembership.role,
-        };
-      }
-
-      // Project-only access synthesizes "guest"
-      const guestProjectMember = await ctx.db.projectMember.findFirst({
-        where: {
-          userId,
-          project: { workspaceId: workspace.id },
-        },
-        select: { id: true },
-      });
-
-      if (guestProjectMember) {
-        return {
-          ...workspace,
-          currentUserRole: "guest" as const,
-        };
-      }
-
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "You are not a member of this workspace",
-      });
+      return result.workspace;
     }),
 
   // Update workspace details
@@ -998,29 +1017,32 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Get user's default workspace
+  //
+  // `details` is the same workspace in getBySlug's shape (null when the caller
+  // can't access it), so WorkspaceProvider can seed getBySlug on routes without
+  // a workspace in the URL instead of fetching it in a second round trip.
   getDefault: protectedProcedure.query(async ({ ctx }) => {
     const user = await ctx.db.user.findUnique({
       where: { id: ctx.session.user.id },
       select: { defaultWorkspaceId: true },
     });
 
-    if (!user?.defaultWorkspaceId) {
-      // Return the first workspace user has access to (preferably personal)
-      const firstWorkspace = await ctx.db.workspace.findFirst({
-        where: buildWorkspaceAccessWhere(ctx.session.user.id),
-        orderBy: [{ type: "asc" }, { createdAt: "asc" }],
-        select: { id: true, slug: true, name: true, type: true },
-      });
+    const workspace = user?.defaultWorkspaceId
+      ? await ctx.db.workspace.findUnique({
+          where: { id: user.defaultWorkspaceId },
+          select: { id: true, slug: true, name: true, type: true },
+        })
+      : // Return the first workspace user has access to (preferably personal)
+        await ctx.db.workspace.findFirst({
+          where: buildWorkspaceAccessWhere(ctx.session.user.id),
+          orderBy: [{ type: "asc" }, { createdAt: "asc" }],
+          select: { id: true, slug: true, name: true, type: true },
+        });
 
-      return firstWorkspace;
-    }
+    if (!workspace) return workspace;
 
-    const workspace = await ctx.db.workspace.findUnique({
-      where: { id: user.defaultWorkspaceId },
-      select: { id: true, slug: true, name: true, type: true },
-    });
-
-    return workspace;
+    const loaded = await loadWorkspaceForUser(ctx.db, ctx.session.user.id, { id: workspace.id });
+    return { ...workspace, details: loaded.status === "ok" ? loaded.workspace : null };
   }),
 
   // Delete a workspace (owner only)
