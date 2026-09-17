@@ -26,6 +26,26 @@ describe("detectContentType", () => {
     it("does not treat a lone angle bracket as HTML", () => {
       expect(detectContentType("3 < 5 and 5 > 3")).toBe("text");
     });
+
+    it("does not treat our own <u>/<mark> projection as legacy HTML", () => {
+      // Markdown has no syntax for underline or highlight, so the canonical
+      // Markdown projection emits these tags (~/lib/prd/marks). Classifying
+      // such a document as HTML sends it down the sanitize-and-inject path,
+      // where its headings and lists render as literal text.
+      expect(detectContentType("An <u>underlined</u> word.")).toBe("text");
+      expect(
+        detectContentType("## Goals\n\n- ship it\n- <u>then</u> celebrate"),
+      ).toBe("markdown");
+      expect(
+        detectContentType("# Notes\n\n<mark>read this</mark> first"),
+      ).toBe("markdown");
+    });
+
+    it("still detects legacy HTML that happens to underline", () => {
+      expect(detectContentType("<p>an <u>underlined</u> word</p>")).toBe(
+        "html",
+      );
+    });
   });
 
   describe("Markdown", () => {
