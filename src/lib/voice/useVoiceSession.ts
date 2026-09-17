@@ -627,7 +627,9 @@ export function parseToolArgs(json: string): ParsedToolArgs {
 /**
  * The `args` the brain receives for a tool call. `get_todays_plan` carries the
  * optional `focus` plus the browser's IANA timezone (so "today" is the user's
- * day); every other tool carries the verbatim `phrase`.
+ * day). `ask_exponential` carries the verbatim `phrase` plus the timezone (so
+ * zoe's "yesterday" is the user's day); every other tool carries only the
+ * `phrase`.
  */
 export function toolArgsFor(
   toolName: string,
@@ -640,7 +642,12 @@ export function toolArgsFor(
       ...(timezone ? { timezone } : {}),
     };
   }
-  return parsed.phrase ? { phrase: parsed.phrase } : undefined;
+  if (!parsed.phrase) return undefined;
+  if (toolName === "ask_exponential") {
+    const timezone = browserTimezone();
+    return { phrase: parsed.phrase, ...(timezone ? { timezone } : {}) };
+  }
+  return { phrase: parsed.phrase };
 }
 
 function browserTimezone(): string | undefined {

@@ -97,7 +97,7 @@ export async function getDailyContext(
  * The timezone the Daily summary would fire in for this user (notification
  * preference), else the profile timezone, else UTC. Mirrors `summaries.ts`.
  */
-async function resolveUserTimezone(
+export async function resolveUserTimezone(
   userId: string,
   db: PrismaClient,
 ): Promise<string> {
