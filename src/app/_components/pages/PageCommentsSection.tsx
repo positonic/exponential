@@ -19,7 +19,9 @@ export function PageCommentsSection({ pageId }: { pageId: string }) {
   const [activityFilter, setActivityFilter] = useActivityFilter();
 
   return (
-    <div className="mt-10 border-t border-border-primary pt-6">
+    // Activity is a working surface, not part of the page: printing a page
+    // should give you the page.
+    <div className="mt-10 border-t border-border-primary pt-6" data-print="hide">
       <CollapsibleSection
         title="Activity"
         action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
