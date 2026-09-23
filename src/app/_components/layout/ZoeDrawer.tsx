@@ -265,6 +265,7 @@ export function ZoeDrawer() {
         maximised && classes.isMax,
       )}
       data-size={drawerSize}
+      data-print="hide"
       role="dialog"
       aria-label="Zoe assistant"
       aria-hidden={!isOpen}
@@ -560,6 +561,7 @@ export function ZoeFab() {
     <button
       type="button"
       className={classes.zoeFab}
+      data-print="hide"
       onClick={handleClick}
       title="Ask Zoe · ⌘J"
       aria-label={isOpen ? "Close Zoe" : "Open Zoe"}

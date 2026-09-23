@@ -10,6 +10,7 @@ import TableRow from "@tiptap/extension-table-row";
 import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
 import { Markdown } from "tiptap-markdown";
+import { MarkdownHighlight, MarkdownUnderline } from "./marks";
 import { CommentMark } from "./comment-mark";
 import { PageLink } from "./page-link";
 
@@ -31,6 +32,8 @@ import { PageLink } from "./page-link";
  * lists, code blocks, tables, links, inline marks, and anchored comment marks.
  * Every node/mark here is serialisable by tiptap-markdown except
  * {@link CommentMark}, which intentionally drops from the Markdown projection.
+ * Underline and highlight have no Markdown syntax and project as `<u>`/`<mark>`
+ * — see ./marks for why that is declared rather than left to the HTML fallback.
  */
 export const PRD_DEFAULT_PLACEHOLDER =
   "Write the PRD… select text to format or comment, or type / for blocks.";
@@ -62,6 +65,10 @@ export function buildPrdExtensions(
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    // Strike is already in StarterKit and native to Markdown; these two are
+    // the marks Markdown has no syntax for. See ./marks.
+    MarkdownUnderline,
+    MarkdownHighlight,
     Image.configure({
       inline: false,
       allowBase64: false,
