@@ -301,7 +301,7 @@ function AddInteractionForm({
   return (
     <form onSubmit={handleSubmit}>
       <Stack gap="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Select
             label="Type"
             data={[
@@ -502,9 +502,9 @@ export default function ContactDetailPage() {
     interactionCount > 5 ? 'bg-green-500' : interactionCount > 0 ? 'bg-yellow-500' : 'bg-red-500';
 
   return (
-    <div className="flex flex-col h-full -m-6">
+    <div className="flex flex-col h-full -m-4 md:-m-6">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between border-b border-border-primary bg-surface-secondary px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-primary bg-surface-secondary px-4 py-2">
         <div className="flex items-center gap-2">
           <Tooltip label="Back to Contacts">
             <ActionIcon
@@ -546,7 +546,8 @@ export default function ContactDetailPage() {
 
           {navigationInfo.position !== null && navigationInfo.total > 0 && (
             <Text size="xs" className="text-text-muted ml-2">
-              {navigationInfo.position} of {navigationInfo.total} in All People
+              {navigationInfo.position} of {navigationInfo.total}
+              <span className="hidden sm:inline"> in All People</span>
             </Text>
           )}
         </div>
@@ -559,13 +560,13 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Contact Header */}
-      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-6 py-4">
+      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-4 py-4 md:px-6">
         <Avatar size="lg" radius="xl" src={contact.imageUrl}>
           {getInitialFromName(contact.firstName ?? contact.lastName)}
         </Avatar>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Title order={3} className="text-text-primary">
+            <Title order={3} className="min-w-0 break-words text-text-primary">
               {fullName}
             </Title>
             <ActionIcon
@@ -580,9 +581,10 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-border-primary bg-background-primary px-6">
+      <div className="border-b border-border-primary bg-background-primary px-4 md:px-6">
         <Tabs value={activeTab} onChange={setActiveTab}>
-          <Tabs.List>
+          {/* Scroll rather than wrap: nine tabs wrap to three rows on a phone. */}
+          <Tabs.List style={{ flexWrap: 'nowrap', overflowX: 'auto', overflowY: 'hidden' }}>
             <Tabs.Tab value="overview">Overview</Tabs.Tab>
             <Tabs.Tab value="activity">Activity</Tabs.Tab>
             <Tabs.Tab
@@ -644,9 +646,11 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Below lg the two panes stack and scroll together; side by side, each
+          scrolls on its own. */}
+      <div className="flex flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         {/* Left Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="min-w-0 flex-1 p-4 md:p-6 lg:overflow-y-auto">
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {/* Highlights Section */}
@@ -658,7 +662,7 @@ export default function ContactDetailPage() {
                   </Text>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <HighlightCard
                     icon={<IconStar size={14} />}
                     label="Connection strength"
@@ -1152,7 +1156,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-80 shrink-0 border-l border-border-primary bg-background-primary overflow-y-auto">
+        <div className="w-full shrink-0 border-t border-border-primary bg-background-primary lg:w-80 lg:overflow-y-auto lg:border-l lg:border-t-0">
           {/* Sidebar Tabs */}
           <div className="border-b border-border-primary">
             <Tabs value={sidebarTab} onChange={setSidebarTab}>

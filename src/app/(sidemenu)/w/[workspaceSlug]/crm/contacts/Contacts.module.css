@@ -77,3 +77,22 @@
 .filterRow {
   padding: 8px 16px;
 }
+
+/* Phones: the search box takes the remaining row width instead of a fixed
+   200px, so search + Filter + Sort fit on one line in portrait. */
+@media (max-width: 640px) {
+  .actions {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .searchWrap {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .searchInput,
+  .searchInput:focus {
+    width: 100%;
+  }
+}

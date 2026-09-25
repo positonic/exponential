@@ -474,16 +474,16 @@ export default function ContactsPage() {
         : `${matchingCount.toLocaleString()} contact${matchingCount === 1 ? '' : 's'}`;
 
   return (
-    <div className="flex flex-col h-full -m-6">
+    <div className="flex flex-col h-full -m-4 md:-m-6">
       {/* Header Bar */}
-      <div className="flex items-center justify-between border-b border-border-primary bg-background-primary px-4 py-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-primary bg-background-primary px-4 py-3">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-3">
           {/* View Selector */}
           <Menu position="bottom-start">
             <Menu.Target>
-              <button className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-surface-hover transition-colors">
-                <div className="h-3 w-3 rounded bg-orange-400" />
-                <Text size="sm" className="font-medium text-text-primary">
+              <button className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover transition-colors sm:px-3">
+                <div className="h-3 w-3 shrink-0 rounded bg-orange-400" />
+                <Text size="sm" className="truncate font-medium text-text-primary">
                   Recently Contacted People
                 </Text>
                 <IconChevronDown size={16} className="text-text-muted" />
@@ -514,9 +514,12 @@ export default function ContactsPage() {
           {/* View Settings */}
           <Menu position="bottom-start">
             <Menu.Target>
-              <button className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-surface-hover transition-colors">
+              <button
+                className="flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover transition-colors sm:px-3"
+                aria-label="View settings"
+              >
                 <IconSettings size={16} className="text-text-muted" />
-                <Text size="sm" className="text-text-muted">
+                <Text size="sm" className="hidden whitespace-nowrap text-text-muted md:inline">
                   View settings
                 </Text>
                 <IconChevronDown size={14} className="text-text-muted" />
@@ -530,13 +533,16 @@ export default function ContactsPage() {
           </Menu>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {/* Import / Export */}
           <Menu position="bottom-end">
             <Menu.Target>
-              <button className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-surface-hover transition-colors">
+              <button
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover transition-colors sm:px-3"
+                aria-label="Import / Export"
+              >
                 <IconDownload size={16} className="text-text-muted" />
-                <Text size="sm" className="text-text-muted">
+                <Text size="sm" className="hidden whitespace-nowrap text-text-muted md:inline">
                   Import / Export
                 </Text>
                 <IconChevronDown size={14} className="text-text-muted" />
@@ -566,14 +572,15 @@ export default function ContactsPage() {
 
           {/* New Person Button */}
           <Button leftSection={<IconPlus size={16} />} onClick={openCreateModal}>
-            New Person
+            <span className="hidden sm:inline">New Person</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
       </div>
 
       {/* Toolbar: total on the left; search / filter / sort (projects-page look) right */}
-      <div className="flex items-center justify-between gap-4 border-b border-border-primary bg-background-primary px-4 py-2">
-        <Text size="sm" className="text-text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border-primary bg-background-primary px-4 py-2">
+        <Text size="sm" className="whitespace-nowrap text-text-muted">
           {countText ?? ' '}
         </Text>
 
@@ -646,7 +653,7 @@ export default function ContactsPage() {
           </div>
         ) : contacts.length > 0 ? (
           <>
-          <table className="w-full">
+          <table className="w-full min-w-[640px] whitespace-nowrap">
             <thead className="border-b border-border-primary bg-background-primary sticky top-0">
               <tr>
                 <th className="w-10 px-4 py-3">
