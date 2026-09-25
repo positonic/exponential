@@ -12,6 +12,7 @@
   gap: 24px;
   padding-bottom: 20px;
 }
+
 .headerMain { min-width: 0; flex: 1; }
 
 .eyebrow {
@@ -63,11 +64,14 @@
   line-height: 1.55;
 }
 
+/* Sits on the same line as the eyebrow: match its line box height so the
+   icons center on the "Active project · Workspace" text. */
 .headerActions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
   align-items: center;
+  height: 17px;
 }
 
 .stats {
@@ -135,31 +139,21 @@
 }
 
 .iconBtn {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   background: transparent;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 6px;
-  color: var(--color-text-secondary);
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: var(--color-text-muted);
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: border-color 120ms, color 120ms, background 120ms;
+  transition: color 120ms, background 120ms;
 }
 .iconBtn:hover {
-  border-color: var(--color-border-strong);
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
-}
-.iconBtnPrimary {
-  border-color: var(--brand-500);
-  background: rgba(31, 93, 224, 0.08);
-  color: var(--brand-400);
-}
-.iconBtnPrimary:hover {
-  background: rgba(31, 93, 224, 0.15);
-  border-color: var(--brand-500);
-  color: var(--brand-400);
 }
 
 /* Mobile: the side-by-side action buttons squeeze the title into a narrow
