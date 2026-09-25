@@ -8,12 +8,16 @@ import {
   IconFileText,
   IconLayersIntersect,
   IconMessage,
+  IconPlus,
   IconTargetArrow,
 } from "@tabler/icons-react";
+import { ActionIcon } from "@mantine/core";
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { ProjectTimeline } from "./ProjectTimeline";
+import { CreateGoalModal } from "./CreateGoalModal";
+import { CreateActionModal } from "./CreateActionModal";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -177,6 +181,11 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
             OKR alignment
             <span className={styles.sectionMeta}>{goals.length}</span>
           </div>
+          <CreateGoalModal projectId={project.id}>
+            <ActionIcon variant="subtle" size="sm" aria-label="Add goal">
+              <IconPlus size={14} />
+            </ActionIcon>
+          </CreateGoalModal>
         </div>
         <div className={styles.sectionBody}>
           {goals.length === 0 ? (
@@ -185,6 +194,12 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                 <IconTargetArrow size={16} />
               </div>
               <div>No goal linked yet — link one to see alignment here.</div>
+              <CreateGoalModal projectId={project.id}>
+                <button type="button" className={styles.emptyCta}>
+                  <IconPlus size={12} />
+                  Add a goal
+                </button>
+              </CreateGoalModal>
             </div>
           ) : (
             <div className={styles.okrStrip}>
@@ -228,6 +243,11 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
               Actions this week
               <span className={styles.sectionMeta}>{actionsThisWeek.length}</span>
             </div>
+            <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+              <ActionIcon variant="subtle" size="sm" aria-label="Add action">
+                <IconPlus size={14} />
+              </ActionIcon>
+            </CreateActionModal>
           </div>
           <div className={styles.sectionBodyFlush}>
             {actionsThisWeek.length === 0 ? (
@@ -236,6 +256,12 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                   <IconChecklist size={16} />
                 </div>
                 <div>No actions due this week.</div>
+                <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+                  <button type="button" className={styles.emptyCta}>
+                    <IconPlus size={12} />
+                    Add an action
+                  </button>
+                </CreateActionModal>
               </div>
             ) : (
               actionsThisWeek.map((a) => {
