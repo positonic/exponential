@@ -5,12 +5,14 @@ import Link from "next/link";
 import {
   IconActivity,
   IconChecklist,
+  IconFileText,
   IconLayersIntersect,
   IconMessage,
   IconTargetArrow,
 } from "@tabler/icons-react";
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { ProjectTimeline } from "./ProjectTimeline";
 import styles from "./ProjectOverview.module.css";
 
@@ -140,6 +142,11 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
     limit: 12,
   });
   const transcriptions = project.transcriptionSessions ?? [];
+  const { workspace } = useWorkspace();
+  const { data: docs = [] } = api.page.list.useQuery(
+    { workspaceId: workspace?.id ?? "", projectId: project.id },
+    { enabled: !!workspace },
+  );
 
   const weekStart = useMemo(() => startOfThisWeek(), []);
   const weekEnd = useMemo(() => endOfThisWeek(), []);
@@ -350,6 +357,45 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                 </Link>
               );
             })
+          )}
+        </div>
+      </section>
+
+      {/* ── 6. Docs ─────────────────────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>
+            <IconFileText size={14} className={styles.sectionTitleIcon} />
+            Docs
+            <span className={styles.sectionMeta}>{docs.length}</span>
+          </div>
+        </div>
+        <div className={styles.sectionBodyFlush}>
+          {docs.length === 0 ? (
+            <div className={styles.empty}>
+              <div className={styles.emptyIcon}>
+                <IconFileText size={16} />
+              </div>
+              <div>No docs linked to this project yet.</div>
+            </div>
+          ) : (
+            docs.map((doc) => (
+              <Link
+                key={doc.id}
+                href={`/w/${workspace?.slug ?? ""}/pages/${doc.id}`}
+                className={`${styles.row} ${styles.rowLink}`}
+              >
+                <IconFileText size={16} className={styles.sectionTitleIcon} />
+                <div className={styles.rowBody}>
+                  <div className={styles.rowTitle}>{doc.title || "Untitled"}</div>
+                  <div className={styles.rowSub}>
+                    <span>
+                      Edited {formatDistanceToNow(new Date(doc.updatedAt), { addSuffix: true })}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))
           )}
         </div>
       </section>
