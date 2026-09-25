@@ -104,18 +104,19 @@ function HighlightCard({
 }) {
   return (
     <div
-      className={`rounded-lg border border-border-primary bg-surface-secondary p-4 ${
+      className={`min-w-0 rounded-lg border border-border-primary bg-surface-secondary p-4 ${
         onClick ? 'cursor-pointer hover:border-border-focus transition-colors' : ''
       }`}
       onClick={onClick}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <Text size="xs" className="text-text-muted">
           {label}
         </Text>
-        <span className="text-text-muted">{icon}</span>
+        <span className="shrink-0 text-text-muted">{icon}</span>
       </div>
-      <div className="mt-2">{value}</div>
+      {/* overflow-wrap:anywhere so long emails / URLs wrap inside the card */}
+      <div className="mt-2 min-w-0 [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 }
@@ -243,7 +244,7 @@ function DetailRow({
           {label}
         </Text>
       </div>
-      <div className="flex-1 text-sm">{value}</div>
+      <div className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 }
