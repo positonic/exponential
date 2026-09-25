@@ -46,6 +46,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { NotionSetupWizard } from "./integrations/NotionSetupWizard";
 import { MatrixRoomBinding } from "./matrix/MatrixRoomBinding";
+import { matrixRoomPermalink } from "~/lib/matrixPermalink";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 interface ProjectIntegrationsProps {
@@ -1127,6 +1128,24 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                       <Text size="sm" c="dimmed" mt={2}>
                         Post meeting summaries into a Matrix room for this project, or create a new room and bind it.
                       </Text>
+                      {matrixBinding?.mode === "room" && matrixBinding.room && (
+                        <Text size="sm" mt={4}>
+                          Connected to <strong>{matrixBinding.room.name}</strong>
+                          {matrixRoomPermalink(matrixBinding.room.roomId) && (
+                            <>
+                              {" · "}
+                              <a
+                                href={matrixRoomPermalink(matrixBinding.room.roomId) ?? undefined}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-brand-primary hover:underline"
+                              >
+                                Open in Matrix
+                              </a>
+                            </>
+                          )}
+                        </Text>
+                      )}
                     </div>
                   </Group>
 
