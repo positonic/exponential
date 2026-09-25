@@ -49,6 +49,7 @@ import {
 import { format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
 import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
@@ -202,6 +203,18 @@ export function ProjectContent({
     { enabled: dependentQueriesEnabled },
   );
   const utils = api.useUtils();
+  const updateDates = api.project.updateDates.useMutation({
+    onSuccess: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Error",
+        message: error.message,
+        color: "red",
+      });
+    },
+  });
 
   const handleTabChange = useCallback((value: string | null) => {
     if (value && isValidTab(value)) {
@@ -284,7 +297,8 @@ export function ProjectContent({
     projectActions?.filter((a) => a.status === "COMPLETED").length ?? 0;
   const progressPct = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
 
-  const dueDate = project.reviewDate ? new Date(project.reviewDate) : null;
+  // "Due" is the project's end date — the same field the create/edit modal sets.
+  const dueDate = project.endDate ? new Date(project.endDate) : null;
   const dueLabel = dueDate ? format(dueDate, "MMM d") : null;
   const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
 
@@ -337,13 +351,29 @@ export function ProjectContent({
             </div>
             <div className={overviewStyles.stat}>
               <div className={overviewStyles.statLabel}>Due</div>
-              <div
-                className={`${overviewStyles.statValue} ${
-                  dueIsOverdue ? overviewStyles.statValueDue : ""
-                }`}
-              >
-                {dueLabel ?? "—"}
-              </div>
+              <UnifiedDatePicker
+                value={dueDate}
+                onChange={(date) =>
+                  updateDates.mutate({
+                    id: project.id,
+                    startDate: project.startDate ?? null,
+                    endDate: date,
+                  })
+                }
+                notificationContext="project"
+                renderTrigger={({ toggle }) => (
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    aria-label="Set due date"
+                    className={`${overviewStyles.statValue} ${overviewStyles.statValueButton} ${
+                      dueIsOverdue ? overviewStyles.statValueDue : ""
+                    } ${dueLabel ? "" : overviewStyles.statValuePlaceholder}`}
+                  >
+                    {dueLabel ?? "Set date"}
+                  </button>
+                )}
+              />
             </div>
             {ownerFirstName && (
               <div className={overviewStyles.stat}>

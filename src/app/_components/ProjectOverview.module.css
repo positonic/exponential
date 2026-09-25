@@ -96,6 +96,16 @@
   font-variant-numeric: tabular-nums;
 }
 .statValueDue { color: var(--accent-due); }
+.statValueButton {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.statValueButton:hover { text-decoration: underline; text-underline-offset: 3px; }
+.statValuePlaceholder { color: var(--color-text-muted); font-weight: 400; }
 
 .progressBar {
   width: 90px;
