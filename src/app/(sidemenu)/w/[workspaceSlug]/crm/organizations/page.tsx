@@ -224,7 +224,7 @@ export default function OrganizationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Title order={2} className="text-text-primary">
             Organizations
@@ -247,8 +247,8 @@ export default function OrganizationsPage() {
       />
 
       {isLoading ? (
-        <div className="overflow-hidden rounded-lg border border-border-primary">
-          <Table>
+        <div className="overflow-x-auto rounded-lg border border-border-primary">
+          <Table miw={640}>
             <Table.Thead className="bg-surface-secondary">
               <Table.Tr>
                 <Table.Th className="text-text-muted">Name</Table.Th>
@@ -279,8 +279,8 @@ export default function OrganizationsPage() {
           </Table>
         </div>
       ) : data?.organizations && data.organizations.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-border-primary">
-          <Table highlightOnHover>
+        <div className="overflow-x-auto rounded-lg border border-border-primary">
+          <Table highlightOnHover miw={640}>
             <Table.Thead className="bg-surface-secondary">
               <Table.Tr>
                 <Table.Th className="text-text-muted">Name</Table.Th>

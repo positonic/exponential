@@ -14,8 +14,20 @@ import {
   IconListDetails,
   IconBroadcast,
 } from '@tabler/icons-react';
+import type { Icon as TablerIcon } from '@tabler/icons-react';
 
-const crmNavigation = [
+interface CrmNavItem {
+  title: string;
+  href: string | null;
+  icon: TablerIcon;
+}
+
+interface CrmNavSection {
+  title: string | null;
+  items: CrmNavItem[];
+}
+
+const crmNavigation: CrmNavSection[] = [
   {
     title: null,
     items: [
@@ -47,10 +59,51 @@ export default function CRMLayout({
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/crm`;
 
+  // Dashboard (empty href) should only be active on exact match
+  const isItemActive = (itemHref: string, href: string) =>
+    itemHref === ''
+      ? pathname === href
+      : pathname === href || pathname.startsWith(href + '/');
+
   return (
-    <div className="flex">
+    <div className="flex flex-col lg:flex-row">
+      {/* Mobile / tablet CRM nav: a horizontally scrolling tab strip replaces
+          the sidebar, which would otherwise eat most of a phone's width. */}
+      <nav
+        aria-label="CRM"
+        className="border-b border-border-primary bg-background-primary lg:hidden"
+      >
+        <ul className="flex gap-1 overflow-x-auto px-2 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {crmNavigation.flatMap((section) => section.items).map((item) => {
+            if (item.href === null) return null;
+            const href = `${basePath}${item.href}`;
+            const isActive = isItemActive(item.href, href);
+            const Icon = item.icon;
+            return (
+              <li key={item.title} className="shrink-0">
+                <Link
+                  href={href}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-surface-secondary font-medium text-text-primary'
+                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                  }`}
+                >
+                  <Icon
+                    size={16}
+                    className={`shrink-0 ${isActive ? 'text-blue-500' : 'text-text-muted'}`}
+                  />
+                  {item.title}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
       {/* CRM Sidebar */}
-      <nav className="w-64 shrink-0 border-r border-border-primary bg-background-primary">
+      <nav className="hidden w-64 shrink-0 border-r border-border-primary bg-background-primary lg:block">
         <div className="sticky top-0 h-screen overflow-y-auto p-4">
           {/* CRM Header */}
           <div className="mb-6 px-3">
@@ -70,10 +123,7 @@ export default function CRMLayout({
               <ul className="space-y-1">
                 {section.items.map((item) => {
                   const href = item.href !== null ? `${basePath}${item.href}` : null;
-                  // Dashboard (empty href) should only be active on exact match
-                  const isActive = href !== null && (item.href === ''
-                    ? pathname === href
-                    : pathname === href || pathname.startsWith(href + '/'));
+                  const isActive = href !== null && item.href !== null && isItemActive(item.href, href);
                   const Icon = item.icon;
 
                   return (
@@ -116,7 +166,7 @@ export default function CRMLayout({
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto p-6">
+      <main className="min-w-0 flex-1 overflow-auto p-4 md:p-6">
         {children}
       </main>
     </div>
