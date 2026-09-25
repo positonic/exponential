@@ -96,6 +96,16 @@
   font-variant-numeric: tabular-nums;
 }
 .statValueDue { color: var(--accent-due); }
+.statValueButton {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.statValueButton:hover { text-decoration: underline; text-underline-offset: 3px; }
+.statValuePlaceholder { color: var(--color-text-muted); font-weight: 400; }
 
 .progressBar {
   width: 90px;
@@ -150,6 +160,33 @@
   background: rgba(31, 93, 224, 0.15);
   border-color: var(--brand-500);
   color: var(--brand-400);
+}
+
+/* Mobile: the side-by-side action buttons squeeze the title into a narrow
+   column, so stack them above the header content and shrink the title. */
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 16px;
+  }
+  .headerMain { width: 100%; }
+  .headerActions {
+    order: -1;
+    align-self: flex-end;
+  }
+  .title {
+    font-size: 20px;
+    line-height: 1.3;
+    gap: 10px;
+  }
+  .titleGlyph {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .stats { gap: 16px; }
 }
 
 /* ── Tabs (Mantine Tabs override via classNames) ──────── */
@@ -267,6 +304,20 @@
   display: grid;
   place-items: center;
 }
+
+.emptyCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--brand-400);
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.emptyCta:hover { color: var(--brand-200); }
 
 /* ── 1. OKR alignment strip ───────────────────────────── */
 
