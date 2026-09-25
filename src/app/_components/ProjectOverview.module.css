@@ -358,6 +358,8 @@
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .row:last-child { border-bottom: 0; }
+.rowLink { text-decoration: none; }
+.rowLink:hover { background: var(--color-bg-elevated); }
 
 .rowBody { flex: 1; min-width: 0; }
 .rowTitle {
