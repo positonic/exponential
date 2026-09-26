@@ -141,9 +141,11 @@ Stage types:
 
 Moving a deal FROM a terminal stage back to an active stage clears `closedAt`.
 
-### One Pipeline Per Workspace (MVP)
+### Multiple Pipelines Per Workspace
 
-The current implementation supports one pipeline per workspace. The `pipeline.get` query finds the first `Project` with `type: "pipeline"` in the workspace. The `pipeline.create` mutation checks for existence before creating.
+A workspace may hold many pipelines (ADR-0033) — e.g. Sales, Hiring, Grants. `pipeline.list` returns every pipeline the caller can view, oldest first, and the board UI has a switcher.
+
+`pipeline.get` and the API-key `crmApi.pipelineGet` / `pipelineGetStages` / deal procedures take an optional `pipelineId`. When it is **omitted** they fall back to the workspace's **default** pipeline: the oldest one whose status is not `CANCELLED` or `COMPLETED` (see `RETIRED_PIPELINE_STATUSES` in `src/server/services/crm/pipelineDefaults.ts`). The status filter exists because the oldest pipeline is often a retired, empty board created before multi-pipeline shipped; without it, CLI/SDK callers that never pass an id would only ever see that board. A retired pipeline is still addressable by id. Callers that can, should pass `pipelineId` explicitly rather than rely on the default.
 
 The page uses a `useEffect` pattern to auto-create the pipeline on first visit:
 
