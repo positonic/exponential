@@ -23,6 +23,8 @@ interface ActionRowProps {
   isOverdue?: boolean;
   /** Relative age shown on overdue rows, e.g. "due 3d ago". Replaces the bare clock time. */
   overdueLabel?: string;
+  /** Hide the project chip when the list already belongs to one project. */
+  showProject?: boolean;
   bulkMode?: boolean;
   bulkSelected?: boolean;
   onBulkToggle?: (id: string) => void;
@@ -40,6 +42,7 @@ export function ActionRow({
   action,
   isOverdue = false,
   overdueLabel,
+  showProject = true,
   bulkMode = false,
   bulkSelected = false,
   onBulkToggle,
@@ -139,10 +142,12 @@ export function ActionRow({
               />
             </>
           )}
-          <ProjectChip
-            projectId={action.projectId ?? null}
-            projectName={projectName}
-          />
+          {showProject && (
+            <ProjectChip
+              projectId={action.projectId ?? null}
+              projectName={projectName}
+            />
+          )}
           <SyncStatusIndicator action={action} />
           {tags.length > 0 && (
             <TagBadgeList tags={tags} maxDisplay={2} size="xs" />
