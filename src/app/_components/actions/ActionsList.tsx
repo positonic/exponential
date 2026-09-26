@@ -67,6 +67,7 @@ export function ActionsList({
   projectId,
   actions,
   isLoading = false,
+  showProject = true,
   bulkActions,
   completedSection = "hidden",
   deepLinkActionId,
@@ -247,6 +248,7 @@ export function ActionsList({
             })()
           : undefined
       }
+      showProject={showProject}
       bulkMode={bulkMode}
       bulkSelected={selection.isSelected(a.id)}
       onBulkToggle={selection.toggle}
