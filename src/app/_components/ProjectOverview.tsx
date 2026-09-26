@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import {
   IconActivity,
+  IconCalendarRepeat,
   IconChecklist,
   IconFileText,
   IconLayersIntersect,
@@ -18,6 +19,9 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { ProjectTimeline } from "./ProjectTimeline";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { CreateActionModal } from "./CreateActionModal";
+import { CeremonyIconTile } from "./ceremonies/CeremonyIcon";
+import { CEREMONY_KIND_LABELS } from "./ceremonies/CeremonyEditorModal";
+import { describeCadence } from "~/lib/ceremonies/cadence";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -152,6 +156,11 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
     { enabled: !!workspace },
   );
 
+  const { data: ceremonies = [] } = api.ceremony.listForProject.useQuery(
+    { projectId: project.id },
+    { enabled: !!workspace },
+  );
+
   const weekStart = useMemo(() => startOfThisWeek(), []);
   const weekEnd = useMemo(() => endOfThisWeek(), []);
   const today = useMemo(() => startOfDay(new Date()), []);
@@ -233,6 +242,54 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
         </div>
         <ProjectTimeline projectId={project.id} />
       </section>
+
+      {/* ── 2b. Ceremonies ──────────────────────────────── */}
+      {workspace && (
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconCalendarRepeat size={14} className={styles.sectionTitleIcon} />
+              Ceremonies
+              <span className={styles.sectionMeta}>{ceremonies.length}</span>
+            </div>
+          </div>
+          <div className={styles.sectionBodyFlush}>
+            {ceremonies.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <IconCalendarRepeat size={16} />
+                </div>
+                <div>No ceremonies linked — link one from the project&apos;s edit form.</div>
+              </div>
+            ) : (
+              ceremonies.map((ceremony) => {
+                const next = ceremony.occurrences[0];
+                return (
+                  <Link
+                    key={ceremony.id}
+                    href={`/w/${workspace.slug}/ceremonies/${ceremony.id}`}
+                    className={`${styles.row} ${styles.rowLink}`}
+                  >
+                    <CeremonyIconTile icon={ceremony.icon} kind={ceremony.kind} size="sm" />
+                    <div className={styles.rowBody}>
+                      <div className={styles.rowTitle}>{ceremony.name}</div>
+                      <div className={styles.rowSub}>
+                        <span>{CEREMONY_KIND_LABELS[ceremony.kind]}</span>
+                        <span>{describeCadence(ceremony.cadenceRule)}</span>
+                        {next && (
+                          <span className={styles.rowDue}>
+                            Next {format(new Date(next.scheduledStart), "EEE d MMM, HH:mm")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── 3. This week ────────────────────────────────── */}
       <div className={styles.twoCol}>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { syncProjectCeremonies } from "~/server/services/ceremonies/projectCeremonies";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
@@ -251,6 +252,8 @@ export const projectRouter = createTRPCRouter({
         productId: z.string().nullable().optional(),
         isPublic: z.boolean().optional().default(false),
         isRestricted: z.boolean().optional().default(false),
+        /** Ceremonies (same workspace) this project owns; see syncProjectCeremonies. */
+        ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -318,6 +321,14 @@ export const projectRouter = createTRPCRouter({
       }
 
       // Link to key results via the KeyResultProject join table
+      if (input.ceremonyIds?.length) {
+        await syncProjectCeremonies(ctx.db, {
+          projectId: project.id,
+          workspaceId: project.workspaceId,
+          ceremonyIds: input.ceremonyIds,
+        });
+      }
+
       if (input.keyResultIds?.length) {
         await ctx.db.keyResultProject.createMany({
           data: input.keyResultIds.map((keyResultId) => ({
@@ -422,10 +433,11 @@ export const projectRouter = createTRPCRouter({
         isRestricted: z.boolean().optional(),
         enableDetailedActions: z.boolean().nullable().optional(),
         enableBounties: z.boolean().nullable().optional(),
+        ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
+      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ceremonyIds, ...updateData } = input;
 
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -562,6 +574,15 @@ export const projectRouter = createTRPCRouter({
               ]
             : []),
         ]);
+      }
+
+      // Replace the project's ceremony set when provided (absent = untouched).
+      if (ceremonyIds !== undefined) {
+        await syncProjectCeremonies(ctx.db, {
+          projectId: id,
+          workspaceId: updated.workspaceId,
+          ceremonyIds,
+        });
       }
 
       return updated;

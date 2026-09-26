@@ -79,6 +79,15 @@ export const fullDigest: DailySummaryDigest = {
       unrefinedCount: 2,
     },
   ],
+  driProjects: [
+    {
+      name: "Exponential GTM",
+      state: "40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec",
+      needsAttention: true,
+      url: `${BASE}/w/acme/projects/exponential_gtm-p1`,
+    },
+    { name: "Reading", state: "10% · 3 open", needsAttention: false, url: null },
+  ],
 };
 
 export const emptyDigest: DailySummaryDigest = {
@@ -191,6 +200,24 @@ describe("renderDailySummaryPlainText", () => {
   it("matches the full and empty snapshots (plain text)", () => {
     expect(renderDailySummaryPlainText(fullDigest)).toMatchSnapshot();
     expect(renderDailySummaryPlainText(emptyDigest)).toMatchSnapshot();
+  });
+});
+
+describe("DRI projects section", () => {
+  it("lists the user's DRI projects with their state, flags the ones needing attention and links them", () => {
+    const md = renderDailySummaryMarkdown(fullDigest);
+    expect(md).toContain(`**${DAILY_SUMMARY_HEADINGS.driProjects}**`);
+    expect(md).toContain(
+      `- ⚠️ [Exponential GTM](${BASE}/w/acme/projects/exponential_gtm-p1) — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec`,
+    );
+    expect(md).toContain("- Reading — 10% · 3 open");
+    const text = renderDailySummaryPlainText(fullDigest);
+    expect(text).toContain("• ⚠️ Exponential GTM — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec");
+    expect(text).toContain(`   ${BASE}/w/acme/projects/exponential_gtm-p1`);
+  });
+
+  it("renders the empty state when the digest has no DRI block at all", () => {
+    expect(renderDailySummaryPlainText(emptyDigest)).toContain(DAILY_SUMMARY_EMPTY.driProjects);
   });
 });
 

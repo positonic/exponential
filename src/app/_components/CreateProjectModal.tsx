@@ -111,6 +111,30 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   );
   const productData = products?.map((p) => ({ value: p.id, label: p.name })) ?? [];
 
+  // Ceremonies in the project's workspace for the optional Ceremonies link. A
+  // ceremony belongs to one project, so ones owned elsewhere say so in the label;
+  // picking one here moves it to this project.
+  const { data: workspaceCeremonies } = api.ceremony.list.useQuery(
+    { workspaceId: effectiveWorkspaceId ?? '' },
+    { enabled: !!effectiveWorkspaceId },
+  );
+  const [selectedCeremonyIds, setSelectedCeremonyIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    // Seed once from the loaded list when editing; a new project starts empty.
+    if (selectedCeremonyIds !== null || !workspaceCeremonies) return;
+    setSelectedCeremonyIds(
+      project ? workspaceCeremonies.filter((c) => c.projectId === project.id).map((c) => c.id) : [],
+    );
+  }, [workspaceCeremonies, project, selectedCeremonyIds]);
+  const ceremonyData =
+    workspaceCeremonies?.map((c) => ({
+      value: c.id,
+      label:
+        c.projectId && c.projectId !== project?.id
+          ? `${c.name} (linked to another project)`
+          : c.name,
+    })) ?? [];
+
   // Fetch workflows for Notion imports (only when we have a prefillNotionProjectId)
   const { data: workflows = [] } = api.workflow.list.useQuery(undefined, {
     enabled: !!prefillNotionProjectId,
@@ -120,6 +144,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const updateMutation = api.project.update.useMutation({
     onSuccess: () => {
       void utils.project.getAll.invalidate();
+      void utils.ceremony.invalidate();
       handleClose();
     },
   });
@@ -127,6 +152,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const createMutation = api.project.create.useMutation({
     onSuccess: (data) => {
       void utils.project.getAll.invalidate();
+      void utils.ceremony.invalidate();
 
       // Call onSuccess callback with the created project
       onSuccess?.(data);
@@ -372,6 +398,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 endDate: endDate,
                 isPublic,
                 isRestricted,
+                ceremonyIds: selectedCeremonyIds ?? undefined,
               });
             } else {
               createMutation.mutate({
@@ -391,6 +418,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 endDate: endDate ?? undefined,
                 isPublic,
                 isRestricted,
+                ceremonyIds: selectedCeremonyIds ?? undefined,
               });
             }
           }}
@@ -670,6 +698,32 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               },
             }}
           />
+
+          {effectiveWorkspaceId && ceremonyData.length > 0 && (
+            <MultiSelect
+              data={ceremonyData}
+              value={selectedCeremonyIds ?? []}
+              onChange={setSelectedCeremonyIds}
+              label="Ceremonies (optional)"
+              description="Recurring meetings that belong to this project — shown on its overview"
+              placeholder="Select ceremonies"
+              searchable
+              clearable
+              maxDropdownHeight={300}
+              mt="md"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+              }}
+            />
+          )}
 
           {/* Workspace selector - show when editing to allow moving between workspaces */}
           {project && workspaces && workspaces.length > 0 && (

@@ -1,4 +1,5 @@
 import { STATUS_LABELS } from "~/lib/ticket-statuses";
+import { dailyBriefSectionTitle } from "~/server/services/ceremonies/templates";
 import type {
   DailySummaryCycle,
   DailySummaryDigest,
@@ -22,12 +23,18 @@ type Mode = "markdown" | "plain";
 
 export const DAILY_SUMMARY_TITLE = "☀️ Daily summary";
 
+/**
+ * Section headings come from the daily-brief ceremony template — the
+ * notification and the ceremony agenda are two renderings of one running
+ * order — with an emoji prefix that only the message carries.
+ */
 export const DAILY_SUMMARY_HEADINGS = {
-  yesterday: "⏪ Yesterday",
-  todayMeetings: "📅 Today's meetings",
-  todaysActions: "✅ Today's actions",
-  cycle: "🔄 Current cycle",
-  upNext: "⏭ Up next",
+  yesterday: `⏪ ${dailyBriefSectionTitle("yesterday")}`,
+  todayMeetings: `📅 ${dailyBriefSectionTitle("todays_meetings")}`,
+  todaysActions: `✅ ${dailyBriefSectionTitle("todays_actions")}`,
+  cycle: `🔄 ${dailyBriefSectionTitle("cycle_progress")}`,
+  upNext: `⏭ ${dailyBriefSectionTitle("up_next")}`,
+  driProjects: `🧭 ${dailyBriefSectionTitle("dri_projects")}`,
 } as const;
 
 export const DAILY_SUMMARY_EMPTY = {
@@ -38,6 +45,7 @@ export const DAILY_SUMMARY_EMPTY = {
   cycle: "No active cycle",
   inFlight: "Nothing in flight for you",
   upNext: "Nothing committed to you",
+  driProjects: "No active projects you are DRI for",
 } as const;
 
 const PACE_LABELS: Record<DailySummaryPace, string> = {
@@ -233,6 +241,22 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
         ? "1 of your cycle tickets still needs refinement"
         : `${unrefined} of your cycle tickets still need refinement`,
     );
+  }
+
+  lines.push("");
+
+  // ---- DRI projects (the projects the user owns, most urgent first) ----
+  lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.driProjects));
+  const driProjects = digest.driProjects ?? [];
+  if (driProjects.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.driProjects);
+  } else {
+    for (const p of driProjects) {
+      const flag = p.needsAttention ? "⚠️ " : "";
+      const name = p.url ? link(mode, p.name, p.url) : p.name;
+      lines.push(`${bullet(mode)}${flag}${name} — ${p.state}`);
+      if (p.url) lines.push(...urlLine(mode, p.url));
+    }
   }
 
   lines.push("", "💪 Have a productive day!");
