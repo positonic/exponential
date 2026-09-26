@@ -50,9 +50,13 @@ export async function syncProjectCeremonies(
     data: { projectId: null },
   });
 
+  // No `NOT: { projectId }` guard here: Prisma's `not` on a nullable column
+  // excludes NULL rows, and a never-linked ceremony has a NULL projectId — the
+  // guard silently skipped exactly the rows this exists to link. Re-writing an
+  // already-linked row is harmless.
   const { count: linked } = wanted.length
     ? await db.ceremony.updateMany({
-        where: { id: { in: wanted }, NOT: { projectId } },
+        where: { id: { in: wanted } },
         data: { projectId },
       })
     : { count: 0 };
