@@ -11,6 +11,7 @@ import { cycleProgressSection } from "./cycle_progress";
 import { retroActionsSection } from "./retro_actions";
 import { freeTextSection } from "./free_text";
 import { decisionsPendingSection } from "./decisions_pending";
+import { projectStateSection } from "./project_state";
 import { yesterdaySection } from "./yesterday";
 import { todaysMeetingsSection } from "./todays_meetings";
 import { todaysActionsSection } from "./todays_actions";
@@ -25,6 +26,7 @@ const MODULES: SectionModule[] = [
   retroActionsSection,
   freeTextSection,
   decisionsPendingSection,
+  projectStateSection,
   // Daily brief (the ceremony a person holds with themselves each morning)
   yesterdaySection,
   todaysMeetingsSection,
