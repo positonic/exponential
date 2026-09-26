@@ -8,6 +8,7 @@ import { IconDots, IconEdit, IconTrash, IconArrowsMaximize, IconCheck, IconList 
 import { AssignActionModal } from "./AssignActionModal";
 import { EditActionModal } from "./EditActionModal";
 import { TagBadgeList } from "./TagBadge";
+import { BlockedBadge } from "./BlockedBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
 import { ActiveTimerIndicator } from "./ActiveTimerIndicator";
@@ -53,6 +54,8 @@ interface Task {
       name: string;
     };
   }>;
+  status?: string;
+  depsOut?: Array<{ dependsOn: { id: string; name: string; status: string } }>;
 }
 
 interface TaskCardProps {
@@ -320,6 +323,7 @@ export function TaskCard({ task, isDragging = false, onActionOpen }: TaskCardPro
               size="xs"
             />
           )}
+          <BlockedBadge status={task.status} depsOut={task.depsOut} size="xs" />
 
           {task.assignees.length > 0 && (
             <span className={styles.kcardMetaRight}>

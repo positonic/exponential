@@ -30,6 +30,7 @@ import {
   applyActionUpdate,
   assertAssignableUsers,
   assertCanWriteToWorkspace,
+  blockedByInclude,
   createAction,
   isActionSource,
   KANBAN_STATUS_VALUES,
@@ -37,6 +38,7 @@ import {
   type ActionSource,
 } from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
+import { deriveActionBlocked, withBlockedState } from "~/lib/actions/blocked";
 import {
   myActionsDueTodayWhere,
   myActionsOwnershipWhere,
@@ -111,7 +113,7 @@ export const actionRouter = createTRPCRouter({
       };
     }
 
-    return ctx.db.action.findMany({
+    const rows = await ctx.db.action.findMany({
       where: whereClause,
       include: {
         project: true,
@@ -127,6 +129,7 @@ export const actionRouter = createTRPCRouter({
           },
         },
         epic: { select: { id: true, name: true, status: true } },
+        ...blockedByInclude,
       },
       orderBy: {
         project: {
@@ -134,6 +137,7 @@ export const actionRouter = createTRPCRouter({
         },
       },
     });
+    return rows.map(withBlockedState);
   }),
 
   getById: protectedProcedure
@@ -161,6 +165,7 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          ...blockedByInclude,
           actionScreenshots: {
             include: {
               screenshot: { select: { id: true, url: true, timestamp: true } },
@@ -176,7 +181,7 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      return action;
+      return { ...action, ...deriveActionBlocked(action) };
     }),
 
   /**
@@ -238,6 +243,7 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          ...blockedByInclude,
           actionScreenshots: {
             include: {
               screenshot: { select: { id: true, url: true, timestamp: true } },
@@ -281,6 +287,7 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          ...blockedByInclude,
           actionScreenshots: {
             include: {
               screenshot: { select: { id: true, url: true, timestamp: true } },
@@ -322,7 +329,7 @@ export const actionRouter = createTRPCRouter({
         };
       }
 
-      return ctx.db.action.findMany({
+      const rows = await ctx.db.action.findMany({
         where: whereClause,
         include: {
           // Every row in this query shares one project, so a full project row
@@ -335,6 +342,7 @@ export const actionRouter = createTRPCRouter({
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
+          ...blockedByInclude,
         },
         orderBy: [
           { kanbanOrder: { sort: "asc", nulls: "last" } },
@@ -342,6 +350,7 @@ export const actionRouter = createTRPCRouter({
           { dueDate: "asc" }
         ],
       });
+      return rows.map(withBlockedState);
     }),
 
   // Get actions imported from Notion that don't have a project assigned

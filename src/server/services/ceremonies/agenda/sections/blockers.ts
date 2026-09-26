@@ -1,6 +1,6 @@
 /**
  * `blockers`: participants' ACTIVE actions that are past due, plus actions
- * carrying a blocked marker (`blockedByIds`), in the ceremony's workspace
+ * blocked by another still-active action (`ActionDependency`), in the ceremony's workspace
  * (narrowed to its project when set). Unassigned overdue actions in the
  * project count too — a standup is where they get an owner.
  */
@@ -34,14 +34,14 @@ export const blockersSection: SectionModule = {
         status: "ACTIVE",
         workspaceId: ctx.workspaceId,
         ...(ctx.ceremony.projectId ? { projectId: ctx.ceremony.projectId } : {}),
-        OR: [{ dueDate: { lt: ctx.now } }, { blockedByIds: { isEmpty: false } }],
+        OR: [{ dueDate: { lt: ctx.now } }, { depsOut: { some: { dependsOn: { status: "ACTIVE" } } } }],
         ...(participantOr ? { AND: [{ OR: participantOr }] } : {}),
       },
       select: {
         id: true,
         name: true,
         dueDate: true,
-        blockedByIds: true,
+        depsOut: { where: { dependsOn: { status: "ACTIVE" } }, select: { id: true } },
         projectId: true,
         // The action rolls up to its project's objective, when the project has one (goal chip).
         project: { select: { goals: { select: { id: true, title: true }, take: 1 } } },
@@ -53,7 +53,7 @@ export const blockersSection: SectionModule = {
     return actions.map<AgendaItem>((a, index) => {
       const reasons: string[] = [];
       if (a.dueDate && a.dueDate < ctx.now) reasons.push(`due ${a.dueDate.toLocaleDateString("en-GB", dateFmt)}`);
-      if (a.blockedByIds.length > 0) reasons.push(`blocked by ${a.blockedByIds.length} action${a.blockedByIds.length === 1 ? "" : "s"}`);
+      if (a.depsOut.length > 0) reasons.push(`blocked by ${a.depsOut.length} action${a.depsOut.length === 1 ? "" : "s"}`);
       const owners = a.assignees.map((x) => x.user.name).filter((n): n is string => Boolean(n));
       const goal = a.project?.goals[0] ?? null;
       return {

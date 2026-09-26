@@ -40,6 +40,11 @@ export const actionWriteSchema = z.object({
   status: z.enum(ACTION_STATUS_VALUES).default("ACTIVE"),
   epicId: z.string().optional(),
   effortEstimate: z.number().min(0).optional(),
+  /**
+   * Ids of the actions this one is blocked by (`ActionDependency` rows,
+   * ADR-0062). On update the list replaces the current set; `undefined`
+   * leaves it untouched.
+   */
   blockedByIds: z.array(z.string()).optional(),
   // Bounty fields
   isBounty: z.boolean().optional(),

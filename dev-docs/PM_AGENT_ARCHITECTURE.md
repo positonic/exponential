@@ -153,7 +153,7 @@ Scope creep is measured by counting actions added after the sprint's `startDate`
 | `scope_creep` | More than 20% of actions added after sprint start |
 | `stale_items` | Any action in IN_PROGRESS status for 3+ days |
 | `overdue` | Any action past its due date |
-| `blocked` | Any action with non-empty `blockedByIds` |
+| `blocked` | Any not-done action with an open blocker (`ActionDependency` whose `dependsOn` is still `ACTIVE`) |
 | `velocity_drop` | More than 50% of sprint elapsed but less than 30% of actions complete |
 
 ---

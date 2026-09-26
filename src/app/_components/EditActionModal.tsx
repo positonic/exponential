@@ -24,7 +24,7 @@ export type Action = {
   duration?: number | null;
   epicId?: string | null;
   effortEstimate?: number | null;
-  blockedByIds?: string[];
+  depsOut?: Array<{ dependsOn: { id: string } }>;
   tags?: Array<{ tag: { id: string; name: string; color: string } }>;
   assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
   lists?: Array<{ list: { id: string; name: string; listType: string } }>;
@@ -165,7 +165,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         duration?: number | null;
         epicId?: string | null;
         effortEstimate?: number | null;
-        blockedByIds?: string[];
+        depsOut?: Array<{ dependsOn: { id: string } }>;
         lists?: Array<{ list: { id: string; listType: string } }>;
         tags?: Array<{ tag: { id: string } }>;
       };
@@ -174,7 +174,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       // Load epic & effort
       setEpicId(actionData.epicId ?? null);
       setEffortEstimate(actionData.effortEstimate ?? null);
-      setBlockedByIds(actionData.blockedByIds ?? []);
+      setBlockedByIds(actionData.depsOut?.map((d) => d.dependsOn.id) ?? []);
       // Load sprint (first SPRINT-type list)
       const sprintList = actionData.lists?.find(l => l.list.listType === 'SPRINT');
       const sprintId = sprintList?.list.id ?? null;
