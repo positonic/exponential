@@ -32,6 +32,7 @@ import {
   IconPhoto,
   IconChevronLeft,
   IconChevronRight,
+  IconLock,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -613,6 +614,34 @@ export function ActionDetailContent({
               <Badge size="xs" variant="light">
                 {action.epic.name}
               </Badge>
+            </PropertyRow>
+          )}
+
+          {/* Blocked by (ADR-0062): every blocker, open ones highlighted */}
+          {action.depsOut.length > 0 && (
+            <PropertyRow icon={<IconLock size={16} />} label="Blocked by">
+              <Group gap="xs">
+                {action.depsOut.map((dep) => {
+                  const isOpen = dep.dependsOn.status === "ACTIVE";
+                  const badge = (
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color={isOpen ? "red" : "gray"}
+                      td={isOpen ? undefined : "line-through"}
+                    >
+                      {dep.dependsOn.name}
+                    </Badge>
+                  );
+                  return workspace?.slug ? (
+                    <Link key={dep.id} href={`/w/${workspace.slug}/actions/${dep.dependsOn.id}`}>
+                      {badge}
+                    </Link>
+                  ) : (
+                    <span key={dep.id}>{badge}</span>
+                  );
+                })}
+              </Group>
             </PropertyRow>
           )}
 

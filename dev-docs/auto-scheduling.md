@@ -30,9 +30,8 @@ parentChunkId         String?                     // Link to parent if this is a
 chunkNumber           Int?                        // Which chunk (1, 2, 3...)
 totalChunks           Int?                        // Total chunks for parent
 
-// Task dependencies
-blockedByIds          String[]                    // Tasks that must complete first
-blockingIds           String[]                    // Tasks this blocks
+// Task dependencies: `ActionDependency` join table (ADR-0062) — `depsOut` are
+// the tasks that must complete first, `depsIn` the tasks this one blocks.
 
 // Reminder tasks (not time-blocked)
 isReminderOnly        Boolean   @default(false)
