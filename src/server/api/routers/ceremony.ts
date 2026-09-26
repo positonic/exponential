@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { CeremonyKind, type Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { requireWorkspaceMembership } from "~/server/services/access";
+import { requireProjectAccess, requireWorkspaceMembership } from "~/server/services/access";
 import {
   buildTranscriptionAccessWhere,
   canEditTranscription,
@@ -169,6 +169,30 @@ export const ceremonyRouter = createTRPCRouter({
         },
         select: ceremonySummarySelect,
         orderBy: [{ isActive: "desc" }, { name: "asc" }],
+      });
+    }),
+
+  /**
+   * Active ceremonies linked to a project, each with its next planned
+   * occurrence — the project overview's "Ceremonies" section. Gated on project
+   * access rather than workspace membership so a project-only member sees it.
+   */
+  listForProject: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.ceremony.findMany({
+        where: { projectId: input.projectId, isActive: true },
+        select: {
+          ...ceremonySummarySelect,
+          occurrences: {
+            where: { scheduledStart: { gte: new Date() }, status: { not: "SKIPPED" } },
+            orderBy: { scheduledStart: "asc" },
+            take: 1,
+            select: { id: true, scheduledStart: true, status: true },
+          },
+        },
+        orderBy: { name: "asc" },
       });
     }),
 

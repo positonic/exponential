@@ -151,6 +151,44 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("listForProject", () => {
+    it("denies a user with no access to the project", async () => {
+      db.project.findUnique.mockResolvedValue(null);
+      await expect(caller(db).ceremony.listForProject({ projectId: "p-1" })).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+      expect(db.ceremony.findMany).not.toHaveBeenCalled();
+    });
+
+    it("returns the project's active ceremonies with their next occurrence", async () => {
+      db.project.findUnique.mockResolvedValue({
+        id: "p-1",
+        createdById: USER_ID,
+        workspaceId: WORKSPACE_ID,
+        teamId: null,
+        isPublic: false,
+        isRestricted: false,
+      } as never);
+      db.projectMember.findUnique.mockResolvedValue(null);
+      db.workspaceUser.findUnique.mockResolvedValue(null);
+      db.ceremony.findMany.mockResolvedValue([
+        { id: "cer-1", name: "Daily Standup", occurrences: [{ id: "occ-1" }] },
+      ] as never);
+
+      const rows = await caller(db).ceremony.listForProject({ projectId: "p-1" });
+
+      expect(rows).toHaveLength(1);
+      expect(db.ceremony.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { projectId: "p-1", isActive: true },
+          select: expect.objectContaining({
+            occurrences: expect.objectContaining({ take: 1 }),
+          }),
+        }),
+      );
+    });
+  });
+
   describe("create", () => {
     const input = {
       workspaceId: WORKSPACE_ID,
