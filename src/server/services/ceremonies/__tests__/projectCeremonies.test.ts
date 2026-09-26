@@ -31,8 +31,10 @@ describe("syncProjectCeremonies", () => {
       where: { projectId: "p-1", id: { notIn: ["c-1", "c-2"] } },
       data: { projectId: null },
     });
+    // Must not filter on projectId: a never-linked ceremony has a NULL
+    // projectId, and Prisma's `not` excludes NULL rows.
     expect(db.ceremony.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: { in: ["c-1", "c-2"] }, NOT: { projectId: "p-1" } },
+      where: { id: { in: ["c-1", "c-2"] } },
       data: { projectId: "p-1" },
     });
   });
