@@ -302,4 +302,34 @@ describe("crmApi router (mocked)", () => {
       expect(findManyArgs.where.emailHash).toBeUndefined();
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────
+  // pipelineGet — default-pipeline fallback
+  // ────────────────────────────────────────────────────────────────────
+  describe("pipelineGet", () => {
+    it("skips cancelled/completed pipelines when no pipelineId is given", async () => {
+      dbMock.project.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmApi.pipelineGet({ workspaceId });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const args = dbMock.project.findFirst.mock.calls[0]?.[0] as any;
+      expect(args.where.type).toBe("pipeline");
+      expect(args.where.status).toEqual({ notIn: ["CANCELLED", "COMPLETED"] });
+      expect(args.orderBy).toEqual({ createdAt: "asc" });
+    });
+
+    it("does not filter by status when a pipelineId is given", async () => {
+      dbMock.project.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmApi.pipelineGet({ workspaceId, pipelineId: "p-2" });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const args = dbMock.project.findFirst.mock.calls[0]?.[0] as any;
+      expect(args.where.id).toBe("p-2");
+      expect(args.where.status).toBeUndefined();
+    });
+  });
 });
