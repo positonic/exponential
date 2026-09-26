@@ -60,7 +60,6 @@ import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
-import { useAgentModal } from "~/providers/AgentModalProvider";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { notifications } from "@mantine/notifications";
@@ -120,7 +119,6 @@ export function ProjectContent({
 
   const pathname = usePathname();
   const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
-  const { openModal: openChatModal, isOpen: chatModalOpen } = useAgentModal();
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
   const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
@@ -391,7 +389,7 @@ export function ProjectContent({
           <CreateProjectModal project={project}>
             <button
               type="button"
-              className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+              className={overviewStyles.iconBtn}
               title="Edit Project"
               aria-label="Edit project"
             >
@@ -400,16 +398,7 @@ export function ProjectContent({
           </CreateProjectModal>
           <button
             type="button"
-            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
-            onClick={() => openChatModal(projectId)}
-            title={chatModalOpen ? "Close Project Chat" : "Open Project Chat"}
-            aria-label="Project chat"
-          >
-            <IconMessageCircle size={14} />
-          </button>
-          <button
-            type="button"
-            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+            className={overviewStyles.iconBtn}
             onClick={() =>
               setActiveDrawer(activeDrawer === "settings" ? null : "settings")
             }
