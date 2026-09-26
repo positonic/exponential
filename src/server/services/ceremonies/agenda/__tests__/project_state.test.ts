@@ -57,6 +57,7 @@ describe("project_state section", () => {
         { id: "a-2", name: "Collect letters", completedAt: new Date("2026-09-06T00:00:00Z") },
       ] as never)
       .mockResolvedValueOnce([{ id: "a-3", name: "Submit form B", dueDate: new Date("2026-09-08T00:00:00Z") }] as never);
+    db.projectActivity.findMany.mockResolvedValue([] as never);
 
     const items = await projectStateSection.run(ctx(db), section);
 
@@ -85,6 +86,42 @@ describe("project_state section", () => {
     expect(items.map((i) => i.order)).toEqual([0, 1, 2, 3, 4]);
   });
 
+  it("raises what else shifted from the activity log, one line per action, skipping ones already raised", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.ceremonyOccurrence.findFirst.mockResolvedValue(null);
+    db.project.findUnique.mockResolvedValue({
+      id: "p-1", name: "P", slug: "p", status: "ACTIVE", priority: "NONE", progress: 10,
+      endDate: null, reviewDate: null, nextActionDate: null, goals: [],
+    } as never);
+    db.action.findMany
+      .mockResolvedValueOnce([{ id: "a-done", name: "Done thing", completedAt: now }] as never)
+      .mockResolvedValueOnce([] as never);
+    db.projectActivity.findMany.mockResolvedValue([
+      // newest first: the reschedule wins for a-1, the earlier status move is folded away
+      { id: "ev-1", actionId: "a-1", type: "DUE_DATE_CHANGED", fromValue: "2026-09-12T00:00:00Z", toValue: "2026-09-19T00:00:00Z", action: { name: "Draft budget" }, changedBy: { name: "Andi" } },
+      { id: "ev-2", actionId: "a-1", type: "STATUS_CHANGED", fromValue: "TODO", toValue: "IN_PROGRESS", action: { name: "Draft budget" }, changedBy: { name: "Andi" } },
+      { id: "ev-3", actionId: "a-done", type: "STATUS_CHANGED", fromValue: "ACTIVE", toValue: "COMPLETED", action: { name: "Done thing" }, changedBy: null },
+      { id: "ev-4", actionId: null, type: "ACTION_DELETED", fromValue: "Old idea", toValue: null, action: null, changedBy: { name: "Sam" } },
+      { id: "ev-5", actionId: "a-2", type: "ACTION_CREATED", fromValue: null, toValue: "New task", action: { name: "New task" }, changedBy: null },
+    ] as never);
+
+    const items = await projectStateSection.run(ctx(db), section);
+
+    expect(items.map((i) => i.id)).toEqual([
+      "state:text:project-p-1",
+      "state:text:completed",
+      "state:shift:a-1",
+      "state:shift:ev-4",
+      "state:shift:a-2",
+    ]);
+    expect(items[2]).toMatchObject({ refType: "action", title: "Draft budget", detail: "rescheduled 12 Sept → 19 Sept · Andi", href: "/w/ws/actions/a-1" });
+    expect(items[3]).toMatchObject({ refType: "text", title: "Old idea", detail: "deleted · Sam", href: null });
+    expect(items[4]).toMatchObject({ refType: "action", title: "New task", detail: "created" });
+    const where = db.projectActivity.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({ projectId: "p-1", changedAt: { gte: prevStart, lte: now } });
+    expect((where.type as { in: string[] }).in).not.toContain("ASSIGNEE_CHANGED");
+  });
+
   it("looks back seven days when there is no previous occurrence", async () => {
     const db = mockDeep<PrismaClient>();
     db.ceremonyOccurrence.findFirst.mockResolvedValue(null);
@@ -93,6 +130,7 @@ describe("project_state section", () => {
       endDate: null, reviewDate: null, nextActionDate: null, goals: [],
     } as never);
     db.action.findMany.mockResolvedValue([] as never);
+    db.projectActivity.findMany.mockResolvedValue([] as never);
 
     const items = await projectStateSection.run(ctx(db, { previousOccurrence: null }), section);
 
