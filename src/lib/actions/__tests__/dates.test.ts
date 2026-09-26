@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRelativeDueAge } from "../dates";
+import { formatDayLabel, formatRelativeDueAge } from "../dates";
 
 // Local-time dates on purpose: the util mirrors the partition's local-day math.
 function localDay(y: number, m: number, d: number, h = 12): Date {
@@ -41,5 +41,11 @@ describe("formatRelativeDueAge", () => {
     expect(formatRelativeDueAge(localDay(2026, 3, 22), localDay(2026, 3, 29))).toBe(
       "due 7d ago",
     );
+  });
+});
+
+describe("formatDayLabel", () => {
+  it("renders weekday · month day in local time", () => {
+    expect(formatDayLabel(new Date(2026, 8, 16, 23, 30))).toBe("Wed · Sep 16");
   });
 });

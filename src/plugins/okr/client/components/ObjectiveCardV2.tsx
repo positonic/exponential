@@ -31,6 +31,7 @@ import {
   relativeTimeLabel,
   type Confidence,
 } from "../utils/okrDashboardUtils";
+import { getPeriodDisplayName } from "../utils/periodUtils";
 import {
   getAvatarColor,
   getColorSeed,
@@ -310,6 +311,7 @@ function KrLine({
   onView,
   onDelete,
   isDeleting,
+  showPeriod,
 }: {
   kr: ObjectiveCardKeyResult;
   code: string;
@@ -320,6 +322,7 @@ function KrLine({
   onView?: () => void;
   onDelete?: (id: string) => void;
   isDeleting?: boolean;
+  showPeriod?: boolean;
 }) {
   const progress = krProgress(kr);
   const expected = kr.period ? expectedProgress(kr.period) : 0;
@@ -410,6 +413,12 @@ function KrLine({
               </Text>
             </div>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-text-muted">
+              {showPeriod && kr.period && (
+                <>
+                  <span>{getPeriodDisplayName(kr.period)}</span>
+                  <span className="inline-block h-[3px] w-[3px] rounded-full bg-[color:var(--color-text-faint,currentColor)] opacity-60" />
+                </>
+              )}
               <span>Updated {updated}</span>
               <span className="inline-block h-[3px] w-[3px] rounded-full bg-[color:var(--color-text-faint,currentColor)] opacity-60" />
               <span>{Math.round(progress * 100)}% of target</span>
@@ -601,6 +610,89 @@ function KrLine({
   );
 }
 
+/** A set of expanded row ids with a toggle. */
+function useExpandedSet(): [ReadonlySet<string>, (id: string) => void] {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  return [expanded, toggle];
+}
+
+interface KeyResultAccordionProps {
+  keyResults: ObjectiveCardKeyResult[];
+  /**
+   * The owning Objective's number, for "KR1.2"-style codes (the OKR dashboard
+   * numbers objectives O1, O2...). Omit on a single-Objective page, where the
+   * rows read "KR1", "KR2"...
+   */
+  objectiveNumber?: string;
+  onEditKeyResult?: (keyResult: ObjectiveCardKeyResult) => void;
+  onViewKeyResult?: (kr: ObjectiveCardKeyResult) => void;
+  onDeleteKeyResult?: (id: string) => void;
+  deletingKeyResultId?: string | null;
+  /** Label each row with its period - for lists that mix periods. */
+  showPeriod?: boolean;
+  /**
+   * Controlled expansion. Pass both when the accordion can unmount while its
+   * owner stays mounted (e.g. inside a `Collapse`, which unmounts its content
+   * under reduced motion) and expanded rows must survive that.
+   */
+  expandedIds?: ReadonlySet<string>;
+  onToggleExpanded?: (id: string) => void;
+}
+
+/**
+ * An Objective's key results as expandable rows, each opening onto its
+ * "Executing work" panel (linked Projects, Pipelines and Features, ADR-0050).
+ * Shared by the OKR dashboard's {@link ObjectiveCardV2} and the Objective
+ * detail page. Tracks which rows are expanded unless the caller controls it;
+ * renders nothing for an empty list, so callers keep their own empty state.
+ */
+export function KeyResultAccordion({
+  keyResults,
+  objectiveNumber,
+  onEditKeyResult,
+  onViewKeyResult,
+  onDeleteKeyResult,
+  deletingKeyResultId,
+  showPeriod,
+  expandedIds,
+  onToggleExpanded,
+}: KeyResultAccordionProps) {
+  const { workspaceSlug } = useWorkspace();
+  const [ownExpanded, toggleOwn] = useExpandedSet();
+  const expandedKrs = expandedIds ?? ownExpanded;
+  const toggleKr = onToggleExpanded ?? toggleOwn;
+
+  return (
+    <>
+      {keyResults.map((kr, i) => (
+        <KrLine
+          key={kr.id}
+          kr={kr}
+          code={
+            objectiveNumber ? `KR${objectiveNumber}.${i + 1}` : `KR${i + 1}`
+          }
+          isExpanded={expandedKrs.has(kr.id)}
+          onToggleExpand={() => toggleKr(kr.id)}
+          workspaceSlug={workspaceSlug}
+          onEdit={onEditKeyResult ? () => onEditKeyResult(kr) : undefined}
+          onView={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
+          onDelete={onDeleteKeyResult}
+          isDeleting={deletingKeyResultId === kr.id}
+          showPeriod={showPeriod}
+        />
+      ))}
+    </>
+  );
+}
+
 export function ObjectiveCardV2({
   objective,
   code,
@@ -625,17 +717,9 @@ export function ObjectiveCardV2({
   );
   const pill = CONFIDENCE_PILL[status];
   const owner = objective.driUser ?? objective.user;
-  const { workspaceSlug } = useWorkspace();
-
-  const [expandedKrs, setExpandedKrs] = useState<Set<string>>(new Set());
-  const toggleKr = (id: string) => {
-    setExpandedKrs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  // Owned here, not in KeyResultAccordion: under reduced motion the Collapse
+  // below unmounts its content, which would forget expanded rows.
+  const [expandedKrs, toggleKr] = useExpandedSet();
 
   // Contributor stack: owner first, then KR DRIs, then KR creators — deduped.
   const contributors = [
@@ -788,20 +872,16 @@ export function ObjectiveCardV2({
               No key results in this period yet.
             </Text>
           ) : (
-            objective.keyResults.map((kr, i) => (
-              <KrLine
-                key={kr.id}
-                kr={kr}
-                code={`KR${objNum}.${i + 1}`}
-                isExpanded={expandedKrs.has(kr.id)}
-                onToggleExpand={() => toggleKr(kr.id)}
-                workspaceSlug={workspaceSlug}
-                onEdit={onEditKeyResult ? () => onEditKeyResult(kr) : undefined}
-                onView={onViewKeyResult ? () => onViewKeyResult(kr) : undefined}
-                onDelete={onDeleteKeyResult}
-                isDeleting={deletingKeyResultId === kr.id}
-              />
-            ))
+            <KeyResultAccordion
+              keyResults={objective.keyResults}
+              objectiveNumber={objNum}
+              onEditKeyResult={onEditKeyResult}
+              onViewKeyResult={onViewKeyResult}
+              onDeleteKeyResult={onDeleteKeyResult}
+              deletingKeyResultId={deletingKeyResultId}
+              expandedIds={expandedKrs}
+              onToggleExpanded={toggleKr}
+            />
           )}
 
           {onAddKeyResult && (

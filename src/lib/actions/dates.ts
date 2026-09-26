@@ -60,6 +60,16 @@ export function formatRelativeDueAge(anchor: Date, today: Date): string {
   return days === 1 ? "due yesterday" : `due ${days}d ago`;
 }
 
+/** "Wed · Sep 16" — the agenda rail header and Upcoming day sections. */
+export function formatDayLabel(date: Date): string {
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MON = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${DOW[date.getDay()]} · ${MON[date.getMonth()]} ${date.getDate()}`;
+}
+
 export function addDays(base: Date, n: number): Date {
   const d = new Date(base);
   d.setDate(d.getDate() + n);

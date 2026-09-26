@@ -5,6 +5,7 @@
  * person's hand). The LLM only narrates; it never produces an item.
  */
 import type { Ceremony, CeremonyOccurrence, Prisma, PrismaClient } from "@prisma/client";
+import type { CalendarReader } from "~/server/services/notifications/emit/dailySummary/calendar";
 
 export type AgendaRefType =
   | "action"
@@ -14,6 +15,7 @@ export type AgendaRefType =
   | "ticket"
   | "cycle"
   | "meeting"
+  | "project"
   | "text";
 
 export interface AgendaItem {
@@ -102,6 +104,12 @@ export interface SectionContext {
   now: Date;
   /** Base path for links, `/w/<slug>`. */
   workspacePath: string;
+  /**
+   * Calendar reader for the daily-brief sections (yesterday, today's
+   * meetings). Unset means the production multi-calendar merge; tests inject
+   * a fixture so no unit test reaches an external provider.
+   */
+  readCalendar?: CalendarReader;
 }
 
 export interface SectionModule {

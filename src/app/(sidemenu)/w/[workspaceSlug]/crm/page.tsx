@@ -152,10 +152,10 @@ export default function CRMDashboardPage() {
               <Link
                 key={org.id}
                 href={`${basePath}/organizations/${org.id}`}
-                className="flex justify-between items-center p-3 rounded-lg hover:bg-surface-hover transition-colors"
+                className="flex justify-between items-center gap-3 p-3 rounded-lg hover:bg-surface-hover transition-colors"
               >
-                <Text className="text-text-primary">{org.name}</Text>
-                <Text size="sm" className="text-text-muted">
+                <Text className="min-w-0 truncate text-text-primary">{org.name}</Text>
+                <Text size="sm" className="shrink-0 whitespace-nowrap text-text-muted">
                   {org.contactCount} contacts
                 </Text>
               </Link>

@@ -11,7 +11,7 @@ import { syncFeed } from "~/server/services/calendar/CalendarSyncService";
 import { assertSafeFeedUrl, UnsafeFeedUrlError } from "~/server/services/calendar/feedUrlGuard";
 import { listIcsCalendarEvents } from "~/server/services/calendar/icsEventRead";
 import { listMeetingCalendarEvents } from "~/server/services/calendar/meetingEventRead";
-import { todayWindow } from "~/server/services/calendar/todayWindow";
+import { shiftWindowByDays, todayWindow } from "~/server/services/calendar/todayWindow";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
@@ -529,9 +529,19 @@ export const calendarRouter = createTRPCRouter({
   }),
 
   getTodayEvents: protectedProcedure
-    .input(z.object({ provider: providerSchema }).optional())
+    .input(
+      z
+        .object({
+          provider: providerSchema,
+          // Days after today — 1 is the /today page's Tomorrow tab. Callers that
+          // want today should omit the input so they share one cache entry.
+          dayOffset: z.number().int().min(0).max(30).optional(),
+        })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
       const provider = input?.provider ?? "google";
+      const dayOffset = input?.dayOffset ?? 0;
       const userId = ctx.session.user.id;
 
       // ICS feed events merge in regardless of provider or Google gating —
@@ -543,7 +553,10 @@ export const calendarRouter = createTRPCRouter({
         where: { id: userId },
         select: { timezone: true },
       });
-      const { start: todayStart, end: todayEnd } = todayWindow(userRow?.timezone ?? null);
+      const { start: todayStart, end: todayEnd } = shiftWindowByDays(
+        todayWindow(userRow?.timezone ?? null),
+        dayOffset,
+      );
       const icsEvents = await listIcsCalendarEvents(
         ctx.db as PrismaClient,
         userId,
@@ -567,7 +580,15 @@ export const calendarRouter = createTRPCRouter({
       if (isGoogleCalendarGated(ctx.session.user.email, provider)) return dbEvents;
 
       const service = getCalendarService(provider);
-      const providerEvents = await service.getTodayEvents(userId);
+      // todayWindow(null) is the server-local day service.getTodayEvents uses.
+      const providerWindow = shiftWindowByDays(todayWindow(null), dayOffset);
+      const providerEvents =
+        dayOffset === 0
+          ? await service.getTodayEvents(userId)
+          : await service.getEvents(userId, {
+              timeMin: providerWindow.start,
+              timeMax: providerWindow.end,
+            });
       return [...providerEvents, ...dbEvents].sort((a, b) => {
         const aTime = a.start?.dateTime ?? a.start?.date ?? "";
         const bTime = b.start?.dateTime ?? b.start?.date ?? "";

@@ -30,6 +30,7 @@ import {
   applyActionUpdate,
   assertAssignableUsers,
   assertCanWriteToWorkspace,
+  blockedByInclude,
   createAction,
   isActionSource,
   KANBAN_STATUS_VALUES,
@@ -37,6 +38,12 @@ import {
   type ActionSource,
 } from "~/server/services/actions";
 import { partitionActions } from "~/lib/actions/partition";
+import { deriveActionBlocked, withBlockedState } from "~/lib/actions/blocked";
+import {
+  myActionsDueTodayWhere,
+  myActionsOwnershipWhere,
+  myInboxActionsWhere,
+} from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
 /**
@@ -80,14 +87,7 @@ export const actionRouter = createTRPCRouter({
     // workspaceId so actions with no project (projectId=null) are still scoped correctly.
     const whereClause: any = {
       AND: [
-        {
-          OR: [
-            // Created by me AND no assignees
-            { createdById: userId, assignees: { none: {} } },
-            // Assigned to me via ActionAssignee
-            { assignees: { some: { userId: userId } } },
-          ],
-        },
+        myActionsOwnershipWhere(userId),
         ...(input?.workspaceId
           ? [
               {
@@ -113,7 +113,7 @@ export const actionRouter = createTRPCRouter({
       };
     }
 
-    return ctx.db.action.findMany({
+    const rows = await ctx.db.action.findMany({
       where: whereClause,
       include: {
         project: true,
@@ -129,6 +129,7 @@ export const actionRouter = createTRPCRouter({
           },
         },
         epic: { select: { id: true, name: true, status: true } },
+        ...blockedByInclude,
       },
       orderBy: {
         project: {
@@ -136,6 +137,7 @@ export const actionRouter = createTRPCRouter({
         },
       },
     });
+    return rows.map(withBlockedState);
   }),
 
   getById: protectedProcedure
@@ -163,6 +165,7 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          ...blockedByInclude,
           actionScreenshots: {
             include: {
               screenshot: { select: { id: true, url: true, timestamp: true } },
@@ -178,7 +181,7 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      return action;
+      return { ...action, ...deriveActionBlocked(action) };
     }),
 
   /**
@@ -240,6 +243,7 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          ...blockedByInclude,
           actionScreenshots: {
             include: {
               screenshot: { select: { id: true, url: true, timestamp: true } },
@@ -283,6 +287,7 @@ export const actionRouter = createTRPCRouter({
             },
           },
           epic: { select: { id: true, name: true, status: true } },
+          ...blockedByInclude,
           actionScreenshots: {
             include: {
               screenshot: { select: { id: true, url: true, timestamp: true } },
@@ -324,7 +329,7 @@ export const actionRouter = createTRPCRouter({
         };
       }
 
-      return ctx.db.action.findMany({
+      const rows = await ctx.db.action.findMany({
         where: whereClause,
         include: {
           // Every row in this query shares one project, so a full project row
@@ -337,6 +342,7 @@ export const actionRouter = createTRPCRouter({
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
+          ...blockedByInclude,
         },
         orderBy: [
           { kanbanOrder: { sort: "asc", nulls: "last" } },
@@ -344,6 +350,7 @@ export const actionRouter = createTRPCRouter({
           { dueDate: "asc" }
         ],
       });
+      return rows.map(withBlockedState);
     }),
 
   // Get actions imported from Notion that don't have a project assigned
@@ -652,29 +659,8 @@ export const actionRouter = createTRPCRouter({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const userId = ctx.session.user.id;
-
       return ctx.db.action.findMany({
-        where: {
-          OR: [
-            // Created by me AND no assignees
-            { createdById: userId, assignees: { none: {} } },
-            // Assigned to me via ActionAssignee
-            { assignees: { some: { userId: userId } } },
-          ],
-          dueDate: {
-            gte: today,
-            lt: tomorrow,
-          },
-          status: "ACTIVE",
-          // Filter by workspace via the action's project
-          ...(input?.workspaceId ? { project: { workspaceId: input.workspaceId } } : {}),
-        },
+        where: myActionsDueTodayWhere(ctx.session.user.id, new Date(), input?.workspaceId),
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
@@ -691,6 +677,19 @@ export const actionRouter = createTRPCRouter({
         },
       });
     }),
+
+  // The sidebar's Inbox and Today badges. Counts only: the badges used to
+  // download every action (action.getAll, ~2 MB for a busy user) on every
+  // page just to count them. Same sets as filtering getAll() by
+  // `!projectId && status === "ACTIVE"` and as getToday().length.
+  getSidebarCounts: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const [inboxCount, todayCount] = await Promise.all([
+      ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
+      ctx.db.action.count({ where: myActionsDueTodayWhere(userId, new Date()) }),
+    ]);
+    return { inboxCount, todayCount };
+  }),
 
   // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
   // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the
@@ -2275,9 +2274,12 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // When a workspaceId is provided, search all actions in that workspace —
-      // but only after verifying the caller is actually a member. Without this
-      // check any logged-in user could enumerate other workspaces' actions.
+      // When a workspaceId is provided, search the workspace's actions the
+      // caller can read — but only after verifying the caller is actually a
+      // member. Without this check any logged-in user could enumerate other
+      // workspaces' actions. Membership alone isn't access, though: actions in
+      // a restricted project stay out of reach unless the caller has a path
+      // into it, so the access clause is applied on top.
       // Without a workspaceId, fall back to only the caller's own actions.
       if (input.workspaceId) {
         const membership = await getWorkspaceMembership(
@@ -2294,11 +2296,20 @@ export const actionRouter = createTRPCRouter({
         ? {}
         : { createdById: userId };
 
+      // Both clauses are `OR`-shaped, so they have to be AND-ed explicitly -
+      // spreading the second over the first silently drops the workspace
+      // scope and widens the search instead of narrowing it. Same shape as
+      // `assertLinkableActions` in decision.ts, which guards the link itself.
       const workspaceFilter = input.workspaceId
         ? {
-            OR: [
-              { workspaceId: input.workspaceId },
-              { project: { workspaceId: input.workspaceId } },
+            AND: [
+              {
+                OR: [
+                  { workspaceId: input.workspaceId },
+                  { project: { workspaceId: input.workspaceId } },
+                ],
+              },
+              buildActionAccessWhere(userId),
             ],
           }
         : {};

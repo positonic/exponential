@@ -25,6 +25,11 @@ import {
 } from "./containment";
 import { nextKanbanOrder } from "./kanban";
 import { assertCanWriteToWorkspace } from "./workspaceGate";
+import {
+  assertLinkableBlockers,
+  blockedByInclude,
+  setActionBlockers,
+} from "./dependencies";
 import type { ActionWriteDeps } from "./types";
 
 /**
@@ -43,6 +48,7 @@ export const createdActionInclude = {
   createdBy: { select: { id: true, name: true, email: true, image: true } },
   tags: { include: { tag: true } },
   epic: { select: { id: true, name: true, status: true } },
+  ...blockedByInclude,
 } satisfies Prisma.ActionInclude;
 
 export type CreatedAction = Prisma.ActionGetPayload<{
@@ -86,8 +92,10 @@ export async function createAction(
     tagIds,
     assigneeIds,
     sprintListId,
+    blockedByIds,
     ...columns
   } = parsed.data;
+  const uniqueBlockerIds = [...new Set(blockedByIds ?? [])];
   const uniqueTagIds = [...new Set(tagIds ?? [])];
   const uniqueAssigneeIds = [...new Set(assigneeIds ?? [])];
 
@@ -170,12 +178,21 @@ export async function createAction(
   if (sprintListId) {
     await assertListMembership(db, actor.userId, sprintListId, targetWorkspaceId);
   }
+  // Blockers are a read path into other actions, so each must be readable
+  // in the same workspace (ADR-0062). A brand-new row cannot be part of a
+  // cycle, so only containment is checked here.
+  if (uniqueBlockerIds.length > 0) {
+    await assertLinkableBlockers(db, actor.userId, targetWorkspaceId, uniqueBlockerIds);
+  }
 
   // 4. One transaction: the row and every attachment, so an Action with
   //    partial attachments cannot exist. The re-read at the end returns the
   //    same include shape whether or not anything was attached.
   const hasAttachments =
-    uniqueTagIds.length > 0 || uniqueAssigneeIds.length > 0 || !!sprintListId;
+    uniqueTagIds.length > 0 ||
+    uniqueAssigneeIds.length > 0 ||
+    uniqueBlockerIds.length > 0 ||
+    !!sprintListId;
 
   const created = await db.$transaction(async (tx) => {
     const row = await tx.action.create({
@@ -205,6 +222,9 @@ export async function createAction(
       await tx.actionList.create({
         data: { actionId: row.id, listId: sprintListId },
       });
+    }
+    if (uniqueBlockerIds.length > 0) {
+      await setActionBlockers(tx, row.id, uniqueBlockerIds, actor.userId);
     }
     return tx.action.findUniqueOrThrow({
       where: { id: row.id },

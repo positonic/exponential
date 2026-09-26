@@ -69,6 +69,42 @@ it is inert against production.
 - Get seeded ids/urls from `loadFixture()` (`e2e/fixture-data.ts`) rather than
   hardcoding CUIDs.
 
+## Page-load performance harness
+
+`e2e/perf/` measures every authenticated page against a **production build**
+(timings from `next dev` are meaningless). It has its own config,
+`playwright.perf.config.ts`, with one worker, because parallel timing runs on
+one machine corrupt each other.
+
+```bash
+npx next build
+npm run test:perf                                   # all ~160 routes, ~55 min
+PERF_ROUTES='crm/contacts$' PERF_RUNS=3 npm run test:perf   # a subset
+npx tsx e2e/perf/report.ts e2e/.results/perf/<run-id>       # ranked table
+```
+
+- **Data**: global setup seeds `dev-fixture` and then `scripts/seed-perf-fixture.ts`
+  (1,500 actions, 1,600 contacts, 300 tickets, …). The default fixture is too
+  small to expose slow queries or oversized payloads.
+- **Per route**: 1 warm-up, then `PERF_RUNS` hard loads (cold context) and
+  `PERF_RUNS` client navigations from the workspace home (sidebar click when
+  the link exists, `router.push` otherwise). Each tRPC procedure the page
+  issued is then replayed alone server-side.
+- **Recorded**: TTFB, LCP, content-ready, JS bytes, tRPC requests,
+  procedures and decoded payload, a waterfall-depth heuristic, duplicate
+  procedures, and per-load DB statement counts when `pg_stat_statements` is
+  loaded (start Postgres with `-c shared_preload_libraries=pg_stat_statements`).
+- **Filters**: `PERF_GROUP` (see `e2e/perf/routes.ts`), `PERF_ROUTES` (regex on
+  the route pattern), `PERF_RUN_ID` (output directory name).
+- **Knobs**: `PERF_PORT` (reuses an already-running `next start`, which must
+  have `AUTH_TRUST_HOST=true`), `PERF_LATENCY_MS` (CDP-added RTT).
+- **A/B**: build each side in its own checkout, run both against the same
+  seeded DB, and compare medians from the same machine in the same session.
+  Baselines from a different day or machine aren't comparable.
+
+The 2026-09-16 baseline and root-cause analysis are in
+`dev-docs/perf/page-load-baseline-2026-09-16.md`.
+
 ## Cleanup
 
 Everything hangs off the fixture workspace; to remove it, delete the

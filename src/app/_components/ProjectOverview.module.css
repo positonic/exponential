@@ -12,6 +12,7 @@
   gap: 24px;
   padding-bottom: 20px;
 }
+
 .headerMain { min-width: 0; flex: 1; }
 
 .eyebrow {
@@ -63,11 +64,14 @@
   line-height: 1.55;
 }
 
+/* Sits on the same line as the eyebrow: match its line box height so the
+   icons center on the "Active project · Workspace" text. */
 .headerActions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
   align-items: center;
+  height: 17px;
 }
 
 .stats {
@@ -96,6 +100,16 @@
   font-variant-numeric: tabular-nums;
 }
 .statValueDue { color: var(--accent-due); }
+.statValueButton {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.statValueButton:hover { text-decoration: underline; text-underline-offset: 3px; }
+.statValuePlaceholder { color: var(--color-text-muted); font-weight: 400; }
 
 .progressBar {
   width: 90px;
@@ -125,31 +139,48 @@
 }
 
 .iconBtn {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   background: transparent;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 6px;
-  color: var(--color-text-secondary);
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: var(--color-text-muted);
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: border-color 120ms, color 120ms, background 120ms;
+  transition: color 120ms, background 120ms;
 }
 .iconBtn:hover {
-  border-color: var(--color-border-strong);
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
-.iconBtnPrimary {
-  border-color: var(--brand-500);
-  background: rgba(31, 93, 224, 0.08);
-  color: var(--brand-400);
-}
-.iconBtnPrimary:hover {
-  background: rgba(31, 93, 224, 0.15);
-  border-color: var(--brand-500);
-  color: var(--brand-400);
+
+/* Mobile: the side-by-side action buttons squeeze the title into a narrow
+   column, so stack them above the header content and shrink the title. */
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 16px;
+  }
+  .headerMain { width: 100%; }
+  .headerActions {
+    order: -1;
+    align-self: flex-end;
+  }
+  .title {
+    font-size: 20px;
+    line-height: 1.3;
+    gap: 10px;
+  }
+  .titleGlyph {
+    width: 26px;
+    height: 26px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .stats { gap: 16px; }
 }
 
 /* ── Tabs (Mantine Tabs override via classNames) ──────── */
@@ -268,6 +299,20 @@
   place-items: center;
 }
 
+.emptyCta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--brand-400);
+  font-weight: 500;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.emptyCta:hover { color: var(--brand-200); }
+
 /* ── 1. OKR alignment strip ───────────────────────────── */
 
 .okrStrip {
@@ -358,6 +403,8 @@
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .row:last-child { border-bottom: 0; }
+.rowLink { text-decoration: none; }
+.rowLink:hover { background: var(--color-bg-elevated); }
 
 .rowBody { flex: 1; min-width: 0; }
 .rowTitle {
@@ -449,6 +496,8 @@
   border-top: 0;
   width: 100%;
   font-family: inherit;
+  color: inherit;
+  text-decoration: none;
   cursor: pointer;
   transition: background 120ms;
 }

@@ -165,3 +165,40 @@ export function partitionActions<T extends PartitionableAction>(
 
   return { overdue, todays, upcoming, inbox, completed, completedToday };
 }
+
+export interface ActionDayGroup<T> {
+  /** Local midnight of the group's day. */
+  day: Date;
+  actions: T[];
+}
+
+/**
+ * The `/today?filter=upcoming` list: every `ACTIVE` action whose do-day
+ * (`overdueAnchor` — schedule wins, else due) falls on tomorrow or later,
+ * grouped by that day in date order, priority-sorted within each day.
+ *
+ * Uses the same day anchor as `partitionActions`, so the first group is exactly
+ * `partitionActions(actions, { today: tomorrow }).todays` — the Tomorrow tab
+ * and the top of the Upcoming tab can't disagree.
+ */
+export function groupUpcomingByDay<T extends PartitionableAction>(
+  actions: T[],
+  options: PartitionActionsOptions,
+): ActionDayGroup<T>[] {
+  const tomorrow = addDays(startOfDay(options.today), 1);
+  const byDay = new Map<number, T[]>();
+
+  for (const a of actions) {
+    if (a.status !== "ACTIVE") continue;
+    const anchor = overdueAnchor(a);
+    if (!anchor || anchor.getTime() < tomorrow.getTime()) continue;
+    const key = anchor.getTime();
+    const bucket = byDay.get(key);
+    if (bucket) bucket.push(a);
+    else byDay.set(key, [a]);
+  }
+
+  return [...byDay.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([key, group]) => ({ day: new Date(key), actions: group.sort(sortByPriority) }));
+}

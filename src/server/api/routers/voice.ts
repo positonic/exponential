@@ -23,7 +23,14 @@ import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
 import { captureAction } from "~/server/services/voice/capture";
-import { getTodaysPlan } from "~/server/services/voice/dailyBrief";
+import {
+  getDailyContext,
+  parseDailyContextFocus,
+} from "~/server/services/voice/dailyContext";
+import {
+  DAILY_SUMMARY_TITLE,
+  renderDailySummaryMarkdown,
+} from "~/server/services/notifications/emit/dailySummary";
 import { runQuery } from "~/server/services/voice/query";
 import { completeAction } from "~/server/services/voice/complete";
 import { askExponential } from "~/server/services/voice/brainPassthrough";
@@ -211,19 +218,32 @@ export const voiceRouter = createTRPCRouter({
         }
 
         case "get_todays_plan": {
-          // Read-only briefing: never raises the confirmation gate. The verified
-          // token claim is authoritative; args.workspaceId is honoured only as a
-          // back-compat fallback for one release (see ticket #10 / PRD §33).
-          const argWorkspaceId =
-            typeof input.args?.workspaceId === "string"
-              ? input.args.workspaceId
-              : undefined;
-          const { speakable, data } = await getTodaysPlan(userId, ctx.db, {
-            workspaceId: workspaceId ?? argWorkspaceId,
-          });
+          // Read-only: never raises the confirmation gate. Today's context is
+          // the same digest the Daily summary (Matrix / email) is built from —
+          // cross-workspace actions, calendar, and the cycle in the user's
+          // default workspace — so it is NOT scoped by the session's workspace
+          // claim. `focus` reads one section in full; `timezone` is the
+          // device's IANA zone so "today" is the user's day, not the server's.
+          const focus = parseDailyContextFocus(input.args?.focus);
+          const timezone =
+            typeof input.args?.timezone === "string" ? input.args.timezone : undefined;
+          const { speakable, digest, timezone: resolvedTimezone } = await getDailyContext(
+            userId,
+            ctx.db,
+            { focus, timezone },
+          );
+          // `markdown` is the Daily summary exactly as Matrix receives it, for
+          // clients that display the reply rather than speak it (the iOS text
+          // shell); the voice model still only ever sees `speakable`.
           return {
             speakable,
-            structured: { briefing: data },
+            structured: {
+              briefing: digest,
+              focus,
+              timezone: resolvedTimezone,
+              title: DAILY_SUMMARY_TITLE,
+              markdown: renderDailySummaryMarkdown(digest),
+            },
             needsConfirmation: false,
           };
         }
@@ -293,6 +313,8 @@ export const voiceRouter = createTRPCRouter({
               ctx.db,
               workspaceId,
               conversationId,
+              // The device's IANA zone, so zoe's "yesterday" is the user's day.
+              { timezone: input.args?.timezone },
             );
           } catch (error) {
             console.error("[voice.dispatch] ask_exponential failed:", error);

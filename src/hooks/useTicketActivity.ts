@@ -92,7 +92,12 @@ export function useTicketActivity(
   });
 
   const items: ActivityItem[] = useMemo(() => {
-    const commentItems: ActivityItem[] = (ticket?.comments ?? []).map(
+    // Anchored comments (threadId set) belong to the body's highlight threads,
+    // rendered by TicketBodyEditor's discussion panel — only doc-level
+    // comments feed the flat timeline (same split as Knowledge Pages).
+    const commentItems: ActivityItem[] = (ticket?.comments ?? [])
+      .filter((c) => c.threadId == null)
+      .map(
       (c): ActivityItem => ({
         type: "comment" as const,
         id: c.id,

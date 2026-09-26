@@ -64,4 +64,10 @@ export {
   assertListMembership,
   type AssignmentScope,
 } from "./containment";
+export {
+  blockedByInclude,
+  wouldCreateActionCycle,
+  assertLinkableBlockers,
+  setActionBlockers,
+} from "./dependencies";
 export { actionWriteDeps, type ActionActor, type ActionWriteDeps } from "./types";

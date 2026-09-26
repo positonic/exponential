@@ -19,7 +19,6 @@ import {
   Menu,
   Modal,
   Button,
-  Progress,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import {
@@ -50,6 +49,7 @@ import { CreateGoalModal } from "../CreateGoalModal";
 import { GoalDescriptionEditor } from "./GoalDescriptionEditor";
 import { GoalProgressControl } from "./GoalProgressControl";
 import { GoalActivityTab } from "./GoalActivityTab";
+import { GoalFeaturesTab } from "./GoalFeaturesTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
 import { GoalIcon } from "../GoalIcon";
 import { IconPicker } from "../IconPicker";
@@ -59,6 +59,10 @@ import { ProjectsTasksView } from "../ProjectsTasksView/ProjectsTasksView";
 import { ProjectTimelineView } from "../ProjectTimelineView";
 import { useTerminology } from "~/hooks/useTerminology";
 import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
+import {
+  KeyResultAccordion,
+  type ObjectiveCardKeyResult,
+} from "~/plugins/okr/client/components/ObjectiveCardV2";
 import { getCurrentQuarterType, getCurrentYear } from "~/plugins/okr/client/utils/periodUtils";
 
 function getTimeAgo(date: Date): string {
@@ -123,9 +127,19 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
 
   const router = useRouter();
   const pathname = usePathname();
-  const { workspace, workspaceId } = useWorkspace();
+  const { workspace, workspaceId, userRole } = useWorkspace();
   const utils = api.useUtils();
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
+
+  // Features belong to Products, so the Features tab exists only where the
+  // `product` plugin does. Same query, key and gating as the nav's Products
+  // entry, so it is usually already cached.
+  const isGuest = userRole === "guest";
+  const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId && !isGuest, staleTime: 5 * 60 * 1000 },
+  );
+  const showFeaturesTab = !isGuest && (enabledPlugins?.includes("product") ?? false);
 
   const goalPageContext = useMemo(() => {
     if (!goal) return null;
@@ -310,11 +324,17 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onChange={(val) => setActiveTab(val ?? "overview")}>
+        {/* If the Features tab disappears while selected (plugin disabled,
+            role change), fall back to Overview rather than a blank panel. */}
+        <Tabs
+          value={activeTab === "features" && !showFeaturesTab ? "overview" : activeTab}
+          onChange={(val) => setActiveTab(val ?? "overview")}
+        >
           <Tabs.List>
             <Tabs.Tab value="overview">Overview</Tabs.Tab>
             <Tabs.Tab value="activity">Activity</Tabs.Tab>
             <Tabs.Tab value="projects">Projects</Tabs.Tab>
+            {showFeaturesTab && <Tabs.Tab value="features">Features</Tabs.Tab>}
             <Tabs.Tab value="settings" leftSection={<IconSettings size={14} />} />
           </Tabs.List>
 
@@ -575,6 +595,16 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
             )}
           </Tabs.Panel>
 
+          {/* Features Tab - mounted only while active, so its query waits
+              until the tab is opened */}
+          {showFeaturesTab && (
+            <Tabs.Panel value="features" pt="lg">
+              {activeTab === "features" && (
+                <GoalFeaturesTab goalId={goal.id} workspaceSlug={workspaceSlug} />
+              )}
+            </Tabs.Panel>
+          )}
+
           {/* Settings Tab */}
           <Tabs.Panel value="settings" pt="lg">
             <Text size="sm" c="dimmed">
@@ -753,50 +783,6 @@ function ProjectsTable({ projectsByStatus, statusOrder, workspaceSlug }: Project
   );
 }
 
-interface KeyResultItem {
-  id: string;
-  title: string;
-  description: string | null;
-  currentValue: number;
-  targetValue: number;
-  startValue: number;
-  unit: string;
-  unitLabel: string | null;
-  status: string;
-  confidence: number | null;
-  period: string;
-  userId: string;
-  driUserId: string | null;
-}
-
-function getKrStatusColor(status: string): string {
-  switch (status) {
-    case "on-track":
-      return "green";
-    case "achieved":
-      return "blue";
-    case "at-risk":
-      return "yellow";
-    case "off-track":
-      return "red";
-    default:
-      return "gray";
-  }
-}
-
-function formatKrStatus(status: string): string {
-  return status
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-function getKrUnitDisplay(kr: Pick<KeyResultItem, "unit" | "unitLabel">): string {
-  if (kr.unit === "percent") return "%";
-  if (kr.unit === "currency") return "$";
-  return kr.unitLabel ?? "";
-}
-
 interface KeyResultsSectionProps {
   goalId: number;
   goalPeriod: string | null;
@@ -806,11 +792,21 @@ interface KeyResultsSectionProps {
 function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectionProps) {
   const terminology = useTerminology();
   const utils = api.useUtils();
-  const [editingKr, setEditingKr] = useState<KeyResultItem | null>(null);
+  const [editingKr, setEditingKr] = useState<ObjectiveCardKeyResult | null>(null);
   const [createOpen, { open: openCreate, close: closeCreate }] = useDisclosure(false);
   const [editOpen, { open: openEdit, close: closeEdit }] = useDisclosure(false);
 
-  const { data: keyResults, isLoading } = api.okr.getAll.useQuery({ goalId });
+  // The OKR dashboard's query, narrowed to this Objective. A goalId read
+  // ignores the period, so every key result on the Objective is listed.
+  const {
+    data: objectives,
+    isLoading,
+    isError,
+  } = api.okr.getByObjective.useQuery(
+    { workspaceId: workspaceId ?? undefined, goalId },
+    { enabled: terminology.showKeyResults },
+  );
+  const keyResults = objectives?.[0]?.keyResults;
 
   if (!terminology.showKeyResults) return null;
 
@@ -850,19 +846,23 @@ function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectio
 
       {isLoading ? (
         <Skeleton height={80} />
+      ) : isError ? (
+        // Not the empty state: "Add measurable key results" would mislead
+        // when the Objective's key results simply failed to load.
+        <Text size="sm" className="text-text-secondary">
+          Couldn&apos;t load key results. Refresh to try again.
+        </Text>
       ) : keyResults && keyResults.length > 0 ? (
-        <Stack gap="sm">
-          {keyResults.map((kr) => (
-            <KeyResultCard
-              key={kr.id}
-              keyResult={kr as KeyResultItem}
-              onEdit={() => {
-                setEditingKr(kr as KeyResultItem);
-                openEdit();
-              }}
-            />
-          ))}
-        </Stack>
+        <div className="rounded-lg border border-border-primary bg-surface-secondary px-4">
+          <KeyResultAccordion
+            keyResults={keyResults}
+            showPeriod
+            onEditKeyResult={(kr) => {
+              setEditingKr(kr);
+              openEdit();
+            }}
+          />
+        </div>
       ) : (
         <Card
           withBorder
@@ -906,71 +906,5 @@ function KeyResultsSection({ goalId, goalPeriod, workspaceId }: KeyResultsSectio
         onSuccess={handleSuccess}
       />
     </div>
-  );
-}
-
-interface KeyResultCardProps {
-  keyResult: KeyResultItem;
-  onEdit: () => void;
-}
-
-function KeyResultCard({ keyResult, onEdit }: KeyResultCardProps) {
-  const range = keyResult.targetValue - keyResult.startValue;
-  const progress =
-    range !== 0
-      ? Math.min(
-          100,
-          Math.max(
-            0,
-            ((keyResult.currentValue - keyResult.startValue) / range) * 100,
-          ),
-        )
-      : 0;
-  const unitDisplay = getKrUnitDisplay(keyResult);
-  const formatValue = (value: number) =>
-    keyResult.unit === "currency"
-      ? `${unitDisplay}${value}`
-      : `${value}${unitDisplay}`;
-
-  return (
-    <Card withBorder padding="md" radius="md" className="border-border-primary">
-      <Group justify="space-between" wrap="nowrap" mb="xs" align="flex-start">
-        <div className="min-w-0 flex-1">
-          <Text size="sm" fw={500} className="text-text-primary">
-            {keyResult.title}
-          </Text>
-          {keyResult.description && (
-            <Text size="xs" c="dimmed" lineClamp={2} mt={2}>
-              {keyResult.description}
-            </Text>
-          )}
-        </div>
-        <Group gap="xs" wrap="nowrap">
-          <Badge size="xs" variant="light" color={getKrStatusColor(keyResult.status)}>
-            {formatKrStatus(keyResult.status)}
-          </Badge>
-          <Badge size="xs" variant="outline">
-            {keyResult.period}
-          </Badge>
-          <ActionIcon variant="subtle" size="sm" onClick={onEdit} aria-label="Edit key result">
-            <IconEdit size={14} />
-          </ActionIcon>
-        </Group>
-      </Group>
-      <Progress
-        value={progress}
-        size="sm"
-        mb="xs"
-        color={getKrStatusColor(keyResult.status)}
-      />
-      <Group justify="space-between">
-        <Text size="xs" c="dimmed">
-          {formatValue(keyResult.currentValue)} of {formatValue(keyResult.targetValue)}
-        </Text>
-        <Text size="xs" c="dimmed">
-          {Math.round(progress)}%
-        </Text>
-      </Group>
-    </Card>
   );
 }

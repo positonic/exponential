@@ -287,6 +287,7 @@ model User {
   retrospectivesCreated Retrospective[]       @relation("RetrospectiveCreatedBy")
   ticketComments        TicketComment[]       @relation("TicketCommentAuthor")
   ticketDepsCreated     TicketDependency[]    @relation("TicketDependencyCreatedBy")
+  actionDepsCreated     ActionDependency[]    @relation("ActionDependencyCreatedBy")
   insightsCreated       Insight[]             @relation("InsightCreatedBy")
   insightComments       InsightComment[]      @relation("InsightCommentAuthor")
   requirementsChecked   Requirement[]         @relation("RequirementCheckedBy")
@@ -857,9 +858,8 @@ model Action {
   recurringParentId String?
   instanceDate      DateTime?
 
-  // Task dependencies (blocking relationships)
-  blockedByIds String[]
-  blockingIds  String[]
+  // Task dependencies: see `ActionDependency` (ADR-0062). `depsOut` are the
+  // actions this one is blocked by; `depsIn` are the actions it blocks.
 
   // Reminder task (not scheduled on calendar)
   isReminderOnly Boolean @default(false)
@@ -892,6 +892,8 @@ model Action {
   parentChunk          Action?                     @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks          Action[]                    @relation("ActionChunks")
   syncs                ActionSync[]
+  depsOut              ActionDependency[]          @relation("ActionDepsOut")
+  depsIn               ActionDependency[]          @relation("ActionDepsIn")
   assignees            ActionAssignee[]
   participantAssignees ActionParticipantAssignee[]
   weeklyOutcomes       WeeklyOutcome[]             @relation("WeeklyOutcomeActions")
@@ -936,6 +938,25 @@ model Action {
   @@index([isBounty])
   @@index([bountyStatus])
   @@index([sourceType, sourceId])
+}
+
+/// "`action` is blocked by `dependsOn`" — the Action analogue of
+/// `TicketDependency` (ADR-0062). One row per edge, cascade on either end,
+/// no cycles (enforced in the Action write module, not the database).
+model ActionDependency {
+  id          String   @id @default(cuid())
+  actionId    String
+  dependsOnId String
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  action    Action @relation("ActionDepsOut", fields: [actionId], references: [id], onDelete: Cascade)
+  dependsOn Action @relation("ActionDepsIn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("ActionDependencyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([actionId, dependsOnId])
+  @@index([actionId])
+  @@index([dependsOnId])
 }
 
 /// Lifecycle of a TimeEntry (ADR-0061). `PROPOSED` rows are written by the
@@ -5013,7 +5034,15 @@ model Ticket {
   number    Int          @default(0)
   shortId   String?
   title     String
-  body      String?
+  // Ticket body (the ADR-0024 storage model, as Feature.description/-Doc):
+  // `bodyDoc` is the canonical ProseMirror document the editor reads/writes;
+  // `body` is the derived Markdown projection for off-island readers (CLI,
+  // agents, Notion sync, card previews). `bodyDoc` stays null until the ticket
+  // is first opened in the rich editor (lazy migration). `docVersion` powers
+  // the optimistic-concurrency stale-write guard.
+  body       String?
+  bodyDoc    Json?
+  docVersion Int          @default(0)
   type      TicketType   @default(FEATURE)
   status    TicketStatus @default(BACKLOG)
   priority  Int?
@@ -5112,14 +5141,27 @@ model TicketComment {
   ticketId  String
   authorId  String
   content   String   @db.Text
+  // Anchored-comment threading (ADR-0024, as FeatureComment): `threadId`
+  // matches a `comment` mark in `Ticket.bodyDoc` (null = plain activity-feed
+  // comment), `parentId` hangs replies off a thread root, `quotedText`
+  // snapshots the highlighted text so an orphaned thread still renders, and
+  // `resolvedAt` closes the thread.
+  threadId   String?
+  parentId   String?
+  quotedText String?
+  resolvedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author User   @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  ticket  Ticket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author  User            @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  parent  TicketComment?  @relation("TicketCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies TicketComment[] @relation("TicketCommentReplies")
 
   @@index([ticketId])
   @@index([authorId])
+  @@index([threadId])
+  @@index([parentId])
 }
 
 model Retrospective {

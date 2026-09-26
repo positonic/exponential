@@ -31,6 +31,7 @@ import {
   IconMicrophone,
   IconChartBar,
   IconBell,
+  IconClock,
 } from "@tabler/icons-react";
 import type { DocNavSection, DocBreadcrumb } from "./types";
 
@@ -92,6 +93,11 @@ export const docsNavigation: DocNavSection[] = [
         title: "Daily Journal",
         href: "/docs/features/journal",
         icon: IconNotebook,
+      },
+      {
+        title: "Time Tracking",
+        href: "/docs/features/time-tracking",
+        icon: IconClock,
       },
       {
         title: "Weekly Plan",

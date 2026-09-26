@@ -11,6 +11,7 @@ import {
 import { assertWorkspaceScopedRefs } from "~/server/services/access/workspaceRefs";
 import { assertCanWriteToWorkspace } from "./workspaceGate";
 import { nextKanbanOrder } from "./kanban";
+import { assertLinkableBlockers, setActionBlockers } from "./dependencies";
 import { validateScheduledTimes } from "~/lib/dateUtils";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
@@ -59,7 +60,6 @@ export interface ApplyActionUpdateResult<TAction> {
 const FIELDS_CHANGED_SKIP: ReadonlySet<string> = new Set([
   "lastUpdatedBy",
   "lastUpdatedSource",
-  "blockedByIds",
 ]);
 
 function fieldsChangedBetween(
@@ -142,7 +142,7 @@ export async function applyActionUpdate<
         .join("; "),
     });
   }
-  const { kanbanOrder, ...columns } = parsed.data;
+  const { kanbanOrder, blockedByIds, ...columns } = parsed.data;
 
   // 2. Dates: resolve against the stored values for a partial patch. Moving
   //    the start past the end clears the end rather than refusing.
@@ -236,6 +236,13 @@ export async function applyActionUpdate<
     });
   }
 
+  // Blockers: readable actions in the effective workspace (ADR-0062). The
+  // cycle check runs inside the write transaction, against the graph as it
+  // stands at commit.
+  if (blockedByIds !== undefined) {
+    await assertLinkableBlockers(db, actor.userId, effectiveWorkspaceId, blockedByIds);
+  }
+
   // 4. The lockstep.
   const derived = deriveActionPatch(previous, {
     status: columns.status,
@@ -250,12 +257,24 @@ export async function applyActionUpdate<
     ...(columns.priority !== undefined && order === undefined ? { kanbanOrder: null } : {}),
   };
 
-  // 5. One write.
-  const updated = await db.action.update({
-    where: { id: actionId },
-    data,
-    include: options?.include,
-  });
+  // 5. One write. Replacing the blocker set joins it in one transaction, so
+  //    a refused edge (a cycle) leaves the row untouched too.
+  let blockersChanged = false;
+  const updated =
+    blockedByIds === undefined
+      ? await db.action.update({
+          where: { id: actionId },
+          data,
+          include: options?.include,
+        })
+      : await db.$transaction(async (tx) => {
+          blockersChanged = await setActionBlockers(tx, actionId, blockedByIds, actor.userId);
+          return tx.action.update({
+            where: { id: actionId },
+            data,
+            include: options?.include,
+          });
+        });
   const action = updated as unknown as ActionWithInclude<I>;
 
   // 6. Side effects, after the write. `recordActivity` never throws by
@@ -277,6 +296,7 @@ export async function applyActionUpdate<
       });
     } else {
       const fieldsChanged = fieldsChangedBetween(previous, columns);
+      if (blockersChanged) fieldsChanged.push("blockedBy");
       if (fieldsChanged.length > 0) {
         await recordActivity(db, {
           workspaceId: activityWorkspaceId,

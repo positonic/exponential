@@ -452,9 +452,9 @@ export default function OrganizationDetailPage() {
   const teamMembers = organization.contacts?.slice(0, 5) ?? [];
 
   return (
-    <div className="flex flex-col h-full -m-6">
+    <div className="flex flex-col h-full -m-4 md:-m-6">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between border-b border-border-primary bg-surface-secondary px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-primary bg-surface-secondary px-4 py-2">
         <div className="flex items-center gap-2">
           <Tooltip label="Back to Organizations">
             <ActionIcon
@@ -498,7 +498,8 @@ export default function OrganizationDetailPage() {
 
           {navigationInfo.total > 0 && navigationInfo.currentIndex >= 0 && (
             <Text size="xs" className="text-text-muted ml-2">
-              {navigationInfo.currentIndex + 1} of {navigationInfo.total} organizations
+              {navigationInfo.currentIndex + 1} of {navigationInfo.total}
+              <span className="hidden sm:inline"> organizations</span>
             </Text>
           )}
         </div>
@@ -515,13 +516,13 @@ export default function OrganizationDetailPage() {
       </div>
 
       {/* Company Header */}
-      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-6 py-4">
+      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-4 py-4 md:px-6">
         <Avatar size="lg" radius="md" src={organization.logoUrl}>
           <IconBuilding size={28} />
         </Avatar>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Title order={3} className="text-text-primary">
+            <Title order={3} className="min-w-0 break-words text-text-primary">
               {organization.name}
             </Title>
             <ActionIcon
@@ -541,9 +542,10 @@ export default function OrganizationDetailPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-border-primary bg-background-primary px-6">
+      <div className="border-b border-border-primary bg-background-primary px-4 md:px-6">
         <Tabs value={activeTab} onChange={setActiveTab}>
-          <Tabs.List>
+          {/* Scroll rather than wrap onto several rows on a phone. */}
+          <Tabs.List style={{ flexWrap: 'nowrap', overflowX: 'auto', overflowY: 'hidden' }}>
             <Tabs.Tab value="overview">Overview</Tabs.Tab>
             <Tabs.Tab value="activity">Activity</Tabs.Tab>
             <Tabs.Tab value="emails" rightSection={<Badge size="xs" variant="light">0</Badge>}>
@@ -560,13 +562,15 @@ export default function OrganizationDetailPage() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Below lg the two panes stack and scroll together; side by side, each
+          scrolls on its own. */}
+      <div className="flex flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         {/* Left Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="min-w-0 flex-1 p-4 md:p-6 lg:overflow-y-auto">
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {/* Highlights Grid */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 <HighlightCard
                   icon={<IconBolt size={18} />}
                   label="Connection Strength"
@@ -865,7 +869,7 @@ export default function OrganizationDetailPage() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-80 shrink-0 border-l border-border-primary bg-background-primary overflow-y-auto">
+        <div className="w-full shrink-0 border-t border-border-primary bg-background-primary lg:w-80 lg:overflow-y-auto lg:border-l lg:border-t-0">
           {/* Sidebar Tabs */}
           <div className="border-b border-border-primary">
             <Tabs value={sidebarTab} onChange={setSidebarTab}>

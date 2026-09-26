@@ -41,6 +41,7 @@ export const fullDigest: DailySummaryDigest = {
     { startLocal: null, title: "Public holiday" },
   ],
   todaysActions: [{ name: "Gather medical bills" }, { name: "Pay Malte" }],
+  overdueActions: Array.from({ length: 32 }, (_, i) => ({ name: `Overdue thing ${i + 1}` })),
   overdueCount: 32,
   todayUrl: `${BASE}/today`,
   cycles: [
@@ -58,6 +59,7 @@ export const fullDigest: DailySummaryDigest = {
       inFlight: [
         {
           label: "C-532 x.com signals - poc",
+          title: "x.com signals - poc",
           status: "IN_PROGRESS",
           url: `${BASE}/w/acme/products/clear/tickets/t532`,
         },
@@ -65,15 +67,26 @@ export const fullDigest: DailySummaryDigest = {
       upNext: [
         {
           label: "C-154 Specify a pipeline testing thunderdome",
+          title: "Specify a pipeline testing thunderdome",
           url: `${BASE}/w/acme/products/clear/tickets/t154`,
         },
         {
           label: "C-470 Define delivery playbook",
+          title: "Define delivery playbook",
           url: `${BASE}/w/acme/products/clear/tickets/t470`,
         },
       ],
       unrefinedCount: 2,
     },
+  ],
+  driProjects: [
+    {
+      name: "Exponential GTM",
+      state: "40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec",
+      needsAttention: true,
+      url: `${BASE}/w/acme/projects/exponential_gtm-p1`,
+    },
+    { name: "Reading", state: "10% · 3 open", needsAttention: false, url: null },
   ],
 };
 
@@ -82,6 +95,7 @@ export const emptyDigest: DailySummaryDigest = {
   yesterday: [],
   todayMeetings: [],
   todaysActions: [],
+  overdueActions: [],
   overdueCount: 0,
   todayUrl: `${BASE}/today`,
   cycles: [],
@@ -153,6 +167,15 @@ describe("renderDailySummaryPlainText", () => {
     );
   });
 
+  it("shows a linked action name as a Markdown link, and as its label in plain text", () => {
+    const linked = {
+      ...fullDigest,
+      todaysActions: [{ name: `Read [Situation doc](${BASE}/doc)` }],
+    };
+    expect(renderDailySummaryMarkdown(linked)).toContain(`- Read [Situation doc](${BASE}/doc)\n`);
+    expect(renderDailySummaryPlainText(linked)).toContain(`• Read Situation doc\n   ${BASE}/doc\n`);
+  });
+
   it("renders every heading and empty state for an empty digest", () => {
     const text = renderDailySummaryPlainText(emptyDigest);
     for (const h of HEADINGS) expect(text).toContain(`\n${h}\n`);
@@ -177,6 +200,24 @@ describe("renderDailySummaryPlainText", () => {
   it("matches the full and empty snapshots (plain text)", () => {
     expect(renderDailySummaryPlainText(fullDigest)).toMatchSnapshot();
     expect(renderDailySummaryPlainText(emptyDigest)).toMatchSnapshot();
+  });
+});
+
+describe("DRI projects section", () => {
+  it("lists the user's DRI projects with their state, flags the ones needing attention and links them", () => {
+    const md = renderDailySummaryMarkdown(fullDigest);
+    expect(md).toContain(`**${DAILY_SUMMARY_HEADINGS.driProjects}**`);
+    expect(md).toContain(
+      `- ⚠️ [Exponential GTM](${BASE}/w/acme/projects/exponential_gtm-p1) — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec`,
+    );
+    expect(md).toContain("- Reading — 10% · 3 open");
+    const text = renderDailySummaryPlainText(fullDigest);
+    expect(text).toContain("• ⚠️ Exponential GTM — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec");
+    expect(text).toContain(`   ${BASE}/w/acme/projects/exponential_gtm-p1`);
+  });
+
+  it("renders the empty state when the digest has no DRI block at all", () => {
+    expect(renderDailySummaryPlainText(emptyDigest)).toContain(DAILY_SUMMARY_EMPTY.driProjects);
   });
 });
 

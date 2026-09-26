@@ -1,4 +1,5 @@
 import { type PrismaClient, type ActionStatus } from "@prisma/client";
+import { isOpenBlocker } from "~/lib/actions/blocked";
 import { db } from "~/server/db";
 
 export interface SprintMetricsResult {
@@ -359,7 +360,7 @@ export class SprintAnalyticsService {
                 name: true,
                 kanbanStatus: true,
                 dueDate: true,
-                blockedByIds: true,
+                depsOut: { select: { dependsOn: { select: { status: true } } } },
                 statusChanges: {
                   orderBy: { changedAt: "desc" },
                   take: 1,
@@ -410,7 +411,7 @@ export class SprintAnalyticsService {
     const blockedActions = list.actions
       .map((al) => al.action)
       .filter((a) => {
-        return a.kanbanStatus !== "DONE" && a.kanbanStatus !== "CANCELLED" && a.blockedByIds.length > 0;
+        return a.kanbanStatus !== "DONE" && a.kanbanStatus !== "CANCELLED" && a.depsOut.some(isOpenBlocker);
       });
 
     if (blockedActions.length > 0) {

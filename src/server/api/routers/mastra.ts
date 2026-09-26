@@ -23,6 +23,7 @@ import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { buildMeetingTranscriptionsWhere } from "~/server/services/meetings/meetingTranscriptionsWhere";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
@@ -1301,10 +1302,6 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      // Build where clause for TranscriptionSession query
-      const whereClause: any = {
-        userId: userId, // Ensure user can only access their own transcriptions
-      };
 
       if (input.workspaceId) {
         const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
@@ -1314,11 +1311,9 @@ export const mastraRouter = createTRPCRouter({
             message: 'Workspace not found or access denied',
           });
         }
-        whereClause.workspaceId = input.workspaceId;
       }
 
       if (input.projectId) {
-        whereClause.projectId = input.projectId;
         // Verify user has access to this project via all access paths
         const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
         if (!hasProjectAccess(projectAccess)) {
@@ -1329,11 +1324,9 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
-      if (input.startDate || input.endDate) {
-        whereClause.createdAt = {}; // Use createdAt instead of meetingDate
-        if (input.startDate) whereClause.createdAt.gte = new Date(input.startDate);
-        if (input.endDate) whereClause.createdAt.lte = new Date(input.endDate);
-      }
+      // Every Meeting the user can see (not only ones they own — agent imports
+      // belong to the agent), dated by when the meeting happened.
+      const whereClause = buildMeetingTranscriptionsWhere(userId, input);
 
       // Participant filtering needs to scan transcript text; force-include it
       // even when the caller asked for the lightweight path.
@@ -1344,13 +1337,14 @@ export const mastraRouter = createTRPCRouter({
       // Get transcriptions first, then filter by participants if needed
       let transcriptions = await ctx.db.transcriptionSession.findMany({
         where: whereClause,
-        orderBy: { createdAt: 'desc' }, // Use createdAt instead of meetingDate
+        orderBy: [{ meetingDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         take: input.participants ? 50 : input.limit, // Get more if we need to filter by participants
         select: {
           id: true,
           title: true,
           ...(selectTranscript ? { transcription: true } : {}),
           createdAt: true,
+          meetingDate: true,
           projectId: true,
           summary: true,
         },
@@ -1384,7 +1378,7 @@ export const mastraRouter = createTRPCRouter({
             ? ((t as { transcription?: string | null }).transcription ?? "")
             : "",
           participants: [], // Empty array - field doesn't exist in schema
-          meetingDate: t.createdAt.toISOString(), // Map createdAt to meetingDate
+          meetingDate: (t.meetingDate ?? t.createdAt).toISOString(),
           meetingType: "", // Empty string - field doesn't exist in schema
           projectId: t.projectId,
           duration: null, // Null - field doesn't exist in schema

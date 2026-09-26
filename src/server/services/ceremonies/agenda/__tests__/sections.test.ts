@@ -22,8 +22,11 @@ function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): Section
 }
 
 describe("section registry", () => {
-  it("knows all seven section types", () => {
-    const types = ["okr_review", "blockers", "carried_over", "cycle_progress", "retro_actions", "free_text", "decisions_pending"];
+  it("knows all thirteen section types", () => {
+    const types = [
+      "okr_review", "blockers", "carried_over", "cycle_progress", "retro_actions", "free_text", "decisions_pending", "project_state",
+      "yesterday", "todays_meetings", "todays_actions", "up_next", "dri_projects",
+    ];
     expect(types.map((t) => getSectionModule(t)?.type)).toEqual(types);
     expect(getSectionModule("nope")).toBeUndefined();
   });
@@ -33,13 +36,13 @@ describe("blockers section", () => {
   it("queries participants' active overdue or blocked actions in the workspace (and project) and links them", async () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([
-      { id: "a-1", name: "Fix login", dueDate: new Date("2026-09-08T00:00:00Z"), blockedByIds: [], projectId: "p-1", project: { goals: [{ id: 9, title: "Launch" }] }, assignees: [{ user: { id: "u-1", name: "Andi" } }] },
-      { id: "a-2", name: "Ship drawer", dueDate: null, blockedByIds: ["a-9"], projectId: "p-1", project: { goals: [] }, assignees: [] },
+      { id: "a-1", name: "Fix login", dueDate: new Date("2026-09-08T00:00:00Z"), depsOut: [], projectId: "p-1", project: { goals: [{ id: 9, title: "Launch" }] }, assignees: [{ user: { id: "u-1", name: "Andi" } }] },
+      { id: "a-2", name: "Ship drawer", dueDate: null, depsOut: [{ id: "dep-1" }], projectId: "p-1", project: { goals: [] }, assignees: [] },
     ] as never);
     const items = await blockersSection.run(ctx(db, { ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: "p-1", productId: null } as Ceremony }), { key: "blk", type: "blockers", title: "Blockers" });
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ status: "ACTIVE", workspaceId: "ws-1", projectId: "p-1" });
-    expect(where.OR).toEqual([{ dueDate: { lt: now } }, { blockedByIds: { isEmpty: false } }]);
+    expect(where.OR).toEqual([{ dueDate: { lt: now } }, { depsOut: { some: { dependsOn: { status: "ACTIVE" } } } }]);
     expect(items.map((i) => i.id)).toEqual(["blk:action:a-1", "blk:action:a-2"]);
     expect(items[0]!.detail).toBe("due 8 Sept · Andi");
     expect(items[1]!.detail).toBe("blocked by 1 action · unassigned");

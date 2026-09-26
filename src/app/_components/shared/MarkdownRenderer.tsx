@@ -1,7 +1,6 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
-import { CodeHighlight } from "@mantine/code-highlight";
 import { Badge, Title, Text } from "@mantine/core";
 import type { ReactNode } from "react";
 import { SanitizedHtml } from "~/app/_components/shared/SanitizedHtml";
@@ -13,6 +12,7 @@ import {
 import { remarkSoftBreaks } from "~/lib/content/remarkSoftBreaks";
 import { detectContentType } from "~/lib/content/contentFormat";
 import { MarkdownImage } from "~/app/_components/shared/MarkdownImage";
+import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
 
 /**
  * The canonical renderer for authored prose (ADR-0017). Markdown is the
@@ -21,8 +21,9 @@ import { MarkdownImage } from "~/app/_components/shared/MarkdownImage";
  * `variant="compact"` for dense surfaces (activity feed, comments, chat).
  *
  * Server-capable: the markdown path renders on the server so RSC pages keep
- * their HTML. The only client-only piece (the image lightbox) lives in the
- * separate MarkdownImage component.
+ * their HTML. The client-only pieces (the image lightbox, the lazily loaded
+ * code highlighter) live in the separate MarkdownImage and LazyCodeHighlight
+ * components.
  */
 
 export type MarkdownVariant = "prose" | "compact";
@@ -105,7 +106,7 @@ function buildComponents(
         <div
           className={`overflow-hidden rounded-lg border border-border-primary ${compact ? "my-2" : "my-4"}`}
         >
-          <CodeHighlight code={codeString} language={language ?? "text"} />
+          <LazyCodeHighlight code={codeString} language={language ?? "text"} />
         </div>
       );
     },

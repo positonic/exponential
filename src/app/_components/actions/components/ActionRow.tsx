@@ -4,6 +4,7 @@ import { HTMLContent } from "../../HTMLContent";
 import { ScheduledIndicator } from "../../shared/ScheduledIndicator";
 import { ActiveTimerIndicator } from "../../ActiveTimerIndicator";
 import { TagBadgeList } from "../../TagBadge";
+import { BlockedBadge } from "../../BlockedBadge";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
 import type { Action } from "~/lib/actions/types";
 import { PriorityCheckbox } from "./PriorityCheckbox";
@@ -23,6 +24,8 @@ interface ActionRowProps {
   isOverdue?: boolean;
   /** Relative age shown on overdue rows, e.g. "due 3d ago". Replaces the bare clock time. */
   overdueLabel?: string;
+  /** Hide the project chip when the list already belongs to one project. */
+  showProject?: boolean;
   bulkMode?: boolean;
   bulkSelected?: boolean;
   onBulkToggle?: (id: string) => void;
@@ -40,6 +43,7 @@ export function ActionRow({
   action,
   isOverdue = false,
   overdueLabel,
+  showProject = true,
   bulkMode = false,
   bulkSelected = false,
   onBulkToggle,
@@ -139,14 +143,17 @@ export function ActionRow({
               />
             </>
           )}
-          <ProjectChip
-            projectId={action.projectId ?? null}
-            projectName={projectName}
-          />
+          {showProject && (
+            <ProjectChip
+              projectId={action.projectId ?? null}
+              projectName={projectName}
+            />
+          )}
           <SyncStatusIndicator action={action} />
           {tags.length > 0 && (
             <TagBadgeList tags={tags} maxDisplay={2} size="xs" />
           )}
+          <BlockedBadge status={action.status} depsOut={action.depsOut} size="xs" />
           <RowCreatorBadge
             createdBy={action.createdBy}
             createdById={action.createdById}

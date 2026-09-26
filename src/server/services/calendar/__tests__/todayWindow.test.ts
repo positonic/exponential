@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 
-import { todayWindow } from "../todayWindow";
+import { shiftWindowByDays, todayWindow } from "../todayWindow";
 
 describe("todayWindow", () => {
   it("puts a 22:00 local Auckland event inside the user's today", () => {
@@ -39,5 +39,19 @@ describe("todayWindow", () => {
     expectedStart.setHours(0, 0, 0, 0);
     expect(start.getTime()).toBe(expectedStart.getTime());
     expect(end.getTime() - start.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+});
+
+describe("shiftWindowByDays", () => {
+  it("moves both edges by whole days, so tomorrow abuts today", () => {
+    const today = todayWindow("Europe/Berlin", new Date("2026-09-16T10:00:00Z"));
+    const tomorrow = shiftWindowByDays(today, 1);
+    expect(tomorrow.start.toISOString()).toBe(today.end.toISOString());
+    expect(tomorrow.end.toISOString()).toBe("2026-09-17T22:00:00.000Z");
+  });
+
+  it("is the identity at 0", () => {
+    const today = todayWindow("Europe/Berlin", new Date("2026-09-16T10:00:00Z"));
+    expect(shiftWindowByDays(today, 0)).toEqual(today);
   });
 });

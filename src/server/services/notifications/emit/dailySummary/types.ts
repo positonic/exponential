@@ -30,6 +30,8 @@ export interface DailySummaryActionItem {
 export interface DailySummaryTicketRef {
   /** Product-aware display id plus title, e.g. `C-154 Specify a pipeline testing thunderdome`. */
   label: string;
+  /** The bare ticket title (no display id) — what a spoken rendering reads out. */
+  title: string;
   url: string;
 }
 
@@ -72,6 +74,16 @@ export interface DailySummaryTime {
   dayUrl: string;
 }
 
+/** One project the user is DRI for, with its one-line state. */
+export interface DailySummaryDriProject {
+  name: string;
+  /** "45% · 3 open, 1 overdue · review 2 Oct · ends 31 Dec" (see `describeDriProject`). */
+  state: string;
+  needsAttention: boolean;
+  /** Absolute project URL; null when the project has no workspace. */
+  url: string | null;
+}
+
 export interface DailySummaryDigest {
   firstName: string;
   yesterday: DailySummaryYesterdayItem[];
@@ -83,6 +95,12 @@ export interface DailySummaryDigest {
   todayMeetings: DailySummaryMeetingItem[];
   /** Exactly the `todays` bucket of `partitionActions`, cross-workspace (ADR-0034). */
   todaysActions: DailySummaryActionItem[];
+  /**
+   * Exactly the `overdue` bucket of `partitionActions`, in its order (priority
+   * first, then oldest debt first). `overdueCount` is its length, kept as a
+   * field because the channel renderers only ever print the number.
+   */
+  overdueActions: DailySummaryActionItem[];
   overdueCount: number;
   /** Absolute URL of `/today`. */
   todayUrl: string;
@@ -92,4 +110,10 @@ export interface DailySummaryDigest {
    * user has no default workspace or no product has a current cycle.
    */
   cycles: DailySummaryCycle[];
+  /**
+   * ACTIVE projects the user is DRI for, across every workspace, most urgent
+   * first. Optional so older callers and fixtures still type-check; renderers
+   * treat a missing block as "no projects".
+   */
+  driProjects?: DailySummaryDriProject[];
 }
