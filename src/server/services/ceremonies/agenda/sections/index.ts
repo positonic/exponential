@@ -11,6 +11,7 @@ import { cycleProgressSection } from "./cycle_progress";
 import { retroActionsSection } from "./retro_actions";
 import { freeTextSection } from "./free_text";
 import { decisionsPendingSection } from "./decisions_pending";
+import { projectStateSection } from "./project_state";
 
 const MODULES: SectionModule[] = [
   okrReviewSection,
@@ -20,6 +21,7 @@ const MODULES: SectionModule[] = [
   retroActionsSection,
   freeTextSection,
   decisionsPendingSection,
+  projectStateSection,
 ];
 
 export const SECTION_REGISTRY: ReadonlyMap<string, SectionModule> = new Map(MODULES.map((m) => [m.type, m]));

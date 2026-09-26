@@ -16,6 +16,7 @@ export type AgendaSectionType =
   | "okr_review"
   | "cycle_progress"
   | "retro_actions"
+  | "project_state"
   | "free_text";
 
 export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; label: string; hint: string }> = [
@@ -25,6 +26,7 @@ export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; lab
   { value: "okr_review", label: "OKR review", hint: "Key results without a recent check-in or with a status change" },
   { value: "cycle_progress", label: "Cycle progress", hint: "Latest cycle snapshot and tickets moved" },
   { value: "retro_actions", label: "Retro actions", hint: "Actions from the previous retrospective, with status" },
+  { value: "project_state", label: "Project state", hint: "The linked project's status, movement since last time, and dates coming up" },
   { value: "free_text", label: "Free text", hint: "Owner-written items" },
 ];
 
@@ -67,6 +69,7 @@ export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
     durationMinutes: 15,
     leadTimeHours: 12,
     agendaTemplate: [
+      { key: "project_state", type: "project_state", title: "Where the project stands", minutes: 5 },
       { key: "blockers", type: "blockers", title: "Blockers", minutes: 5 },
       { key: "carried_over", type: "carried_over", title: "Carried over", minutes: 5 },
       { key: "free_text", type: "free_text", title: "Anything else", minutes: 5 },
@@ -85,6 +88,7 @@ export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
     durationMinutes: 60,
     leadTimeHours: 24,
     agendaTemplate: [
+      { key: "project_state", type: "project_state", title: "Where the project stands", minutes: 5 },
       { key: "cycle_progress", type: "cycle_progress", title: "Last cycle", minutes: 10 },
       { key: "carried_over", type: "carried_over", title: "Carry-over", minutes: 10 },
       { key: "decisions_pending", type: "decisions_pending", title: "Open decisions that block planning", minutes: 10 },
@@ -122,6 +126,7 @@ export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
     durationMinutes: 45,
     leadTimeHours: 24,
     agendaTemplate: [
+      { key: "project_state", type: "project_state", title: "Where the project stands", minutes: 5 },
       { key: "retro_actions", type: "retro_actions", title: "Last retro's actions", minutes: 10 },
       { key: "cycle_progress", type: "cycle_progress", title: "The cycle in numbers", minutes: 5 },
       { key: "free_text", type: "free_text", title: "Went well / went poorly", minutes: 20 },
