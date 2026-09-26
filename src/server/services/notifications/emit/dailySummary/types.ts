@@ -74,6 +74,16 @@ export interface DailySummaryTime {
   dayUrl: string;
 }
 
+/** One project the user is DRI for, with its one-line state. */
+export interface DailySummaryDriProject {
+  name: string;
+  /** "45% · 3 open, 1 overdue · review 2 Oct · ends 31 Dec" (see `describeDriProject`). */
+  state: string;
+  needsAttention: boolean;
+  /** Absolute project URL; null when the project has no workspace. */
+  url: string | null;
+}
+
 export interface DailySummaryDigest {
   firstName: string;
   yesterday: DailySummaryYesterdayItem[];
@@ -100,4 +110,10 @@ export interface DailySummaryDigest {
    * user has no default workspace or no product has a current cycle.
    */
   cycles: DailySummaryCycle[];
+  /**
+   * ACTIVE projects the user is DRI for, across every workspace, most urgent
+   * first. Optional so older callers and fixtures still type-check; renderers
+   * treat a missing block as "no projects".
+   */
+  driProjects?: DailySummaryDriProject[];
 }

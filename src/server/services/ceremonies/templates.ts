@@ -16,7 +16,14 @@ export type AgendaSectionType =
   | "okr_review"
   | "cycle_progress"
   | "retro_actions"
-  | "free_text";
+  | "free_text"
+  // Daily-brief sections: the Daily summary digest's sections as agenda
+  // queries (ADR-0059 daily summary), each scoped to the participants.
+  | "yesterday"
+  | "todays_meetings"
+  | "todays_actions"
+  | "up_next"
+  | "dri_projects";
 
 export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; label: string; hint: string }> = [
   { value: "blockers", label: "Blockers", hint: "Participants' overdue or blocked Actions" },
@@ -26,6 +33,11 @@ export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; lab
   { value: "cycle_progress", label: "Cycle progress", hint: "Latest cycle snapshot and tickets moved" },
   { value: "retro_actions", label: "Retro actions", hint: "Actions from the previous retrospective, with status" },
   { value: "free_text", label: "Free text", hint: "Owner-written items" },
+  { value: "yesterday", label: "Yesterday", hint: "Participants' calendar events yesterday, with their recordings" },
+  { value: "todays_meetings", label: "Today's meetings", hint: "Participants' calendar events today" },
+  { value: "todays_actions", label: "Today's actions", hint: "Participants' scheduled-or-due-today Actions, plus overdue ones" },
+  { value: "up_next", label: "Up next", hint: "Participants' committed tickets in the current cycle" },
+  { value: "dri_projects", label: "DRI projects", hint: "State of the projects participants are DRI for" },
 ];
 
 export interface AgendaSectionTemplate {
@@ -50,6 +62,46 @@ export interface CeremonyTemplate {
   durationMinutes: number;
   leadTimeHours: number;
   agendaTemplate: AgendaSectionTemplate[];
+}
+
+/**
+ * The daily brief: a ceremony a person holds with themselves each morning.
+ * Its agenda sections are the Daily summary notification's sections — the
+ * digest renderer reads its headings from this list, so the notification a
+ * person receives and the agenda their occurrence carries have one running
+ * order (`dailyBriefSectionTitle`). Section keys are stable identifiers the
+ * renderer looks up; renaming one breaks `DAILY_SUMMARY_HEADINGS`.
+ */
+export const DAILY_BRIEF_TEMPLATE: CeremonyTemplate = {
+  kind: "CUSTOM",
+  name: "Daily brief",
+  slug: "daily-brief",
+  aliases: ["Daily brief", "Morning brief", "Daily summary", "Morning briefing"],
+  purpose: "Start the day knowing what happened yesterday, what is on today, where the cycle stands and how the projects you own are doing — in fifteen minutes, with yourself.",
+  notFor:
+    "- Team status (that is the standup)\n- Re-planning the week\n- Working through the actions themselves",
+  inputs:
+    "- Yesterday's calendar and recordings\n- Today's calendar\n- Today's actions (the /today set) and the overdue count\n- The current cycle and your committed tickets\n- The projects you are DRI for",
+  outputs:
+    "- Today's three most important actions chosen\n- Anything overdue rescheduled or dropped\n- A DRI project needing attention gets an action or a review date",
+  cadenceRule: "FREQ=DAILY;BYHOUR=8;BYMINUTE=0",
+  durationMinutes: 15,
+  leadTimeHours: 1,
+  agendaTemplate: [
+    { key: "yesterday", type: "yesterday", title: "Yesterday", minutes: 2 },
+    { key: "todays_meetings", type: "todays_meetings", title: "Today's meetings", minutes: 2 },
+    { key: "todays_actions", type: "todays_actions", title: "Today's actions", minutes: 5 },
+    { key: "cycle_progress", type: "cycle_progress", title: "Current cycle", minutes: 2 },
+    { key: "up_next", type: "up_next", title: "Up next", minutes: 2 },
+    { key: "dri_projects", type: "dri_projects", title: "Your projects", minutes: 2 },
+  ],
+};
+
+/** Title of a daily-brief section by key; throws at module load if a renderer names a key the template lost. */
+export function dailyBriefSectionTitle(key: string): string {
+  const section = DAILY_BRIEF_TEMPLATE.agendaTemplate.find((s) => s.key === key);
+  if (!section) throw new Error(`Daily brief template has no section "${key}"`);
+  return section.title;
 }
 
 export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
@@ -165,6 +217,7 @@ export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
       { key: "free_text", type: "free_text", title: "Questions", minutes: 20 },
     ],
   },
+  DAILY_BRIEF_TEMPLATE,
 ];
 
 export function findTemplate(kindOrSlug: string): CeremonyTemplate | undefined {

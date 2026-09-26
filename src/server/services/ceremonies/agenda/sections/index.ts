@@ -11,6 +11,11 @@ import { cycleProgressSection } from "./cycle_progress";
 import { retroActionsSection } from "./retro_actions";
 import { freeTextSection } from "./free_text";
 import { decisionsPendingSection } from "./decisions_pending";
+import { yesterdaySection } from "./yesterday";
+import { todaysMeetingsSection } from "./todays_meetings";
+import { todaysActionsSection } from "./todays_actions";
+import { upNextSection } from "./up_next";
+import { driProjectsSection } from "./dri_projects";
 
 const MODULES: SectionModule[] = [
   okrReviewSection,
@@ -20,6 +25,12 @@ const MODULES: SectionModule[] = [
   retroActionsSection,
   freeTextSection,
   decisionsPendingSection,
+  // Daily brief (the ceremony a person holds with themselves each morning)
+  yesterdaySection,
+  todaysMeetingsSection,
+  todaysActionsSection,
+  upNextSection,
+  driProjectsSection,
 ];
 
 export const SECTION_REGISTRY: ReadonlyMap<string, SectionModule> = new Map(MODULES.map((m) => [m.type, m]));

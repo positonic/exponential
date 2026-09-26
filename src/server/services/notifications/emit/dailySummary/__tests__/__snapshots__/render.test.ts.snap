@@ -35,6 +35,11 @@ Your in-flight tickets:
    https://app.test/w/acme/products/clear/tickets/t470
 2 of your cycle tickets still need refinement
 
+🧭 Your projects
+• ⚠️ Exponential GTM — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec
+   https://app.test/w/acme/projects/exponential_gtm-p1
+• Reading — 10% · 3 open
+
 💪 Have a productive day!"
 `;
 
@@ -57,6 +62,9 @@ No active cycle
 
 ⏭ Up next
 Nothing committed to you
+
+🧭 Your projects
+No active projects you are DRI for
 
 💪 Have a productive day!"
 `;
@@ -90,6 +98,10 @@ Your in-flight tickets:
 2. [C-470 Define delivery playbook](https://app.test/w/acme/products/clear/tickets/t470)
 2 of your cycle tickets still need refinement
 
+**🧭 Your projects**
+- ⚠️ [Exponential GTM](https://app.test/w/acme/projects/exponential_gtm-p1) — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec
+- Reading — 10% · 3 open
+
 💪 Have a productive day!"
 `;
 
@@ -112,6 +124,9 @@ No active cycle
 
 **⏭ Up next**
 Nothing committed to you
+
+**🧭 Your projects**
+No active projects you are DRI for
 
 💪 Have a productive day!"
 `;
