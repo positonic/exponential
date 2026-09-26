@@ -7,6 +7,7 @@
  * the agenda lists them (bounded).
  */
 import { toZonedTime } from "date-fns-tz";
+import { toPlainText } from "~/lib/content/plainText";
 import { partitionOwnedActions } from "~/server/services/notifications/emit/dailySummary/loaders";
 import type { AgendaItem, SectionModule } from "../types";
 import { briefPeople, personPrefix } from "./dailyBrief";
@@ -29,7 +30,8 @@ export const todaysActionsSection: SectionModule = {
         items.push({
           id: `${section.key}:action:${a.id}`,
           sectionKey: section.key,
-          title: `${prefix}${a.name}`,
+          // Legacy action names can carry editor HTML; an agenda title is plain text.
+          title: `${prefix}${toPlainText(a.name) || a.name}`,
           refType: "action",
           refId: a.id,
           order: items.length,

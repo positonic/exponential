@@ -94,7 +94,7 @@ describe("todays_actions section", () => {
     const base = { status: "ACTIVE", priority: "Quick", projectId: null, completedAt: null, scheduledStart: null, dueDate: null };
     db.action.findMany.mockResolvedValue([
       { ...base, id: "a-today", name: "Pay Malte", scheduledStart: new Date("2026-09-09T12:00:00.000Z") },
-      { ...base, id: "a-old", name: "Old bill", dueDate: new Date("2026-09-07T10:00:00.000Z") },
+      { ...base, id: "a-old", name: 'Record video <a href="https://example.test/script">with this script</a>', dueDate: new Date("2026-09-07T10:00:00.000Z") },
       { ...base, id: "a-later", name: "Next week", dueDate: new Date("2026-09-20T10:00:00.000Z") },
     ] as never);
 
@@ -108,7 +108,7 @@ describe("todays_actions section", () => {
     ]);
     expect(items.map((i) => i.id)).toEqual(["acts:action:a-today", "acts:action:a-old"]);
     expect(items[0]).toMatchObject({ title: "Pay Malte", detail: null, href: "/w/acme/actions/a-today" });
-    expect(items[1]!.detail).toBe("overdue · due 7 Sept");
+    expect(items[1]).toMatchObject({ title: "Record video with this script", detail: "overdue · due 7 Sept" });
   });
 });
 
