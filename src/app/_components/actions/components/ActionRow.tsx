@@ -4,6 +4,7 @@ import { HTMLContent } from "../../HTMLContent";
 import { ScheduledIndicator } from "../../shared/ScheduledIndicator";
 import { ActiveTimerIndicator } from "../../ActiveTimerIndicator";
 import { TagBadgeList } from "../../TagBadge";
+import { BlockedBadge } from "../../BlockedBadge";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
 import type { Action } from "~/lib/actions/types";
 import { PriorityCheckbox } from "./PriorityCheckbox";
@@ -147,6 +148,7 @@ export function ActionRow({
           {tags.length > 0 && (
             <TagBadgeList tags={tags} maxDisplay={2} size="xs" />
           )}
+          <BlockedBadge status={action.status} depsOut={action.depsOut} size="xs" />
           <RowCreatorBadge
             createdBy={action.createdBy}
             createdById={action.createdById}
