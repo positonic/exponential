@@ -8,7 +8,7 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 /** Item kinds that should roll up to an objective; the rest (cycles, text) need no chip. */
-const GOAL_BEARING: ReadonlySet<string> = new Set(["action", "decision", "key_result", "ticket"]);
+const GOAL_BEARING: ReadonlySet<string> = new Set(["action", "decision", "key_result", "ticket", "project"]);
 
 interface AgendaViewProps {
   agenda: AgendaSnapshot;

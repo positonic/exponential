@@ -22,8 +22,11 @@ function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): Section
 }
 
 describe("section registry", () => {
-  it("knows all eight section types", () => {
-    const types = ["okr_review", "blockers", "carried_over", "cycle_progress", "retro_actions", "free_text", "decisions_pending", "project_state"];
+  it("knows all thirteen section types", () => {
+    const types = [
+      "okr_review", "blockers", "carried_over", "cycle_progress", "retro_actions", "free_text", "decisions_pending", "project_state",
+      "yesterday", "todays_meetings", "todays_actions", "up_next", "dri_projects",
+    ];
     expect(types.map((t) => getSectionModule(t)?.type)).toEqual(types);
     expect(getSectionModule("nope")).toBeUndefined();
   });
