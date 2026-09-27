@@ -15,6 +15,7 @@ import { dropEmptyAutoSections, withAutoProjectsSection } from "./autoSections";
 import { formatOccurrenceLabel } from "../activity";
 import { resolveParticipantUserIds } from "../participants";
 import { ensureOccurrenceNotesPage } from "../notesPage";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 export interface GenerateAgendaResult {
   occurrenceId: string;
@@ -104,6 +105,10 @@ export async function generateAgenda(
     await ensureOccurrenceNotesPage(db, occurrence, ceremony);
   } catch (error) {
     console.error("[ceremonies] ensureOccurrenceNotesPage failed; the agenda is stored without a notes page:", error);
+    reportHandledErrorServer(error, {
+      area: "ceremonies.ensureOccurrenceNotesPage",
+      context: { occurrenceId: occurrence.id },
+    });
   }
 
   // Narration runs AFTER the structured agenda is durable. It is a network

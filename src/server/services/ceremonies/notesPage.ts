@@ -12,7 +12,6 @@ export interface NotesPageOccurrence {
   id: string;
   workspaceId: string;
   scheduledStart: Date;
-  notesPageId: string | null;
 }
 
 export interface NotesPageCeremony {
@@ -64,6 +63,11 @@ export function resolveNotesPageProjectId(projects: { projectId: string }[]): st
  * concurrent generations (the hourly sweep and a person clicking
  * "Generate") end up sharing one page; the loser deletes its orphan and
  * re-reads the winner's id.
+ *
+ * The link is re-read here rather than taken from the caller's row: agenda
+ * generation reads the occurrence long before it gets here, and a page
+ * deleted meanwhile has already nulled the link (`onDelete: SetNull`), so
+ * trusting the stale id would hand the UI a page that no longer exists.
  */
 export async function ensureOccurrenceNotesPage(
   db: PrismaClient,
@@ -71,7 +75,11 @@ export async function ensureOccurrenceNotesPage(
   ceremony: NotesPageCeremony,
   opts: EnsureNotesPageOptions = {},
 ): Promise<EnsureNotesPageResult> {
-  if (occurrence.notesPageId) return { pageId: occurrence.notesPageId, created: false };
+  const current = await db.ceremonyOccurrence.findUnique({
+    where: { id: occurrence.id },
+    select: { notesPageId: true },
+  });
+  if (current?.notesPageId) return { pageId: current.notesPageId, created: false };
 
   const page = await db.knowledgePage.create({
     data: {
