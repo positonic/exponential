@@ -94,37 +94,6 @@ function decryptContactPII<T extends CrmContact>(
   };
 }
 
-// Workspace roles allowed to merge contacts. A merge deletes rows, so viewers
-// and project-only guests are refused (same bar as enrichment).
-const MERGE_ROLES = ["owner", "admin", "member"];
-
-const EMPTY_COUNTS: MergeRelatedCounts = {
-  interactions: 0,
-  communications: 0,
-  deals: 0,
-  meetings: 0,
-  screenshots: 0,
-  enrichments: 0,
-  listMemberships: 0,
-};
-
-async function assertMergeAccess(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-): Promise<void> {
-  const membership = await db.workspaceUser.findFirst({
-    where: { workspaceId, userId },
-    select: { role: true },
-  });
-  if (!membership || !MERGE_ROLES.includes(membership.role)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You need edit access to merge contacts",
-    });
-  }
-}
-
 type MergeSourceRow = CrmContact & {
   organization: { id: string; name: string } | null;
 };
@@ -166,11 +135,14 @@ function toMergeCandidate(
 // Load the contacts a merge would touch, with the counts the dialog reports
 // ("12 interactions and 2 deals will move"). Throws NOT_FOUND unless every id
 // resolves to a contact in `workspaceId` — a cross-workspace id must not leak.
+// Both the preview and the merge itself go through here so the candidates the
+// rules see are identical on both sides — the richness ranking that picks
+// fallback values counts linked records, so counts must not differ.
 async function loadMergeCandidates(
   db: PrismaClient,
   workspaceId: string,
   ids: string[],
-): Promise<MergeCandidate[]> {
+) {
   const uniqueIds = Array.from(new Set(ids));
   const rows = await db.crmContact.findMany({
     where: { id: { in: uniqueIds }, workspaceId },
@@ -208,7 +180,7 @@ async function loadMergeCandidates(
   });
   const listCounts = new Map(memberships.map((m) => [m.memberId, m._count._all]));
 
-  return rows.map((row) =>
+  const candidates = rows.map((row) =>
     toMergeCandidate(
       row,
       {
@@ -223,6 +195,7 @@ async function loadMergeCandidates(
       row.screenshots[0]?.screenshot.url ?? null,
     ),
   );
+  return { rows, candidates };
 }
 
 // How close (in ms) a calendar MEETING interaction must be to a transcribed
@@ -1122,6 +1095,8 @@ export const crmContactRouter = createTRPCRouter({
   // the selected contacts with PII decrypted (the list query omits it) and how
   // many records hang off each one. The proposal itself is computed client-side
   // from these candidates with the same pure rules the mutation applies.
+  // "edit" = workspace role member or above: a merge deletes rows, so
+  // viewers and project-only guests are refused.
   getMergePreview: protectedProcedure
     .input(
       z.object({
@@ -1129,9 +1104,9 @@ export const crmContactRouter = createTRPCRouter({
         ids: z.array(z.string()).min(2).max(MERGE_MAX_CONTACTS),
       }),
     )
+    .use(requireWorkspaceMembership("edit"))
     .query(async ({ ctx, input }) => {
-      await assertMergeAccess(ctx.db, ctx.session.user.id, input.workspaceId);
-      const candidates = await loadMergeCandidates(
+      const { candidates } = await loadMergeCandidates(
         ctx.db,
         input.workspaceId,
         input.ids,
@@ -1162,6 +1137,7 @@ export const crmContactRouter = createTRPCRouter({
           .optional(),
       }),
     )
+    .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const { workspaceId, primaryId, choices } = input;
       const duplicateIds = Array.from(new Set(input.duplicateIds)).filter(
@@ -1174,21 +1150,12 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      await assertMergeAccess(ctx.db, ctx.session.user.id, workspaceId);
-
       const ids = [primaryId, ...duplicateIds];
-      const rows = await ctx.db.crmContact.findMany({
-        where: { id: { in: ids }, workspaceId },
-        include: { organization: { select: { id: true, name: true } } },
-      });
-      if (rows.length !== ids.length) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "One or more contacts were not found in this workspace",
-        });
-      }
-
-      const candidates = rows.map((row) => toMergeCandidate(row, EMPTY_COUNTS));
+      const { rows, candidates } = await loadMergeCandidates(
+        ctx.db,
+        workspaceId,
+        ids,
+      );
       let resolved;
       try {
         resolved = resolveMergeChoices(candidates, primaryId, choices);
@@ -1276,20 +1243,35 @@ export const crmContactRouter = createTRPCRouter({
       }
 
       try {
-        const result = await ctx.db.$transaction(async (tx) => {
+        const result = await ctx.db.$transaction(
+          async (tx) => {
           const dupWhere = { contactId: { in: duplicateIds } };
           const toPrimary = { contactId: primaryId };
-          const [interactions, communications, deals, meetings, enrichments] =
-            await Promise.all([
-              tx.crmContactInteraction.updateMany({ where: dupWhere, data: toPrimary }),
-              tx.crmCommunication.updateMany({ where: dupWhere, data: toPrimary }),
-              tx.deal.updateMany({ where: dupWhere, data: toPrimary }),
-              tx.transcriptionSessionParticipant.updateMany({
-                where: dupWhere,
-                data: toPrimary,
-              }),
-              tx.crmContactEnrichment.updateMany({ where: dupWhere, data: toPrimary }),
-            ]);
+          // Sequential on purpose: an interactive transaction holds one
+          // connection, and concurrent statements on it are serialized anyway.
+          const interactions = await tx.crmContactInteraction.updateMany({
+            where: dupWhere,
+            data: toPrimary,
+          });
+          const communications = await tx.crmCommunication.updateMany({
+            where: dupWhere,
+            data: toPrimary,
+          });
+          const deals = await tx.deal.updateMany({ where: dupWhere, data: toPrimary });
+          const meetings = await tx.transcriptionSessionParticipant.updateMany({
+            where: dupWhere,
+            data: toPrimary,
+          });
+          // A duplicate's queued enrichment would become a second paid run
+          // against the kept contact. Drop it; finished or running jobs move
+          // over as history.
+          await tx.crmContactEnrichment.deleteMany({
+            where: { ...dupWhere, status: "PENDING" },
+          });
+          const enrichments = await tx.crmContactEnrichment.updateMany({
+            where: dupWhere,
+            data: toPrimary,
+          });
 
           // Contact↔image links are unique per (contact, screenshot). Move the
           // ones the kept contact lacks; the rest go with the cascade delete.
@@ -1303,16 +1285,21 @@ export const crmContactRouter = createTRPCRouter({
             select: { id: true, screenshotId: true },
             orderBy: { createdAt: "asc" },
           });
-          let screenshots = 0;
+          const shotWinners: string[] = [];
           for (const s of dupShots) {
             if (haveShot.has(s.screenshotId)) continue;
             haveShot.add(s.screenshotId);
-            await tx.crmContactScreenshot.update({
-              where: { id: s.id },
-              data: toPrimary,
-            });
-            screenshots += 1;
+            shotWinners.push(s.id);
           }
+          const screenshots =
+            shotWinners.length > 0
+              ? (
+                  await tx.crmContactScreenshot.updateMany({
+                    where: { id: { in: shotWinners } },
+                    data: toPrimary,
+                  })
+                ).count
+              : 0;
 
           // List membership is a string reference (no FK), so the cascade
           // won't clean it: repoint each row, or drop it when the kept
@@ -1329,19 +1316,29 @@ export const crmContactRouter = createTRPCRouter({
             select: { collectionId: true },
           });
           const onList = new Set(primaryMembers.map((m) => m.collectionId));
-          let listMemberships = 0;
+          const memberWinners: string[] = [];
           for (const m of dupMembers) {
-            if (onList.has(m.collectionId)) {
-              await tx.collectionMember.delete({ where: { id: m.id } });
-              continue;
-            }
+            if (onList.has(m.collectionId)) continue;
             onList.add(m.collectionId);
-            await tx.collectionMember.update({
-              where: { id: m.id },
-              data: { memberId: primaryId },
-            });
-            listMemberships += 1;
+            memberWinners.push(m.id);
           }
+          const listMemberships =
+            memberWinners.length > 0
+              ? (
+                  await tx.collectionMember.updateMany({
+                    where: { id: { in: memberWinners } },
+                    data: { memberId: primaryId },
+                  })
+                ).count
+              : 0;
+          // Whatever still points at a duplicate lost the dedupe above; with
+          // no FK there is no cascade, so remove it explicitly.
+          await tx.collectionMember.deleteMany({
+            where: {
+              memberType: CRM_CONTACT_MEMBER_TYPE,
+              memberId: { in: duplicateIds },
+            },
+          });
 
           const deleted = await tx.crmContact.deleteMany({
             where: { id: { in: duplicateIds }, workspaceId },
@@ -1366,7 +1363,11 @@ export const crmContactRouter = createTRPCRouter({
               listMemberships,
             },
           };
-        });
+          },
+          // Imported contacts can carry thousands of interactions; give the
+          // reparenting room beyond Prisma's 5s default.
+          { timeout: 20_000 },
+        );
 
         return { ...result, contact: decryptContactPII(result.contact) };
       } catch (e) {
@@ -1374,10 +1375,17 @@ export const crmContactRouter = createTRPCRouter({
           e instanceof Prisma.PrismaClientKnownRequestError &&
           e.code === "P2002"
         ) {
+          const rawTarget: unknown = e.meta?.target;
+          const target = Array.isArray(rawTarget)
+            ? rawTarget.map(String).join(",")
+            : typeof rawTarget === "string"
+              ? rawTarget
+              : "";
           throw new TRPCError({
             code: "CONFLICT",
-            message:
-              "Another contact in this workspace already uses the chosen email address",
+            message: target.includes("emailHash")
+              ? "Another contact in this workspace already uses the chosen email address"
+              : "These contacts changed while the merge was running. Reload and try again.",
           });
         }
         throw e;

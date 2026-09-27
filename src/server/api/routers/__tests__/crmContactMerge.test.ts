@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 
 vi.hoisted(() => {
@@ -142,7 +143,7 @@ describe("crmContact merge (mocked)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
-    dbMock.workspaceUser.findFirst.mockResolvedValue({
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
       userId: callerId,
       workspaceId,
       role: "member",
@@ -152,6 +153,8 @@ describe("crmContact merge (mocked)", () => {
     // $transaction(fn) runs the callback against the same mock.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dbMock.$transaction.mockImplementation(async (fn: any) => fn(dbMock));
+    // No list memberships unless a test says otherwise.
+    dbMock.collectionMember.groupBy.mockResolvedValue([]);
   });
 
   describe("getMergePreview", () => {
@@ -211,7 +214,7 @@ describe("crmContact merge (mocked)", () => {
     });
 
     it("refuses viewers", async () => {
-      dbMock.workspaceUser.findFirst.mockResolvedValue({
+      dbMock.workspaceUser.findUnique.mockResolvedValue({
         userId: callerId,
         workspaceId,
         role: "viewer",
@@ -232,9 +235,13 @@ describe("crmContact merge (mocked)", () => {
       dbMock.crmCommunication.updateMany.mockResolvedValue(count(0));
       dbMock.deal.updateMany.mockResolvedValue(count(1));
       dbMock.transcriptionSessionParticipant.updateMany.mockResolvedValue(count(2));
+      dbMock.crmContactEnrichment.deleteMany.mockResolvedValue(count(0));
       dbMock.crmContactEnrichment.updateMany.mockResolvedValue(count(0));
       dbMock.crmContactScreenshot.findMany.mockResolvedValue([]);
+      dbMock.crmContactScreenshot.updateMany.mockResolvedValue(count(0));
       dbMock.collectionMember.findMany.mockResolvedValue([]);
+      dbMock.collectionMember.updateMany.mockResolvedValue(count(0));
+      dbMock.collectionMember.deleteMany.mockResolvedValue(count(0));
       dbMock.crmContact.deleteMany.mockResolvedValue(count(1));
     }
 
@@ -380,8 +387,7 @@ describe("crmContact merge (mocked)", () => {
           { id: "link-2", screenshotId: "shot-2" },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ] as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.crmContactScreenshot.update.mockResolvedValue({} as any);
+      dbMock.crmContactScreenshot.updateMany.mockResolvedValue(count(1));
 
       // Lists: dup is on list-A and list-B; primary already on list-A.
       dbMock.collectionMember.findMany
@@ -392,10 +398,8 @@ describe("crmContact merge (mocked)", () => {
         ] as any)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .mockResolvedValueOnce([{ collectionId: "list-A" }] as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.collectionMember.delete.mockResolvedValue({} as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.collectionMember.update.mockResolvedValue({} as any);
+      dbMock.collectionMember.updateMany.mockResolvedValue(count(1));
+      dbMock.collectionMember.deleteMany.mockResolvedValue(count(1));
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
       const result = await caller.crmContact.merge({
@@ -404,17 +408,120 @@ describe("crmContact merge (mocked)", () => {
         duplicateIds: ["d"],
       });
 
-      expect(dbMock.crmContactScreenshot.update).toHaveBeenCalledTimes(1);
-      expect(dbMock.crmContactScreenshot.update).toHaveBeenCalledWith({
-        where: { id: "link-2" },
+      // Only the link the kept contact lacks moves; the other rides the cascade.
+      expect(dbMock.crmContactScreenshot.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ["link-2"] } },
         data: { contactId: "p" },
       });
-      expect(dbMock.collectionMember.delete).toHaveBeenCalledWith({ where: { id: "m-a" } });
-      expect(dbMock.collectionMember.update).toHaveBeenCalledWith({
-        where: { id: "m-b" },
+      // Only the list the kept contact isn't on is repointed; the leftover
+      // membership is deleted explicitly because there is no FK cascade.
+      expect(dbMock.collectionMember.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ["m-b"] } },
         data: { memberId: "p" },
       });
+      expect(dbMock.collectionMember.deleteMany).toHaveBeenCalledWith({
+        where: { memberType: "crm_contact", memberId: { in: ["d"] } },
+      });
       expect(result.moved).toMatchObject({ screenshots: 1, listMemberships: 1 });
+    });
+
+    it("ranks fallback values by linked records, the same way the preview does", async () => {
+      // Primary has no phone. dupA is thin on fields but rich in history;
+      // dupB has more fields but no history. The preview ranks dupA richer,
+      // so the server must too — otherwise the user reviews +1 and gets +2.
+      const primary = row({ id: "p", firstName: "Ada" });
+      const dupA = row({
+        id: "a",
+        phone: encryptString("+1"),
+        _count: { ...row({ id: "x" })._count, interactions: 30 },
+      });
+      const dupB = row({
+        id: "b",
+        phone: encryptString("+2"),
+        lastName: "Lovelace",
+        linkedIn: encryptString("https://linkedin.com/in/ada"),
+      });
+      dbMock.crmContact.findMany.mockResolvedValue([primary, dupA, dupB]);
+      primeChildren();
+      dbMock.crmContact.deleteMany.mockResolvedValue(count(2));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.crmContact.update.mockImplementation(async (args: any) => ({ ...primary, ...args.data, organization: null }) as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmContact.merge({ workspaceId, primaryId: "p", duplicateIds: ["a", "b"] });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const findArgs = dbMock.crmContact.findMany.mock.calls[0]?.[0] as any;
+      expect(findArgs.include._count).toBeDefined();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = (dbMock.crmContact.update.mock.calls[0]?.[0] as any).data;
+      expect(decryptBufferSafe(data.phone)).toBe("+1");
+      expect(data.lastName).toBe("Lovelace");
+    });
+
+    it("drops a duplicate's queued enrichment instead of re-running it on the kept contact", async () => {
+      dbMock.crmContact.findMany.mockResolvedValue([
+        row({ id: "p", firstName: "Ada" }),
+        row({ id: "d", firstName: "Ada" }),
+      ]);
+      primeChildren();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.crmContact.update.mockResolvedValue({ ...row({ id: "p" }), organization: null } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmContact.merge({ workspaceId, primaryId: "p", duplicateIds: ["d"] });
+
+      expect(dbMock.crmContactEnrichment.deleteMany).toHaveBeenCalledWith({
+        where: { contactId: { in: ["d"] }, status: "PENDING" },
+      });
+      const deleteOrder = dbMock.crmContactEnrichment.deleteMany.mock.invocationCallOrder[0]!;
+      const moveOrder = dbMock.crmContactEnrichment.updateMany.mock.invocationCallOrder[0]!;
+      expect(deleteOrder).toBeLessThan(moveOrder);
+    });
+
+    it("maps a unique-email collision to a clear CONFLICT and other collisions to a retry hint", async () => {
+      const setup = (target: string[]) => {
+        dbMock.crmContact.findMany.mockResolvedValue([
+          row({ id: "p", firstName: "Ada" }),
+          row({ id: "d", email: encryptString("ada@example.com") }),
+        ]);
+        primeChildren();
+        dbMock.crmContact.update.mockRejectedValue(
+          new Prisma.PrismaClientKnownRequestError("unique", {
+            code: "P2002",
+            clientVersion: "test",
+            meta: { target },
+          }),
+        );
+        return createMockCaller({ userId: callerId, db: dbMock });
+      };
+
+      await expect(
+        setup(["workspaceId", "emailHash"]).crmContact.merge({
+          workspaceId,
+          primaryId: "p",
+          duplicateIds: ["d"],
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("email") });
+
+      mockReset(dbMock);
+      dbMock.workspaceUser.findUnique.mockResolvedValue({
+        userId: callerId,
+        workspaceId,
+        role: "member",
+        joinedAt: new Date(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.$transaction.mockImplementation(async (fn: any) => fn(dbMock));
+      dbMock.collectionMember.groupBy.mockResolvedValue([]);
+      await expect(
+        setup(["collectionId", "memberId"]).crmContact.merge({
+          workspaceId,
+          primaryId: "p",
+          duplicateIds: ["d"],
+        }),
+      ).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Reload") });
     });
 
     it("refuses when a duplicate is not in the workspace", async () => {
