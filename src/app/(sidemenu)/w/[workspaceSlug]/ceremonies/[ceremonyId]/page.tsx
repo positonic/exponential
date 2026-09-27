@@ -204,12 +204,14 @@ export default function CeremonyPage() {
                   {ceremony.team ? ` · everyone on ${ceremony.team.name}` : ""}
                 </Text>
               </div>
-              {(ceremony.product ?? ceremony.project) && (
+              {(ceremony.product ?? ceremony.projects.length > 0) && (
                 <div>
                   <Text size="xs" fw={600} tt="uppercase" className="text-text-muted">
                     Scope
                   </Text>
-                  <Text size="sm">{[ceremony.product?.name, ceremony.project?.name].filter(Boolean).join(" · ")}</Text>
+                  <Text size="sm">
+                    {[ceremony.product?.name, ...ceremony.projects.map((p) => p.project.name)].filter(Boolean).join(" · ")}
+                  </Text>
                 </div>
               )}
               {ceremony.aliases.length > 0 && (

@@ -11,11 +11,10 @@ describe("syncProjectCeremonies", () => {
     mockReset(db);
   });
 
-  it("links the wanted ceremonies and unlinks the rest", async () => {
+  it("adds the wanted join rows and removes the project's other ones, leaving other projects' links alone", async () => {
     db.ceremony.count.mockResolvedValue(2);
-    db.ceremony.updateMany
-      .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValueOnce({ count: 2 });
+    db.ceremonyProject.deleteMany.mockResolvedValue({ count: 1 });
+    db.ceremonyProject.createMany.mockResolvedValue({ count: 2 });
 
     const result = await syncProjectCeremonies(db as unknown as PrismaClient, {
       projectId: "p-1",
@@ -27,20 +26,21 @@ describe("syncProjectCeremonies", () => {
     expect(db.ceremony.count).toHaveBeenCalledWith({
       where: { id: { in: ["c-1", "c-2"] }, workspaceId: "ws-1" },
     });
-    expect(db.ceremony.updateMany).toHaveBeenNthCalledWith(1, {
-      where: { projectId: "p-1", id: { notIn: ["c-1", "c-2"] } },
-      data: { projectId: null },
+    // Only this project's rows are touched: the filter carries the projectId.
+    expect(db.ceremonyProject.deleteMany).toHaveBeenCalledWith({
+      where: { projectId: "p-1", ceremonyId: { notIn: ["c-1", "c-2"] } },
     });
-    // Must not filter on projectId: a never-linked ceremony has a NULL
-    // projectId, and Prisma's `not` excludes NULL rows.
-    expect(db.ceremony.updateMany).toHaveBeenNthCalledWith(2, {
-      where: { id: { in: ["c-1", "c-2"] } },
-      data: { projectId: "p-1" },
+    expect(db.ceremonyProject.createMany).toHaveBeenCalledWith({
+      data: [
+        { ceremonyId: "c-1", projectId: "p-1" },
+        { ceremonyId: "c-2", projectId: "p-1" },
+      ],
+      skipDuplicates: true,
     });
   });
 
   it("an empty list unlinks everything and links nothing", async () => {
-    db.ceremony.updateMany.mockResolvedValueOnce({ count: 3 });
+    db.ceremonyProject.deleteMany.mockResolvedValue({ count: 3 });
 
     const result = await syncProjectCeremonies(db as unknown as PrismaClient, {
       projectId: "p-1",
@@ -50,7 +50,8 @@ describe("syncProjectCeremonies", () => {
 
     expect(result).toEqual({ linked: 0, unlinked: 3 });
     expect(db.ceremony.count).not.toHaveBeenCalled();
-    expect(db.ceremony.updateMany).toHaveBeenCalledTimes(1);
+    expect(db.ceremonyProject.deleteMany).toHaveBeenCalledWith({ where: { projectId: "p-1" } });
+    expect(db.ceremonyProject.createMany).not.toHaveBeenCalled();
   });
 
   it("refuses ceremonies outside the project's workspace", async () => {
@@ -62,7 +63,8 @@ describe("syncProjectCeremonies", () => {
         ceremonyIds: ["c-1", "c-other"],
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect(db.ceremony.updateMany).not.toHaveBeenCalled();
+    expect(db.ceremonyProject.deleteMany).not.toHaveBeenCalled();
+    expect(db.ceremonyProject.createMany).not.toHaveBeenCalled();
   });
 
   it("refuses to link ceremonies to a project with no workspace", async () => {

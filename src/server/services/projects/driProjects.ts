@@ -1,15 +1,23 @@
 /**
- * The state of the projects a person is DRI for — one loader shared by the
- * Daily summary digest (the "DRI projects" section) and the daily-brief
- * ceremony's `dri_projects` agenda section, so the notification and the
- * agenda cannot disagree on what "my projects" look like this morning.
+ * The state of a set of projects at a glance — one loader shared by the
+ * Daily summary digest (the "DRI projects" section), the daily-brief
+ * ceremony's `dri_projects` agenda section and the `linked_projects` section
+ * every ceremony can carry, so the notification and the agendas cannot
+ * disagree on what a project looks like this morning.
  *
  * `Project.driId` is written by the project editor; `yourWork.driItems` is
  * its only other read path and returns just id/name/progress. This one adds
  * what a morning glance needs: open and overdue action counts, the next
- * review, and the end date.
+ * review, the end date, who the DRI is, and the project's next action.
  */
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
+
+export interface ProjectNextAction {
+  id: string;
+  name: string;
+  /** The date the action is next relevant on: its due date, else its scheduled start. */
+  when: Date | null;
+}
 
 export interface DriProjectState {
   id: string;
@@ -27,6 +35,14 @@ export interface DriProjectState {
   endDate: Date | null;
   /** True when the review date has passed or the end date is within 14 days. */
   needsAttention: boolean;
+  /** The project's DRI, when one is set. */
+  dri: { id: string; name: string | null } | null;
+  /**
+   * The ACTIVE action that comes next: the earliest dated one (due date, else
+   * scheduled start), or, when nothing is dated, the oldest open action —
+   * the one that has been waiting longest.
+   */
+  nextAction: ProjectNextAction | null;
 }
 
 const END_DATE_HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
@@ -38,23 +54,51 @@ export interface LoadDriProjectsOptions {
   take?: number;
 }
 
+export interface LoadProjectStatesOptions {
+  now: Date;
+  take?: number;
+}
+
+interface ActionRow {
+  id: string;
+  name: string;
+  dueDate: Date | null;
+  scheduledStart: Date | null;
+  createdAt: Date;
+}
+
+function actionWhen(a: Pick<ActionRow, "dueDate" | "scheduledStart">): Date | null {
+  return a.dueDate ?? a.scheduledStart ?? null;
+}
+
+/** See `DriProjectState.nextAction`. Exported for the section tests. */
+export function pickNextAction(actions: ActionRow[]): ProjectNextAction | null {
+  if (actions.length === 0) return null;
+  const sorted = actions.slice().sort((a, b) => {
+    const whenA = actionWhen(a);
+    const whenB = actionWhen(b);
+    if (whenA && whenB) return whenA.getTime() - whenB.getTime();
+    if (whenA) return -1;
+    if (whenB) return 1;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+  const next = sorted[0]!;
+  return { id: next.id, name: next.name, when: actionWhen(next) };
+}
+
 /**
- * ACTIVE projects where `userId` is the DRI, most urgent first: overdue
- * review, then nearest end date, then lowest progress. Bounded (`take`,
- * default 10) so a prolific DRI still gets a readable brief.
+ * ACTIVE projects matching `where`, most urgent first: overdue review, then
+ * nearest end date, then lowest progress. Bounded (`take`, default 10) so a
+ * long list still reads as a brief. `where` is AND-ed with `status: ACTIVE`.
  */
-export async function loadDriProjectStates(
+export async function loadProjectStates(
   db: PrismaClient,
-  userId: string,
-  options: LoadDriProjectsOptions,
+  where: Prisma.ProjectWhereInput,
+  options: LoadProjectStatesOptions,
 ): Promise<DriProjectState[]> {
-  const { now, workspaceId } = options;
+  const { now } = options;
   const rows = await db.project.findMany({
-    where: {
-      driId: userId,
-      status: "ACTIVE",
-      ...(workspaceId ? { workspaceId } : {}),
-    },
+    where: { ...where, status: "ACTIVE" },
     select: {
       id: true,
       name: true,
@@ -64,7 +108,11 @@ export async function loadDriProjectStates(
       reviewDate: true,
       endDate: true,
       workspace: { select: { slug: true } },
-      actions: { where: { status: "ACTIVE" }, select: { dueDate: true } },
+      dri: { select: { id: true, name: true } },
+      actions: {
+        where: { status: "ACTIVE" },
+        select: { id: true, name: true, dueDate: true, scheduledStart: true, createdAt: true },
+      },
     },
   });
 
@@ -84,6 +132,8 @@ export async function loadDriProjectStates(
       reviewDate: p.reviewDate,
       endDate: p.endDate,
       needsAttention: reviewOverdue || endingSoon || overdueActions > 0,
+      dri: p.dri ?? null,
+      nextAction: pickNextAction(p.actions),
     };
   });
 
@@ -97,6 +147,19 @@ export async function loadDriProjectStates(
   });
 
   return states.slice(0, options.take ?? 10);
+}
+
+/**
+ * ACTIVE projects where `userId` is the DRI, most urgent first (see
+ * `loadProjectStates`).
+ */
+export async function loadDriProjectStates(
+  db: PrismaClient,
+  userId: string,
+  options: LoadDriProjectsOptions,
+): Promise<DriProjectState[]> {
+  const { workspaceId, ...rest } = options;
+  return loadProjectStates(db, { driId: userId, ...(workspaceId ? { workspaceId } : {}) }, rest);
 }
 
 /** App-relative link to the project page, in the slug-cuid form the app's URLs use. */
@@ -120,4 +183,16 @@ export function describeDriProject(p: DriProjectState, now: Date): string {
   }
   if (p.endDate) parts.push(`ends ${p.endDate.toLocaleDateString("en-GB", dateFmt)}`);
   return parts.join(" · ");
+}
+
+/**
+ * "next: Draft budget (due 2 Oct)" — or "no next action" when the project has
+ * no open action, which is itself worth a glance.
+ */
+export function describeNextAction(p: Pick<DriProjectState, "nextAction">, now: Date): string {
+  const next = p.nextAction;
+  if (!next) return "no next action";
+  if (!next.when) return `next: ${next.name}`;
+  const label = next.when.toLocaleDateString("en-GB", dateFmt);
+  return `next: ${next.name} (${next.when < now ? "overdue, " : ""}${label})`;
 }

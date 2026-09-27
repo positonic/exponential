@@ -17,6 +17,7 @@ import { todaysMeetingsSection } from "./todays_meetings";
 import { todaysActionsSection } from "./todays_actions";
 import { upNextSection } from "./up_next";
 import { driProjectsSection } from "./dri_projects";
+import { linkedProjectsSection } from "./linked_projects";
 
 const MODULES: SectionModule[] = [
   okrReviewSection,
@@ -33,6 +34,9 @@ const MODULES: SectionModule[] = [
   todaysActionsSection,
   upNextSection,
   driProjectsSection,
+  // Any ceremony: the ACTIVE projects in its scope, appended automatically
+  // when `Ceremony.includeProjects` is on (see ../autoSections).
+  linkedProjectsSection,
 ];
 
 export const SECTION_REGISTRY: ReadonlyMap<string, SectionModule> = new Map(MODULES.map((m) => [m.type, m]));

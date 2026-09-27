@@ -22,7 +22,12 @@ interface AgendaViewProps {
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
 }
 
-/** Renders an agenda snapshot: sections in order, items with detail and links (ADR-0059). */
+/**
+ * Renders an agenda snapshot: sections in order, items with detail and links
+ * (ADR-0059). Query items carry record names and render as plain text; a
+ * hand-added item is prose a person typed here, so it is Markdown (ADR-0017)
+ * and a `[link](url)` in it becomes a link.
+ */
 export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder }: AgendaViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
@@ -83,6 +88,8 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                         <Link href={item.href} className="hover:underline">
                           {item.title}
                         </Link>
+                      ) : item.addedByUserId ? (
+                        <MarkdownRenderer content={item.title} variant="inline" />
                       ) : (
                         item.title
                       )}
@@ -148,7 +155,7 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
             <Group gap="xs" mt={8} wrap="nowrap">
               <TextInput
                 size="xs"
-                placeholder="Add an item by hand"
+                placeholder="Add an item by hand (Markdown links work)"
                 value={drafts[section.key] ?? ""}
                 onChange={(e) => setDrafts({ ...drafts, [section.key]: e.currentTarget.value })}
                 onKeyDown={(e) => {

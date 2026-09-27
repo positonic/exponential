@@ -12,10 +12,11 @@ function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): Section
   return {
     db,
     workspaceId: "ws-1",
-    ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: "p-1", productId: null } as Ceremony,
+    ceremony: { id: "cer-1", workspaceId: "ws-1", productId: null } as Ceremony,
     occurrence: { id: "occ-1", scheduledStart: now } as CeremonyOccurrence,
     previousOccurrence: { id: "occ-0", scheduledStart: prevStart } as CeremonyOccurrence,
     participantUserIds: [],
+    projectIds: ["p-1"],
     now,
     workspacePath: "/w/ws",
     ...overrides,
@@ -26,7 +27,7 @@ describe("project_state section", () => {
   it("fails closed without a project", async () => {
     const db = mockDeep<PrismaClient>();
     const items = await projectStateSection.run(
-      ctx(db, { ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: null, productId: null } as Ceremony }),
+      ctx(db, { projectIds: [] }),
       section,
     );
     expect(items).toEqual([]);

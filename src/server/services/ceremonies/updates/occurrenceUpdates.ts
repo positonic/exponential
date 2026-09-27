@@ -18,7 +18,8 @@ export interface OccurrenceUpdateScope {
   workspaceId: string;
   ceremonyId: string;
   kind: Parameters<typeof perPersonQuestions>[0];
-  projectId: string | null;
+  /** The ceremony's projects; empty when it has none. */
+  projectIds: string[];
   scheduledStart: Date;
   /** Start of the previous occurrence, or null for the first one. */
   previousStart: Date | null;
@@ -39,7 +40,7 @@ export async function loadUpdateScope(
       ceremonyId: true,
       scheduledStart: true,
       ceremony: {
-        select: { id: true, kind: true, teamId: true, projectId: true, participants: { select: { userId: true } } },
+        select: { id: true, kind: true, teamId: true, projects: { select: { projectId: true } }, participants: { select: { userId: true } } },
       },
     },
   });
@@ -56,7 +57,7 @@ export async function loadUpdateScope(
     workspaceId: occurrence.workspaceId,
     ceremonyId: occurrence.ceremonyId,
     kind: occurrence.ceremony.kind,
-    projectId: occurrence.ceremony.projectId,
+    projectIds: occurrence.ceremony.projects.map((p) => p.projectId),
     scheduledStart: occurrence.scheduledStart,
     previousStart: previous?.scheduledStart ?? null,
     participantUserIds: await resolveParticipantUserIds(db, occurrence.ceremony),
@@ -114,7 +115,7 @@ export async function draftMyUpdate(db: PrismaClient, scope: OccurrenceUpdateSco
     questions,
     since: scope.previousStart,
     until: scope.scheduledStart,
-    projectId: scope.projectId,
+    projectIds: scope.projectIds,
   });
 
   const existing = await db.ceremonyOccurrenceUpdate.findUnique({

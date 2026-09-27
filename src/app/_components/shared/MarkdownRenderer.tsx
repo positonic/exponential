@@ -17,8 +17,12 @@ import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
 /**
  * The canonical renderer for authored prose (ADR-0017). Markdown is the
  * canonical stored format; legacy HTML is tolerated on read (sanitised). Use
- * `variant="prose"` for long-form surfaces (docs, blog, descriptions) and
- * `variant="compact"` for dense surfaces (activity feed, comments, chat).
+ * `variant="prose"` for long-form surfaces (docs, blog, descriptions),
+ * `variant="compact"` for dense surfaces (activity feed, comments, chat) and
+ * `variant="inline"` for a one-line authored string inside a host element
+ * (an agenda item title): compact styling, but a paragraph renders as a
+ * span so the output sits in the host's own text flow and inherits its
+ * size, colour and strike-through.
  *
  * Server-capable: the markdown path renders on the server so RSC pages keep
  * their HTML. The client-only pieces (the image lightbox, the lazily loaded
@@ -26,7 +30,7 @@ import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
  * components.
  */
 
-export type MarkdownVariant = "prose" | "compact";
+export type MarkdownVariant = "prose" | "compact" | "inline";
 
 // Safely extract text from React children
 function getTextFromChildren(children: ReactNode): string {
@@ -67,7 +71,7 @@ function buildComponents(
   options: BuildOptions,
 ): Partial<Components> {
   const { onDeleteImage } = options;
-  const compact = variant === "compact";
+  const compact = variant === "compact" || variant === "inline";
 
   // Shared inline elements (identical across variants)
   const inlineComponents: Partial<Components> = {
@@ -176,11 +180,14 @@ function buildComponents(
           {children}
         </p>
       ),
-      p: ({ children }) => (
-        <p className="mb-2 text-sm leading-6 text-text-secondary last:mb-0">
-          {children}
-        </p>
-      ),
+      p: ({ children }) =>
+        variant === "inline" ? (
+          <span>{children}</span>
+        ) : (
+          <p className="mb-2 text-sm leading-6 text-text-secondary last:mb-0">
+            {children}
+          </p>
+        ),
       ul: ({ children }) => (
         <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-text-secondary last:mb-0">
           {children}
@@ -388,7 +395,7 @@ export function MarkdownRenderer({
   const remarkPlugins: PluggableList = [remarkGfm];
   // Textarea-authored content preserves typed line breaks: always for the
   // compact variant, opt-in via `softBreaks` for prose surfaces.
-  if (variant === "compact" || softBreaks)
+  if (variant !== "prose" || softBreaks)
     remarkPlugins.push(remarkSoftBreaks);
   if (mentionNames && mentionNames.length > 0) {
     remarkPlugins.push([remarkMentions, mentionNames]);
@@ -404,5 +411,6 @@ export function MarkdownRenderer({
     </ReactMarkdown>
   );
 
+  if (variant === "inline") return <span className={className}>{body}</span>;
   return className ? <div className={className}>{body}</div> : body;
 }

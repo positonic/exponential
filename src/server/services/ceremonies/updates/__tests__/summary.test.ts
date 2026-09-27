@@ -9,7 +9,7 @@ const scope = (overrides: Partial<OccurrenceUpdateScope> = {}): OccurrenceUpdate
   workspaceId: "ws-1",
   ceremonyId: "cer-1",
   kind: "STANDUP",
-  projectId: null,
+  projectIds: [],
   scheduledStart: new Date("2026-09-12T08:00:00Z"),
   previousStart: new Date("2026-09-11T08:00:00Z"),
   participantUserIds: ["u-1", "u-2"],

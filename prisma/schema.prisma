@@ -1152,8 +1152,8 @@ model Project {
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
   deals                 Deal[]
-  // Ceremonies scoped to this project (ADR-0059)
-  ceremonies            Ceremony[]
+  // Ceremonies that review this project (ADR-0059; many-to-many since 2026-09-27)
+  ceremonies            CeremonyProject[]
   // Decisions scoped to this project (ADR-0060)
   decisions             Decision[]
 
@@ -2285,7 +2285,6 @@ model Ceremony {
   workspaceId     String
   productId       String?
   teamId          String?
-  projectId       String?
   name            String
   /// Unique per workspace; the upsert key for `importDefinitions`.
   slug            String
@@ -2316,6 +2315,10 @@ model Ceremony {
   ownerId         String
   /// Ordered sections `{ key, type, title, minutes, config }`.
   agendaTemplate  Json         @default("[]")
+  /// Append a `linked_projects` section to every generated agenda — the
+  /// ACTIVE projects in this ceremony's scope (its project, product or team)
+  /// with DRI and next action — unless the template already places one.
+  includeProjects Boolean      @default(true)
   /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
   matrixRoomId    String?
   isActive        Boolean      @default(true)
@@ -2326,17 +2329,18 @@ model Ceremony {
   workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   product      Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
   team         Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  project      Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
   owner        User                  @relation("CeremonyOwner", fields: [ownerId], references: [id])
   createdBy    User                  @relation("CeremonyCreatedBy", fields: [createdById], references: [id])
   participants CeremonyParticipant[]
+  /// The projects this ceremony is scoped to (many-to-many; a project can
+  /// have several ceremonies and a ceremony can review several projects).
+  projects     CeremonyProject[]
   occurrences  CeremonyOccurrence[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, isActive])
   @@index([productId])
   @@index([teamId])
-  @@index([projectId])
   @@index([ownerId])
 }
 
@@ -2351,6 +2355,21 @@ model CeremonyParticipant {
 
   @@unique([ceremonyId, userId])
   @@index([userId])
+}
+
+/// Ceremony ↔ Project link (ADR-0059, amended 2026-09-27): a ceremony reviews
+/// any number of projects and a project is reviewed in any number of
+/// ceremonies. Both sides must be in the same workspace (checked in code).
+model CeremonyProject {
+  id         String   @id @default(cuid())
+  ceremonyId String
+  projectId  String
+  createdAt  DateTime @default(now())
+  ceremony   Ceremony @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([ceremonyId, projectId])
+  @@index([projectId])
 }
 
 model CeremonyOccurrence {
