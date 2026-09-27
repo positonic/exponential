@@ -608,12 +608,15 @@ export default function ContactsPage() {
               }
               disabled={canMerge}
             >
+              {/* data-disabled instead of disabled: a disabled button swallows
+                  pointer events, so the tooltip explaining why would never show. */}
               <Button
                 size="xs"
                 variant="light"
                 leftSection={<IconArrowsJoin2 size={14} />}
                 onClick={openMergeDialog}
-                disabled={!canMerge}
+                data-disabled={!canMerge || undefined}
+                aria-disabled={!canMerge}
               >
                 Merge contacts
               </Button>

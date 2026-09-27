@@ -86,10 +86,16 @@ function CandidateHeader({
           </Text>
         </div>
       </div>
+      {/* Shared name: the radios sit in separate table headers, so the group
+          (and its arrow-key navigation) comes from the name, not a wrapper.
+          Not Radio.Group — its context would also capture the field radios. */}
       <Radio
         size="xs"
+        name="merge-primary"
+        value={candidate.id}
         checked={isPrimary}
         onChange={onKeep}
+        aria-label={`Keep ${name}`}
         label={isPrimary ? "Kept — keeps its link and history" : "Keep this one instead"}
         classNames={{ label: isPrimary ? "font-medium" : "text-text-muted" }}
       />
@@ -195,12 +201,20 @@ export function MergeContactsDialog({
   };
 
   const handleMerge = () => {
-    if (!effectivePrimaryId || !candidates) return;
+    if (!effectivePrimaryId || !candidates || !proposal) return;
+    // Send every field's effective choice, not just the overrides, so the
+    // server applies exactly what the user reviewed rather than re-deriving
+    // defaults of its own.
+    const choices: MergeChoices = {};
+    for (const field of proposal.fields) {
+      const chosen = choiceFor(field.key);
+      if (chosen !== undefined) choices[field.key] = chosen;
+    }
     merge.mutate({
       workspaceId,
       primaryId: effectivePrimaryId,
       duplicateIds: candidates.filter((c) => c.id !== effectivePrimaryId).map((c) => c.id),
-      choices: overrides,
+      choices,
     });
   };
 
@@ -317,6 +331,7 @@ export function MergeContactsDialog({
                                   name={`merge-${field.key}`}
                                   checked={chosen === c.id}
                                   onChange={() => setChoice(field.key, c.id)}
+                                  aria-label={`${field.label}: ${option.display} from ${contactDisplayName(c)}`}
                                   label={
                                     <span className="inline-flex items-start gap-1.5">
                                       <span
