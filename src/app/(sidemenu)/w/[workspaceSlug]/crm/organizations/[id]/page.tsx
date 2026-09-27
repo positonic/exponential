@@ -316,7 +316,7 @@ function OrganizationEditForm({ organization, onSuccess, onCancel }: Organizatio
           }
         />
         <Select
-          label="Company Size"
+          label="Organization Size"
           placeholder="Select size"
           data={[
             { value: '1-10', label: '1-10 employees' },
@@ -515,7 +515,7 @@ export default function OrganizationDetailPage() {
         </div>
       </div>
 
-      {/* Company Header */}
+      {/* Organization Header */}
       <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-4 py-4 md:px-6">
         <Avatar size="lg" radius="md" src={organization.logoUrl}>
           <IconBuilding size={28} />
@@ -937,7 +937,7 @@ export default function OrganizationDetailPage() {
                     <DetailRow label="Industry" value={organization.industry} />
                   )}
                   {organization.size && (
-                    <DetailRow label="Company Size" value={`${organization.size} employees`} />
+                    <DetailRow label="Organization Size" value={`${organization.size} employees`} />
                   )}
                   <DetailRow
                     label="Team"

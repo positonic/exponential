@@ -619,14 +619,14 @@ export default function ContactDetailPage() {
               Meetings
             </Tabs.Tab>
             <Tabs.Tab
-              value="company"
+              value="organization"
               rightSection={
                 <Badge size="xs" variant="light">
                   {contact.organization ? 1 : 0}
                 </Badge>
               }
             >
-              Company
+              Organization
             </Tabs.Tab>
             <Tabs.Tab
               value="notes"
@@ -689,7 +689,7 @@ export default function ContactDetailPage() {
 
                   <HighlightCard
                     icon={<IconBuilding size={14} />}
-                    label="Company"
+                    label="Organization"
                     value={
                       contact.organization ? (
                         <div className="flex items-center gap-2">
@@ -702,7 +702,7 @@ export default function ContactDetailPage() {
                         </div>
                       ) : (
                         <Text size="sm" className="text-text-muted">
-                          No company
+                          No organization
                         </Text>
                       )
                     }
@@ -1043,10 +1043,10 @@ export default function ContactDetailPage() {
             </div>
           )}
 
-          {activeTab === 'company' && (
+          {activeTab === 'organization' && (
             <div className="space-y-4">
               <Title order={4} className="text-text-primary">
-                Company
+                Organization
               </Title>
               {contact.organization ? (
                 <Link
@@ -1071,7 +1071,7 @@ export default function ContactDetailPage() {
                 <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
                   <IconBuilding size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
-                    No company associated
+                    No organization associated
                   </Text>
                 </div>
               )}
@@ -1234,7 +1234,7 @@ export default function ContactDetailPage() {
 
                   <DetailRow
                     icon={<IconBuilding size={14} />}
-                    label="Company"
+                    label="Organization"
                     value={
                       contact.organization ? (
                         <div className="flex items-center gap-1.5">
