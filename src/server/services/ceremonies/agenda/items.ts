@@ -6,6 +6,17 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { readAgendaSnapshot, type AgendaItem, type AgendaSnapshot } from "./types";
+import { appendMeetingSummaryToNotes } from "../notesSeed";
+
+/**
+ * Loaded on the failure path only: the reporter imports the Prisma singleton,
+ * and this module is imported by routers and meeting services whose unit
+ * tests run without one.
+ */
+async function reportCaptureError(error: unknown, occurrenceId: string): Promise<void> {
+  const { reportHandledErrorServer } = await import("~/server/utils/reportHandledErrorServer");
+  reportHandledErrorServer(error, { area: "ceremonies.appendMeetingSummaryToNotes", context: { occurrenceId } });
+}
 
 /**
  * Every read-modify-write of the agenda JSON runs in a serializable
@@ -158,7 +169,11 @@ export async function carryOverToNext(db: PrismaClient, fromOccurrenceId: string
  * moves forward from the pre-meeting states, then carries unresolved items
  * on. Never throws — instrumentation must not fail summarisation.
  */
-export async function markOccurrenceCaptured(db: PrismaClient, occurrenceId: string): Promise<boolean> {
+export async function markOccurrenceCaptured(
+  db: PrismaClient,
+  occurrenceId: string,
+  opts: { summaryMarkdown?: string | null } = {},
+): Promise<boolean> {
   try {
     const { count } = await db.ceremonyOccurrence.updateMany({
       where: { id: occurrenceId, status: { in: ["PLANNED", "AGENDA_CIRCULATED", "IN_PROGRESS"] } },
@@ -166,6 +181,20 @@ export async function markOccurrenceCaptured(db: PrismaClient, occurrenceId: str
     });
     if (count === 0) return false;
     await carryOverToNext(db, occurrenceId);
+    // The notes page becomes the record of the meeting: the recording's
+    // summary goes on the end. Its own failure never blocks the carry-over
+    // above or the summary that triggered this.
+    if (opts.summaryMarkdown?.trim()) {
+      try {
+        const res = await appendMeetingSummaryToNotes(db, occurrenceId, opts.summaryMarkdown);
+        if (!res.appended && res.reason === "conflict") {
+          await reportCaptureError(new Error("Notes page changed twice while appending the meeting summary"), occurrenceId);
+        }
+      } catch (error) {
+        console.error("[ceremonies] appendMeetingSummaryToNotes failed:", error);
+        await reportCaptureError(error, occurrenceId);
+      }
+    }
     return true;
   } catch (error) {
     console.error("[ceremonies] markOccurrenceCaptured failed:", error);

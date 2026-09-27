@@ -3,7 +3,7 @@ import "server-only";
 import type { JSONContent } from "@tiptap/core";
 import { Window } from "happy-dom";
 
-import { markdownToDoc } from "~/lib/prd/codec";
+import { docToMarkdown, markdownToDoc } from "~/lib/prd/codec";
 
 /**
  * Server-side Markdown → ProseMirror JSON, for API writes that carry only the
@@ -122,4 +122,17 @@ export function markdownToDocServer(
   markdown: string | null | undefined,
 ): JSONContent {
   return withDom(() => markdownToDoc(markdown));
+}
+
+/**
+ * The reverse projection, ProseMirror JSON → Markdown, for server writers
+ * that assemble a doc themselves (ceremony notes seeding and the post-capture
+ * append) and must store the Markdown `body` the same way the editor would.
+ * Deriving the projection from the doc, rather than concatenating Markdown
+ * strings, keeps the two representations in step (ADR-0024).
+ */
+export function docToMarkdownServer(
+  doc: JSONContent | null | undefined,
+): string {
+  return withDom(() => docToMarkdown(doc));
 }

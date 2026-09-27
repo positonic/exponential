@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
+
+const appendMeetingSummaryToNotes = vi.hoisted(() => vi.fn());
+vi.mock("../../notesSeed", () => ({ appendMeetingSummaryToNotes }));
+const reportHandledErrorServer = vi.hoisted(() => vi.fn());
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
+
 import { addAgendaItem, carryOverToNext, markOccurrenceCaptured, reorderAgendaItems, setAgendaItemResolved } from "../items";
 
 const agenda = {
@@ -73,6 +79,32 @@ describe("carryOverToNext", () => {
 });
 
 describe("markOccurrenceCaptured", () => {
+  beforeEach(() => {
+    appendMeetingSummaryToNotes.mockReset();
+    reportHandledErrorServer.mockReset();
+  });
+
+  it("appends the recording summary to the notes page after carry-over, and never lets that fail the capture", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", ceremonyId: "cer-1", scheduledStart: now, agenda: null } as never);
+    appendMeetingSummaryToNotes.mockResolvedValue({ appended: true, pageId: "page-1", docVersion: 2 });
+    expect(await markOccurrenceCaptured(db, "occ-1", { summaryMarkdown: "Short standup." })).toBe(true);
+    expect(appendMeetingSummaryToNotes).toHaveBeenCalledWith(db, "occ-1", "Short standup.");
+
+    // No summary → no append; a throwing append → capture still true, error reported.
+    expect(await markOccurrenceCaptured(db, "occ-1")).toBe(true);
+    expect(appendMeetingSummaryToNotes).toHaveBeenCalledTimes(1);
+    appendMeetingSummaryToNotes.mockRejectedValue(new Error("page gone"));
+    expect(await markOccurrenceCaptured(db, "occ-1", { summaryMarkdown: "x" })).toBe(true);
+    expect(reportHandledErrorServer).toHaveBeenCalledTimes(1);
+
+    // A twice-lost compare-and-set is reported rather than silently dropped.
+    appendMeetingSummaryToNotes.mockResolvedValue({ appended: false, reason: "conflict" });
+    expect(await markOccurrenceCaptured(db, "occ-1", { summaryMarkdown: "x" })).toBe(true);
+    expect(reportHandledErrorServer).toHaveBeenCalledTimes(2);
+  });
+
   it("moves only pre-meeting states to CAPTURED and then carries over; never throws", async () => {
     const db = withTx(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });

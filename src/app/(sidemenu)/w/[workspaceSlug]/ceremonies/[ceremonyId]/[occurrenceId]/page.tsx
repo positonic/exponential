@@ -183,6 +183,11 @@ export default function OccurrencePage() {
             }
             onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
             onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
+            narrativeHint={
+              occurrence.notesPageId
+                ? "This pre-read is a snapshot. The editable copy lives in the notes page below, under \"Draft agenda\"."
+                : undefined
+            }
           />
         ) : (
           <Paper withBorder radius="md" p="lg">
