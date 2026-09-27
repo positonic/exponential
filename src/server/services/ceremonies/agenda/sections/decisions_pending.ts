@@ -15,8 +15,8 @@ export const decisionsPendingSection: SectionModule = {
         workspaceId: ctx.workspaceId,
         reviewState: "CONFIRMED",
         status: { in: ["OPEN", "PROPOSED"] },
-        ...(ctx.ceremony.projectId
-          ? { projectId: ctx.ceremony.projectId }
+        ...(ctx.projectIds.length
+          ? { projectId: { in: ctx.projectIds } }
           : ctx.ceremony.productId
             ? { OR: [{ productId: ctx.ceremony.productId }, { productId: null }] }
             : {}),

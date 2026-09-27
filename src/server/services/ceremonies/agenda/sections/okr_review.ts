@@ -22,8 +22,8 @@ export const okrReviewSection: SectionModule = {
     const since = new Date(ctx.now.getTime() - days * 86_400_000);
     const previousStart = ctx.previousOccurrence?.scheduledStart ?? null;
 
-    const goalScope = ctx.ceremony.projectId
-      ? { projects: { some: { id: ctx.ceremony.projectId } } }
+    const goalScope = ctx.projectIds.length
+      ? { projects: { some: { id: { in: ctx.projectIds } } } }
       : ctx.ceremony.productId
         ? { projects: { some: { productId: ctx.ceremony.productId } } }
         : {};

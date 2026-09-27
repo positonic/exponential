@@ -24,8 +24,8 @@ export interface ActivityWindow {
   since: Date | null;
   /** This occurrence's start; later activity belongs to the next update. */
   until: Date;
-  /** Narrows Actions to the ceremony's project when it has one. */
-  projectId?: string | null;
+  /** Narrows Actions to the ceremony's projects when it has any. */
+  projectIds?: string[];
 }
 
 const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
@@ -35,7 +35,7 @@ function assignedActions(window: ActivityWindow): Prisma.ActionWhereInput {
   return {
     workspaceId: window.workspaceId,
     assignees: { some: { userId: window.userId } },
-    ...(window.projectId ? { projectId: window.projectId } : {}),
+    ...(window.projectIds?.length ? { projectId: { in: window.projectIds } } : {}),
   };
 }
 

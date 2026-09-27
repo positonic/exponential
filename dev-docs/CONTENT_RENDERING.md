@@ -34,10 +34,11 @@ The canonical renderer. Markdown by default; **legacy HTML is tolerated on read*
 />
 ```
 
-Props: `content`, `variant` (`"prose"` default | `"compact"`), `mentionNames?` (render `@[Name](id)` as badges), `onDeleteImage?` (owner-only delete on compact image lightbox), `className?`.
+Props: `content`, `variant` (`"prose"` default | `"compact"` | `"inline"`), `mentionNames?` (render `@[Name](id)` as badges), `onDeleteImage?` (owner-only delete on compact image lightbox), `className?`.
 
 - **`prose`** keeps article spacing (large headings via Mantine `Title`, anchor links). Use on whole-page reading surfaces.
 - **`compact`** tightens spacing, shrinks headings, and enables soft line breaks (textarea newlines → `<br>`). Use anywhere embedded in a card/feed/chat.
+- **`inline`** is `compact` for a one-line authored string inside a host element: a paragraph renders as a `<span>` and the wrapper is a `<span>`, so the output sits in the host's text flow and inherits its size, colour and strike-through (an agenda item title, say). Block syntax still renders as blocks; use it only where the content is expected to be a line.
 
 ## Input — `MarkdownInput`
 

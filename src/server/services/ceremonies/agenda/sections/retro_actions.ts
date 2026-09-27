@@ -22,8 +22,8 @@ export const retroActionsSection: SectionModule = {
           // Mirror the scoping every sibling section applies. A ceremony with
           // no team, project or product keeps the workspace-wide behaviour.
           ...(ctx.ceremony.teamId ? { teamId: ctx.ceremony.teamId } : {}),
-          ...(ctx.ceremony.projectId
-            ? { projectId: ctx.ceremony.projectId }
+          ...(ctx.projectIds.length
+            ? { projects: { some: { projectId: { in: ctx.projectIds } } } }
             : ctx.ceremony.productId
               ? { productId: ctx.ceremony.productId }
               : {}),

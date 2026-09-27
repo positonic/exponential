@@ -111,6 +111,20 @@ describe("postAgendaToMatrix", () => {
     expect(md).toContain("Open in Exponential: https://app.test/x");
   });
 
+  it("keeps the Markdown of a hand-added item, which a person wrote for this agenda", () => {
+    const withHand = {
+      ...agenda,
+      narrative: null,
+      sections: [
+        { key: "free", type: "free_text", title: "Anything else", items: [
+          { id: "h", sectionKey: "free", title: "Review our [projects](https://app.test/w/x/projects)", refType: "text", refId: "h", order: 0, addedByUserId: "u-1" },
+        ] },
+      ],
+    };
+    const md = renderAgendaMarkdown({ ceremonyName: "Retro", when: "Fri", agenda: withHand as never, url: "u" });
+    expect(md).toContain("- Review our [projects](https://app.test/w/x/projects)");
+  });
+
   it("keeps the ledger written by a concurrent editor rather than reverting the snapshot", async () => {
     const db = withTransaction(mockDeep<PrismaClient>());
     // Read at the top of the call: no items resolved yet.

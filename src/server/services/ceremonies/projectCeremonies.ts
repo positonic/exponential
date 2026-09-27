@@ -1,13 +1,15 @@
 /**
  * Linking ceremonies to a project.
  *
- * `Ceremony.projectId` is the link (ADR-0059): a ceremony belongs to at most one
- * project, a project can own several. The project form edits the set from the
- * project's side, so this reconciles "these are the project's ceremonies now"
- * against the rows: link the listed ones, unlink the ones it used to own.
+ * `CeremonyProject` is the link (ADR-0059, amended 2026-09-27): a ceremony
+ * reviews any number of projects and a project is reviewed in any number of
+ * ceremonies. The project form edits the set from the project's side, so this
+ * reconciles "these are the project's ceremonies now" against the join rows:
+ * add the listed ones, remove the ones it used to have. Other projects' links
+ * to the same ceremonies are untouched.
  *
- * Ceremonies are workspace-scoped, so a project can only own ceremonies of its
- * own workspace; a personal project (no workspace) owns none.
+ * Ceremonies are workspace-scoped, so a project can only link ceremonies of
+ * its own workspace; a personal project (no workspace) links none.
  */
 
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -45,19 +47,15 @@ export async function syncProjectCeremonies(
     }
   }
 
-  const { count: unlinked } = await db.ceremony.updateMany({
-    where: { projectId, ...(wanted.length ? { id: { notIn: wanted } } : {}) },
-    data: { projectId: null },
+  const { count: unlinked } = await db.ceremonyProject.deleteMany({
+    where: { projectId, ...(wanted.length ? { ceremonyId: { notIn: wanted } } : {}) },
   });
 
-  // No `NOT: { projectId }` guard here: Prisma's `not` on a nullable column
-  // excludes NULL rows, and a never-linked ceremony has a NULL projectId — the
-  // guard silently skipped exactly the rows this exists to link. Re-writing an
-  // already-linked row is harmless.
+  // `skipDuplicates` keeps an already-linked pair; re-linking is a no-op.
   const { count: linked } = wanted.length
-    ? await db.ceremony.updateMany({
-        where: { id: { in: wanted } },
-        data: { projectId },
+    ? await db.ceremonyProject.createMany({
+        data: wanted.map((ceremonyId) => ({ ceremonyId, projectId })),
+        skipDuplicates: true,
       })
     : { count: 0 };
 

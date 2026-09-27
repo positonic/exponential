@@ -5,14 +5,15 @@ import { okrReviewSection } from "../sections/okr_review";
 import type { SectionContext } from "../types";
 
 const now = new Date("2026-09-10T08:00:00Z");
-function ctx(db: PrismaClient, ceremony: Partial<Ceremony> = {}, previous: Partial<CeremonyOccurrence> | null = null): SectionContext {
+function ctx(db: PrismaClient, ceremony: Partial<Ceremony> = {}, previous: Partial<CeremonyOccurrence> | null = null, projectIds: string[] = []): SectionContext {
   return {
     db,
     workspaceId: "ws-1",
-    ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: null, productId: null, ...ceremony } as Ceremony,
+    ceremony: { id: "cer-1", workspaceId: "ws-1", productId: null, ...ceremony } as Ceremony,
     occurrence: { id: "occ-1", scheduledStart: now } as CeremonyOccurrence,
     previousOccurrence: previous ? ({ id: "occ-0", scheduledStart: new Date("2026-09-03T08:00:00Z"), ...previous } as CeremonyOccurrence) : null,
     participantUserIds: [],
+    projectIds,
     now,
     workspacePath: "/w/ws",
   };
@@ -29,10 +30,10 @@ describe("okr_review section", () => {
       { id: "kr-flipped", title: "Flipped", status: "on-track", statusOverride: "at-risk", statusOverrideAt: new Date("2026-09-05T00:00:00Z"), currentValue: 2, targetValue: 3, unit: "count", goalId: 2, goal: { id: 2, title: "Ship" }, checkIns: [{ createdAt: new Date("2026-09-09T00:00:00Z") }] },
     ] as never);
 
-    const items = await okrReviewSection.run(ctx(db, { projectId: "p-1" }, {}), section);
+    const items = await okrReviewSection.run(ctx(db, {}, {}, ["p-1"]), section);
 
     const where = db.keyResult.findMany.mock.calls[0]![0]!.where!;
-    expect(where.goal).toEqual({ workspaceId: "ws-1", status: "active", projects: { some: { id: "p-1" } } });
+    expect(where.goal).toEqual({ workspaceId: "ws-1", status: "active", projects: { some: { id: { in: ["p-1"] } } } });
     expect(items.map((i) => i.refId)).toEqual(["kr-stale", "kr-never", "kr-flipped"]);
     expect(items[0]!.detail).toContain("no check-in for 21 days");
     expect(items[1]!.detail).toContain("never checked in");

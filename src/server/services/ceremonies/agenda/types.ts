@@ -101,6 +101,8 @@ export interface SectionContext {
   occurrence: CeremonyOccurrence;
   previousOccurrence: CeremonyOccurrence | null;
   participantUserIds: string[];
+  /** Ids of the projects the ceremony is scoped to (`CeremonyProject`); empty when it has none. */
+  projectIds: string[];
   now: Date;
   /** Base path for links, `/w/<slug>`. */
   workspacePath: string;

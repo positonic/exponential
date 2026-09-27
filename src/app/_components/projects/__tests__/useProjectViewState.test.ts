@@ -28,7 +28,12 @@ vi.mock("next/navigation", () => ({
 import {
   useProjectViewState,
   computeProjectFilterCounts,
+  filterProjects,
 } from "../useProjectViewState";
+import {
+  countActiveProjectFilters,
+  describeActiveProjectFilters,
+} from "../ProjectFilterControls";
 
 /** Matches SEARCH_URL_DEBOUNCE_MS in the hook. */
 const DEBOUNCE_MS = 350;
@@ -315,9 +320,36 @@ describe("computeProjectFilterCounts", () => {
     expect(counts.priority).toEqual({ HIGH: 2, LOW: 1 });
     // ...while the other fields are counted under it.
     expect(counts.status).toEqual({ ACTIVE: 1, COMPLETED: 1 });
-    expect(counts.driId).toEqual({ u1: 1 });
+    expect(counts.driId).toEqual({ u1: 1, none: 1 });
   });
 
+  it("counts the signed-in user under the `me` sentinel when the session is known", () => {
+    const counts = computeProjectFilterCounts(projects, {}, "", undefined, {
+      currentUserId: "u2",
+    });
+
+    expect(counts.driId).toEqual({ u1: 1, u2: 1, none: 1, me: 1 });
+  });
+
+  it("counts visibility and ETA buckets", () => {
+    const now = new Date("2026-09-27T12:00:00Z");
+    const counts = computeProjectFilterCounts(
+      [
+        { status: "ACTIVE", priority: "NONE", isPublic: true, endDate: "2026-09-01" },
+        { status: "ACTIVE", priority: "NONE", isRestricted: true, endDate: "2026-10-10" },
+        { status: "COMPLETED", priority: "NONE", endDate: "2026-09-01" },
+        { status: "ACTIVE", priority: "NONE" },
+      ],
+      {},
+      "",
+      undefined,
+      { now },
+    );
+
+    expect(counts.visibility).toEqual({ public: 1, restricted: 1 });
+    // The completed project's past end date is not "overdue" — it's done.
+    expect(counts.eta).toEqual({ overdue: 1, soon: 1, none: 1 });
+  });
   it("counts the other fields under an active status filter", () => {
     const counts = computeProjectFilterCounts(
       projects,
@@ -357,5 +389,81 @@ describe("computeProjectFilterCounts", () => {
     );
 
     expect(counts.status).toEqual({ ACTIVE: 2, COMPLETED: 7, CANCELLED: 3 });
+  });
+});
+
+
+describe("filterProjects", () => {
+  const now = new Date("2026-09-27T12:00:00Z");
+  const projects = [
+    { name: "Mine", status: "ACTIVE", priority: "HIGH", driId: "me-id", isPublic: true, endDate: "2026-09-20" },
+    { name: "Theirs", status: "ACTIVE", priority: "LOW", driId: "u2", isRestricted: true, endDate: "2026-10-05" },
+    { name: "Orphan", status: "ON_HOLD", priority: "NONE", driId: null, endDate: null },
+    { name: "Done", status: "COMPLETED", priority: "NONE", driId: "me-id", endDate: "2026-01-01" },
+  ];
+  const names = (rows: Array<{ name: string }>) => rows.map((r) => r.name);
+
+  it("resolves `driId=me` against the signed-in user", () => {
+    expect(
+      names(filterProjects(projects, { driId: ["me"] }, "", { currentUserId: "me-id" })),
+    ).toEqual(["Mine", "Done"]);
+  });
+
+  it("matches nothing for `me` until the session is known", () => {
+    expect(filterProjects(projects, { driId: ["me"] }, "")).toEqual([]);
+  });
+
+  it("selects unassigned projects with the `none` sentinel, OR-ed with members", () => {
+    expect(names(filterProjects(projects, { driId: ["none"] }, ""))).toEqual(["Orphan"]);
+    expect(names(filterProjects(projects, { driId: ["none", "u2"] }, ""))).toEqual([
+      "Theirs",
+      "Orphan",
+    ]);
+  });
+
+  it("filters by visibility flags", () => {
+    expect(names(filterProjects(projects, { visibility: ["public"] }, ""))).toEqual(["Mine"]);
+    expect(
+      names(filterProjects(projects, { visibility: ["public", "restricted"] }, "")),
+    ).toEqual(["Mine", "Theirs"]);
+  });
+
+  it("buckets ETA into overdue / due soon / none, ignoring finished work", () => {
+    expect(names(filterProjects(projects, { eta: ["overdue"] }, "", { now }))).toEqual(["Mine"]);
+    expect(names(filterProjects(projects, { eta: ["soon"] }, "", { now }))).toEqual(["Theirs"]);
+    expect(names(filterProjects(projects, { eta: ["none"] }, "", { now }))).toEqual(["Orphan"]);
+  });
+
+  it("treats today and the 30th day ahead as due soon, the 31st as not", () => {
+    const at = (endDate: string) => ({ status: "ACTIVE", priority: "NONE", endDate, name: endDate });
+    const rows = [at("2026-09-27"), at("2026-10-27"), at("2026-10-28")];
+    expect(names(filterProjects(rows, { eta: ["soon"] }, "", { now }))).toEqual([
+      "2026-09-27",
+      "2026-10-27",
+    ]);
+  });
+});
+
+describe("project filter pills", () => {
+  const members = [{ id: "u2", name: "Pat Reviewer", email: null, image: null }];
+
+  it("labels the `me` sentinel as My projects and members by name", () => {
+    const pills = describeActiveProjectFilters(
+      { driId: ["me", "u2", "gone"], status: ["ACTIVE"] },
+      members,
+    );
+    expect(pills.map((p) => p.label)).toEqual([
+      "Active",
+      "My projects",
+      "DRI: Pat Reviewer",
+      // A DRI who left the workspace still gets a removable pill.
+      "DRI: gone",
+    ]);
+  });
+
+  it("counts every applied value across facets", () => {
+    expect(
+      countActiveProjectFilters({ status: ["ACTIVE", "ON_HOLD"], driId: ["me"], eta: undefined }),
+    ).toBe(3);
   });
 });

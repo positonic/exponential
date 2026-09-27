@@ -11,6 +11,7 @@ import { getSectionModule } from "./sections";
 import { readAgendaSnapshot, readAgendaTemplate, type AgendaSnapshot, type SectionContext } from "./types";
 import { narrateAgenda, type NarrateOptions } from "./narrateAgenda";
 import { withAgendaTransaction } from "./items";
+import { dropEmptyAutoSections, withAutoProjectsSection } from "./autoSections";
 import { formatOccurrenceLabel } from "../activity";
 import { resolveParticipantUserIds } from "../participants";
 
@@ -29,7 +30,13 @@ export async function generateAgenda(
   const occurrence = await db.ceremonyOccurrence.findUnique({
     where: { id: occurrenceId },
     include: {
-      ceremony: { include: { participants: { select: { userId: true } }, workspace: { select: { slug: true } } } },
+      ceremony: {
+        include: {
+          participants: { select: { userId: true } },
+          projects: { select: { projectId: true } },
+          workspace: { select: { slug: true } },
+        },
+      },
     },
   });
   if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
@@ -54,11 +61,14 @@ export async function generateAgenda(
     occurrence,
     previousOccurrence,
     participantUserIds,
+    projectIds: ceremony.projects.map((p) => p.projectId),
     now,
     workspacePath: `/w/${ceremony.workspace.slug}`,
   };
 
-  const template = readAgendaTemplate(ceremony.agendaTemplate);
+  // The template, plus the linked-projects section the ceremony carries
+  // without listing it (`includeProjects`, on by default).
+  const template = withAutoProjectsSection(readAgendaTemplate(ceremony.agendaTemplate), ceremony.includeProjects);
   const results: SectionRunResult[] = [];
   for (const section of template) {
     const mod = getSectionModule(section.type);
@@ -77,7 +87,7 @@ export async function generateAgenda(
   // edit is merged rather than reverted.
   const agenda = await withAgendaTransaction(db, async (tx) => {
     const fresh = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrence.id }, select: { agenda: true } });
-    const assembled = buildAgenda(template, results, readAgendaSnapshot(fresh?.agenda), now);
+    const assembled = dropEmptyAutoSections(buildAgenda(template, results, readAgendaSnapshot(fresh?.agenda), now));
     await tx.ceremonyOccurrence.update({
       where: { id: occurrence.id },
       data: { agenda: assembled as unknown as Prisma.InputJsonValue, agendaGeneratedAt: now },

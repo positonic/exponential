@@ -11,10 +11,11 @@ function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): Section
   return {
     db,
     workspaceId: "ws-1",
-    ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: null, productId: null } as Ceremony,
+    ceremony: { id: "cer-1", workspaceId: "ws-1", productId: null } as Ceremony,
     occurrence: { id: "occ-1", scheduledStart: now } as CeremonyOccurrence,
     previousOccurrence: null,
     participantUserIds: ["u-1", "u-2"],
+    projectIds: [],
     now,
     workspacePath: "/w/ws",
     ...overrides,
@@ -39,9 +40,9 @@ describe("blockers section", () => {
       { id: "a-1", name: "Fix login", dueDate: new Date("2026-09-08T00:00:00Z"), depsOut: [], projectId: "p-1", project: { goals: [{ id: 9, title: "Launch" }] }, assignees: [{ user: { id: "u-1", name: "Andi" } }] },
       { id: "a-2", name: "Ship drawer", dueDate: null, depsOut: [{ id: "dep-1" }], projectId: "p-1", project: { goals: [] }, assignees: [] },
     ] as never);
-    const items = await blockersSection.run(ctx(db, { ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: "p-1", productId: null } as Ceremony }), { key: "blk", type: "blockers", title: "Blockers" });
+    const items = await blockersSection.run(ctx(db, { projectIds: ["p-1"] }), { key: "blk", type: "blockers", title: "Blockers" });
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
-    expect(where).toMatchObject({ status: "ACTIVE", workspaceId: "ws-1", projectId: "p-1" });
+    expect(where).toMatchObject({ status: "ACTIVE", workspaceId: "ws-1", projectId: { in: ["p-1"] } });
     expect(where.OR).toEqual([{ dueDate: { lt: now } }, { depsOut: { some: { dependsOn: { status: "ACTIVE" } } } }]);
     expect(items.map((i) => i.id)).toEqual(["blk:action:a-1", "blk:action:a-2"]);
     expect(items[0]!.detail).toBe("due 8 Sept · Andi");
@@ -67,12 +68,12 @@ describe("blockers section", () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([] as never);
     await blockersSection.run(
-      ctx(db, { participantUserIds: [], ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: "prj-1", productId: null } as never }),
+      ctx(db, { participantUserIds: [], projectIds: ["prj-1"] }),
       { key: "blk", type: "blockers", title: "Blockers" },
     );
     expect(db.action.findMany).toHaveBeenCalled();
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
-    expect(where).toMatchObject({ projectId: "prj-1" });
+    expect(where).toMatchObject({ projectId: { in: ["prj-1"] } });
   });
 });
 
