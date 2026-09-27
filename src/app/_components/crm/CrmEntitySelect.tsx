@@ -86,6 +86,7 @@ function RemoteSearchSelect({
   const [isCreating, setIsCreating] = useState(false);
 
   const trimmedSearch = search.trim();
+  const createRowLabel = `Create "${trimmedSearch}"`;
 
   const data = useMemo(() => {
     let rows = options;
@@ -100,13 +101,18 @@ function RemoteSearchSelect({
       (o) => o.label.trim().toLowerCase() === trimmedSearch.toLowerCase(),
     );
     if (onCreate && trimmedSearch.length > 0 && !exactMatch) {
-      rows = [
-        ...rows,
-        { value: CREATE_OPTION_VALUE, label: `Create "${trimmedSearch}"` },
-      ];
+      rows = [...rows, { value: CREATE_OPTION_VALUE, label: createRowLabel }];
     }
     return rows;
-  }, [options, value, pickedOption, fallbackOption, onCreate, trimmedSearch]);
+  }, [
+    options,
+    value,
+    pickedOption,
+    fallbackOption,
+    onCreate,
+    trimmedSearch,
+    createRowLabel,
+  ]);
 
   async function handleCreate(name: string) {
     if (!onCreate) return;
@@ -144,6 +150,11 @@ function RemoteSearchSelect({
   const selectedLabel = value ? labelFor(value) : null;
 
   function handleSearchChange(next: string) {
+    // Picking the "Create …" row makes Mantine echo that row's label into the
+    // search box. It is not something the user typed: forwarding it would
+    // query the server for `Create "…"` and, if creation failed, leave the
+    // typed name replaced by the row label. Keep the name instead.
+    if (next === createRowLabel) return;
     // On close, Mantine re-seeds the search input with the selected option's
     // label. Forwarding that echo as a search term would re-query for the row
     // already selected, so reopening the dropdown would offer only that one
