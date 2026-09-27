@@ -14,6 +14,7 @@ import { withAgendaTransaction } from "./items";
 import { dropEmptyAutoSections, withAutoProjectsSection } from "./autoSections";
 import { formatOccurrenceLabel } from "../activity";
 import { resolveParticipantUserIds } from "../participants";
+import { ensureOccurrenceNotesPage } from "../notesPage";
 
 export interface GenerateAgendaResult {
   occurrenceId: string;
@@ -94,6 +95,16 @@ export async function generateAgenda(
     });
     return assembled;
   });
+
+  // The notes canvas (a Knowledge Page, ADR-0033) exists from the first
+  // generation on and is never touched by a regeneration. Its failure must
+  // not undo the agenda that is already durable above, so it is reported
+  // rather than thrown; the next generation retries the create.
+  try {
+    await ensureOccurrenceNotesPage(db, occurrence, ceremony);
+  } catch (error) {
+    console.error("[ceremonies] ensureOccurrenceNotesPage failed; the agenda is stored without a notes page:", error);
+  }
 
   // Narration runs AFTER the structured agenda is durable. It is a network
   // call with its own timeout, and this function is called in a loop by the

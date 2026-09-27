@@ -11,6 +11,7 @@ import { AgendaView } from "~/app/_components/ceremonies/AgendaView";
 import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUpdatePanel";
 import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceAsyncSummary";
 import { OccurrenceSkipBanner } from "~/app/_components/ceremonies/OccurrenceSkipBanner";
+import { OccurrenceNotes } from "~/app/_components/ceremonies/OccurrenceNotes";
 
 /**
  * Occurrence page (ADR-0059): the generated agenda for one ceremony
@@ -190,6 +191,17 @@ export default function OccurrencePage() {
               {occurrence.canGenerate ? ", or now with the button above." : "."}
             </Text>
           </Paper>
+        )}
+
+        {/* The notes canvas is created with the first agenda; until then
+            there is nothing to link to. A skipped occurrence keeps its notes
+            readable but frozen. */}
+        {occurrence.notesPageId && (
+          <OccurrenceNotes
+            pageId={occurrence.notesPageId}
+            workspaceSlug={workspace.slug}
+            readOnly={occurrence.status === "SKIPPED"}
+          />
         )}
 
         <Paper withBorder radius="md" p="lg">

@@ -2396,12 +2396,18 @@ model CeremonyOccurrence {
   scheduledMeetingId   String?                  @unique
   /// Self-link for carry-over of unresolved agenda items.
   previousOccurrenceId String?
+  /// The free-text notes canvas for this occurrence: a Knowledge Page
+  /// (ADR-0033) created lazily when the agenda is generated, edited inline
+  /// under the agenda. Its `projectId` follows the ceremony's project so
+  /// visibility inherits; deleting the page just detaches it.
+  notesPageId          String?                  @unique
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
 
   ceremony           Ceremony               @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
   workspace          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   scheduledMeeting   Meeting?               @relation(fields: [scheduledMeetingId], references: [id], onDelete: SetNull)
+  notesPage          KnowledgePage?         @relation(fields: [notesPageId], references: [id], onDelete: SetNull)
   previousOccurrence CeremonyOccurrence?    @relation("CeremonyOccurrenceCarryOver", fields: [previousOccurrenceId], references: [id], onDelete: SetNull)
   nextOccurrences    CeremonyOccurrence[]   @relation("CeremonyOccurrenceCarryOver")
   /// Recorded meetings that captured this occurrence.
@@ -3212,6 +3218,8 @@ model KnowledgePage {
   createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
   comments  KnowledgePageComment[]
+  /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
+  ceremonyOccurrence CeremonyOccurrence?
 
   @@index([workspaceId])
   @@index([projectId])
