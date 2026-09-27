@@ -8,7 +8,7 @@ import { useState, useEffect } from "react";
 import { useSession } from 'next-auth/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
-import { api, type RouterOutputs } from "~/trpc/react";
+import { api, type RouterInputs, type RouterOutputs } from "~/trpc/react";
 import { reportHandledError } from '~/lib/reportHandledError';
 import { CreateGoalModal } from './CreateGoalModal';
 import { notifications } from '@mantine/notifications';
@@ -33,7 +33,7 @@ type ProjectWithRelations = Project & {
 };
 
 type ProjectListItem = RouterOutputs['project']['getAll'][number];
-type ProjectUpdateInput = Parameters<ReturnType<typeof api.project.update.useMutation>['mutate']>[0];
+type ProjectUpdateInput = RouterInputs['project']['update'];
 
 /**
  * Apply an update's scalar fields to a cached list row. Relations (goals,
