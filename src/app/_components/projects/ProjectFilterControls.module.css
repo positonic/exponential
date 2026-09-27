@@ -1,0 +1,24 @@
+/* Toolbar pills naming the applied filters, beside the view tabs. */
+.pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Applied-filter count inside the Filter trigger. */
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand-500);
+  color: var(--color-text-inverse);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}

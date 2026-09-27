@@ -16,7 +16,76 @@ import type {
   SortDirection,
 } from "~/app/_components/toolbar/useProjectSort";
 
-export const PROJECT_FILTER_KEYS = ["status", "priority", "driId"] as const;
+export const PROJECT_FILTER_KEYS = [
+  "status",
+  "priority",
+  "driId",
+  "visibility",
+  "eta",
+] as const;
+
+export type ProjectFilterKey = (typeof PROJECT_FILTER_KEYS)[number];
+
+/**
+ * `driId` sentinel for "My projects" — the signed-in user. Stored verbatim in
+ * the URL (`?driId=me`) so the link is the same for everyone who opens it,
+ * and resolved against the session only at filter time.
+ */
+export const DRI_ME = "me";
+/** `driId` sentinel for projects that have no DRI at all. */
+export const DRI_NONE = "none";
+
+/** `visibility` filter values. */
+export const VISIBILITY_PUBLIC = "public";
+export const VISIBILITY_RESTRICTED = "restricted";
+
+/** `eta` filter values — buckets of the project's end date. */
+export const ETA_OVERDUE = "overdue";
+export const ETA_SOON = "soon";
+export const ETA_NONE = "none";
+/** "Due soon" reaches this many days ahead of today, inclusive. */
+export const ETA_SOON_DAYS = 30;
+
+export interface ProjectFilterContext {
+  /** Signed-in user id; `driId=me` matches nothing until it is known. */
+  currentUserId?: string | null;
+  /** Reference "today" for the ETA buckets (injectable for tests). */
+  now?: Date;
+}
+
+/** The project fields the client-side filters read. */
+export interface FilterableProject {
+  status: string;
+  priority: string;
+  driId?: string | null;
+  isPublic?: boolean;
+  isRestricted?: boolean;
+  endDate?: Date | string | null;
+}
+
+const FINISHED_STATUSES = new Set(["COMPLETED", "CANCELLED"]);
+
+/**
+ * Which ETA bucket a project falls in. "Overdue" is reserved for unfinished
+ * work — a completed project whose end date has passed is simply done.
+ * Anything else (finished, or due beyond the "soon" window) returns null and
+ * matches no ETA option.
+ */
+export function projectEtaBucket(
+  project: Pick<FilterableProject, "endDate" | "status">,
+  now: Date = new Date(),
+): typeof ETA_OVERDUE | typeof ETA_SOON | typeof ETA_NONE | null {
+  const end = toDate(project.endDate ?? null);
+  if (!end) return ETA_NONE;
+  if (FINISHED_STATUSES.has(project.status)) return null;
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  if (end < today) return ETA_OVERDUE;
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + ETA_SOON_DAYS + 1);
+  if (end < horizon) return ETA_SOON;
+  return null;
+}
 
 /**
  * Product default for the project views: hide finished work. Applied only on
@@ -448,28 +517,47 @@ export function useProjectViewState(
  * counted from it. Those server totals ignore the other client-side filters —
  * an accepted approximation.
  */
-export function computeProjectFilterCounts<
-  T extends { status: string; priority: string; driId?: string | null },
->(
+export function computeProjectFilterCounts<T extends FilterableProject>(
   projects: T[],
   filters: FilterState,
   searchQuery: string,
   statusTotals?: Record<string, number>,
+  ctx: ProjectFilterContext = {},
 ): Record<string, Record<string, number>> {
-  const countBy = (items: T[], pick: (p: T) => string | null | undefined) => {
+  const countBy = (
+    items: T[],
+    pick: (p: T) => string | string[] | null | undefined,
+  ) => {
     const out: Record<string, number> = {};
     for (const item of items) {
-      const key = pick(item);
-      if (key) out[key] = (out[key] ?? 0) + 1;
+      const picked = pick(item);
+      const keys = Array.isArray(picked) ? picked : picked ? [picked] : [];
+      for (const key of keys) out[key] = (out[key] ?? 0) + 1;
     }
     return out;
   };
   const without = (field: string) =>
-    filterProjects(projects, { ...filters, [field]: undefined }, searchQuery);
+    filterProjects(
+      projects,
+      { ...filters, [field]: undefined },
+      searchQuery,
+      ctx,
+    );
+  const driCandidates = without("driId");
   const counts: Record<string, Record<string, number>> = {
     priority: countBy(without("priority"), (p) => p.priority),
-    driId: countBy(without("driId"), (p) => p.driId),
+    driId: countBy(driCandidates, (p) => p.driId ?? DRI_NONE),
+    visibility: countBy(without("visibility"), (p) => [
+      ...(p.isPublic ? [VISIBILITY_PUBLIC] : []),
+      ...(p.isRestricted ? [VISIBILITY_RESTRICTED] : []),
+    ]),
+    eta: countBy(without("eta"), (p) => projectEtaBucket(p, ctx.now)),
   };
+  if (ctx.currentUserId) {
+    counts.driId![DRI_ME] = driCandidates.filter(
+      (p) => p.driId === ctx.currentUserId,
+    ).length;
+  }
   const statusFilterActive =
     Array.isArray(filters.status) && filters.status.length > 0;
   if (statusTotals) {
@@ -484,22 +572,51 @@ export function computeProjectFilterCounts<
   return counts;
 }
 
-export function filterProjects<
-  T extends { status: string; priority: string; driId?: string | null },
->(projects: T[], filters: FilterState, searchQuery: string): T[] {
+function arrayFilter(filters: FilterState, key: string): string[] | null {
+  const val = filters[key];
+  return Array.isArray(val) && val.length > 0 ? val : null;
+}
+
+export function filterProjects<T extends FilterableProject>(
+  projects: T[],
+  filters: FilterState,
+  searchQuery: string,
+  ctx: ProjectFilterContext = {},
+): T[] {
   const q = searchQuery.trim().toLowerCase();
+  const statusFilter = arrayFilter(filters, "status");
+  const priorityFilter = arrayFilter(filters, "priority");
+  const driFilter = arrayFilter(filters, "driId");
+  const visibilityFilter = arrayFilter(filters, "visibility");
+  const etaFilter = arrayFilter(filters, "eta");
+
+  // Resolve the DRI sentinels once, not per row. `me` without a session
+  // resolves to nothing — the views treat that gap as loading.
+  let driMatchNone = false;
+  const driIds = new Set<string>();
+  for (const v of driFilter ?? []) {
+    if (v === DRI_NONE) driMatchNone = true;
+    else if (v === DRI_ME) {
+      if (ctx.currentUserId) driIds.add(ctx.currentUserId);
+    } else driIds.add(v);
+  }
+
   return projects.filter((p) => {
-    const statusFilter = filters.status as string[] | undefined;
-    if (statusFilter && statusFilter.length > 0) {
-      if (!statusFilter.includes(p.status)) return false;
+    if (statusFilter && !statusFilter.includes(p.status)) return false;
+    if (priorityFilter && !priorityFilter.includes(p.priority)) return false;
+    if (driFilter) {
+      const ok = p.driId ? driIds.has(p.driId) : driMatchNone;
+      if (!ok) return false;
     }
-    const priorityFilter = filters.priority as string[] | undefined;
-    if (priorityFilter && priorityFilter.length > 0) {
-      if (!priorityFilter.includes(p.priority)) return false;
+    if (visibilityFilter) {
+      const ok =
+        (visibilityFilter.includes(VISIBILITY_PUBLIC) && !!p.isPublic) ||
+        (visibilityFilter.includes(VISIBILITY_RESTRICTED) && !!p.isRestricted);
+      if (!ok) return false;
     }
-    const driFilter = filters.driId as string[] | undefined;
-    if (driFilter && driFilter.length > 0) {
-      if (!p.driId || !driFilter.includes(p.driId)) return false;
+    if (etaFilter) {
+      const bucket = projectEtaBucket(p, ctx.now);
+      if (!bucket || !etaFilter.includes(bucket)) return false;
     }
     if (q) {
       const name = (p as unknown as { name?: string }).name ?? "";
