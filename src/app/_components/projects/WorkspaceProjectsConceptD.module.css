@@ -24,6 +24,15 @@
   padding: 3px;
 }
 
+/* Left cluster of the top bar: view tabs plus the applied-filter pills. */
+.topBarLeft {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
 .viewTab {
   display: inline-flex;
   align-items: center;
@@ -55,6 +64,7 @@
 .actions {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 6px;
 }
 
@@ -126,6 +136,7 @@
 .newBtn {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 5px;
   height: 32px;
   padding: 0 12px;
@@ -143,11 +154,6 @@
   opacity: 0.88;
 }
 
-/* ── filter row ── */
-.filterRow {
-  padding: 12px 32px 0;
-  flex-shrink: 0;
-}
 
 /* ── table ── */
 .tableWrap {
