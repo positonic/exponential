@@ -466,7 +466,19 @@ committing.
   interaction, highest connection score and earliest `firstSeenAt` win;
   `emailOptedOutAt` is preserved if *any* merged contact had unsubscribed.
   No Automation fires on merge (a duplicate may already have triggered its
-  onboarding run). Requires role `owner | admin | member`.
+  onboarding run). Requires role `owner | admin | member`. A duplicate's
+  `PENDING` enrichment job is dropped rather than moved (it would become a
+  second paid run).
+- **Known limitations** (a merged-away contact's id simply stops existing):
+  - Unsubscribe links already sent to a duplicate's address name the old id;
+    the route now answers "link no longer valid" instead of a false success.
+  - Automation idempotency is keyed on `WorkflowPipelineRun.input.contactId`,
+    so a run that fired for a duplicate is not seen when the kept contact is
+    later re-tagged or re-added to a list — the onboarding can fire again.
+  - A contact has one email; the discarded addresses are not remembered, so
+    the next Gmail/Calendar/CSV import that sees one recreates the duplicate.
+  All three want a merge-redirect record (`fromId → toId`) written inside the
+  transaction; that needs a migration and is tracked separately.
 
 ### Not Yet Implemented
 
