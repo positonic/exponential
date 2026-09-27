@@ -61,6 +61,11 @@ describe("pickNextAction / describeNextAction", () => {
     const young = action({ id: "y", name: "Young", createdAt: new Date("2026-09-01T00:00:00.000Z") });
     expect(pickNextAction([young, due, scheduled, old])).toEqual({ id: "s", name: "Scheduled", when: scheduled.scheduledStart });
     expect(pickNextAction([young, old])).toEqual({ id: "o", name: "Old", when: null });
+  });
+
+  it("reduces a legacy HTML action name to its text so the brief line never prints markup", () => {
+    const html = action({ id: "h", name: 'The agent fills in my <a target="_blank" href="https://x.test/p">time sheet</a>' });
+    expect(pickNextAction([html])).toMatchObject({ id: "h", name: "The agent fills in my time sheet" });
     expect(pickNextAction([])).toBeNull();
   });
 

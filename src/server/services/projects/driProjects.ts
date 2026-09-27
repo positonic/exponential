@@ -11,6 +11,7 @@
  * review, the end date, who the DRI is, and the project's next action.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { toPlainText } from "~/lib/content/plainText";
 
 export interface ProjectNextAction {
   id: string;
@@ -83,7 +84,8 @@ export function pickNextAction(actions: ActionRow[]): ProjectNextAction | null {
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
   const next = sorted[0]!;
-  return { id: next.id, name: next.name, when: actionWhen(next) };
+  // Legacy action names carry editor HTML; the brief lines this feeds are plain text.
+  return { id: next.id, name: toPlainText(next.name) || next.name, when: actionWhen(next) };
 }
 
 /**
