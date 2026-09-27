@@ -211,6 +211,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     },
     onSettled: () => {
       void utils.project.getAll.invalidate();
+      // A status change moves the row between tabs, so the tab counts must follow.
+      void utils.project.getStatusCounts.invalidate();
       void utils.ceremony.invalidate();
     },
   });
