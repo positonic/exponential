@@ -47,6 +47,20 @@ const PUBLIC_SETTINGS_SELECT = {
   publishedAt: true,
 } satisfies Prisma.KnowledgePageSelect;
 
+/**
+ * The occurrence a page is the notes canvas of (ADR-0059), enough to render
+ * a crumb back to it. The occurrence itself is readable by any workspace
+ * member, so exposing it on a page the caller can already view leaks nothing.
+ */
+const OCCURRENCE_CRUMB_SELECT = {
+  select: {
+    id: true,
+    ceremonyId: true,
+    scheduledStart: true,
+    ceremony: { select: { name: true, timezone: true } },
+  },
+} satisfies Prisma.KnowledgePage$ceremonyOccurrenceArgs;
+
 /** A Page reduced to exactly what the access resolver needs. */
 const PAGE_ACCESS_SELECT = {
   id: true,
@@ -379,6 +393,7 @@ export const pageRouter = createTRPCRouter({
           bodyDoc: true,
           project: { select: { id: true, name: true } },
           createdBy: { select: { id: true, name: true, image: true } },
+          ceremonyOccurrence: OCCURRENCE_CRUMB_SELECT,
         },
       });
 
@@ -444,6 +459,7 @@ export const pageRouter = createTRPCRouter({
         include: {
           project: { select: { id: true, name: true, slug: true } },
           createdBy: { select: { id: true, name: true, image: true } },
+          ceremonyOccurrence: OCCURRENCE_CRUMB_SELECT,
         },
       });
       if (!page) {
