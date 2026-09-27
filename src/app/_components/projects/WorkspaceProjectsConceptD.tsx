@@ -324,7 +324,7 @@ const ProjectTableRow = memo(function ProjectTableRow({
         <div className="flex items-center gap-2">
           <CreateProjectModal project={project}>
             <button
-              className="text-text-muted hover:text-brand-primary"
+              className="flex text-text-muted hover:text-brand-primary"
               aria-label="Edit project"
               type="button"
             >
@@ -333,7 +333,7 @@ const ProjectTableRow = memo(function ProjectTableRow({
           </CreateProjectModal>
           <button
             onClick={handleDeleteProject}
-            className="text-text-muted hover:text-red-500"
+            className="flex text-text-muted hover:text-red-500"
             aria-label="Delete project"
             type="button"
           >
