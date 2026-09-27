@@ -7,6 +7,7 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { markOccurrenceCaptured } from "~/server/services/ceremonies/agenda/items";
+import { summaryToMarkdown } from "~/server/services/ceremonies/notesSeed";
 import {
   extractReadableTranscript,
   MAX_SUMMARY_TRANSCRIPT_CHARS,
@@ -180,7 +181,7 @@ export async function summarizeMeetingRow(
   // (ADR-0059): move the occurrence on and carry unresolved agenda items
   // into the next one. Same first-summary transition, so it never repeats.
   if (meeting.occurrenceId) {
-    await markOccurrenceCaptured(db, meeting.occurrenceId);
+    await markOccurrenceCaptured(db, meeting.occurrenceId, { summaryMarkdown: summaryToMarkdown(summaryJson) });
   }
 
   // Opt-in twice over (Decisions V2, ADR-0060): the caller must ask for it
