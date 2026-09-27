@@ -283,6 +283,26 @@ export function OrganizationSelect({
 
   async function handleCreate(name: string): Promise<Option | null> {
     try {
+      // The "Create" row is offered against whatever page the debounced search
+      // last returned, which can be a keystroke stale. Re-check the server for
+      // an exact name before inserting, so a fast typist can't mint a
+      // duplicate: an existing match is selected instead of created.
+      const existing = await utils.crmOrganization.getAll.fetch({
+        workspaceId,
+        search: name,
+        limit: SEARCH_LIMIT,
+      });
+      const match = existing.organizations.find(
+        (o) => o.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (match) {
+        notifications.show({
+          title: "Organization already exists",
+          message: `Selected the existing "${match.name}".`,
+          color: "blue",
+        });
+        return { value: match.id, label: match.name };
+      }
       const org = await createOrganization.mutateAsync({ workspaceId, name });
       notifications.show({
         title: "Organization created",
