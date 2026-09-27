@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Drawer,
   TextInput,
-  Select,
   Chip,
   Button,
   ActionIcon,
@@ -37,6 +36,7 @@ import {
 import { api } from '~/trpc/react';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
+import { OrganizationSelect } from '~/app/_components/crm/CrmEntitySelect';
 import type { PastedScreenshot } from '~/app/_components/ActionModalForm';
 
 const PROFILE_TYPES = [
@@ -64,6 +64,11 @@ export interface EditContactDrawerContact {
   about: string | null;
   profileType: string | null;
   organizationId: string | null;
+  /**
+   * The linked organization, so its name shows in the picker even when the
+   * current search doesn't return it.
+   */
+  organization?: { id: string; name: string } | null;
   /** Field keys whose current value came from AI enrichment (see ADR-0036). */
   aiSourcedFields?: string[];
 }
@@ -204,11 +209,6 @@ export function EditContactDrawer({
   const aiFields = useMemo(
     () => new Set(contact.aiSourcedFields ?? []),
     [contact.aiSourcedFields],
-  );
-
-  const { data: organizations } = api.crmOrganization.getAll.useQuery(
-    { workspaceId, limit: 100 },
-    { enabled: opened && !!workspaceId },
   );
 
   const { data: existingScreenshots } = api.crmContact.listScreenshots.useQuery(
@@ -455,23 +455,23 @@ export function EditContactDrawer({
                 ))}
               </div>
             </Chip.Group>
-            <Select
-              mt="md"
-              label={
-                <FieldLabel label="Company" ai={aiFields.has('organizationId')} />
-              }
-              placeholder="Select organization…"
-              data={
-                organizations?.organizations.map((org) => ({
-                  value: org.id,
-                  label: org.name,
-                })) ?? []
-              }
-              value={form.organizationId || null}
-              onChange={(value) => set('organizationId')(value ?? '')}
-              clearable
-              searchable
-            />
+            <div className="mt-4">
+              <OrganizationSelect
+                workspaceId={workspaceId}
+                value={form.organizationId || null}
+                onChange={(value) => set('organizationId')(value ?? '')}
+                selectedOption={
+                  contact.organization
+                    ? { value: contact.organization.id, label: contact.organization.name }
+                    : null
+                }
+                enabled={opened && !!workspaceId}
+                label={
+                  <FieldLabel label="Organization" ai={aiFields.has('organizationId')} />
+                }
+                creatable
+              />
+            </div>
           </section>
 
           {/* Contact */}
