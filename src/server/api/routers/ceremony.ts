@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { CeremonyKind, type Prisma } from "@prisma/client";
+import { CeremonyKind, type Prisma, type PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireProjectAccess, requireWorkspaceMembership } from "~/server/services/access";
 import {
@@ -69,6 +69,21 @@ function assertValidCadence(cadenceRule: string, timezone: string) {
   }
 }
 
+/**
+ * The distinct project ids, once checked to be projects of `workspaceId`: a
+ * ceremony is workspace-owned, so it cannot review another workspace's
+ * project (mirrors `syncProjectCeremonies` on the project side).
+ */
+async function assertProjectsInWorkspace(db: PrismaClient, workspaceId: string, projectIds: string[]): Promise<string[]> {
+  const ids = Array.from(new Set(projectIds));
+  if (ids.length === 0) return ids;
+  const inWorkspace = await db.project.count({ where: { id: { in: ids }, workspaceId } });
+  if (inWorkspace !== ids.length) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "One or more projects are not in this workspace." });
+  }
+  return ids;
+}
+
 const agendaSectionSchema = z.object({
   key: z.string().min(1),
   type: z.string().min(1),
@@ -96,9 +111,12 @@ const ceremonyFieldsSchema = z.object({
   ownerId: z.string().optional(),
   productId: z.string().nullish(),
   teamId: z.string().nullish(),
-  projectId: z.string().nullish(),
+  /** The projects this ceremony reviews (same workspace); replaces the set on update. */
+  projectIds: z.array(z.string()).max(100).default([]),
   participantUserIds: z.array(z.string()).max(200).default([]),
   agendaTemplate: z.array(agendaSectionSchema).default([]),
+  /** Append the linked-projects section to every generated agenda (see `autoSections`). */
+  includeProjects: z.boolean().default(true),
   matrixRoomId: z.string().nullish(),
 });
 
@@ -110,7 +128,7 @@ const ceremonyFieldsSchema = z.object({
  * ceremony still needs `name` and `cadenceRule` (checked at import time).
  */
 const importDefinitionSchema = ceremonyFieldsSchema
-  .omit({ ownerId: true, participantUserIds: true, productId: true, teamId: true, projectId: true, timezone: true, startsOn: true, slug: true })
+  .omit({ ownerId: true, participantUserIds: true, productId: true, teamId: true, projectIds: true, timezone: true, startsOn: true, slug: true })
   .partial()
   .extend({
     slug: z.string().min(1).max(60),
@@ -143,7 +161,8 @@ const ceremonySummarySelect = {
   ownerId: true,
   productId: true,
   teamId: true,
-  projectId: true,
+  includeProjects: true,
+  projects: { select: { projectId: true } },
   owner: { select: { id: true, name: true, email: true, image: true } },
   _count: { select: { occurrences: true, participants: true } },
 } satisfies Prisma.CeremonySelect;
@@ -182,7 +201,7 @@ export const ceremonyRouter = createTRPCRouter({
     .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.ceremony.findMany({
-        where: { projectId: input.projectId, isActive: true },
+        where: { projects: { some: { projectId: input.projectId } }, isActive: true },
         select: {
           ...ceremonySummarySelect,
           occurrences: {
@@ -208,7 +227,7 @@ export const ceremonyRouter = createTRPCRouter({
           owner: { select: { id: true, name: true, email: true, image: true } },
           product: { select: { id: true, name: true, slug: true } },
           team: { select: { id: true, name: true, slug: true } },
-          project: { select: { id: true, name: true, slug: true } },
+          projects: { select: { projectId: true, project: { select: { id: true, name: true, slug: true } } } },
           participants: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -584,7 +603,8 @@ export const ceremonyRouter = createTRPCRouter({
         throw new TRPCError({ code: "CONFLICT", message: `A ceremony with slug "${slug}" already exists` });
       }
 
-      const { participantUserIds, workspaceId, agendaTemplate, ...fields } = input;
+      const { participantUserIds, workspaceId, agendaTemplate, projectIds, ...fields } = input;
+      const projects = await assertProjectsInWorkspace(ctx.db, workspaceId, projectIds);
       const ceremony = await ctx.db.ceremony.create({
         data: {
           ...fields,
@@ -596,6 +616,7 @@ export const ceremonyRouter = createTRPCRouter({
           participants: {
             create: Array.from(new Set(participantUserIds)).map((id) => ({ userId: id })),
           },
+          projects: { create: projects.map((projectId) => ({ projectId })) },
         },
       });
 
@@ -617,9 +638,10 @@ export const ceremonyRouter = createTRPCRouter({
     )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
-      const { workspaceId, id, participantUserIds, agendaTemplate, slug: rawSlug, ...fields } = input;
+      const { workspaceId, id, participantUserIds, agendaTemplate, projectIds, slug: rawSlug, ...fields } = input;
       const existing = await ctx.db.ceremony.findFirst({ where: { id, workspaceId } });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
+      const projects = projectIds ? await assertProjectsInWorkspace(ctx.db, workspaceId, projectIds) : null;
 
       const cadenceRule = fields.cadenceRule ?? existing.cadenceRule;
       const timezone = fields.timezone ?? existing.timezone;
@@ -655,6 +677,8 @@ export const ceremonyRouter = createTRPCRouter({
                   },
                 }
               : {}),
+            // Replace the project set when provided (absent = untouched).
+            ...(projects ? { projects: { deleteMany: {}, create: projects.map((projectId) => ({ projectId })) } } : {}),
           },
         });
         if (cadenceChanged) {

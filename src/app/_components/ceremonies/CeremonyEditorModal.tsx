@@ -64,8 +64,11 @@ interface FormState {
   participantUserIds: string[];
   productId: string | null;
   teamId: string | null;
-  projectId: string | null;
+  /** The projects this ceremony reviews (same workspace). */
+  projectIds: string[];
   agendaTemplate: AgendaSectionTemplate[];
+  /** Append the linked-projects section to every generated agenda. */
+  includeProjects: boolean;
   isActive: boolean;
   matrixRoomId: string | null;
 }
@@ -102,8 +105,9 @@ function emptyForm(): FormState {
     participantUserIds: [],
     productId: null,
     teamId: null,
-    projectId: null,
+    projectIds: [],
     agendaTemplate: [],
+    includeProjects: true,
     isActive: true,
     matrixRoomId: null,
   };
@@ -163,8 +167,9 @@ function fromCeremony(c: CeremonyDetail): FormState {
     participantUserIds: c.participants.map((p) => p.userId),
     productId: c.productId,
     teamId: c.teamId,
-    projectId: c.projectId,
+    projectIds: c.projects.map((p) => p.projectId),
     agendaTemplate: readAgendaTemplate(c.agendaTemplate),
+    includeProjects: c.includeProjects,
     isActive: c.isActive,
     matrixRoomId: c.matrixRoomId,
   };
@@ -315,8 +320,9 @@ export function CeremonyEditorModal({
       participantUserIds: form.participantUserIds,
       productId: form.productId,
       teamId: form.teamId,
-      projectId: form.projectId,
+      projectIds: form.projectIds,
       agendaTemplate: form.agendaTemplate,
+      includeProjects: form.includeProjects,
       matrixRoomId: form.matrixRoomId,
     };
     if (ceremonyId) update.mutate({ ...payload, id: ceremonyId, isActive: form.isActive });
@@ -462,16 +468,25 @@ export function CeremonyEditorModal({
               clearable
               searchable
             />
-            <Select
-              label="Project"
+            <MultiSelect
+              label="Projects"
+              description="The projects this ceremony reviews."
               data={projects.map((p) => ({ value: p.id, label: p.name }))}
-              value={form.projectId}
-              onChange={(v) => set("projectId", v)}
-              placeholder="Optional"
+              value={form.projectIds}
+              onChange={(v) => set("projectIds", v)}
+              placeholder={form.projectIds.length ? undefined : "Optional"}
               clearable
               searchable
+              data-testid="ceremony-projects"
             />
           </Group>
+          <Switch
+            label="List linked projects on the agenda"
+            description="Every generated agenda ends with a Projects section: the active projects in this ceremony's scope (its projects, product or team), each with DRI and next action. Skipped when the template already has a Linked projects section, or when nothing is linked."
+            checked={form.includeProjects}
+            onChange={(e) => set("includeProjects", e.currentTarget.checked)}
+            data-testid="ceremony-include-projects"
+          />
 
           {matrixServers.length > 1 && (
             <Select

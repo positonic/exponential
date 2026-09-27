@@ -16,7 +16,7 @@ export const blockersSection: SectionModule = {
     // from the whole workspace — which the narration then presents as this
     // team's blockers. A template-created ceremony with nobody added yet is
     // the default shape, so this is the first agenda a new user sees.
-    if (ctx.participantUserIds.length === 0 && !ctx.ceremony.projectId) return [];
+    if (ctx.participantUserIds.length === 0 && ctx.projectIds.length === 0) return [];
 
     // Narrowed to the participants when the ceremony has any — plus actions
     // nobody owns, which the standup exists to give an owner (see the module
@@ -33,7 +33,7 @@ export const blockersSection: SectionModule = {
       where: {
         status: "ACTIVE",
         workspaceId: ctx.workspaceId,
-        ...(ctx.ceremony.projectId ? { projectId: ctx.ceremony.projectId } : {}),
+        ...(ctx.projectIds.length ? { projectId: { in: ctx.projectIds } } : {}),
         OR: [{ dueDate: { lt: ctx.now } }, { depsOut: { some: { dependsOn: { status: "ACTIVE" } } } }],
         ...(participantOr ? { AND: [{ OR: participantOr }] } : {}),
       },

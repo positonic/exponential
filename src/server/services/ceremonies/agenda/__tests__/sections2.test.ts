@@ -13,10 +13,11 @@ function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): Section
   return {
     db,
     workspaceId: "ws-1",
-    ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: null, productId: "prod-1" } as Ceremony,
+    ceremony: { id: "cer-1", workspaceId: "ws-1", productId: "prod-1" } as Ceremony,
     occurrence: { id: "occ-1", scheduledStart: now } as CeremonyOccurrence,
     previousOccurrence: { id: "occ-0", scheduledStart: prevStart, agenda: null } as CeremonyOccurrence,
     participantUserIds: [],
+    projectIds: [],
     now,
     workspacePath: "/w/ws",
     ...overrides,

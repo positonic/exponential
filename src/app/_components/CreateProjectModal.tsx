@@ -147,8 +147,8 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   const productData = products?.map((p) => ({ value: p.id, label: p.name })) ?? [];
 
   // Ceremonies in the project's workspace for the optional Ceremonies link. A
-  // ceremony belongs to one project, so ones owned elsewhere say so in the label;
-  // picking one here moves it to this project.
+  // ceremony can review several projects, so picking one here adds this
+  // project to it and leaves its other projects alone.
   const { data: workspaceCeremonies } = api.ceremony.list.useQuery(
     { workspaceId: effectiveWorkspaceId ?? '' },
     { enabled: !!effectiveWorkspaceId },
@@ -158,16 +158,16 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
     // Seed once from the loaded list when editing; a new project starts empty.
     if (selectedCeremonyIds !== null || !workspaceCeremonies) return;
     setSelectedCeremonyIds(
-      project ? workspaceCeremonies.filter((c) => c.projectId === project.id).map((c) => c.id) : [],
+      project ? workspaceCeremonies.filter((c) => c.projects.some((p) => p.projectId === project.id)).map((c) => c.id) : [],
     );
   }, [workspaceCeremonies, project, selectedCeremonyIds]);
   const ceremonyData =
     workspaceCeremonies?.map((c) => ({
       value: c.id,
-      label:
-        c.projectId && c.projectId !== project?.id
-          ? `${c.name} (linked to another project)`
-          : c.name,
+      label: (() => {
+        const others = c.projects.filter((p) => p.projectId !== project?.id).length;
+        return others > 0 ? `${c.name} (also reviews ${others} other project${others === 1 ? "" : "s"})` : c.name;
+      })(),
     })) ?? [];
 
   // Fetch workflows for Notion imports (only when we have a prefillNotionProjectId)

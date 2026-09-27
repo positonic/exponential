@@ -24,7 +24,11 @@ export type AgendaSectionType =
   | "todays_meetings"
   | "todays_actions"
   | "up_next"
-  | "dri_projects";
+  | "dri_projects"
+  // Any ceremony: the ACTIVE projects in its scope (project, product, team)
+  // with DRI and next action. Appended automatically when
+  // `Ceremony.includeProjects` is on and the template does not place it.
+  | "linked_projects";
 
 export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; label: string; hint: string }> = [
   { value: "blockers", label: "Blockers", hint: "Participants' overdue or blocked Actions" },
@@ -40,6 +44,7 @@ export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; lab
   { value: "todays_actions", label: "Today's actions", hint: "Participants' scheduled-or-due-today Actions, plus overdue ones" },
   { value: "up_next", label: "Up next", hint: "Participants' committed tickets in the current cycle" },
   { value: "dri_projects", label: "DRI projects", hint: "State of the projects participants are DRI for" },
+  { value: "linked_projects", label: "Linked projects", hint: "Active projects in this ceremony's scope (its project, product or team), with DRI and next action" },
 ];
 
 export interface AgendaSectionTemplate {

@@ -28,7 +28,10 @@ app can represent "what this recording is an instance of", let alone run before 
 ## Decision
 
 1. **Ceremony is a definition entity**, owned by the workspace with an *optional* product, team
-   or project scope (the `Retrospective` precedent, not a product-parented one). It carries name,
+   or project scope (the `Retrospective` precedent, not a product-parented one). _Amended
+   2026-09-27:_ the project scope is a set, not a single id — `CeremonyProject` links a ceremony
+   to any number of projects (a review ceremony walks several), and a project to any number of
+   ceremonies; the former `Ceremony.projectId` was backfilled into the join table. It carries name,
    title aliases, purpose, a "not for" list, cadence rule (RRULE), duration, owner, participant
    set, agenda template, inputs, outputs and an optional Matrix room.
 2. **Occurrence is the instance.** One row per cadence tick, generated for a rolling window,

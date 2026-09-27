@@ -35,11 +35,11 @@ describe("per-person questions", () => {
 describe("buildDraftAnswers", () => {
   it("windows completed actions to the participant, the workspace and the gap since the previous occurrence", async () => {
     const mock = db();
-    await buildDraftAnswers(mock, { workspaceId: "ws-1", userId: "u-1", questions, since, until, projectId: "p-1" });
+    await buildDraftAnswers(mock, { workspaceId: "ws-1", userId: "u-1", questions, since, until, projectIds: ["p-1"] });
     const where = mock.action.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({
       workspaceId: "ws-1",
-      projectId: "p-1",
+      projectId: { in: ["p-1"] },
       assignees: { some: { userId: "u-1" } },
       completedAt: { gt: since, lte: until },
     });

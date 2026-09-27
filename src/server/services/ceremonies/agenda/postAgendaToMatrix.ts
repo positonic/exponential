@@ -44,7 +44,10 @@ export function buildAgendaTransactionId(occurrenceId: string, roomId: string, a
  * is escaped before it reaches the Markdown. `markdownToMatrixHtml` turns
  * `[text](https://…)` into a real anchor, so an unescaped title would let
  * anyone who can name an Action get the workspace's bot to post an arbitrary
- * clickable link. Only text the code itself authors stays live.
+ * clickable link. Only text the code itself authors stays live — and a
+ * hand-added item, which a workspace member wrote for this agenda as
+ * Markdown (ADR-0017) and which the occurrence page renders as such; a
+ * link they put in it is the point of the item, not an injection.
  */
 function mdEscape(value: string): string {
   return value.replace(/([\\`*_[\]()<>#|~])/g, "\\$1");
@@ -60,7 +63,7 @@ export function renderAgendaMarkdown(input: { ceremonyName: string; when: string
       lines.push(`## ${mdEscape(section.title)}`);
       if (section.items.length === 0) lines.push(`Nothing to raise.`);
       for (const item of section.items) {
-        const title = mdEscape(item.title);
+        const title = item.addedByUserId ? item.title.trim() : mdEscape(item.title);
         lines.push(`- ${item.resolvedAt ? `~~${title}~~` : title}${item.detail ? ` (${mdEscape(item.detail)})` : ""}${item.carriedFromOccurrenceId ? " (carried over)" : ""}`);
       }
       lines.push("");

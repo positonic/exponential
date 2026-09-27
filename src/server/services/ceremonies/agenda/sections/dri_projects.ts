@@ -1,10 +1,10 @@
 /**
  * `dri_projects`: the ACTIVE projects in the workspace each participant is
- * DRI for, most urgent first, with the same one-line state the Daily summary
- * prints (`describeDriProject`). Rolls up to the project's first objective
- * for the goal chip.
+ * DRI for, most urgent first, with the project's next action and the same
+ * one-line state the Daily summary prints (`describeDriProject`). Rolls up
+ * to the project's first objective for the goal chip.
  */
-import { describeDriProject, driProjectPath, loadDriProjectStates } from "~/server/services/projects/driProjects";
+import { describeDriProject, describeNextAction, driProjectPath, loadDriProjectStates } from "~/server/services/projects/driProjects";
 import type { AgendaItem, SectionModule } from "../types";
 import { briefPeople, personPrefix } from "./dailyBrief";
 
@@ -38,7 +38,7 @@ export const driProjectsSection: SectionModule = {
           goalId: goal?.id ?? null,
           goalTitle: goal?.title ?? null,
           order: items.length,
-          detail: describeDriProject(p, now),
+          detail: `${describeNextAction(p, now)} · ${describeDriProject(p, now)}`,
           href: driProjectPath(p),
         });
       }

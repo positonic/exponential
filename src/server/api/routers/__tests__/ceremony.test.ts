@@ -180,7 +180,7 @@ describe("ceremony router", () => {
       expect(rows).toHaveLength(1);
       expect(db.ceremony.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { projectId: "p-1", isActive: true },
+          where: { projects: { some: { projectId: "p-1" } }, isActive: true },
           select: expect.objectContaining({
             occurrences: expect.objectContaining({ take: 1 }),
           }),
@@ -489,10 +489,11 @@ describe("ceremony router", () => {
           id: "cer-1",
           workspaceId: WORKSPACE_ID,
           teamId: null,
-          projectId: null,
           productId: null,
+          includeProjects: false,
           agendaTemplate: [{ key: "okr", type: "okr_review", title: "OKRs" }, { key: "free", type: "free_text", title: "Else" }],
           participants: [],
+          projects: [],
           workspace: { slug: "ws" },
         },
       } as never);

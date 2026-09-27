@@ -18,10 +18,11 @@ function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): Section
   return {
     db,
     workspaceId: "ws-1",
-    ceremony: { id: "cer-1", workspaceId: "ws-1", projectId: null, productId: null, ownerId: "u-owner", timezone: "Europe/Berlin" } as Ceremony,
+    ceremony: { id: "cer-1", workspaceId: "ws-1", productId: null, ownerId: "u-owner", timezone: "Europe/Berlin" } as Ceremony,
     occurrence: { id: "occ-1", scheduledStart: start } as CeremonyOccurrence,
     previousOccurrence: null,
     participantUserIds: ["u-1"],
+    projectIds: [],
     now: start,
     workspacePath: "/w/acme",
     ...overrides,
@@ -51,7 +52,10 @@ describe("dri_projects section", () => {
         id: "p-1", name: "Exponential GTM", slug: "exponential_gtm", priority: "HIGH", progress: 40.4,
         reviewDate: new Date("2026-09-01T00:00:00.000Z"), endDate: new Date("2026-12-31T00:00:00.000Z"),
         workspace: { slug: "acme" },
-        actions: [{ dueDate: new Date("2026-09-01T00:00:00.000Z") }, { dueDate: null }],
+        actions: [
+          { id: "a-1", name: "Book the launch", dueDate: new Date("2026-09-01T00:00:00.000Z"), scheduledStart: null, createdAt: new Date("2026-08-01T00:00:00.000Z") },
+          { id: "a-2", name: "Draft deck", dueDate: null, scheduledStart: null, createdAt: new Date("2026-07-01T00:00:00.000Z") },
+        ],
       },
       {
         id: "p-2", name: "Reading", slug: "reading", priority: "NONE", progress: 10,
@@ -69,10 +73,10 @@ describe("dri_projects section", () => {
       refId: "p-1",
       goalId: 98,
       goalTitle: "Reach B1",
-      detail: "40% · 2 open, 1 overdue · review overdue (1 Sept) · ends 31 Dec",
+      detail: "next: Book the launch (overdue, 1 Sept) · 40% · 2 open, 1 overdue · review overdue (1 Sept) · ends 31 Dec",
       href: "/w/acme/projects/exponential_gtm-p-1",
     });
-    expect(items[1]).toMatchObject({ title: "Reading", detail: "10% · 0 open", goalId: null });
+    expect(items[1]).toMatchObject({ title: "Reading", detail: "no next action · 10% · 0 open", goalId: null });
   });
 
   it("prefixes items with the person's name when the brief has several participants", async () => {
