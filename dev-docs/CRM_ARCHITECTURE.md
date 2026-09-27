@@ -439,6 +439,35 @@ src/app/(sidemenu)/w/[workspaceSlug]/crm/contacts/_components/ConnectionScoreGau
 - CRM dashboard with aggregate stats
 - Workspace-scoped data isolation
 
+### Merging contacts
+
+Select two or more contacts on `/crm/contacts` and click **Merge contacts**. The
+dialog (`contacts/_components/MergeContactsDialog.tsx`) shows every selected
+contact side by side and the value proposed for each field, and lets the user
+change the kept contact or take any field from a different contact before
+committing.
+
+- **Rules live in `src/lib/crm/contactMerge.ts`** (pure, unit-tested) and are
+  shared by the dialog and the server, so the preview is exactly what gets
+  applied. Kept contact = the one with the most filled fields + linked records
+  (ties → oldest). Per field: the kept contact's value if set, else the richest
+  other contact's — but a human-entered value always beats an AI-sourced one
+  (ADR-0036 provenance is carried into the merged row). Skills and tags are
+  unioned.
+- **`crmContact.getMergePreview`** returns the decrypted candidates plus
+  per-contact counts of interactions, communications, deals, meetings, images,
+  enrichment jobs and list memberships.
+- **`crmContact.merge`** takes `primaryId`, `duplicateIds` and `choices`
+  (`field → contactId | null`, i.e. "take this field from that contact" — PII
+  values never round-trip through the client). In one transaction it reparents
+  every child record (`CollectionMember` by string match, since it has no FK),
+  deletes the duplicates, then updates the kept contact. Deleting first frees a
+  duplicate's `(workspaceId, emailHash)` for the kept contact. Most recent
+  interaction, highest connection score and earliest `firstSeenAt` win;
+  `emailOptedOutAt` is preserved if *any* merged contact had unsubscribed.
+  No Automation fires on merge (a duplicate may already have triggered its
+  onboarding run). Requires role `owner | admin | member`.
+
 ### Not Yet Implemented
 
 - **Communications module**: Schema exists (`CrmCommunication`, `CrmCommunicationTemplate`) but no router or UI. Shown as "Coming Soon" in CRM nav.
@@ -446,7 +475,7 @@ src/app/(sidemenu)/w/[workspaceSlug]/crm/contacts/_components/ConnectionScoreGau
 - **Contact tagging**: `tags String[]` field exists on CrmContact but no tag management UI.
 - **Background import jobs**: Gmail/Calendar imports run synchronously. Should move to background job queue for large imports.
 - **CSV/Excel import**: No file-based import yet.
-- **Advanced contact deduplication/merge**: Email hash exists for basic dedup, but no merge UI.
+- **Automatic duplicate detection**: Contacts dedupe on emailHash at import/create time, and users can merge selected contacts by hand (see "Merging contacts" below), but nothing yet scans the workspace for likely duplicates or suggests merges.
 - **Multiple pipelines per workspace**: Currently limited to one pipeline. The architecture supports multiple (via Project model) but the UI assumes one.
 - **Stage drag-to-reorder in settings**: The `reorderStages` API exists but the settings UI doesn't have drag-to-reorder yet (grip icon is visual only).
 - **Pipeline in dashboard stats**: The CRM dashboard doesn't show pipeline stats yet.

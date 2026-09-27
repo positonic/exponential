@@ -16,6 +16,7 @@ import {
   ActionIcon,
   Collapse,
   Loader,
+  Tooltip,
 } from '@mantine/core';
 import { useDisclosure, useDebouncedValue } from '@mantine/hooks';
 import {
@@ -38,6 +39,8 @@ import {
   IconCalendarPlus,
   IconBriefcase,
   IconBuilding,
+  IconArrowsJoin2,
+  IconX,
 } from '@tabler/icons-react';
 import { keepPreviousData } from '@tanstack/react-query';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -47,6 +50,8 @@ import { useRouter } from 'next/navigation';
 import { notifications } from '@mantine/notifications';
 import { ImportDialog } from './_components/ImportDialog';
 import { CsvImportDialog } from './_components/CsvImportDialog';
+import { MergeContactsDialog } from './_components/MergeContactsDialog';
+import { MERGE_MAX_CONTACTS } from '~/lib/crm/contactMerge';
 import { ConnectionScoreBadge } from './_components/ConnectionScoreGauge';
 import { EmptyState } from '~/app/_components/EmptyState';
 import { EnrichContactButton } from '~/app/_components/crm/EnrichContactButton';
@@ -269,6 +274,10 @@ export default function ContactsPage() {
     useDisclosure(false);
   const [importDialogOpened, { open: openImportDialog, close: closeImportDialog }] =
     useDisclosure(false);
+  // Snapshot of the selection when Merge was clicked: the table's selection
+  // resets on refetch/filter changes and must not yank ids out from under the
+  // open dialog.
+  const [mergeIds, setMergeIds] = useState<string[] | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const {
@@ -444,6 +453,12 @@ export default function ContactsPage() {
     setSelectedIds(newSet);
   };
 
+  const canMerge = selectedIds.size >= 2 && selectedIds.size <= MERGE_MAX_CONTACTS;
+  const openMergeDialog = () => {
+    if (!canMerge) return;
+    setMergeIds(Array.from(selectedIds));
+  };
+
   if (workspaceLoading) {
     return (
       <div className="space-y-6">
@@ -578,11 +593,46 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      {/* Toolbar: total on the left; search / filter / sort (projects-page look) right */}
+      {/* Toolbar: total (or the selection's actions) on the left; search / filter / sort (projects-page look) right */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border-primary bg-background-primary px-4 py-2">
-        <Text size="sm" className="whitespace-nowrap text-text-muted">
-          {countText ?? ' '}
-        </Text>
+        {selectedIds.size > 0 ? (
+          <div className="flex items-center gap-2">
+            <Text size="sm" className="whitespace-nowrap font-medium text-text-primary">
+              {selectedIds.size} selected
+            </Text>
+            <Tooltip
+              label={
+                selectedIds.size < 2
+                  ? 'Select at least two contacts to merge'
+                  : `Merge up to ${MERGE_MAX_CONTACTS} contacts at a time`
+              }
+              disabled={canMerge}
+            >
+              <Button
+                size="xs"
+                variant="light"
+                leftSection={<IconArrowsJoin2 size={14} />}
+                onClick={openMergeDialog}
+                disabled={!canMerge}
+              >
+                Merge contacts
+              </Button>
+            </Tooltip>
+            <Button
+              size="xs"
+              variant="subtle"
+              color="gray"
+              leftSection={<IconX size={14} />}
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear
+            </Button>
+          </div>
+        ) : (
+          <Text size="sm" className="whitespace-nowrap text-text-muted">
+            {countText ?? ' '}
+          </Text>
+        )}
 
         <div className={styles.actions}>
           <div className={styles.searchWrap}>
@@ -858,6 +908,17 @@ export default function ContactsPage() {
           opened={csvImportDialogOpened}
           onClose={closeCsvImportDialog}
           workspaceId={workspaceId}
+        />
+      )}
+
+      {/* Merge Contacts Dialog */}
+      {workspaceId && mergeIds && (
+        <MergeContactsDialog
+          opened
+          onClose={() => setMergeIds(null)}
+          workspaceId={workspaceId}
+          contactIds={mergeIds}
+          onMerged={() => setSelectedIds(new Set())}
         />
       )}
     </div>
