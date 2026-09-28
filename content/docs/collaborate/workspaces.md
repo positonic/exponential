@@ -58,6 +58,8 @@ See [Workspace settings](/docs/reference/workspace-settings) for the full refere
 
 ## How it connects
 
+- **Members, roles and access** — roles, invitations, guests, public and restricted projects in one place: [Members, roles & access](/docs/collaborate/members-and-access).
+
 - **[Teams](/docs/collaborate/teams)** — a team is a group of people; link it to a workspace under **Teams** to give everyone in it access at once.
 - **[Projects](/docs/do/projects)** — every project lives in one workspace; a **Restricted project** limits it to its own members and workspace admins.
 - **[Plugins](/docs/reference/plugins)** — plugins are enabled per workspace, and their data (CRM contacts, OKRs) stays inside it.

@@ -61,6 +61,8 @@ Teams linked to your other workspaces show under **Linked to other workspaces**.
 
 ## How it connects
 
+- **Members, roles and access** — what each workspace role can do, and why team membership does not open restricted projects: [Members, roles & access](/docs/collaborate/members-and-access).
+
 - **[Workspaces](/docs/collaborate/workspaces)** — link a team to a workspace to grant access in bulk; roles inside the workspace still come from the workspace.
 - **[Projects](/docs/do/projects)** — team projects are how the team actually shares work.
 - **[Weekly plan](/docs/reflect/weekly-plan)** — organization teams receive shared weekly check-ins.

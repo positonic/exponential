@@ -69,6 +69,8 @@ You can also log a decision by hand from the same tab.
 
 ## How it connects
 
+- **Access** — who can see a meeting follows its project: [Members, roles & access](/docs/collaborate/members-and-access).
+
 - **Fireflies** — the automatic way meetings arrive: [Fireflies](/docs/meet/fireflies).
 - **Actions** and **Projects** — where confirmed actions go: [Actions](/docs/do/actions), [Projects](/docs/do/projects).
 - **Decisions** — confirmed decisions live in the Decision Log: [Decisions](/docs/plan/decisions).
