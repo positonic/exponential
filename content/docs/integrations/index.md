@@ -24,8 +24,8 @@ Exponential connects to the tools your work already flows through: meeting recor
 |---|---|---|
 | [Fireflies](/docs/meet/fireflies) | Sends every recorded meeting in, with actions and a summary extracted | Settings → Integrations → **Add Fireflies** |
 | [Slack](/docs/integrations/slack) | Lets Zoe read, search and post in your Slack; routes meeting summaries to channels | Settings → Integrations → **Add Integration** → Slack |
-| [WhatsApp](/docs/zoe/whatsapp) | Chat with Zoe from WhatsApp | Settings → Integrations → **Connect WhatsApp** |
-| Telegram | Chat with Zoe from Telegram, with a default agent per connection | Settings → Integrations → **Connect Telegram** |
+| [Chat gateways](/docs/zoe/chat-gateways) | Chat with Zoe from WhatsApp | Settings → Integrations → **Connect WhatsApp** |
+| [Telegram](/docs/zoe/chat-gateways) | Chat with Zoe from Telegram, with a default agent per connection | Settings → Integrations → **Connect Telegram** |
 | [Notion](/docs/integrations/notion) | Two-way sync between a Notion database and your actions, with status mapping | Workflows → **Notion Tasks Database** → Configure |
 | [Monday.com](/docs/integrations/github-google-monday) | Sync actions with a Monday.com board (push, pull or both) | Workflows → **Monday.com Boards** → Configure |
 | Calendar feeds | Subscribe to a published calendar by its ICS address (works with Outlook); events refresh every 15 minutes and appear on Today | Settings → Integrations → **Add calendar feed** |

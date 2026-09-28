@@ -44,4 +44,4 @@ An installation that operates without any Exponential-controlled account or cont
 
 ## How it connects
 
-- Users' guides for the features these variables switch on: [WhatsApp](/docs/zoe/whatsapp), [Slack](/docs/integrations/slack), [Integrations](/docs/integrations), [Notifications](/docs/collaborate/notifications).
+- Users' guides for the features these variables switch on: [Chat gateways](/docs/zoe/chat-gateways), [Slack](/docs/integrations/slack), [Integrations](/docs/integrations), [Notifications](/docs/collaborate/notifications).
