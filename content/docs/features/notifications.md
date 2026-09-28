@@ -1,134 +1,132 @@
 ---
 title: Notifications
-description: Stay informed with push notifications, email alerts, and customizable notification preferences
+description: Choose which notifications you get and where they go — push, email, Matrix, WhatsApp, or Zulip
 ---
 
 ## Overview
 
-Exponential keeps you informed about what matters through multiple notification channels. You can receive push notifications on your devices, email alerts, and scheduled summaries — all configurable to match your preferences.
+Exponential can notify you by **push**, **email**, **Matrix**, **WhatsApp**, and **Zulip**. Push and email work out of the box. The chat channels are opt-in: connect one, then pick which notifications it receives.
 
-### Notification Types
+Everything is configured on one page: [Settings → Notifications](https://www.exponential.im/settings/notifications).
 
-| Notification | What triggers it | Channels |
-|-------------|-----------------|----------|
-| **Task assignment** | Someone assigns you a task | Push, Email |
-| **Comment mention** | Someone @mentions you in a comment | Push, Email |
-| **Daily plan reminder** | Every morning | Push |
-| **Task due reminder** | Before a task is due (configurable) | Push |
-| **Daily summary** | At your chosen time each day | Push |
-| **Weekly summary** | On your chosen day each week | Push |
+### Notification types
 
-## Push Notifications
+| Notification | What triggers it | Default channels |
+|-------------|-----------------|------------------|
+| **Assignments** | Someone assigns you an action | Push, Email |
+| **Mentions** | Someone @mentions you in a comment on a ticket, feature, action, or insight | Push, Email |
+| **Due-date reminders** | 15 minutes, 1 hour, and 1 day before an action you own is due | Push, Email |
+| **Summaries** | Your daily and weekly digests, at the time you choose | Email |
+| **Meeting-ready** | A meeting's notes and summary are ready | Push, Email |
+| **Added to a meeting** | Someone adds you as a meeting participant | Push, Email |
+| **Agenda ready** | A ceremony's agenda has been generated | Push, Email |
+| **Daily plan reminder** | Every morning, with your task count for the day | Push only |
 
-Push notifications appear on your device in real time — even when you're not using Exponential.
+You never get notified about your own actions, and mentions only reach members of the workspace the comment is in.
 
-### Enabling Push Notifications
+## Choosing where each notification goes
 
-1. Go to **Settings > Notifications**
-2. Click **Enable Notifications**
-3. When your browser prompts, click **Allow**
-4. You'll see a success message confirming notifications are active
+The **Delivery preferences** section of [Settings → Notifications](https://www.exponential.im/settings/notifications) shows one card per channel you can use. Inside each card, tick the notification types you want on that channel.
 
-Once enabled, you can click **Test** to send yourself a test notification and verify everything is working.
+- **Push** and **Email** cards are always shown.
+- **Matrix**, **WhatsApp**, and **Zulip** cards appear only after you connect that channel (see below). They start with everything unticked, so connecting a chat channel never starts pinging you until you ask it to.
 
-### Supported Devices
+Changes save immediately.
 
-Push notifications work on:
+## Push notifications
+
+Push notifications appear on your device in real time, even when Exponential isn't open.
+
+### Enabling push
+
+1. Open [Settings → Notifications](https://www.exponential.im/settings/notifications).
+2. Under **Push Notifications**, click **Enable Notifications**.
+3. When your browser prompts, click **Allow**.
+
+Click **Test** to send yourself a test notification.
+
+### Supported devices
+
 - **Desktop**: Chrome, Firefox, Edge, Safari (macOS Ventura+)
-- **Mobile**: Android (via Chrome or installed PWA), iOS (via installed PWA on iOS 16.4+)
+- **Mobile**: Android (Chrome or installed PWA), iOS 16.4+ (installed PWA only)
 
-For the best mobile experience, install Exponential as a PWA (Progressive Web App) from your browser's "Add to Home Screen" option.
+For mobile, install Exponential as a PWA using your browser's **Add to Home Screen** option. Regular mobile browser tabs may not receive push reliably.
 
-### Disabling Push Notifications
+### Disabling push
 
-1. Go to **Settings > Notifications**
-2. Click **Disable** next to your active subscription
+Click **Disable** next to your active subscription. This only affects the current device. Disable each device separately if you enabled push on several.
 
-This removes the subscription for the current device only. If you've enabled notifications on multiple devices, you'll need to disable each one separately.
+### Troubleshooting push
 
-### Troubleshooting
+**"Notifications blocked"** — your browser denied permission. Re-allow it:
+- **Chrome**: lock icon in the address bar → Site settings → Notifications → Allow
+- **Firefox**: lock icon → Permissions → Notifications → Allow
+- **Safari**: Safari → Settings → Websites → Notifications → Allow
 
-**"Notifications blocked" message**
-Your browser has denied notification permissions. To fix this:
-- **Chrome**: Click the lock icon in the address bar > Site settings > Notifications > Allow
-- **Firefox**: Click the lock icon > Permissions > Notifications > Allow
-- **Safari**: Safari > Settings > Websites > Notifications > Allow
+**"Notification setup unavailable"** — the push service couldn't be reached. Refresh and try again.
 
-**"Notification setup unavailable"**
-The notification service couldn't be reached. Try refreshing the page. If it persists, the service may be temporarily unavailable.
+**"Subscription failed"** — refresh the page or clear your browser cache, then retry.
 
-**"Subscription failed"**
-Your browser couldn't create a push subscription. Try refreshing the page or clearing your browser cache.
+## Email notifications
 
-**Not receiving notifications on mobile**
-Make sure you've installed Exponential as a PWA from your browser. Regular mobile browser tabs may not receive push notifications reliably.
+Email is on by default for every notification type except the daily plan reminder. Untick types you don't want under the **Email** card in Delivery preferences.
 
-## Email Notifications
+### Turning email off for one workspace
 
-Email notifications are sent for collaborative events like task assignments and comment mentions.
+You can also switch email off for a whole workspace without touching your other preferences:
 
-### What triggers an email
+1. Open [Settings → Notifications](https://www.exponential.im/settings/notifications).
+2. Scroll to **Email Notifications** and find the workspace.
+3. Choose **On**, **Off**, or **Default**.
 
-- **Task assignment** — When someone assigns you to a task, you'll receive an email with the task name, who assigned it, and a direct link
-- **Comment mention** — When someone @mentions you in a comment, you'll receive an email with a preview of the comment and a link to the task
+**Default** follows the setting the workspace owner has chosen. A workspace set to **Off** here suppresses email for it even if the Email card has the type ticked.
 
-### Controlling email notifications
+## Matrix notifications
 
-Email notifications can be controlled at two levels:
+Get notifications as a direct message from the Zoe bot in any Matrix client (Element, etc.). Setup takes about a minute.
 
-**Per-workspace override** (takes priority):
-1. Go to **Settings > Notifications**
-2. Find the workspace under **Email Notifications**
-3. Choose **On**, **Off**, or **Default**
+### 1. Pair your Matrix account
 
-**Workspace default**:
-Each workspace has a default email notification setting. When your preference is set to **Default**, you'll follow whatever the workspace owner has configured.
+1. Open [Settings → Assistant](https://www.exponential.im/settings/assistant). If you haven't set up your assistant yet, give it a name and personality and click **Create Assistant** first — the Matrix card needs it.
+2. In the **Matrix** card, enter your full Matrix ID (for example `@you:syntro.fi`) and click **Connect Matrix**.
+3. The bot invites you to a chat. Accept the invite in your Matrix client and send the pairing code shown in the app into that chat. The code expires after 10 minutes.
 
-## Notification Preferences
+The card shows **Connected** once pairing succeeds.
 
-### Global Settings
+### 2. Choose what Matrix receives
 
-Your notification preferences control what you receive and when. Access them from **Settings > Notifications**.
+1. Open [Settings → Notifications](https://www.exponential.im/settings/notifications).
+2. A **Matrix (Zoe DM)** card now appears under Delivery preferences. Tick the types you want, such as **Mentions**.
+3. Click **Send test** on the card to confirm a message arrives in your Zoe DM.
 
-| Setting | What it controls |
-|---------|-----------------|
-| **Task reminders** | Get notified before tasks are due |
-| **Daily summary** | Morning overview of your tasks for the day |
-| **Weekly summary** | Weekly recap of completed and pending work |
-| **Timezone** | Ensures notifications arrive at the right local time |
-| **Quiet hours** | Suppress notifications during specific hours (e.g., 10 PM - 7 AM) |
+You keep getting emails too unless you untick them under the Email card.
 
-### Task Reminder Timing
+### Troubleshooting Matrix
 
-You can choose how far in advance you want to be reminded about upcoming tasks:
+**No Matrix card in Delivery preferences** — you haven't paired yet, or pairing didn't finish. Check [Settings → Assistant](https://www.exponential.im/settings/assistant) shows **Connected**.
 
-| Option | Use case |
-|--------|----------|
-| **5 minutes** | Last-minute heads up |
-| **15 minutes** | Quick preparation time |
-| **30 minutes** | Standard reminder |
-| **1 hour** | Planning buffer |
-| **2 hours** | Extended preparation |
-| **1 day** | Advance planning |
-| **2 days** | Early warning |
+**Send test fails with "no paired Matrix DM"** — the bot lost your chat room, usually because you left it. Click **Disconnect Matrix** in Settings → Assistant and pair again.
 
-You can select multiple intervals — for example, get a reminder 1 day before *and* 15 minutes before a task is due.
+**Mentions don't arrive** — only mentions made with the @ picker (or `--mention` in the CLI) notify anyone. A plain `@name` typed as text does nothing. Also confirm you're a member of the workspace the comment is in. Mentions in **page** comments are currently email and push only and do not reach Matrix.
 
-### Daily Summary
+## Zulip and WhatsApp
 
-The daily summary tells you:
-- How many tasks you have today
-- How many are completed vs. pending
-- Any overdue tasks
-- Your top 3 priority tasks
+These work the same way as Matrix: once your account is linked, the channel's card appears under Delivery preferences with every type unticked.
 
-Configure when you receive it by setting your preferred **summary time** (e.g., 9:00 AM) and **timezone**.
+- **Zulip**: a workspace admin links your Exponential account to your Zulip user under the workspace's **Settings → Integrations → Zulip**.
+- **WhatsApp**: not self-serve yet. The card appears only if your phone number has already been linked to a workspace's WhatsApp integration.
 
-### Weekly Summary
+## Summaries
 
-The weekly summary gives you a high-level view of:
-- Total tasks and completion rate
-- Active projects
-- Week-over-week progress
+The **Summary schedule** card on [Settings → Notifications](https://www.exponential.im/settings/notifications) controls when digests go out. Which channels receive them is the **Summaries** tick in Delivery preferences.
 
-Choose which **day of the week** you'd like to receive it.
+- **Daily summary** — tasks due today, what's completed vs. pending, overdue items, and your top priorities. Pick the send time.
+- **Weekly summary** — completion rate, active projects, and week-over-week progress. Pick the weekday; it goes out at the same time as the daily summary.
+
+Times use the timezone on your [profile](https://www.exponential.im/settings/profile). If you haven't set one, times are read as UTC and the card offers to use your browser's timezone.
+
+## Due-date reminders
+
+Reminders fire 15 minutes, 1 hour, and 1 day before an action is due. They go to the action's owner: its assignees, or its creator if nobody is assigned. Actions that are already completed or cancelled never trigger a reminder.
+
+Choose which channels receive them with the **Due-date reminders** tick in Delivery preferences.
