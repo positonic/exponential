@@ -21,6 +21,15 @@ function git(args: string[]): string {
   return execFileSync("git", args, { encoding: "utf-8" });
 }
 
+/** Object id for a rev spec such as `MERGE_HEAD` or `:path`, or null when it does not resolve. */
+function revParse(spec: string): string | null {
+  try {
+    return execFileSync("git", ["rev-parse", "-q", "--verify", spec], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 function localToday(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -48,10 +57,13 @@ if (process.argv.includes("--staged")) {
     git(["diff", "--staged", "--name-only", "--diff-filter=ACMR", "--", "content/docs"]).split("\n").filter(Boolean),
   );
   const today = localToday();
+  // In a merge commit, pages the other branch changed are "staged" too; they keep that branch's date.
+  const merging = revParse("MERGE_HEAD") !== null;
   const stamped: string[] = [];
   for (const page of pages) {
     const file = page.filePath;
     if (!staged.has(file)) continue;
+    if (merging && revParse(`:${file}`) === revParse(`MERGE_HEAD:${file}`)) continue;
     const hasUnstagedEdits = git(["diff", "--name-only", "--", file]).trim() !== "";
     if (hasUnstagedEdits) {
       console.warn(`docs-last-updated: ${file} has unstaged edits; not stamping it (its date stays ${page.meta.updated ?? "unset"})`);
