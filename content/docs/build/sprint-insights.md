@@ -2,7 +2,7 @@
 title: Sprint insights
 description: Ask Zoe how the current sprint is going and get throughput, velocity, a burndown and risk signals computed from your actions
 icon: IconChartBar
-order: 1
+order: 2
 sidebarTitle: Sprint insights
 ---
 

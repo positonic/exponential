@@ -42,7 +42,7 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 |---|---|---|
 | **Plan** | Goals, OKRs and key results, Wheel of Life | [Goals](/docs/plan/goals) |
 | **Do** | Inbox, Today, actions, projects, epics, time tracking | [Inbox & Today](/docs/do/inbox-and-today) |
-| **Build (Products)** | Sprint insights for product teams; products, tickets and cycles docs are on their way | [Sprint insights](/docs/build/sprint-insights) |
+| **Build (Products)** | Products, tickets, features and cycles for product teams; sprint insights | [Products](/docs/build/products) |
 | **Reflect** | Journal, startup and wind-down routines, habits, weekly plan | [Journal](/docs/reflect/journal) |
 | **Meet** | Meetings that become actions and decisions, Fireflies | [Meetings](/docs/meet/meetings) |
 | **Connect (CRM)** | Contacts and organisations, lists, pipelines, automations | [Contacts](/docs/crm/contacts) |

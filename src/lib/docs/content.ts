@@ -82,12 +82,21 @@ export function listDocPages(docsDir: string = DOCS_DIR): DocPage[] {
       const name = entry.name.replace(/\.md$/, "");
       const slug = name === "index" ? prefix : [...prefix, name];
       const raw = fs.readFileSync(full, "utf-8");
-      const { data, content } = matter(raw);
+      let parsed: { data: Record<string, unknown>; content: string };
+      try {
+        parsed = matter(raw);
+      } catch (error) {
+        // A page with broken frontmatter must not take the whole docs site down;
+        // scripts/check-docs.ts reports it and fails CI.
+        console.error(`[docs] skipping ${full}: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`);
+        continue;
+      }
+      const { data, content } = parsed;
       pages.push({
         slug,
         href: slug.length ? `${DOCS_BASE}/${slug.join("/")}` : DOCS_BASE,
         filePath: path.relative(process.cwd(), full),
-        meta: toMeta(data as Record<string, unknown>),
+        meta: toMeta(data),
         content,
       });
     }

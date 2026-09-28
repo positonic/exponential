@@ -20,6 +20,7 @@
  */
 import fs from "fs";
 import path from "path";
+import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
 import { extractHeadings } from "../src/lib/docs/extractHeadings";
 import { readLastUpdatedMap } from "../src/lib/docs/lastUpdated";
@@ -83,7 +84,33 @@ function allowedSidebarLabels(): Set<string> {
   return labels;
 }
 
+/** Files gray-matter cannot parse are skipped by listDocPages; report them here. */
+function frontmatterErrors(): Problem[] {
+  const out: Problem[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith("_") || entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".md")) {
+        try {
+          matter(fs.readFileSync(full, "utf-8"));
+        } catch (error) {
+          out.push({
+            file: path.relative(ROOT, full),
+            line: 1,
+            message: `frontmatter does not parse (quote values containing ": "): ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
+          });
+        }
+      }
+    }
+  };
+  walk(DOCS_DIR);
+  return out;
+}
+
 function main() {
+  problems.push(...frontmatterErrors());
   const pages = listDocPages(DOCS_DIR);
   const byHref = new Map(pages.map((p) => [p.href, p]));
   const headingIds = new Map(pages.map((p) => [p.href, new Set(extractHeadings(p.content).map((h) => h.id))]));
