@@ -51,7 +51,7 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 | **Zoe & AI** | The assistant, the knowledge base, chat over WhatsApp | [Zoe](/docs/zoe/assistant) |
 | **Capture anywhere** | iOS shortcut, Chrome extension, mobile app | [iOS shortcut](/docs/capture/ios-shortcut) |
 | **Integrations** | Slack, Notion, Monday.com, calendar feeds | [Integrations](/docs/integrations) |
-| **Developers & agents** | API tokens, external agents, the CLI reference | [API tokens](/docs/developers/api-tokens) |
+| **Developers & agents** | API tokens, external agents, the CLI reference, the MCP server and SDK | [API tokens](/docs/developers/api-tokens) |
 | **Reference** | Your settings, workspace settings, plugins | [Your settings](/docs/reference/your-settings) |
 | **Self-hosting** | Running your own installation | [Self-hosting](/docs/self-hosting) |
 

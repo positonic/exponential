@@ -50,6 +50,8 @@ External agents are deliberately more limited than human members:
 
 ## How it connects
 
+- **MCP server and SDK** — the client libraries an agent can use with its key: [MCP server & SDK](/docs/developers/mcp-and-sdk).
+
 - [API tokens](/docs/developers/api-tokens) — tokens act *as you*; use them for webhooks and personal automation instead.
 - [Zoe, your assistant](/docs/zoe/assistant) — the built-in assistant that works with you in a conversation.
 - [Workspaces](/docs/collaborate/workspaces#roles) — what a member can and cannot do.
