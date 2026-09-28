@@ -70,7 +70,7 @@ You can also log a decision by hand from the same tab.
 
 - **Fireflies** — the automatic way meetings arrive: [Fireflies](/docs/meet/fireflies).
 - **Actions** and **Projects** — where confirmed actions go: [Actions](/docs/do/actions), [Projects](/docs/do/projects).
-- **Decisions** — confirmed decisions live in the Decision Log under **Align → Decisions**.
+- **Decisions** — confirmed decisions live in the Decision Log: [Decisions](/docs/plan/decisions).
 - **Ceremonies** — a recurring meeting's occurrence can be linked from the rail; definitions are in [Concepts](/docs/concepts).
 - **Zoe** — the summary, drafted actions, features and decisions are all hers to draft and yours to confirm: [Zoe](/docs/zoe/assistant).
 - **Knowledge** — transcripts are searchable from the [Knowledge base](/docs/zoe/knowledge-base).
