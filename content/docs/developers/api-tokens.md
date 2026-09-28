@@ -42,6 +42,8 @@ Click the trash icon next to it. Revocation is immediate and permanent; anything
 
 ## How it connects
 
+- **MCP server and SDK** — give Claude tools over your workspace, or script it yourself; both sign in with a JWT token: [MCP server & SDK](/docs/developers/mcp-and-sdk).
+
 - **Integrations** — a token lets *others* reach your data; an [integration](/docs/integrations) stores *their* credentials so Exponential can reach them. Fireflies needs both.
 - **External agents** — an agent that should have its own identity rather than act as you belongs on [External agents](/docs/developers/external-agents).
 
