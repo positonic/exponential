@@ -53,6 +53,8 @@ The drawer keeps Zoe alongside the page you are on, so you can ask about what is
 
 ## How it connects
 
+- **Keyboard shortcuts** — ⌘J for the drawer and the palette's Ask Zoe mode: [Keyboard shortcuts](/docs/reference/keyboard-shortcuts).
+
 - [Knowledge base](/docs/zoe/knowledge-base) — pin a resource there and it is included in every chat, so Zoe answers from your own documents and meetings.
 - [Chat gateways](/docs/zoe/chat-gateways) — message Zoe from your phone; the **Connect WhatsApp** button on the Agents page starts the setup.
 - [External agents](/docs/developers/external-agents) — for software that should act under its own name rather than yours.
