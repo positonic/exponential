@@ -54,8 +54,26 @@ describe("setUpdatedFrontmatter", () => {
     expect(matter(out).content.trim()).toBe("# Heading");
   });
 
+  it("keeps a byte-order mark and trailing spaces on the opening fence", () => {
+    for (const raw of ["\uFEFF---\ntitle: A\n---\n\nBody\n", "---  \ntitle: A\n---\n\nBody\n"]) {
+      const out = setUpdatedFrontmatter(raw, "2026-09-28");
+      expect(out.startsWith(raw.slice(0, raw.indexOf("\n") + 1))).toBe(true);
+      expect(matter(out).data).toMatchObject({ title: "A" });
+      expect(parseUpdatedField(matter(out).data.updated)).toBe("2026-09-28");
+      expect(matter(out).content.trim()).toBe("Body");
+    }
+  });
+
+  it("refuses rather than prepend a second block when it cannot find the frontmatter", () => {
+    // gray-matter reads `---yaml` as a fence with a language hint; this function does not.
+    const raw = "---yaml\ntitle: A\n---\n\nBody\n";
+    expect(matter(raw).data).toMatchObject({ title: "A" });
+    expect(() => setUpdatedFrontmatter(raw, "2026-09-28")).toThrow(/unrecognised frontmatter fence/);
+  });
+
   it("handles CRLF line endings", () => {
     const out = setUpdatedFrontmatter("---\r\ntitle: A\r\n---\r\n\r\nBody\r\n", "2026-09-28");
+    expect(out).toBe("---\r\ntitle: A\r\nupdated: 2026-09-28\r\n---\r\n\r\nBody\r\n");
     expect(matter(out).data).toMatchObject({ title: "A" });
     expect(parseUpdatedField(matter(out).data.updated)).toBe("2026-09-28");
   });

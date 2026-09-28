@@ -29,7 +29,13 @@ function localToday(): string {
 
 function stamp(file: string, date: string): boolean {
   const raw = fs.readFileSync(file, "utf-8");
-  const next = setUpdatedFrontmatter(raw, date);
+  let next: string;
+  try {
+    next = setUpdatedFrontmatter(raw, date);
+  } catch (error) {
+    console.warn(`docs-last-updated: ${file}: ${error instanceof Error ? error.message : String(error)}`);
+    return false;
+  }
   if (next === raw) return false;
   fs.writeFileSync(file, next);
   return true;

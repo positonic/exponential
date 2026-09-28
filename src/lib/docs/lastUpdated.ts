@@ -36,22 +36,31 @@ export function parseUpdatedField(value: unknown): string | null {
   return null;
 }
 
-const FRONTMATTER = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[^\S\r\n]*(\r?\n|$)/;
+// Opening fence (with the optional BOM and trailing spaces gray-matter also
+// accepts), the YAML, the newline before the closing fence, and the one after it.
+const FRONTMATTER = /^(﻿?---[^\S\r\n]*\r?\n)(?:([\s\S]*?)(\r?\n))?---[^\S\r\n]*(\r?\n|$)/;
 const UPDATED_LINE = /^updated:.*$/m;
 
 /**
  * Returns `raw` with its frontmatter `updated` field set to `date`, editing
  * the YAML as text so every other line keeps its exact formatting. Adds a
- * frontmatter block when the page has none.
+ * frontmatter block when the page has none. Throws when gray-matter sees
+ * frontmatter this function cannot locate, rather than prepending a second
+ * block that would hide the real one.
  */
 export function setUpdatedFrontmatter(raw: string, date: string): string {
   const match = FRONTMATTER.exec(raw);
-  if (!match) return `---\nupdated: ${date}\n---\n\n${raw}`;
-  const yaml = match[1] ?? "";
+  if (!match) {
+    if (Object.keys(matter(raw).data).length > 0) throw new Error("unrecognised frontmatter fence; add `updated:` by hand");
+    return `---\nupdated: ${date}\n---\n\n${raw}`;
+  }
+  const open = match[1] ?? "---\n";
+  const yaml = match[2] ?? "";
+  const nl = match[3] ?? (open.endsWith("\r\n") ? "\r\n" : "\n");
   const nextYaml = UPDATED_LINE.test(yaml)
     ? yaml.replace(UPDATED_LINE, `updated: ${date}`)
-    : `${yaml}${yaml.length ? "\n" : ""}updated: ${date}`;
-  return `---\n${nextYaml}\n---${match[2] ?? ""}${raw.slice(match[0].length)}`;
+    : `${yaml}${yaml.length ? nl : ""}updated: ${date}`;
+  return `${open}${nextYaml}${nl}---${match[4] ?? ""}${raw.slice(match[0].length)}`;
 }
 
 /** The `updated` frontmatter date of a docs page, or null. */
