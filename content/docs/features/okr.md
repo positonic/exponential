@@ -1,6 +1,10 @@
 ---
 title: OKRs (Objectives & Key Results)
 description: Track objectives and measurable key results aligned with your goals
+section: plugins
+order: 2
+icon: IconTarget
+sidebarTitle: OKRs
 ---
 
 ## Overview
@@ -33,7 +37,7 @@ Key Results are specific, measurable outcomes that indicate whether you've achie
 
 1. Go to **Settings > Plugins** in your workspace
 2. Ensure the **OKRs** plugin is enabled
-3. Click **OKRs** in the sidebar to access the dashboard
+3. Open **Goals** in the sidebar and switch to the **OKRs** tab to access the dashboard
 
 ### Creating Your First Key Result
 

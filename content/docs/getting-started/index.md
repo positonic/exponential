@@ -1,6 +1,9 @@
 ---
 title: Quickstart
 description: Get up and running with Exponential in just a few minutes
+section: get-started
+order: 2
+icon: IconBolt
 ---
 
 ## Welcome to Exponential

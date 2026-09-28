@@ -1,6 +1,9 @@
 ---
 title: Projects
 description: Organize your work into focused projects with priorities, statuses, and team collaboration
+section: features
+order: 2
+icon: IconFolders
 ---
 
 ## Overview

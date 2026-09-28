@@ -1,6 +1,9 @@
 ---
 title: Integrations
 description: Connect Exponential to external services and tools for enhanced productivity
+section: features
+order: 19
+icon: IconPlug
 ---
 
 ## Overview
@@ -45,7 +48,7 @@ Integrations work in two directions:
 
 ### Quick Setup Process
 
-1. Navigate to **Workflows** in the sidebar
+1. Open [Workflows](/workflows) from your user menu
 2. Find the integration you want to enable
 3. Click **Setup** or **Configure**
 4. Follow the service-specific instructions
@@ -88,7 +91,7 @@ For custom integrations, Exponential provides API tokens.
 
 ### Creating Tokens
 
-1. Navigate to **Tokens** in the sidebar
+1. Open [Settings → API keys](/settings/api-keys)
 2. Click **Create Token**
 3. Choose an expiration period
 4. Copy and store the token securely

@@ -1,6 +1,9 @@
 ---
 title: Introduction
 description: Welcome to Exponential - your AI-powered productivity platform
+section: get-started
+order: 1
+icon: IconBook
 ---
 
 ## Welcome to Exponential

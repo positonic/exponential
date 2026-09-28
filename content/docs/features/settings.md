@@ -1,6 +1,9 @@
 ---
 title: Settings
 description: Customize your navigation and personalize your Exponential experience
+section: features
+order: 28
+icon: IconLayoutNavbar
 ---
 
 ## Overview
@@ -9,7 +12,7 @@ The Settings page lets you customize your sidebar navigation. Hide features you 
 
 ## Accessing Settings
 
-Navigate to **Settings** in the sidebar to manage your workspace preferences and navigation.
+Open [Settings](/settings) from your user menu to manage your preferences and navigation.
 
 ## Advanced Action Features
 

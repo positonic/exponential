@@ -1,6 +1,9 @@
 ---
 title: Time Tracking
 description: Track where your time goes with a timer, let an agent propose the rest of your day, and confirm it in one click
+section: features
+order: 8
+icon: IconClock
 ---
 
 ## Overview
@@ -16,7 +19,7 @@ Most people end up using both. The agent fills in the work it can see, and you u
 
 ## The Time Page
 
-Open **Time** from the sidebar, just below **Today**, or go to [exponential.im/time](https://www.exponential.im/time). The header shows your totals for **Today** and this **Week**. Use the **Day / Week** switch to change view, and the workspace menu to narrow it to one workspace.
+Open **Time** from the sidebar, just below **Today**, or go to [exponential.im/time](/time). The header shows your totals for **Today** and this **Week**. Use the **Day / Week** switch to change view, and the workspace menu to narrow it to one workspace.
 
 ### Week view
 
@@ -123,7 +126,7 @@ For product teams, the cycle **Metrics** page also shows how much confirmed time
 
 ## Daily Summary
 
-If you receive the [Daily summary](/docs/features/notifications#daily-summary), it includes a line for yesterday's time:
+If you receive the [Daily summary](/docs/features/notifications#summaries), it includes a line for yesterday's time:
 
 ```text
 Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed → /time
@@ -135,7 +138,7 @@ The link opens the Time page, so a proposed day is one click away from being con
 
 ### Set up
 
-Install the CLI, then sign in with a **JWT Token** created under **Tokens** in the sidebar (see [API Access](/docs/features/api-access)):
+Install the CLI, then sign in with a **JWT Token** created under [Settings → API keys](/settings/api-keys) (see [API Access](/docs/features/api-access)):
 
 ```bash
 npm install -g exponential-cli

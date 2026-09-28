@@ -1,6 +1,10 @@
 ---
 title: Features Overview
 description: Explore the powerful features of Exponential
+section: features
+order: 1
+icon: IconRocket
+sidebarTitle: Overview
 ---
 
 ## Features

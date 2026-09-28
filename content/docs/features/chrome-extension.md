@@ -1,6 +1,9 @@
 ---
 title: Chrome Extension
 description: Capture voice notes, screenshots, and transcriptions from any browser tab
+section: features
+order: 17
+icon: IconMicrophone
 ---
 
 ## Overview
@@ -24,7 +27,7 @@ Whether you're narrating thoughts during research, capturing meeting notes on th
 Before you begin, make sure you have:
 
 - **Google Chrome** (or a Chromium-based browser like Edge or Brave)
-- **An Exponential account** — sign up at [exponential.im](https://exponential.im) if you haven't already
+- **An Exponential account** — sign up at [exponential.im](/) if you haven't already
 - **A microphone** — your laptop's built-in mic works fine, though a headset gives better results
 
 ## Installation
@@ -61,7 +64,7 @@ Before you can start recording, the extension needs to know who you are. You'll 
 
 ### Step 1: Generate an API Key
 
-1. Open [exponential.im/settings/api-keys](https://exponential.im/settings/api-keys) in your browser
+1. Open [exponential.im/settings/api-keys](/settings/api-keys) in your browser
 2. Click the button to **create a new API key**
 3. Your key will appear on screen — **copy it** to your clipboard
 
@@ -170,7 +173,7 @@ Click the **Settings** button in the top-right corner of the side panel to:
 
 ### "Invalid API key" or "No projects found"
 
-- Double-check that you copied the full API key from [exponential.im/settings/api-keys](https://exponential.im/settings/api-keys)
+- Double-check that you copied the full API key from [exponential.im/settings/api-keys](/settings/api-keys)
 - Make sure the key hasn't expired — generate a fresh one if needed
 - Confirm you have at least one project created in Exponential
 

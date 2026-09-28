@@ -1,6 +1,9 @@
 ---
 title: AI Assistant
 description: Chat with intelligent AI agents to get help with tasks, projects, and productivity
+section: features
+order: 23
+icon: IconRobot
 ---
 
 ## Overview
@@ -9,7 +12,7 @@ The AI Assistant is your intelligent productivity partner. Chat with AI agents t
 
 ## Accessing the AI Assistant
 
-Navigate to **Agent** in the sidebar to open the full chat interface.
+Open [Agents](/agent) (under **Amplify** in the sidebar) to open the full chat interface.
 
 ## Chat Interface
 
@@ -29,7 +32,7 @@ The AI Assistant page has two main areas:
 
 ### Starting a Conversation
 
-1. Navigate to **Agent** in the sidebar
+1. Open [Agents](/agent) under **Amplify** in the sidebar
 2. Type your question or request in the input field
 3. Press Enter or click Send
 4. The AI will respond with helpful information
@@ -91,7 +94,7 @@ Each agent has access to:
 
 ### Starting a New Chat
 
-Click **New Chat** in the sidebar to start fresh. Your previous conversation is saved and can be resumed later.
+Click **New chat** in the conversation list to start fresh. Your previous conversation is saved and can be resumed later.
 
 ### Resuming Conversations
 

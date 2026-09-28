@@ -1,6 +1,9 @@
 ---
 title: Inbox & Today
 description: Process unassigned tasks and focus on your daily priorities
+section: features
+order: 6
+icon: IconInbox
 ---
 
 ## Overview

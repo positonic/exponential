@@ -44,7 +44,7 @@ export function DocsTableOfContents({ headings }: DocsTableOfContentsProps) {
   }
 
   return (
-    <nav className="w-56 shrink-0 border-l border-border-primary bg-background-primary">
+    <nav aria-label="On this page" className="hidden w-56 shrink-0 border-l border-border-primary bg-background-primary xl:block">
       <div className={`sticky ${isLoggedIn ? "top-0 p-4" : "top-16 pt-10 px-4 pb-4"}`}>
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
           On this page
@@ -67,7 +67,7 @@ export function DocsTableOfContents({ headings }: DocsTableOfContentsProps) {
                 }}
                 className={`block text-sm transition-colors duration-200 ${
                   activeId === heading.id
-                    ? "font-medium text-blue-500"
+                    ? "font-medium text-brand-primary"
                     : "text-text-secondary hover:text-text-primary"
                 }`}
               >

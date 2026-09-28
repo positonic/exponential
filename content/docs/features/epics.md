@@ -1,6 +1,9 @@
 ---
 title: Epics
 description: Group related actions together into larger initiatives to see the bigger picture
+section: features
+order: 4
+icon: IconStack2
 ---
 
 ## Overview

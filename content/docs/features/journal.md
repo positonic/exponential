@@ -1,6 +1,9 @@
 ---
 title: Daily Journal
 description: Reflect on your day with gratitude, energy tracking, and learning reflections
+section: features
+order: 7
+icon: IconNotebook
 ---
 
 ## Overview

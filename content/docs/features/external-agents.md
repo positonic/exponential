@@ -1,6 +1,9 @@
 ---
 title: External Agents
 description: Connect third-party AI agents to Exponential as first-class team members with their own identity, scoped access, and revocable keys
+section: features
+order: 27
+icon: IconRobotFace
 ---
 
 ## Overview

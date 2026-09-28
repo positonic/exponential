@@ -1,6 +1,9 @@
 ---
 title: Goals
 description: Create strategic alignment from vision goals through projects to daily actions
+section: features
+order: 5
+icon: IconTargetArrow
 ---
 
 ## Overview

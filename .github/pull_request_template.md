@@ -32,6 +32,9 @@ If migrations are included:
 - [ ] Database migrations tested on test database
 - [ ] Coordinated with team on any migration conflicts
 
+## Docs
+Docs updated? (link to the `/docs` page or PR, or n/a):
+
 ## Deployment Notes
 Any special deployment considerations?
 

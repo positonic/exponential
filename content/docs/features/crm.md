@@ -1,6 +1,10 @@
 ---
 title: CRM (Contact Management)
 description: Manage contacts, organizations, and interactions with encrypted data storage
+section: plugins
+order: 3
+icon: IconAddressBook
+sidebarTitle: CRM
 ---
 
 ## Overview

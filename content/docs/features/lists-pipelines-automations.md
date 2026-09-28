@@ -1,6 +1,9 @@
 ---
 title: Lists, Pipelines & Automations
 description: How the three CRM building blocks fit together — what each one is, and how they connect
+section: plugins
+order: 4
+icon: IconBolt
 ---
 
 ## Overview

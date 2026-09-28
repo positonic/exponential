@@ -4,17 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IconChevronRight } from "@tabler/icons-react";
 import { getBreadcrumbs } from "~/lib/docs/navigation";
+import { useDocsNav } from "./DocsNavProvider";
 
 export function DocsBreadcrumb() {
   const pathname = usePathname();
-  const breadcrumbs = getBreadcrumbs(pathname);
+  const { nav } = useDocsNav();
+  const breadcrumbs = getBreadcrumbs(nav, pathname);
 
   if (breadcrumbs.length <= 1) {
     return null;
   }
 
   return (
-    <nav className="mb-4 flex items-center gap-1 text-sm">
+    <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1 text-sm">
       {breadcrumbs.map((crumb, index) => (
         <span key={index} className="flex items-center gap-1">
           {index > 0 && (

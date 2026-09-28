@@ -1,6 +1,10 @@
 ---
 title: Startup & Wind-Down Routines
 description: Begin and end each day with structured rituals for peak productivity
+section: features
+order: 11
+icon: IconSunrise
+sidebarTitle: Routines
 ---
 
 ## Overview

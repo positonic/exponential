@@ -1,6 +1,9 @@
 ---
 title: Mobile App
 description: Install Exponential as a mobile app on your iPhone or Android device
+section: get-started
+order: 4
+icon: IconDeviceMobile
 ---
 
 ## Install on Mobile

@@ -1,6 +1,9 @@
 ---
 title: API Access
 description: Generate API tokens for webhooks and external integrations
+section: features
+order: 26
+icon: IconKey
 ---
 
 ## Overview
@@ -18,7 +21,7 @@ API tokens allow external applications to interact with your Exponential account
 
 ## Accessing Tokens
 
-Navigate to **Tokens** in the sidebar to manage your API tokens.
+Open [Settings → API keys](/settings/api-keys) to manage your API tokens.
 
 ## Token Types
 
@@ -36,7 +39,7 @@ Navigate to **Tokens** in the sidebar to manage your API tokens.
 
 ## Creating a Token
 
-1. Navigate to **Tokens** in the sidebar
+1. Open [Settings → API keys](/settings/api-keys)
 2. Click **Create API Key**
 3. Fill in the details:
    - **Name** - Descriptive name (e.g., "Fireflies Webhook")
