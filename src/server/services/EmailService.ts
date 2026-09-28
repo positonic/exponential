@@ -818,6 +818,10 @@ If you weren't expecting to be added to this workspace, you can ignore this emai
 
 /**
  * Generate the notification footer HTML shared by assignment and mention emails
+ *
+ * `workspaceName` is attacker-writable text and the two settings URLs land in
+ * `href` attributes, so both are escaped in the HTML half. The text half is
+ * left raw — plain text has no markup to break out of.
  */
 function generateNotificationFooter(params: {
   workspaceName: string;
@@ -831,12 +835,12 @@ function generateNotificationFooter(params: {
           <tr>
             <td style="padding: 24px 32px 32px;">
               <p style="margin: 0 0 8px; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                You're receiving this because email notifications are enabled for the <strong>${workspaceName}</strong> workspace.
+                You're receiving this because email notifications are enabled for the <strong>${escapeHtml(workspaceName)}</strong> workspace.
               </p>
               <p style="margin: 0; font-size: 12px; color: #9ca3af;">
-                <a href="${personalSettingsUrl}" style="color: #6b7280; text-decoration: underline;">Manage your notification preferences</a>
+                <a href="${escapeHtml(personalSettingsUrl)}" style="color: #6b7280; text-decoration: underline;">Manage your notification preferences</a>
                 &nbsp;&middot;&nbsp;
-                <a href="${workspaceSettingsUrl}" style="color: #6b7280; text-decoration: underline;">Workspace notification settings</a>
+                <a href="${escapeHtml(workspaceSettingsUrl)}" style="color: #6b7280; text-decoration: underline;">Workspace notification settings</a>
               </p>
             </td>
           </tr>`;
@@ -849,10 +853,7 @@ Workspace notification settings: ${workspaceSettingsUrl}`;
   return { html, text };
 }
 
-/**
- * Send email notification when a user is assigned to an action
- */
-export async function sendAssignmentNotificationEmail(params: {
+export interface AssignmentNotificationParams {
   to: string;
   assigneeName: string;
   assignerName: string;
@@ -862,12 +863,42 @@ export async function sendAssignmentNotificationEmail(params: {
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
   workspaceId?: string;
-}): Promise<void> {
-  const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
+}
+
+/**
+ * Build the assignment notification email — sent when someone assigns the
+ * recipient to an action.
+ *
+ * The assigner's display name, the action's name and the workspace name are all
+ * attacker-writable text landing in someone else's inbox, so they are escaped
+ * for the HTML body along with the action URL that goes into `href`. The
+ * plain-text body and the subject stay unescaped — there is no markup to break
+ * out of, and `sendEmail` strips CR/LF from subjects.
+ *
+ * Pure content builder, no I/O — exported so the escaping is unit-testable
+ * without a Postmark stub. `sendAssignmentNotificationEmail` below is the thin
+ * send wrapper.
+ */
+export function buildAssignmentNotificationEmail(
+  params: AssignmentNotificationParams
+): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = assigneeName ? `Hi ${assigneeName},` : "Hi there,";
+
+  const safeGreeting = assigneeName
+    ? `Hi ${escapeHtml(assigneeName)},`
+    : "Hi there,";
+  const safeAssignerName = escapeHtml(assignerName);
+  const safeActionName = escapeHtml(actionName);
+  const safeWorkspaceName = escapeHtml(workspaceName);
+  const safeActionUrl = escapeHtml(actionUrl);
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -897,17 +928,17 @@ export async function sendAssignmentNotificationEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${greeting}
+                ${safeGreeting}
               </p>
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${assignerName}</strong> assigned you to <strong>${actionName}</strong> in ${workspaceName}.
+                <strong>${safeAssignerName}</strong> assigned you to <strong>${safeActionName}</strong> in ${safeWorkspaceName}.
               </p>
 
               <!-- CTA Button -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${safeActionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       View Action
                     </a>
                   </td>
@@ -919,7 +950,7 @@ export async function sendAssignmentNotificationEmail(params: {
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${actionUrl}
+                ${safeActionUrl}
               </p>
             </td>
           </tr>
@@ -945,12 +976,28 @@ View Action: ${actionUrl}
 ${footer.text}
 `.trim();
 
-  await sendEmail({
-    to,
+  return {
     subject: `[${appName}] You've been assigned to: ${actionName}`,
     htmlBody,
     textBody,
-    workspaceId,
+  };
+}
+
+/**
+ * Send email notification when a user is assigned to an action — thin wrapper
+ * over the pure builder above.
+ */
+export async function sendAssignmentNotificationEmail(
+  params: AssignmentNotificationParams
+): Promise<void> {
+  const { subject, htmlBody, textBody } =
+    buildAssignmentNotificationEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId: params.workspaceId,
   });
 }
 
@@ -1063,10 +1110,7 @@ ${footer.text}
   });
 }
 
-/**
- * Send email notification when a user is mentioned in a comment
- */
-export async function sendMentionNotificationEmail(params: {
+export interface MentionNotificationParams {
   to: string;
   mentionedName: string;
   authorName: string;
@@ -1077,12 +1121,45 @@ export async function sendMentionNotificationEmail(params: {
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
   workspaceId?: string;
-}): Promise<void> {
-  const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
+}
+
+/**
+ * Build the mention notification email — sent when someone @mentions the
+ * recipient in a comment.
+ *
+ * Everything interpolated here is attacker-writable: the author's display name,
+ * the commented-on action's name, and above all the comment preview, which is
+ * raw text the mentioning user typed. All of it is escaped for the HTML body,
+ * including the URLs that land in `href` attributes. The plain-text body and
+ * the subject stay unescaped — there is no markup to break out of, and
+ * `sendEmail` strips CR/LF from subjects.
+ *
+ * Pure content builder, no I/O — exported so the escaping is unit-testable
+ * without a Postmark stub. `sendMentionNotificationEmail` below is the thin
+ * send wrapper.
+ */
+export function buildMentionNotificationEmail(
+  params: MentionNotificationParams
+): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = mentionedName ? `Hi ${mentionedName},` : "Hi there,";
+
+  const safeGreeting = mentionedName
+    ? `Hi ${escapeHtml(mentionedName)},`
+    : "Hi there,";
+  const safeAuthorName = escapeHtml(authorName);
+  const safeActionName = escapeHtml(actionName);
+  const safeActionUrl = escapeHtml(actionUrl);
+  // A comment is multi-line prose, so escape first and only then turn the
+  // newlines into markup — otherwise the preview collapses into one run-on line.
+  const safeCommentPreview = escapeHtml(commentPreview).replace(/\r?\n/g, "<br>");
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -1112,16 +1189,16 @@ export async function sendMentionNotificationEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${greeting}
+                ${safeGreeting}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${authorName}</strong> mentioned you in a comment on <strong>${actionName}</strong>:
+                <strong>${safeAuthorName}</strong> mentioned you in a comment on <strong>${safeActionName}</strong>:
               </p>
 
               <!-- Comment Preview -->
               <div style="margin: 0 0 24px; padding: 12px 16px; background-color: #f3f4f6; border-left: 3px solid ${brandColor}; border-radius: 0 6px 6px 0;">
                 <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #4b5563; font-style: italic;">
-                  "${commentPreview}"
+                  "${safeCommentPreview}"
                 </p>
               </div>
 
@@ -1129,7 +1206,7 @@ export async function sendMentionNotificationEmail(params: {
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${safeActionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       View Comment
                     </a>
                   </td>
@@ -1141,7 +1218,7 @@ export async function sendMentionNotificationEmail(params: {
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${actionUrl}
+                ${safeActionUrl}
               </p>
             </td>
           </tr>
@@ -1169,12 +1246,27 @@ View Comment: ${actionUrl}
 ${footer.text}
 `.trim();
 
-  await sendEmail({
-    to,
+  return {
     subject: `[${appName}] ${authorName} mentioned you in: ${actionName}`,
     htmlBody,
     textBody,
-    workspaceId,
+  };
+}
+
+/**
+ * Send email notification when a user is mentioned in a comment — thin wrapper
+ * over the pure builder above.
+ */
+export async function sendMentionNotificationEmail(
+  params: MentionNotificationParams
+): Promise<void> {
+  const { subject, htmlBody, textBody } = buildMentionNotificationEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId: params.workspaceId,
   });
 }
 
