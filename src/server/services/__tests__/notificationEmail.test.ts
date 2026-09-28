@@ -13,20 +13,23 @@
  * `~/server/db` is mocked because the module imports it for `resolvePostmark`.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.hoisted(() => {
   process.env.SKIP_ENV_VALIDATION ??= "true";
   process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/test";
 });
 
+const findFirst = vi.fn();
 vi.mock("~/server/db", () => ({
-  db: { integration: { findFirst: vi.fn() } },
+  db: { integration: { findFirst: (...args: unknown[]) => findFirst(...args) } },
 }));
 
 import {
   buildAssignmentNotificationEmail,
   buildMentionNotificationEmail,
+  sendAssignmentNotificationEmail,
+  sendMentionNotificationEmail,
 } from "../EmailService";
 
 const XSS = `<img src=x onerror="alert(1)">`;
@@ -236,5 +239,90 @@ describe("buildMentionNotificationEmail", () => {
     expect(textBody).toContain(`"see <b>this</b> & that"`);
     expect(textBody).not.toContain("&amp;");
     expect(textBody).not.toContain("&lt;");
+  });
+});
+
+/**
+ * The send wrappers are thin, but they are where `to` and `workspaceId` are
+ * plumbed from `params` into `sendEmail` — and a mistake there is invisible to
+ * the builder tests above. Dropping `workspaceId` would silently fall back to
+ * the instance-global Postmark sender instead of the workspace's own (see
+ * `resolvePostmark`), and a wrong `to` would deliver someone else's
+ * notification to the wrong inbox. Both typecheck cleanly, so assert them.
+ */
+describe("notification email send wrappers", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    findFirst.mockReset();
+    // No workspace Postmark integration -> resolvePostmark falls back to env.
+    findFirst.mockResolvedValue(null);
+    process.env.AUTH_POSTMARK_KEY = "test-postmark-token";
+    fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => "" });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.AUTH_POSTMARK_KEY;
+  });
+
+  const postmarkPayload = () =>
+    JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      To: string;
+      Subject: string;
+      HtmlBody: string;
+      TextBody: string;
+    };
+
+  it("sendAssignmentNotificationEmail passes to/workspaceId through and ships the escaped HTML", async () => {
+    await sendAssignmentNotificationEmail({
+      ...assignmentParams,
+      actionName: XSS,
+      workspaceId: "ws_assign",
+    });
+
+    // workspaceId reached resolvePostmark, so a workspace-configured sender
+    // would have been honoured.
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: "ws_assign" }),
+      }),
+    );
+
+    const body = postmarkPayload();
+    expect(body.To).toBe("assignee@example.com");
+    expect(body.HtmlBody).toContain(ESCAPED_XSS);
+    expect(body.HtmlBody).not.toContain("<img src=x");
+    // Subject and text body stay raw.
+    expect(body.Subject).toBe(`[Exponential] You've been assigned to: ${XSS}`);
+    expect(body.TextBody).toContain(XSS);
+  });
+
+  it("sendMentionNotificationEmail passes to/workspaceId through and ships the escaped HTML", async () => {
+    await sendMentionNotificationEmail({
+      ...mentionParams,
+      commentPreview: XSS,
+      workspaceId: "ws_mention",
+    });
+
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: "ws_mention" }),
+      }),
+    );
+
+    const body = postmarkPayload();
+    expect(body.To).toBe("mentioned@example.com");
+    expect(body.HtmlBody).toContain(ESCAPED_XSS);
+    expect(body.HtmlBody).not.toContain("<img src=x");
+    expect(body.TextBody).toContain(XSS);
+  });
+
+  it("omitting workspaceId skips the workspace Postmark lookup entirely", async () => {
+    await sendMentionNotificationEmail(mentionParams);
+
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(postmarkPayload().To).toBe("mentioned@example.com");
   });
 });
