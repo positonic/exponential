@@ -1,7 +1,8 @@
 /**
- * Unit tests for `buildAssignmentNotificationEmail` and
- * `buildMentionNotificationEmail` — the pure content builders behind the
- * assignment and @mention notification emails.
+ * Unit tests for `buildAssignmentNotificationEmail`,
+ * `buildMentionNotificationEmail` and `buildNotificationEmail` — the pure
+ * content builders behind the assignment, @mention and generic (ADR-0045
+ * unified dispatch) notification emails.
  *
  * The point of these tests is the HTML-escaping boundary: every name, action
  * title, comment body and URL in these emails is written by another user and
@@ -28,6 +29,7 @@ vi.mock("~/server/db", () => ({
 import {
   buildAssignmentNotificationEmail,
   buildMentionNotificationEmail,
+  buildNotificationEmail,
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
 } from "../EmailService";
@@ -53,6 +55,16 @@ const mentionParams = {
   authorName: "James",
   actionName: "Ship the thing",
   commentPreview: "Can you take a look?",
+  actionUrl: "https://app.test/actions/abc",
+  workspaceName: "Syntrofi",
+  personalSettingsUrl: "https://app.test/settings/notifications",
+  workspaceSettingsUrl: "https://app.test/w/syntrofi/settings",
+};
+
+const notificationParams = {
+  to: "recipient@example.com",
+  title: "Ship the thing is due today",
+  message: "This one has been sitting in triage a while.",
   actionUrl: "https://app.test/actions/abc",
   workspaceName: "Syntrofi",
   personalSettingsUrl: "https://app.test/settings/notifications",
@@ -324,5 +336,122 @@ describe("notification email send wrappers", () => {
 
     expect(findFirst).not.toHaveBeenCalled();
     expect(postmarkPayload().To).toBe("mentioned@example.com");
+  });
+});
+
+describe("buildNotificationEmail", () => {
+  it("renders the title, message and CTA in both bodies", () => {
+    const { subject, htmlBody, textBody } =
+      buildNotificationEmail(notificationParams);
+
+    expect(subject).toBe("[Exponential] Ship the thing is due today");
+    expect(htmlBody).toContain("<title>Ship the thing is due today</title>");
+    expect(htmlBody).toContain("Ship the thing is due today");
+    expect(htmlBody).toContain("This one has been sitting in triage a while.");
+    expect(htmlBody).toContain(`href="https://app.test/actions/abc"`);
+    expect(htmlBody).toContain("View in Exponential");
+    expect(textBody).toContain("Ship the thing is due today");
+    expect(textBody).toContain("This one has been sitting in triage a while.");
+    expect(textBody).toContain("View in Exponential: https://app.test/actions/abc");
+  });
+
+  it("omits the CTA when there is no action URL", () => {
+    const { htmlBody, textBody } = buildNotificationEmail({
+      ...notificationParams,
+      actionUrl: undefined,
+    });
+
+    expect(htmlBody).not.toContain("View in Exponential");
+    expect(htmlBody).not.toContain("copy and paste this link");
+    expect(textBody).not.toContain("View in Exponential:");
+  });
+
+  it("omits the footer when there is no workspace context", () => {
+    const { htmlBody, textBody } = buildNotificationEmail({
+      to: notificationParams.to,
+      title: notificationParams.title,
+      message: notificationParams.message,
+    });
+
+    expect(htmlBody).not.toContain("notification preferences");
+    expect(textBody).not.toContain("notification preferences");
+  });
+
+  it("escapes the title everywhere it lands in the HTML body", () => {
+    const { htmlBody } = buildNotificationEmail({
+      ...notificationParams,
+      title: XSS,
+    });
+
+    expect(htmlBody).not.toContain("<img src=x");
+    expect(htmlBody).not.toContain("onerror=\"alert(1)\"");
+    // The document <title> and the <h1> heading.
+    expect(htmlBody.split(ESCAPED_XSS).length - 1).toBe(2);
+  });
+
+  it("escapes the message in the HTML body", () => {
+    const { htmlBody } = buildNotificationEmail({
+      ...notificationParams,
+      message: `</p><script>fetch("//evil.test")</script>`,
+    });
+
+    expect(htmlBody).not.toContain("<script>");
+    expect(htmlBody).not.toContain("</p><script");
+    expect(htmlBody).toContain(
+      "&lt;/p&gt;&lt;script&gt;fetch(&quot;//evil.test&quot;)&lt;/script&gt;",
+    );
+  });
+
+  it("keeps line breaks in a multi-line message as <br>", () => {
+    const { htmlBody, textBody } = buildNotificationEmail({
+      ...notificationParams,
+      message: "First line\nsecond line\r\nthird <b>line</b>",
+    });
+
+    expect(htmlBody).toContain(
+      "First line<br>second line<br>third &lt;b&gt;line&lt;/b&gt;",
+    );
+    // The <br> we insert is the only markup that survives.
+    expect(htmlBody).not.toContain("<b>line</b>");
+    expect(textBody).toContain("First line\nsecond line\r\nthird <b>line</b>");
+  });
+
+  it("escapes the action URL so it cannot break out of the href attribute", () => {
+    const { htmlBody } = buildNotificationEmail({
+      ...notificationParams,
+      actionUrl: `https://app.test/"><script>alert(1)</script>`,
+    });
+
+    expect(htmlBody).not.toContain("<script>");
+    expect(htmlBody).toContain(
+      `href="https://app.test/&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"`,
+    );
+  });
+
+  it("escapes the workspace name and settings URLs in the footer", () => {
+    const { htmlBody } = buildNotificationEmail({
+      ...notificationParams,
+      workspaceName: XSS,
+      personalSettingsUrl: `https://app.test/"onmouseover="alert(1)`,
+    });
+
+    expect(htmlBody).toContain(`<strong>${ESCAPED_XSS}</strong> workspace.`);
+    expect(htmlBody).not.toContain(`"onmouseover="`);
+  });
+
+  it("leaves the plain-text body and subject unescaped", () => {
+    const { subject, textBody } = buildNotificationEmail({
+      ...notificationParams,
+      title: XSS,
+      message: `see <b>this</b> & that`,
+      workspaceName: "A <b>bold</b> workspace",
+    });
+
+    expect(subject).toBe(`[Exponential] ${XSS}`);
+    expect(textBody).toContain(XSS);
+    expect(textBody).toContain(`see <b>this</b> & that`);
+    expect(textBody).toContain("A <b>bold</b> workspace");
+    expect(textBody).not.toContain("&amp;");
+    expect(textBody).not.toContain("&lt;");
   });
 });
