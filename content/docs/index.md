@@ -33,7 +33,7 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 ## Start here
 
 1. **Ten minutes in.** Follow the [Quickstart](/docs/quickstart): sign in, meet the sidebar, create a project and three actions, plan your day, ask Zoe a question, and connect one way to capture from your phone or browser.
-2. **Bring your meetings.** Connect [Fireflies](/docs/meet/fireflies) so every recorded meeting arrives with its actions extracted, then review them on the Meetings page.
+2. **Bring your meetings.** Connect [Fireflies](/docs/meet/fireflies) so every recorded meeting arrives with its actions extracted, then review them on the [Meetings](/docs/meet/meetings) page.
 3. **Set the direction.** Write [Goals](/docs/plan/goals) and [OKRs](/docs/plan/okrs), link projects to them, and run the [Weekly plan](/docs/reflect/weekly-plan) on Fridays.
 
 ## What is in the box
@@ -44,7 +44,7 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 | **Do** | Inbox, Today, actions, projects, epics, time tracking | [Inbox & Today](/docs/do/inbox-and-today) |
 | **Build (Products)** | Sprint insights for product teams; products, tickets and cycles docs are on their way | [Sprint insights](/docs/build/sprint-insights) |
 | **Reflect** | Journal, startup and wind-down routines, habits, weekly plan | [Journal](/docs/reflect/journal) |
-| **Meet** | Fireflies, meetings that become actions and decisions | [Fireflies](/docs/meet/fireflies) |
+| **Meet** | Meetings that become actions and decisions, Fireflies | [Meetings](/docs/meet/meetings) |
 | **Connect (CRM)** | Contacts and organisations, lists, pipelines, automations | [Contacts](/docs/crm/contacts) |
 | **Collaborate** | Workspaces, teams, notifications | [Workspaces](/docs/collaborate/workspaces) |
 | **Zoe & AI** | The assistant, the knowledge base, chat over WhatsApp | [Zoe](/docs/zoe/assistant) |
