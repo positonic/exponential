@@ -1,8 +1,61 @@
 {
   "$comment": "Sidebar sections, in order. A page picks its section with `section:` in frontmatter (default: its top-level folder). Sections not listed here still render, appended after these.",
   "sections": [
-    { "id": "get-started", "title": "Get started" },
-    { "id": "features", "title": "Features" },
-    { "id": "plugins", "title": "Plugins" }
+    {
+      "id": "get-started",
+      "title": "Get started"
+    },
+    {
+      "id": "plan",
+      "title": "Plan"
+    },
+    {
+      "id": "do",
+      "title": "Do"
+    },
+    {
+      "id": "build",
+      "title": "Build (Products)"
+    },
+    {
+      "id": "reflect",
+      "title": "Reflect"
+    },
+    {
+      "id": "meet",
+      "title": "Meet"
+    },
+    {
+      "id": "crm",
+      "title": "Connect (CRM)"
+    },
+    {
+      "id": "collaborate",
+      "title": "Collaborate"
+    },
+    {
+      "id": "zoe",
+      "title": "Zoe & AI"
+    },
+    {
+      "id": "capture",
+      "title": "Capture anywhere"
+    },
+    {
+      "id": "integrations",
+      "title": "Integrations"
+    },
+    {
+      "id": "developers",
+      "title": "Developers & agents"
+    },
+    {
+      "id": "reference",
+      "title": "Reference"
+    },
+    {
+      "id": "self-hosting",
+      "title": "Self-hosting"
+    }
   ]
 }
