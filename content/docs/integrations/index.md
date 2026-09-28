@@ -16,7 +16,7 @@ Exponential connects to the tools your work already flows through: meeting recor
 
 - [Settings → Integrations](/settings/integrations) — connect accounts and services. This is the main page.
 - [Workflows](/workflows), from your user menu — a status board for the data-capture and task-sync integrations, plus two guided processes.
-- Workspace settings → **Integrations** — the few connections that belong to a workspace rather than to you: the default Notion account and sync direction, and the GitHub repositories the workspace tracks.
+- Workspace settings → **Integrations** — connections that belong to the workspace rather than to you: the agents' email account, Postmark, Slack and Zulip notification routing, a Matrix homeserver, Sentry, the default Notion account and Fireflies. See [Workspace settings](/docs/reference/workspace-settings).
 
 ## What you can connect
 
@@ -27,10 +27,10 @@ Exponential connects to the tools your work already flows through: meeting recor
 | [WhatsApp](/docs/zoe/whatsapp) | Chat with Zoe from WhatsApp | Settings → Integrations → **Connect WhatsApp** |
 | Telegram | Chat with Zoe from Telegram, with a default agent per connection | Settings → Integrations → **Connect Telegram** |
 | [Notion](/docs/integrations/notion) | Two-way sync between a Notion database and your actions, with status mapping | Workflows → **Notion Tasks Database** → Configure |
-| Monday.com | Push actions to Monday.com boards | Workflows → **Monday.com Boards** → Configure |
+| [Monday.com](/docs/integrations/github-google-monday) | Sync actions with a Monday.com board (push, pull or both) | Workflows → **Monday.com Boards** → Configure |
 | Calendar feeds | Subscribe to a published calendar by its ICS address (works with Outlook); events refresh every 15 minutes and appear on Today | Settings → Integrations → **Add calendar feed** |
-| Google Calendar | Two-way calendar access; in early access while Google verification completes | Settings → Integrations → **Request Access** |
-| GitHub | Track repositories so pull requests and commits show in activity and metrics; needs the GitHub App installed by an administrator | Workspace settings → Integrations |
+| [Google Calendar](/docs/integrations/github-google-monday) | Two-way calendar access; in early access while Google verification completes | Settings → Integrations → **Request Access** |
+| [GitHub](/docs/integrations/github-google-monday) | Track repositories so pull requests and commits show in activity and metrics; needs the GitHub App installed by an administrator | Settings → Integrations → **GitHub Repositories** |
 | Email (IMAP) | Read a mailbox for the CRM | Settings → Integrations → **Add Integration** → Email (IMAP) |
 | [iOS shortcut](/docs/capture/ios-shortcut), [Chrome extension](/docs/capture/chrome-extension) | Capture actions from your phone or browser using an API key | [Settings → API keys](/settings/api-keys) |
 
