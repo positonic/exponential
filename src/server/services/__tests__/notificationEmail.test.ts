@@ -32,6 +32,7 @@ import {
   buildNotificationEmail,
   sendAssignmentNotificationEmail,
   sendMentionNotificationEmail,
+  sendNotificationEmail,
 } from "../EmailService";
 
 const XSS = `<img src=x onerror="alert(1)">`;
@@ -328,6 +329,27 @@ describe("notification email send wrappers", () => {
     expect(body.To).toBe("mentioned@example.com");
     expect(body.HtmlBody).toContain(ESCAPED_XSS);
     expect(body.HtmlBody).not.toContain("<img src=x");
+    expect(body.TextBody).toContain(XSS);
+  });
+
+  it("sendNotificationEmail passes to/workspaceId through and ships the escaped HTML", async () => {
+    await sendNotificationEmail({
+      ...notificationParams,
+      title: XSS,
+      workspaceId: "ws_generic",
+    });
+
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: "ws_generic" }),
+      }),
+    );
+
+    const body = postmarkPayload();
+    expect(body.To).toBe("recipient@example.com");
+    expect(body.HtmlBody).toContain(ESCAPED_XSS);
+    expect(body.HtmlBody).not.toContain("<img src=x");
+    expect(body.Subject).toBe(`[Exponential] ${XSS}`);
     expect(body.TextBody).toContain(XSS);
   });
 
