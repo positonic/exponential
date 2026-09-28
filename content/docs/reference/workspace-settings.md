@@ -97,6 +97,8 @@ Owners only: delete the workspace and everything in it. There is no undo.
 
 ## How it connects
 
+- **Members and access** — roles, invitations and guests in detail: [Members, roles & access](/docs/collaborate/members-and-access).
+
 - **Your settings** — navigation, appearance, notifications and API keys are personal: [Your settings](/docs/reference/your-settings).
 - **Projects** — several features (detailed pages, bounties, restricted access) can be overridden per project: [Projects](/docs/do/projects).
 

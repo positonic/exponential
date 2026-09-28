@@ -52,6 +52,8 @@ Projects owned by a team also get **Weekly Team Review** and **Weekly Commitment
 
 ## How it connects
 
+- **Access** — public and restricted projects and project guests: [Members, roles & access](/docs/collaborate/members-and-access).
+
 - **[Actions](/docs/do/actions)** — a project's actions live on its **Tasks** tab and in the workspace board.
 - **[Goals](/docs/plan/goals)** and **[OKRs](/docs/plan/okrs)** — link a project to the goals and key results it moves.
 - **[Teams](/docs/collaborate/teams)** — team-owned projects gain the weekly review tabs.
