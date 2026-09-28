@@ -68,7 +68,20 @@ How the team sizes work, shown only when Advanced Action Features is on: **Story
 
 ## Integrations
 
-The connections that belong to the workspace rather than to you: the default Notion account and sync direction (**Pull from Notion**, **Push to Notion**, **Bidirectional**), and the GitHub repositories the workspace tracks. Personal connections are on [Settings → Integrations](/settings/integrations); see [Integrations](/docs/integrations).
+The connections that belong to the workspace rather than to you, each on its own card:
+
+| Card | What it does |
+|---|---|
+| **Email Account** | Which email address agents send from when operating in this workspace. |
+| **Postmark** | Send the workspace's notification, CRM and broadcast emails from your own Postmark server and sender; unset means the platform default. |
+| **Slack** | Link a Slack channel so Zoe has workspace-wide context, and route **Slack Notifications** (needs a Slack integration under your personal settings first). |
+| **Zulip** | Send workspace notifications to a Zulip stream and direct-message people on assignments and mentions. |
+| **Matrix** | Register your own Matrix homeserver so meeting summaries can be posted into your team's rooms; the bot posts only. |
+| **Sentry** | File Sentry issues as Bug tickets in a product; generates the webhook URL and secret to paste into Sentry. |
+| **Notion** | Default Notion account and sync direction (**Pull from Notion**, **Push to Notion**, **Bidirectional**) for the workspace's projects; projects can override. |
+| **Fireflies** | Connect one or more Fireflies accounts for the workspace. |
+
+Personal connections (your own Slack app, WhatsApp, Telegram, calendars, GitHub repositories) are on [Settings → Integrations](/settings/integrations); see [Integrations](/docs/integrations).
 
 ## Plugins
 

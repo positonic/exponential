@@ -54,7 +54,7 @@ Open a meeting's **Decisions** tab and click **Extract decisions & questions**. 
 
 ## How to sync ADRs from git
 
-1. Track the repositories under workspace settings → **Integrations** (this needs the GitHub App installed by an administrator).
+1. Track the repositories under [Settings → Integrations](/settings/integrations) → **GitHub Repositories** (this needs the GitHub App installed by an administrator); see [GitHub, Google & Monday.com](/docs/integrations/github-google-monday).
 2. Open workspace settings → **Decisions** and enrol the repositories whose `docs/adr` files should appear.
 3. ADRs are projected read-only; git stays the source of truth. Their content becomes readable by every workspace member, including people without access to the repository on GitHub, so enrol deliberately.
 
