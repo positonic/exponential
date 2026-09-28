@@ -50,7 +50,7 @@ export default async function BlogPage() {
       <div
         className="relative flex items-center justify-center overflow-hidden py-20 md:py-28"
         style={{
-          backgroundImage: "url('/banners/dyna-banner.png')",
+          backgroundImage: "url('/banners/dyna-banner.webp')",
           backgroundSize: "cover",
           backgroundPosition: "center",
         }}
