@@ -2,7 +2,7 @@
 title: Fireflies
 description: Every recorded meeting arrives with its transcript, summary and action items; assign it to a project and the actions are yours
 section: meet
-order: 1
+order: 2
 icon: IconFlame
 ---
 
@@ -13,7 +13,7 @@ Connect Fireflies.ai and each meeting it records shows up on the Meetings page a
 ## Where to find it
 
 - Set up: [Settings → Integrations](/settings/integrations) → **Fireflies.ai** → **Add Fireflies**. The same wizard opens from **Connect Fireflies** on the Meetings page and from the Fireflies card on [Workflows](/workflows).
-- Meetings: **Amplify → Meetings** in the sidebar.
+- Meetings: **Amplify → Meetings** in the sidebar; see [Meetings](/docs/meet/meetings) for everything you can do with one.
 
 ## How it works
 
@@ -60,6 +60,7 @@ Meetings you did not record with Fireflies can be added by hand with **Add Meeti
 
 ## How it connects
 
+- **Meetings** — the list, the meeting page, drafted actions and decisions: [Meetings](/docs/meet/meetings).
 - **Slack** — assign a meeting to a project with a Slack channel and the summary posts there: [Slack](/docs/integrations/slack).
 - **Decisions** — decisions Zoe finds in a transcript are recorded with the quote they came from, under **Align → Decisions**.
 - **Ceremonies** — a recurring team meeting can be defined once at workspace settings → **Ceremonies**, and its recorded meetings attach to each occurrence.
