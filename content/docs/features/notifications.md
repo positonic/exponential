@@ -87,7 +87,7 @@ Get notifications as a direct message from the Zoe bot in any Matrix client (Ele
 
 ### 1. Pair your Matrix account
 
-1. Open [Settings → Assistant](https://www.exponential.im/settings/assistant). If you haven't named your assistant yet, fill that in and click **Update Assistant** first — the Matrix card needs it.
+1. Open [Settings → Assistant](https://www.exponential.im/settings/assistant). If you haven't set up your assistant yet, give it a name and personality and click **Create Assistant** first — the Matrix card needs it.
 2. In the **Matrix** card, enter your full Matrix ID (for example `@you:syntro.fi`) and click **Connect Matrix**.
 3. The bot invites you to a chat. Accept the invite in your Matrix client and send the pairing code shown in the app into that chat. The code expires after 10 minutes.
 
@@ -107,7 +107,7 @@ You keep getting emails too unless you untick them under the Email card.
 
 **Send test fails with "no paired Matrix DM"** — the bot lost your chat room, usually because you left it. Click **Disconnect Matrix** in Settings → Assistant and pair again.
 
-**Mentions don't arrive** — only mentions made with the @ picker (or `--mention` in the CLI) notify anyone. A plain `@name` typed as text does nothing. Also confirm you're a member of the workspace the comment is in.
+**Mentions don't arrive** — only mentions made with the @ picker (or `--mention` in the CLI) notify anyone. A plain `@name` typed as text does nothing. Also confirm you're a member of the workspace the comment is in. Mentions in **page** comments are currently email and push only and do not reach Matrix.
 
 ## Zulip and WhatsApp
 
