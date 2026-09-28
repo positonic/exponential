@@ -171,7 +171,8 @@ html[data-sidebar="closed"] .td-topbar {
   cursor: pointer;
 }
 
-.td-filter-input--placeholder { color: var(--td-faint); }
+/* `.td ` prefix wins over the `.td button { color: inherit }` reset. */
+.td .td-filter-input--placeholder { color: var(--td-faint); }
 .td-filter-input__hash { color: var(--td-dim); font-weight: 500; }
 
 .td-filter-row__spacer { flex: 1; }
@@ -465,7 +466,10 @@ html[data-sidebar="closed"] .td-topbar {
 /* ============================================================
    Tag chip
    ============================================================ */
-.td-tag {
+/* `.td ` prefix: a clickable tag renders as a <button>, and the `.td button`
+   reset (background: none; font: inherit; color: inherit) would otherwise
+   strip the pill. */
+.td .td-tag {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -483,15 +487,15 @@ html[data-sidebar="closed"] .td-topbar {
   border-radius: 999px;
   flex-shrink: 0;
 }
-.td-tag--sales { background: var(--td-tag-sales-bg); color: var(--td-tag-sales-fg); }
+.td .td-tag--sales { background: var(--td-tag-sales-bg); color: var(--td-tag-sales-fg); }
 .td-tag--sales .td-tag__dot { background: var(--td-tag-sales-dot); }
-.td-tag--ops   { background: var(--td-tag-ops-bg);   color: var(--td-tag-ops-fg); }
+.td .td-tag--ops   { background: var(--td-tag-ops-bg);   color: var(--td-tag-ops-fg); }
 .td-tag--ops   .td-tag__dot { background: var(--td-tag-ops-dot); }
-.td-tag--james { background: var(--td-tag-james-bg); color: var(--td-tag-james-fg); }
+.td .td-tag--james { background: var(--td-tag-james-bg); color: var(--td-tag-james-fg); }
 .td-tag--james .td-tag__dot { background: var(--td-tag-james-dot); }
-.td-tag--unas  { background: var(--td-tag-unas-bg);  color: var(--td-tag-unas-fg); }
+.td .td-tag--unas  { background: var(--td-tag-unas-bg);  color: var(--td-tag-unas-fg); }
 .td-tag--unas  .td-tag__dot { background: var(--td-tag-unas-dot); }
-.td-tag--pipe  { background: var(--td-tag-pipe-bg);  color: var(--td-tag-pipe-fg); }
+.td .td-tag--pipe  { background: var(--td-tag-pipe-bg);  color: var(--td-tag-pipe-fg); }
 .td-tag--pipe  .td-tag__dot { background: var(--td-tag-pipe-dot); }
 
 /* ============================================================

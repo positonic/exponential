@@ -1167,6 +1167,90 @@ body {
   --td-font: "Inter Tight", -apple-system, system-ui, sans-serif;
 }
 
+/* Light-mode Today palette. The base .today-surface tokens above are the
+   dark design; these override every neutral, tint and hue when the active
+   color scheme is light so /today tracks the rest of the app (same pattern
+   as .app-sidebar). Alpha washes flip from white-on-dark to black-on-light,
+   and the pastel hues are pulled darker so text, rings and chips keep their
+   contrast on a white page. */
+[data-mantine-color-scheme="light"] .today-surface {
+  /* Core */
+  --td-accent: #B9791E;
+  --td-accent-04: rgba(185, 121, 30, 0.05);
+  --td-accent-10: rgba(185, 121, 30, 0.10);
+  --td-accent-12: rgba(185, 121, 30, 0.12);
+  --td-accent-30: rgba(185, 121, 30, 0.30);
+  --td-accent-40: rgba(185, 121, 30, 0.40);
+
+  --td-sidebar: #f8f9fa;
+  --td-surface: #f8f9fa;
+  --td-surface-2: #e9ecef;
+
+  --td-hair: rgba(0, 0, 0, 0.08);
+  --td-hair-2: rgba(0, 0, 0, 0.12);
+
+  --td-text: #212529;
+  --td-muted: rgba(33, 37, 41, 0.68);
+  --td-faint: rgba(33, 37, 41, 0.45);
+  --td-dim: rgba(33, 37, 41, 0.28);
+  --td-check-border: rgba(0, 0, 0, 0.30);
+  --td-check-mark: #ffffff;
+
+  /* Tag tones */
+  --td-tag-sales-fg: #8A3A5A;
+  --td-tag-sales-bg: rgba(200, 120, 150, 0.14);
+  --td-tag-sales-dot: #C2607F;
+
+  --td-tag-ops-fg: #2F4F7F;
+  --td-tag-ops-bg: rgba(120, 150, 200, 0.16);
+  --td-tag-ops-dot: #4A73B8;
+
+  --td-tag-james-fg: #55632F;
+  --td-tag-james-bg: rgba(180, 190, 140, 0.22);
+  --td-tag-james-dot: #7F8F45;
+
+  --td-tag-unas-fg: #4A4A66;
+  --td-tag-unas-bg: rgba(140, 140, 170, 0.16);
+  --td-tag-unas-dot: #6E6E90;
+
+  /* Priority rings */
+  --td-prio-urgent:     #D65A4E;
+  --td-prio-urgent-dim: rgba(214, 90, 78, 0.60);
+  --td-prio-urgent-10:  rgba(214, 90, 78, 0.10);
+
+  --td-prio-p1:         #D65A4E;
+  --td-prio-p1-dim:     rgba(214, 90, 78, 0.60);
+  --td-prio-p2:         #C98A2A;
+  --td-prio-p2-dim:     rgba(201, 138, 42, 0.65);
+  --td-prio-p3:         #B8A020;
+  --td-prio-p3-dim:     rgba(184, 160, 32, 0.65);
+  --td-prio-p4:         #3E9E45;
+  --td-prio-p4-dim:     rgba(62, 158, 69, 0.60);
+  --td-prio-p5:         #4A73B8;
+  --td-prio-p5-dim:     rgba(74, 115, 184, 0.60);
+
+  --td-prio-quick:      #8E5BC9;
+  --td-prio-quick-dim:  rgba(142, 91, 201, 0.55);
+  --td-prio-scheduled:  #C2609E;
+  --td-prio-scheduled-dim: rgba(194, 96, 158, 0.55);
+  --td-prio-errand:     #2E9AA6;
+  --td-prio-errand-dim: rgba(46, 154, 166, 0.55);
+  --td-prio-remember:   #5B6FC9;
+  --td-prio-remember-dim: rgba(91, 111, 201, 0.55);
+  --td-prio-watch:      #A84DA8;
+  --td-prio-watch-dim:  rgba(168, 77, 168, 0.55);
+
+  --td-prio-normal:     #4A73B8;
+  --td-prio-normal-dim: rgba(74, 115, 184, 0.60);
+  --td-prio-low:        #6B7384;
+  --td-prio-low-dim:    rgba(107, 115, 132, 0.55);
+
+  /* Agenda blue tone */
+  --td-event-blue-bg: rgba(74, 115, 184, 0.12);
+  --td-event-blue-border: #4A73B8;
+  --td-event-blue-title: #2F4F7F;
+}
+
 /* ==========================================================================
    Portfolio review surface (/weekly-plan) - scoped design tokens.
    Consumed by src/app/(sidemenu)/weekly-plan/_styles/portfolio-review.css.
