@@ -2,7 +2,7 @@
 title: Sprint insights
 description: Ask Zoe how the current sprint is going and get throughput, velocity, a burndown and risk signals computed from your actions
 icon: IconChartBar
-order: 2
+order: 3
 sidebarTitle: Sprint insights
 updated: 2026-09-28
 ---
@@ -49,6 +49,8 @@ Risk signals fire when:
 - the sprint is more than half over and completion is well behind the elapsed time.
 
 ## How it connects
+
+- **Metrics page** — the in-app dashboard for cycle velocity and completion: [Retrospectives, insights & metrics](/docs/build/retros-insights-metrics).
 
 - **[Actions](/docs/do/actions#how-to-use-the-advanced-features)** — the **Sprint**, **Effort** and **Blockers** controls feed every number here.
 - **[Epics](/docs/do/epics)** — group the sprint's actions into initiatives so Zoe can report on them by theme.

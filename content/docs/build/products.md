@@ -95,4 +95,4 @@ If it is engineering work in a product's backlog with a status like Ready to pla
 No. A ticket lives in one product; move it by editing it.
 
 **Where are retrospectives, insights and metrics documented?**
-Their guide is on its way; the tabs are live in the app.
+In [Retrospectives, insights & metrics](/docs/build/retros-insights-metrics).

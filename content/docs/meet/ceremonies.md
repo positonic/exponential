@@ -47,6 +47,8 @@ An occurrence with nothing to cover can be **skipped** with a reason; the page s
 
 ## How it connects
 
+- **Retrospectives** — a retrospective ceremony's outputs are recorded on the product's Retro tab: [Retrospectives, insights & metrics](/docs/build/retros-insights-metrics).
+
 - **Meetings** — the recording that captures an occurrence: [Meetings](/docs/meet/meetings).
 - **Decisions** — decisions made in an occurrence are logged with it as their source: [Decisions](/docs/plan/decisions).
 - **Actions** and **Projects** — outputs land in the projects the ceremony reviews: [Projects](/docs/do/projects).
