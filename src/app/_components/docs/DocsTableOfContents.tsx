@@ -45,7 +45,7 @@ export function DocsTableOfContents({ headings }: DocsTableOfContentsProps) {
 
   return (
     <nav aria-label="On this page" className="hidden w-56 shrink-0 border-l border-border-primary bg-background-primary xl:block">
-      <div className={`sticky ${isLoggedIn ? "top-0 p-4" : "top-16 pt-10 px-4 pb-4"}`}>
+      <div className={`sticky overflow-y-auto ${isLoggedIn ? "top-0 max-h-screen p-4" : "top-16 max-h-[calc(100vh-4rem)] px-4 pb-4 pt-10"}`}>
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
           On this page
         </h4>

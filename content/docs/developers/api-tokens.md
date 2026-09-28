@@ -32,7 +32,7 @@ Tokens belong to your account and work in every workspace you are a member of. E
 |---|---|---|
 | [iOS shortcut](/docs/capture/ios-shortcut) | JWT | Paste it into the shortcut's configuration |
 | [Chrome extension](/docs/capture/chrome-extension) | JWT | Paste it into the extension's settings |
-| `exponential` CLI | JWT | `exponential auth login --token <token>` (see [Time tracking](/docs/do/time-tracking) for a CLI example) |
+| `exponential` CLI | JWT | `exponential auth login --token <token>`; every command is in the [CLI reference](/docs/developers/cli) |
 | Your own script | JWT | Send it as `Authorization: Bearer <token>` |
 | Fireflies webhook | Hex | The [Fireflies](/docs/meet/fireflies) wizard creates this one for you |
 
