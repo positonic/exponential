@@ -19,7 +19,10 @@ jobs:
       - name: Validate Prisma migrations
         run: |
           BASE_REF="${{ github.base_ref }}"
-          git fetch origin "${BASE_REF}" --depth=1
+          # fetch-depth: 0 above already has origin/${BASE_REF} with full history.
+          # Don't re-fetch it shallow: if the base moved after GitHub built the
+          # PR merge ref, the truncated tip has no merge base with HEAD and the
+          # three-dot diff dies with "no merge base" (exit 128).
           CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF}"...HEAD)
 
           if echo "$CHANGED_FILES" | grep -q '^prisma/schema\.prisma$'; then
