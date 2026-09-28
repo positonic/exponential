@@ -4,6 +4,7 @@ description: Add actions to Exponential by voice or text from your iPhone, iPad 
 icon: IconDeviceMobile
 order: 1
 sidebarTitle: iOS shortcut
+updated: 2026-09-28
 ---
 
 Capture actions by voice or keyboard from your iPhone, iPad or Mac without opening the app. Once set up, say **"Hey Siri, Save Action"**, dictate the action, and it lands in your [Inbox](/docs/do/inbox-and-today). Dates ("call John tomorrow") and project names ("send invoice for Sales project") are picked up from what you say.

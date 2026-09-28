@@ -4,6 +4,7 @@ description: Every recorded meeting arrives with its transcript, summary and act
 section: meet
 order: 2
 icon: IconFlame
+updated: 2026-09-28
 ---
 
 Connect Fireflies.ai and each meeting it records shows up on the Meetings page a minute after it ends, with the transcript, an AI summary and the action items already extracted. Assign the meeting to a project and review which items become actions.

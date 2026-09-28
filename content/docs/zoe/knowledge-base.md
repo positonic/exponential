@@ -4,6 +4,7 @@ description: Save documents, web pages and notes alongside your meetings, search
 icon: IconDatabase
 order: 2
 sidebarTitle: Knowledge base
+updated: 2026-09-28
 ---
 
 The knowledge base is where your workspace's meetings and saved resources become searchable by meaning, not just keyword. Add a web page, a document or a note, search across everything from one box, and pin the resources Zoe should have in front of her in every chat.

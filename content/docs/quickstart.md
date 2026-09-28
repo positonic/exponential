@@ -4,6 +4,7 @@ description: Ten minutes from sign-in to a planned day, with Zoe and one capture
 section: get-started
 order: 3
 icon: IconBolt
+updated: 2026-09-28
 ---
 
 This walkthrough takes about ten minutes. By the end you will have a project with three actions, a plan for today, one answer from Zoe, and a way to capture actions from your phone or browser.

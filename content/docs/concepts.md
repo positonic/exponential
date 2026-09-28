@@ -4,6 +4,7 @@ description: The objects Exponential is built from, each in two sentences, with 
 section: get-started
 order: 2
 icon: IconBook
+updated: 2026-09-28
 ---
 
 Exponential uses a small, fixed vocabulary. This page defines each term the way the product uses it; the guides go deeper.

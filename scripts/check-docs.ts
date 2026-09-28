@@ -11,7 +11,7 @@
  *     sidebar item (`NAV_ITEM_CONFIG`, the nav sections, Inbox/Today/Time)
  *     or a settings tab (account or workspace settings);
  *   - has no `title` or `description` frontmatter;
- *   - is missing from `content/docs/_last-updated.json` (run
+ *   - has no `updated: YYYY-MM-DD` frontmatter (run
  *     `npm run docs:last-updated`).
  * It also checks that every redirect in `content/docs/_redirects.json`
  * points at a page that exists and that no redirect source is itself a page.
@@ -23,7 +23,6 @@ import path from "path";
 import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
 import { extractHeadings } from "../src/lib/docs/extractHeadings";
-import { readLastUpdatedMap } from "../src/lib/docs/lastUpdated";
 import { DEFAULT_NAV_LAYOUT, NAV_ITEM_CONFIG } from "../src/lib/navLayout";
 
 const ROOT = process.cwd();
@@ -111,12 +110,14 @@ function frontmatterErrors(): Problem[] {
 
 function main() {
   problems.push(...frontmatterErrors());
+  // Dates moved into each page's frontmatter; an older branch must not bring the shared map back.
+  if (fs.existsSync(path.join(DOCS_DIR, "_last-updated.json"))) {
+    fail("content/docs/_last-updated.json", 1, "replaced by per-page `updated` frontmatter — delete this file");
+  }
   const pages = listDocPages(DOCS_DIR);
   const byHref = new Map(pages.map((p) => [p.href, p]));
   const headingIds = new Map(pages.map((p) => [p.href, new Set(extractHeadings(p.content).map((h) => h.id))]));
   const labels = allowedSidebarLabels();
-  const lastUpdated = readLastUpdatedMap();
-  const hasLastUpdatedMap = Object.keys(lastUpdated).length > 0;
 
   const LINK_RE = /(!?)\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
   const HTML_SRC_RE = /<(?:a|img)\b[^>]*?(?:href|src)=["']([^"']+)["']/g;
@@ -133,8 +134,8 @@ function main() {
 
     if (!page.meta.title || page.meta.title === "Documentation") fail(file, 1, "frontmatter is missing `title`");
     if (!page.meta.description) fail(file, 1, "frontmatter is missing `description` (used by search and the page header)");
-    if (hasLastUpdatedMap && !lastUpdated[file]) {
-      fail(file, 1, "not in content/docs/_last-updated.json — run `npm run docs:last-updated` and commit the result");
+    if (!page.meta.updated) {
+      fail(file, 1, "frontmatter is missing `updated: YYYY-MM-DD` — run `npm run docs:last-updated` and commit the result");
     }
 
     const targets: { url: string; line: number; isImage: boolean }[] = [];

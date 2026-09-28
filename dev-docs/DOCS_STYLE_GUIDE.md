@@ -95,6 +95,7 @@ icon: IconClock                 # a name from src/lib/docs/icons.ts (optional)
 sidebarTitle: Time              # shorter sidebar label (optional)
 parent: /docs/features/crm      # nest under another page, one level (optional)
 hidden: true                    # keep the URL, hide from sidebar and search (optional)
+updated: 2026-09-28             # "Last updated" date; stamped by the pre-commit hook
 ---
 ```
 
@@ -108,9 +109,10 @@ npm run docs:check     # links, anchors, assets, sidebar labels, frontmatter, la
 npm run check          # lint + typecheck (if you touched the renderer)
 ```
 
-`docs:check` also runs in CI (`Docs links & labels`). The pre-commit hook refreshes
-`content/docs/_last-updated.json` whenever a docs page is staged; if CI says a page is missing
-from it, run `npm run docs:last-updated` and commit the result.
+`docs:check` also runs in CI (`Docs links & labels`). Every page carries an `updated: YYYY-MM-DD`
+frontmatter field, which the pre-commit hook stamps whenever the page is staged; you never need to
+edit it by hand. If CI says a page is missing it (a new page committed with `--no-verify` or from
+the GitHub editor), run `npm run docs:last-updated` and commit the result.
 
 Verify layout changes in the browser at 375px, 768px and 1440px. Verify every claim about the
 UI against the running app before writing it down. Add "Docs updated?" to the PR description

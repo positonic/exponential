@@ -4,6 +4,7 @@ description: What Exponential is, who it is for, and where to start
 section: get-started
 order: 1
 icon: IconBook
+updated: 2026-09-28
 ---
 
 Exponential is a productivity OS that turns meeting transcripts into projects, actions and decisions. Record a meeting, and Zoe, the built-in assistant, extracts the actions and decisions and files them against the right project. Plan your day from what is due, track time, review the week, and let agents (Zoe, specialist agents, or your own external agents) act across all of it. Product teams get a second layer on top: products, features, tickets, cycles and metrics.

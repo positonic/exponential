@@ -3,6 +3,7 @@ title: Teams
 description: Group the people you work with, share projects and integrations with them, and link the team to a workspace so everyone gets access at once
 icon: IconUsers
 order: 2
+updated: 2026-09-28
 ---
 
 A team is a group of people. Where a [workspace](/docs/collaborate/workspaces) holds data, a team holds members: give it projects and integrations to share, and link it to a workspace so all of its members can use that workspace without individual invitations. An **organization team** can also receive its members' shared weekly plans.

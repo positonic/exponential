@@ -1,42 +1,66 @@
 /**
- * Regenerates `content/docs/_last-updated.json`: one ISO date per docs page,
- * from the last commit that touched it. Pages that are currently staged or
- * modified get today's date, since their commit does not exist yet.
+ * Maintains the `updated: YYYY-MM-DD` frontmatter field on docs pages (see
+ * `src/lib/docs/lastUpdated.ts` for why the date lives in each page).
  *
- * Run by the pre-commit hook when a docs page is staged, and by
- * `npm run docs:last-updated`. Committed so that shallow clones on the build
- * machine (which cannot see old history) still show a date.
+ *   npx tsx scripts/docs-last-updated.ts --staged
+ *     Run by the pre-commit hook. Stamps today's date on every staged docs
+ *     page and re-stages it. A page that also has unstaged edits is skipped
+ *     with a warning, so `git add -p` never sweeps them into the commit.
+ *
+ *   npm run docs:last-updated
+ *     Fills in pages with no `updated` field (the fix when CI's docs:check
+ *     says one is missing), dating each from its last commit, or today when
+ *     git has no reliable answer.
  */
 import fs from "fs";
 import { execFileSync } from "child_process";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
-import { gitLastUpdated, LAST_UPDATED_FILE, readLastUpdatedMap } from "../src/lib/docs/lastUpdated";
+import { gitLastUpdated, setUpdatedFrontmatter } from "../src/lib/docs/lastUpdated";
 
-function changedFiles(): Set<string> {
-  try {
-    const out = execFileSync("git", ["status", "--porcelain", "--", "content/docs"], { encoding: "utf-8" });
-    return new Set(
-      out
-        .split("\n")
-        .filter(Boolean)
-        .map((l) => l.slice(3).trim().replace(/^"|"$/g, "")),
-    );
-  } catch {
-    return new Set();
+function git(args: string[]): string {
+  return execFileSync("git", args, { encoding: "utf-8" });
+}
+
+function localToday(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function stamp(file: string, date: string): boolean {
+  const raw = fs.readFileSync(file, "utf-8");
+  const next = setUpdatedFrontmatter(raw, date);
+  if (next === raw) return false;
+  fs.writeFileSync(file, next);
+  return true;
+}
+
+const pages = listDocPages(DOCS_DIR);
+
+if (process.argv.includes("--staged")) {
+  const staged = new Set(
+    git(["diff", "--staged", "--name-only", "--diff-filter=ACMR", "--", "content/docs"]).split("\n").filter(Boolean),
+  );
+  const today = localToday();
+  const stamped: string[] = [];
+  for (const page of pages) {
+    const file = page.filePath;
+    if (!staged.has(file)) continue;
+    const hasUnstagedEdits = git(["diff", "--name-only", "--", file]).trim() !== "";
+    if (hasUnstagedEdits) {
+      console.warn(`docs-last-updated: ${file} has unstaged edits; not stamping it (its date stays ${page.meta.updated ?? "unset"})`);
+      continue;
+    }
+    if (stamp(file, today)) stamped.push(file);
   }
+  if (stamped.length) git(["add", "--", ...stamped]);
+  console.log(`docs-last-updated: stamped ${stamped.length} staged page(s) with ${today}`);
+} else {
+  let filled = 0;
+  for (const page of pages) {
+    if (page.meta.updated) continue;
+    const date = gitLastUpdated(page.filePath)?.slice(0, 10) ?? localToday();
+    if (stamp(page.filePath, date)) filled++;
+  }
+  console.log(`docs-last-updated: filled ${filled} page(s) missing an updated date`);
 }
-
-const previous = readLastUpdatedMap();
-const changed = changedFiles();
-const today = new Date().toISOString().slice(0, 10);
-const next: Record<string, string> = {};
-
-for (const page of listDocPages(DOCS_DIR)) {
-  const file = page.filePath;
-  const fromGit = gitLastUpdated(file)?.slice(0, 10) ?? null;
-  next[file] = changed.has(file) ? today : (fromGit ?? previous[file] ?? today);
-}
-
-const sorted = Object.fromEntries(Object.entries(next).sort(([a], [b]) => a.localeCompare(b)));
-fs.writeFileSync(LAST_UPDATED_FILE, JSON.stringify(sorted, null, 2) + "\n");
-console.log(`docs-last-updated: wrote ${Object.keys(sorted).length} entries to ${LAST_UPDATED_FILE}`);

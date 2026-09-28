@@ -4,6 +4,7 @@ description: Start the day with exercise, gratitude and a journal entry, and end
 icon: IconSunrise
 order: 2
 sidebarTitle: Routines
+updated: 2026-09-28
 ---
 
 Two guided pages bookend the day. The Startup routine (**Start Your Day With Intention**) collects what you will do for your body, what you are grateful for and a journal entry. The Wind-down routine (**End Your Day With Reflection**) asks what went well, how your energy was, what you learned and how you handled challenges. Everything you save lands on today's record under [Days](/days).

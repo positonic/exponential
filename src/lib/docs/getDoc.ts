@@ -6,7 +6,7 @@ import matter from "gray-matter";
 import type { DocContent, DocNavSection, DocSearchEntry } from "./types";
 import { extractHeadings } from "./extractHeadings";
 import { buildDocsNavigation, buildDocsSearchIndex, DOCS_DIR, listDocPages } from "./content";
-import { getLastUpdated, readLastUpdatedMap } from "./lastUpdated";
+import { getLastUpdated } from "./lastUpdated";
 
 const DOCS_PATH = DOCS_DIR;
 
@@ -39,7 +39,7 @@ export async function getDocContent(
     // candidate and 404 the whole docs section.
     const relativeToDocs = path.relative(path.resolve(DOCS_PATH), path.resolve(filePath));
     if (relativeToDocs.startsWith("..") || path.isAbsolute(relativeToDocs)) continue;
-    // `_meta.json`, `_last-updated.json` and `_drafts/` are not pages.
+    // `_meta.json`, `_redirects.json` and `_drafts/` are not pages.
     if (path.basename(filePath).startsWith("_") || relativeToDocs.split(path.sep).some((s) => s.startsWith("_"))) continue;
 
     try {
@@ -83,6 +83,4 @@ export const getDocsSearchIndex = cache((): DocSearchEntry[] => {
 });
 
 /** ISO date of the last change to a page, or null when unknown. */
-export const getDocLastUpdated = cache((filePath: string): string | null =>
-  getLastUpdated(filePath, readLastUpdatedMap()),
-);
+export const getDocLastUpdated = cache((filePath: string): string | null => getLastUpdated(filePath));

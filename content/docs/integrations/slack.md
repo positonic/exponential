@@ -4,6 +4,7 @@ description: Let Zoe read, search and post in your Slack, and route meeting summ
 section: integrations
 order: 2
 icon: IconBrandSlack
+updated: 2026-09-28
 ---
 
 Connect a Slack workspace and Zoe can catch you up on channels, search history, post updates and tell you where the noise is, so you read less Slack. Projects can also route their meeting summaries and action items into a channel.

@@ -3,6 +3,7 @@ title: Habits
 description: Track daily and weekly habits, tick them off each day, and watch your streaks build
 icon: IconRepeat
 order: 3
+updated: 2026-09-28
 ---
 
 Habits are recurring practices you want to keep up: daily, a few times a week, weekly, monthly, or on days you choose. The Habits page shows what is due today, lets you tick each one off, and keeps streaks and a 90-day activity calendar. A habit can be linked to a [Goal](/docs/plan/goals) so the daily practice sits next to what it serves.

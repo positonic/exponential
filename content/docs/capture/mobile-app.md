@@ -4,6 +4,7 @@ description: Install Exponential on your phone's home screen and turn on push no
 icon: IconDeviceMobile
 order: 3
 sidebarTitle: Mobile app
+updated: 2026-09-28
 ---
 
 Exponential runs as a web app you can install on iPhone or Android. Installed, it opens full-screen from your home screen with a bottom bar for **Inbox**, **Today**, **Calendar** and **Plan**, and it can send you push notifications.

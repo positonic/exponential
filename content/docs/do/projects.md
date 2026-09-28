@@ -3,6 +3,7 @@ title: Projects
 description: Group related actions into a project with an owner, a status, a priority and the goals it serves
 icon: IconFolders
 order: 3
+updated: 2026-09-28
 ---
 
 A Project groups the actions that deliver one outcome. It has a status, a priority, a DRI, optional dates, and links to the [Goals](/docs/plan/goals) it serves. Each project has its own board, timeline, meetings and integrations, and its access can be opened to the workspace or restricted to named members.

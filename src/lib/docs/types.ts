@@ -18,6 +18,8 @@ export interface DocPageMeta {
   parent?: string;
   /** Hide the page from the sidebar and search but keep the URL working. */
   hidden?: boolean;
+  /** `YYYY-MM-DD` of the last change; stamped by the pre-commit hook (see `lastUpdated.ts`). */
+  updated?: string;
 }
 
 export interface DocPage {

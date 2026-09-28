@@ -5,6 +5,7 @@ section: zoe
 order: 3
 icon: IconBrandWhatsapp
 sidebarTitle: "WhatsApp & Telegram"
+updated: 2026-09-28
 ---
 
 Link a WhatsApp account and you can message Zoe like any contact: create actions on the go, ask what is due, get a meeting summary. It works like WhatsApp Web: you scan a QR code and your phone stays the source of the session. Telegram is available alongside it with a simpler bot-style connection.

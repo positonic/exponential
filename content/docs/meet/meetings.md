@@ -4,6 +4,7 @@ description: Every recorded, imported or hand-written meeting in one place, with
 section: meet
 order: 1
 icon: IconMicrophone
+updated: 2026-09-28
 ---
 
 A meeting is a conversation that happened: its transcript, an AI summary, the people who took part, and what came out of it. Meetings arrive from Fireflies automatically or you add them by hand, and each one can be turned into actions in a project and decisions in the Decision Log. A future booking is a scheduled meeting, made with **Schedule meeting**, and is a different thing.

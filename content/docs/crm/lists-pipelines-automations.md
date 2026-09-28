@@ -4,6 +4,7 @@ description: How the three CRM building blocks fit together — who, where they 
 icon: IconBolt
 order: 2
 sidebarTitle: "Lists, pipelines & automations"
+updated: 2026-09-28
 ---
 
 The CRM gives you three building blocks that look similar but do different jobs. A **List** is *who*, a **Pipeline** is *where each contact is in a process*, and an **Automation** is *what happens automatically* when something changes.

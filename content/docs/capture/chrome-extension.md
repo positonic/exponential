@@ -4,6 +4,7 @@ description: Dictate recordings, save pages, create actions, add contacts and tr
 icon: IconMicrophone
 order: 2
 sidebarTitle: Chrome extension
+updated: 2026-09-28
 ---
 
 The Exponential Whisper extension adds a side panel to Chrome so you can capture without leaving the tab you are in: dictate a recording with on-device speech recognition, save the page you are reading, create an action, add a CRM contact or start the timer. Recordings are saved as meetings in Exponential, screenshots included.

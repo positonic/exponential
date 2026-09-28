@@ -4,6 +4,7 @@ description: Keys that let the iOS shortcut, the browser extension, the CLI, web
 section: developers
 order: 1
 icon: IconKey
+updated: 2026-09-28
 ---
 
 An API token lets something outside Exponential act as you: the iOS shortcut adding an action, Fireflies posting a transcript to a webhook, the CLI, or a script of your own. Tokens are created on one page, shown once, and can be revoked at any time.

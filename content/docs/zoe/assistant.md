@@ -4,6 +4,7 @@ description: Chat with Zoe to plan your day, find things and get work done — f
 icon: IconRobot
 order: 1
 sidebarTitle: Zoe
+updated: 2026-09-28
 ---
 
 Zoe is the assistant built into Exponential. Ask her what to focus on today, get a project broken down into actions, or think something through — and tag a specialist agent with @ when you need one. Zoe works with you in a conversation and acts as you, with your confirmation.

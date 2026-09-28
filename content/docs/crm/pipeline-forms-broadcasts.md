@@ -4,6 +4,7 @@ description: Track deals on a kanban pipeline, collect contacts and deals throug
 section: crm
 order: 3
 icon: IconAddressBook
+updated: 2026-09-28
 ---
 
 Three CRM tools that sit beside contacts, lists and automations: the **Pipeline** tracks deals through stages you define, **Forms** are public pages whose submissions create contacts, deals or product insights, and **Broadcasts** are scheduled emails to a list. All three live in the CRM's own menu and need the CRM plugin, which is on by default.

@@ -5,6 +5,7 @@ section: self-hosting
 order: 1
 icon: IconSettings
 sidebarTitle: Overview
+updated: 2026-09-28
 ---
 
 Exponential is open source and can run on your own infrastructure. Everything in the rest of these docs describes the product as a user sees it; this page is for the person operating an installation. If you use exponential.im, you can skip it.

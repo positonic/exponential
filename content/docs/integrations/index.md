@@ -5,6 +5,7 @@ section: integrations
 order: 1
 icon: IconPlug
 sidebarTitle: Overview
+updated: 2026-09-28
 ---
 
 Exponential connects to the tools your work already flows through: meeting recorders send transcripts in, chat apps let you talk to Zoe, and task tools stay in sync. Connections are personal (they live under your account, not the workspace) unless a page says otherwise.
