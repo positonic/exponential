@@ -35,6 +35,8 @@ On iPhone, push only works from the installed home-screen app, not from a Safari
 
 ## How it connects
 
+- **Desktop app** — the same app in a native window, with the Local wiki: [Desktop app & Local wiki](/docs/capture/desktop-app).
+
 - [Inbox and Today](/docs/do/inbox-and-today) — the two bottom-bar views you will use most on the phone.
 - [Notifications](/docs/collaborate/notifications) — choose which events arrive as push.
 - [iOS shortcut](/docs/capture/ios-shortcut) — capture by voice with Siri without opening the app at all.
