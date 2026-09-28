@@ -75,7 +75,7 @@ Turn plugins on or off for this workspace: OKRs and CRM are on by default, Produ
 
 ## Ceremonies
 
-Define the workspace's recurring meetings once: cadence, participants, purpose, agenda template, and which projects each one reviews. Each date becomes an occurrence with its own agenda and captured outputs. A full guide is on its way; the definitions are in [Concepts](/docs/concepts).
+Define the workspace's recurring meetings once: cadence, participants, purpose, agenda template, and which projects each one reviews. Each date becomes an occurrence with its own agenda and captured outputs. See [Ceremonies & occurrences](/docs/meet/ceremonies).
 
 ## Danger zone
 
