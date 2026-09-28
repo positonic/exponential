@@ -59,7 +59,8 @@ function allowedSidebarLabels(): Set<string> {
 
   // Global items at the top of the sidebar: `<NavLink href="/inbox" …>Inbox</NavLink>`.
   const navLinks = fs.readFileSync(path.join(ROOT, "src/app/_components/layout/NavLinks.tsx"), "utf-8");
-  for (const m of navLinks.matchAll(/<NavLink href=["']\/[^"']*["'][\s\S]*?>\s*([A-Za-z][A-Za-z ]*?)\s*<\/NavLink>/g)) {
+  // `href` is a literal path or a constant such as {WIKI_ROUTE}; the label is the element's text.
+  for (const m of navLinks.matchAll(/<NavLink href=(?:["']\/[^"']*["']|\{[A-Za-z_]+\})[\s\S]*?>\s*([A-Za-z][A-Za-z ]*?)\s*<\/NavLink>/g)) {
     labels.add(m[1]!);
   }
 
