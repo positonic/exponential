@@ -96,7 +96,7 @@ export function listDocPages(docsDir: string = DOCS_DIR): DocPage[] {
         slug,
         href: slug.length ? `${DOCS_BASE}/${slug.join("/")}` : DOCS_BASE,
         filePath: path.relative(process.cwd(), full),
-        meta: toMeta(data as Record<string, unknown>),
+        meta: toMeta(data),
         content,
       });
     }

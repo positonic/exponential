@@ -20,7 +20,7 @@ Workspace settings → **Plugins**: open the workspace switcher at the top of th
 |---|---|---|
 | **OKRs (Objectives & Key Results)** v1.0.0 | Yes | Key results on goals and the **OKR Progress** dashboard widget. See [OKRs](/docs/plan/okrs). |
 | **CRM (Contact Management)** v1.0.0 | Yes | **Connect → CRM** in the sidebar: contacts, organizations, interactions, lists and pipelines. See [Contacts](/docs/crm/contacts). |
-| **Product Management** v0.1.0 | No | **Products** and **Metrics** under **Deliver** in the sidebar: products, features, tickets, research insights, cycles and retrospectives. Its documentation is coming. See [Products, tickets, features & cycles](/docs/build/products). |
+| **Product Management** v0.1.0 | No | **Products** and **Metrics** under **Deliver** in the sidebar: products, features, tickets, research insights, cycles and retrospectives. See [Products, tickets, features & cycles](/docs/build/products). |
 
 ## How to enable or disable a plugin
 
