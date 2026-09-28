@@ -4,6 +4,7 @@ description: Every command of the exponential command-line tool, generated from 
 section: developers
 order: 3
 icon: IconTerminal2
+updated: 2026-09-28
 ---
 
 The `exponential` command-line tool gives you, your scripts and your agents the same objects the app has: actions, projects, goals and OKRs, meetings, decisions, products, tickets, features, epics, pages, CRM contacts, deals and time entries. Every command prints readable output in a terminal and JSON when piped or given `--json`, so it works as well inside an agent's shell as in yours.

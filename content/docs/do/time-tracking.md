@@ -4,6 +4,7 @@ description: Track where your time goes with a timer, let an agent propose the r
 icon: IconClock
 order: 5
 sidebarTitle: Time tracking
+updated: 2026-09-28
 ---
 
 Time tracking shows where your days actually went: per action, per project and per product. Time reaches Exponential in two ways. **You record it** — a timer from the Chrome extension, or an entry from the CLI — and it is always treated as correct. Or **an agent proposes it** — an [external agent](/docs/developers/external-agents) logs time on your behalf, for example from yesterday's AI coding conversations — and it shows on your Time page straight away but counts for nothing until you confirm it. Most people use both: the agent fills in the work it can see, and you time the calls, whiteboard sessions and reading it can't.

@@ -5,6 +5,7 @@ section: build
 order: 1
 icon: IconStack2
 sidebarTitle: Products & tickets
+updated: 2026-09-28
 ---
 
 A product is a unit of delivery with its own backlog. Inside it, **features** are the permanent registry of what the product is made of, **tickets** are the engineering work items, and **cycles** are the time boxes tickets are planned into. Tickets and actions are different things: a ticket is a product artefact that can have child actions; an action is a piece of daily work. All of this needs the Product Management plugin, which is off by default.

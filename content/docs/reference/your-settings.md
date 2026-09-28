@@ -4,6 +4,7 @@ description: "Personal preferences that follow you across every workspace: profi
 section: reference
 order: 1
 icon: IconSettings
+updated: 2026-09-28
 ---
 
 Your settings are yours alone and apply in every workspace you belong to: how the sidebar is arranged, which theme you use, where notifications go, and which services and keys are connected to your account. Anything that changes a workspace for everyone lives in [Workspace settings](/docs/reference/workspace-settings).

@@ -4,6 +4,7 @@ description: Sync a Notion database with a project, map its status values to kan
 icon: IconBrandNotion
 order: 3
 sidebarTitle: Notion
+updated: 2026-09-28
 ---
 
 Connect a Notion database to a project and actions flow between them: pull from Notion, push to Notion, or both. Notion's status values are mapped to your kanban columns, so an item marked "Doing" in Notion lands in **In Progress** here.

@@ -3,6 +3,7 @@ title: Journal
 description: Write a free-form entry for today, and keep a dated record of your morning and evening reflections
 icon: IconNotebook
 order: 1
+updated: 2026-09-28
 ---
 
 The Journal is a free-form page for today's thoughts: a rich-text editor and one entry per day. Next to it, **Days** is the dated record of what you write in the [Startup and Wind-down routines](/docs/reflect/routines) — exercise, gratitude, what went well, energy, learnings and challenges — one row per day you used them.

@@ -4,6 +4,7 @@ description: Give Claude and other MCP clients tools over your workspace, or bui
 section: developers
 order: 4
 icon: IconRobot
+updated: 2026-09-28
 ---
 
 Two ways to put Exponential inside software you already use. The **MCP server** (`exponential-mcp`) exposes your workspaces, projects, actions, meetings and goals as tools to any Model Context Protocol client, such as Claude Desktop or Claude Code, so you can ask "what is on my plate today?" in a chat and have the answer come from your real data. The **SDK** (`exponential-sdk`) is the TypeScript client both the MCP server and the CLI are built on, for when you are writing your own script or service.

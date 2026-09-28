@@ -4,6 +4,7 @@ description: Put measurable key results under your objectives and check in on th
 icon: IconTarget
 sidebarTitle: OKRs
 order: 2
+updated: 2026-09-28
 ---
 
 OKRs (Objectives and Key Results) turn a goal into numbers you can check in on. In Exponential an Objective is a [Goal](/docs/plan/goals), and each Key Result under it has a start value, a current value and a target. Key results are grouped by period — a quarter or a year — so the dashboard always shows what the workspace is betting on right now.

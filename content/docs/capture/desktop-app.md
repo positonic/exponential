@@ -4,6 +4,7 @@ description: Exponential in a window of its own, and the desktop-only Local wiki
 section: capture
 order: 4
 icon: IconDeviceMobile
+updated: 2026-09-28
 ---
 
 Exponential runs in the browser, and it also runs as a desktop app that wraps the same web app in a native window: its own dock icon, sign-in that hands off to your system browser and comes back, and, in the newer shell, a **Local wiki** that lives on your disk rather than in the cloud. The desktop app changes where Exponential runs, not what it does; every guide on this site applies unchanged.

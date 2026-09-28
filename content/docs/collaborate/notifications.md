@@ -3,6 +3,7 @@ title: Notifications
 description: Choose which notifications you get and where they go — push, email, Matrix, WhatsApp or Zulip
 icon: IconBell
 order: 3
+updated: 2026-09-28
 ---
 
 Exponential can notify you by **push**, **email**, **Matrix**, **WhatsApp** and **Zulip**. Push and email work out of the box; the chat channels are opt-in — connect one, then tick which notifications it receives. Assignments, mentions, due-date reminders, meeting and agenda updates, and your daily and weekly summaries are all configured on one page.

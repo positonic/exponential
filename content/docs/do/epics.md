@@ -3,6 +3,7 @@ title: Epics
 description: Group related actions together into larger initiatives to see the bigger picture
 icon: IconStack2
 order: 4
+updated: 2026-09-28
 ---
 
 Sometimes a single action is not enough to capture a bigger piece of work. That is where Epics come in. An epic is simply a way to group related actions under one umbrella, so you can track progress on a larger initiative at a glance. Think of epics like chapters in a book — each chapter (epic) holds several pages (actions) that tell the same story.

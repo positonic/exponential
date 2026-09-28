@@ -4,6 +4,7 @@ description: Identity, members, teams, feature switches, integrations, plugins a
 section: reference
 order: 2
 icon: IconBuildingSkyscraper
+updated: 2026-09-28
 ---
 
 Workspace settings apply to everyone in the workspace: who is in it, which features and plugins are on, how effort is estimated, and which recurring meetings it runs. Owners and admins can change them; members can read them. Personal preferences live in [Your settings](/docs/reference/your-settings).

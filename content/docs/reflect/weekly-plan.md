@@ -4,6 +4,7 @@ description: Set the week across every workspace in one pass — choose what is 
 icon: IconCalendarWeek
 order: 4
 sidebarTitle: Weekly plan
+updated: 2026-09-28
 ---
 
 The Weekly plan is a guided review you run once a week. It walks across every workspace you belong to in four phases: pick which workspaces are in focus and give each a theme, check in on the quarter's key results, sort projects into **Top focus**, **Active** and **Backlog**, and finish with a summary that links into each workspace's own weekly plan. Each finished week adds to your streak, and past weeks are kept in a history.

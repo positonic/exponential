@@ -4,6 +4,7 @@ description: Keep the people and companies you work with in one place, log every
 icon: IconAddressBook
 order: 1
 sidebarTitle: "Contacts & organisations"
+updated: 2026-09-28
 ---
 
 The CRM (customer relationship management) plugin keeps contacts, the organizations they belong to, and a log of your interactions with them, scoped to one workspace. Personal details such as email, phone and social handles are encrypted at rest. Contacts can be linked to [Meetings](/docs/meet/fireflies) as participants, grouped into lists, and moved through a deal pipeline.

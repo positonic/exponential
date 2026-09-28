@@ -4,6 +4,7 @@ description: Connect third-party AI agents to Exponential as first-class team me
 icon: IconRobotFace
 order: 2
 sidebarTitle: External agents
+updated: 2026-09-28
 ---
 
 External agents let you connect autonomous AI software — [Hermes Agent](https://hermes-agent.nousresearch.com/), MCP clients, custom scripts, anything that can send an HTTP request — to Exponential **as its own identity**, not as you. When your agent creates an action, the action says the *agent* created it, and the workspace's activity feed and members list show it with an **agent** badge. This is different from Zoe, who works *with* you in a conversation and acts as you with your confirmation.

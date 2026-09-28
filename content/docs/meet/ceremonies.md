@@ -4,6 +4,7 @@ description: Define each recurring team meeting once, and let every date get its
 section: meet
 order: 3
 icon: IconCalendarWeek
+updated: 2026-09-28
 ---
 
 A ceremony is a recurring team meeting defined once: standup, planning, review, retrospective, all-hands. It has an owner, a cadence, participants, a purpose and a "not for" list, an agenda template, required inputs and expected outputs. Each date it happens is an occurrence, which gets a generated agenda, collects participants' async updates, links the recorded meeting, and holds what came out: decisions, actions and a parking lot that carries to the next one.

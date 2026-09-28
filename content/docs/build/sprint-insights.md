@@ -4,6 +4,7 @@ description: Ask Zoe how the current sprint is going and get throughput, velocit
 icon: IconChartBar
 order: 2
 sidebarTitle: Sprint insights
+updated: 2026-09-28
 ---
 
 Sprint insights are the numbers Exponential computes from the sprint your actions are assigned to: how much was planned, how much is done, what was added after the start, the velocity, a burndown, and a set of risk signals. There is no sprint page to read them on; you ask Zoe, or an [external agent](/docs/developers/external-agents) pulls them through the API. The per-cycle totals also appear on the **Metrics** page for product teams.

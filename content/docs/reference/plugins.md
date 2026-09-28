@@ -4,6 +4,7 @@ description: Turn OKRs, CRM and Product Management on or off per workspace
 icon: IconPlug
 order: 3
 sidebarTitle: Plugins
+updated: 2026-09-28
 ---
 
 Plugins are optional feature sets you switch on per workspace. Turning one on adds its pages to the sidebar and its widgets to the dashboard; turning it off hides them without deleting any data.

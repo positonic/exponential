@@ -3,6 +3,7 @@ title: Goals
 description: Set the outcomes you are working toward, give each one an owner and a period, and connect the projects that deliver it
 icon: IconTargetArrow
 order: 1
+updated: 2026-09-28
 ---
 
 Goals are the outcomes you are working toward. Each goal has an owner (the DRI), a period, a health, and the projects that execute it. Team and organisation workspaces use OKR vocabulary: a goal is an **Objective** and carries measurable [Key Results](/docs/plan/okrs).

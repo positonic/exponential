@@ -18,6 +18,7 @@ import type {
   DocSectionMeta,
 } from "./types";
 import { extractHeadings } from "./extractHeadings";
+import { parseUpdatedField } from "./lastUpdated";
 
 export const DOCS_DIR = path.join(process.cwd(), "content/docs");
 export const DOCS_BASE = "/docs";
@@ -53,13 +54,14 @@ function toMeta(data: Record<string, unknown>): DocPageMeta {
     icon: typeof data.icon === "string" ? data.icon : undefined,
     parent: typeof data.parent === "string" ? data.parent : undefined,
     hidden: data.hidden === true,
+    updated: parseUpdatedField(data.updated) ?? undefined,
   };
 }
 
 /**
  * Every Markdown page under `content/docs`, in filesystem order. Files and
  * folders whose name starts with `_` are ignored (`_meta.json`,
- * `_last-updated.json`, drafts).
+ * `_redirects.json`, drafts).
  */
 export function listDocPages(docsDir: string = DOCS_DIR): DocPage[] {
   const pages: DocPage[] = [];

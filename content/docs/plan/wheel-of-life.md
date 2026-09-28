@@ -4,6 +4,7 @@ description: Rank the ten areas of your life by current and desired priority, sc
 icon: IconCircles
 order: 3
 sidebarTitle: Wheel of Life
+updated: 2026-09-28
 ---
 
 The Wheel of Life is a short self-assessment across ten areas of your life. You rank the areas by how much attention they get now and how much you want them to get, optionally score your satisfaction with each, and the result shows where the gaps are. It is personal to your account and pairs with [Goals](/docs/plan/goals) when you decide what to change.

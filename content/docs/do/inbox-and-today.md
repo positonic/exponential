@@ -4,6 +4,7 @@ description: Capture actions into the Inbox, then work from Today with overdue i
 icon: IconInbox
 order: 1
 sidebarTitle: "Inbox & Today"
+updated: 2026-09-28
 ---
 
 Inbox and Today are the two views you open every day. **Inbox** holds every action that has no date and no project yet, so nothing you capture gets lost. **Today** shows what is due today and what is overdue, beside your calendar, with **Tomorrow** and **Upcoming** a tab away.
