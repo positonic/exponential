@@ -34,7 +34,7 @@ A recorded conversation: transcript, summary and participants, usually arriving 
 
 ## Decision
 
-A recorded choice with its context, the alternatives considered, who decided and when, and the meeting it came from. Decisions live in the workspace Decision Log under **Align** in the sidebar and can be formalised as architecture decision records.
+A recorded choice with its context, the alternatives considered, who decided and when, and the meeting it came from. Decisions live in the workspace Decision Log under **Align** in the sidebar and can be formalised as architecture decision records. See [Decisions](/docs/plan/decisions).
 
 ## Ceremony and occurrence
 
