@@ -38,6 +38,8 @@ The rail on the right shows today's calendar events from a connected calendar (s
 
 ## How it connects
 
+- **Calendar** — the events in Today's rail come from your connected calendars and feeds: [Calendar & scheduling](/docs/meet/calendar).
+
 - **[Actions](/docs/do/actions)** — everything in these views is an action; the workspace board under **Deliver** → **Actions** shows the same actions by status.
 - **[Projects](/docs/do/projects)** — assigning a project is the usual way out of the Inbox; each project's **Tasks** tab shows only its own actions.
 - **[Routines](/docs/reflect/routines)** — the startup routine and wind-down are built around clearing the Inbox and reviewing Today.

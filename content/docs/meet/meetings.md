@@ -88,4 +88,4 @@ The transcript has no action-like statements, or it is too short. Add notes with
 Members of its workspace; a meeting in a restricted project follows that project's access list. **Share with team** copies the link for people who already have access.
 
 **Can I schedule a meeting from here?**
-**Schedule meeting** books a future meeting with workspace members and sends calendar invites; it does not create a recorded meeting. A guide for scheduling and calendars is coming.
+**Schedule meeting** books a future meeting with workspace members and sends calendar invites; it does not create a recorded meeting. See [Calendar & scheduling](/docs/meet/calendar).
