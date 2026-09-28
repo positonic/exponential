@@ -48,6 +48,8 @@ These need **Advanced Action Features**, which a workspace owner or admin turns 
 
 ## How it connects
 
+- **Keyboard shortcuts** — ⌘N to create an action, ⌘K to find one: [Keyboard shortcuts](/docs/reference/keyboard-shortcuts).
+
 - **[Inbox & Today](/docs/do/inbox-and-today)** — where actions are captured and worked day to day.
 - **[Projects](/docs/do/projects)** — a project's **Tasks** tab is a board of its own actions.
 - **[Epics](/docs/do/epics)** — larger initiatives made of several actions.

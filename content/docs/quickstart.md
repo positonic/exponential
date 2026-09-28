@@ -85,6 +85,7 @@ Each of these needs an API key from [Settings → API keys](/settings/api-keys);
 - Set a direction with [Goals](/docs/plan/goals) and link your project to one.
 - Working with others? Create a team workspace: [Workspaces](/docs/collaborate/workspaces).
 - Every term you just met is defined in [Concepts](/docs/concepts).
+- The shortcuts worth learning on day one, ⌘K, ⌘N and ⌘J, are in [Keyboard shortcuts](/docs/reference/keyboard-shortcuts).
 
 ## FAQ
 
