@@ -49,6 +49,8 @@ Pinned resources are included in every agent chat, so Zoe answers with them in c
 
 ## How it connects
 
+- **Pages** — documents you or Zoe write are indexed here too: [Pages](/docs/do/pages).
+
 - [Zoe, your assistant](/docs/zoe/assistant) — pinned resources are what Zoe reads before answering.
 - [Fireflies](/docs/meet/fireflies) — meetings recorded through Fireflies are searchable here once indexed.
 - [Chrome extension](/docs/capture/chrome-extension) — recordings made in the browser are meetings too, so they show up in search.

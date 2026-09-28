@@ -42,7 +42,7 @@ A ceremony is a recurring team meeting defined once: standup, planning, review, 
 
 ## Page
 
-A free-form document, written by you or by Zoe, that stands on its own: a spec, a wiki page, a brief. Pages are workspace-scoped, can attach to a project, and are searchable by Zoe. Find them under **Deliver → Pages** in the sidebar.
+A free-form document, written by you or by Zoe, that stands on its own: a spec, a wiki page, a brief. Pages are workspace-scoped, can attach to a project, and are searchable by Zoe. Find them under **Deliver → Pages** in the sidebar. See [Pages](/docs/do/pages).
 
 ## Product, feature, ticket and cycle
 
