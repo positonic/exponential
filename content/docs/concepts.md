@@ -38,7 +38,7 @@ A recorded choice with its context, the alternatives considered, who decided and
 
 ## Ceremony and occurrence
 
-A ceremony is a recurring team meeting defined once: standup, planning, review, retrospective, with a cadence, participants and an agenda template. Each date it happens is an occurrence, which collects the agenda, the recorded meeting, and the decisions and actions that came out of it. Managed at workspace settings → Ceremonies.
+A ceremony is a recurring team meeting defined once: standup, planning, review, retrospective, with a cadence, participants and an agenda template. Each date it happens is an occurrence, which collects the agenda, the recorded meeting, and the decisions and actions that came out of it. Managed at workspace settings → Ceremonies. See [Ceremonies & occurrences](/docs/meet/ceremonies).
 
 ## Page
 

@@ -63,7 +63,7 @@ Meetings you did not record with Fireflies can be added by hand with **Add Meeti
 - **Meetings** — the list, the meeting page, drafted actions and decisions: [Meetings](/docs/meet/meetings).
 - **Slack** — assign a meeting to a project with a Slack channel and the summary posts there: [Slack](/docs/integrations/slack).
 - **Decisions** — decisions Zoe finds in a transcript are recorded with the quote they came from, under **Align → Decisions**.
-- **Ceremonies** — a recurring team meeting can be defined once at workspace settings → **Ceremonies**, and its recorded meetings attach to each occurrence.
+- **Ceremonies** — a recurring team meeting is defined once and its recorded meetings attach to each occurrence: [Ceremonies & occurrences](/docs/meet/ceremonies).
 - **Knowledge** — transcripts are searchable by Zoe: [Knowledge base](/docs/zoe/knowledge-base).
 
 ## FAQ
