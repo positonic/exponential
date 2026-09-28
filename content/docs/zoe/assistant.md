@@ -19,7 +19,7 @@ Zoe is available three ways:
 - The **Ask Zoe · ⌘J** button in the bottom-right corner of every page, which opens the Zoe drawer beside whatever you are working on. Press **⌘J** to toggle it and **Esc** to close it.
 - The command palette (**⌘K**) — pick the **Ask Zoe** mode and the drawer opens.
 
-You can also message Zoe from your phone — see [WhatsApp](/docs/zoe/whatsapp).
+You can also message Zoe from your phone — see [Chat gateways](/docs/zoe/chat-gateways).
 
 ## How to start a chat
 
@@ -54,7 +54,7 @@ The drawer keeps Zoe alongside the page you are on, so you can ask about what is
 ## How it connects
 
 - [Knowledge base](/docs/zoe/knowledge-base) — pin a resource there and it is included in every chat, so Zoe answers from your own documents and meetings.
-- [WhatsApp](/docs/zoe/whatsapp) — message Zoe from your phone; the **Connect WhatsApp** button on the Agents page starts the setup.
+- [Chat gateways](/docs/zoe/chat-gateways) — message Zoe from your phone; the **Connect WhatsApp** button on the Agents page starts the setup.
 - [External agents](/docs/developers/external-agents) — for software that should act under its own name rather than yours.
 - [Settings → AI history](/settings/ai-history) — every message you have exchanged with Zoe, searchable and filterable by platform.
 

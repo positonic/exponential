@@ -48,7 +48,7 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 | **Meet** | Meetings that become actions and decisions, Fireflies, ceremonies, calendar and scheduling | [Meetings](/docs/meet/meetings) |
 | **Connect (CRM)** | Contacts and organisations, lists, automations, pipeline, forms, broadcasts | [Contacts](/docs/crm/contacts) |
 | **Collaborate** | Workspaces, teams, notifications | [Workspaces](/docs/collaborate/workspaces) |
-| **Zoe & AI** | The assistant, the knowledge base, chat over WhatsApp | [Zoe](/docs/zoe/assistant) |
+| **Zoe & AI** | The assistant, the knowledge base, chat over WhatsApp, Telegram and Matrix | [Zoe](/docs/zoe/assistant) |
 | **Capture anywhere** | iOS shortcut, Chrome extension, mobile app, desktop app | [iOS shortcut](/docs/capture/ios-shortcut) |
 | **Integrations** | Slack, Notion, GitHub, Google, Monday.com, calendar feeds | [Integrations](/docs/integrations) |
 | **Developers & agents** | API tokens, external agents, the CLI reference, the MCP server and SDK | [API tokens](/docs/developers/api-tokens) |

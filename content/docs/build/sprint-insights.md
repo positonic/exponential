@@ -11,7 +11,7 @@ Sprint insights are the numbers Exponential computes from the sprint your action
 
 ## Where to find it
 
-Open Zoe from **Amplify** → **Agents** in the sidebar (see [Zoe](/docs/zoe/assistant)) or through a chat gateway such as [WhatsApp](/docs/zoe/whatsapp), and ask about the sprint. Product teams with the Product Management plugin also get **Deliver** → **Metrics**, which shows **Velocity**, **Tickets tracked**, **Completion** and **PRs merged** per cycle.
+Open Zoe from **Amplify** → **Agents** in the sidebar (see [Zoe](/docs/zoe/assistant)) or through a chat gateway such as [Chat gateways](/docs/zoe/chat-gateways), and ask about the sprint. Product teams with the Product Management plugin also get **Deliver** → **Metrics**, which shows **Velocity**, **Tickets tracked**, **Completion** and **PRs merged** per cycle.
 
 ## How to set a sprint up
 

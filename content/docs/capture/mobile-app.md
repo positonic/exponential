@@ -40,7 +40,7 @@ On iPhone, push only works from the installed home-screen app, not from a Safari
 - [Inbox and Today](/docs/do/inbox-and-today) — the two bottom-bar views you will use most on the phone.
 - [Notifications](/docs/collaborate/notifications) — choose which events arrive as push.
 - [iOS shortcut](/docs/capture/ios-shortcut) — capture by voice with Siri without opening the app at all.
-- [WhatsApp](/docs/zoe/whatsapp) — talk to Zoe from your messaging app instead.
+- [Chat gateways](/docs/zoe/chat-gateways) — talk to Zoe from your messaging app instead.
 
 ## FAQ
 

@@ -25,7 +25,7 @@
     "/docs/features/notifications": "/docs/collaborate/notifications",
     "/docs/features/ai-assistant": "/docs/zoe/assistant",
     "/docs/features/knowledge-base": "/docs/zoe/knowledge-base",
-    "/docs/features/whatsapp-gateway": "/docs/zoe/whatsapp",
+    "/docs/features/whatsapp-gateway": "/docs/zoe/chat-gateways",
     "/docs/features/ios-shortcut": "/docs/capture/ios-shortcut",
     "/docs/features/chrome-extension": "/docs/capture/chrome-extension",
     "/docs/features/integrations": "/docs/integrations",
@@ -36,6 +36,7 @@
     "/docs/features/settings": "/docs/reference/workspace-settings",
     "/docs/features/plugins": "/docs/reference/plugins",
     "/docs/features/workflows": "/docs/integrations",
-    "/docs/features": "/docs"
+    "/docs/features": "/docs",
+    "/docs/zoe/whatsapp": "/docs/zoe/chat-gateways"
   }
 }
