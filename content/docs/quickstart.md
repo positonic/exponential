@@ -57,7 +57,7 @@ Actions without a project or date go to **Inbox**; you can file them later.
 
 ## 5. Plan today
 
-Open [Today](/today). Overdue actions sit at the top with a **Reschedule all → Today** button; the right-hand column shows your calendar for the day. Use **Add task** at the bottom to add something directly to today. **Plan** at the top right opens the daily planning routine, a short wizard that walks you through choosing the day's focus (you can plan today or tomorrow).
+Open [Today](/today). Overdue actions sit at the top with a **Reschedule all → Today** button; the right-hand column shows your calendar for the day. Use **Add task** at the bottom to add something directly to today. **Plan** at the top right opens the [daily plan](/docs/do/daily-plan), a short wizard that walks you through choosing the day's focus (you can plan today or tomorrow).
 
 ![Today with the day timeline](/doc-assets/today.png)
 

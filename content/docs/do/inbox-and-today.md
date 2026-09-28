@@ -38,6 +38,8 @@ The rail on the right shows today's calendar events from a connected calendar (s
 
 ## How it connects
 
+- **Daily plan** — the **Plan** button's six-step routine that fills Today: [Daily plan](/docs/do/daily-plan).
+
 - **Calendar** — the events in Today's rail come from your connected calendars and feeds: [Calendar & scheduling](/docs/meet/calendar).
 
 - **[Actions](/docs/do/actions)** — everything in these views is an action; the workspace board under **Deliver** → **Actions** shows the same actions by status.
