@@ -1,6 +1,9 @@
 ---
 title: Workspaces
 description: Organize your work into separate containers for personal, team, and client projects
+section: features
+order: 21
+icon: IconBuildingSkyscraper
 ---
 
 ## Overview
@@ -26,7 +29,7 @@ When you sign up, Exponential creates a personal workspace automatically. This w
 
 ## Creating a New Workspace
 
-1. Click the **workspace switcher** in the sidebar (shows your current workspace name)
+1. Click the **workspace switcher** at the top of the sidebar (it shows your current workspace name)
 2. Click **New Workspace**
 3. Enter a workspace name
 4. Add an optional description

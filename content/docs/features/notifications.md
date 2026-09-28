@@ -1,13 +1,16 @@
 ---
 title: Notifications
 description: Choose which notifications you get and where they go — push, email, Matrix, WhatsApp, or Zulip
+section: features
+order: 29
+icon: IconBell
 ---
 
 ## Overview
 
 Exponential can notify you by **push**, **email**, **Matrix**, **WhatsApp**, and **Zulip**. Push and email work out of the box. The chat channels are opt-in: connect one, then pick which notifications it receives.
 
-Everything is configured on one page: [Settings → Notifications](https://www.exponential.im/settings/notifications).
+Everything is configured on one page: [Settings → Notifications](/settings/notifications).
 
 ### Notification types
 
@@ -26,7 +29,7 @@ You never get notified about your own actions, and mentions only reach members o
 
 ## Choosing where each notification goes
 
-The **Delivery preferences** section of [Settings → Notifications](https://www.exponential.im/settings/notifications) shows one card per channel you can use. Inside each card, tick the notification types you want on that channel.
+The **Delivery preferences** section of [Settings → Notifications](/settings/notifications) shows one card per channel you can use. Inside each card, tick the notification types you want on that channel.
 
 - **Push** and **Email** cards are always shown.
 - **Matrix**, **WhatsApp**, and **Zulip** cards appear only after you connect that channel (see below). They start with everything unticked, so connecting a chat channel never starts pinging you until you ask it to.
@@ -39,7 +42,7 @@ Push notifications appear on your device in real time, even when Exponential isn
 
 ### Enabling push
 
-1. Open [Settings → Notifications](https://www.exponential.im/settings/notifications).
+1. Open [Settings → Notifications](/settings/notifications).
 2. Under **Push Notifications**, click **Enable Notifications**.
 3. When your browser prompts, click **Allow**.
 
@@ -75,7 +78,7 @@ Email is on by default for every notification type except the daily plan reminde
 
 You can also switch email off for a whole workspace without touching your other preferences:
 
-1. Open [Settings → Notifications](https://www.exponential.im/settings/notifications).
+1. Open [Settings → Notifications](/settings/notifications).
 2. Scroll to **Email Notifications** and find the workspace.
 3. Choose **On**, **Off**, or **Default**.
 
@@ -87,7 +90,7 @@ Get notifications as a direct message from the Zoe bot in any Matrix client (Ele
 
 ### 1. Pair your Matrix account
 
-1. Open [Settings → Assistant](https://www.exponential.im/settings/assistant). If you haven't set up your assistant yet, give it a name and personality and click **Create Assistant** first — the Matrix card needs it.
+1. Open [Settings → Assistant](/settings/assistant). If you haven't set up your assistant yet, give it a name and personality and click **Create Assistant** first — the Matrix card needs it.
 2. In the **Matrix** card, enter your full Matrix ID (for example `@you:syntro.fi`) and click **Connect Matrix**.
 3. The bot invites you to a chat. Accept the invite in your Matrix client and send the pairing code shown in the app into that chat. The code expires after 10 minutes.
 
@@ -95,7 +98,7 @@ The card shows **Connected** once pairing succeeds.
 
 ### 2. Choose what Matrix receives
 
-1. Open [Settings → Notifications](https://www.exponential.im/settings/notifications).
+1. Open [Settings → Notifications](/settings/notifications).
 2. A **Matrix (Zoe DM)** card now appears under Delivery preferences. Tick the types you want, such as **Mentions**.
 3. Click **Send test** on the card to confirm a message arrives in your Zoe DM.
 
@@ -103,7 +106,7 @@ You keep getting emails too unless you untick them under the Email card.
 
 ### Troubleshooting Matrix
 
-**No Matrix card in Delivery preferences** — you haven't paired yet, or pairing didn't finish. Check [Settings → Assistant](https://www.exponential.im/settings/assistant) shows **Connected**.
+**No Matrix card in Delivery preferences** — you haven't paired yet, or pairing didn't finish. Check [Settings → Assistant](/settings/assistant) shows **Connected**.
 
 **Send test fails with "no paired Matrix DM"** — the bot lost your chat room, usually because you left it. Click **Disconnect Matrix** in Settings → Assistant and pair again.
 
@@ -118,12 +121,12 @@ These work the same way as Matrix: once your account is linked, the channel's ca
 
 ## Summaries
 
-The **Summary schedule** card on [Settings → Notifications](https://www.exponential.im/settings/notifications) controls when digests go out. Which channels receive them is the **Summaries** tick in Delivery preferences.
+The **Summary schedule** card on [Settings → Notifications](/settings/notifications) controls when digests go out. Which channels receive them is the **Summaries** tick in Delivery preferences.
 
 - **Daily summary** — tasks due today, what's completed vs. pending, overdue items, and your top priorities. Pick the send time.
 - **Weekly summary** — completion rate, active projects, and week-over-week progress. Pick the weekday; it goes out at the same time as the daily summary.
 
-Times use the timezone on your [profile](https://www.exponential.im/settings/profile). If you haven't set one, times are read as UTC and the card offers to use your browser's timezone.
+Times use the timezone on your [profile](/settings/profile). If you haven't set one, times are read as UTC and the card offers to use your browser's timezone.
 
 ## Due-date reminders
 

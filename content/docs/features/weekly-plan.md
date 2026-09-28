@@ -1,6 +1,9 @@
 ---
 title: Weekly Plan
 description: Reflect on your week and plan ahead with structured review rituals
+section: features
+order: 9
+icon: IconCalendarWeek
 ---
 
 ## Overview

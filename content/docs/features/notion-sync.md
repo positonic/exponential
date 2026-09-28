@@ -1,6 +1,10 @@
 ---
 title: Notion Sync & Kanban Mapping
 description: Sync tasks from Notion databases and map status values to Exponential kanban columns
+section: features
+order: 20
+icon: IconBrandNotion
+sidebarTitle: Notion Sync
 ---
 
 ## Overview

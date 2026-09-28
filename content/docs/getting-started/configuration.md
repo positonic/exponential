@@ -1,6 +1,9 @@
 ---
 title: Configuration
 description: Set up your Exponential workspace and personalize your experience
+section: get-started
+order: 3
+icon: IconSettings
 ---
 
 ## Overview
@@ -35,7 +38,7 @@ Customize your sidebar to show only the features you use.
 
 ### Accessing Navigation Settings
 
-1. Click **Settings** in the sidebar
+1. Open [Settings](/settings) from your user menu
 2. You'll see sections for different feature groups
 
 ### Customizing the Sidebar
@@ -113,7 +116,7 @@ Connect external services to enhance your workflow.
 ### API Access
 
 For advanced integrations and webhooks:
-1. Navigate to **Tokens** in the sidebar
+1. Open [Settings → API keys](/settings/api-keys)
 2. Create API tokens for external services
 3. See [API Access Guide](/docs/features/api-access) for details
 

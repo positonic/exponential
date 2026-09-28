@@ -1,6 +1,9 @@
 ---
 title: Slack Integration
 description: Let Exponential read, search, and manage your Slack - because staying across 47 channels shouldn't require 47 tabs
+section: features
+order: 13
+icon: IconBrandSlack
 ---
 
 ## What This Does

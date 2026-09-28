@@ -1,6 +1,9 @@
 ---
 title: Workflows
 description: Automate your productivity with connected tools and guided processes
+section: features
+order: 25
+icon: IconPlayerPlay
 ---
 
 ## Overview
@@ -9,7 +12,7 @@ The Workflows page helps you automate repetitive tasks by connecting external se
 
 ## Accessing Workflows
 
-Navigate to **Workflows** in the sidebar to see all available automation options.
+Open [Workflows](/workflows) from your user menu to see all available automation options.
 
 ## Automated Workflows
 

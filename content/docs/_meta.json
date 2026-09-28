@@ -1,0 +1,8 @@
+{
+  "$comment": "Sidebar sections, in order. A page picks its section with `section:` in frontmatter (default: its top-level folder). Sections not listed here still render, appended after these.",
+  "sections": [
+    { "id": "get-started", "title": "Get started" },
+    { "id": "features", "title": "Features" },
+    { "id": "plugins", "title": "Plugins" }
+  ]
+}

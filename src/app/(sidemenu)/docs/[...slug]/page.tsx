@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getDocContent, getAllDocSlugs } from "~/lib/docs/getDoc";
-import { DocsSidebar, DocsContent, DocsTableOfContents } from "~/app/_components/docs";
+import { getDocContent, getAllDocSlugs, getDocLastUpdated } from "~/lib/docs/getDoc";
+import { docsEditUrl } from "~/lib/docs/content";
+import { DocsContent, DocsTableOfContents } from "~/app/_components/docs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
@@ -62,13 +63,14 @@ export default async function DocsPage({ params }: DocsPageProps) {
 
   return (
     <>
-      <DocsSidebar />
-      <DocsContent doc={doc}>
+      <DocsContent
+        doc={doc}
+        lastUpdated={getDocLastUpdated(doc.filePath)}
+        editUrl={docsEditUrl(doc.filePath)}
+      >
         <MarkdownRenderer content={doc.content} />
       </DocsContent>
-      <div className="hidden lg:block">
-        <DocsTableOfContents headings={doc.headings} />
-      </div>
+      <DocsTableOfContents headings={doc.headings} />
     </>
   );
 }

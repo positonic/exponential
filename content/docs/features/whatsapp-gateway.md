@@ -1,6 +1,9 @@
 ---
 title: WhatsApp Integration
 description: Connect your WhatsApp account to interact with AI assistants via messaging
+section: features
+order: 14
+icon: IconBrandWhatsapp
 ---
 
 ## Overview
@@ -41,7 +44,7 @@ This integration uses WhatsApp Web technology, meaning you link your phone's Wha
 
 ### Step 1: Access WhatsApp Settings
 
-1. Open the [agent chat page](https://www.exponential.im/agent)
+1. Open the [agent chat page](/agent)
 2. Click the **WhatsApp icon** in the header (next to other chat options)
 3. The WhatsApp Connection modal will open
 

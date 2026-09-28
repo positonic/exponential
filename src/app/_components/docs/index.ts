@@ -1,6 +1,10 @@
 export { DocsSidebar } from "./DocsSidebar";
+export { DocsMobileBar } from "./DocsMobileBar";
+export { DocsSearch } from "./DocsSearch";
+export { DocsNavProvider, useDocsNav } from "./DocsNavProvider";
 export { DocsTableOfContents } from "./DocsTableOfContents";
 export { DocsContent } from "./DocsContent";
 export { DocsCallout } from "./DocsCallout";
 export { DocsBreadcrumb } from "./DocsBreadcrumb";
 export { DocsPrevNext } from "./DocsPrevNext";
+export { DocsPageMeta } from "./DocsPageMeta";

@@ -1,8 +1,9 @@
 ---
 title: Knowledge Base
 description: Store and search documents, web pages, and meeting transcriptions with AI-powered semantic search.
+section: features
+order: 18
 icon: IconDatabase
-order: 3
 ---
 
 # Knowledge Base

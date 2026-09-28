@@ -1,6 +1,10 @@
 ---
 title: Plugins
 description: Extend Exponential with modular plugins for OKRs, CRM, and more
+section: plugins
+order: 1
+icon: IconPlug
+sidebarTitle: Plugins Overview
 ---
 
 ## Overview

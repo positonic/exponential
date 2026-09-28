@@ -1,6 +1,9 @@
 ---
 title: Wheel of Life
 description: Assess life balance across 10 domains and identify areas for improvement
+section: features
+order: 10
+icon: IconCircles
 ---
 
 ## Overview

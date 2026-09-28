@@ -1,6 +1,9 @@
 ---
 title: Fireflies Workflow
 description: Automatically capture action items from your meetings using Fireflies.ai integration
+section: features
+order: 15
+icon: IconFlame
 ---
 
 ## Overview

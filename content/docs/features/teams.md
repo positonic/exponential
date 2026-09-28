@@ -1,6 +1,9 @@
 ---
 title: Teams
 description: Collaborate with others on projects and share integrations
+section: features
+order: 22
+icon: IconUsers
 ---
 
 ## Overview

@@ -1,6 +1,9 @@
 ---
 title: Actions & Tasks
 description: Manage your tasks with flexible priorities, due dates, and project organization
+section: features
+order: 3
+icon: IconChecklist
 ---
 
 ## Overview

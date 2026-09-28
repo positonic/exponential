@@ -1,6 +1,9 @@
 ---
 title: Habits
 description: Build and track consistent daily practices that support your goals
+section: features
+order: 12
+icon: IconRepeat
 ---
 
 ## Overview

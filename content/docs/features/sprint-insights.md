@@ -1,6 +1,9 @@
 ---
 title: Sprint Insights
 description: Get real-time sprint tracking, risk detection, and daily standups from your AI assistant
+section: features
+order: 24
+icon: IconChartBar
 ---
 
 ## Overview
