@@ -13,6 +13,8 @@
  *   - has no `title` or `description` frontmatter;
  *   - is missing from `content/docs/_last-updated.json` (run
  *     `npm run docs:last-updated`).
+ * It also checks that every redirect in `content/docs/_redirects.json`
+ * points at a page that exists and that no redirect source is itself a page.
  *
  * Code blocks are ignored so command examples can contain anything.
  */
@@ -160,13 +162,25 @@ function main() {
 
     for (const m of text.matchAll(SIDEBAR_RE)) {
       const label = m[1]!.trim();
-      if (!labels.has(label)) {
+      // "**Align → Goals** in the sidebar" names a section and an item; each part must be real.
+      const parts = label.split(/\s*(?:→|->|>)\s*/).map((p) => p.trim()).filter(Boolean);
+      if (!parts.every((p) => labels.has(p))) {
         fail(
           file,
           lineOf(m.index ?? 0),
           `"**${label}** in the sidebar" — no sidebar item or settings tab is called "${label}"`,
         );
       }
+    }
+  }
+
+  const redirectsFile = path.join(DOCS_DIR, "_redirects.json");
+  if (fs.existsSync(redirectsFile)) {
+    const { redirects } = JSON.parse(fs.readFileSync(redirectsFile, "utf-8")) as { redirects: Record<string, string> };
+    for (const [source, destination] of Object.entries(redirects)) {
+      const rel = path.relative(ROOT, redirectsFile);
+      if (!byHref.has(destination.split("#")[0]!)) fail(rel, 1, `redirect ${source} → ${destination}: target page does not exist`);
+      if (byHref.has(source)) fail(rel, 1, `redirect source ${source} is also a live page — remove one`);
     }
   }
 
