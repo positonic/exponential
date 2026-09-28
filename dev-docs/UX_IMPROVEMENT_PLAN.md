@@ -6,8 +6,8 @@
 
 | Status | Count |
 |--------|-------|
-| Done   | 5 (F1, F2, F6, 7wlo, peyl) |
-| Open   | 7 (all unblocked) |
+| Done   | 7 (F1, F2, F6, F7, F16, 7wlo, peyl) |
+| Open   | 5 (all unblocked) |
 
 ---
 
@@ -26,6 +26,9 @@
 ### F6: Dashboard Widgets Show Empty Data
 - **Fix**: Addressed via welcome banner and checklist guiding users through setup. Advanced widget hiding tracked separately as F10.
 
+### F7 + F16: Placeholder Social Proof and Fabricated Testimonials — `exponential-91ui`, `exponential-28ok`
+- **Fix**: Removed entirely rather than replaced — there is no real customer content yet. Deleted `SocialProof.tsx` (fake logos, "Trusted by 50+") and `TestimonialsSection.tsx`, and replaced the placeholder numbers in `StatsSection.tsx` with `FactsSection.tsx`, which states only verifiable facts (AGPL-3.0, free, self-hostable, agent API). Add real testimonials back only with named, consenting customers.
+
 ---
 
 ## Open — Prioritized Backlog
@@ -38,20 +41,6 @@
 - **Apply to**: Projects (`Projects.tsx:384`), Goals (`GoalsTable.tsx:42`), Outcomes (`OutcomesTable.tsx:67`), Actions (`ActionList.tsx:1479`), `ProjectStateOverview` (`:56`), `GoalsProgressDashboard`, `HabitsDueToday`, CRM pages
 - **Benchmark**: Use `InboxZeroCelebration` as quality reference
 - **Dependencies**: None — can start immediately
-
-### Phase 2: Trust & Social Proof (Quick Win)
-
-#### `exponential-91ui` [P2] — F7: Replace placeholder social proof with real logos/testimonials
-- **Problem**: Landing page shows fake company names (TechCorp, StartupX, BuildCo, ShipFast)
-- **Solution**: Replace with real customer logos or remove entirely until real content exists
-- **Files**: `SocialProof.tsx:15-31`, `TestimonialsSection.tsx:8-33`
-- **Blocks**: `28ok` (F16)
-
-#### `exponential-28ok` [P3] — F16: Replace fabricated testimonials
-- **Problem**: Three testimonials from fake people/companies (Sarah Chen/TechStart, Marcus Rivera/BuildFast, Alex Kim/ShipCo)
-- **Solution**: Replace with real testimonials or remove entirely
-- **File**: `TestimonialsSection.tsx:8-33`
-- **Depends on**: `91ui` (do together)
 
 ### Phase 3: Navigation & Discovery
 
@@ -86,7 +75,7 @@
 ```
 1. ✅ 7wlo + peyl              ← DONE — welcome checklist + onboarding project
 2. tw9d (F3: empty states)    ← Biggest remaining gap, no blockers  ← NEXT
-3. 91ui + 28ok (F7/F16)       ← Quick trust win, do together
+3. ✅ 91ui + 28ok (F7/F16)    ← DONE — fake social proof removed
 4. h7vc (F13: global create)  ← Reduces friction across all features
 5. rlcs (F4: sidebar)         ← Now unblocked
 6. 2snl (F10: widgets)        ← Now unblocked
@@ -101,8 +90,6 @@
 7wlo (welcome checklist) ──┬──> rlcs (sidebar disclosure)
                            ├──> 2snl (widget hiding)
                            └──> 1odq (progress tracker)
-
-91ui (social proof) ───────> 28ok (testimonials)
 
 tw9d (empty states)         [independent]
 h7vc (global create)        [independent]
