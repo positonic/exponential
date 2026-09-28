@@ -48,6 +48,8 @@ Interactions feed the contact's **Activity** tab, the **Emails**, **Telegram** a
 
 ## How it connects
 
+- **Pipeline, forms and broadcasts** — deals, public forms and scheduled emails: [Pipeline, forms & broadcasts](/docs/crm/pipeline-forms-broadcasts).
+
 - **Pipeline** — a contact can have deals that move through pipeline stages. See [Lists, pipelines & automations](/docs/crm/lists-pipelines-automations).
 - **Lists** — named groups of contacts; a **Broadcast** emails everyone on a list.
 - **Automations** — run steps when a contact's **Profile Type** is set, or when a contact is added to a list.

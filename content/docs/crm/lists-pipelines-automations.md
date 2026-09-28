@@ -26,7 +26,7 @@ A list is a curated set of contacts: in or out, nothing more. A contact can be i
 2. Give it a **List name**.
 3. Open the list, pick contacts under **List members** and click **Add**. A contact's own page shows the lists it is on under **Lists**.
 
-Two things use a list: a **Broadcast** (under **Broadcasts** in the CRM menu) emails everyone on the list, skipping anyone who has unsubscribed, and the list's own **Automations** section runs an automation whenever a contact is added to the list.
+Two things use a list: a **Broadcast** (under **Broadcasts** in the CRM menu (see [Pipeline, forms & broadcasts](/docs/crm/pipeline-forms-broadcasts))) emails everyone on the list, skipping anyone who has unsubscribed, and the list's own **Automations** section runs an automation whenever a contact is added to the list.
 
 ## Pipelines
 
