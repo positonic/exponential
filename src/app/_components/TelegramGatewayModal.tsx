@@ -25,7 +25,7 @@ export function TelegramGatewayModal({
       }
       size="md"
     >
-      <TelegramGatewayCard embedded assistantSaved />
+      <TelegramGatewayCard embedded />
     </Modal>
   );
 }
