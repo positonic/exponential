@@ -52,7 +52,8 @@
     "docs:check": "tsx scripts/check-docs.ts",
     "docs:last-updated": "tsx scripts/docs-last-updated.ts",
     "docs:cli": "tsx scripts/generate-cli-docs.ts",
-    "docs:whats-new": "tsx scripts/generate-whats-new.ts"
+    "docs:whats-new": "tsx scripts/generate-whats-new.ts",
+    "docs:screenshots": "playwright test --config playwright.docs.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
