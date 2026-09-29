@@ -120,21 +120,24 @@ interface ListPageButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * a Mantine `Menu.Target` / `Popover.Target`.
  */
 export const ListPageButton = forwardRef<HTMLButtonElement, ListPageButtonProps>(
-  function ListPageButton({ active, count, className, type = 'button', children, ...props }, ref) {
+  function ListPageButton(
+    { active, count, className, type = 'button', children, 'aria-label': ariaLabel, ...props },
+    ref,
+  ) {
+    const hasCount = count !== undefined && count > 0;
     return (
       <button
         ref={ref}
         type={type}
         className={className ? `${styles.button} ${className}` : styles.button}
         data-active={active ? 'true' : 'false'}
+        // An explicit aria-label replaces the button's content as its name,
+        // so the count has to be folded into it to be announced at all.
+        aria-label={ariaLabel && hasCount ? `${ariaLabel}, ${count} active` : ariaLabel}
         {...props}
       >
         {children}
-        {count !== undefined && count > 0 && (
-          <span className={styles.count} aria-label={`${count} active`}>
-            {count}
-          </span>
-        )}
+        {hasCount && <span className={styles.count}>{count}</span>}
       </button>
     );
   },

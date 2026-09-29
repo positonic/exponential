@@ -245,6 +245,9 @@ export default function ProductLayout({
 
   return (
     <div className="w-full">
+      {/* The visible name is in the breadcrumb; keep a heading for screen
+          readers and heading navigation now the title block is gone. */}
+      {product && <h1 className="sr-only">{product.name}</h1>}
       {!isLoading && !product && (
         <Text className="px-4 pt-6 text-text-muted sm:px-6 lg:px-10">Product not found</Text>
       )}
