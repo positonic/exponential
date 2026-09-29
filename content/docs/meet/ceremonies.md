@@ -4,7 +4,7 @@ description: Define each recurring team meeting once, and let every date get its
 section: meet
 order: 3
 icon: IconCalendarWeek
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A ceremony is a recurring team meeting defined once: standup, planning, review, retrospective, all-hands. It has an owner, a cadence, participants, a purpose and a "not for" list, an agenda template, required inputs and expected outputs. Each date it happens is an occurrence, which gets a generated agenda, collects participants' async updates, links the recorded meeting, and holds what came out: decisions, actions and a parking lot that carries to the next one.
@@ -13,12 +13,12 @@ A ceremony is a recurring team meeting defined once: standup, planning, review, 
 
 ## Where to find it
 
-- Definitions: workspace settings → **Ceremonies**.
+- Definitions: [workspace settings → **Ceremonies**](/go/settings/ceremonies).
 - A ceremony's page (its definition and the list of occurrences) opens from that table; each occurrence has its own page. A meeting's rail links to the occurrence it captured (**Part of a ceremony?**).
 
 ## How to define a ceremony
 
-1. In workspace settings → **Ceremonies**, click **New ceremony**, or **Add from template** to start from a standard one: **Daily Standup**, **Cycle Planning**, **Review & Demo**, **Retrospective**, **Product Prioritisation** or **All Hands**.
+1. In [workspace settings → **Ceremonies**](/go/settings/ceremonies), click **New ceremony**, or **Add from template** to start from a standard one: **Daily Standup**, **Cycle Planning**, **Review & Demo**, **Retrospective**, **Product Prioritisation** or **All Hands**.
 2. Fill in the definition:
    - **Name**, **Kind**, an icon, and **Title aliases** so calendar and recording titles that match attach automatically.
    - **Owner** (defaults to you), **Participants** (workspace members; pick a **Team** to include everyone on it), optional **Product**, and the **Projects** it reviews.

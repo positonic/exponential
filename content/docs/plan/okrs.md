@@ -13,7 +13,7 @@ OKRs (Objectives and Key Results) turn a goal into numbers you can check in on. 
 
 ## Where to find it
 
-Open [Goals](/goals) — or **Align** → **Goals** in the sidebar — and switch to the **OKRs** tab. The OKR plugin is on by default; a workspace owner can turn it off under workspace settings → **Plugins** (see [Plugins](/docs/reference/plugins)).
+Open [Goals](/goals) — or **Align** → **Goals** in the sidebar — and switch to the **OKRs** tab. The OKR plugin is on by default; a workspace owner can turn it off under [workspace settings → **Plugins**](/go/settings/plugins) (see [Plugins](/docs/reference/plugins)).
 
 ## How to pick a period
 

@@ -4,7 +4,7 @@ description: Ask Zoe how the current sprint is going and get throughput, velocit
 icon: IconChartBar
 order: 3
 sidebarTitle: Sprint insights
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Sprint insights are the numbers Exponential computes from the sprint your actions are assigned to: how much was planned, how much is done, what was added after the start, the velocity, a burndown, and a set of risk signals. There is no sprint page to read them on; you ask Zoe, or an [external agent](/docs/developers/external-agents) pulls them through the API. The per-cycle totals also appear on the **Metrics** page for product teams.
@@ -18,7 +18,7 @@ Open Zoe from **Amplify** → **Agents** in the sidebar (see [Zoe](/docs/zoe/ass
 Insights only exist for a workspace with an active sprint and actions in it.
 
 1. Create a cycle: open a product from **Deliver** → **Products**, go to **Cycles**, click **New cycle**, fill in the dates and click **Create cycle**. The active cycle is the sprint.
-2. Assign actions to it with the **Sprint** button on the action form. This needs **Advanced Action Features**, turned on under workspace settings → **Features**.
+2. Assign actions to it with the **Sprint** button on the action form. This needs **Advanced Action Features**, turned on under [workspace settings → **Features**](/go/settings).
 3. Give actions an **Effort** estimate so velocity means something, and due dates so overdue work can be flagged.
 4. Move cards across the board as work progresses — the columns are the source of every count.
 5. Optionally connect GitHub (see [Integrations](/docs/integrations)) so commits and pull requests can be reported alongside the sprint.

@@ -5,7 +5,7 @@ section: build
 order: 1
 icon: IconStack2
 sidebarTitle: Products & tickets
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A product is a unit of delivery with its own backlog. Inside it, **features** are the permanent registry of what the product is made of, **tickets** are the engineering work items, and **cycles** are the time boxes tickets are planned into. Tickets and actions are different things: a ticket is a product artefact that can have child actions; an action is a piece of daily work. All of this needs the Product Management plugin, which is off by default.
@@ -14,8 +14,8 @@ A product is a unit of delivery with its own backlog. Inside it, **features** ar
 
 ## Where to find it
 
-1. Turn the plugin on: workspace settings → **Plugins** → **Product Management**. **Products** and **Metrics** then appear under **Deliver** in the sidebar. See [Plugins](/docs/reference/plugins).
-2. Open **Deliver → Products** in the sidebar. The products area has four views: **List**, **Grid**, **Products & Projects** (which projects each product owns) and **Product Roadmap** (every feature across all products on one board).
+1. Turn the plugin on: [workspace settings → **Plugins**](/go/settings/plugins) → **Product Management**. **Products** and **Metrics** then appear under **Deliver** in the sidebar. See [Plugins](/docs/reference/plugins).
+2. Open [**Deliver → Products**](/go/products) in the sidebar. The products area has four views: **List**, **Grid**, **Products & Projects** (which projects each product owns) and **Product Roadmap** (every feature across all products on one board).
 
 Each product page has eight tabs: **Overview**, **Backlog**, **Features**, **Graph**, **Cycles**, **Insights**, **Decisions** and **Retro**. Insights, Decisions and retrospectives have their own guides coming.
 

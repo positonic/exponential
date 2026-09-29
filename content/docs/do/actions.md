@@ -39,7 +39,7 @@ The workspace board opens on the **All Items** view.
 
 ## How to use the advanced features
 
-These need **Advanced Action Features**, which a workspace owner or admin turns on under workspace settings → **Features** (see [Workspace settings](/docs/reference/workspace-settings#advanced-action-features)).
+These need **Advanced Action Features**, which a workspace owner or admin turns on under [workspace settings → **Features**](/go/settings) (see [Workspace settings](/docs/reference/workspace-settings#advanced-action-features)).
 
 - **Epic** — group the action under a larger initiative. See [Epics](/docs/do/epics).
 - **Sprint** — assign it to a cycle. Cycles are created under a product's **Cycles** page with **New cycle**, which needs the Product Management plugin.

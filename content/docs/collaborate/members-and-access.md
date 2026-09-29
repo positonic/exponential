@@ -4,7 +4,7 @@ description: "Who can see and do what in a workspace: roles, invitations, guests
 section: collaborate
 order: 4
 icon: IconUsers
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Access in Exponential has two layers. A **workspace role** says what someone can do across the whole workspace: owner, admin, member or viewer. On top of that, a **project** can be opened up (public, viewable by anyone with the link) or closed down (restricted, visible only to the people named on it), and people can be given access to one project without any workspace role at all; those are **guests**. External agents follow the same rules as the person who owns them.
@@ -13,7 +13,7 @@ Access in Exponential has two layers. A **workspace role** says what someone can
 
 ## Where to find it
 
-- Roles and invitations: workspace settings → **Members** (owners and admins). See [Workspace settings](/docs/reference/workspace-settings).
+- Roles and invitations: [workspace settings → **Members**](/go/settings) (owners and admins). See [Workspace settings](/docs/reference/workspace-settings).
 - A project's visibility and its guests: the project's **Access** tab.
 - Teams, for sharing projects with a group at once: [Teams](/docs/collaborate/teams).
 
@@ -30,7 +30,7 @@ Everyone with a role sees every unrestricted project in the workspace.
 
 ## How to invite someone
 
-1. In workspace settings → **Members**, click **Invite member**.
+1. In [workspace settings → **Members**](/go/settings), click **Invite member**.
 2. Enter their email and pick a role (**Admin**, **Member** or **Viewer**; the picker explains each).
 3. They get an email with a link that is valid for seven days. Pending invitations are listed with who invited them and when they expire; **Resend (generate new link)** issues a fresh link and **Cancel invitation** withdraws it.
 
@@ -47,7 +47,7 @@ Both switches can be on: the project is publicly viewable, and within the worksp
 
 ## Guests
 
-A guest is someone with access to specific projects but no workspace role. Add them as members on a project's **Access** tab; they are listed under **Project guests** in workspace settings → **Members**, and their access is managed per project. A guest sees the projects they were added to and nothing else in the workspace.
+A guest is someone with access to specific projects but no workspace role. Add them as members on a project's **Access** tab; they are listed under **Project guests** in [workspace settings → **Members**](/go/settings), and their access is managed per project. A guest sees the projects they were added to and nothing else in the workspace.
 
 ## External agents
 

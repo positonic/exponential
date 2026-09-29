@@ -13,7 +13,7 @@ Most pages show one object. These four show the workspace: the **activity feed**
 
 - Activity: the panel on the workspace home, the full page at **Activity** in the workspace (`/w/<slug>/activity`), and [Activity](/activity) across all your workspaces.
 - Views: `/w/<slug>/views`, reached from the **Projects & Tasks** view and the command palette's **Tasks** page.
-- Timeline: the **Timeline** tab at the top of **Deliver → Projects**.
+- Timeline: the **Timeline** tab at the top of [**Deliver → Projects**](/go/projects).
 - Favourites: the **Favourites** section of the sidebar, below the Amplify section.
 
 ## How to read the activity feed
@@ -37,7 +37,7 @@ Most pages show one object. These four show the workspace: the **activity feed**
 
 ![The projects timeline](/doc-assets/timeline.png)
 
-On **Deliver → Projects**, the **Timeline** tab draws each project as a bar from its start date to its end date, by **Month**, **Quarter** or **Year**; **Today** jumps to now. Projects without dates do not appear, so set them on the project. The status and priority filters from the Projects tab apply here too.
+On [**Deliver → Projects**](/go/projects), the **Timeline** tab draws each project as a bar from its start date to its end date, by **Month**, **Quarter** or **Year**; **Today** jumps to now. Projects without dates do not appear, so set them on the project. The status and priority filters from the Projects tab apply here too.
 
 ## How to use Favourites
 

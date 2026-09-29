@@ -4,7 +4,7 @@ description: Chat with Zoe to plan your day, find things and get work done — f
 icon: IconRobot
 order: 1
 sidebarTitle: Zoe
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Zoe is the assistant built into Exponential. Ask her what to focus on today, get a project broken down into actions, or think something through — and tag a specialist agent with @ when you need one. Zoe works with you in a conversation and acts as you, with your confirmation.
@@ -15,7 +15,7 @@ Zoe is the assistant built into Exponential. Ask her what to focus on today, get
 
 Zoe is available three ways:
 
-- **Amplify → Agents** in the sidebar ([/agent](/agent)) — the full chat page, with your chat history and the specialist agents.
+- [**Amplify → Agents**](/go/agent) in the sidebar ([/agent](/agent)) — the full chat page, with your chat history and the specialist agents.
 - The **Ask Zoe · ⌘J** button in the bottom-right corner of every page, which opens the Zoe drawer beside whatever you are working on. Press **⌘J** to toggle it and **Esc** to close it.
 - The command palette (**⌘K**) — pick the **Ask Zoe** mode and the drawer opens.
 
@@ -23,7 +23,7 @@ You can also message Zoe from your phone — see [Chat gateways](/docs/zoe/chat-
 
 ## How to start a chat
 
-1. Open **Amplify → Agents** in the sidebar.
+1. Open [**Amplify → Agents**](/go/agent) in the sidebar.
 2. Click **New chat**. Zoe greets you and asks what's up.
 3. Type in the **Ask anything** box and press Enter, or click the microphone to speak instead of typing.
 4. Earlier conversations are listed under **Your Chats**. Use **Search chats...** to find one and click it to pick up where you left off.

@@ -4,7 +4,7 @@ description: Keep the people and companies you work with in one place, log every
 icon: IconAddressBook
 order: 1
 sidebarTitle: "Contacts & organisations"
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 The CRM (customer relationship management) plugin keeps contacts, the organizations they belong to, and a log of your interactions with them, scoped to one workspace. Personal details such as email, phone and social handles are encrypted at rest. Contacts can be linked to [Meetings](/docs/meet/fireflies) as participants, grouped into lists, and moved through a deal pipeline.
@@ -13,7 +13,7 @@ The CRM (customer relationship management) plugin keeps contacts, the organizati
 
 ## Where to find it
 
-**Connect → CRM** in the sidebar. The CRM plugin is enabled by default; if the item is missing, a workspace owner or admin can switch it on under workspace settings → **Plugins** (see [Plugins](/docs/reference/plugins)). Inside the CRM, the left-hand menu has **Dashboard**, **Pipeline**, **Contacts**, **Organizations**, **Automations**, **Lists**, **Broadcasts** and **Forms**.
+[**Connect → CRM**](/go/crm) in the sidebar. The CRM plugin is enabled by default; if the item is missing, a workspace owner or admin can switch it on under [workspace settings → **Plugins**](/go/settings/plugins) (see [Plugins](/docs/reference/plugins)). Inside the CRM, the left-hand menu has **Dashboard**, **Pipeline**, **Contacts**, **Organizations**, **Automations**, **Lists**, **Broadcasts** and **Forms**.
 
 ## How to add a contact
 

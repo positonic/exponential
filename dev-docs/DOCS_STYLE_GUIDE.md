@@ -59,8 +59,10 @@ sidebar or button labels exactly as the UI shows them, in bold: **Today**, **Add
 - Docs pages: `/docs/<path>` with an optional `#anchor` that matches an H2/H3 on the target.
 - App routes: relative, workspace-agnostic where one exists (`/today`, `/inbox`, `/time`,
   `/journal`, `/settings/...`, `/teams`, `/workspaces`, `/meetings`, `/agent`). For
-  workspace-scoped routes use `/go/<route>` once the resolver exists (Docs v2 Phase 3);
-  until then, describe the sidebar path instead of inventing a URL.
+  workspace-scoped routes use `/go/<route>`: `[**Connect → CRM**](/go/crm) in the sidebar`,
+  `[workspace settings → **Plugins**](/go/settings/plugins)`. `/go` opens the reader's default
+  (or Personal) workspace, and sends signed-out readers through sign-in first. `docs:check`
+  fails on a `/go/` target that is not a folder under `src/app/(sidemenu)/w/[workspaceSlug]/`.
 - Images: `/doc-assets/<name>.png`, checked into `public/doc-assets/`. Alt text describes
   what the reader sees. Screenshots come from the `dev-fixture` workspace
   (`npm run dev:seed-fixture`, see `AGENT_VISUAL_TESTING.md`), never from a personal account.

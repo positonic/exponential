@@ -4,7 +4,7 @@ description: Dictate recordings, save pages, create actions, add contacts and tr
 icon: IconMicrophone
 order: 2
 sidebarTitle: Chrome extension
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 The Exponential Whisper extension adds a side panel to Chrome so you can capture without leaving the tab you are in: dictate a recording with on-device speech recognition, save the page you are reading, create an action, add a CRM contact or start the timer. Recordings are saved as meetings in Exponential, screenshots included.
@@ -71,7 +71,7 @@ No. Speech recognition runs on your computer with Whisper. Only the text, screen
 Not yet — install it with **Load unpacked** as above.
 
 **Where do recordings go?**
-Each recording is a meeting in the project you selected. Open it from the **View recording** link or from **Amplify → Meetings** in the sidebar.
+Each recording is a meeting in the project you selected. Open it from the **View recording** link or from [**Amplify → Meetings**](/go/meetings) in the sidebar.
 
 **The key was rejected.**
 Keys expire. Create a new one under [Settings → API keys](/settings/api-keys) and save it again.
