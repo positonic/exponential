@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { pluginRegistry } from "~/plugins/registry";
 import { initializePlugins } from "~/plugins/loader";
+import { resolvePluginStates } from "~/server/services/plugins/resolvePluginStates";
 
 export const pluginConfigRouter = createTRPCRouter({
   // Get all available plugins with their enabled status
@@ -19,15 +20,14 @@ export const pluginConfigRouter = createTRPCRouter({
 
       const allPlugins = pluginRegistry.getAllPlugins();
 
-      // Get user's plugin configs
-      const configs = await ctx.db.pluginConfig.findMany({
-        where: {
-          userId: ctx.session.user.id,
-          workspaceId: input?.workspaceId ?? null,
-        },
-      });
+      // User's own configs, with workspace owner/admin choices as the fallback
+      const { ownConfigs, enabledById } = await resolvePluginStates(
+        ctx.db,
+        ctx.session.user.id,
+        input?.workspaceId ?? null,
+      );
 
-      const configMap = new Map(configs.map((c) => [c.pluginId, c]));
+      const configMap = new Map(ownConfigs.map((c) => [c.pluginId, c]));
 
       return allPlugins.map((plugin) => {
         const config = configMap.get(plugin.manifest.id);
@@ -37,7 +37,7 @@ export const pluginConfigRouter = createTRPCRouter({
           description: plugin.manifest.description,
           version: plugin.manifest.version,
           capabilities: plugin.manifest.capabilities,
-          enabled: config?.enabled ?? plugin.manifest.defaultEnabled,
+          enabled: enabledById.get(plugin.manifest.id) ?? plugin.manifest.defaultEnabled,
           settings: (config?.settings as Record<string, unknown>) ?? {},
         };
       });
@@ -55,22 +55,22 @@ export const pluginConfigRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       initializePlugins();
 
-      const configs = await ctx.db.pluginConfig.findMany({
-        where: {
-          userId: ctx.session.user.id,
-          workspaceId: input?.workspaceId ?? null,
-        },
-      });
+      // User's own configs, with workspace owner/admin choices as the fallback
+      const { enabledById } = await resolvePluginStates(
+        ctx.db,
+        ctx.session.user.id,
+        input?.workspaceId ?? null,
+      );
 
       const enabledIds = new Set<string>();
       const disabledIds = new Set<string>();
 
       // Track explicitly enabled/disabled plugins
-      for (const config of configs) {
-        if (config.enabled) {
-          enabledIds.add(config.pluginId);
+      for (const [pluginId, enabled] of enabledById) {
+        if (enabled) {
+          enabledIds.add(pluginId);
         } else {
-          disabledIds.add(config.pluginId);
+          disabledIds.add(pluginId);
         }
       }
 
