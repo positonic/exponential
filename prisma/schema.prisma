@@ -120,6 +120,7 @@ model User {
   timeResolutionRules            TimeResolutionRule[]
   aiInteractionHistory           AiInteractionHistory[]
   feedback                       Feedback[]
+  docsFeedback                   DocsFeedback[]
   goals                          Goal[]
   integrations                   Integration[]
   workspaceRepositoriesAdded     WorkspaceRepository[]           @relation("WorkspaceRepositoryAddedBy")
@@ -1888,6 +1889,22 @@ model Feedback {
   @@index([createdAt])
   @@index([feature, rating])
   @@index([aiInteractionId])
+}
+
+/// A reader's answer to "Was this helpful?" on a /docs page. Signed-out
+/// readers can answer too, so userId is optional (and nulled if the user is
+/// deleted). Written by the public docs.submitFeedback procedure.
+model DocsFeedback {
+  id        String   @id @default(cuid())
+  path      String
+  helpful   Boolean
+  comment   String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([path, createdAt])
+  @@index([userId])
 }
 
 // Agent-quality Thread scoring (ADR-0012). One row per judged Thread - a
