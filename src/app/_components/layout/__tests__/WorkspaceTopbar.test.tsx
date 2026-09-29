@@ -153,6 +153,46 @@ describe('WorkspaceTopbar', () => {
 
       expect(screen.queryByText('CLEAR')).not.toBeInTheDocument();
     });
+
+    function TicketPage() {
+      useRegisterTopbarCrumbs([{ label: 'C-649' }], { level: 1 });
+      return null;
+    }
+
+    it('orders nested crumbs by level, not by which effect ran first', () => {
+      render(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <TicketPage />
+          <ProductPage href="/w/syntrofi/products/clear" />
+        </TopbarCrumbsProvider>,
+      );
+
+      const product = screen.getByRole('link', { name: 'CLEAR' });
+      const ticket = screen.getByText('C-649');
+      expect(
+        product.compareDocumentPosition(ticket) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    it("a nested page unmounting keeps its parent's crumb", () => {
+      const { rerender } = render(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <ProductPage href="/w/syntrofi/products/clear" />
+          <TicketPage />
+        </TopbarCrumbsProvider>,
+      );
+      rerender(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <ProductPage href="/w/syntrofi/products/clear" />
+        </TopbarCrumbsProvider>,
+      );
+
+      expect(screen.getByRole('link', { name: 'CLEAR' })).toBeInTheDocument();
+      expect(screen.queryByText('C-649')).not.toBeInTheDocument();
+    });
   });
 
   it('renders nothing without a workspace', () => {
