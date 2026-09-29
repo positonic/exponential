@@ -56,6 +56,13 @@ import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { useCoalescedSave } from "./useCoalescedSave";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
+import {
+  PRIORITY_PILL_OPTIONS,
+  priorityFromPillValue,
+  priorityPillColor,
+  priorityPillValue,
+} from "~/app/_components/product/priorityPill";
+import { TICKET_TYPES, type TicketTypeValue } from "~/lib/ticket-types";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { EpicsList } from "~/app/_components/product/EpicsList";
@@ -99,40 +106,13 @@ const TYPE_COLORS: Record<string, string> = {
   BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
 };
 
-type TicketType = "BUG" | "FEATURE" | "CHORE" | "IMPROVEMENT" | "SPIKE" | "RESEARCH";
+type TicketType = TicketTypeValue;
 
-const TYPE_OPTIONS: Array<{ value: TicketType; label: string }> = [
-  { value: "BUG", label: "Bug" },
-  { value: "FEATURE", label: "Feature" },
-  { value: "CHORE", label: "Chore" },
-  { value: "IMPROVEMENT", label: "Improvement" },
-  { value: "SPIKE", label: "Spike" },
-  { value: "RESEARCH", label: "Research" },
-];
-
-const TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  TYPE_OPTIONS.map((o) => [o.value, o.label]),
-);
-
-// The in-place priority pill. 4 ("No priority") and null read the same, so both
-// map to "none"; picking "none" clears the field.
-const PRIORITY_NONE = "none";
-
-const PRIORITY_OPTIONS = [
-  { value: "0", label: PRIORITY_LABEL_MAP[0] ?? "Urgent" },
-  { value: "1", label: PRIORITY_LABEL_MAP[1] ?? "High" },
-  { value: "2", label: PRIORITY_LABEL_MAP[2] ?? "Medium" },
-  { value: "3", label: PRIORITY_LABEL_MAP[3] ?? "Low" },
-  { value: PRIORITY_NONE, label: "None" },
-];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  "0": "red", "1": "orange", "2": "yellow", "3": "blue", [PRIORITY_NONE]: "gray",
+const TYPE_LABELS: Record<TicketType, string> = {
+  BUG: "Bug", FEATURE: "Feature", CHORE: "Chore", IMPROVEMENT: "Improvement", SPIKE: "Spike", RESEARCH: "Research",
 };
 
-function priorityValue(priority: number | null | undefined): string {
-  return priority == null || priority === 4 ? PRIORITY_NONE : String(priority);
-}
+const TYPE_OPTIONS = TICKET_TYPES.map((value) => ({ value, label: TYPE_LABELS[value] }));
 
 // Colours of the toolbar pills naming each applied filter.
 const FACET_PILL_COLORS: Record<Exclude<FilterKey, "status" | "type">, string> = {
@@ -695,7 +675,7 @@ export default function TicketsBacklogPage() {
   };
 
   const handlePriorityChange = (ticketId: string, value: string) => {
-    updateTicket.mutate({ id: ticketId, priority: value === PRIORITY_NONE ? null : Number(value) });
+    updateTicket.mutate({ id: ticketId, priority: priorityFromPillValue(value) });
   };
 
   const handleTypeChange = (ticketId: string, type: TicketType) => {
@@ -871,7 +851,7 @@ export default function TicketsBacklogPage() {
     if (value === "none") return label; // "No priority", "Unassigned", "No epic"...
     switch (key) {
       case "priority": return `${label} priority`;
-      case "type": return TYPE_LABELS[value] ?? label;
+      case "type": return TYPE_LABELS[value as TicketType] ?? label;
       case "assignee": return `DRI: ${label}`;
       case "epic": return `Epic: ${label}`;
       default: return label;
@@ -1107,10 +1087,9 @@ export default function TicketsBacklogPage() {
           <td style={{ width: 130 }}>
             <div onClick={stopRowClick} style={{ width: 110 }}>
               <PillSelect
-                value={priorityValue(ticket.priority)}
-                data={PRIORITY_OPTIONS}
-                color={PRIORITY_COLORS[priorityValue(ticket.priority)] ?? "gray"}
-                muted={priorityValue(ticket.priority) === PRIORITY_NONE}
+                value={priorityPillValue(ticket.priority)}
+                data={PRIORITY_PILL_OPTIONS}
+                color={priorityPillColor(ticket.priority)}
                 aria-label="Priority"
                 onChange={(v) => handlePriorityChange(ticket.id, v)}
               />

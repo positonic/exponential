@@ -262,7 +262,6 @@ const ProjectTableRow = memo(function ProjectTableRow({
           value={project.priority}
           data={PRIORITY_OPTIONS}
           color={getPriorityColor(project.priority)}
-          muted={project.priority === 'NONE'}
           aria-label="Priority"
           onChange={(newPriority) =>
             updateProject.mutate({

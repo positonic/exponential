@@ -8,8 +8,6 @@ interface PillSelectProps {
   data: ComboboxItem[];
   /** Mantine palette colour tinting the pill, e.g. `green` for Active. */
   color: MantineColor;
-  /** Secondary text instead of the tint colour, for "None"-style values. */
-  muted?: boolean;
   onChange: (value: string) => void;
   disabled?: boolean;
   'aria-label'?: string;
@@ -28,7 +26,6 @@ export function PillSelect({
   value,
   data,
   color,
-  muted = false,
   onChange,
   disabled,
   'aria-label': ariaLabel,
@@ -48,7 +45,7 @@ export function PillSelect({
         input: {
           backgroundColor: `var(--mantine-color-${color}-light)`,
           color:
-            muted || NEUTRAL_COLORS.has(color)
+            NEUTRAL_COLORS.has(color)
               ? 'var(--color-text-secondary)'
               : `var(--mantine-color-${color}-filled)`,
           fontWeight: 500,

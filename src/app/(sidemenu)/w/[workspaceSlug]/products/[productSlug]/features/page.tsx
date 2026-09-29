@@ -51,6 +51,12 @@ import {
   type FeatureStatus,
 } from "~/lib/feature-statuses";
 import {
+  PRIORITY_PILL_OPTIONS,
+  priorityFromPillValue,
+  priorityPillColor,
+  priorityPillValue,
+} from "~/app/_components/product/priorityPill";
+import {
   ListPageTopBar,
   ListPageViewTabs,
   ListPageSearch,
@@ -68,26 +74,6 @@ import { usePageSearchHotkey } from "~/hooks/usePageSearchHotkey";
 const PRIORITY_LABELS: Record<number, string> = {
   0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None",
 };
-
-// The in-place priority pill. 4 ("None") and null read the same, so both map
-// to "none"; picking "none" clears the field.
-const PRIORITY_NONE = "none";
-
-const PRIORITY_OPTIONS = [
-  { value: "0", label: "Urgent" },
-  { value: "1", label: "High" },
-  { value: "2", label: "Medium" },
-  { value: "3", label: "Low" },
-  { value: PRIORITY_NONE, label: "None" },
-];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  "0": "red", "1": "orange", "2": "yellow", "3": "blue", [PRIORITY_NONE]: "gray",
-};
-
-function priorityValue(priority: number | null | undefined): string {
-  return priority == null || priority === 4 ? PRIORITY_NONE : String(priority);
-}
 
 const VIEW_TABS = [
   { value: "list", label: "List", icon: IconList },
@@ -517,12 +503,11 @@ export default function FeaturesListPage() {
         <td style={{ width: 130 }}>
           <div onClick={stopRowClick} style={{ width: 110 }}>
             <PillSelect
-              value={priorityValue(feature.priority)}
-              data={PRIORITY_OPTIONS}
-              color={PRIORITY_COLORS[priorityValue(feature.priority)] ?? "gray"}
-              muted={priorityValue(feature.priority) === PRIORITY_NONE}
+              value={priorityPillValue(feature.priority)}
+              data={PRIORITY_PILL_OPTIONS}
+              color={priorityPillColor(feature.priority)}
               aria-label="Priority"
-              onChange={(v) => updateOne(feature.id, { priority: v === PRIORITY_NONE ? null : Number(v) })}
+              onChange={(v) => updateOne(feature.id, { priority: priorityFromPillValue(v) })}
             />
           </div>
         </td>
