@@ -3,7 +3,7 @@ title: Workspaces
 description: Keep separate companies, clients or areas of your life in their own containers, each with its own members, projects, goals and plugins
 icon: IconBuildingSkyscraper
 order: 1
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A workspace is a container for a set of projects, goals, actions, meetings and CRM data, with its own members and roles. Most people have one per company or client, plus a personal one; you can belong to as many as you need and switch between them from the top of the sidebar. Everything you see in the sidebar sections — Align, Deliver, Connect and Amplify — belongs to the workspace you are in.
@@ -57,6 +57,8 @@ Owners and admins open settings from the switcher. The tabs are:
 See [Workspace settings](/docs/reference/workspace-settings) for the full reference.
 
 ## How it connects
+
+- **Activity** — everything that happened in the workspace, with a week in review: [Activity, views, timeline & favourites](/docs/do/activity-views-timeline).
 
 - **Members, roles and access** — roles, invitations, guests, public and restricted projects in one place: [Members, roles & access](/docs/collaborate/members-and-access).
 
