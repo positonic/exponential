@@ -8,3 +8,4 @@ export { DocsCallout } from "./DocsCallout";
 export { DocsBreadcrumb } from "./DocsBreadcrumb";
 export { DocsPrevNext } from "./DocsPrevNext";
 export { DocsPageMeta } from "./DocsPageMeta";
+export { DocsHelpLink } from "./DocsHelpLink";

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { DocsHelpLink } from '~/app/_components/docs/DocsHelpLink';
 import { usePathname } from 'next/navigation';
 import { IconFolder } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -114,6 +115,8 @@ export function WorkspaceTopbar() {
           </>
         )}
       </div>
+      <div style={{ flex: 1 }} />
+      <DocsHelpLink />
     </div>
   );
 }

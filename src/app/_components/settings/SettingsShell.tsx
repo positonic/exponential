@@ -3,6 +3,7 @@
 import { type ReactNode } from 'react';
 import Link from 'next/link';
 import { IconChevronRight, type Icon as TablerIcon } from '@tabler/icons-react';
+import { DocsHelpLink } from '~/app/_components/docs/DocsHelpLink';
 
 /* ------------------------------------------------------------------
  * Settings shell primitives — Left-nav variant.
@@ -24,7 +25,10 @@ export function SettingsHero({
   icon: Icon,
   description,
   stats,
+  helpPath,
 }: {
+  /** App path whose docs page the `?` opens; omit to hide it. */
+  helpPath?: string;
   eyebrow?: string;
   title: string;
   icon?: TablerIcon;
@@ -42,6 +46,7 @@ export function SettingsHero({
       <h1 className="m-0 flex items-center gap-3 text-[26px] font-semibold tracking-tight text-text-primary">
         {Icon && <Icon size={22} className="text-text-muted" />}
         {title}
+        {helpPath && <DocsHelpLink pathname={helpPath} />}
       </h1>
       {description && (
         <p className="mt-1.5 max-w-[640px] text-[13.5px] text-text-muted">

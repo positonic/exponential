@@ -6,6 +6,7 @@ import {
   IconSettings,
   IconMessageReport,
   IconBug,
+  IconHelp,
   IconSun,
   IconMoon,
   IconPalette,
@@ -246,6 +247,16 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
                 </Menu.Dropdown>
               </Menu>
             )}
+
+            <Menu.Item
+              leftSection={<IconHelp size={16} />}
+              component={Link}
+              href="/docs"
+              onClick={onClose}
+              className="text-text-primary hover:bg-surface-hover"
+            >
+              Help & docs
+            </Menu.Item>
 
             <Menu.Item
               leftSection={<IconMessageReport size={16} />}

@@ -79,6 +79,7 @@ export default function SettingsRootLayout({
         icon={IconSettings}
         title="Settings"
         description="Your personal preferences across every workspace. Navigation, notifications, appearance, and connected accounts."
+        helpPath={pathname}
       />
 
       <SettingsLayout

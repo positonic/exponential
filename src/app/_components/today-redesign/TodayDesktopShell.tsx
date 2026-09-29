@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DocsHelpLink } from "~/app/_components/docs/DocsHelpLink";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal, MultiSelect } from "@mantine/core";
@@ -370,6 +371,7 @@ export function TodayDesktopShell({
             <div className="td-topbar__title">
               {DAYS.find((d) => d.key === filter)?.label ?? "Today"}
             </div>
+            <DocsHelpLink pathname="/today" />
             <div className="td-topbar__spacer" />
 
             {gamificationEnabled && score && (
