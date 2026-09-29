@@ -6,6 +6,7 @@ import { DocsContent, DocsTableOfContents } from "~/app/_components/docs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { docsOgImageUrl } from "~/lib/docs/ogImage";
 
 interface DocsPageProps {
   params: Promise<{ slug?: string[] }>;
@@ -40,13 +41,13 @@ export async function generateMetadata({ params }: DocsPageProps): Promise<Metad
       description,
       url,
       siteName: PRODUCT_NAME,
-      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+      images: [{ url: docsOgImageUrl(`/docs/${slug.join('/')}`), width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: `${doc.meta.title} — ${PRODUCT_NAME} Docs`,
       description,
-      images: ['/og-image.png'],
+      images: [docsOgImageUrl(`/docs/${slug.join('/')}`)],
     },
   };
 }
