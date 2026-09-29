@@ -27,6 +27,7 @@ import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
 import { feedbackRouter } from "./routers/feedback";
+import { docsRouter } from "./routers/docs";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
@@ -128,6 +129,7 @@ export const appRouter = createTRPCRouter({
   calendar: calendarRouter,
   workspaceScheduling: workspaceSchedulingRouter,
   feedback: feedbackRouter,
+  docs: docsRouter,
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
