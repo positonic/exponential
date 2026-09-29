@@ -5,14 +5,14 @@ section: zoe
 order: 3
 icon: IconBrandWhatsapp
 sidebarTitle: Chat gateways
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A chat gateway puts Zoe in a messaging app you already have open: WhatsApp, Telegram or Matrix. Whichever you use, it is the same assistant with the same workspace access, so "add an action: call the landlord tomorrow" or "what is on my plate?" works the same way from your phone as from the Zoe drawer. Each gateway also doubles as a delivery channel for reminders and summaries.
 
 ## Where to find it
 
-- WhatsApp and Telegram: [Settings → Integrations](/settings/integrations) (**Connect WhatsApp**, **Connect Telegram**). **Connect WhatsApp** is also on the Agents page (**Amplify → Agents**).
+- WhatsApp and Telegram: [Settings → Integrations](/settings/integrations) (**Connect WhatsApp**, **Connect Telegram**). **Connect WhatsApp** is also on the Agents page ([**Amplify → Agents**](/go/agent)).
 - Telegram and Matrix: [Settings → AI assistant](/settings/assistant), where each has a card with its **Default agent**.
 - Where notifications go: [Settings → Notifications](/settings/notifications).
 

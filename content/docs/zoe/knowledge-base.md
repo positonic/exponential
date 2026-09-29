@@ -4,7 +4,7 @@ description: Save documents, web pages and notes alongside your meetings, search
 icon: IconDatabase
 order: 2
 sidebarTitle: Knowledge base
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 The knowledge base is where your workspace's meetings and saved resources become searchable by meaning, not just keyword. Add a web page, a document or a note, search across everything from one box, and pin the resources Zoe should have in front of her in every chat.
@@ -13,7 +13,7 @@ The knowledge base is where your workspace's meetings and saved resources become
 
 ## Where to find it
 
-**Amplify → Knowledge** in the sidebar ([/knowledge-base](/knowledge-base)). Inside a workspace you see that workspace's content; open it outside a workspace and results span every workspace you belong to. Either way you only see content you added yourself — other members' resources are not visible to you.
+[**Amplify → Knowledge**](/go/knowledge-base) in the sidebar ([/knowledge-base](/knowledge-base)). Inside a workspace you see that workspace's content; open it outside a workspace and results span every workspace you belong to. Either way you only see content you added yourself — other members' resources are not visible to you.
 
 ## How to add a resource
 

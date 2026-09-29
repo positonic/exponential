@@ -4,7 +4,7 @@ description: Every recorded meeting arrives with its transcript, summary and act
 section: meet
 order: 2
 icon: IconFlame
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Connect Fireflies.ai and each meeting it records shows up on the Meetings page a minute after it ends, with the transcript, an AI summary and the action items already extracted. Assign the meeting to a project and review which items become actions.
@@ -14,7 +14,7 @@ Connect Fireflies.ai and each meeting it records shows up on the Meetings page a
 ## Where to find it
 
 - Set up: [Settings → Integrations](/settings/integrations) → **Fireflies.ai** → **Add Fireflies**. The same wizard opens from **Connect Fireflies** on the Meetings page and from the Fireflies card on [Workflows](/workflows).
-- Meetings: **Amplify → Meetings** in the sidebar; see [Meetings](/docs/meet/meetings) for everything you can do with one.
+- Meetings: [**Amplify → Meetings**](/go/meetings) in the sidebar; see [Meetings](/docs/meet/meetings) for everything you can do with one.
 
 ## How it works
 
@@ -63,7 +63,7 @@ Meetings you did not record with Fireflies can be added by hand with **Add Meeti
 
 - **Meetings** — the list, the meeting page, drafted actions and decisions: [Meetings](/docs/meet/meetings).
 - **Slack** — assign a meeting to a project with a Slack channel and the summary posts there: [Slack](/docs/integrations/slack).
-- **Decisions** — decisions Zoe finds in a transcript are recorded with the quote they came from, under **Align → Decisions**.
+- **Decisions** — decisions Zoe finds in a transcript are recorded with the quote they came from, under [**Align → Decisions**](/go/decisions).
 - **Ceremonies** — a recurring team meeting is defined once and its recorded meetings attach to each occurrence: [Ceremonies & occurrences](/docs/meet/ceremonies).
 - **Knowledge** — transcripts are searchable by Zoe: [Knowledge base](/docs/zoe/knowledge-base).
 

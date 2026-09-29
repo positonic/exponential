@@ -4,7 +4,7 @@ description: Turn OKRs, CRM and Product Management on or off per workspace
 icon: IconPlug
 order: 3
 sidebarTitle: Plugins
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Plugins are optional feature sets you switch on per workspace. Turning one on adds its pages to the sidebar and its widgets to the dashboard; turning it off hides them without deleting any data.
@@ -13,14 +13,14 @@ Plugins are optional feature sets you switch on per workspace. Turning one on ad
 
 ## Where to find it
 
-Workspace settings → **Plugins**: open the workspace switcher at the top of the sidebar, choose the settings entry, then the **Plugins** tab.
+[Workspace settings → **Plugins**](/go/settings/plugins): open the workspace switcher at the top of the sidebar, choose the settings entry, then the **Plugins** tab.
 
 ## What's available
 
 | Plugin | On by default | What it adds |
 |---|---|---|
 | **OKRs (Objectives & Key Results)** v1.0.0 | Yes | Key results on goals and the **OKR Progress** dashboard widget. See [OKRs](/docs/plan/okrs). |
-| **CRM (Contact Management)** v1.0.0 | Yes | **Connect → CRM** in the sidebar: contacts, organizations, interactions, lists and pipelines. See [Contacts](/docs/crm/contacts). |
+| **CRM (Contact Management)** v1.0.0 | Yes | [**Connect → CRM**](/go/crm) in the sidebar: contacts, organizations, interactions, lists and pipelines. See [Contacts](/docs/crm/contacts). |
 | **Product Management** v0.1.0 | No | **Products** and **Metrics** under **Deliver** in the sidebar: products, features, tickets, research insights, cycles and retrospectives. See [Products, tickets, features & cycles](/docs/build/products). |
 
 ## How to enable or disable a plugin

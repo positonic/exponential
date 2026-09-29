@@ -3,7 +3,7 @@ title: Epics
 description: Group related actions together into larger initiatives to see the bigger picture
 icon: IconStack2
 order: 4
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Sometimes a single action is not enough to capture a bigger piece of work. That is where Epics come in. An epic is simply a way to group related actions under one umbrella, so you can track progress on a larger initiative at a glance. Think of epics like chapters in a book — each chapter (epic) holds several pages (actions) that tell the same story.
@@ -12,7 +12,7 @@ Sometimes a single action is not enough to capture a bigger piece of work. That 
 
 Epics live inside the action form, behind the **Epic** button. Two things need to be in place first:
 
-- **Advanced Action Features** must be on. A workspace owner or admin turns it on under workspace settings → **Features** (see [Workspace settings](/docs/reference/workspace-settings#advanced-action-features)).
+- **Advanced Action Features** must be on. A workspace owner or admin turns it on under [workspace settings → **Features**](/go/settings) (see [Workspace settings](/docs/reference/workspace-settings#advanced-action-features)).
 - Every epic belongs to a **Product**, so the Product Management plugin must be on and at least one product must exist.
 
 ## How to create an epic
@@ -62,7 +62,7 @@ Open an epic to see its **Status**, **Priority**, **Product**, **Owner**, **Star
 ## FAQ
 
 **I do not see the Epic button.**
-Turn on **Advanced Action Features** in workspace settings → **Features**. If it is on and the list is empty, you also need a product to attach the epic to.
+Turn on **Advanced Action Features** in [workspace settings → **Features**](/go/settings). If it is on and the list is empty, you also need a product to attach the epic to.
 
 **Is there a page listing all my epics?**
 Not yet. Assign and switch epics from the action form; each epic has its own page once you open it.

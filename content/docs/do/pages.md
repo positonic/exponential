@@ -4,7 +4,7 @@ description: Free-form documents that stand on their own, written by you or by Z
 section: do
 order: 6
 icon: IconNotebook
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A page is a document that is not tied to a day, a meeting or a product: a spec, a brief, a wiki page, a set of notes. Pages belong to a workspace, can attach to a project, can be published to the web, and are indexed so Zoe can read and cite them. Zoe can also write pages for you.
@@ -13,7 +13,7 @@ A page is a document that is not tied to a day, a meeting or a product: a spec, 
 
 ## Where to find it
 
-**Deliver → Pages** in the sidebar. Each page has its own URL; a published page also has a public one.
+[**Deliver → Pages**](/go/pages) in the sidebar. Each page has its own URL; a published page also has a public one.
 
 ## How to read the list
 

@@ -5,7 +5,7 @@ section: integrations
 order: 1
 icon: IconPlug
 sidebarTitle: Overview
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Exponential connects to the tools your work already flows through: meeting recorders send transcripts in, chat apps let you talk to Zoe, and task tools stay in sync. Connections are personal (they live under your account, not the workspace) unless a page says otherwise.
@@ -16,7 +16,7 @@ Exponential connects to the tools your work already flows through: meeting recor
 
 - [Settings → Integrations](/settings/integrations) — connect accounts and services. This is the main page.
 - [Workflows](/workflows), from your user menu — a status board for the data-capture and task-sync integrations, plus two guided processes.
-- Workspace settings → **Integrations** — connections that belong to the workspace rather than to you: the agents' email account, Postmark, Slack and Zulip notification routing, a Matrix homeserver, Sentry, the default Notion account and Fireflies. See [Workspace settings](/docs/reference/workspace-settings).
+- [Workspace settings → **Integrations**](/go/settings) — connections that belong to the workspace rather than to you: the agents' email account, Postmark, Slack and Zulip notification routing, a Matrix homeserver, Sentry, the default Notion account and Fireflies. See [Workspace settings](/docs/reference/workspace-settings).
 
 ## What you can connect
 

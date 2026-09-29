@@ -5,6 +5,7 @@
  *   - links to a `/docs/...` page that does not exist, or to a `#anchor`
  *     that no H2/H3 on the target page produces;
  *   - references a `/doc-assets/...` file that is not in `public/`;
+ *   - links to `/go/<route>` where <route> is not a workspace route;
  *   - links to an absolute exponential.im URL (relative links only, so the
  *     docs work on staging, previews and sovereign installs);
  *   - says "**Label** in the sidebar" with a label that is not a real app
@@ -116,8 +117,19 @@ function frontmatterErrors(): Problem[] {
   return out;
 }
 
+/** First path segments that exist under /w/[workspaceSlug]/ — the only valid /go/ targets. */
+function workspaceRouteSegments(): Set<string> {
+  const dir = path.join(ROOT, "src/app/(sidemenu)/w/[workspaceSlug]");
+  return new Set(
+    fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith("["))
+      .map((e) => e.name),
+  );
+}
+
 function main() {
   problems.push(...frontmatterErrors());
+  const goSegments = workspaceRouteSegments();
   // Dates moved into each page's frontmatter; an older branch must not bring the shared map back.
   if (fs.existsSync(path.join(DOCS_DIR, "_last-updated.json"))) {
     fail("content/docs/_last-updated.json", 1, "replaced by per-page `updated` frontmatter — delete this file");
@@ -187,6 +199,13 @@ function main() {
         }
         if (anchor !== undefined && !headingIds.get(href)?.has(anchor)) {
           fail(file, line, `link ${url}: no H2/H3 on ${href} produces #${anchor}`);
+        }
+        continue;
+      }
+      if (cleanPath === "/go" || cleanPath.startsWith("/go/")) {
+        const first = cleanPath.split("/")[2] ?? "";
+        if (!goSegments.has(first)) {
+          fail(file, line, `link ${url}: /go/${first} is not a workspace route (src/app/(sidemenu)/w/[workspaceSlug]/${first} does not exist)`);
         }
         continue;
       }

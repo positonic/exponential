@@ -4,7 +4,7 @@ description: The objects Exponential is built from, each in two sentences, with 
 section: get-started
 order: 2
 icon: IconBook
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Exponential uses a small, fixed vocabulary. This page defines each term the way the product uses it; the guides go deeper.
@@ -43,7 +43,7 @@ A ceremony is a recurring team meeting defined once: standup, planning, review, 
 
 ## Page
 
-A free-form document, written by you or by Zoe, that stands on its own: a spec, a wiki page, a brief. Pages are workspace-scoped, can attach to a project, and are searchable by Zoe. Find them under **Deliver → Pages** in the sidebar. See [Pages](/docs/do/pages).
+A free-form document, written by you or by Zoe, that stands on its own: a spec, a wiki page, a brief. Pages are workspace-scoped, can attach to a project, and are searchable by Zoe. Find them under [**Deliver → Pages**](/go/pages) in the sidebar. See [Pages](/docs/do/pages).
 
 ## Product, feature, ticket and cycle
 

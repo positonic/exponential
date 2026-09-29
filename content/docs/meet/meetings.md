@@ -4,7 +4,7 @@ description: Every recorded, imported or hand-written meeting in one place, with
 section: meet
 order: 1
 icon: IconMicrophone
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A meeting is a conversation that happened: its transcript, an AI summary, the people who took part, and what came out of it. Meetings arrive from Fireflies automatically or you add them by hand, and each one can be turned into actions in a project and decisions in the Decision Log. A future booking is a scheduled meeting, made with **Schedule meeting**, and is a different thing.
@@ -13,7 +13,7 @@ A meeting is a conversation that happened: its transcript, an AI summary, the pe
 
 ## Where to find it
 
-**Amplify → Meetings** in the sidebar, or [Meetings](/meetings) across all your workspaces. Each meeting opens on its own page.
+[**Amplify → Meetings**](/go/meetings) in the sidebar, or [Meetings](/meetings) across all your workspaces. Each meeting opens on its own page.
 
 ## How to read the list
 
@@ -59,7 +59,7 @@ If the meeting already has actions, **Create Actions** tells you so instead of d
 
 1. Open the **Decisions** tab and click **Extract decisions & questions**.
 2. Review the drafts with Zoe: confirm the real decisions, reject the rest. An open question is a decision with status Open.
-3. Confirmed decisions appear in **Align → Decisions** with the quote from the transcript they came from.
+3. Confirmed decisions appear in [**Align → Decisions**](/go/decisions) with the quote from the transcript they came from.
 
 You can also log a decision by hand from the same tab.
 

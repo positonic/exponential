@@ -4,14 +4,14 @@ description: "The rest of a product's tabs: retrospectives per cycle, the insigh
 section: build
 order: 2
 icon: IconChartBar
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Beyond the backlog, a product keeps three kinds of memory. **Retrospectives** record what a cycle taught you. **Insights** are the evidence behind the roadmap: pain points, feedback, personas, journeys and competitive observations, captured directly or through research sessions and public forms. **Metrics** is a read-only dashboard of how the product is delivering, cycle by cycle. All three need the Product Management plugin; see [Products](/docs/build/products).
 
 ## Where to find it
 
-- **Retro** and **Insights** are tabs on every product page (**Deliver → Products**, then the product).
+- **Retro** and **Insights** are tabs on every product page ([**Deliver → Products**](/go/products), then the product).
 - **Metrics** is its own sidebar item under **Deliver**, workspace-wide, once the plugin is on.
 - Research sessions live under the product's Insights tab; the older Problems and Research entries feed into the same surface.
 
