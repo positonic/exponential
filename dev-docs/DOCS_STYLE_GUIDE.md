@@ -123,6 +123,11 @@ When a page needs a new screenshot, add it to the manifest rather than capturing
 the next run keeps it current. **Rerun it before each release** and commit what changed; a
 diff in `public/doc-assets/` is the cue to reread the page that uses the image.
 
+## Quarterly audit
+
+Once a quarter the whole set is reread against the product. A workflow opens the audit ticket on
+the first day of each quarter; the checklist is in [`DOCS_QUARTERLY_AUDIT.md`](DOCS_QUARTERLY_AUDIT.md).
+
 ## Checks before you open a PR
 
 ```bash
