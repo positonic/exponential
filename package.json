@@ -51,7 +51,8 @@
     "dev:seed-perf": "tsx scripts/seed-perf-fixture.ts",
     "docs:check": "tsx scripts/check-docs.ts",
     "docs:last-updated": "tsx scripts/docs-last-updated.ts",
-    "docs:cli": "tsx scripts/generate-cli-docs.ts"
+    "docs:cli": "tsx scripts/generate-cli-docs.ts",
+    "docs:screenshots": "playwright test --config playwright.docs.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",

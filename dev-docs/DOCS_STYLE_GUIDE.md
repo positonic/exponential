@@ -104,6 +104,25 @@ updated: 2026-09-28             # "Last updated" date; stamped by the pre-commit
 Sections and their order live in `content/docs/_meta.json`. Files and folders that start with
 `_` are ignored by the site. Old URLs must keep working: when a page moves, leave a redirect.
 
+## Screenshots
+
+Screenshots are generated, not hand-taken. `e2e/docs-screenshots/manifest.ts` lists every
+documented screen (route, file name, and any click needed first, such as opening a dialog).
+
+```bash
+npm run docs:screenshots                      # all of them, dark and light, 1280×800
+DOCS_SHOTS=goals,today npm run docs:screenshots   # just these
+E2E_PORT=3121 npm run docs:screenshots        # reuse a dev server already running on 3121
+```
+
+It seeds the `dev-fixture` workspace, signs in as the fixture user, and writes
+`public/doc-assets/<file>.png` (dark, what pages embed) and `<file>-light.png`. Hand-made images
+(the iOS shortcut, the Fireflies diagram) are not in the manifest and are never overwritten.
+
+When a page needs a new screenshot, add it to the manifest rather than capturing it by hand, so
+the next run keeps it current. **Rerun it before each release** and commit what changed; a
+diff in `public/doc-assets/` is the cue to reread the page that uses the image.
+
 ## Checks before you open a PR
 
 ```bash
