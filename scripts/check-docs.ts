@@ -63,6 +63,13 @@ function allowedSidebarLabels(): Set<string> {
     labels.add(m[1]!);
   }
 
+  // The Favourites section header is rendered by FavouritesNav, not NavLinks.
+  const favourites = fs.readFileSync(path.join(ROOT, "src/app/_components/layout/FavouritesNav.tsx"), "utf-8");
+  const favLabel = /<SectionLabel>\s*([A-Za-z ]+?)\s*<\/SectionLabel>|>\s*(Favourites)\s*</.exec(favourites);
+  const favName = favLabel?.[1] ?? favLabel?.[2];
+  if (!favName) throw new Error("check-docs: could not find the Favourites section label in FavouritesNav.tsx");
+  labels.add(favName);
+
   // Settings tabs, account (`const GROUPS`) and workspace (`const groups`).
   const settingsSources: [string, string, string][] = [
     ["src/app/(sidemenu)/settings/layout.tsx", "const GROUPS", "];"],

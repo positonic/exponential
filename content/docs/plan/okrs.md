@@ -4,7 +4,7 @@ description: Put measurable key results under your objectives and check in on th
 icon: IconTarget
 sidebarTitle: OKRs
 order: 2
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 OKRs (Objectives and Key Results) turn a goal into numbers you can check in on. In Exponential an Objective is a [Goal](/docs/plan/goals), and each Key Result under it has a start value, a current value and a target. Key results are grouped by period — a quarter or a year — so the dashboard always shows what the workspace is betting on right now.
@@ -46,6 +46,8 @@ Progress is the share of the distance from start to target that you have covered
 - A **Zoe noticed:** banner appears above the list when Zoe spots something worth a look, such as a key result with no recent check-in.
 
 ## How it connects
+
+- **Favourites** — pin an objective or key result to the sidebar: [Activity, views, timeline & favourites](/docs/do/activity-views-timeline).
 
 - **[Goals](/docs/plan/goals)** — every objective is a goal; its progress bar is calculated from its key results unless you set it manually.
 - **[Projects](/docs/do/projects)** — the project form has a **Link to Key Results** field, so the work that moves a number is visible from the key result.

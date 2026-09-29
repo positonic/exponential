@@ -3,7 +3,7 @@ title: Projects
 description: Group related actions into a project with an owner, a status, a priority and the goals it serves
 icon: IconFolders
 order: 3
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 A Project groups the actions that deliver one outcome. It has a status, a priority, a DRI, optional dates, and links to the [Goals](/docs/plan/goals) it serves. Each project has its own board, timeline, meetings and integrations, and its access can be opened to the workspace or restricted to named members.
@@ -51,6 +51,8 @@ Projects owned by a team also get **Weekly Team Review** and **Weekly Commitment
 - To hand a project to a team, open the team under [Teams](/teams) in the user menu and add the project there.
 
 ## How it connects
+
+- **Timeline** — projects by start and end date: [Activity, views, timeline & favourites](/docs/do/activity-views-timeline).
 
 - **Access** — public and restricted projects and project guests: [Members, roles & access](/docs/collaborate/members-and-access).
 

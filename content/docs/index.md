@@ -4,7 +4,7 @@ description: What Exponential is, who it is for, and where to start
 section: get-started
 order: 1
 icon: IconBook
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 Exponential is a productivity OS that turns meeting transcripts into projects, actions and decisions. Record a meeting, and Zoe, the built-in assistant, extracts the actions and decisions and files them against the right project. Plan your day from what is due, track time, review the week, and let agents (Zoe, specialist agents, or your own external agents) act across all of it. Product teams get a second layer on top: products, features, tickets, cycles and metrics.
@@ -42,7 +42,7 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 | Area | What you will find | Start with |
 |---|---|---|
 | **Plan** | Goals, OKRs and key results, decisions, Wheel of Life | [Goals](/docs/plan/goals) |
-| **Do** | Inbox, Today, the daily plan, actions, projects, epics, time tracking, pages | [Inbox & Today](/docs/do/inbox-and-today) |
+| **Do** | Inbox, Today, the daily plan, actions, projects, epics, time tracking, pages, activity and views | [Inbox & Today](/docs/do/inbox-and-today) |
 | **Build (Products)** | Products, tickets, features and cycles; retrospectives, insights and metrics; sprint insights | [Products](/docs/build/products) |
 | **Reflect** | Journal, startup and wind-down routines, habits, weekly plan | [Journal](/docs/reflect/journal) |
 | **Meet** | Meetings that become actions and decisions, Fireflies, ceremonies, calendar and scheduling | [Meetings](/docs/meet/meetings) |
