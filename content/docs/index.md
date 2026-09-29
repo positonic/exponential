@@ -60,3 +60,4 @@ Every object lives in a workspace. You get a personal workspace on sign-up and c
 - Press **/** on any docs page to search.
 - Ask Zoe inside the app: the **Ask Zoe · ⌘J** button at the bottom right of every page opens her drawer.
 - Email support@exponential.im.
+- For agents and LLM tools: [/llms.txt](/llms.txt) indexes every page, and [/llms-full.txt](/llms-full.txt) is the whole documentation as one Markdown file.
