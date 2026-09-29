@@ -51,20 +51,25 @@ async function loadWorkspaceDefaults(
 ): Promise<Map<string, boolean>> {
   const defaults = new Map<string, boolean>();
 
-  const membership = await db.workspaceUser.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId } },
-    select: { id: true },
+  // One query for both the membership check and the owner/admin list.
+  const relevantMembers = await db.workspaceUser.findMany({
+    where: {
+      workspaceId,
+      OR: [{ userId }, { role: { in: WORKSPACE_DEFAULT_ROLES } }],
+    },
+    select: { userId: true, role: true },
   });
-  if (!membership) return defaults;
+  if (!relevantMembers.some((m) => m.userId === userId)) return defaults;
 
-  const admins = await db.workspaceUser.findMany({
-    where: { workspaceId, role: { in: WORKSPACE_DEFAULT_ROLES } },
-    select: { userId: true },
-  });
-  if (admins.length === 0) return defaults;
+  const adminIds = relevantMembers
+    .filter((m) => WORKSPACE_DEFAULT_ROLES.includes(m.role))
+    .map((m) => m.userId);
+  if (adminIds.length === 0) return defaults;
 
+  // Note: updatedAt also moves on settings-only writes (e.g. product view
+  // prefs), so when admins disagree the "latest choice" is approximate.
   const adminConfigs = await db.pluginConfig.findMany({
-    where: { workspaceId, userId: { in: admins.map((a) => a.userId) } },
+    where: { workspaceId, userId: { in: adminIds } },
     select: { pluginId: true, enabled: true },
     orderBy: { updatedAt: "desc" },
   });

@@ -30,8 +30,10 @@ function mockConfigs(own: PluginConfig[], admin: PluginConfig[]): void {
 
 beforeEach(() => {
   mockReset(db);
-  db.workspaceUser.findUnique.mockResolvedValue({ id: "membership" } as WorkspaceUser);
-  db.workspaceUser.findMany.mockResolvedValue([{ userId: "user-owner" }] as WorkspaceUser[]);
+  db.workspaceUser.findMany.mockResolvedValue([
+    { userId: USER, role: "member" },
+    { userId: "user-owner", role: "owner" },
+  ] as WorkspaceUser[]);
 });
 
 describe("resolvePluginStates", () => {
@@ -70,6 +72,16 @@ describe("resolvePluginStates", () => {
     expect(enabledById.get("product")).toBe(false);
   });
 
+  it("ignores rows from plain members", async () => {
+    db.workspaceUser.findMany.mockResolvedValue([{ userId: USER, role: "member" }] as WorkspaceUser[]);
+    mockConfigs([], []);
+
+    const { enabledById } = await resolvePluginStates(db, USER, WORKSPACE);
+
+    expect(enabledById.has("product")).toBe(false);
+    expect(db.pluginConfig.findMany).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves the plugin unresolved when no admin has chosen, so the manifest default applies", async () => {
     mockConfigs([], []);
 
@@ -79,13 +91,16 @@ describe("resolvePluginStates", () => {
   });
 
   it("does not reveal workspace defaults to a non-member", async () => {
-    db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.workspaceUser.findMany.mockResolvedValue([
+      { userId: "user-owner", role: "owner" },
+    ] as WorkspaceUser[]);
     mockConfigs([], [config({ userId: "user-owner", enabled: true })]);
 
     const { enabledById } = await resolvePluginStates(db, USER, WORKSPACE);
 
     expect(enabledById.has("product")).toBe(false);
-    expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
+    // Only the caller's own rows were read; admin rows never were.
+    expect(db.pluginConfig.findMany).toHaveBeenCalledTimes(1);
   });
 
   it("skips the workspace lookup outside a workspace", async () => {
@@ -94,6 +109,6 @@ describe("resolvePluginStates", () => {
     const { enabledById } = await resolvePluginStates(db, USER, null);
 
     expect(enabledById.get("crm")).toBe(false);
-    expect(db.workspaceUser.findUnique).not.toHaveBeenCalled();
+    expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
   });
 });
