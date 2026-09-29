@@ -6,6 +6,7 @@ import { DocsContent, DocsTableOfContents } from "~/app/_components/docs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { docsOgImageUrl } from "~/lib/docs/ogImage";
 
 export async function generateMetadata(): Promise<Metadata> {
   const doc = await getDocContent([]);
@@ -26,13 +27,13 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       url: docsUrl,
       siteName: PRODUCT_NAME,
-      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+      images: [{ url: docsOgImageUrl("/docs"), width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: `${doc.meta.title} — ${PRODUCT_NAME} Docs`,
       description,
-      images: ['/og-image.png'],
+      images: [docsOgImageUrl("/docs")],
     },
   };
 }
