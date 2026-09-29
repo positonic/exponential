@@ -191,50 +191,74 @@ export default function FeaturesListPage() {
 
   const listInput = { productId: product?.id ?? "" };
 
-  const bulkUpdate = api.product.feature.bulkUpdate.useMutation({
-    // Optimistic: patch the cached list immediately, roll back on error.
-    onMutate: async (vars) => {
-      await utils.product.feature.list.cancel(listInput);
-      const prev = utils.product.feature.list.getData(listInput);
-      if (prev) {
-        const idSet = new Set(vars.ids);
-        utils.product.feature.list.setData(
-          listInput,
-          prev.map((f) => {
-            if (!idSet.has(f.id)) return f;
-            const next = { ...f };
-            // Status on a feature with scopes may be scope-derived - the
-            // server can skip it, so don't predict it optimistically.
-            if (vars.status !== undefined && f._count.scopes === 0) {
-              next.status = vars.status;
-            }
-            if (vars.priority !== undefined) next.priority = vars.priority;
-            if (vars.areaId !== undefined) {
-              const a = (areas ?? []).find((x) => x.id === vars.areaId);
-              next.area =
-                vars.areaId && a
-                  ? { id: a.id, name: a.name, displayOrder: a.displayOrder }
-                  : null;
-            }
-            return next;
-          }),
-        );
-      }
-      return { prev };
-    },
-    onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) utils.product.feature.list.setData(listInput, mctx.prev);
+  // Optimistic: patch the cached list immediately, roll back on error. Shared
+  // by the bulk bar and the rows' in-place pills, which each get their own
+  // mutation hook: TanStack keeps only the latest mutate() call's per-call
+  // callbacks, so sharing one hook let a row edit swallow a concurrent bulk
+  // update's Undo toast (and vice versa).
+  const useOptimisticFeaturePatch = (
+    onSuccess?: (res: { updated: number; skipped: number }) => void,
+  ) =>
+    api.product.feature.bulkUpdate.useMutation({
+      onSuccess,
+      onMutate: async (vars) => {
+        await utils.product.feature.list.cancel(listInput);
+        const prev = utils.product.feature.list.getData(listInput);
+        if (prev) {
+          const idSet = new Set(vars.ids);
+          utils.product.feature.list.setData(
+            listInput,
+            prev.map((f) => {
+              if (!idSet.has(f.id)) return f;
+              const next = { ...f };
+              // Status on a feature with scopes may be scope-derived - the
+              // server can skip it, so don't predict it optimistically.
+              if (vars.status !== undefined && f._count.scopes === 0) {
+                next.status = vars.status;
+              }
+              if (vars.priority !== undefined) next.priority = vars.priority;
+              if (vars.areaId !== undefined) {
+                const a = (areas ?? []).find((x) => x.id === vars.areaId);
+                next.area =
+                  vars.areaId && a
+                    ? { id: a.id, name: a.name, displayOrder: a.displayOrder }
+                    : null;
+              }
+              return next;
+            }),
+          );
+        }
+        return { prev };
+      },
+      onError: (_err, _vars, mctx) => {
+        if (mctx?.prev) utils.product.feature.list.setData(listInput, mctx.prev);
+        notifications.show({
+          title: "Bulk update failed",
+          message: "Your changes were not saved. Please try again.",
+          color: "red",
+        });
+      },
+      onSettled: async () => {
+        if (product?.id) {
+          await utils.product.feature.list.invalidate({ productId: product.id });
+        }
+      },
+    });
+
+  const bulkUpdate = useOptimisticFeaturePatch();
+
+  // In-place Status / Priority edits from the table's pill selects. Goes
+  // through bulkUpdate for its status guard: a feature whose status follows
+  // its scopes (or that has been live) is skipped server-side, and the toast
+  // says why nothing changed.
+  const inlineUpdate = useOptimisticFeaturePatch((res) => {
+    if (res.skipped > 0) {
       notifications.show({
-        title: "Bulk update failed",
-        message: "Your changes were not saved. Please try again.",
-        color: "red",
+        title: "Status not changed",
+        message: "This feature's status follows its scopes, or it has already been live.",
+        color: "yellow",
       });
-    },
-    onSettled: async () => {
-      if (product?.id) {
-        await utils.product.feature.list.invalidate({ productId: product.id });
-      }
-    },
+    }
   });
 
   // Bulk hard delete - confirmed via modal (no undo for deletes).
@@ -309,25 +333,8 @@ export default function FeaturesListPage() {
     );
   };
 
-  // In-place Status / Priority edits from the table's pill selects. Goes
-  // through bulkUpdate for its optimistic patch and its status guard: a
-  // feature whose status follows its scopes (or that has been live) is
-  // skipped server-side, and the toast says why nothing changed.
   const updateOne = (featureId: string, patch: BulkPatch) => {
-    bulkUpdate.mutate(
-      { ids: [featureId], ...patch },
-      {
-        onSuccess: (res) => {
-          if (res.skipped > 0) {
-            notifications.show({
-              title: "Status not changed",
-              message: "This feature's status follows its scopes, or it has already been live.",
-              color: "yellow",
-            });
-          }
-        },
-      },
-    );
+    inlineUpdate.mutate({ ids: [featureId], ...patch });
   };
 
   // Filter + sort
