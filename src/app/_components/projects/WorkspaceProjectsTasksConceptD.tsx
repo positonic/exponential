@@ -1,14 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Avatar, Checkbox, Skeleton, Tooltip } from '@mantine/core';
 import {
-  IconTable,
-  IconLayoutList,
-  IconTimeline,
-  IconSearch,
   IconArrowsSort,
   IconSparkles,
   IconPlus,
@@ -30,7 +24,15 @@ import {
   DRI_ME,
   PROJECT_DEFAULT_VIEW_STATE,
 } from './useProjectViewState';
-import { useSaveProjectsViewTab, saveProjectsViewTab } from './projectsViewTab';
+import { useSaveProjectsViewTab } from './projectsViewTab';
+import {
+  ListPageTopBar,
+  ListPageSearch,
+  ListPageButton,
+  ListPagePrimaryButton,
+  listPageButtonClassName,
+} from '~/app/_components/listPage';
+import { ProjectsViewTabs } from './ProjectsViewTabs';
 import { useSession } from 'next-auth/react';
 import {
   ProjectFilterPopover,
@@ -45,14 +47,6 @@ import styles from './WorkspaceProjectsTasksConceptD.module.css';
 
 type ProjectWithActions = RouterOutputs['project']['getProjectsWithActions']['projects'][0];
 type ActionItem = ProjectWithActions['actions'][0];
-
-const VIEW_TABS = [
-  { value: 'table', label: 'Projects', icon: IconTable, path: '/projects' },
-  { value: 'projects-tasks', label: 'Projects & Tasks', icon: IconLayoutList, path: '/projects-tasks' },
-  { value: 'timeline', label: 'Timeline', icon: IconTimeline, path: '/timeline' },
-] as const;
-
-type ViewTabValue = typeof VIEW_TABS[number]['value'];
 
 function getProjectStatusStyle(status: string): React.CSSProperties {
   switch (status) {
@@ -294,7 +288,6 @@ export function WorkspaceProjectsTasksConceptD() {
   const { workspace, workspaceId } = useWorkspace();
   const { data: session, status: sessionStatus } = useSession();
   const currentUserId = session?.user?.id ?? null;
-  const pathname = usePathname();
   const searchRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -335,16 +328,6 @@ export function WorkspaceProjectsTasksConceptD() {
   const needsSession =
     Array.isArray(filters.driId) && filters.driId.includes(DRI_ME);
   const sessionPending = needsSession && sessionStatus === 'loading';
-
-  const activeTab: ViewTabValue = useMemo(() => {
-    if (pathname.includes('/projects-tasks')) return 'projects-tasks';
-    if (pathname.includes('/timeline')) return 'timeline';
-    return 'table';
-  }, [pathname]);
-
-  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') searchRef.current?.blur();
-  }, []);
 
   usePageSearchHotkey(searchRef);
 
@@ -430,84 +413,60 @@ export function WorkspaceProjectsTasksConceptD() {
 
   return (
     <div className={styles.page}>
-      {/* Top bar */}
-      <div className={styles.topBar}>
-        <div className={styles.topBarLeft}>
-          <nav className={styles.viewTabs}>
-            {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
-              <Link
-                key={value}
-                href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
-                className={styles.viewTab}
-                data-active={activeTab === value ? 'true' : 'false'}
-                onClick={() => saveProjectsViewTab(pathname, value)}
-              >
-                <Icon size={13} stroke={1.75} />
-                {label}
-              </Link>
-            ))}
-          </nav>
-          <ProjectFilterPills
-            filters={filters}
-            onFiltersChange={setFilters}
-            members={workspaceMembers}
-          />
-        </div>
-
-        <div className={styles.actions}>
-          <div className={styles.searchWrap}>
-            <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search  ⌘F"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              className={styles.searchInput}
+      <ListPageTopBar
+        left={
+          <>
+            <ProjectsViewTabs
+              linkPrefix={prefix}
+              viewParamsQueryString={viewParamsQueryString}
             />
-          </div>
-          <ProjectFilterPopover
-            filters={filters}
-            onFiltersChange={setFilters}
-            members={workspaceMembers}
-            counts={optionCounts}
-            triggerClassName={styles.actionBtn}
-          />
-          <ProjectSortMenu
-            sortState={sortState}
-            onSortChange={setSortField}
-            onClearSort={clearSort}
-            trigger={
-              <button
-                type="button"
-                className={styles.actionBtn}
-                data-active={sortState ? 'true' : 'false'}
-              >
-                <IconArrowsSort size={13} stroke={1.75} />
-                Sort
-              </button>
-            }
-          />
-          <button
-            className={`${styles.actionBtn} ${includeCompleted ? styles.actionBtnActive : ''}`}
-            type="button"
-            onClick={() => setIncludeCompleted((v) => !v)}
-          >
-            Show completed
-          </button>
-          <button className={styles.actionBtn} type="button">
-            <IconSparkles size={13} stroke={1.75} />
-            Ask Zoe
-          </button>
-          <CreateProjectModal>
-            <button className={styles.newBtn} type="button">
-              <IconPlus size={13} stroke={2.5} />
-              New project
-            </button>
-          </CreateProjectModal>
-        </div>
-      </div>
+            <ProjectFilterPills
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+            />
+          </>
+        }
+        actions={
+          <>
+            <ListPageSearch ref={searchRef} value={searchQuery} onChange={setSearchQuery} />
+            <ProjectFilterPopover
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+              counts={optionCounts}
+              triggerClassName={listPageButtonClassName}
+            />
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+              trigger={
+                <ListPageButton active={!!sortState}>
+                  <IconArrowsSort size={13} stroke={1.75} />
+                  Sort
+                </ListPageButton>
+              }
+            />
+            <ListPageButton
+              active={includeCompleted}
+              onClick={() => setIncludeCompleted((v) => !v)}
+            >
+              Show completed
+            </ListPageButton>
+            <ListPageButton>
+              <IconSparkles size={13} stroke={1.75} />
+              Ask Zoe
+            </ListPageButton>
+            <CreateProjectModal>
+              <ListPagePrimaryButton>
+                <IconPlus size={13} stroke={2.5} />
+                New project
+              </ListPagePrimaryButton>
+            </CreateProjectModal>
+          </>
+        }
+      />
 
       {/* Stats row */}
       <div style={{ padding: '8px 32px', borderBottom: '1px solid var(--color-border-primary)', flexShrink: 0 }}>
@@ -517,10 +476,10 @@ export function WorkspaceProjectsTasksConceptD() {
           {totalOnHold > 0 && ` · ${totalOnHold} on hold`}
         </span>
         <CreateActionModal viewName="projects-tasks">
-          <button className={styles.actionBtn} type="button" style={{ float: 'right', marginTop: -2 }}>
+          <ListPageButton style={{ float: 'right', marginTop: -2 }}>
             <IconPlus size={13} stroke={2} />
             Add task
-          </button>
+          </ListPageButton>
         </CreateActionModal>
       </div>
 
@@ -555,13 +514,9 @@ export function WorkspaceProjectsTasksConceptD() {
                         {(searchQuery || filtersActive) && !workspaceIsEmpty ? (
                           <span className="inline-flex items-center gap-3">
                             No projects match your filters.
-                            <button
-                              type="button"
-                              className={styles.actionBtn}
-                              onClick={clearFiltersAndSearch}
-                            >
+                            <ListPageButton onClick={clearFiltersAndSearch}>
                               Clear filters
-                            </button>
+                            </ListPageButton>
                           </span>
                         ) : (
                           'No projects yet.'

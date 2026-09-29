@@ -45,6 +45,10 @@
       0 12px 32px -10px var(--color-shadow-overlay),
       0 4px 12px -6px var(--color-shadow-overlay);
 
+    /* A barely-there lift for the selected segment of a pill control (the
+       list-page view tabs). Same in both themes. */
+    --shadow-segment: 0 1px 3px rgba(0, 0, 0, 0.08);
+
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
     --color-brand-primary-hover: #3D75FF;
