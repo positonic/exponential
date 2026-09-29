@@ -31,6 +31,7 @@ export const PUBLIC_EXACT = new Set([
   '/roadmap', // public product roadmap (embeds Loom)
   // File conventions served through the middleware matcher.
   '/llms.txt',
+  '/llms-full.txt',
   '/robots.txt',
   '/sitemap.xml',
   '/manifest.webmanifest',
