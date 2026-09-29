@@ -64,7 +64,6 @@ import {
   ListPageButton,
   ListPagePrimaryButton,
   PillSelect,
-  listPageButtonClassName,
 } from '~/app/_components/listPage';
 import table from '~/app/_components/listPage/DataTable.module.css';
 import styles from './WorkspaceProjectsConceptD.module.css';
@@ -564,7 +563,6 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
               onFiltersChange={setFilters}
               members={workspaceMembers}
               counts={optionCounts}
-              triggerClassName={listPageButtonClassName}
             />
 
             <ProjectSortMenu

@@ -219,6 +219,10 @@ export default function ProductLayout({
   // While a navigation is pending, show the just-clicked tab as active so the
   // tab bar responds instantly; fall back to the real route once it commits.
   const activeTab = isPending && optimisticTab ? optimisticTab : pathnameTab;
+  // Only the list routes themselves, not their detail pages (/tickets/:id,
+  // /features/:id) or /epics, which keep the padded layout.
+  const isListTab =
+    pathname === `${basePath}/tickets` || pathname === `${basePath}/features`;
 
   const handleTabChange = (value: string | null) => {
     const tab = tabs.find((t) => t.value === value);
@@ -347,7 +351,7 @@ export default function ProductLayout({
 
       {/* Tabs */}
       <Tabs value={activeTab} onChange={handleTabChange}>
-        <Stack gap="xl" align="stretch" justify="flex-start">
+        <Stack gap={isListTab ? 0 : "xl"} align="stretch" justify="flex-start">
           {/* One row that scrolls sideways on narrow screens instead of
               wrapping into four. The list grows to max-content inside this
               scroller so Mantine's underline (a ::before on the list) still
@@ -369,8 +373,9 @@ export default function ProductLayout({
             </Tabs.List>
           </div>
 
-          {/* Tab content */}
-          <div className="px-4 sm:px-6 lg:px-10 pb-6">{children}</div>
+          {/* Tab content. List tabs (Backlog, Features) run edge to edge and
+              own their gutters, like the Projects page; the rest are padded. */}
+          <div className={isListTab ? "pb-6" : "px-4 sm:px-6 lg:px-10 pb-6"}>{children}</div>
         </Stack>
       </Tabs>
 

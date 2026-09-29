@@ -61,6 +61,59 @@
   padding-right: 32px;
 }
 
+/* Rows that open something on click (a peek drawer), and multi-selected rows. */
+.tableRow[data-clickable='true'] {
+  cursor: pointer;
+}
+
+.tableRow[data-selected='true'] {
+  background: var(--color-bg-hover);
+}
+
+/* ── sortable header cell ── */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 100ms;
+}
+
+.sortable:hover {
+  color: var(--color-text-primary);
+}
+
+.sortInner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── group header row (Group by / Completed) ── */
+.groupRow {
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupRow td {
+  padding: 16px 16px 8px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-primary);
+}
+
+.groupRow td:first-child {
+  padding-left: 32px;
+}
+
+.groupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
 /* ── primary cell: title with a muted sub-line ── */
 .nameCell {
   display: flex;
@@ -84,6 +137,24 @@
 
 .nameSub {
   font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* A sub-line carrying chips (labels) as well as text. */
+.nameMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* Secondary cell text: IDs, counts, dates. */
+.muted {
+  font-size: 12px;
   color: var(--color-text-muted);
   white-space: nowrap;
 }

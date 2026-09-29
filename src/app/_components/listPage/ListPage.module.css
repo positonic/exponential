@@ -135,6 +135,31 @@
   border-color: var(--brand-500);
 }
 
+/* Count badge inside a button (applied filters). */
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--brand-500);
+  color: var(--color-text-inverse);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Dismissable pills naming the applied filters, beside the view tabs. */
+.pills {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
 .primaryButton {
   display: inline-flex;
   align-items: center;
