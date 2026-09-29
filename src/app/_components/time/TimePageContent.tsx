@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Badge, Group, Paper, SegmentedControl, Select, Stack, Text, Title, Tooltip } from "@mantine/core";
+import { DocsHelpLink } from "~/app/_components/docs/DocsHelpLink";
 import { DatePickerInput } from "@mantine/dates";
 import {
   endOfDay,
@@ -128,9 +129,12 @@ export function TimePageContent() {
     <div className="flex h-full flex-col gap-4 p-4">
       <Group justify="space-between" align="flex-start">
         <div>
-          <Title order={2} className="text-text-primary">
-            Time
-          </Title>
+          <div className="flex items-center gap-2">
+            <Title order={2} className="text-text-primary">
+              Time
+            </Title>
+            <DocsHelpLink pathname="/time" />
+          </div>
           <Text size="sm" c="dimmed" mt={4}>
             Today: <span className="font-mono">{formatMins(todayMins)}</span>
             <span className="mx-2">·</span>
