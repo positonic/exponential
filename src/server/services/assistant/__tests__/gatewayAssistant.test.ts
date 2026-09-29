@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
+import { buildWorkspaceAccessWhere } from "~/server/services/access/resolvers/workspaceResolver";
 import { findGatewayAssistant } from "../gatewayAssistant";
 
 const USER_ID = "user-1";
@@ -52,7 +53,7 @@ describe("findGatewayAssistant", () => {
     await expect(findGatewayAssistant(db, USER_ID)).resolves.toBeNull();
   });
 
-  it("only considers the caller's default assistants, newest first", async () => {
+  it("only considers the caller's default assistants in workspaces they can still access, newest first", async () => {
     db.user.findUnique.mockResolvedValue(null as never);
     db.assistant.findMany.mockResolvedValue([] as never);
 
@@ -60,7 +61,11 @@ describe("findGatewayAssistant", () => {
 
     expect(db.assistant.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { createdById: USER_ID, isDefault: true },
+        where: {
+          createdById: USER_ID,
+          isDefault: true,
+          workspace: buildWorkspaceAccessWhere(USER_ID),
+        },
         orderBy: { updatedAt: "desc" },
       }),
     );

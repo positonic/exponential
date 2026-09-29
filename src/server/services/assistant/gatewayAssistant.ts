@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { buildWorkspaceAccessWhere } from "~/server/services/access/resolvers/workspaceResolver";
 
 /**
  * Assistants are per user, per workspace, but a chat gateway (Telegram,
@@ -7,6 +8,9 @@ import type { PrismaClient } from "@prisma/client";
  *
  *  1. the user's default assistant in their default workspace, else
  *  2. their most recently edited default assistant in any workspace.
+ *
+ * Only workspaces the user can still access count: leaving a workspace
+ * doesn't delete the assistant they made there.
  *
  * Returns identity fields only — never the persona text.
  */
@@ -17,7 +21,11 @@ export async function findGatewayAssistant(db: PrismaClient, userId: string) {
       select: { defaultWorkspaceId: true },
     }),
     db.assistant.findMany({
-      where: { createdById: userId, isDefault: true },
+      where: {
+        createdById: userId,
+        isDefault: true,
+        workspace: buildWorkspaceAccessWhere(userId),
+      },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true,
