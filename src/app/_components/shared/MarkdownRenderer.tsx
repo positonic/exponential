@@ -366,6 +366,13 @@ interface MarkdownRendererProps {
    * react-markdown itself, which ADR-0017 forbids.
    */
   extraRemarkPlugins?: PluggableList;
+  /**
+   * "auto" (default) renders content that looks like legacy HTML as
+   * sanitised HTML. "markdown" skips that sniffing: use it where the source
+   * is always authored Markdown (the /docs pages), so a literal `<code>` or
+   * `<br>` in text or inline code cannot flip the whole page into HTML mode.
+   */
+  format?: "auto" | "markdown";
   className?: string;
 }
 
@@ -376,12 +383,13 @@ export function MarkdownRenderer({
   mentionNames,
   onDeleteImage,
   extraRemarkPlugins,
+  format = "auto",
   className,
 }: MarkdownRendererProps) {
   // Tolerate legacy HTML on read (sanitised). New writes are always Markdown.
   // Sanitisation runs in a client boundary because DOMPurify needs a DOM —
   // doing it here would throw during SSR (this component is server-capable).
-  if (detectContentType(content) === "html") {
+  if (format === "auto" && detectContentType(content) === "html") {
     return (
       <SanitizedHtml
         html={content}

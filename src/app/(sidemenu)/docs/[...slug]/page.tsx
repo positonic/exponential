@@ -68,7 +68,7 @@ export default async function DocsPage({ params }: DocsPageProps) {
         lastUpdated={getDocLastUpdated(doc.filePath)}
         editUrl={docsEditUrl(doc.filePath)}
       >
-        <MarkdownRenderer content={doc.content} />
+        <MarkdownRenderer content={doc.content} format="markdown" />
       </DocsContent>
       <DocsTableOfContents headings={doc.headings} />
     </>
