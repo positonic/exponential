@@ -230,7 +230,7 @@ export function SettingsField({
   mono?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[200px_1fr_auto] items-center gap-4 border-t border-border-primary py-3 first:border-t-0 first:pt-0.5">
+    <div className="grid grid-cols-1 gap-2 border-t border-border-primary py-3 first:border-t-0 first:pt-0.5 sm:grid-cols-[200px_1fr_auto] sm:items-center sm:gap-4">
       <div className="text-[12.5px] font-medium text-text-secondary">
         {label}
         {sublabel && (
@@ -246,7 +246,7 @@ export function SettingsField({
       >
         {children}
       </div>
-      <div className="flex justify-end">{action}</div>
+      {action ? <div className="flex justify-end">{action}</div> : null}
     </div>
   );
 }

@@ -664,7 +664,7 @@ export default function ProductSettingsPage() {
 
   return (
     <SettingsShell>
-      <div className="px-6 md:px-10 pt-6 flex items-center justify-between">
+      <div className="px-4 md:px-10 pt-6 flex flex-wrap items-center justify-between gap-2">
         <Link
           href={backPath}
           className="inline-flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors"

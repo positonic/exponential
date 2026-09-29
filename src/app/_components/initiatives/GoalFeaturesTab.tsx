@@ -137,6 +137,7 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
           Every aligned feature is deprecated or archived.
         </Text>
       ) : (
+        <div className="overflow-x-auto">
         <Table verticalSpacing="sm" highlightOnHover={false}>
           <Table.Thead>
             <Table.Tr>
@@ -170,6 +171,7 @@ export function GoalFeaturesTab({ goalId, workspaceSlug }: GoalFeaturesTabProps)
             ))}
           </Table.Tbody>
         </Table>
+        </div>
       )}
 
       {/* No onPrev/onNext: this tab has no list navigation, so the peek

@@ -905,6 +905,7 @@ export function InitiativeDashboard({
             }}
           />
         ) : filteredGoals.length > 0 ? (
+          <div className="overflow-x-auto">
           <Table verticalSpacing="sm" highlightOnHover={false}>
             <Table.Thead>
               <Table.Tr>
@@ -943,6 +944,7 @@ export function InitiativeDashboard({
               )}
             </Table.Tbody>
           </Table>
+          </div>
         ) : statusGoals.length > 0 ? (
           <div className="py-16 text-center">
             <IconSearch size={48} className="text-text-muted mx-auto mb-4" />

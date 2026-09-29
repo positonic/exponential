@@ -106,7 +106,7 @@ export const GoalsTable: FC<GoalsTableProps> = ({ goals }) => {
       )}
 
       {filteredGoals.length > 0 && (
-        <Paper withBorder>
+        <Paper withBorder className="overflow-x-auto">
           <Table>
             <Table.Thead>
               <Table.Tr>

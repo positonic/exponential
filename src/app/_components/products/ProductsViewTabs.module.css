@@ -2,14 +2,23 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
-  padding: 12px 32px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--color-border-primary);
   flex-shrink: 0;
 }
 
+@media (min-width: 640px) {
+  .topBar {
+    padding: 12px 32px;
+  }
+}
+
 .viewTabs {
   display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
   gap: 2px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-primary);
@@ -48,5 +57,8 @@
 .actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }

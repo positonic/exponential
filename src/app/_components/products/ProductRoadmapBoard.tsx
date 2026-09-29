@@ -318,11 +318,11 @@ function FlatBoard({
 }) {
   const buckets = useMemo(() => bucketByStatus(features), [features]);
   return (
-    <div className="flex w-full min-w-0 gap-3 overflow-x-auto px-8 pt-4 pb-4">
+    <div className="flex w-full min-w-0 gap-3 overflow-x-auto px-4 sm:px-8 pt-4 pb-4">
       {columns.map((col) => {
         const items = buckets[col.value] ?? [];
         return (
-          <Paper key={col.value} className="w-64 min-w-64 shrink-0" p="sm" radius="md" withBorder>
+          <Paper key={col.value} className="w-[80vw] min-w-[80vw] shrink-0 sm:w-64 sm:min-w-64" p="sm" radius="md" withBorder>
             <Group justify="space-between" mb="sm">
               <StatusBadge label={col.label} color={col.color} />
               <Text size="xs" fw={600} className="text-text-muted">
@@ -441,13 +441,13 @@ function SwimlaneBoard({
   const lanes = useMemo(() => buildLanes(features), [features]);
 
   return (
-    <div className="w-full overflow-x-auto px-8 pt-4 pb-4">
+    <div className="w-full overflow-x-auto px-4 sm:px-8 pt-4 pb-4">
       <div className="min-w-max">
         {/* Header row: lane-label gutter + status column labels */}
         <div className="flex gap-3">
           <div className="w-48 min-w-48 shrink-0" />
           {columns.map((col) => (
-            <div key={col.value} className="w-64 min-w-64 shrink-0 pb-1">
+            <div key={col.value} className="w-[80vw] min-w-[80vw] shrink-0 pb-1 sm:w-64 sm:min-w-64">
               <StatusBadge label={col.label} color={col.color} />
             </div>
           ))}
@@ -463,7 +463,7 @@ function SwimlaneBoard({
                 {columns.map((col) => {
                   const items = buckets[col.value] ?? [];
                   return (
-                    <Paper key={col.value} className="w-64 min-w-64 shrink-0" p="xs" radius="md" withBorder>
+                    <Paper key={col.value} className="w-[80vw] min-w-[80vw] shrink-0 sm:w-64 sm:min-w-64" p="xs" radius="md" withBorder>
                       <StatusCell
                         laneKey={lane.key}
                         status={col.value}
@@ -650,7 +650,7 @@ export function ProductRoadmapBoard() {
   const activeFeature = activeId ? featuresById.get(activeId) : null;
 
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-4 px-8 pt-4">
+    <div className="flex flex-wrap items-center gap-4 px-4 sm:px-8 pt-4">
       <div className="flex items-center gap-2">
         <Text size="xs" className="text-text-muted">
           Group by
@@ -708,9 +708,9 @@ export function ProductRoadmapBoard() {
     return (
       <>
         {toolbar}
-        <div className="flex gap-3 overflow-x-auto px-8 pt-4 pb-4">
+        <div className="flex gap-3 overflow-x-auto px-4 sm:px-8 pt-4 pb-4">
           {ROADMAP_BOARD_COLUMNS.map((col) => (
-            <Skeleton key={col.value} height={320} className="w-64 min-w-64 shrink-0" radius="md" />
+            <Skeleton key={col.value} height={320} className="w-[80vw] min-w-[80vw] shrink-0 sm:w-64 sm:min-w-64" radius="md" />
           ))}
         </div>
       </>
@@ -719,7 +719,7 @@ export function ProductRoadmapBoard() {
 
   if (features.length === 0) {
     return (
-      <div className="px-8 pt-6">
+      <div className="px-4 sm:px-8 pt-6">
         <EmptyState
           icon={IconRoute}
           message="No features across your products yet. Create features inside a product to see them on the roadmap."

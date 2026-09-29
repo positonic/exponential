@@ -547,8 +547,8 @@ export default function FeaturesListPage() {
           size="xs"
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
+          className="w-full sm:w-[200px]"
           styles={{
-            root: { width: 200 },
             input: { backgroundColor: "transparent", border: "1px solid var(--color-border-primary)", fontSize: "0.8rem", height: 30, minHeight: 30 },
           }}
         />

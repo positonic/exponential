@@ -215,14 +215,14 @@ export function ActionDetailContent({
 
   if (isLoading) {
     return (
-      <div className="flex h-full">
-        <div className="flex-1 p-8">
+      <div className="flex h-full flex-col lg:flex-row">
+        <div className="flex-1 p-4 sm:p-8">
           <Skeleton height={32} width={200} mb="lg" />
           <Skeleton height={40} mb="md" />
           <Skeleton height={100} mb="lg" />
           <Skeleton height={200} />
         </div>
-        <div className="w-80 border-l border-border-primary p-6">
+        <div className="w-full border-t border-border-primary p-4 lg:w-80 lg:border-l lg:border-t-0 lg:p-6">
           <Skeleton height={24} width={120} mb="lg" />
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} height={36} mb="md" />
@@ -253,13 +253,218 @@ export function ActionDetailContent({
 
   const statusColor = STATUS_COLORS[action.kanbanStatus ?? ""] ?? "gray";
 
+  const propertiesPanel = (
+    <Stack gap="lg">
+      {/* Status */}
+      <PropertyRow icon={<IconCircleDot size={16} />} label="Status">
+        <Select
+          value={action.kanbanStatus ?? undefined}
+          onChange={(val) => val && handleStatusChange(val)}
+          data={KANBAN_STATUS_OPTIONS}
+          size="xs"
+          variant="unstyled"
+          classNames={{
+            input: "text-text-primary font-medium",
+          }}
+          styles={{
+            option: { paddingLeft: 12, paddingRight: 12 },
+          }}
+        />
+      </PropertyRow>
+
+      {/* Priority */}
+      <PropertyRow icon={<IconFlag size={16} />} label="Priority">
+        <Select
+          value={action.priority}
+          onChange={(val) =>
+            val && handlePropertyUpdate("priority", val)
+          }
+          data={PRIORITY_OPTIONS.map((p) => ({
+            value: p,
+            label: p,
+          }))}
+          size="xs"
+          variant="unstyled"
+          classNames={{
+            input: "text-text-primary font-medium",
+          }}
+          styles={{
+            option: { paddingLeft: 12, paddingRight: 12 },
+          }}
+        />
+      </PropertyRow>
+
+      {/* Assignees */}
+      <PropertyRow icon={<IconUser size={16} />} label="Assignees">
+        <div
+          className="cursor-pointer rounded px-1 -mx-1 hover:bg-surface-hover transition-colors"
+          onClick={() => setAssignModalOpened(true)}
+        >
+          {action.assignees && action.assignees.length > 0 ? (
+            <Group gap="xs">
+              {action.assignees.map((a) => (
+                <Tooltip key={a.user.id} label={a.user.name ?? a.user.email}>
+                  <Avatar
+                    src={a.user.image}
+                    size="sm"
+                    radius="xl"
+                  >
+                    {(a.user.name ?? a.user.email ?? "?")[0]?.toUpperCase()}
+                  </Avatar>
+                </Tooltip>
+              ))}
+            </Group>
+          ) : (
+            <Text size="xs" className="text-text-muted">
+              Unassigned
+            </Text>
+          )}
+        </div>
+      </PropertyRow>
+
+      {/* Project */}
+      <PropertyRow icon={<IconFolder size={16} />} label="Project">
+        <Select
+          value={action.projectId ?? undefined}
+          onChange={(val) =>
+            handlePropertyUpdate(
+              "projectId",
+              val ?? undefined,
+            )
+          }
+          data={
+            projects?.map((p) => ({
+              value: p.id,
+              label: p.name,
+            })) ?? []
+          }
+          size="xs"
+          variant="unstyled"
+          classNames={{
+            input: "text-text-primary font-medium",
+          }}
+          styles={{
+            option: { paddingLeft: 12, paddingRight: 12 },
+          }}
+          clearable
+          placeholder="None"
+          searchable
+        />
+      </PropertyRow>
+
+      {/* Due Date */}
+      <PropertyRow icon={<IconCalendar size={16} />} label="Due Date">
+        <DeadlinePicker
+          value={action.dueDate ? new Date(action.dueDate) : null}
+          onChange={(date) => handlePropertyUpdate("dueDate", date)}
+          notificationContext="action"
+        />
+      </PropertyRow>
+
+      {/* Scheduled Start */}
+      <PropertyRow icon={<IconClock size={16} />} label="Scheduled">
+        <UnifiedDatePicker
+          value={action.scheduledStart ? new Date(action.scheduledStart) : null}
+          onChange={(date) => {
+            if (date) {
+              const existing = action.scheduledStart ? new Date(action.scheduledStart) : null;
+              const existingHours = existing?.getHours() ?? 9;
+              const existingMinutes = existing?.getMinutes() ?? 0;
+              const newDate = new Date(date);
+              newDate.setHours(existingHours, existingMinutes, 0, 0);
+              handlePropertyUpdate("scheduledStart", newDate);
+            } else {
+              handlePropertyUpdate("scheduledStart", null);
+            }
+          }}
+          mode="single"
+          notificationContext="action"
+        />
+      </PropertyRow>
+
+      {/* Tags */}
+      <PropertyRow icon={<IconTag size={16} />} label="Tags">
+        <TagSelector
+          selectedTagIds={selectedTagIds}
+          onChange={handleTagChange}
+          workspaceId={workspace?.id}
+        />
+      </PropertyRow>
+
+      {/* Epic */}
+      {action.epic && (
+        <PropertyRow icon={<IconFlag size={16} />} label="Epic">
+          <Badge size="xs" variant="light">
+            {action.epic.name}
+          </Badge>
+        </PropertyRow>
+      )}
+
+      {/* Blocked by (ADR-0062): every blocker, open ones highlighted */}
+      {action.depsOut.length > 0 && (
+        <PropertyRow icon={<IconLock size={16} />} label="Blocked by">
+          <Group gap="xs">
+            {action.depsOut.map((dep) => {
+              const isOpen = dep.dependsOn.status === "ACTIVE";
+              const badge = (
+                <Badge
+                  size="xs"
+                  variant="light"
+                  color={isOpen ? "red" : "gray"}
+                  td={isOpen ? undefined : "line-through"}
+                >
+                  {dep.dependsOn.name}
+                </Badge>
+              );
+              return workspace?.slug ? (
+                <Link key={dep.id} href={`/w/${workspace.slug}/actions/${dep.dependsOn.id}`}>
+                  {badge}
+                </Link>
+              ) : (
+                <span key={dep.id}>{badge}</span>
+              );
+            })}
+          </Group>
+        </PropertyRow>
+      )}
+
+      <Divider className="border-border-primary" />
+
+      {/* Meta info */}
+      <PropertyRow icon={<IconUser size={16} />} label="Created by">
+        <Group gap="xs">
+          <Avatar src={action.createdBy?.image} size="xs" radius="xl">
+            {(action.createdBy?.name ?? "?")[0]?.toUpperCase()}
+          </Avatar>
+          <Text size="xs" className="text-text-secondary">
+            {action.createdBy?.name ?? "Unknown"}
+          </Text>
+        </Group>
+      </PropertyRow>
+
+      <PropertyRow icon={<IconCalendar size={16} />} label="Created">
+        <Text size="xs" className="text-text-secondary">
+          {new Date(action.createdAt).toLocaleString()}
+        </Text>
+      </PropertyRow>
+
+      {action.completedAt && (
+        <PropertyRow icon={<IconCalendar size={16} />} label="Completed">
+          <Text size="xs" className="text-text-secondary">
+            {new Date(action.completedAt).toLocaleDateString()}
+          </Text>
+        </PropertyRow>
+      )}
+    </Stack>
+  );
+
   return (
     <>
-    <div className="flex h-[calc(100vh-60px)]">
+    <div className="flex flex-col lg:h-[calc(100vh-60px)] lg:flex-row">
       {/* Left Panel - Main Content */}
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div className="min-w-0 flex-1 px-4 py-4 sm:px-8 sm:py-6 lg:overflow-y-auto">
         {/* Breadcrumb + Back */}
-        <Group gap="md" mb="lg">
+        <Group gap="md" mb="lg" wrap="nowrap" className="min-w-0">
           <ActionIcon
             variant="subtle"
             component={Link}
@@ -278,6 +483,7 @@ export function ActionDetailContent({
           </ActionIcon>
           <Breadcrumbs
             classNames={{
+              root: "min-w-0 flex-1 overflow-hidden",
               separator: "text-text-muted",
             }}
           >
@@ -344,7 +550,7 @@ export function ActionDetailContent({
           />
         ) : (
           <div
-            className="text-2xl font-bold cursor-text hover:bg-surface-hover rounded px-1 -mx-1 transition-colors mb-4"
+            className="text-xl sm:text-2xl font-bold cursor-text hover:bg-surface-hover rounded px-1 -mx-1 transition-colors mb-4 break-words"
             onClick={() => setEditingTitle(true)}
           >
             <HTMLContent html={action.name} className="text-text-primary" compactUrls />
@@ -433,6 +639,18 @@ export function ActionDetailContent({
           </div>
         )}
 
+        {/* Properties (mobile) - rendered inline; the sidebar takes over on lg+ */}
+        <div className="mb-8 lg:hidden">
+          <Text
+            className="text-text-muted uppercase tracking-wider font-semibold"
+            size="xs"
+            mb="md"
+          >
+            Properties
+          </Text>
+          {propertiesPanel}
+        </div>
+
         <Divider className="border-border-primary" mb="lg" />
 
         {/* Activity / Discussion */}
@@ -462,7 +680,7 @@ export function ActionDetailContent({
       </div>
 
       {/* Right Panel - Properties Sidebar */}
-      <div className="w-80 border-l border-border-primary overflow-y-auto p-6 bg-surface-secondary/30">
+      <div className="hidden w-80 shrink-0 overflow-y-auto border-l border-border-primary bg-surface-secondary/30 p-6 lg:block">
         <Text
           className="text-text-muted uppercase tracking-wider font-semibold"
           size="xs"
@@ -471,208 +689,7 @@ export function ActionDetailContent({
           Properties
         </Text>
 
-        <Stack gap="lg">
-          {/* Status */}
-          <PropertyRow icon={<IconCircleDot size={16} />} label="Status">
-            <Select
-              value={action.kanbanStatus ?? undefined}
-              onChange={(val) => val && handleStatusChange(val)}
-              data={KANBAN_STATUS_OPTIONS}
-              size="xs"
-              variant="unstyled"
-              classNames={{
-                input: "text-text-primary font-medium",
-              }}
-              styles={{
-                option: { paddingLeft: 12, paddingRight: 12 },
-              }}
-            />
-          </PropertyRow>
-
-          {/* Priority */}
-          <PropertyRow icon={<IconFlag size={16} />} label="Priority">
-            <Select
-              value={action.priority}
-              onChange={(val) =>
-                val && handlePropertyUpdate("priority", val)
-              }
-              data={PRIORITY_OPTIONS.map((p) => ({
-                value: p,
-                label: p,
-              }))}
-              size="xs"
-              variant="unstyled"
-              classNames={{
-                input: "text-text-primary font-medium",
-              }}
-              styles={{
-                option: { paddingLeft: 12, paddingRight: 12 },
-              }}
-            />
-          </PropertyRow>
-
-          {/* Assignees */}
-          <PropertyRow icon={<IconUser size={16} />} label="Assignees">
-            <div
-              className="cursor-pointer rounded px-1 -mx-1 hover:bg-surface-hover transition-colors"
-              onClick={() => setAssignModalOpened(true)}
-            >
-              {action.assignees && action.assignees.length > 0 ? (
-                <Group gap="xs">
-                  {action.assignees.map((a) => (
-                    <Tooltip key={a.user.id} label={a.user.name ?? a.user.email}>
-                      <Avatar
-                        src={a.user.image}
-                        size="sm"
-                        radius="xl"
-                      >
-                        {(a.user.name ?? a.user.email ?? "?")[0]?.toUpperCase()}
-                      </Avatar>
-                    </Tooltip>
-                  ))}
-                </Group>
-              ) : (
-                <Text size="xs" className="text-text-muted">
-                  Unassigned
-                </Text>
-              )}
-            </div>
-          </PropertyRow>
-
-          {/* Project */}
-          <PropertyRow icon={<IconFolder size={16} />} label="Project">
-            <Select
-              value={action.projectId ?? undefined}
-              onChange={(val) =>
-                handlePropertyUpdate(
-                  "projectId",
-                  val ?? undefined,
-                )
-              }
-              data={
-                projects?.map((p) => ({
-                  value: p.id,
-                  label: p.name,
-                })) ?? []
-              }
-              size="xs"
-              variant="unstyled"
-              classNames={{
-                input: "text-text-primary font-medium",
-              }}
-              styles={{
-                option: { paddingLeft: 12, paddingRight: 12 },
-              }}
-              clearable
-              placeholder="None"
-              searchable
-            />
-          </PropertyRow>
-
-          {/* Due Date */}
-          <PropertyRow icon={<IconCalendar size={16} />} label="Due Date">
-            <DeadlinePicker
-              value={action.dueDate ? new Date(action.dueDate) : null}
-              onChange={(date) => handlePropertyUpdate("dueDate", date)}
-              notificationContext="action"
-            />
-          </PropertyRow>
-
-          {/* Scheduled Start */}
-          <PropertyRow icon={<IconClock size={16} />} label="Scheduled">
-            <UnifiedDatePicker
-              value={action.scheduledStart ? new Date(action.scheduledStart) : null}
-              onChange={(date) => {
-                if (date) {
-                  const existing = action.scheduledStart ? new Date(action.scheduledStart) : null;
-                  const existingHours = existing?.getHours() ?? 9;
-                  const existingMinutes = existing?.getMinutes() ?? 0;
-                  const newDate = new Date(date);
-                  newDate.setHours(existingHours, existingMinutes, 0, 0);
-                  handlePropertyUpdate("scheduledStart", newDate);
-                } else {
-                  handlePropertyUpdate("scheduledStart", null);
-                }
-              }}
-              mode="single"
-              notificationContext="action"
-            />
-          </PropertyRow>
-
-          {/* Tags */}
-          <PropertyRow icon={<IconTag size={16} />} label="Tags">
-            <TagSelector
-              selectedTagIds={selectedTagIds}
-              onChange={handleTagChange}
-              workspaceId={workspace?.id}
-            />
-          </PropertyRow>
-
-          {/* Epic */}
-          {action.epic && (
-            <PropertyRow icon={<IconFlag size={16} />} label="Epic">
-              <Badge size="xs" variant="light">
-                {action.epic.name}
-              </Badge>
-            </PropertyRow>
-          )}
-
-          {/* Blocked by (ADR-0062): every blocker, open ones highlighted */}
-          {action.depsOut.length > 0 && (
-            <PropertyRow icon={<IconLock size={16} />} label="Blocked by">
-              <Group gap="xs">
-                {action.depsOut.map((dep) => {
-                  const isOpen = dep.dependsOn.status === "ACTIVE";
-                  const badge = (
-                    <Badge
-                      size="xs"
-                      variant="light"
-                      color={isOpen ? "red" : "gray"}
-                      td={isOpen ? undefined : "line-through"}
-                    >
-                      {dep.dependsOn.name}
-                    </Badge>
-                  );
-                  return workspace?.slug ? (
-                    <Link key={dep.id} href={`/w/${workspace.slug}/actions/${dep.dependsOn.id}`}>
-                      {badge}
-                    </Link>
-                  ) : (
-                    <span key={dep.id}>{badge}</span>
-                  );
-                })}
-              </Group>
-            </PropertyRow>
-          )}
-
-          <Divider className="border-border-primary" />
-
-          {/* Meta info */}
-          <PropertyRow icon={<IconUser size={16} />} label="Created by">
-            <Group gap="xs">
-              <Avatar src={action.createdBy?.image} size="xs" radius="xl">
-                {(action.createdBy?.name ?? "?")[0]?.toUpperCase()}
-              </Avatar>
-              <Text size="xs" className="text-text-secondary">
-                {action.createdBy?.name ?? "Unknown"}
-              </Text>
-            </Group>
-          </PropertyRow>
-
-          <PropertyRow icon={<IconCalendar size={16} />} label="Created">
-            <Text size="xs" className="text-text-secondary">
-              {new Date(action.createdAt).toLocaleString()}
-            </Text>
-          </PropertyRow>
-
-          {action.completedAt && (
-            <PropertyRow icon={<IconCalendar size={16} />} label="Completed">
-              <Text size="xs" className="text-text-secondary">
-                {new Date(action.completedAt).toLocaleDateString()}
-              </Text>
-            </PropertyRow>
-          )}
-        </Stack>
+        {propertiesPanel}
       </div>
     </div>
     {/* Screenshot Lightbox */}

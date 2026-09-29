@@ -113,7 +113,7 @@ export function HomeLayoutPicker({
             disabled={disabled}
             onClick={() => onChange(option.value)}
             className={[
-              'flex-1 min-w-[240px] rounded-md border px-4 py-3 text-left transition-colors',
+              'flex-1 min-w-0 basis-full sm:basis-auto sm:min-w-[240px] rounded-md border px-4 py-3 text-left transition-colors',
               selected
                 ? 'border-border-focus bg-surface-hover'
                 : 'border-border-primary bg-surface-primary hover:bg-surface-hover',

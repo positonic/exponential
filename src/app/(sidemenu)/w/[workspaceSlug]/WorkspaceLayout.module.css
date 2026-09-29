@@ -16,3 +16,13 @@
     margin: -2rem -2rem 0;
   }
 }
+
+/* Mantine <Container> centres itself with `margin-inline: auto`. Inside a
+   flex-column wrapper, auto cross-axis margins suppress `align-items: stretch`,
+   so the Container sizes to its content (up to its max-width) instead of the
+   viewport, and wide children such as kanban boards push the whole page
+   sideways on phones. Give it an explicit width so max-width + auto margins
+   behave as they do in a block context. */
+.wrapper > :global(.mantine-Container-root) {
+  width: 100%;
+}

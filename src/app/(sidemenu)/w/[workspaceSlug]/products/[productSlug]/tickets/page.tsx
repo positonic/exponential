@@ -1304,7 +1304,7 @@ export default function TicketsBacklogPage() {
             )}
           </div>
         ) : (
-        <div className="border border-border-primary rounded-lg overflow-hidden">
+        <div className="border border-border-primary rounded-lg overflow-x-auto">
           <Table
             highlightOnHover
             verticalSpacing={6}

@@ -280,6 +280,7 @@ export default function InsightDetailPage() {
 
             <Group justify="space-between" align="flex-start" wrap="nowrap">
               <Textarea
+                className="min-w-0 flex-1"
                 value={title}
                 onChange={(e) => setTitle(e.currentTarget.value)}
                 onBlur={saveTitle}
@@ -292,7 +293,6 @@ export default function InsightDetailPage() {
                 variant="unstyled"
                 autosize
                 minRows={1}
-                className="flex-1"
                 styles={{
                   input: {
                     fontSize: "1.375rem",

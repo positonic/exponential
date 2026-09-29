@@ -73,7 +73,7 @@ export default function NewProductPage() {
   };
 
   return (
-    <div className="px-8 py-6">
+    <div className="px-4 sm:px-8 py-6">
       <Stack gap="lg" maw={640}>
         <div>
           <Title order={2} className="text-text-primary">

@@ -14,13 +14,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
 .toolbarRight {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ── Segmented List / Kanban toggle ────────────────────── */

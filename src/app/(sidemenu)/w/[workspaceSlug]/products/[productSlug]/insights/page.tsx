@@ -583,8 +583,8 @@ export default function InsightsPage() {
           value={search}
           onChange={(e) => setSearch(e.currentTarget.value)}
           leftSection={<IconSearch size={14} />}
+          className="w-full sm:w-[200px]"
           styles={{
-            root: { width: 200 },
             input: {
               backgroundColor: "transparent",
               border: "1px solid var(--color-border-primary)",

@@ -682,6 +682,7 @@ interface ProjectsTableProps {
 
 function ProjectsTable({ projectsByStatus, statusOrder, workspaceSlug }: ProjectsTableProps) {
   return (
+    <div className="overflow-x-auto">
     <Table verticalSpacing="sm" highlightOnHover={false}>
       <Table.Thead>
         <Table.Tr>
@@ -780,6 +781,7 @@ function ProjectsTable({ projectsByStatus, statusOrder, workspaceSlug }: Project
         })}
       </Table.Tbody>
     </Table>
+    </div>
   );
 }
 
