@@ -25,6 +25,11 @@ export type AgendaSectionType =
   | "todays_actions"
   | "up_next"
   | "dri_projects"
+  // Shutdown-routine sections: the evening counterpart that closes the day.
+  | "completed_today"
+  | "activity_today"
+  | "time_today"
+  | "tomorrow"
   // Any ceremony: the ACTIVE projects in its scope (project, product, team)
   // with DRI and next action. Appended automatically when
   // `Ceremony.includeProjects` is on and the template does not place it.
@@ -44,6 +49,10 @@ export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; lab
   { value: "todays_actions", label: "Today's actions", hint: "Participants' scheduled-or-due-today Actions, plus overdue ones" },
   { value: "up_next", label: "Up next", hint: "Participants' committed tickets in the current cycle" },
   { value: "dri_projects", label: "DRI projects", hint: "State of the projects participants are DRI for" },
+  { value: "completed_today", label: "Done today", hint: "Actions participants completed today (every workspace, in a personal workspace)" },
+  { value: "activity_today", label: "What moved today", hint: "Comments, status changes, decisions and check-ins participants made today" },
+  { value: "time_today", label: "Time today", hint: "Today's attention hours by product, proposed entries and forgotten timers" },
+  { value: "tomorrow", label: "Tomorrow", hint: "Tomorrow's calendar and the actions already scheduled or due tomorrow" },
   { value: "linked_projects", label: "Linked projects", hint: "Active projects in this ceremony's scope (its project, product or team), with DRI and next action" },
 ];
 
@@ -110,6 +119,49 @@ export function dailyBriefSectionTitle(key: string): string {
   if (!section) throw new Error(`Daily brief template has no section "${key}"`);
   return section.title;
 }
+
+/**
+ * The shutdown routine: the daily brief's evening counterpart. It fires at
+ * the end of the day with no lead time (the agenda is generated as it
+ * starts, so it covers the whole day) and summarises what happened across
+ * every workspace the person can access when it lives in their personal
+ * workspace, then settles what was left undone and shapes tomorrow.
+ * "Left undone" is the brief's `todays_actions` query read at 19:00: the
+ * finished ones have dropped out, so what remains is the unfinished set
+ * plus the overdue pile.
+ */
+export const SHUTDOWN_ROUTINE_TEMPLATE: CeremonyTemplate = {
+  kind: "CUSTOM",
+  name: "Shutdown routine",
+  slug: "shutdown-routine",
+  aliases: ["Shutdown routine", "Shutdown", "End of day", "Evening review"],
+  purpose:
+    "Close the day with a clear head: see what you got done, decide what happens to what you did not, and leave tomorrow already shaped so the morning brief starts from a plan rather than a pile.",
+  notFor:
+    "- Re-planning the week\n- Re-litigating priorities\n- Team status (that is the standup)\n- Doing the remaining work",
+  inputs:
+    "- Actions completed today, across all your workspaces\n- What you commented on, moved, decided or checked in on today\n- Today's meetings and their recordings\n- Today's time entries\n- Today's actions still open, and the overdue pile\n- Tomorrow's calendar and actions",
+  outputs:
+    "- Every unfinished action rescheduled, deferred or dropped\n- Tomorrow's three most important actions chosen\n- Today's proposed time confirmed and any running timer stopped\n- What got in the way, written down",
+  cadenceRule: "FREQ=DAILY;BYHOUR=19;BYMINUTE=0",
+  durationMinutes: 15,
+  leadTimeHours: 0,
+  agendaTemplate: [
+    { key: "completed_today", type: "completed_today", title: "Done today", minutes: 2 },
+    { key: "activity_today", type: "activity_today", title: "What moved", minutes: 2 },
+    { key: "todays_meetings", type: "yesterday", title: "Today's meetings", minutes: 1, config: { day: "today" } },
+    { key: "time_today", type: "time_today", title: "Time", minutes: 2 },
+    { key: "left_undone", type: "todays_actions", title: "Left undone", minutes: 5 },
+    { key: "tomorrow", type: "tomorrow", title: "Tomorrow", minutes: 2 },
+    {
+      key: "close",
+      type: "free_text",
+      title: "Shutdown complete",
+      minutes: 1,
+      config: { items: ["What got in the way today?", "Anything to carry into tomorrow's brief?"] },
+    },
+  ],
+};
 
 export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
   {
@@ -228,6 +280,7 @@ export const CEREMONY_TEMPLATES: readonly CeremonyTemplate[] = [
     ],
   },
   DAILY_BRIEF_TEMPLATE,
+  SHUTDOWN_ROUTINE_TEMPLATE,
 ];
 
 export function findTemplate(kindOrSlug: string): CeremonyTemplate | undefined {

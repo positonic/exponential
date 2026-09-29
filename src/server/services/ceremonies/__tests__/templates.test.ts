@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AGENDA_SECTION_TYPES, CEREMONY_TEMPLATES, DAILY_BRIEF_TEMPLATE, dailyBriefSectionTitle, findTemplate } from "../templates";
+import { AGENDA_SECTION_TYPES, CEREMONY_TEMPLATES, DAILY_BRIEF_TEMPLATE, SHUTDOWN_ROUTINE_TEMPLATE, dailyBriefSectionTitle, findTemplate } from "../templates";
 import { getSectionModule } from "../agenda/sections";
 import { DAILY_SUMMARY_HEADINGS } from "~/server/services/notifications/emit/dailySummary/render";
 
@@ -37,5 +37,20 @@ describe("daily brief template", () => {
     expect(DAILY_SUMMARY_HEADINGS.yesterday).toBe(`⏪ ${dailyBriefSectionTitle("yesterday")}`);
     expect(DAILY_SUMMARY_HEADINGS.driProjects).toBe(`🧭 ${dailyBriefSectionTitle("dri_projects")}`);
     expect(() => dailyBriefSectionTitle("nope")).toThrow();
+  });
+});
+
+describe("shutdown routine template", () => {
+  it("fires daily at 19:00 with no lead time, so the agenda covers the whole day", () => {
+    expect(findTemplate("shutdown-routine")).toBe(SHUTDOWN_ROUTINE_TEMPLATE);
+    expect(SHUTDOWN_ROUTINE_TEMPLATE.cadenceRule).toBe("FREQ=DAILY;BYHOUR=19;BYMINUTE=0");
+    expect(SHUTDOWN_ROUTINE_TEMPLATE.leadTimeHours).toBe(0);
+  });
+
+  it("runs done, moved, meetings, time, left undone, tomorrow, close", () => {
+    expect(SHUTDOWN_ROUTINE_TEMPLATE.agendaTemplate.map((s) => s.key)).toEqual([
+      "completed_today", "activity_today", "todays_meetings", "time_today", "left_undone", "tomorrow", "close",
+    ]);
+    expect(SHUTDOWN_ROUTINE_TEMPLATE.agendaTemplate.find((s) => s.key === "todays_meetings")?.config).toEqual({ day: "today" });
   });
 });
