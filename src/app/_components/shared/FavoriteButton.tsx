@@ -11,6 +11,8 @@ interface FavoriteButtonProps extends FavoriteTarget {
   iconSize?: number;
   /** CSS color for the filled (favourited) star. Defaults to the warning gold. */
   color?: string;
+  /** Mantine color of the button itself; defaults to the theme's primary. */
+  buttonColor?: string;
 }
 
 /**
@@ -24,6 +26,7 @@ export function FavoriteButton({
   variant = "subtle",
   iconSize = 16,
   color = "var(--color-brand-warning)",
+  buttonColor,
   ...target
 }: FavoriteButtonProps) {
   const { favorited, toggle } = useFavorite(target);
@@ -33,6 +36,7 @@ export function FavoriteButton({
     <Tooltip label={label} withArrow>
       <ActionIcon
         variant={variant}
+        color={buttonColor}
         size={size}
         aria-label={label}
         aria-pressed={favorited}

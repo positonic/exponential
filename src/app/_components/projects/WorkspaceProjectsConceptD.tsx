@@ -64,7 +64,6 @@ import {
   ListPageButton,
   ListPagePrimaryButton,
   PillSelect,
-  listPageButtonClassName,
 } from '~/app/_components/listPage';
 import table from '~/app/_components/listPage/DataTable.module.css';
 import styles from './WorkspaceProjectsConceptD.module.css';
@@ -263,7 +262,6 @@ const ProjectTableRow = memo(function ProjectTableRow({
           value={project.priority}
           data={PRIORITY_OPTIONS}
           color={getPriorityColor(project.priority)}
-          muted={project.priority === 'NONE'}
           aria-label="Priority"
           onChange={(newPriority) =>
             updateProject.mutate({
@@ -564,7 +562,6 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
               onFiltersChange={setFilters}
               members={workspaceMembers}
               counts={optionCounts}
-              triggerClassName={listPageButtonClassName}
             />
 
             <ProjectSortMenu

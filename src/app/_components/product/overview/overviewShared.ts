@@ -10,6 +10,8 @@ export interface OverviewProduct {
   slug: string;
   color: string | null;
   funTicketIds: boolean;
+  /** Markdown; shown atop the Overview (it used to sit under the page title). */
+  description?: string | null;
 }
 
 /**

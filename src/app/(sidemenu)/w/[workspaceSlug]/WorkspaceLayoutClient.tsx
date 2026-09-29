@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useRegisterPageContext } from '~/hooks/useRegisterPageContext';
 import { WorkspaceTopbar } from '~/app/_components/layout/WorkspaceTopbar';
+import { TopbarCrumbsProvider } from '~/app/_components/layout/TopbarCrumbs';
 import { GuestRouteGuard } from '~/app/_components/layout/GuestRouteGuard';
 import {
   useSeedWorkspaceQuery,
@@ -63,8 +64,10 @@ export function WorkspaceLayoutClient({
   useSeedWorkspaceQuery(workspaceSlug, workspace);
 
   return (
-    <WorkspaceContextRegistrar>
-      {children}
-    </WorkspaceContextRegistrar>
+    <TopbarCrumbsProvider>
+      <WorkspaceContextRegistrar>
+        {children}
+      </WorkspaceContextRegistrar>
+    </TopbarCrumbsProvider>
   );
 }

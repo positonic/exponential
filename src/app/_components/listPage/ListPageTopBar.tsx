@@ -7,13 +7,6 @@ import { IconSearch } from '@tabler/icons-react';
 import type { TablerIcon } from '@tabler/icons-react';
 import styles from './ListPage.module.css';
 
-/**
- * The class every list-page toolbar button wears. Exported for components
- * that render their own trigger (e.g. `ProjectFilterPopover`'s
- * `triggerClassName`) so it matches its `ListPageButton` siblings.
- */
-export const listPageButtonClassName = styles.button;
-
 /** Top bar: view tabs / filter pills on the left, actions on the right. */
 export function ListPageTopBar({ left, actions }: { left: ReactNode; actions: ReactNode }) {
   return (
@@ -28,33 +21,56 @@ export interface ListPageViewTab<T extends string> {
   value: T;
   label: string;
   icon: TablerIcon;
-  href: string;
+  /** A route per view. Omit it for views held in local state; the tab is
+   *  then a button and `onTabClick` does the switching. */
+  href?: string;
 }
 
-/** Pill tab strip that switches between a page's views, one route each. */
+/** Pill tab strip that switches between a page's views. */
 export function ListPageViewTabs<T extends string>({
   tabs,
   active,
   onTabClick,
+  'aria-label': ariaLabel,
 }: {
   tabs: readonly ListPageViewTab<T>[];
   active: T;
   onTabClick?: (value: T) => void;
+  'aria-label'?: string;
 }) {
   return (
-    <nav className={styles.viewTabs}>
-      {tabs.map(({ value, label, icon: Icon, href }) => (
-        <Link
-          key={value}
-          href={href}
-          className={styles.viewTab}
-          data-active={active === value ? 'true' : 'false'}
-          onClick={() => onTabClick?.(value)}
-        >
-          <Icon size={13} stroke={1.75} />
-          {label}
-        </Link>
-      ))}
+    <nav className={styles.viewTabs} aria-label={ariaLabel}>
+      {tabs.map(({ value, label, icon: Icon, href }) => {
+        const isActive = active === value;
+        const content = (
+          <>
+            <Icon size={13} stroke={1.75} />
+            {label}
+          </>
+        );
+        return href ? (
+          <Link
+            key={value}
+            href={href}
+            className={styles.viewTab}
+            data-active={isActive ? 'true' : 'false'}
+            onClick={() => onTabClick?.(value)}
+          >
+            {content}
+          </Link>
+        ) : (
+          <button
+            key={value}
+            type="button"
+            className={styles.viewTab}
+            data-active={isActive ? 'true' : 'false'}
+            aria-pressed={isActive}
+            onClick={() => onTabClick?.(value)}
+          >
+            {content}
+          </button>
+        );
+      })}
     </nav>
   );
 }
@@ -95,6 +111,8 @@ export const ListPageSearch = forwardRef<HTMLInputElement, ListPageSearchProps>(
 interface ListPageButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** Highlights the button, e.g. while its sort or toggle is applied. */
   active?: boolean;
+  /** A count badge after the label (applied filters); hidden at 0. */
+  count?: number;
 }
 
 /**
@@ -102,15 +120,25 @@ interface ListPageButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * a Mantine `Menu.Target` / `Popover.Target`.
  */
 export const ListPageButton = forwardRef<HTMLButtonElement, ListPageButtonProps>(
-  function ListPageButton({ active, className, type = 'button', ...props }, ref) {
+  function ListPageButton(
+    { active, count, className, type = 'button', children, 'aria-label': ariaLabel, ...props },
+    ref,
+  ) {
+    const hasCount = count !== undefined && count > 0;
     return (
       <button
         ref={ref}
         type={type}
         className={className ? `${styles.button} ${className}` : styles.button}
         data-active={active ? 'true' : 'false'}
+        // An explicit aria-label replaces the button's content as its name,
+        // so the count has to be folded into it to be announced at all.
+        aria-label={ariaLabel && hasCount ? `${ariaLabel}, ${count} active` : ariaLabel}
         {...props}
-      />
+      >
+        {children}
+        {hasCount && <span className={styles.count}>{count}</span>}
+      </button>
     );
   },
 );

@@ -30,7 +30,6 @@ import {
   ListPageSearch,
   ListPageButton,
   ListPagePrimaryButton,
-  listPageButtonClassName,
 } from '~/app/_components/listPage';
 import { ProjectsViewTabs } from './ProjectsViewTabs';
 import { useSession } from 'next-auth/react';
@@ -435,7 +434,6 @@ export function WorkspaceProjectsTasksConceptD() {
               onFiltersChange={setFilters}
               members={workspaceMembers}
               counts={optionCounts}
-              triggerClassName={listPageButtonClassName}
             />
             <ProjectSortMenu
               sortState={sortState}

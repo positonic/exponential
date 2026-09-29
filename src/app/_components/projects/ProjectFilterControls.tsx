@@ -1,16 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  ActionIcon,
-  Badge,
-  Popover,
-  Stack,
-  Text,
-  Tooltip,
-  UnstyledButton,
-} from '@mantine/core';
-import { IconFilter, IconX } from '@tabler/icons-react';
+import { Popover, Stack, Text, UnstyledButton } from '@mantine/core';
+import { IconFilter } from '@tabler/icons-react';
 import type { FilterMember, FilterState } from '~/types/filter';
 import {
   DRI_ME,
@@ -24,7 +16,7 @@ import {
   VISIBILITY_RESTRICTED,
   type ProjectFilterKey,
 } from './useProjectViewState';
-import styles from './ProjectFilterControls.module.css';
+import { ListPageButton, ListPageFilterPills } from '~/app/_components/listPage';
 
 /**
  * Filter UI for the three project views (table, projects & tasks, timeline),
@@ -187,8 +179,6 @@ interface ProjectFilterPopoverProps {
   members: FilterMember[];
   /** facetKey → value → matching rows; shown beside an option when known. */
   counts?: Record<string, Record<string, number>>;
-  /** Class of the host toolbar's buttons, so the trigger matches its siblings. */
-  triggerClassName?: string;
 }
 
 export function ProjectFilterPopover({
@@ -196,7 +186,6 @@ export function ProjectFilterPopover({
   onFiltersChange,
   members,
   counts,
-  triggerClassName,
 }: ProjectFilterPopoverProps) {
   const facets = useMemo(() => buildProjectFilterFacets(members), [members]);
   const activeCount = countActiveProjectFilters(filters);
@@ -204,20 +193,14 @@ export function ProjectFilterPopover({
   return (
     <Popover position="bottom-end" withinPortal shadow="md">
       <Popover.Target>
-        <button
-          type="button"
-          className={triggerClassName}
-          data-active={activeCount > 0 ? 'true' : 'false'}
+        <ListPageButton
+          active={activeCount > 0}
+          count={activeCount}
           aria-label="Filter projects"
         >
           <IconFilter size={13} stroke={1.75} />
           Filter
-          {activeCount > 0 && (
-            <span className={styles.count} aria-label={`${activeCount} active`}>
-              {activeCount}
-            </span>
-          )}
-        </button>
+        </ListPageButton>
       </Popover.Target>
       <Popover.Dropdown
         styles={{
@@ -304,46 +287,15 @@ export function ProjectFilterPills({
     () => describeActiveProjectFilters(filters, members),
     [filters, members],
   );
-  if (pills.length === 0) return null;
-
   return (
-    <div className={styles.pills} role="list" aria-label="Active filters">
-      {pills.map((pill) => (
-        <Badge
-          key={`${pill.key}-${pill.value}`}
-          role="listitem"
-          variant="light"
-          color={pill.color}
-          rightSection={
-            <ActionIcon
-              variant="transparent"
-              size="xs"
-              color="gray"
-              aria-label={`Remove ${pill.label} filter`}
-              onClick={() =>
-                onFiltersChange(toggleValue(filters, pill.key, pill.value))
-              }
-            >
-              <IconX size={11} />
-            </ActionIcon>
-          }
-        >
-          {pill.label}
-        </Badge>
-      ))}
-      {pills.length > 1 && (
-        <Tooltip label="Clear all filters" withArrow>
-          <ActionIcon
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label="Clear all filters"
-            onClick={() => onFiltersChange({})}
-          >
-            <IconX size={14} />
-          </ActionIcon>
-        </Tooltip>
-      )}
-    </div>
+    <ListPageFilterPills
+      pills={pills.map((pill) => ({
+        key: `${pill.key}-${pill.value}`,
+        label: pill.label,
+        color: pill.color,
+        onRemove: () => onFiltersChange(toggleValue(filters, pill.key, pill.value)),
+      }))}
+      onClearAll={() => onFiltersChange({})}
+    />
   );
 }
