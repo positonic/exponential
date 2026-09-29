@@ -846,15 +846,29 @@ export default function TicketsBacklogPage() {
 
   // One toolbar pill per applied filter: the deep-link params first, then each
   // facet value picked in the Filter popover.
+  // Labels come from the page's own entity lists, not the ticket-derived
+  // facets: a saved filter can name an epic, cycle or member that no loaded
+  // ticket carries (deleted, or narrowed out by ?status=), and a raw id is no
+  // label.
   const facetPillLabel = (key: FilterKey, value: string): string => {
-    const label = facetOptions[key].find((o) => o.value === value)?.label ?? value;
-    if (value === "none") return label; // "No priority", "Unassigned", "No epic"...
+    const fromFacets = facetOptions[key].find((o) => o.value === value)?.label;
+    if (value === "none") return fromFacets ?? "None"; // "No priority", "Unassigned", "No epic"...
     switch (key) {
-      case "priority": return `${label} priority`;
-      case "type": return TYPE_LABELS[value as TicketType] ?? label;
-      case "assignee": return `DRI: ${label}`;
-      case "epic": return `Epic: ${label}`;
-      default: return label;
+      case "status": return STATUS_LABELS[value] ?? value;
+      case "priority": {
+        const n = Number(value);
+        // 4 is the stored "No priority", which already names itself.
+        return n === 4 ? (PRIORITY_LABELS[4] ?? "No priority") : `${PRIORITY_LABELS[n] ?? value} priority`;
+      }
+      case "type": return TYPE_LABELS[value as TicketType] ?? value;
+      case "assignee":
+        return `DRI: ${members.find((m) => m.id === value)?.name ?? fromFacets ?? "Unknown member"}`;
+      case "epic":
+        return `Epic: ${(epics ?? []).find((e) => e.id === value)?.name ?? fromFacets ?? "Unknown epic"}`;
+      case "cycle":
+        return (cycles ?? []).find((c) => c.id === value)?.name ?? fromFacets ?? "Unknown cycle";
+      case "labels":
+        return fromFacets ?? "Unknown label";
     }
   };
   const facetPillColor = (key: FilterKey, value: string): string => {
@@ -879,7 +893,9 @@ export default function TicketsBacklogPage() {
           onRemove: () => removeUrlFilters(["assignee"]),
         }]
       : []),
-    ...FILTER_FACET_META.flatMap((facet) =>
+    // Saved facet filters wait for the tickets: labels (tags) only resolve
+    // from them, and a flash of "Unknown label" on every load is noise.
+    ...(tickets ? FILTER_FACET_META : []).flatMap((facet) =>
       filters[facet.key].map((value) => ({
         key: `${facet.key}-${value}`,
         label: facetPillLabel(facet.key, value),
