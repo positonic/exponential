@@ -360,7 +360,12 @@ export default function TicketsBacklogPage() {
     if (savedPrefs && !prefsLoaded) {
       if (savedPrefs.view) setView(savedPrefs.view as string);
       if (savedPrefs.groupBy) setGroupBy(savedPrefs.groupBy as GroupByField);
-      if (savedPrefs.sortField) setSortField(savedPrefs.sortField as SortField);
+      // Epic and Cycle are sub-line metadata now, with no header to show or
+      // flip that sort; fall back to the default rather than sort invisibly.
+      if (savedPrefs.sortField) {
+        const f = savedPrefs.sortField as SortField;
+        setSortField(f === "epic" || f === "cycle" ? "status" : f);
+      }
       if (savedPrefs.sortDir) setSortDir(savedPrefs.sortDir as SortDir);
       if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns as string[]));
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
@@ -1025,10 +1030,11 @@ export default function TicketsBacklogPage() {
   const vc = visibleColumns;
   // Columns the table renders. Labels / Epic / Cycle stay in the Display
   // popover's Visibility list but render on the title's sub-line, not as
-  // their own columns. With ID hidden there is no checkbox column; selection
-  // still works via cmd/ctrl- and shift-click.
+  // their own columns. The leading column is always there: the ID with its
+  // hover checkbox, or - ID hidden - a narrow checkbox-only column, so rows
+  // stay selectable and select-all stays reachable.
   const colCount =
-    1 + (["id", "status", "priority", "type", "dri"] as const).filter((c) => vc.has(c)).length;
+    2 + (["status", "priority", "type", "dri"] as const).filter((c) => vc.has(c)).length;
 
   const ticketDisplayId = (ticket: (typeof sorted)[number]) =>
     product?.funTicketIds && ticket.shortId
@@ -1057,17 +1063,19 @@ export default function TicketsBacklogPage() {
         data-selected={sel.isSelected(ticket.id) ? "true" : "false"}
         {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
       >
-        {vc.has("id") && (
-          <td style={{ width: 104 }}>
-            <SelectSlot
-              selected={sel.isSelected(ticket.id)}
-              onToggle={() => sel.toggle(ticket.id)}
-              onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
-            >
+        <td style={{ width: vc.has("id") ? 104 : 48 }}>
+          <SelectSlot
+            selected={sel.isSelected(ticket.id)}
+            onToggle={() => sel.toggle(ticket.id)}
+            onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+          >
+            {vc.has("id") ? (
               <span className={`${table.muted} font-mono`}>{ticketDisplayId(ticket)}</span>
-            </SelectSlot>
-          </td>
-        )}
+            ) : (
+              <span className="inline-block h-4 w-4" />
+            )}
+          </SelectSlot>
+        </td>
         <td style={{ width: "100%", maxWidth: 0 }}>
           <div className="flex min-w-0 items-center gap-2">
             <span className={`${table.nameText} min-w-0`}>{ticket.title}</span>
@@ -1364,22 +1372,20 @@ export default function TicketsBacklogPage() {
           <table className={table.table}>
             <thead className={table.tableHead}>
               <tr>
-                {vc.has("id") && (
-                  <th style={{ width: 104 }} className="group/row">
-                    <SelectSlot
-                      selected={visibleIds.length > 0 && visibleIds.every((id) => sel.selected.has(id))}
-                      indeterminate={sel.anySelected && !visibleIds.every((id) => sel.selected.has(id))}
-                      onToggle={() =>
-                        sel.setMany(
-                          visibleIds,
-                          !(visibleIds.length > 0 && visibleIds.every((id) => sel.selected.has(id))),
-                        )
-                      }
-                    >
-                      ID
-                    </SelectSlot>
-                  </th>
-                )}
+                <th style={{ width: vc.has("id") ? 104 : 48 }} className="group/row">
+                  <SelectSlot
+                    selected={visibleIds.length > 0 && visibleIds.every((id) => sel.selected.has(id))}
+                    indeterminate={sel.anySelected && !visibleIds.every((id) => sel.selected.has(id))}
+                    onToggle={() =>
+                      sel.setMany(
+                        visibleIds,
+                        !(visibleIds.length > 0 && visibleIds.every((id) => sel.selected.has(id))),
+                      )
+                    }
+                  >
+                    {vc.has("id") ? "ID" : <span className="inline-block h-4 w-4" />}
+                  </SelectSlot>
+                </th>
                 <SortHeader label="Title" field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                 {vc.has("status") && <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} width={170} />}
                 {vc.has("priority") && <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} width={130} />}
