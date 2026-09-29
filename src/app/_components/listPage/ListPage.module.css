@@ -8,19 +8,27 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  /* When tabs + actions don't fit (narrow window, sidebar open) the action
+     cluster drops to its own row instead of sliding over the tabs. */
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 12px 32px;
   border-bottom: 1px solid var(--color-border-primary);
   flex-shrink: 0;
 }
 
-/* Left cluster of the top bar: view tabs plus the applied-filter pills. */
+/* Left cluster of the top bar: view tabs plus the applied-filter pills.
+   Basis 0 + min-content floor: when deciding whether to wrap, it counts only
+   its widest tab strip; then it grows into the leftover width. So filter
+   pills wrap under the tabs first, and the action cluster only drops to its
+   own row once even the tab strip can't sit beside it. */
 .topBarLeft {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: min-content;
 }
 
 .actions {
@@ -28,6 +36,8 @@
   align-items: center;
   flex-shrink: 0;
   gap: 6px;
+  /* Stays right-aligned when wrapped onto its own row. */
+  margin-left: auto;
 }
 
 /* ── view tabs ── */

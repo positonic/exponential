@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup } from '~/test/test-utils';
 import '@testing-library/jest-dom/vitest';
 import { WorkspaceTopbar } from '../WorkspaceTopbar';
+import { TopbarCrumbsProvider, useRegisterTopbarCrumbs } from '../TopbarCrumbs';
 
 const { mockUseWorkspace, mockUsePathname } = vi.hoisted(() => ({
   mockUseWorkspace: vi.fn(),
@@ -102,6 +103,56 @@ describe('WorkspaceTopbar', () => {
     expect(
       screen.queryByRole('link', { name: 'Recording' }),
     ).not.toBeInTheDocument();
+  });
+
+  describe('page-registered crumbs', () => {
+    function ProductPage({ href }: { href?: string }) {
+      useRegisterTopbarCrumbs([{ label: 'CLEAR', href }]);
+      return null;
+    }
+
+    it('appends a registered crumb as a link after the section crumb', () => {
+      render(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <ProductPage href="/w/syntrofi/products/clear" />
+        </TopbarCrumbsProvider>,
+      );
+
+      expect(screen.getByRole('link', { name: 'Products' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'CLEAR' })).toHaveAttribute(
+        'href',
+        '/w/syntrofi/products/clear',
+      );
+    });
+
+    it('renders a crumb without an href as the current page, not a link', () => {
+      render(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <ProductPage />
+        </TopbarCrumbsProvider>,
+      );
+
+      expect(screen.getByText('CLEAR')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'CLEAR' })).not.toBeInTheDocument();
+    });
+
+    it('drops the crumb when the registering page unmounts', () => {
+      const { rerender } = render(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <ProductPage href="/w/syntrofi/products/clear" />
+        </TopbarCrumbsProvider>,
+      );
+      rerender(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+        </TopbarCrumbsProvider>,
+      );
+
+      expect(screen.queryByText('CLEAR')).not.toBeInTheDocument();
+    });
   });
 
   it('renders nothing without a workspace', () => {

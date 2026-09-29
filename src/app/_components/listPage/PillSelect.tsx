@@ -15,6 +15,11 @@ interface PillSelectProps {
   'aria-label'?: string;
 }
 
+// Neutral palettes whose "filled" shade has too little contrast on their own
+// light tint (gray in the light theme; dark is near-invisible in the dark
+// theme). Their text uses the secondary text token instead.
+const NEUTRAL_COLORS = new Set<string>(['gray', 'dark']);
+
 /**
  * An in-place editable value shown as a tinted pill: the Status / Priority
  * cells of a list-page table. Picking the current value again is a no-op.
@@ -42,7 +47,10 @@ export function PillSelect({
       styles={{
         input: {
           backgroundColor: `var(--mantine-color-${color}-light)`,
-          color: muted ? 'var(--color-text-secondary)' : `var(--mantine-color-${color}-filled)`,
+          color:
+            muted || NEUTRAL_COLORS.has(color)
+              ? 'var(--color-text-secondary)'
+              : `var(--mantine-color-${color}-filled)`,
           fontWeight: 500,
           border: 'none',
         },

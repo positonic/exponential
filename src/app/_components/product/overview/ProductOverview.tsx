@@ -11,6 +11,7 @@ import {
   IconTicket,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { CycleHero } from "./CycleHero";
 import { NeedsAttention } from "./NeedsAttention";
@@ -158,6 +159,11 @@ export function ProductOverview({
 
   return (
     <div className="product-overview" style={{ "--po-accent": accent } as React.CSSProperties}>
+      {product.description?.trim() && (
+        <div className="po-description">
+          <MarkdownRenderer content={product.description} variant="compact" />
+        </div>
+      )}
       {isLoading || !data ? (
         <OverviewSkeleton />
       ) : isFirstRun(data) ? (

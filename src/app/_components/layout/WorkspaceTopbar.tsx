@@ -1,11 +1,13 @@
 'use client';
 
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { DocsHelpLink } from '~/app/_components/docs/DocsHelpLink';
 import { usePathname } from 'next/navigation';
 import { IconFolder } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { useTopbarCrumbs } from './TopbarCrumbs';
 import styles from './WorkspaceTopbar.module.css';
 
 const PAGE_LABELS: Record<string, string> = {
@@ -69,6 +71,7 @@ function getPageDetailId(pathname: string, workspaceSlug: string): string | null
 export function WorkspaceTopbar() {
   const { workspace, workspaceSlug } = useWorkspace();
   const pathname = usePathname();
+  const pageCrumbs = useTopbarCrumbs();
 
   const pageDetailId = workspaceSlug
     ? getPageDetailId(pathname, workspaceSlug)
@@ -114,6 +117,18 @@ export function WorkspaceTopbar() {
             </Link>
           </>
         )}
+        {pageCrumbs.map((crumb, i) => (
+          <Fragment key={`${i}-${crumb.label}`}>
+            <span className={styles.crumbSep}>/</span>
+            {crumb.href ? (
+              <Link href={crumb.href} className={styles.crumbLink}>
+                {crumb.label}
+              </Link>
+            ) : (
+              <span className={styles.crumbCurrent}>{crumb.label}</span>
+            )}
+          </Fragment>
+        ))}
       </div>
       <div style={{ flex: 1 }} />
       <DocsHelpLink />
