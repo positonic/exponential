@@ -91,6 +91,7 @@ export const notificationRouter = createTRPCRouter({
           title: true,
           message: true,
           deeplink: true,
+          metadata: true,
           createdAt: true,
           readAt: true,
         },
@@ -101,7 +102,17 @@ export const notificationRouter = createTRPCRouter({
         rows.pop();
         nextCursor = rows[rows.length - 1]?.id;
       }
-      return { notifications: rows, nextCursor };
+      // Only the Markdown body leaves the server, not the whole metadata bag:
+      // a summary has no deeplink, so the inbox expands it in place and
+      // prefers the rich rendering (ADR-0059) over the plain-text message.
+      const notifications = rows.map(({ metadata, ...row }) => {
+        const markdown =
+          metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            ? metadata.markdown
+            : undefined;
+        return { ...row, markdown: typeof markdown === "string" ? markdown : null };
+      });
+      return { notifications, nextCursor };
     }),
 
   /**
