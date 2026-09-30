@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getDocContent } from "~/lib/docs/getDoc";
-import { DocsSidebar, DocsContent, DocsTableOfContents } from "~/app/_components/docs";
+import { getDocContent, getDocLastUpdated } from "~/lib/docs/getDoc";
+import { docsEditUrl } from "~/lib/docs/content";
+import { DocsContent, DocsTableOfContents } from "~/app/_components/docs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { docsOgImageUrl } from "~/lib/docs/ogImage";
 
 export async function generateMetadata(): Promise<Metadata> {
   const doc = await getDocContent([]);
@@ -25,13 +27,13 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       url: docsUrl,
       siteName: PRODUCT_NAME,
-      images: [{ url: '/og-image.png', width: 1200, height: 630 }],
+      images: [{ url: docsOgImageUrl("/docs"), width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: `${doc.meta.title} — ${PRODUCT_NAME} Docs`,
       description,
-      images: ['/og-image.png'],
+      images: [docsOgImageUrl("/docs")],
     },
   };
 }
@@ -45,13 +47,14 @@ export default async function DocsIndexPage() {
 
   return (
     <>
-      <DocsSidebar />
-      <DocsContent doc={doc}>
-        <MarkdownRenderer content={doc.content} />
+      <DocsContent
+        doc={doc}
+        lastUpdated={getDocLastUpdated(doc.filePath)}
+        editUrl={docsEditUrl(doc.filePath)}
+      >
+        <MarkdownRenderer content={doc.content} format="markdown" />
       </DocsContent>
-      <div className="hidden lg:block">
-        <DocsTableOfContents headings={doc.headings} />
-      </div>
+      <DocsTableOfContents headings={doc.headings} />
     </>
   );
 }

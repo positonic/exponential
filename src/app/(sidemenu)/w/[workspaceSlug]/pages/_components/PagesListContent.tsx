@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   ActionIcon,
   Avatar,
+  Badge,
   Button,
   Collapse,
   Group,
@@ -19,6 +20,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconArrowsSort,
   IconCalendar,
+  IconCalendarEvent,
   IconCalendarPlus,
   IconChevronRight,
   IconCopy,
@@ -412,6 +414,22 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
                 </Link>
 
                 <div className={styles.rowActions}>
+                  {page.ceremonyOccurrence ? (
+                    <Tooltip label="Notes for a ceremony occurrence — open it" withArrow>
+                      <Badge
+                        component={Link}
+                        href={`/w/${workspaceSlug}/ceremonies/${page.ceremonyOccurrence.ceremonyId}/${page.ceremonyOccurrence.id}`}
+                        variant="light"
+                        size="sm"
+                        leftSection={<IconCalendarEvent size={12} />}
+                        style={{ cursor: 'pointer' }}
+                        aria-label={`Open the ${page.ceremonyOccurrence.ceremony.name} occurrence these notes belong to`}
+                      >
+                        {page.ceremonyOccurrence.ceremony.name}
+                      </Badge>
+                    </Tooltip>
+                  ) : null}
+
                   <span className={styles.rowSlot}>
                     {page.isPublic ? (
                       <Tooltip label="Published to the web" withArrow>

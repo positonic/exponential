@@ -20,16 +20,16 @@ import {
   ActionIcon,
   Group,
   Menu,
-  Skeleton,
   Tabs,
   Text,
-  Title,
+  Tooltip,
   Stack,
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { api } from "~/trpc/react";
 import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
+import { useRegisterTopbarCrumbs } from "~/app/_components/layout/TopbarCrumbs";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { buildProductFavoriteTarget } from "./favoriteTarget";
 
@@ -194,6 +194,16 @@ export default function ProductLayout({
 
   useRegisterPageContext(pageContext);
 
+  // The product name lives in the workspace breadcrumb (Workspace / Products /
+  // <Product>) rather than a title block, the way Projects names itself. It
+  // links to the Overview from every other product route.
+  const productBasePath = workspace ? `/w/${workspace.slug}/products/${productSlug}` : null;
+  useRegisterTopbarCrumbs(
+    product && productBasePath
+      ? [{ label: product.name, href: pathname === productBasePath ? undefined : productBasePath }]
+      : null,
+  );
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
   const isSettings = pathname === `${basePath}/settings` || pathname.startsWith(`${basePath}/settings/`);
@@ -219,6 +229,10 @@ export default function ProductLayout({
   // While a navigation is pending, show the just-clicked tab as active so the
   // tab bar responds instantly; fall back to the real route once it commits.
   const activeTab = isPending && optimisticTab ? optimisticTab : pathnameTab;
+  // Only the list routes themselves, not their detail pages (/tickets/:id,
+  // /features/:id) or /epics, which keep the padded layout.
+  const isListTab =
+    pathname === `${basePath}/tickets` || pathname === `${basePath}/features`;
 
   const handleTabChange = (value: string | null) => {
     const tab = tabs.find((t) => t.value === value);
@@ -231,32 +245,52 @@ export default function ProductLayout({
 
   return (
     <div className="w-full">
-      {/* Header: Title + action icons */}
-      <div className="w-full px-4 pt-4 mb-4 sm:px-6 sm:pt-6 sm:mb-6 lg:px-10">
-        <Group justify="space-between" align="flex-start">
-          <div>
-            {isLoading ? (
-              <Skeleton height={32} width={220} mb={4} />
-            ) : product ? (
-              <>
-                <Title
-                  order={2}
-                  mb={4}
-                  className="bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent"
-                >
-                  {product.name}
-                </Title>
-                {product.description && (
-                  <Text size="sm" c="dimmed" lineClamp={2} maw={800}>
-                    {product.description}
-                  </Text>
-                )}
-              </>
-            ) : (
-              <Text className="text-text-muted">Product not found</Text>
-            )}
+      {/* The visible name is in the breadcrumb; keep a heading for screen
+          readers and heading navigation now the title block is gone. */}
+      {product && <h1 className="sr-only">{product.name}</h1>}
+      {!isLoading && !product && (
+        <Text className="px-4 pt-6 text-text-muted sm:px-6 lg:px-10">Product not found</Text>
+      )}
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onChange={handleTabChange}>
+        <Stack gap={isListTab ? 0 : "xl"} align="stretch" justify="flex-start">
+          {/* One row that scrolls sideways on narrow screens instead of
+              wrapping into four. The list grows to max-content inside this
+              scroller so Mantine's underline (a ::before on the list) still
+              runs under every tab, not just the first viewport of them. */}
+          {/* Tabs take the row; the product actions sit at its right end.
+              The actions carry the tab list's own underline so the line runs
+              unbroken to the edge. */}
+          <div className="flex items-stretch">
+          <div ref={tabsScrollRef} className="product-tabs-scroll min-w-0 flex-1 overflow-x-auto">
+            <Tabs.List className="product-tabs-list pl-4 pt-2 sm:pl-6 lg:pl-10">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <Tabs.Tab
+                    key={tab.value}
+                    value={tab.value}
+                    leftSection={<Icon size={16} />}
+                  >
+                    {tab.label}
+                  </Tabs.Tab>
+                );
+              })}
+            </Tabs.List>
           </div>
-          <Group gap="xs">
+          <Group
+            gap={4}
+            wrap="nowrap"
+            className="shrink-0 pl-2 pr-4 pt-2 sm:pr-6 lg:pr-10"
+            // Mantine's own tab-list border vars (set on the Tabs root), so
+            // this segment matches the list's underline in both themes.
+            style={{
+              borderStyle: "solid",
+              borderWidth: "var(--tab-border-width)",
+              borderColor: "var(--tab-border-color)",
+            }}
+          >
             {product && workspaceId && (
               <FavoriteButton
                 entityType="page"
@@ -268,20 +302,13 @@ export default function ProductLayout({
                   detailLabel: cycleForFavorite?.name,
                 })}
                 workspaceId={workspaceId}
-                size="lg"
-                variant="default"
+                buttonColor="gray"
               />
             )}
             <Menu position="bottom-end" width={244} shadow="md">
               <Menu.Target>
-                <ActionIcon
-                  variant="filled"
-                  size="lg"
-                  title="Add"
-                  className="hover:scale-105"
-                  style={{ transition: "all 0.2s ease" }}
-                >
-                  <IconPlus size={20} />
+                <ActionIcon variant="subtle" color="gray" aria-label="Create in this product">
+                  <IconPlus size={16} />
                 </ActionIcon>
               </Menu.Target>
               <Menu.Dropdown>
@@ -331,46 +358,22 @@ export default function ProductLayout({
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
-            <ActionIcon
-              variant="filled"
-              size="lg"
-              title="Product Settings"
-              className="hover:scale-105"
-              style={{ transition: "all 0.2s ease" }}
-              onClick={() => router.push(`${basePath}/settings`)}
-            >
-              <IconSettings size={20} />
-            </ActionIcon>
+            <Tooltip label="Product settings" withArrow>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                aria-label="Product settings"
+                onClick={() => router.push(`${basePath}/settings`)}
+              >
+                <IconSettings size={16} />
+              </ActionIcon>
+            </Tooltip>
           </Group>
-        </Group>
-      </div>
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onChange={handleTabChange}>
-        <Stack gap="xl" align="stretch" justify="flex-start">
-          {/* One row that scrolls sideways on narrow screens instead of
-              wrapping into four. The list grows to max-content inside this
-              scroller so Mantine's underline (a ::before on the list) still
-              runs under every tab, not just the first viewport of them. */}
-          <div ref={tabsScrollRef} className="product-tabs-scroll overflow-x-auto">
-            <Tabs.List className="product-tabs-list px-4 sm:px-6 lg:px-10">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <Tabs.Tab
-                    key={tab.value}
-                    value={tab.value}
-                    leftSection={<Icon size={16} />}
-                  >
-                    {tab.label}
-                  </Tabs.Tab>
-                );
-              })}
-            </Tabs.List>
           </div>
 
-          {/* Tab content */}
-          <div className="px-4 sm:px-6 lg:px-10 pb-6">{children}</div>
+          {/* Tab content. List tabs (Backlog, Features) run edge to edge and
+              own their gutters, like the Projects page; the rest are padded. */}
+          <div className={isListTab ? "pb-6" : "px-4 sm:px-6 lg:px-10 pb-6"}>{children}</div>
         </Stack>
       </Tabs>
 

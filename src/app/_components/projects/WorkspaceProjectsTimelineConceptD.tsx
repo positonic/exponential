@@ -2,13 +2,8 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Skeleton } from '@mantine/core';
 import {
-  IconTable,
-  IconLayoutList,
-  IconTimeline,
-  IconSearch,
   IconArrowsSort,
   IconSparkles,
   IconPlus,
@@ -38,7 +33,14 @@ import {
   DRI_ME,
   PROJECT_DEFAULT_VIEW_STATE,
 } from './useProjectViewState';
-import { useSaveProjectsViewTab, saveProjectsViewTab } from './projectsViewTab';
+import { useSaveProjectsViewTab } from './projectsViewTab';
+import {
+  ListPageTopBar,
+  ListPageSearch,
+  ListPageButton,
+  ListPagePrimaryButton,
+} from '~/app/_components/listPage';
+import { ProjectsViewTabs } from './ProjectsViewTabs';
 import { useSession } from 'next-auth/react';
 import {
   ProjectFilterPopover,
@@ -49,13 +51,6 @@ import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
 import type { FilterMember } from '~/types/filter';
 import styles from './WorkspaceProjectsTimelineConceptD.module.css';
 
-const VIEW_TABS = [
-  { value: 'table', label: 'Projects', icon: IconTable, path: '/projects' },
-  { value: 'projects-tasks', label: 'Projects & Tasks', icon: IconLayoutList, path: '/projects-tasks' },
-  { value: 'timeline', label: 'Timeline', icon: IconTimeline, path: '/timeline' },
-] as const;
-
-type ViewTabValue = typeof VIEW_TABS[number]['value'];
 type TimelineZoom = 'month' | 'quarter' | 'year';
 type DragMode = 'move' | 'resize-start' | 'resize-end';
 
@@ -187,7 +182,6 @@ export function WorkspaceProjectsTimelineConceptD() {
   const { workspace, workspaceId } = useWorkspace();
   const { data: session, status: sessionStatus } = useSession();
   const currentUserId = session?.user?.id ?? null;
-  const pathname = usePathname();
   const searchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
@@ -229,12 +223,6 @@ export function WorkspaceProjectsTimelineConceptD() {
   const needsSession =
     Array.isArray(filters.driId) && filters.driId.includes(DRI_ME);
   const sessionPending = needsSession && sessionStatus === 'loading';
-
-  const activeTab: ViewTabValue = useMemo(() => {
-    if (pathname.includes('/projects-tasks')) return 'projects-tasks';
-    if (pathname.includes('/timeline')) return 'timeline';
-    return 'table';
-  }, [pathname]);
 
   // Not mod+k — that opens the global CommandPalette, and binding both here
   // meant one keypress focused this box *and* opened the palette over it.
@@ -427,77 +415,53 @@ export function WorkspaceProjectsTimelineConceptD() {
 
   return (
     <div className={styles.page}>
-      {/* Top bar */}
-      <div className={styles.topBar}>
-        <div className={styles.topBarLeft}>
-          <nav className={styles.viewTabs}>
-            {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
-              <Link
-                key={value}
-                href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
-                className={styles.viewTab}
-                data-active={activeTab === value ? 'true' : 'false'}
-                onClick={() => saveProjectsViewTab(pathname, value)}
-              >
-                <Icon size={13} stroke={1.75} />
-                {label}
-              </Link>
-            ))}
-          </nav>
-          <ProjectFilterPills
-            filters={filters}
-            onFiltersChange={setFilters}
-            members={workspaceMembers}
-          />
-        </div>
-
-        <div className={styles.actions}>
-          <div className={styles.searchWrap}>
-            <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search  ⌘F"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Escape' && searchRef.current?.blur()}
-              className={styles.searchInput}
+      <ListPageTopBar
+        left={
+          <>
+            <ProjectsViewTabs
+              linkPrefix={prefix}
+              viewParamsQueryString={viewParamsQueryString}
             />
-          </div>
-          <ProjectFilterPopover
-            filters={filters}
-            onFiltersChange={setFilters}
-            members={workspaceMembers}
-            counts={optionCounts}
-            triggerClassName={styles.actionBtn}
-          />
-          <ProjectSortMenu
-            sortState={sortState}
-            onSortChange={setSortField}
-            onClearSort={clearSort}
-            trigger={
-              <button
-                type="button"
-                className={styles.actionBtn}
-                data-active={sortState ? 'true' : 'false'}
-              >
-                <IconArrowsSort size={13} stroke={1.75} />
-                Sort
-              </button>
-            }
-          />
-          <button className={styles.actionBtn} type="button">
-            <IconSparkles size={13} stroke={1.75} />
-            Ask Zoe
-          </button>
-          <CreateProjectModal>
-            <button className={styles.newBtn} type="button">
-              <IconPlus size={13} stroke={2.5} />
-              New project
-            </button>
-          </CreateProjectModal>
-        </div>
-      </div>
+            <ProjectFilterPills
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+            />
+          </>
+        }
+        actions={
+          <>
+            <ListPageSearch ref={searchRef} value={searchQuery} onChange={setSearchQuery} />
+            <ProjectFilterPopover
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+              counts={optionCounts}
+            />
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+              trigger={
+                <ListPageButton active={!!sortState}>
+                  <IconArrowsSort size={13} stroke={1.75} />
+                  Sort
+                </ListPageButton>
+              }
+            />
+            <ListPageButton>
+              <IconSparkles size={13} stroke={1.75} />
+              Ask Zoe
+            </ListPageButton>
+            <CreateProjectModal>
+              <ListPagePrimaryButton>
+                <IconPlus size={13} stroke={2.5} />
+                New project
+              </ListPagePrimaryButton>
+            </CreateProjectModal>
+          </>
+        }
+      />
 
       {/* Sub-header: info + zoom controls */}
       <div className={styles.subHeader}>
@@ -588,9 +552,9 @@ export function WorkspaceProjectsTimelineConceptD() {
                       {(searchQuery || filtersActive) && !workspaceIsEmpty ? 'No projects match your filters.' : 'No projects found'}
                     </span>
                     {(searchQuery || filtersActive) && !workspaceIsEmpty && (
-                      <button type="button" className={styles.actionBtn} onClick={clearFiltersAndSearch}>
+                      <ListPageButton onClick={clearFiltersAndSearch}>
                         Clear filters
-                      </button>
+                      </ListPageButton>
                     )}
                   </div>
                   <div style={{ flex: 1 }} />

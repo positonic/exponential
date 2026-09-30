@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
+import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
 
 /**
  * Assistants are **per user, per workspace** — each member of a workspace gets
@@ -146,6 +147,14 @@ export const assistantRouter = createTRPCRouter({
         },
       });
     }),
+
+  /**
+   * The assistant the Telegram and Matrix gateways pair to (identity fields
+   * only), so /settings/assistant can open on it instead of guessing a workspace.
+   */
+  getGatewayDefault: protectedProcedure.query(async ({ ctx }) => {
+    return findGatewayAssistant(ctx.db, ctx.session.user.id);
+  }),
 
   /** Delete an assistant owned by the calling user */
   delete: protectedProcedure

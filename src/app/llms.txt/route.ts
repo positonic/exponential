@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { buildLlmsIndex } from "~/lib/docs/llmsText";
 
 export const dynamic = "force-dynamic";
 
 /**
- * GET /llms.txt — Machine-readable site description for LLM agents.
- * Follows the emerging llms.txt convention (similar to robots.txt).
+ * GET /llms.txt — machine-readable map of the site for LLM agents
+ * (https://llmstxt.org): every docs page by sidebar section, generated from
+ * content/docs, followed by the public bounty API. The full docs text is at
+ * /llms-full.txt.
  */
 export function GET() {
   const baseUrl = getPublicBaseUrlFromEnv();
-  const content = `# ${PRODUCT_NAME} — Open Source Project Management with Bounties
-
-> ${PRODUCT_NAME} is a project management platform where teams post bounties
-> (paid tasks) that contributors — human or AI — can claim and complete.
-
-## Bounty API
+  const bountyApi = `## Bounty API
 
 Base URL: ${baseUrl}
 
@@ -65,11 +63,9 @@ All API endpoints return JSON. Example bounty object:
 Claiming bounties requires authentication. Contact the project owner or
 sign in at ${baseUrl}/signin to get started.
 `;
+  const content = buildLlmsIndex({ productName: PRODUCT_NAME, baseUrl, appendix: bountyApi });
 
   return new NextResponse(content, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-    },
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }

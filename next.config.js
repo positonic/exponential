@@ -4,6 +4,16 @@
  */
 import "./src/env.js";
 import { withSentryConfig } from "@sentry/nextjs";
+import { readFileSync } from "node:fs";
+
+/**
+ * Docs pages that moved (Docs v2, Phase 1). Old URLs are in links, emails and
+ * search results, so they redirect permanently. The map lives next to the
+ * content; scripts/check-docs.ts verifies every target page exists.
+ */
+const docsRedirects = JSON.parse(
+  readFileSync(new URL("./content/docs/_redirects.json", import.meta.url), "utf-8"),
+).redirects;
 
 /**
  * CSP rollout (ticket crisp.clover) is two-stage:
@@ -86,6 +96,14 @@ const config = {
     resolveAlias: {
       "markdown-it": "markdown-it/dist/index.cjs.js",
     },
+  },
+
+  async redirects() {
+    return Object.entries(docsRedirects).map(([source, destination]) => ({
+      source,
+      destination,
+      permanent: true,
+    }));
   },
 
   async headers() {

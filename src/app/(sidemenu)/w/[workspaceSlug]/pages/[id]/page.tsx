@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ActionIcon, Skeleton, Text, TextInput, Tooltip } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
+import { IconCalendarEvent, IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
@@ -154,6 +155,22 @@ function PageEditorContent({
 
   return (
     <div className={`${widthClass} px-6 py-8`}>
+      {page.ceremonyOccurrence ? (
+        <Link
+          href={`/w/${workspaceSlug}/ceremonies/${page.ceremonyOccurrence.ceremonyId}/${page.ceremonyOccurrence.id}`}
+          className="mb-3 inline-flex items-center gap-1 text-xs text-text-muted hover:underline"
+          data-testid="page-occurrence-crumb"
+        >
+          <IconCalendarEvent size={14} />
+          Notes for {page.ceremonyOccurrence.ceremony.name} ·{' '}
+          {new Date(page.ceremonyOccurrence.scheduledStart).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            timeZone: page.ceremonyOccurrence.ceremony.timezone,
+          })}
+        </Link>
+      ) : null}
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />

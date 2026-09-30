@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateJWT } from "~/server/utils/jwt";
+import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
 
 const TELEGRAM_GATEWAY_URL =
   process.env.TELEGRAM_GATEWAY_URL ?? "http://localhost:4113";
@@ -101,11 +102,8 @@ export const telegramGatewayRouter = createTRPCRouter({
         tokenType: "telegram-gateway",
       });
 
-      // Look up the user's default assistant to pass its name to the gateway
-      const assistant = await ctx.db.assistant.findFirst({
-        where: { createdById: ctx.session.user.id, isDefault: true },
-        select: { name: true, id: true, workspaceId: true },
-      });
+      // Resolve the same assistant /settings/assistant shows for the gateways
+      const assistant = await findGatewayAssistant(ctx.db, ctx.session.user.id);
 
       let res: Response;
       try {

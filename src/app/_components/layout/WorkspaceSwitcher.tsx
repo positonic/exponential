@@ -24,7 +24,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import clsx from 'clsx';
 import { api } from '~/trpc/react';
-import { useSidebarActionCounts } from '~/hooks/useSidebarActionCounts';
+import { useInboxCounts } from '~/hooks/useInboxCounts';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { type ThemeConfig } from '~/config/themes';
 
@@ -57,8 +57,9 @@ export function WorkspaceSwitcher({
       staleTime: 60 * 1000,
       gcTime: 5 * 60 * 1000,
     });
-  const { inboxCount } = useSidebarActionCounts();
-  const hasNotification = (inboxCount ?? 0) > 0;
+  // Same signal as the sidebar's Inbox badge: something needs you.
+  const { total: inboxTotal } = useInboxCounts();
+  const hasNotification = (inboxTotal ?? 0) > 0;
 
   const isLoading = contextLoading || listLoading;
   const isGuest = userRole === 'guest';

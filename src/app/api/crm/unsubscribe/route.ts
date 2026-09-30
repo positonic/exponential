@@ -36,7 +36,16 @@ export async function GET(request: NextRequest) {
     where: { id: contactId },
     select: { emailOptedOutAt: true },
   });
-  if (contact && !contact.emailOptedOutAt) {
+  if (!contact) {
+    // The contact was deleted or merged away since the email went out. Don't
+    // claim an unsubscribe we couldn't record — ask them to write in instead.
+    return page(
+      "This link is no longer valid",
+      "We couldn't find the subscription this link belongs to. If you still receive emails from us, reply to one and we'll remove you by hand.",
+      410,
+    );
+  }
+  if (!contact.emailOptedOutAt) {
     await db.crmContact.update({
       where: { id: contactId },
       data: { emailOptedOutAt: new Date() },

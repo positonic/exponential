@@ -38,6 +38,7 @@ export default function ProductOverviewPage() {
         slug: product.slug,
         color: product.color,
         funTicketIds: product.funTicketIds,
+        description: product.description,
       }}
       basePath={basePath}
     />

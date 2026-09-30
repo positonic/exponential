@@ -146,3 +146,35 @@ describe("notification.list cursor pagination", () => {
     );
   });
 });
+
+describe("notification.unreadCount", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.notification.count.mockResolvedValue(0);
+  });
+
+  const whereOf = () => dbMock.notification.count.mock.calls[0]![0]!.where!;
+
+  it("counts every category by default — existing callers are unchanged", async () => {
+    await createMockCaller({ userId: USER_ID, db: dbMock }).notification.unreadCount();
+    expect(whereOf()).toMatchObject({ userId: USER_ID, readAt: null });
+    expect(whereOf()).not.toHaveProperty("category");
+  });
+
+  it("narrows to one category", async () => {
+    await createMockCaller({ userId: USER_ID, db: dbMock }).notification.unreadCount({
+      category: "mention",
+    });
+    expect(whereOf()).toMatchObject({ category: "mention" });
+  });
+
+  it("leaves out excluded categories", async () => {
+    await createMockCaller({ userId: USER_ID, db: dbMock }).notification.unreadCount({
+      excludeCategories: ["summary"],
+    });
+    expect(whereOf()).toMatchObject({ category: { notIn: ["summary"] } });
+  });
+});

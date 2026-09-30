@@ -16,7 +16,6 @@ import { IconMessageCircle } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 
 interface MatrixGatewayCardProps {
-  assistantSaved?: boolean;
   /** When true, renders without the outer Card wrapper (for use inside a Modal) */
   embedded?: boolean;
 }
@@ -27,10 +26,7 @@ interface MatrixGatewayCardProps {
  * an unencrypted DM and invites them, and they reply there with the pairing
  * code shown here — the bot cannot read user-created (encrypted) DMs.
  */
-export function MatrixGatewayCard({
-  assistantSaved = false,
-  embedded = false,
-}: MatrixGatewayCardProps) {
+export function MatrixGatewayCard({ embedded = false }: MatrixGatewayCardProps) {
   const [mxid, setMxid] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -147,9 +143,9 @@ export function MatrixGatewayCard({
             onClick={() => initiatePairing.mutate({ mxid: mxid.trim() })}
             loading={initiatePairing.isPending}
             leftSection={<IconMessageCircle size={18} />}
-            disabled={!assistantSaved || !mxid.trim()}
+            disabled={!mxid.trim()}
           >
-            {assistantSaved ? "Connect Matrix" : "1st - Click Update Assistant"}
+            Connect Matrix
           </Button>
         </Stack>
       )}

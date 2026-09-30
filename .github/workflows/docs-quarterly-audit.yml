@@ -1,0 +1,66 @@
+# Opens the quarterly docs audit ticket in Exponential (dev-docs/DOCS_QUARTERLY_AUDIT.md).
+#
+# Runs on the first day of each quarter, or by hand from the Actions tab. It
+# runs docs:check on main and records the result in the ticket body; the
+# check failing does not fail the job, because the point is the ticket.
+# Uses the same EXPONENTIAL_TOKEN secret as the ticket-promotion workflow.
+name: Quarterly docs audit
+on:
+  schedule:
+    - cron: "0 8 1 1,4,7,10 *"
+  workflow_dispatch:
+env:
+  EXPO_API_URL: https://www.exponential.im
+  EXPO_PRODUCT: exponential
+  EXPO_WORKSPACE: syntrofi
+  # Docs v2 feature; the audit tickets live under it.
+  EXPO_FEATURE: cmulfe1uf0009lb04n8cffez9
+jobs:
+  open-audit-ticket:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+        env:
+          SKIP_ENV_VALIDATION: true
+      - name: docs:check
+        id: check
+        run: |
+          set +e
+          npm run --silent docs:check > docs-check.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat docs-check.txt
+      - run: npm i -g exponential-cli
+      - name: Auth
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPONENTIAL_TOKEN }}
+        run: exponential auth login --token "$EXPO_TOKEN" --api-url "$EXPO_API_URL"
+      - name: Open the audit ticket
+        env:
+          CHECK_STATUS: ${{ steps.check.outputs.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          QUARTER="Q$(( ($(date -u +%-m) - 1) / 3 + 1 )) $(date -u +%Y)"
+          if [ "$CHECK_STATUS" = "0" ]; then RESULT="passed"; else RESULT="FAILED, see the run log"; fi
+          {
+            echo "Quarterly docs audit for $QUARTER. Runbook: \`dev-docs/DOCS_QUARTERLY_AUDIT.md\`."
+            echo
+            echo "**docs:check on main:** $RESULT ($RUN_URL)"
+            echo
+            echo '```'
+            tail -n 30 docs-check.txt
+            echo '```'
+            echo
+            echo "## Checklist"
+            echo
+            sed -n '/^## Checklist/,$p' dev-docs/DOCS_QUARTERLY_AUDIT.md | sed '1,2d' | sed -E 's/^[0-9]+\. /- [ ] /'
+          } > body.md
+          exponential tickets create \
+            --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" --feature "$EXPO_FEATURE" \
+            --type CHORE --status READY_TO_PLAN --priority 3 \
+            -t "Docs audit $QUARTER" -b "$(cat body.md)"

@@ -63,3 +63,14 @@
 .crumbLink:hover {
   color: var(--color-text-primary);
 }
+
+/* A page-registered crumb naming the page you are on (e.g. the product on its
+   Overview): the trail's end, so it reads as the title. */
+.crumbCurrent {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

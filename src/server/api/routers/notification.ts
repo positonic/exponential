@@ -139,15 +139,31 @@ export const notificationRouter = createTRPCRouter({
       return { success: true, count: result.count };
     }),
 
-  /** Unread Notification count for the badge, optionally per category. */
+  /**
+   * Unread Notification count, optionally per category. `excludeCategories`
+   * lets the sidebar Inbox badge leave out categories the user reads
+   * elsewhere (e.g. summaries, read by email) so it can reach zero.
+   */
   unreadCount: protectedProcedure
-    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
+    .input(
+      z
+        .object({
+          category: z.enum(CATEGORY_LIST).optional(),
+          excludeCategories: z.array(z.enum(CATEGORY_LIST)).optional(),
+        })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
+      const excluded = input?.excludeCategories ?? [];
       return ctx.db.notification.count({
         where: {
           userId: ctx.session.user.id,
           readAt: null,
-          ...(input?.category ? { category: input.category } : {}),
+          ...(input?.category
+            ? { category: input.category }
+            : excluded.length
+              ? { category: { notIn: excluded } }
+              : {}),
           ...firedWindow(),
         },
       });

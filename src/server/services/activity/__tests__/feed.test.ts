@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { getActivityFeed } from "../feed";
+import { getActivityFeed, getAggregatedActivityFeed } from "../feed";
 
 const WORKSPACE_ID = "ws-1";
 
@@ -99,6 +99,43 @@ describe("getActivityFeed — channel summaries + source filter", () => {
       entityType: { notIn: ["ticket_sync_run"] },
     });
     expect(call.where).not.toHaveProperty("metadata");
+  });
+});
+
+describe("activity feeds — the \"Mine\" actor filter", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = mockDeep<PrismaClient>();
+    mockReset(db);
+    db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
+  });
+
+  it("narrows the workspace feed to the actor's own events", async () => {
+    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, actorUserId: "user-1" });
+
+    const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
+    expect(call.where).toMatchObject({ workspaceId: WORKSPACE_ID, userId: "user-1" });
+  });
+
+  it("narrows the cross-workspace feed to the actor's own events", async () => {
+    await getAggregatedActivityFeed(db, {
+      workspaceIds: [WORKSPACE_ID, "ws-2"],
+      actorUserId: "user-1",
+    });
+
+    const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
+    expect(call.where).toMatchObject({
+      workspaceId: { in: [WORKSPACE_ID, "ws-2"] },
+      userId: "user-1",
+    });
+  });
+
+  it("leaves the actor unfiltered without actorUserId", async () => {
+    await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+
+    const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
+    expect(call.where).not.toHaveProperty("userId");
   });
 });
 

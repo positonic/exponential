@@ -18,6 +18,10 @@ import { todaysActionsSection } from "./todays_actions";
 import { upNextSection } from "./up_next";
 import { driProjectsSection } from "./dri_projects";
 import { linkedProjectsSection } from "./linked_projects";
+import { completedTodaySection } from "./completed_today";
+import { activityTodaySection } from "./activity_today";
+import { timeTodaySection } from "./time_today";
+import { tomorrowSection } from "./tomorrow";
 
 const MODULES: SectionModule[] = [
   okrReviewSection,
@@ -34,6 +38,11 @@ const MODULES: SectionModule[] = [
   todaysActionsSection,
   upNextSection,
   driProjectsSection,
+  // Shutdown routine (the evening counterpart that closes the day)
+  completedTodaySection,
+  activityTodaySection,
+  timeTodaySection,
+  tomorrowSection,
   // Any ceremony: the ACTIVE projects in its scope, appended automatically
   // when `Ceremony.includeProjects` is on (see ../autoSections).
   linkedProjectsSection,

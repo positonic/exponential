@@ -14,6 +14,8 @@ import { withAgendaTransaction } from "./items";
 import { dropEmptyAutoSections, withAutoProjectsSection } from "./autoSections";
 import { formatOccurrenceLabel } from "../activity";
 import { resolveParticipantUserIds } from "../participants";
+import { ensureSeededOccurrenceNotesPage } from "../notesSeed";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 export interface GenerateAgendaResult {
   occurrenceId: string;
@@ -124,6 +126,22 @@ export async function generateAgenda(
     } catch (error) {
       console.error("[ceremonies] narrateAgenda failed; the agenda is stored without a narrative:", error);
     }
+  }
+
+  // The notes canvas (a Knowledge Page, ADR-0033) exists from the first
+  // generation on, seeded with the section headings and the pre-read — which
+  // is why it runs after narration. A page anyone has written in is never
+  // touched again. Its failure must not undo the agenda that is already
+  // durable above, so it is reported rather than thrown; the next generation
+  // retries.
+  try {
+    await ensureSeededOccurrenceNotesPage(db, occurrence, ceremony, agenda);
+  } catch (error) {
+    console.error("[ceremonies] ensureSeededOccurrenceNotesPage failed; the agenda is stored without a notes page:", error);
+    reportHandledErrorServer(error, {
+      area: "ceremonies.ensureSeededOccurrenceNotesPage",
+      context: { occurrenceId: occurrence.id },
+    });
   }
   return {
     occurrenceId: occurrence.id,

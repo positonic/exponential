@@ -2115,6 +2115,8 @@ export const workspaceRouter = createTRPCRouter({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
         source: z.string().optional(),
+        /** Only the caller's own events — the feed's "Mine" filter. */
+        mine: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -2147,6 +2149,7 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
+        actorUserId: input.mine ? ctx.session.user.id : undefined,
       });
     }),
 
@@ -2219,6 +2222,8 @@ export const workspaceRouter = createTRPCRouter({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
         source: z.string().optional(),
+        /** Only the caller's own events — the feed's "Mine" filter. */
+        mine: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -2232,6 +2237,7 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
+        actorUserId: input.mine ? ctx.session.user.id : undefined,
       });
     }),
 

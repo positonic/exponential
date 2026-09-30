@@ -133,6 +133,21 @@ export function buildDecisionAccessWhere(
 ): Prisma.DecisionWhereInput {
   return {
     workspaceId,
+    ...buildDecisionAccessWhereAcrossWorkspaces(userId),
+  };
+}
+
+/**
+ * The same visibility rules as {@link buildDecisionAccessWhere} without the
+ * single-workspace scope, for cross-workspace personal surfaces (the inbox's
+ * "Waiting on me"). Every arm carries its own access check — meeting,
+ * project, or workspace membership — so dropping the workspace filter
+ * widens only to decisions the user could already read in each workspace.
+ */
+export function buildDecisionAccessWhereAcrossWorkspaces(
+  userId: string,
+): Prisma.DecisionWhereInput {
+  return {
     reviewState: "CONFIRMED",
     OR: [
       // Meeting-linked: visibility follows the evidence (ADR-0014 resolver).

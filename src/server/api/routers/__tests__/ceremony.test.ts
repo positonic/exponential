@@ -501,11 +501,19 @@ describe("ceremony router", () => {
         { id: "kr-1", title: "KR", status: "on-track", statusOverride: null, statusOverrideAt: null, currentValue: 0, targetValue: 1, unit: "count", goalId: 1, goal: { id: 1, title: "G" }, checkIns: [] },
       ] as never);
       db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+      db.knowledgePage.create.mockResolvedValue({ id: "page-1" } as never);
+      db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
       withAgendaTransactionMock(db);
 
       const res = await caller(db).ceremony.generateAgenda({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
 
       expect(res.itemCount).toBe(1);
+      // First generation also creates and links the notes page (ADR-0033 canvas).
+      expect(db.knowledgePage.create).toHaveBeenCalledOnce();
+      expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith({
+        where: { id: "occ-1", notesPageId: null },
+        data: { notesPageId: "page-1" },
+      });
       expect(res.agenda.sections.map((s) => [s.key, s.items.length])).toEqual([["okr", 1], ["free", 0]]);
       const data = db.ceremonyOccurrence.update.mock.calls[0]![0].data as { agendaGeneratedAt: Date; agenda: { sections: unknown[] } };
       expect(data.agendaGeneratedAt).toBeInstanceOf(Date);

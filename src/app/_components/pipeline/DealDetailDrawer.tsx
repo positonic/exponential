@@ -533,7 +533,7 @@ export function DealDetailDrawer({
               />
               <HighlightCard
                 icon={<IconBuilding size={14} />}
-                label="Company"
+                label="Organization"
                 href={
                   deal.organization && basePath
                     ? `${basePath}/organizations/${deal.organization.id}`
@@ -551,7 +551,7 @@ export function DealDetailDrawer({
                     </div>
                   ) : (
                     <Text size="sm" className="text-text-muted">
-                      No company
+                      No organization
                     </Text>
                   )
                 }
@@ -824,7 +824,7 @@ export function DealDetailDrawer({
                 />
                 <DetailRow
                   icon={<IconBuilding size={14} />}
-                  label="Company"
+                  label="Organization"
                   value={
                     deal.organization && basePath ? (
                       <Anchor

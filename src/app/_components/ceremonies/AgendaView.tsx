@@ -20,6 +20,8 @@ interface AgendaViewProps {
   onAddItem?: (sectionKey: string, title: string) => void;
   /** When given, items get move up/down controls. */
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
+  /** A line under the pre-read, e.g. pointing at the editable copy in the notes page. */
+  narrativeHint?: string;
 }
 
 /**
@@ -28,7 +30,7 @@ interface AgendaViewProps {
  * hand-added item is prose a person typed here, so it is Markdown (ADR-0017)
  * and a `[link](url)` in it becomes a link.
  */
-export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder }: AgendaViewProps) {
+export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, narrativeHint }: AgendaViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
     const next = ids.slice();
@@ -45,6 +47,11 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
             Pre-read
           </Text>
           <MarkdownRenderer content={agenda.narrative} variant="compact" />
+          {narrativeHint && (
+            <Text size="xs" className="text-text-muted" mt={8} data-testid="agenda-narrative-hint">
+              {narrativeHint}
+            </Text>
+          )}
         </Paper>
       )}
       {agenda.sections.map((section) => (

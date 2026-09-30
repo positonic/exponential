@@ -76,3 +76,11 @@ When reviewing or writing a change that touches prose input or display, confirm:
 - [ ] New content is stored as **Markdown**; any HTML touched is converted on edit, not written fresh.
 
 There is currently **no lint rule** for any of this — `react-markdown` imports, `dangerouslySetInnerHTML`, and the textarea-for-prose case are all caught in review, hence this checklist.
+
+## Forcing Markdown
+
+`MarkdownRenderer` sniffs content and renders anything that looks like legacy HTML (a `<p>`,
+`<br>`, `<code>`… tag anywhere in the string) as sanitised HTML. Surfaces whose source is always
+authored Markdown pass `format="markdown"` to skip that: the `/docs` pages do, because a literal
+`--currency <code>` in the CLI reference, or a PR title mentioning `<br>`, otherwise flattened
+the whole page into one block of text.

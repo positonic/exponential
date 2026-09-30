@@ -63,7 +63,7 @@ export function BlogContent({ post, isLoggedIn, userId }: BlogContentProps) {
       <div
         className="relative flex items-end overflow-hidden py-16 md:py-24"
         style={{
-          backgroundImage: "url('/banners/dyna-banner.png')",
+          backgroundImage: "url('/banners/dyna-banner.webp')",
           backgroundSize: "cover",
           backgroundPosition: "center",
         }}

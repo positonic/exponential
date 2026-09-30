@@ -590,6 +590,10 @@
   margin: 10px 0 6px;
 }
 
+.wsa-projects__seg--inline {
+  margin: 0;
+}
+
 .wsa-projects__seg-btn {
   display: inline-flex;
   align-items: center;

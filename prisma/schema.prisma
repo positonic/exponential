@@ -120,6 +120,7 @@ model User {
   timeResolutionRules            TimeResolutionRule[]
   aiInteractionHistory           AiInteractionHistory[]
   feedback                       Feedback[]
+  docsFeedback                   DocsFeedback[]
   goals                          Goal[]
   integrations                   Integration[]
   workspaceRepositoriesAdded     WorkspaceRepository[]           @relation("WorkspaceRepositoryAddedBy")
@@ -1890,6 +1891,22 @@ model Feedback {
   @@index([aiInteractionId])
 }
 
+/// A reader's answer to "Was this helpful?" on a /docs page. Signed-out
+/// readers can answer too, so userId is optional (and nulled if the user is
+/// deleted). Written by the public docs.submitFeedback procedure.
+model DocsFeedback {
+  id        String   @id @default(cuid())
+  path      String
+  helpful   Boolean
+  comment   String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([path, createdAt])
+  @@index([userId])
+}
+
 // Agent-quality Thread scoring (ADR-0012). One row per judged Thread - a
 // conversationId-scoped exchange with Zoe-the-brain, judged as a whole by an
 // LLM judge against Zoe's contract. Different grain from per-turn Feedback:
@@ -2396,12 +2413,18 @@ model CeremonyOccurrence {
   scheduledMeetingId   String?                  @unique
   /// Self-link for carry-over of unresolved agenda items.
   previousOccurrenceId String?
+  /// The free-text notes canvas for this occurrence: a Knowledge Page
+  /// (ADR-0033) created lazily when the agenda is generated, edited inline
+  /// under the agenda. Its `projectId` follows the ceremony's project so
+  /// visibility inherits; deleting the page just detaches it.
+  notesPageId          String?                  @unique
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
 
   ceremony           Ceremony               @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
   workspace          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   scheduledMeeting   Meeting?               @relation(fields: [scheduledMeetingId], references: [id], onDelete: SetNull)
+  notesPage          KnowledgePage?         @relation(fields: [notesPageId], references: [id], onDelete: SetNull)
   previousOccurrence CeremonyOccurrence?    @relation("CeremonyOccurrenceCarryOver", fields: [previousOccurrenceId], references: [id], onDelete: SetNull)
   nextOccurrences    CeremonyOccurrence[]   @relation("CeremonyOccurrenceCarryOver")
   /// Recorded meetings that captured this occurrence.
@@ -3212,6 +3235,8 @@ model KnowledgePage {
   createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
   comments  KnowledgePageComment[]
+  /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
+  ceremonyOccurrence CeremonyOccurrence?
 
   @@index([workspaceId])
   @@index([projectId])

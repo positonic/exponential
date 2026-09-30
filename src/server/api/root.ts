@@ -27,6 +27,7 @@ import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
 import { feedbackRouter } from "./routers/feedback";
+import { docsRouter } from "./routers/docs";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
@@ -35,6 +36,7 @@ import { matrixGatewayRouter } from "./routers/matrixGateway";
 import { matrixServerRouter } from "./routers/matrixServer";
 import { matrixRoomRouter } from "./routers/matrixRoom";
 import { notificationRouter } from "./routers/notification";
+import { inboxRouter } from "./routers/inbox";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
@@ -128,6 +130,7 @@ export const appRouter = createTRPCRouter({
   calendar: calendarRouter,
   workspaceScheduling: workspaceSchedulingRouter,
   feedback: feedbackRouter,
+  docs: docsRouter,
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
@@ -137,6 +140,7 @@ export const appRouter = createTRPCRouter({
   matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
   notification: notificationRouter,
+  inbox: inboxRouter,
   pushSubscription: pushSubscriptionRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,

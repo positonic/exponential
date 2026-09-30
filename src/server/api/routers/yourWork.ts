@@ -8,6 +8,10 @@ import {
   currentCycleOrder,
 } from "~/plugins/product/server/currentCycle";
 import {
+  mergedPrLookup,
+  qaTicketsWaitingOnMeWhere,
+} from "~/server/services/inbox/waitingOnMe";
+import {
   COMPLETED_TICKET_STATUSES,
   STATUS_ORDER,
 } from "~/lib/ticket-statuses";
@@ -203,25 +207,20 @@ export const yourWorkRouter = createTRPCRouter({
     }),
 
   /**
-   * "Waiting on you": QA tickets that are the caller's to promote — assigned
-   * to them, or created by them and unassigned (agent-shipped work commonly
-   * has no assignee). `prMerged` joins `Ticket.prUrl` against stored
-   * GitHubActivity webhook rows: a merged PR still sitting in QA is the
-   * strongest "promote this" signal, especially while the QA→DONE merge hook
-   * is unreliable.
+   * "Waiting on you": QA tickets that are the caller's to promote, in this
+   * workspace — the inbox's `qaTicketsWaitingOnMeWhere` rule narrowed to one
+   * workspace, with the same `mergedPrLookup` "PR merged" signal, so the
+   * home card and the inbox's Waiting on me tab can't drift.
    */
   waitingOnYou: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
       const tickets = await ctx.db.ticket.findMany({
         where: {
-          status: "QA",
-          product: { workspaceId: input.workspaceId },
-          OR: [
-            { assigneeId: userId },
-            { assigneeId: null, createdById: userId },
+          AND: [
+            qaTicketsWaitingOnMeWhere(ctx.session.user.id),
+            { product: { workspaceId: input.workspaceId } },
           ],
         },
         // Oldest first — the longest-waiting item is the most urgent.
@@ -238,25 +237,14 @@ export const yourWorkRouter = createTRPCRouter({
         },
       });
 
-      const prUrls = tickets
-        .map((t) => t.prUrl)
-        .filter((url): url is string => !!url);
-      const mergedRows = prUrls.length
-        ? await ctx.db.gitHubActivity.findMany({
-            where: {
-              workspaceId: input.workspaceId,
-              prUrl: { in: prUrls },
-              prState: "merged",
-            },
-            select: { prUrl: true },
-            distinct: ["prUrl"],
-          })
-        : [];
-      const mergedUrls = new Set(mergedRows.map((r) => r.prUrl));
+      const isMerged = await mergedPrLookup(
+        ctx.db,
+        tickets.map((t) => ({ prUrl: t.prUrl, workspaceId: input.workspaceId })),
+      );
 
       return tickets.map((t) => ({
         ...t,
-        prMerged: !!t.prUrl && mergedUrls.has(t.prUrl),
+        prMerged: isMerged({ prUrl: t.prUrl, workspaceId: input.workspaceId }),
       }));
     }),
 

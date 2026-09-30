@@ -125,7 +125,7 @@ function OrganizationForm({
           onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
         />
         <Select
-          label="Company Size"
+          label="Organization Size"
           placeholder="Select size"
           data={[
             { value: '1-10', label: '1-10 employees' },
@@ -391,7 +391,7 @@ export default function OrganizationsPage() {
         <EmptyState
           icon={IconBuilding}
           title="No organizations yet"
-          message="Organizations help you group contacts by company. Create your first one to get started."
+          message="Organizations group the contacts who work together. Create your first one to get started."
           action={
             <Button leftSection={<IconPlus size={16} />} onClick={openCreateModal}>
               New Organization

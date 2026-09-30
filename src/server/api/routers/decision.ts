@@ -30,6 +30,7 @@ import {
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel } from "~/lib/decision-label";
 import { buildAdrDraft } from "~/server/services/decisions/renderAdrMarkdown";
+import { settleDraftReviewNotification } from "~/server/services/decisions/settleDraftReviewNotification";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
@@ -254,6 +255,26 @@ async function ensureMeetingEditable(
     });
   }
   return meeting;
+}
+
+/**
+ * After a draft is resolved, settle its meeting's draft-review notification.
+ * Best-effort: the review itself already succeeded, so a failure here is
+ * reported, never thrown.
+ */
+async function settleDraftReviewAfter(
+  db: PrismaClient,
+  subject: { transcriptionSession: { id: string } | null },
+) {
+  if (!subject.transcriptionSession) return;
+  try {
+    await settleDraftReviewNotification(db, subject.transcriptionSession.id);
+  } catch (error) {
+    reportHandledErrorServer(error, {
+      area: "decision.settleDraftReviewNotification",
+      context: { transcriptionSessionId: subject.transcriptionSession.id },
+    });
+  }
 }
 
 export const decisionRouter = createTRPCRouter({
@@ -744,6 +765,7 @@ export const decisionRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
       });
+      await settleDraftReviewAfter(ctx.db, subject);
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
 
@@ -754,7 +776,9 @@ export const decisionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      return rejectDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId, userId: ctx.session.user.id });
+      const result = await rejectDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId, userId: ctx.session.user.id });
+      await settleDraftReviewAfter(ctx.db, subject);
+      return result;
     }),
 
   /**
@@ -767,6 +791,8 @@ export const decisionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      return deleteDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId });
+      const result = await deleteDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId });
+      await settleDraftReviewAfter(ctx.db, subject);
+      return result;
     }),
 });

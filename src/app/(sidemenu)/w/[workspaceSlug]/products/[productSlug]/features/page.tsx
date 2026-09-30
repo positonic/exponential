@@ -1,34 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
-  ActionIcon,
   Badge,
   Button,
   Card,
   Group,
   Modal,
   Popover,
-  SegmentedControl,
   Select,
   SimpleGrid,
   Skeleton,
   Stack,
   Text,
-  TextInput,
-  Tooltip,
 } from "@mantine/core";
 import {
   IconAdjustments,
   IconBulb,
-  IconDots,
-  IconFilter,
+  IconEdit,
   IconLayoutGrid,
   IconList,
   IconMap2,
-  IconPencil,
   IconPlus,
 } from "@tabler/icons-react";
 import { Menu } from "@mantine/core";
@@ -56,6 +50,22 @@ import {
   FEATURE_STATUS_COLORS as STATUS_COLORS,
   type FeatureStatus,
 } from "~/lib/feature-statuses";
+import {
+  PRIORITY_PILL_OPTIONS,
+  priorityFromPillValue,
+  priorityPillColor,
+  priorityPillValue,
+} from "~/app/_components/product/priorityPill";
+import {
+  ListPageTopBar,
+  ListPageViewTabs,
+  ListPageSearch,
+  ListPageButton,
+  ListPagePrimaryButton,
+  PillSelect,
+} from "~/app/_components/listPage";
+import table from "~/app/_components/listPage/DataTable.module.css";
+import { usePageSearchHotkey } from "~/hooks/usePageSearchHotkey";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,6 +74,11 @@ import {
 const PRIORITY_LABELS: Record<number, string> = {
   0: "Urgent", 1: "High", 2: "Medium", 3: "Low", 4: "None",
 };
+
+const VIEW_TABS = [
+  { value: "list", label: "List", icon: IconList },
+  { value: "cards", label: "Cards", icon: IconLayoutGrid },
+];
 
 // ---------------------------------------------------------------------------
 // Sort
@@ -139,6 +154,8 @@ export default function FeaturesListPage() {
   // The registry default: features grouped by Area - the product's carve.
   const [groupBy, setGroupBy] = useState<GroupByField>("area");
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  usePageSearchHotkey(searchRef);
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -174,50 +191,74 @@ export default function FeaturesListPage() {
 
   const listInput = { productId: product?.id ?? "" };
 
-  const bulkUpdate = api.product.feature.bulkUpdate.useMutation({
-    // Optimistic: patch the cached list immediately, roll back on error.
-    onMutate: async (vars) => {
-      await utils.product.feature.list.cancel(listInput);
-      const prev = utils.product.feature.list.getData(listInput);
-      if (prev) {
-        const idSet = new Set(vars.ids);
-        utils.product.feature.list.setData(
-          listInput,
-          prev.map((f) => {
-            if (!idSet.has(f.id)) return f;
-            const next = { ...f };
-            // Status on a feature with scopes may be scope-derived - the
-            // server can skip it, so don't predict it optimistically.
-            if (vars.status !== undefined && f._count.scopes === 0) {
-              next.status = vars.status;
-            }
-            if (vars.priority !== undefined) next.priority = vars.priority;
-            if (vars.areaId !== undefined) {
-              const a = (areas ?? []).find((x) => x.id === vars.areaId);
-              next.area =
-                vars.areaId && a
-                  ? { id: a.id, name: a.name, displayOrder: a.displayOrder }
-                  : null;
-            }
-            return next;
-          }),
-        );
-      }
-      return { prev };
-    },
-    onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) utils.product.feature.list.setData(listInput, mctx.prev);
+  // Optimistic: patch the cached list immediately, roll back on error. Shared
+  // by the bulk bar and the rows' in-place pills, which each get their own
+  // mutation hook: TanStack keeps only the latest mutate() call's per-call
+  // callbacks, so sharing one hook let a row edit swallow a concurrent bulk
+  // update's Undo toast (and vice versa).
+  const useOptimisticFeaturePatch = (
+    onSuccess?: (res: { updated: number; skipped: number }) => void,
+  ) =>
+    api.product.feature.bulkUpdate.useMutation({
+      onSuccess,
+      onMutate: async (vars) => {
+        await utils.product.feature.list.cancel(listInput);
+        const prev = utils.product.feature.list.getData(listInput);
+        if (prev) {
+          const idSet = new Set(vars.ids);
+          utils.product.feature.list.setData(
+            listInput,
+            prev.map((f) => {
+              if (!idSet.has(f.id)) return f;
+              const next = { ...f };
+              // Status on a feature with scopes may be scope-derived - the
+              // server can skip it, so don't predict it optimistically.
+              if (vars.status !== undefined && f._count.scopes === 0) {
+                next.status = vars.status;
+              }
+              if (vars.priority !== undefined) next.priority = vars.priority;
+              if (vars.areaId !== undefined) {
+                const a = (areas ?? []).find((x) => x.id === vars.areaId);
+                next.area =
+                  vars.areaId && a
+                    ? { id: a.id, name: a.name, displayOrder: a.displayOrder }
+                    : null;
+              }
+              return next;
+            }),
+          );
+        }
+        return { prev };
+      },
+      onError: (_err, _vars, mctx) => {
+        if (mctx?.prev) utils.product.feature.list.setData(listInput, mctx.prev);
+        notifications.show({
+          title: "Bulk update failed",
+          message: "Your changes were not saved. Please try again.",
+          color: "red",
+        });
+      },
+      onSettled: async () => {
+        if (product?.id) {
+          await utils.product.feature.list.invalidate({ productId: product.id });
+        }
+      },
+    });
+
+  const bulkUpdate = useOptimisticFeaturePatch();
+
+  // In-place Status / Priority edits from the table's pill selects. Goes
+  // through bulkUpdate for its status guard: a feature whose status follows
+  // its scopes (or that has been live) is skipped server-side, and the toast
+  // says why nothing changed.
+  const inlineUpdate = useOptimisticFeaturePatch((res) => {
+    if (res.skipped > 0) {
       notifications.show({
-        title: "Bulk update failed",
-        message: "Your changes were not saved. Please try again.",
-        color: "red",
+        title: "Status not changed",
+        message: "This feature's status follows its scopes, or it has already been live.",
+        color: "yellow",
       });
-    },
-    onSettled: async () => {
-      if (product?.id) {
-        await utils.product.feature.list.invalidate({ productId: product.id });
-      }
-    },
+    }
   });
 
   // Bulk hard delete - confirmed via modal (no undo for deletes).
@@ -290,6 +331,10 @@ export default function FeaturesListPage() {
         },
       },
     );
+  };
+
+  const updateOne = (featureId: string, patch: BulkPatch) => {
+    inlineUpdate.mutate({ ids: [featureId], ...patch });
   };
 
   // Filter + sort
@@ -404,68 +449,108 @@ export default function FeaturesListPage() {
     );
   };
 
-  // List item renderer
-  const renderListItem = (feature: (typeof sorted)[number]) => (
-    <Link
-      key={feature.id}
-      href={`${basePath}/${feature.id}`}
-      className={`group/row flex items-center gap-3 px-3 py-2.5 transition-colors border-b border-border-primary cursor-pointer text-text-primary no-underline ${sel.isSelected(feature.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
-      {...itemClickHandlers(feature.id)}
-    >
-      <SelectSlot
-        className="shrink-0"
-        selected={sel.isSelected(feature.id)}
-        onToggle={() => sel.toggle(feature.id)}
-        onRangeToggle={() => sel.selectRange(feature.id, visibleIds)}
+  // Pill selects and the edit button sit inside a clickable row: stop their
+  // clicks (including the portalled dropdown's, which bubble through React)
+  // from also opening the peek.
+  const stopRowClick = (e: React.MouseEvent) => e.stopPropagation();
+  const showAreaColumn = groupBy !== "area";
+  const colCount = showAreaColumn ? 5 : 4;
+
+  // Table row renderer
+  const renderRow = (feature: (typeof sorted)[number]) => {
+    const handlers = itemClickHandlers(feature.id);
+    return (
+      <tr
+        key={feature.id}
+        className={`${table.tableRow} group/row`}
+        data-clickable="true"
+        data-selected={sel.isSelected(feature.id) ? "true" : "false"}
+        {...handlers}
       >
-        <Badge size="xs" variant="light" color={STATUS_COLORS[feature.status] ?? "gray"} className="shrink-0">
-          {STATUS_LABELS[feature.status] ?? feature.status}
-        </Badge>
-      </SelectSlot>
-      <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
-        {feature.name}
-      </Text>
-      {groupBy !== "area" && feature.area && (
-        <Badge size="xs" variant="outline" color="gray" className="shrink-0">
-          {feature.area.name}
-        </Badge>
-      )}
-      {feature.priority != null && (
-        <Text size="xs" className="text-text-muted shrink-0">
-          {PRIORITY_LABELS[feature.priority]}
-        </Text>
-      )}
-      <Text size="xs" className="text-text-muted shrink-0">
-        {feature._count.scopes} scopes
-      </Text>
-      <Text size="xs" className="text-text-muted shrink-0">
-        {feature._count.tickets} tickets
-      </Text>
-      <Menu position="bottom-end" withinPortal>
-        <Menu.Target>
-          <ActionIcon
-            variant="subtle"
-            size="sm"
-            className="shrink-0 text-text-muted hover:text-text-primary"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            aria-label="Feature actions"
-          >
-            <IconDots size={14} />
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Item
-            leftSection={<IconPencil size={14} />}
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
+        <td style={{ width: "100%", maxWidth: 0 }}>
+          <div className={table.nameCell}>
+            <SelectSlot
+              className="shrink-0"
+              selected={sel.isSelected(feature.id)}
+              onToggle={() => sel.toggle(feature.id)}
+              onRangeToggle={() => sel.selectRange(feature.id, visibleIds)}
+            >
+              <IconBulb size={16} className="text-text-muted" />
+            </SelectSlot>
+            <div className="min-w-0">
+              {/* A real link so middle-click opens the full page in a new
+                  tab; a plain click peeks (handled here, not by the row). */}
+              <Link
+                href={`${basePath}/${feature.id}`}
+                className={`${table.nameText} block`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlers.onClick(e);
+                }}
+              >
+                {feature.name}
+              </Link>
+              <div className={table.nameSub}>
+                {feature._count.scopes} scopes · {feature._count.tickets} tickets
+              </div>
+            </div>
+          </div>
+        </td>
+        <td style={{ width: 170 }}>
+          <div onClick={stopRowClick} style={{ width: 150 }}>
+            <PillSelect
+              value={feature.status}
+              data={FEATURE_STATUSES}
+              color={STATUS_COLORS[feature.status] ?? "gray"}
+              aria-label="Status"
+              onChange={(v) => updateOne(feature.id, { status: v as FeatureStatus })}
+            />
+          </div>
+        </td>
+        <td style={{ width: 130 }}>
+          <div onClick={stopRowClick} style={{ width: 110 }}>
+            <PillSelect
+              value={priorityPillValue(feature.priority)}
+              data={PRIORITY_PILL_OPTIONS}
+              color={priorityPillColor(feature.priority)}
+              aria-label="Priority"
+              onChange={(v) => updateOne(feature.id, { priority: priorityFromPillValue(v) })}
+            />
+          </div>
+        </td>
+        {showAreaColumn && (
+          <td style={{ width: 160 }}>
+            <span className={table.muted}>{feature.area?.name ?? "—"}</span>
+          </td>
+        )}
+        <td style={{ width: 72 }}>
+          <button
+            type="button"
+            className="flex text-text-muted hover:text-brand-primary"
+            aria-label="Edit feature"
+            onClick={(e) => {
+              stopRowClick(e);
               setEditFeatureId(feature.id);
             }}
           >
-            Edit
-          </Menu.Item>
-        </Menu.Dropdown>
-      </Menu>
-    </Link>
+            <IconEdit size={18} />
+          </button>
+        </td>
+      </tr>
+    );
+  };
+
+  // Group-header row: the label, a count, and a hover select-all checkbox.
+  const renderGroupRow = (key: string, label: string, ids: string[]) => (
+    <tr key={`group-${key}`} className={`${table.groupRow} group/row`} style={{ cursor: "default" }}>
+      <td colSpan={colCount} className="relative">
+        <div className={table.groupLabel}>
+          {label}
+          <Badge size="xs" variant="light">{ids.length}</Badge>
+        </div>
+        {renderGroupHeaderCheckbox(ids)}
+      </td>
+    </tr>
   );
 
   // Card renderer
@@ -526,131 +611,111 @@ export default function FeaturesListPage() {
   );
 
   return (
-    <Stack gap="sm">
-      {/* Action bar */}
-      <div className="flex items-center gap-2">
-        <SegmentedControl
-          value={view}
-          onChange={setView}
-          size="xs"
-          data={[
-            { value: "list", label: (<Tooltip label="List" position="bottom"><div className="flex items-center justify-center px-1"><IconList size={15} /></div></Tooltip>) },
-            { value: "cards", label: (<Tooltip label="Cards" position="bottom"><div className="flex items-center justify-center px-1"><IconLayoutGrid size={15} /></div></Tooltip>) },
-          ]}
-          styles={{ root: { backgroundColor: "var(--color-surface-secondary)", border: "1px solid var(--color-border-primary)" } }}
-        />
+    <div className="flex flex-col">
+      <ListPageTopBar
+        left={
+          <ListPageViewTabs
+            aria-label="View"
+            tabs={VIEW_TABS}
+            active={view}
+            onTabClick={setView}
+          />
+        }
+        actions={
+          <>
+            <ListPageSearch ref={searchRef} value={search} onChange={setSearch} />
 
-        <div className="flex-1" />
-
-        <TextInput
-          placeholder="Search..."
-          size="xs"
-          value={search}
-          onChange={(e) => setSearch(e.currentTarget.value)}
-          styles={{
-            root: { width: 200 },
-            input: { backgroundColor: "transparent", border: "1px solid var(--color-border-primary)", fontSize: "0.8rem", height: 30, minHeight: 30 },
-          }}
-        />
-
-        <div className="flex items-center border border-border-primary rounded-md overflow-hidden">
-          <Tooltip label="Filter" position="bottom">
-            <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
-              <IconFilter size={15} />
-            </ActionIcon>
-          </Tooltip>
-          <div className="w-px h-4 bg-border-primary" />
-          <Popover position="bottom-end" withinPortal shadow="md">
-            <Popover.Target>
-              <Tooltip label="Display settings" position="bottom">
-                <ActionIcon variant="subtle" size="sm" className="text-text-muted hover:text-text-primary rounded-none" style={{ height: 30, width: 30 }}>
-                  <IconAdjustments size={15} />
-                </ActionIcon>
-              </Tooltip>
-            </Popover.Target>
-            <Popover.Dropdown
-              styles={{
-                dropdown: {
-                  backgroundColor: "var(--color-bg-elevated)",
-                  border: "1px solid var(--color-border-primary)",
-                  minWidth: 260,
-                },
-              }}
-            >
-              <div className="flex items-center justify-between gap-4 py-1">
-                <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
-                <Select
-                  value={groupBy}
-                  onChange={(v) => v && setGroupBy(v as GroupByField)}
-                  data={GROUP_BY_OPTIONS}
-                  size="xs"
-                  variant="filled"
-                  comboboxProps={{ withinPortal: true }}
+            <Popover position="bottom-end" withinPortal shadow="md">
+              <Popover.Target>
+                <ListPageButton aria-label="Display settings">
+                  <IconAdjustments size={13} stroke={1.75} />
+                  Display
+                </ListPageButton>
+              </Popover.Target>
+                <Popover.Dropdown
                   styles={{
-                    root: { flex: 1 },
-                    input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
+                    dropdown: {
+                      backgroundColor: "var(--color-bg-elevated)",
+                      border: "1px solid var(--color-border-primary)",
+                      minWidth: 260,
+                    },
                   }}
-                />
-              </div>
-              <div className="pt-2 border-t border-border-primary mt-2">
-                <Button
-                  component={Link}
-                  href={`/w/${workspace.slug}/products/${productSlug}/settings`}
-                  size="xs"
-                  variant="subtle"
-                  color="gray"
-                  leftSection={<IconMap2 size={14} />}
-                  fullWidth
-                  styles={{ inner: { justifyContent: "flex-start" } }}
                 >
-                  Manage areas in settings
-                </Button>
-              </div>
-            </Popover.Dropdown>
-          </Popover>
-        </div>
+                  <div className="flex items-center justify-between gap-4 py-1">
+                    <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
+                    <Select
+                      value={groupBy}
+                      onChange={(v) => v && setGroupBy(v as GroupByField)}
+                      data={GROUP_BY_OPTIONS}
+                      size="xs"
+                      variant="filled"
+                      comboboxProps={{ withinPortal: true }}
+                      styles={{
+                        root: { flex: 1 },
+                        input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
+                      }}
+                    />
+                  </div>
+                  <div className="pt-2 border-t border-border-primary mt-2">
+                    <Button
+                      component={Link}
+                      href={`/w/${workspace.slug}/products/${productSlug}/settings`}
+                      size="xs"
+                      variant="subtle"
+                      color="gray"
+                      leftSection={<IconMap2 size={14} />}
+                      fullWidth
+                      styles={{ inner: { justifyContent: "flex-start" } }}
+                    >
+                      Manage areas in settings
+                    </Button>
+                  </div>
+                </Popover.Dropdown>
+            </Popover>
 
-        <Button
-          size="xs"
-          leftSection={<IconPlus size={14} />}
-          onClick={() => setCreateModalOpen(true)}
-          disabled={!product}
-          variant="light"
-          styles={{ root: { height: 30, paddingLeft: 10, paddingRight: 12, fontSize: "0.8rem" } }}
-        >
-          New feature
-        </Button>
-      </div>
+            <ListPagePrimaryButton onClick={() => setCreateModalOpen(true)} disabled={!product}>
+              <IconPlus size={13} stroke={2.5} />
+              New feature
+            </ListPagePrimaryButton>
+          </>
+        }
+      />
 
       {/* Content */}
       {isLoading ? (
-        <Stack gap="xs">
+        <Stack gap="xs" className="px-8 py-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={view === "cards" ? 80 : 36} />)}
         </Stack>
       ) : sorted.length > 0 ? (
         view === "list" ? (
-          /* List view */
-          <div className="border border-border-primary rounded-lg overflow-hidden">
-            {groups.map((group) => (
-              groupBy === "none" ? (
-                <div key={group.key}>{group.items.map(renderListItem)}</div>
-              ) : (
-                <div key={group.key}>
-                  <div className="group/row relative bg-surface-secondary/50 px-3 py-2 border-b border-border-primary">
-                    <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
-                      {group.label}
-                      <Badge size="xs" variant="light" ml="xs">{group.items.length}</Badge>
-                    </Text>
-                    {renderGroupHeaderCheckbox(group.items.map((f) => f.id))}
-                  </div>
-                  {group.items.map(renderListItem)}
-                </div>
-              )
-            ))}
+          <div className={table.tableWrap}>
+            <table className={table.table}>
+              <thead className={table.tableHead}>
+                <tr>
+                  <th>Name</th>
+                  <th style={{ width: 170 }}>Status</th>
+                  <th style={{ width: 130 }}>Priority</th>
+                  {showAreaColumn && <th style={{ width: 160 }}>Area</th>}
+                  <th style={{ width: 72 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((group) => (
+                  groupBy === "none" ? (
+                    group.items.map(renderRow)
+                  ) : (
+                    <React.Fragment key={group.key}>
+                      {renderGroupRow(group.key, group.label, group.items.map((f) => f.id))}
+                      {group.items.map(renderRow)}
+                    </React.Fragment>
+                  )
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
           /* Cards view */
-          <div>
+          <div className="px-8 py-4">
             {groups.map((group) => (
               groupBy === "none" ? (
                 <SimpleGrid key={group.key} cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
@@ -674,10 +739,9 @@ export default function FeaturesListPage() {
           </div>
         )
       ) : features && features.length > 0 ? (
-        <Text size="sm" className="text-text-muted py-8 text-center">
-          No features match your search.
-        </Text>
+        <div className={table.empty}>No features match your search.</div>
       ) : (
+        <div className="px-8 py-6">
         <EmptyState
           icon={IconBulb}
           message="No features yet. Create one to start tracking what you're building."
@@ -693,6 +757,7 @@ export default function FeaturesListPage() {
             )
           }
         />
+        </div>
       )}
 
       <BulkActionBar count={sel.count} onClear={sel.clear}>
@@ -795,6 +860,6 @@ export default function FeaturesListPage() {
           />
         )}
       </PeekDrawer>
-    </Stack>
+    </div>
   );
 }

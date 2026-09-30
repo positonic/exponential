@@ -66,3 +66,39 @@ export async function readCalendarSafely(
     return [];
   }
 }
+
+/**
+ * The workspaces a brief section may read for one person. A ceremony in a
+ * personal workspace is a person's own ritual, so it reads across every
+ * workspace they can currently access (the shutdown routine summarises the
+ * whole day). A ceremony anywhere else stays in its own workspace, so adding
+ * the template to a team never shows one member's other workspaces to the
+ * rest of the team.
+ */
+export async function briefWorkspaceIds(ctx: SectionContext, personId: string): Promise<string[]> {
+  const home = await ctx.db.workspace.findUnique({ where: { id: ctx.workspaceId }, select: { type: true } });
+  if (home?.type !== "personal") return [ctx.workspaceId];
+  const { buildWorkspaceAccessWhere } = await import("~/server/services/access");
+  const rows = await ctx.db.workspace.findMany({ where: buildWorkspaceAccessWhere(personId), select: { id: true } });
+  const ids = (rows ?? []).map((w) => w.id);
+  return ids.includes(ctx.workspaceId) ? ids : [ctx.workspaceId, ...ids];
+}
+
+/** The `/today` ownership set: actions I created and nobody holds, plus actions assigned to me. */
+export function ownedActionsWhere(userId: string) {
+  return {
+    OR: [
+      { createdById: userId, assignees: { none: {} } },
+      { assignees: { some: { userId } } },
+    ],
+  };
+}
+
+/** "1h 20m", "45m", "0m". */
+export function formatMinutes(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  if (h === 0) return `${rest}m`;
+  return rest === 0 ? `${h}h` : `${h}h ${rest}m`;
+}
