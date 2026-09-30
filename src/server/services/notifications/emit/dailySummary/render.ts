@@ -14,7 +14,8 @@ import type {
  * answer is "nothing".
  *
  * - markdown: bold headings, numbered lists, `[label](url)` links. The Matrix
- *   gateway renders it with `breaks: true`, so single newlines survive.
+ *   gateway renders it with `breaks: true`, so single newlines survive; the
+ *   email channel renders it as the HTML body (`buildNotificationEmail`).
  * - plain text: the same lines with no markup; a linked item is followed by
  *   its bare URL on its own line (most clients auto-link it).
  */

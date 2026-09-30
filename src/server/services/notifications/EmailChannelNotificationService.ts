@@ -54,6 +54,7 @@ export class EmailChannelNotificationService extends NotificationService {
         to: user.email,
         title: payload.title,
         message: payload.message,
+        markdown: readStr(meta, "markdown"),
         actionUrl: deeplink ? `${BASE_URL}${deeplink}` : undefined,
         workspaceName,
         personalSettingsUrl: `${BASE_URL}/settings/notifications`,
