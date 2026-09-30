@@ -660,6 +660,30 @@ describe("TimeEntryService.listRecent", () => {
   });
 });
 
+describe("TimeEntryService.listByAction", () => {
+  it("queries the user's entries on the action newest-first, running ones included", async () => {
+    dbMock.timeEntry.findMany.mockResolvedValueOnce([]);
+    const svc = new TimeEntryService(dbMock);
+    await svc.listByAction({ userId: "user-1", actionId: "a-1" });
+    expect(dbMock.timeEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "user-1", actionId: "a-1" },
+        orderBy: { startedAt: "desc" },
+        take: 50,
+      }),
+    );
+  });
+
+  it("clamps limit to [1, 200]", async () => {
+    dbMock.timeEntry.findMany.mockResolvedValueOnce([]);
+    const svc = new TimeEntryService(dbMock);
+    await svc.listByAction({ userId: "user-1", actionId: "a-1", limit: 1000 });
+    expect(dbMock.timeEntry.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 200 }),
+    );
+  });
+});
+
 describe("durationMinutes", () => {
   it("rounds to the nearest minute", () => {
     const s = new Date("2026-01-01T10:00:00Z");

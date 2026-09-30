@@ -916,6 +916,26 @@ export class TimeEntryService {
   }
 
   /**
+   * The user's own entries on one Action, newest first, running ones
+   * included. Used by the action editor's Time section to list the pieces of
+   * time logged against the Action so each can be edited in place. Only the
+   * caller's entries: other people's time on a shared Action is theirs.
+   */
+  async listByAction(input: {
+    userId: string;
+    actionId: string;
+    limit?: number;
+  }): Promise<TimeEntryWithAction[]> {
+    const take = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    return this.db.timeEntry.findMany({
+      where: { userId: input.userId, actionId: input.actionId },
+      orderBy: { startedAt: "desc" },
+      take,
+      include: ACTION_INCLUDE,
+    });
+  }
+
+  /**
    * Internal: a `sourceRef` names one conversation segment, which belongs to
    * exactly one person. A ref already held by ANOTHER user is a CONFLICT (two
    * owners cannot both claim the same segment), and so is a ref this user

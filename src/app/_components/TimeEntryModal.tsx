@@ -54,6 +54,10 @@ export function TimeEntryModal({
   const [query, setQuery] = useState<string>("");
   const [editActionOpened, setEditActionOpened] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Set when the nested action editor's Time section changes a piece; this
+  // modal's own fields (and the parent's `entry`) may then describe a piece
+  // that was edited or deleted underneath it.
+  const [timeChangedInside, setTimeChangedInside] = useState(false);
 
   useEffect(() => {
     if (!entry) return;
@@ -318,10 +322,22 @@ export function TimeEntryModal({
             : null
         }
         opened={editActionOpened}
-        onClose={() => setEditActionOpened(false)}
+        onClose={() => {
+          setEditActionOpened(false);
+          // Close rather than let a Save here write stale start/end back
+          // over what was just edited in the Time section.
+          if (timeChangedInside) {
+            setTimeChangedInside(false);
+            onClose();
+          }
+        }}
         onSuccess={() => {
           void utils.timeEntry.listByDateRange.invalidate();
         }}
+        // This modal only lives on the time surfaces (/time, /calendar), so
+        // the action editor it opens always shows the Action's time.
+        showTimeEntries
+        onTimeEntriesChange={() => setTimeChangedInside(true)}
       />
     </>
   );
