@@ -1019,7 +1019,9 @@ export interface NotificationEmailParams {
   markdown?: string;
 }
 
-const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)\s]*)\)/g;
+// One level of balanced brackets in the label ("[Bug] Login fails") and of
+// balanced parentheses in the URL (Wikipedia-style), as CommonMark allows.
+const MARKDOWN_LINK = /\[((?:[^[\]]|\[[^[\]]*\])*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 const MARKDOWN_BOLD = /\*\*(.+?)\*\*/g;
 const EMAIL_SAFE_HREF = /^(https?:|mailto:)/i;
 

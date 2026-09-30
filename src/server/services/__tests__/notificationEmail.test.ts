@@ -474,6 +474,18 @@ describe("buildNotificationEmail", () => {
       expect(htmlBody).toContain(`href="https://app.test/x?a=1&amp;b=2"`);
     });
 
+    it("links labels with brackets and URLs with balanced parentheses", () => {
+      const { htmlBody } = buildNotificationEmail({
+        ...markdownParams,
+        markdown:
+          "1. [C-9 [Bug] Login fails](https://app.test/t/9) · [wiki](https://en.test/Foo_(bar))",
+      });
+
+      expect(htmlBody).toMatch(/<a href="https:\/\/app\.test\/t\/9"[^>]*>C-9 \[Bug\] Login fails<\/a>/);
+      expect(htmlBody).toMatch(/<a href="https:\/\/en\.test\/Foo_\(bar\)"[^>]*>wiki<\/a>/);
+      expect(htmlBody).not.toContain("](");
+    });
+
     it("renders non-http links as their label, never as an anchor", () => {
       const { htmlBody } = buildNotificationEmail({
         ...markdownParams,
@@ -482,7 +494,7 @@ describe("buildNotificationEmail", () => {
 
       expect(htmlBody).not.toContain("javascript:void");
       expect(htmlBody).not.toContain(`href="data:`);
-      expect(htmlBody).toContain("click) and x");
+      expect(htmlBody).toContain("click and x");
     });
 
     it("cannot break out of the href attribute", () => {
@@ -492,7 +504,7 @@ describe("buildNotificationEmail", () => {
       });
 
       expect(htmlBody).not.toContain(`"onmouseover="`);
-      expect(htmlBody).toContain(`href="https://app.test/&quot;onmouseover=&quot;alert(1"`);
+      expect(htmlBody).toContain(`href="https://app.test/&quot;onmouseover=&quot;alert(1)"`);
     });
   });
 
