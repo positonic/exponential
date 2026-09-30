@@ -13,14 +13,14 @@ Inbox and Today are the two views you open every day. **Inbox** is where everyth
 
 ## Where to find it
 
-Open [Inbox](/inbox) or [Today](/today) — they are the first two items in the sidebar, above **Time**. The Inbox count in the sidebar is your unread notifications plus the things waiting on you; the number of unsorted actions is on the Inbox's **Actions** tab. [Upcoming](/upcoming) is a plain list of what is scheduled after tomorrow; the **Upcoming** tab on Today shows the same actions grouped by day.
+Open [Inbox](/inbox) or [Today](/today) — they are the first two items in the sidebar, above **Time**. The Inbox count in the sidebar is your unread notifications (apart from daily summaries, which you read by email) plus the things waiting on you; the number of unsorted actions is on the Inbox's **Actions** tab. [Upcoming](/upcoming) is a plain list of what is scheduled after tomorrow; the **Upcoming** tab on Today shows the same actions grouped by day.
 
 ## The three Inbox tabs
 
 Each tab clears its own way, and each shows how many items it holds.
 
 - **Notifications** — assignments, mentions, due-date reminders, meeting and agenda updates, and summaries, newest first. **Unread** is the default, so opening an item (or clicking its tick) clears it; switch to **All** for the history, pick a type from **All types** to narrow it, or click **Mark all read**.
-- **Waiting on me** — what is blocked on you: **Decisions** you own or are a decider on that are still open or proposed, meetings with **Draft decisions to review**, **QA tickets** that are yours to promote (marked **PR merged — promote?** once the pull request has merged), and **Overdue actions**. These leave the tab when you act on them — decide, confirm the drafts, promote the ticket, reschedule or finish the action — not when you read them.
+- **Waiting on me** — what is blocked on you: **Decisions** you own or are a decider on that are still open or proposed, meetings with **Draft decisions to review**, **QA tickets** that are yours to promote (marked **PR merged — promote?** once the pull request has merged), and **Overdue actions**. These leave the tab when you act on them — decide, confirm the drafts, promote the ticket, reschedule or finish the action — not when you read them. Archiving a meeting also clears its drafts from here, and resolving a meeting's last draft marks its "draft decisions to review" notification read.
 - **Actions** — every action with no date and no project, described below.
 
 Your own recent history is not in the Inbox, because it never needs clearing: it is the **Mine** filter on [Activity](/activity).

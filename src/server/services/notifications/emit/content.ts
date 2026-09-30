@@ -30,6 +30,15 @@ async function resolveActionWorkspace(
  * subject can't be resolved (e.g. deleted action, no workspace) — the emit is
  * then skipped for that recipient.
  */
+/**
+ * Prefix of the "N draft decisions to review" notification's dedupe key for
+ * one meeting (the recipient id follows). Exported so resolving the drafts
+ * can find and settle that notification.
+ */
+export function draftDecisionsDedupePrefix(sessionId: string): string {
+  return `meeting_ready:decisions:${sessionId}:`;
+}
+
 export async function buildContent(
   input: EmitNotificationInput,
   recipientId: string,
@@ -276,7 +285,7 @@ export async function buildContent(
         },
         workspaceId: session.workspace.id,
         dedupeKey: isDraftVariant
-          ? `meeting_ready:decisions:${sessionId}:${recipientId}`
+          ? `${draftDecisionsDedupePrefix(sessionId)}${recipientId}`
           : `meeting_ready:${sessionId}:${recipientId}`,
       };
     }

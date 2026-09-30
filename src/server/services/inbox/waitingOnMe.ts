@@ -4,7 +4,7 @@ import {
   buildWorkspaceAccessWhere,
 } from "~/server/services/access";
 import { myOverdueActionsWhere } from "~/server/services/actions/myActionsWhere";
-import { partitionActions } from "~/lib/actions/partition";
+import { compareOverdue } from "~/lib/actions/partition";
 import { formatDecisionLabel } from "~/lib/decision-label";
 
 /**
@@ -25,6 +25,13 @@ import { formatDecisionLabel } from "~/lib/decision-label";
 /** Rows per kind the tab renders; counts are always the full totals. */
 export const WAITING_ROW_CAP = 20;
 
+/**
+ * How many overdue rows are loaded to pick the tab's first rows from. The
+ * priority order can't be expressed in SQL, so it's applied in memory to
+ * the oldest rows; a backlog bigger than this still counts in full.
+ */
+export const OVERDUE_WINDOW = 500;
+
 /** Decision statuses that still need someone to decide. */
 const UNDECIDED_STATUSES = ["OPEN", "PROPOSED"] as const;
 
@@ -40,11 +47,19 @@ export function decisionsAwaitingMeWhere(
   };
 }
 
-/** Meetings the user owns that carry draft decisions awaiting review. */
+/**
+ * Meetings the user owns that carry draft decisions awaiting review.
+ * Archived meetings are out, as on every other meeting surface — archiving
+ * is how a user says "done with this", so its drafts must not pin the badge.
+ */
 export function meetingsWithDraftsToReviewWhere(
   userId: string,
 ): Prisma.TranscriptionSessionWhereInput {
-  return { userId, decisions: { some: { reviewState: "DRAFT" } } };
+  return {
+    userId,
+    archivedAt: null,
+    decisions: { some: { reviewState: "DRAFT" } },
+  };
 }
 
 /**
@@ -60,6 +75,40 @@ export function qaTicketsWaitingOnMeWhere(
     product: { workspace: buildWorkspaceAccessWhere(userId) },
     OR: [{ assigneeId: userId }, { assigneeId: null, createdById: userId }],
   };
+}
+
+interface PrRef {
+  prUrl: string | null;
+  workspaceId: string;
+}
+
+/**
+ * Which tickets' PRs have merged — the strongest "promote this" signal for a
+ * ticket still in QA, especially while the QA→DONE merge hook is unreliable.
+ * Joins `Ticket.prUrl` against stored GitHubActivity webhook rows, matched
+ * per workspace since those rows are stored per workspace. One query, and
+ * none when no ticket has a PR. Shared by the inbox and `yourWork`.
+ */
+export async function mergedPrLookup(
+  db: PrismaClient,
+  tickets: PrRef[],
+): Promise<(ticket: PrRef) => boolean> {
+  const prUrls = tickets
+    .map((t) => t.prUrl)
+    .filter((url): url is string => !!url);
+  const mergedRows = prUrls.length
+    ? await db.gitHubActivity.findMany({
+        where: {
+          workspaceId: { in: [...new Set(tickets.map((t) => t.workspaceId))] },
+          prUrl: { in: prUrls },
+          prState: "merged",
+        },
+        select: { workspaceId: true, prUrl: true },
+        distinct: ["workspaceId", "prUrl"],
+      })
+    : [];
+  const merged = new Set(mergedRows.map((r) => `${r.workspaceId} ${r.prUrl}`));
+  return (t) => !!t.prUrl && merged.has(`${t.workspaceId} ${t.prUrl}`);
 }
 
 export interface WaitingOnMeCounts {
@@ -155,10 +204,16 @@ export async function listWaitingOnMe(
           },
         },
       }),
-      // Every overdue row, not a capped page: the tab shows them in the
-      // partition's priority-then-oldest order, which the DB can't sort by.
+      // A bounded window of the oldest overdue rows, re-sorted in memory
+      // into the /today order (priority isn't sortable in SQL).
       db.action.findMany({
         where: myOverdueActionsWhere(userId, startOfToday),
+        orderBy: [
+          { scheduledStart: { sort: "asc", nulls: "last" } },
+          { dueDate: { sort: "asc", nulls: "last" } },
+          { id: "asc" },
+        ],
+        take: OVERDUE_WINDOW,
         select: {
           id: true,
           name: true,
@@ -178,28 +233,15 @@ export async function listWaitingOnMe(
       }),
     ]);
 
-  // A merged PR on a ticket still in QA is the strongest "promote this"
-  // signal (see yourWork.waitingOnYou). Matched per workspace, since the
-  // webhook rows are stored per workspace.
-  const prUrls = ticketRows
-    .map((t) => t.prUrl)
-    .filter((url): url is string => !!url);
-  const mergedRows = prUrls.length
-    ? await db.gitHubActivity.findMany({
-        where: {
-          workspaceId: {
-            in: [...new Set(ticketRows.map((t) => t.product.workspaceId))],
-          },
-          prUrl: { in: prUrls },
-          prState: "merged",
-        },
-        select: { workspaceId: true, prUrl: true },
-        distinct: ["workspaceId", "prUrl"],
-      })
-    : [];
-  const merged = new Set(mergedRows.map((r) => `${r.workspaceId} ${r.prUrl}`));
+  const isMerged = await mergedPrLookup(
+    db,
+    ticketRows.map((t) => ({ prUrl: t.prUrl, workspaceId: t.product.workspaceId })),
+  );
 
-  const overdue = partitionActions(actionRows, { today: startOfToday }).overdue;
+  // The WHERE already selected exactly the overdue set on the viewer's day;
+  // only order it. Re-bucketing with partitionActions would re-derive "today"
+  // in the server's timezone and drop rows the count includes.
+  const overdue = [...actionRows].sort(compareOverdue);
 
   return {
     counts,
@@ -220,7 +262,7 @@ export async function listWaitingOnMe(
         funTicketIds: product.funTicketIds,
       },
       workspace: product.workspace,
-      prMerged: !!prUrl && merged.has(`${product.workspaceId} ${prUrl}`),
+      prMerged: isMerged({ prUrl, workspaceId: product.workspaceId }),
     })),
     overdueActions: overdue.slice(0, WAITING_ROW_CAP).map((a) => ({
       id: a.id,

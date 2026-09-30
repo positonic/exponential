@@ -7,6 +7,7 @@ import { DocsHelpLink } from "~/app/_components/docs/DocsHelpLink";
 import { NotificationsTab } from "~/app/_components/inbox/NotificationsTab";
 import { WaitingOnMeTab } from "~/app/_components/inbox/WaitingOnMeTab";
 import { useInboxCounts } from "~/hooks/useInboxCounts";
+import { api } from "~/trpc/react";
 import { useSidebarActionCounts } from "~/hooks/useSidebarActionCounts";
 import { Actions } from "./Actions";
 // The wsa-card / wsa-item row styles, shared with the home page's
@@ -51,7 +52,10 @@ export function InboxPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tab = parseTab(searchParams.get("tab"));
-  const { notifications, waiting } = useInboxCounts();
+  const { waiting } = useInboxCounts();
+  // Every unread notification, summaries included — the tab counts what its
+  // Unread list shows; only the sidebar badge leaves summaries out.
+  const { data: notifications } = api.notification.unreadCount.useQuery();
   const { inboxCount } = useSidebarActionCounts();
 
   function setTab(next: string | null) {

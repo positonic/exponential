@@ -10,7 +10,7 @@ import {
   IconTicket,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
-import { useStartOfToday } from '~/hooks/useStartOfToday';
+import { useDayRollover } from '~/hooks/useDayRollover';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
 import { ticketDisplayId, ticketUrlId } from '~/lib/fun-ids';
 import { toPlainText } from '~/lib/content/plainText';
@@ -98,7 +98,7 @@ function Row({
  * the item, not by reading it.
  */
 export function WaitingOnMeTab() {
-  const startOfToday = useStartOfToday();
+  const startOfToday = useDayRollover();
   const { data, isLoading } = api.inbox.waitingOnMe.useQuery({ startOfToday });
 
   if (isLoading || !data) {

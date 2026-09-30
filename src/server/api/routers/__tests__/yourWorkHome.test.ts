@@ -69,6 +69,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { qaTicketsWaitingOnMeWhere } from "~/server/services/inbox/waitingOnMe";
 
 const USER_ID = "user-1";
 const WORKSPACE_ID = "ws-1";
@@ -221,7 +222,7 @@ describe("yourWork.waitingOnYou", () => {
       { ...ticket({ id: "nopr" }), prUrl: null, updatedAt: new Date() },
     ] as never);
     db.gitHubActivity.findMany.mockResolvedValue([
-      { prUrl: "https://github.com/x/y/pull/1" },
+      { workspaceId: WORKSPACE_ID, prUrl: "https://github.com/x/y/pull/1" },
     ] as never);
 
     const result = await caller(db).yourWork.waitingOnYou({
@@ -233,6 +234,23 @@ describe("yourWork.waitingOnYou", () => {
       ["open", false],
       ["nopr", false],
     ]);
+  });
+
+  it("uses the inbox's QA rule, narrowed to this workspace", async () => {
+    db.ticket.findMany.mockResolvedValue([] as never);
+
+    await caller(db).yourWork.waitingOnYou({ workspaceId: WORKSPACE_ID });
+
+    expect(db.ticket.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            qaTicketsWaitingOnMeWhere(USER_ID),
+            { product: { workspaceId: WORKSPACE_ID } },
+          ],
+        },
+      }),
+    );
   });
 
   it("skips the GitHubActivity query when no ticket has a PR", async () => {

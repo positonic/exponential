@@ -3,13 +3,14 @@
  * no real DB.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
 import { buildDecisionAccessWhereAcrossWorkspaces } from "~/server/services/access";
-import { myOverdueActionsWhere } from "~/server/services/actions/myActionsWhere";
 import {
+  OVERDUE_WINDOW,
+  WAITING_ROW_CAP,
   countWaitingOnMe,
   decisionsAwaitingMeWhere,
   listWaitingOnMe,
@@ -31,9 +32,10 @@ describe("waiting-on-me WHERE builders", () => {
     });
   });
 
-  it("drafts: meetings I own with at least one draft decision", () => {
+  it("drafts: unarchived meetings I own with at least one draft decision", () => {
     expect(meetingsWithDraftsToReviewWhere(USER)).toEqual({
       userId: USER,
+      archivedAt: null,
       decisions: { some: { reviewState: "DRAFT" } },
     });
   });
@@ -81,9 +83,10 @@ describe("countWaitingOnMe", () => {
       overdueActions: 4,
       total: 10,
     });
-    expect(db.action.count).toHaveBeenCalledWith({
-      where: myOverdueActionsWhere(USER, TODAY),
-    });
+    // Overdue is anchored to the viewer's midnight as passed in, not "now".
+    const where = db.action.count.mock.calls[0]![0]!.where!;
+    expect(where.status).toBe("ACTIVE");
+    expect(JSON.stringify(where)).toContain(TODAY.toISOString());
   });
 });
 
@@ -189,5 +192,55 @@ describe("listWaitingOnMe", () => {
       workspace: { slug: "acme", name: "Acme" },
     });
     expect(overdueActions[0]!.workspace).toBeNull();
+  });
+
+  it("loads a bounded, oldest-first window of overdue rows", async () => {
+    await listWaitingOnMe(db, USER, TODAY);
+
+    expect(db.action.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: OVERDUE_WINDOW,
+        orderBy: [
+          { scheduledStart: { sort: "asc", nulls: "last" } },
+          { dueDate: { sort: "asc", nulls: "last" } },
+          { id: "asc" },
+        ],
+      }),
+    );
+  });
+
+  describe("on a UTC server for a viewer east of UTC", () => {
+    const originalTz = process.env.TZ;
+    beforeEach(() => {
+      process.env.TZ = "UTC";
+    });
+    afterEach(() => {
+      process.env.TZ = originalTz;
+    });
+
+    it("lists every overdue row the count includes — the list is never re-bucketed", async () => {
+      // Berlin midnight on Sep 30, and an action scheduled 14:00 Berlin on Sep 29:
+      // overdue for the viewer, but the same UTC day as their midnight.
+      const berlinMidnight = new Date("2026-09-29T22:00:00Z");
+      db.action.count.mockResolvedValue(1);
+      db.action.findMany.mockResolvedValue([
+        {
+          id: "yesterday-afternoon",
+          name: "Call the bank",
+          status: "ACTIVE",
+          priority: "Quick",
+          scheduledStart: new Date("2026-09-29T12:00:00Z"),
+          dueDate: null,
+          projectId: null,
+          project: null,
+          workspace: null,
+        },
+      ] as never);
+
+      const { counts, overdueActions } = await listWaitingOnMe(db, USER, berlinMidnight);
+
+      expect(overdueActions).toHaveLength(Math.min(counts.overdueActions, WAITING_ROW_CAP));
+      expect(overdueActions.map((a) => a.id)).toEqual(["yesterday-afternoon"]);
+    });
   });
 });
