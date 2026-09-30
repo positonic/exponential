@@ -678,10 +678,10 @@ export const actionRouter = createTRPCRouter({
       });
     }),
 
-  // The sidebar's Inbox and Today badges. Counts only: the badges used to
-  // download every action (action.getAll, ~2 MB for a busy user) on every
-  // page just to count them. Same sets as filtering getAll() by
-  // `!projectId && status === "ACTIVE"` and as getToday().length.
+  // The inbox's unsorted-actions count and the sidebar's Today badge. Counts
+  // only: the badges used to download every action (action.getAll, ~2 MB for
+  // a busy user) on every page just to count them. Same sets as filtering
+  // getAll() with `isInboxAction` and as getToday().length.
   getSidebarCounts: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
     const [inboxCount, todayCount] = await Promise.all([

@@ -4,7 +4,7 @@ description: "Four ways to see the workspace as a whole: what happened, a board 
 section: do
 order: 8
 icon: IconChartBar
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 Most pages show one object. These four show the workspace: the **activity feed** is everything that happened, newest first, with a week-in-review on top; **Views** is a kanban of every action you can filter, group and save as a list; the projects **Timeline** lays projects out by start and end date; and **Favourites** is your own pinned shortlist in the sidebar.
@@ -23,6 +23,7 @@ Most pages show one object. These four show the workspace: the **activity feed**
 - **Week in review** summarises the week in a sentence, counts events against last week and the four-week average, and offers **Plan next week** and **Ask agent to summarize**; **Regenerate narrative** rewrites the summary.
 - **Events per day** and the year heatmap (**Week**, **Month**, **Year**) show the rhythm; hover a day for its count.
 - The feed lists every event: actions, tickets, features and comments created or changed, status changes, and summaries from watched chat channels (WhatsApp groups and the like), each with who did it and when. Events from GitHub are not in the feed yet; they appear on the Metrics page.
+- **Everyone** / **Mine** at the top of the feed switches between everyone's events and only the ones you did yourself — your own recent history, on the workspace page or across all your workspaces on [Activity](/activity). The choice stays in the link (`?who=mine`), so you can bookmark it.
 
 ## How to use Views
 

@@ -103,6 +103,7 @@ export {
   canViewDecision,
   canEditDecision,
   buildDecisionAccessWhere,
+  buildDecisionAccessWhereAcrossWorkspaces,
 } from "./resolvers/decisionResolver";
 export type {
   DecisionAccessInfo,

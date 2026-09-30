@@ -1,21 +1,31 @@
 ---
 title: Inbox & Today
-description: Capture actions into the Inbox, then work from Today with overdue items, tomorrow and the days ahead in view
+description: Clear what needs you in the Inbox — notifications, things waiting on you and unsorted actions — then work from Today
 icon: IconInbox
 order: 1
 sidebarTitle: "Inbox & Today"
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
-Inbox and Today are the two views you open every day. **Inbox** holds every action that has no date and no project yet, so nothing you capture gets lost. **Today** shows what is due today and what is overdue, beside your calendar, with **Tomorrow** and **Upcoming** a tab away.
+Inbox and Today are the two views you open every day. **Inbox** is where everything that needs you lands, across all your workspaces: your notifications, the things waiting on you, and every action that has no date and no project yet, so nothing you capture gets lost. **Today** shows what is due today and what is overdue, beside your calendar, with **Tomorrow** and **Upcoming** a tab away.
 
-![The Inbox listing unassigned actions with the tag filter and Bulk edit control](/doc-assets/inbox.png)
+![The Inbox tabs, with the Actions tab listing unsorted actions beside the tag filter and Bulk edit control](/doc-assets/inbox.png)
 
 ## Where to find it
 
-Open [Inbox](/inbox) or [Today](/today) — they are the first two items in the sidebar, above **Time**. The Inbox count in the sidebar is the number of actions waiting there. [Upcoming](/upcoming) is a plain list of what is scheduled after tomorrow; the **Upcoming** tab on Today shows the same actions grouped by day.
+Open [Inbox](/inbox) or [Today](/today) — they are the first two items in the sidebar, above **Time**. The Inbox count in the sidebar is your unread notifications plus the things waiting on you; the number of unsorted actions is on the Inbox's **Actions** tab. [Upcoming](/upcoming) is a plain list of what is scheduled after tomorrow; the **Upcoming** tab on Today shows the same actions grouped by day.
 
-## How to clear the Inbox
+## The three Inbox tabs
+
+Each tab clears its own way, and each shows how many items it holds.
+
+- **Notifications** — assignments, mentions, due-date reminders, meeting and agenda updates, and summaries, newest first. **Unread** is the default, so opening an item (or clicking its tick) clears it; switch to **All** for the history, pick a type from **All types** to narrow it, or click **Mark all read**.
+- **Waiting on me** — what is blocked on you: **Decisions** you own or are a decider on that are still open or proposed, meetings with **Draft decisions to review**, **QA tickets** that are yours to promote (marked **PR merged — promote?** once the pull request has merged), and **Overdue actions**. These leave the tab when you act on them — decide, confirm the drafts, promote the ticket, reschedule or finish the action — not when you read them.
+- **Actions** — every action with no date and no project, described below.
+
+Your own recent history is not in the Inbox, because it never needs clearing: it is the **Mine** filter on [Activity](/activity).
+
+## How to clear the Actions tab
 
 An action lands in the Inbox when it has no due date, no scheduled time and no project. It leaves as soon as you give it any of those.
 
@@ -55,7 +65,7 @@ The rail on the right shows today's calendar events from a connected calendar (s
 ## FAQ
 
 **Why is an action with a due date not in my Inbox?**
-The Inbox only holds actions with no date and no project. A dated action is on Today or Upcoming; a project action is on its project's **Tasks** tab.
+The Inbox's **Actions** tab only holds actions with no date and no project. An overdue one shows on **Waiting on me** as well as on Today. A dated action is on Today or Upcoming; a project action is on its project's **Tasks** tab.
 
 **Is there a "this week" or "this month" view?**
 Not as separate tabs. **Upcoming** groups everything after tomorrow by day.

@@ -283,6 +283,8 @@ export async function getActivityFeed(
     limit?: number;
     /** Filter by derived source: `all` (default) | `internal` | a provider. */
     source?: string;
+    /** Only events this user performed (the "Mine" filter). */
+    actorUserId?: string;
   },
 ): Promise<ActivityFeedPage> {
   const limit = Math.max(
@@ -299,6 +301,7 @@ export async function getActivityFeed(
   const where: Prisma.WorkspaceActivityEventWhereInput = {
     workspaceId: args.workspaceId,
     ...sourceWhere(args.source),
+    ...(args.actorUserId ? { userId: args.actorUserId } : {}),
     ...(decoded
       ? {
           OR: [
@@ -369,6 +372,8 @@ export async function getAggregatedActivityFeed(
     limit?: number;
     /** Filter by derived source: `all` (default) | `internal` | a provider. */
     source?: string;
+    /** Only events this user performed (the "Mine" filter). */
+    actorUserId?: string;
   },
 ): Promise<ActivityFeedPage> {
   if (args.workspaceIds.length === 0) {
@@ -385,6 +390,7 @@ export async function getAggregatedActivityFeed(
   const where: Prisma.WorkspaceActivityEventWhereInput = {
     workspaceId: { in: args.workspaceIds },
     ...sourceWhere(args.source),
+    ...(args.actorUserId ? { userId: args.actorUserId } : {}),
     ...(decoded
       ? {
           OR: [
