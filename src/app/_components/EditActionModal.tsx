@@ -52,6 +52,8 @@ interface EditActionModalProps {
    * (/time, /calendar) turn it on.
    */
   showTimeEntries?: boolean;
+  /** Called after the Time section adds, edits or deletes a time entry. */
+  onTimeEntriesChange?: () => void;
 }
 
 export function EditActionModal({
@@ -60,6 +62,7 @@ export function EditActionModal({
   onClose,
   onSuccess,
   showTimeEntries = false,
+  onTimeEntriesChange,
 }: EditActionModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -475,7 +478,7 @@ export function EditActionModal({
         }}
         extraSection={
           showTimeEntries && opened && currentAction ? (
-            <ActionTimeEntries actionId={currentAction.id} />
+            <ActionTimeEntries actionId={currentAction.id} onChange={onTimeEntriesChange} />
           ) : undefined
         }
       />

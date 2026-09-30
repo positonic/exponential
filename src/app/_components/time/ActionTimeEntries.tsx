@@ -44,6 +44,8 @@ function defaultNewRange(): [Date, Date] {
 
 interface ActionTimeEntriesProps {
   actionId: string;
+  /** Called after any piece is added, edited or deleted. */
+  onChange?: () => void;
 }
 
 /**
@@ -54,7 +56,7 @@ interface ActionTimeEntriesProps {
  * edits the Action, not its time. Editing a proposed piece confirms it
  * (ADR-0061), as it does in TimeEntryModal.
  */
-export function ActionTimeEntries({ actionId }: ActionTimeEntriesProps) {
+export function ActionTimeEntries({ actionId, onChange }: ActionTimeEntriesProps) {
   const utils = api.useUtils();
   const { data: entries = [], isLoading } = api.timeEntry.listByAction.useQuery({ actionId });
 
@@ -63,6 +65,7 @@ export function ActionTimeEntries({ actionId }: ActionTimeEntriesProps) {
   const [endedAt, setEndedAt] = useState<Date | null>(null);
 
   const refresh = async () => {
+    onChange?.();
     await Promise.all([
       utils.timeEntry.listByAction.invalidate({ actionId }),
       utils.timeEntry.listByDateRange.invalidate(),
