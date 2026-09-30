@@ -322,6 +322,9 @@ export function TimeEntryModal({
         onSuccess={() => {
           void utils.timeEntry.listByDateRange.invalidate();
         }}
+        // This modal only lives on the time surfaces (/time, /calendar), so
+        // the action editor it opens always shows the Action's time.
+        showTimeEntries
       />
     </>
   );

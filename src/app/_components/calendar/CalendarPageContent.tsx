@@ -550,6 +550,7 @@ export function CalendarPageContent() {
         onSuccess={() => {
           void utils.action.getScheduledByDateRange.invalidate();
         }}
+        showTimeEntries
       />
 
       <TimeEntryModal

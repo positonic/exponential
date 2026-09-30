@@ -435,6 +435,28 @@ export const timeEntryRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * The caller's entries on one Action, newest first — the action editor's
+   * Time section. Scoped to the principal's own rows, so no Action access
+   * check is needed: it can only ever return time the owner logged.
+   */
+  listByAction: apiKeyMiddleware
+    .input(
+      z.object({
+        actionId: z.string(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const principal = await resolveTimeEntryPrincipal(ctx.db, ctx.userId, ctx.tokenType);
+      const service = new TimeEntryService(ctx.db);
+      return service.listByAction({
+        userId: principal.ownerUserId,
+        actionId: input.actionId,
+        limit: input.limit,
+      });
+    }),
+
   listRecent: apiKeyMiddleware
     .input(
       z
