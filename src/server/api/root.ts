@@ -36,6 +36,7 @@ import { matrixGatewayRouter } from "./routers/matrixGateway";
 import { matrixServerRouter } from "./routers/matrixServer";
 import { matrixRoomRouter } from "./routers/matrixRoom";
 import { notificationRouter } from "./routers/notification";
+import { inboxRouter } from "./routers/inbox";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
@@ -139,6 +140,7 @@ export const appRouter = createTRPCRouter({
   matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
   notification: notificationRouter,
+  inbox: inboxRouter,
   pushSubscription: pushSubscriptionRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,

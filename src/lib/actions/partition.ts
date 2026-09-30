@@ -51,6 +51,25 @@ export function overdueAnchor(
 }
 
 /**
+ * The overdue bucket's order: priority first, then oldest debt first, then
+ * id. Exported so a caller that already holds exactly the overdue set (e.g.
+ * from `myOverdueActionsWhere`) can order it without re-bucketing — the
+ * bucketing reads the process's timezone, which on the server is not the
+ * viewer's.
+ */
+export function compareOverdue(
+  a: PartitionableAction,
+  b: PartitionableAction,
+): number {
+  const rank = comparePriorityRank(a, b);
+  if (rank !== 0) return rank;
+  const aAnchor = overdueAnchor(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const bAnchor = overdueAnchor(b)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  if (aAnchor !== bAnchor) return aAnchor - bAnchor;
+  return a.id.localeCompare(b.id);
+}
+
+/**
  * Pure, server-shared partition of a user's actions into the `/today` buckets —
  * the single source of truth for "what counts as today" (ADR-0034).
  *
@@ -135,15 +154,7 @@ export function partitionActions<T extends PartitionableAction>(
     }
   }
 
-  // Overdue: priority first, then oldest debt first, then id.
-  overdue.sort((a, b) => {
-    const rank = comparePriorityRank(a, b);
-    if (rank !== 0) return rank;
-    const aAnchor = overdueAnchor(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const bAnchor = overdueAnchor(b)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    if (aAnchor !== bAnchor) return aAnchor - bAnchor;
-    return a.id.localeCompare(b.id);
-  });
+  overdue.sort(compareOverdue);
   todays.sort(sortByPriority);
   upcoming.sort(sortByPriority);
   inbox.sort(sortByPriority);

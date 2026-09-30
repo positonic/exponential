@@ -2183,7 +2183,9 @@ describe("action router (mocked)", () => {
       expect(counts).toEqual({ inboxCount: 3, todayCount: 5 });
       expect(dbMock.action.findMany).not.toHaveBeenCalled();
       const wheres = dbMock.action.count.mock.calls.map((call) => call[0]?.where);
-      expect(wheres).toContainEqual(expect.objectContaining({ projectId: null, status: "ACTIVE" }));
+      expect(wheres).toContainEqual(
+        expect.objectContaining({ projectId: null, dueDate: null, scheduledStart: null, status: "ACTIVE" }),
+      );
       expect(wheres).toContainEqual(
         expect.objectContaining({ status: "ACTIVE", dueDate: expect.objectContaining({ gte: expect.any(Date) }) }),
       );

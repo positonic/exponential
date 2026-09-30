@@ -4,9 +4,11 @@ import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import { api } from '~/trpc/react';
+import { isInboxAction } from '~/server/services/actions/myActionsWhere';
 
 /**
- * The sidebar's Inbox and Today badge numbers.
+ * The unsorted-actions count (the inbox's Actions tab) and the sidebar's
+ * Today badge.
  *
  * Fetched as two counts (`action.getSidebarCounts`), not by downloading every
  * action on every page. Two things keep the badges as current as they were
@@ -48,7 +50,7 @@ export function useSidebarActionCounts(): {
 
   const inboxFromList =
     allActions.data && allActions.dataUpdatedAt >= counts.dataUpdatedAt
-      ? allActions.data.filter((a) => !a.projectId && a.status === 'ACTIVE').length
+      ? allActions.data.filter(isInboxAction).length
       : undefined;
   const todayFromList =
     todayActions.data && todayActions.dataUpdatedAt >= counts.dataUpdatedAt

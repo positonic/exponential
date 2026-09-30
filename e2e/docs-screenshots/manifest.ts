@@ -50,7 +50,7 @@ export const DOC_SHOTS: DocShot[] = [
   { file: "decisions", path: "/w/{ws}/decisions", waitMs: 6_000 },
   { file: "decision", path: "/w/{ws}/decisions", waitMs: 6_000, prepare: (p) => openFirstLink(p, /\/decisions\/d\//) },
   // Do
-  { file: "inbox", path: "/inbox" },
+  { file: "inbox", path: "/inbox?tab=actions" },
   { file: "today", path: "/today" },
   { file: "time", path: "/time" },
   { file: "daily-plan", path: "/daily-plan" },
