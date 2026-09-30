@@ -1010,6 +1010,52 @@ export interface NotificationEmailParams {
   personalSettingsUrl?: string;
   workspaceSettingsUrl?: string;
   workspaceId?: string;
+  /**
+   * Optional markdown rendering of `message` (the notification's
+   * `metadata.markdown`, ADR-0059). When present the HTML body renders it —
+   * links as linked text, `**bold**` as bold — while the plain-text body keeps
+   * `message` with its bare URLs.
+   */
+  markdown?: string;
+}
+
+const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)\s]*)\)/g;
+const MARKDOWN_BOLD = /\*\*(.+?)\*\*/g;
+const EMAIL_SAFE_HREF = /^(https?:|mailto:)/i;
+
+function boldToHtml(escaped: string): string {
+  return escaped.replace(MARKDOWN_BOLD, "<strong>$1</strong>");
+}
+
+/**
+ * Render the small markdown subset notification digests use — `**bold**`,
+ * `[label](url)` links, `- ` bullets and line breaks — as email HTML.
+ *
+ * The markdown carries user-authored text (action names are themselves
+ * markdown), so every line is escaped before any markup is added. Only
+ * http(s) and mailto links become anchors; anything else (`javascript:` …)
+ * renders as its label. Bold is applied to the text and link labels only,
+ * never inside an `href`.
+ */
+function markdownToEmailHtml(markdown: string): string {
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      // split() with two capture groups yields [text, label, href, text, …].
+      const parts = escapeHtml(line.replace(/^- /, "• ")).split(MARKDOWN_LINK);
+      let html = "";
+      for (let i = 0; i < parts.length; i += 3) {
+        html += boldToHtml(parts[i] ?? "");
+        if (i + 2 >= parts.length) continue;
+        const label = boldToHtml(parts[i + 1] ?? "");
+        const href = parts[i + 2] ?? "";
+        html += EMAIL_SAFE_HREF.test(href)
+          ? `<a href="${href}" target="_blank" style="color: ${EMAIL_BRAND_COLOR}; text-decoration: underline;">${label}</a>`
+          : label;
+      }
+      return html;
+    })
+    .join("<br>");
 }
 
 /**
@@ -1042,6 +1088,7 @@ export function buildNotificationEmail(params: NotificationEmailParams): {
     workspaceName,
     personalSettingsUrl,
     workspaceSettingsUrl,
+    markdown,
   } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
@@ -1055,8 +1102,11 @@ export function buildNotificationEmail(params: NotificationEmailParams): {
   const safeActionUrl = actionUrl ? escapeHtml(actionUrl) : undefined;
   // A notification message can be multi-line prose, so escape first and only
   // then turn the newlines into markup — otherwise it collapses into one
-  // run-on line.
-  const safeMessage = escapeHtml(message).replace(/\r?\n/g, "<br>");
+  // run-on line. A markdown variant, when supplied, gets linked text instead
+  // of bare URLs.
+  const safeMessage = markdown
+    ? markdownToEmailHtml(markdown)
+    : escapeHtml(message).replace(/\r?\n/g, "<br>");
 
   const ctaHtml = safeActionUrl
     ? `
