@@ -2,6 +2,7 @@ import { getSchema, type JSONContent } from "@tiptap/core";
 import { Node as PMNode, type Schema } from "@tiptap/pm/model";
 import { Transform } from "@tiptap/pm/transform";
 import { buildPrdExtensions } from "./extensions";
+import { collectAnchoredThreadIds } from "./thread-reconciliation";
 
 /**
  * Server-side anchoring of comment threads (ADR-0024). A thread's highlight is
@@ -56,6 +57,12 @@ export interface CommentAnchorResult {
 
 /** Characters of context kept on each side of a quote. */
 const CONTEXT_CHARS = 32;
+/** Context characters a re-found quote must match (or half the recorded
+ *  context, when less was recorded) before it's trusted. */
+const MIN_CONTEXT_MATCH = 8;
+/** A quote at least this long is a phrase, not a token like "TBD" — unique,
+ *  it's trusted even where the surrounding text was rewritten. */
+const DISTINCTIVE_QUOTE_CHARS = 12;
 /** Mirrors the client's quote snapshot cap (useAnchoredComments). */
 export const QUOTE_MAX_CHARS = 1000;
 
@@ -137,36 +144,58 @@ function commonPrefixLength(a: string, b: string): number {
   return n;
 }
 
-/** Where `quote` sits in the indexed text: the occurrence whose surroundings
- *  best match its context, the first one on a tie. */
+/**
+ * Where `quote` sits in the indexed text. Each occurrence is scored by how
+ * much of the recorded context matches around it; the best wins, the first on
+ * a tie. An occurrence whose surroundings barely match isn't the quoted text,
+ * just the same words somewhere else ("TBD", "the API"), so it's refused: the
+ * thread orphans honestly rather than silently re-pinning to the wrong place.
+ * A phrase long enough to be distinctive is trusted on its own when it occurs
+ * only once; with no context recorded, nothing else is.
+ */
 function findQuote(index: TextIndex, quote: CommentQuote): { from: number; to: number } | null {
   const { exact } = quote;
+  const prefix = quote.prefix ?? "";
+  const suffix = quote.suffix ?? "";
   if (!exact.trim()) return null;
   let best: { start: number; score: number } | null = null;
+  let occurrences = 0;
   for (let i = index.text.indexOf(exact); i !== -1; i = index.text.indexOf(exact, i + 1)) {
-    const before = index.text.slice(0, i);
-    const after = index.text.slice(i + exact.length);
+    occurrences++;
+    const end = i + exact.length;
     const score =
-      commonSuffixLength(before, quote.prefix ?? "") +
-      commonPrefixLength(after, quote.suffix ?? "");
+      commonSuffixLength(index.text.slice(Math.max(0, i - prefix.length), i), prefix) +
+      commonPrefixLength(index.text.slice(end, end + suffix.length), suffix);
     if (!best || score > best.score) best = { start: i, score };
   }
-  return best ? rangeOf(index, best.start, best.start + exact.length) : null;
+  if (!best) return null;
+  const context = prefix.length + suffix.length;
+  const trusted =
+    (occurrences === 1 && (context === 0 || exact.length >= DISTINCTIVE_QUOTE_CHARS)) ||
+    (context > 0 && best.score >= Math.min(MIN_CONTEXT_MATCH, Math.ceil(context / 2)));
+  return trusted ? rangeOf(index, best.start, best.start + exact.length) : null;
 }
 
 /** The quote for `from..to`, as the client snapshots it, plus context. */
 export function quoteAt(doc: PMNode, from: number, to: number): CommentQuote {
   const index = indexDoc(doc);
-  let start = -1;
-  let end = -1;
-  index.units.forEach((unit, i) => {
-    if (!unit || unit.to <= from || unit.from >= to) return;
-    if (start === -1) start = i;
-    end = i + 1;
-  });
-  if (start === -1) return { exact: "" };
+  const first = index.units.findIndex((unit) => !!unit && unit.to > from && unit.from < to);
+  if (first === -1) return { exact: "" };
+  const exact = doc.textBetween(from, to, " ").slice(0, QUOTE_MAX_CHARS);
+  // Align the context with `exact`, which starts with block separators when
+  // the selection begins at the end of a block, and is cut short for a very
+  // long selection — context taken around the raw selection would never match.
+  let start = first;
+  while (
+    start > 0 &&
+    index.units[start - 1] === null &&
+    index.text.slice(start, start + exact.length) !== exact
+  ) {
+    start--;
+  }
+  const end = start + exact.length;
   return {
-    exact: doc.textBetween(from, to, " ").slice(0, QUOTE_MAX_CHARS),
+    exact,
     prefix: index.text.slice(Math.max(0, start - CONTEXT_CHARS), start),
     suffix: index.text.slice(end, end + CONTEXT_CHARS),
   };
@@ -240,7 +269,10 @@ export function carryCommentMarks(
 ): { doc: JSONContent; carried: string[]; dropped: string[] } {
   const schema = prdSchema();
   const markType = schema.marks.comment;
-  if (!fromJson || !markType) return { doc: toJson, carried: [], dropped: [] };
+  // Most rewrites carry nothing: skip parsing and indexing the old doc then.
+  if (!markType || !docHasCommentMarks(fromJson)) {
+    return { doc: toJson, carried: [], dropped: [] };
+  }
   const from = PMNode.fromJSON(schema, fromJson);
   const fromIndex = indexDoc(from);
 
@@ -298,11 +330,9 @@ export function carryCommentMarks(
   };
 }
 
-/** True when the document holds at least one `comment` mark. */
-export function docHasCommentMarks(docJson: JSONContent | null | undefined): boolean {
-  if (!docJson) return false;
-  const walk = (node: JSONContent): boolean =>
-    (node.marks ?? []).some((m) => m.type === "comment") ||
-    (node.content ?? []).some(walk);
-  return walk(docJson);
+/** True when the document holds at least one thread's `comment` mark. */
+export function docHasCommentMarks(
+  docJson: JSONContent | null | undefined,
+): docJson is JSONContent {
+  return collectAnchoredThreadIds(docJson).size > 0;
 }

@@ -99,6 +99,12 @@ describe("anchorThread", () => {
     expect(collectAnchoredThreadIds(out.content![1])).toEqual(new Set(["t1"]));
   });
 
+  it("trusts a quote with no recorded context only when it is unique", () => {
+    const repeated = doc(para(text("agent one, agent two")));
+    expect(anchorThread(repeated, "t1", { exact: "agent" })).toBeNull();
+    expect(anchorThread(repeated, "t1", { exact: "agent one" })).not.toBeNull();
+  });
+
   it("returns null when the quoted text is gone", () => {
     expect(anchorThread(CLEAR, "t1", { exact: "deleted words" })).toBeNull();
   });
@@ -112,6 +118,23 @@ describe("anchorThread", () => {
     const twoParas = doc(para(text("end of one")), para(text("start of two")));
     const out = anchorThread(twoParas, "t1", { exact: "one start" });
     expect(out && markedText(out)).toEqual({ t1: "onestart" });
+  });
+});
+
+describe("quoteAt", () => {
+  it("aligns the context with a quote that starts at a block's end", () => {
+    const json = doc(para(text("alpha")), para(text("beta gamma")));
+    const node = PMNode.fromJSON(schema, json);
+    // From the very end of "alpha" to the end of "beta".
+    const from = 1 + "alpha".length;
+    const to = rangeOf(json, "beta").to;
+    const quote = quoteAt(node, from, to);
+    expect(quote.exact).toBe(" beta");
+    expect(quote.prefix).toBe("alpha");
+    expect(quote.suffix).toBe(" gamma");
+    // So the context actually scores when the quote is re-found.
+    const out = anchorThread(json, "t1", quote);
+    expect(out && markedText(out)).toEqual({ t1: "beta" });
   });
 });
 
@@ -138,15 +161,15 @@ describe("carryCommentMarks", () => {
     expect(markedText(res.doc)).toEqual({ t1: "Agent navigation" });
   });
 
-  it("drops a thread whose text was removed, keeping the rest", () => {
+  it("drops a thread whose text was removed, keeping a distinctive phrase whose context changed", () => {
     const before = doc(
-      para(text("keep me", ["keep"]), text(" and "), text("lose me", ["lose"])),
+      para(text("keep this sentence", ["keep"]), text(" and "), text("lose me", ["lose"])),
     );
-    const after = doc(para(text("keep me and something else")));
+    const after = doc(para(text("keep this sentence, then something else")));
     const res = carryCommentMarks(before, after);
     expect(res.carried).toEqual(["keep"]);
     expect(res.dropped).toEqual(["lose"]);
-    expect(markedText(res.doc)).toEqual({ keep: "keep me" });
+    expect(markedText(res.doc)).toEqual({ keep: "keep this sentence" });
   });
 
   it("carries a run split across text nodes by another mark", () => {
@@ -169,6 +192,19 @@ describe("carryCommentMarks", () => {
       t1: "shared",
       t2: "shared b",
     });
+  });
+
+  it("orphans a short quote rather than re-pinning it to the same words elsewhere", () => {
+    // The pricing line is deleted; a different "TBD" survives the rewrite.
+    const before = doc(
+      para(text("Pricing: "), text("TBD", ["pricing"])),
+      para(text("Rollout plan: TBD by legal")),
+    );
+    const after = doc(para(text("Rollout plan: TBD by legal")));
+    const res = carryCommentMarks(before, after);
+    expect(res.carried).toEqual([]);
+    expect(res.dropped).toEqual(["pricing"]);
+    expect(docHasCommentMarks(res.doc)).toBe(false);
   });
 
   it("passes the new doc through when the old one had no marks", () => {
