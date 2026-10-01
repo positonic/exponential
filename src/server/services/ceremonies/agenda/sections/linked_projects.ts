@@ -14,8 +14,9 @@
  * `includeProjects` on and whose template does not already place it.
  */
 import type { Ceremony, Prisma } from "@prisma/client";
-import { describeDriProject, describeNextAction, driProjectPath, loadProjectStates, nextActionLabel } from "~/server/services/projects/driProjects";
+import { describeDriProject, describeNextAction, driProjectPath, loadProjectStates } from "~/server/services/projects/driProjects";
 import type { AgendaItem, SectionModule } from "../types";
+import { projectCardLines } from "./projectCard";
 
 const MAX_PROJECTS = 25;
 
@@ -56,7 +57,6 @@ export const linkedProjectsSection: SectionModule = {
       const named = p.dri?.name?.trim();
       const driName = p.dri ? (named ? named : "unnamed") : null;
       const dri = driName ? `DRI ${driName}` : "no DRI";
-      const next = nextActionLabel(p, now);
       items.push({
         id: `${section.key}:project:${p.id}`,
         sectionKey: section.key,
@@ -68,8 +68,7 @@ export const linkedProjectsSection: SectionModule = {
         order: items.length,
         detail: [dri, describeNextAction(p, now), describeDriProject(p, now)].join(" · "),
         owner: driName ?? "no DRI",
-        lines: [next ? `Next: ${next}` : "No next action", describeDriProject(p, now)],
-        needsAttention: p.needsAttention,
+        lines: projectCardLines(p, now),
         href: driProjectPath(p),
       });
     }

@@ -4,8 +4,9 @@
  * one-line state the Daily summary prints (`describeDriProject`). Rolls up
  * to the project's first objective for the goal chip.
  */
-import { describeDriProject, describeNextAction, driProjectPath, loadDriProjectStates, nextActionLabel } from "~/server/services/projects/driProjects";
+import { describeDriProject, describeNextAction, driProjectPath, loadDriProjectStates } from "~/server/services/projects/driProjects";
 import type { AgendaItem, SectionModule } from "../types";
+import { projectCardLines } from "./projectCard";
 import { briefPeople, personPrefix } from "./dailyBrief";
 
 export const driProjectsSection: SectionModule = {
@@ -28,7 +29,6 @@ export const driProjectsSection: SectionModule = {
         for (const p of g.projects) if (!goalByProject.has(p.id)) goalByProject.set(p.id, { id: g.id, title: g.title });
       }
       for (const p of states) {
-        const next = nextActionLabel(p, now);
         const goal = goalByProject.get(p.id) ?? null;
         items.push({
           id: `${section.key}:project:${p.id}`,
@@ -40,8 +40,7 @@ export const driProjectsSection: SectionModule = {
           goalTitle: goal?.title ?? null,
           order: items.length,
           detail: `${describeNextAction(p, now)} · ${describeDriProject(p, now)}`,
-          lines: [next ? `Next: ${next}` : "No next action", describeDriProject(p, now)],
-          needsAttention: p.needsAttention,
+          lines: projectCardLines(p, now),
           href: driProjectPath(p),
         });
       }

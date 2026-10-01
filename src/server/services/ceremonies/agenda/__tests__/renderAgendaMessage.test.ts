@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { colorTokens } from "~/styles/colors";
 import { renderAgendaMessage } from "../renderAgendaMessage";
 import type { AgendaItem, AgendaSection, AgendaSnapshot } from "../types";
 
@@ -11,35 +12,52 @@ const project = (over: Partial<AgendaItem>) =>
     refType: "project",
     title: "⚠️ Launch",
     owner: "James Farrell",
-    lines: ["Next: Write the post (overdue, 26 Sept)", "0% · 3 open, 2 overdue · ended 29 Sept"],
-    needsAttention: true,
+    lines: [
+      [{ text: "Next: " }, { text: "Write the post", href: "/w/acme/actions/a1" }, { text: " (overdue, 26 Sept)" }],
+      [{ text: "3 open, 2 overdue" }, { text: " · " }, { text: "ended 29 Sept", warn: true }],
+    ],
     href: "/w/acme/projects/launch-p1",
     detail: "DRI James Farrell · next: Write the post (overdue, 26 Sept) · 0% · 3 open, 2 overdue · ended 29 Sept",
     ...over,
   });
 
+const red = colorTokens.dark.brand.error;
+
 const render = (sections: AgendaSection[], url = "https://app.test/w/acme/ceremonies/c/o") =>
   renderAgendaMessage({ ceremonyName: "Leadership Weekly", when: "Fri 2 Oct, 15:30", agenda: snapshot(sections), url, baseUrl: "https://app.test" });
 
 describe("renderAgendaMessage", () => {
-  it("opens with a title and a summary that counts the items needing attention", () => {
-    const { html, text } = render([
-      section({ key: "p", type: "linked_projects", title: "Projects", items: [project({ id: "a" }), project({ id: "b", title: "Calm", needsAttention: false })] }),
-    ]);
-    expect(html).toContain("<h4>🗓️ Leadership Weekly</h4>");
-    expect(html).toContain("<p>Agenda for Fri 2 Oct, 15:30 · 2 items · ⚠️ 1 needs attention</p>");
-    expect(text.split("\n").slice(0, 2)).toEqual(["🗓️ Leadership Weekly", "Agenda for Fri 2 Oct, 15:30 · 2 items · ⚠️ 1 needs attention"]);
+  it("opens with the title and the date, and no item counts", () => {
+    const { html, text } = render([section({ key: "p", type: "linked_projects", title: "Projects", items: [project({})] })]);
+    expect(html.startsWith("<h4>🗓️ Leadership Weekly</h4><p>Agenda for Fri 2 Oct, 15:30<br/><br/><strong>📁 Projects</strong><br/><br/>")).toBe(true);
+    expect(text.startsWith("🗓️ Leadership Weekly\n\nAgenda for Fri 2 Oct, 15:30\n\n📁 Projects\n\n")).toBe(true);
+    expect(html).not.toMatch(/\d+ items?/);
+    expect(html).not.toContain("need attention");
   });
 
-  it("renders a project as a card: linked name and owner, then each line on its own", () => {
+  it("renders a project as a card: linked name and owner, a linked next action, flagged past dates", () => {
     const { html, text } = render([section({ key: "p", type: "linked_projects", title: "Projects", items: [project({})] })]);
-    expect(html).toContain("<h5>📁 Projects</h5>");
     expect(html).toContain(
-      '<p><strong><a href="https://app.test/w/acme/projects/launch-p1">⚠️ Launch</a></strong> — James Farrell<br/>Next: Write the post (overdue, 26 Sept)<br/><em>0% · 3 open, 2 overdue · ended 29 Sept</em></p>',
+      '<strong><a href="https://app.test/w/acme/projects/launch-p1">⚠️ Launch</a></strong> — James Farrell<br/>' +
+        'Next: <a href="https://app.test/w/acme/actions/a1">Write the post</a> (overdue, 26 Sept)<br/>' +
+        `<em>3 open, 2 overdue · <font color="${red}" data-mx-color="${red}">⚠️ ended 29 Sept</font></em>`,
     );
-    expect(text).toContain("⚠️ Launch — James Farrell\n   Next: Write the post (overdue, 26 Sept)\n   0% · 3 open, 2 overdue · ended 29 Sept");
-    // The one-line `detail` is the app's; the card does not repeat it.
-    expect(text).not.toContain("DRI James Farrell ·");
+    expect(text).toContain("⚠️ Launch — James Farrell\n   Next: Write the post (overdue, 26 Sept)\n   3 open, 2 overdue · ⚠️ ended 29 Sept");
+    // The one-line `detail` is the app's; the card does not repeat it, percentage and all.
+    expect(text).not.toContain("0%");
+  });
+
+  it("puts a blank line between cards", () => {
+    const { html, text } = render([
+      section({ key: "p", type: "linked_projects", title: "Projects", items: [project({ id: "a" }), project({ id: "b", title: "Calm" })] }),
+    ]);
+    expect(html).toContain('ended 29 Sept</font></em><br/><br/><strong><a href="https://app.test/w/acme/projects/launch-p1">Calm</a>');
+    expect(text).toContain("⚠️ ended 29 Sept\n\nCalm — James Farrell");
+  });
+
+  it("still renders a card whose lines are plain strings, from a snapshot written before spans", () => {
+    const { html } = render([section({ type: "linked_projects", items: [project({ lines: ["Next: Old line", "0% · 1 open"] })] })]);
+    expect(html).toContain("<br/>Next: Old line<br/><em>0% · 1 open</em>");
   });
 
   it("folds empty sections into one line after the content instead of a heading each", () => {
@@ -49,13 +67,13 @@ describe("renderAgendaMessage", () => {
       section({ key: "c", type: "decisions_pending", title: "Decisions pending", items: [item({ title: "Pick a vendor" })] }),
     ]);
     expect(html).not.toContain("Nothing to raise");
-    expect(html).toContain("<h5>⚖️ Decisions pending</h5><ul><li>Pick a vendor</li></ul>");
+    expect(html).toContain("<strong>⚖️ Decisions pending</strong><br/><br/>• Pick a vendor<br/><br/>");
     expect(html.indexOf("Pick a vendor")).toBeLessThan(html.indexOf("💤"));
     expect(text).toContain("💤 Nothing raised yet for Discussion points and What's next?.");
     expect(render([section({})]).text).toContain("💤 Nothing on the agenda yet.");
   });
 
-  it("shows minutes, carried-over and resolved items on plain bullets", () => {
+  it("shows minutes, carried-over and resolved items on plain bullets, a line each", () => {
     const { html, text } = render([
       section({
         type: "blockers",
@@ -67,12 +85,9 @@ describe("renderAgendaMessage", () => {
         ],
       }),
     ]);
-    expect(html).toContain("<h5>🚧 Blockers · 10 min</h5>");
-    expect(html).toContain("<li>Fix login <em>— due 2 Oct · ↩️ carried over</em></li>");
-    expect(html).toContain("<li><del>Ship it</del></li>");
-    expect(text).toContain("• Ship it (done)");
-    // A resolved item is not one to get through.
-    expect(html).toContain("<p>Agenda for Fri 2 Oct, 15:30 · 1 item</p>");
+    expect(html).toContain("<strong>🚧 Blockers · 10 min</strong>");
+    expect(html).toContain("• Fix login <em>— due 2 Oct · ↩️ carried over</em><br/>• <del>Ship it</del>");
+    expect(text).toContain("• Fix login — due 2 Oct · ↩️ carried over\n• Ship it (done)");
   });
 
   it("escapes record text so a record title cannot post a live link or markup", () => {
@@ -90,7 +105,7 @@ describe("renderAgendaMessage", () => {
     const { html, text } = render([
       section({ items: [item({ title: "Review our [projects](https://app.test/w/x/projects)", addedByUserId: "u-1" })] }),
     ]);
-    expect(html).toContain('<li>Review our <a href="https://app.test/w/x/projects">projects</a></li>');
+    expect(html).toContain('• Review our <a href="https://app.test/w/x/projects">projects</a>');
     expect(text).toContain("• Review our projects (https://app.test/w/x/projects)");
   });
 
@@ -102,6 +117,6 @@ describe("renderAgendaMessage", () => {
       url: "/w/acme/ceremonies/c/o",
     });
     expect(relative.html).not.toContain("<a ");
-    expect(relative.html).toContain("<p>🔗 /w/acme/ceremonies/c/o</p>");
+    expect(relative.html).toContain("🔗 /w/acme/ceremonies/c/o</p>");
   });
 });

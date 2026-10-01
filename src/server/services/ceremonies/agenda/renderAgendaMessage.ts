@@ -6,20 +6,25 @@
  * ⚠️ attention flags (its prompt forbids emoji) and opens with a sentence of
  * filler. The narrative stays the pre-read on the occurrence page.
  *
- * Layout, top to bottom: a title and one line of what the meeting holds;
- * each section with items under a heading with its icon; a project-like item
- * (one with an owner or extra lines) as a short card of its own, everything
- * else as a bullet; the empty sections folded into a single line at the end,
- * so "Nothing to raise." never pushes the content below the fold; the link.
+ * Layout, top to bottom: the title and the date; each section with items
+ * under a heading with its icon; a project-like item (one with an owner or
+ * extra lines) as a short card of its own, everything else as a bullet; the
+ * empty sections folded into a single line at the end, so "Nothing to
+ * raise." never pushes the content below the fold; the link.
+ *
+ * Spacing is line breaks, not paragraphs: Element X sets paragraphs flush
+ * against each other, so everything after the title is one paragraph with a
+ * blank line (`<br/><br/>`) between sections and between cards.
  *
  * Record-derived text (Action names, project names, Decision statements) is
  * HTML-escaped and never parsed as Markdown, so a record titled
  * `[Approve](https://evil.example)` cannot make the bot post a live link.
- * Only text the code itself authors carries links — and a hand-added item,
+ * Only links the code itself builds are live — and a hand-added item's,
  * which a workspace member wrote for this agenda as Markdown (ADR-0017).
  */
 import { escapeHtml, inlineMarkdownToHtml, stripInlineMarkdown } from "~/server/services/matrix/renderMeetingSummary";
-import type { AgendaItem, AgendaSection, AgendaSnapshot } from "./types";
+import { colorTokens } from "~/styles/colors";
+import type { AgendaItem, AgendaItemLine, AgendaSection, AgendaSnapshot } from "./types";
 
 export interface RenderedAgenda {
   html: string;
@@ -48,6 +53,16 @@ const SECTION_ICON: Record<string, string> = {
   time_today: "⏱️",
 };
 
+/**
+ * Red for a date that has passed, as Matrix's own colour attribute
+ * (`data-mx-color`) plus `color` for older clients. The dark theme's error
+ * red: chat clients mostly run dark, and it still reads on a light one.
+ */
+const WARN_COLOR = colorTokens.dark.brand.error;
+
+const BREAK = "<br/>";
+const BLANK = "<br/><br/>";
+
 function sectionHeading(section: AgendaSection): string {
   const icon = SECTION_ICON[section.type];
   const minutes = section.minutes ? ` · ${section.minutes} min` : "";
@@ -67,11 +82,12 @@ function absoluteHref(baseUrl: string, href: string | null | undefined): string 
   return `${baseUrl.replace(/\/+$/, "")}${href.startsWith("/") ? href : `/${href}`}`;
 }
 
+const anchor = (href: string | null, inner: string) => (href ? `<a href="${escapeHtml(href)}">${inner}</a>` : inner);
+
 /** The item's title as HTML: Markdown for a person's own item, escaped text for a record's. */
 function titleHtml(item: AgendaItem, baseUrl: string): string {
   const title = item.addedByUserId ? inlineMarkdownToHtml(escapeHtml(item.title.trim())) : escapeHtml(item.title.trim());
-  const link = item.addedByUserId ? null : absoluteHref(baseUrl, item.href);
-  const linked = link ? `<a href="${escapeHtml(link)}">${title}</a>` : title;
+  const linked = item.addedByUserId ? title : anchor(absoluteHref(baseUrl, item.href), title);
   return item.resolvedAt ? `<del>${linked}</del>` : linked;
 }
 
@@ -81,26 +97,43 @@ function titleText(item: AgendaItem): string {
 
 const carriedNote = (item: AgendaItem) => (item.carriedFromOccurrenceId ? "↩️ carried over" : null);
 
+/** The card's lines; a snapshot from before lines carried spans has plain strings. */
+function cardLines(item: AgendaItem): AgendaItemLine[] {
+  const lines = item.lines ?? (item.detail ? [item.detail] : []);
+  const out = lines.map((line) => (typeof line === "string" ? [{ text: line }] : line));
+  const note = carriedNote(item);
+  if (note) out.push([{ text: note }]);
+  return out;
+}
+
+function lineHtml(line: AgendaItemLine, baseUrl: string): string {
+  return line
+    .map((span) => {
+      const text = escapeHtml(span.warn ? `⚠️ ${span.text}` : span.text);
+      const linked = anchor(absoluteHref(baseUrl, span.href), text);
+      return span.warn ? `<font color="${WARN_COLOR}" data-mx-color="${WARN_COLOR}">${linked}</font>` : linked;
+    })
+    .join("");
+}
+
+const lineText = (line: AgendaItemLine) => line.map((span) => (span.warn ? `⚠️ ${span.text}` : span.text)).join("");
+
 function cardHtml(item: AgendaItem, baseUrl: string): string {
   const head = `<strong>${titleHtml(item, baseUrl)}</strong>${item.owner ? ` — ${escapeHtml(item.owner)}` : ""}`;
-  const lines = (item.lines ?? (item.detail ? [item.detail] : [])).map((l) => escapeHtml(l));
-  const note = carriedNote(item);
-  if (note) lines.push(note);
-  // The last line is the numbers; muted so the next step reads first.
+  const lines = cardLines(item).map((line) => lineHtml(line, baseUrl));
+  // The last line is the counts and dates; muted so the next step reads first.
   const body = lines.map((l, i) => (i === lines.length - 1 && lines.length > 1 ? `<em>${l}</em>` : l));
-  return `<p>${[head, ...body].join("<br/>")}</p>`;
+  return [head, ...body].join(BREAK);
 }
 
 function cardText(item: AgendaItem): string {
   const head = `${titleText(item)}${item.owner ? ` — ${item.owner}` : ""}`;
-  const lines = item.lines ?? (item.detail ? [item.detail] : []);
-  const note = carriedNote(item);
-  return [head, ...lines, ...(note ? [note] : [])].map((l, i) => (i === 0 ? l : `   ${l}`)).join("\n");
+  return [head, ...cardLines(item).map((line) => `   ${lineText(line)}`)].join("\n");
 }
 
 function bulletHtml(item: AgendaItem, baseUrl: string): string {
   const extras = [item.detail ? escapeHtml(item.detail) : null, carriedNote(item)].filter(Boolean).join(" · ");
-  return `<li>${titleHtml(item, baseUrl)}${extras ? ` <em>— ${extras}</em>` : ""}</li>`;
+  return `• ${titleHtml(item, baseUrl)}${extras ? ` <em>— ${extras}</em>` : ""}`;
 }
 
 function bulletText(item: AgendaItem): string {
@@ -109,33 +142,27 @@ function bulletText(item: AgendaItem): string {
   return `• ${title}${extras ? ` — ${extras}` : ""}`;
 }
 
-/** The section's items: cards for project-like items, one list for the rest, in item order. */
-function sectionBodyHtml(items: AgendaItem[], baseUrl: string): string {
-  const out: string[] = [];
-  let bullets: string[] = [];
+/**
+ * A section's items, in order: each card a block of its own with a blank
+ * line around it; consecutive bullets one block, a line each.
+ */
+function sectionBlocks<T>(items: AgendaItem[], card: (i: AgendaItem) => T, bullet: (i: AgendaItem) => T): Array<T | T[]> {
+  const out: Array<T | T[]> = [];
+  let bullets: T[] = [];
   const flush = () => {
-    if (bullets.length) out.push(`<ul>${bullets.join("")}</ul>`);
+    if (bullets.length) out.push(bullets);
     bullets = [];
   };
   for (const item of items) {
     if (isCard(item)) {
       flush();
-      out.push(cardHtml(item, baseUrl));
+      out.push(card(item));
     } else {
-      bullets.push(bulletHtml(item, baseUrl));
+      bullets.push(bullet(item));
     }
   }
   flush();
-  return out.join("");
-}
-
-function summaryLine(when: string, sections: AgendaSection[]): string {
-  const items = sections.flatMap((s) => s.items).filter((i) => !i.resolvedAt);
-  const attention = items.filter((i) => i.needsAttention).length;
-  const parts = [`Agenda for ${when}`];
-  if (items.length > 0) parts.push(`${items.length} item${items.length === 1 ? "" : "s"}`);
-  if (attention > 0) parts.push(`⚠️ ${attention} need${attention === 1 ? "s" : ""} attention`);
-  return parts.join(" · ");
+  return out;
 }
 
 export function renderAgendaMessage(input: {
@@ -151,7 +178,7 @@ export function renderAgendaMessage(input: {
   const filled = input.agenda.sections.filter((s) => s.items.length > 0);
   const empty = input.agenda.sections.filter((s) => s.items.length === 0);
   const title = `🗓️ ${input.ceremonyName}`;
-  const summary = summaryLine(input.when, input.agenda.sections);
+  const dateLine = `Agenda for ${input.when}`;
   const emptyLine =
     filled.length === 0
       ? "💤 Nothing on the agenda yet."
@@ -160,19 +187,28 @@ export function renderAgendaMessage(input: {
         : null;
   const link = /^https?:\/\//.test(input.url);
 
-  const html: string[] = [`<h4>${escapeHtml(title)}</h4>`, `<p>${escapeHtml(summary)}</p>`];
-  const text: string[] = [title, summary];
+  const htmlBlocks: string[] = [escapeHtml(dateLine)];
+  const textBlocks: string[] = [dateLine];
   for (const section of filled) {
     const heading = sectionHeading(section);
-    html.push(`<h5>${escapeHtml(heading)}</h5>`, sectionBodyHtml(section.items, baseUrl));
-    text.push("", heading, ...section.items.map((item) => (isCard(item) ? cardText(item) : bulletText(item))));
+    htmlBlocks.push(`<strong>${escapeHtml(heading)}</strong>`);
+    textBlocks.push(heading);
+    for (const block of sectionBlocks(section.items, (i) => cardHtml(i, baseUrl), (i) => bulletHtml(i, baseUrl))) {
+      htmlBlocks.push(Array.isArray(block) ? block.join(BREAK) : block);
+    }
+    for (const block of sectionBlocks(section.items, cardText, bulletText)) {
+      textBlocks.push(Array.isArray(block) ? block.join("\n") : block);
+    }
   }
   if (emptyLine) {
-    html.push(`<p><em>${escapeHtml(emptyLine)}</em></p>`);
-    text.push("", emptyLine);
+    htmlBlocks.push(`<em>${escapeHtml(emptyLine)}</em>`);
+    textBlocks.push(emptyLine);
   }
-  html.push(link ? `<p>🔗 <a href="${escapeHtml(input.url)}">Open the agenda in Exponential</a></p>` : `<p>🔗 ${escapeHtml(input.url)}</p>`);
-  text.push("", `🔗 Open the agenda: ${input.url}`);
+  htmlBlocks.push(link ? `🔗 <a href="${escapeHtml(input.url)}">Open the agenda in Exponential</a>` : `🔗 ${escapeHtml(input.url)}`);
+  textBlocks.push(`🔗 Open the agenda: ${input.url}`);
 
-  return { html: html.join(""), text: text.join("\n") };
+  return {
+    html: `<h4>${escapeHtml(title)}</h4><p>${htmlBlocks.join(BLANK)}</p>`,
+    text: [title, ...textBlocks].join("\n\n"),
+  };
 }
