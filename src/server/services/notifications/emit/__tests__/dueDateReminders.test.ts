@@ -29,6 +29,7 @@ function action(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   mockReset(db);
   vi.clearAllMocks();
+  db.notificationPreference.findMany.mockResolvedValue([]);
 });
 
 describe("generateDueDateReminders", () => {
@@ -80,9 +81,9 @@ describe("generateDueDateReminders", () => {
     // Owner configured only the 60-min offset; the action is due in 5 min, so
     // that offset's reminder time is 55 min in the past (outside the lookback
     // window) and must not be belatedly fired.
-    db.notificationPreference.findUnique.mockResolvedValue({
-      reminderMinutesBefore: [60],
-    } as never);
+    db.notificationPreference.findMany.mockResolvedValue([
+      { userId: "assignee1", reminderMinutesBefore: [60] },
+    ] as never);
     db.action.findMany.mockResolvedValue([action({ dueDate: inMinutes(5) })] as never);
 
     const result = await generateDueDateReminders(db, NOW);
@@ -93,9 +94,9 @@ describe("generateDueDateReminders", () => {
 
   it("uses the owner's configured reminderMinutesBefore offsets", async () => {
     // Owner wants a single 30-min reminder; action due in 30 min → fires it.
-    db.notificationPreference.findUnique.mockResolvedValue({
-      reminderMinutesBefore: [30],
-    } as never);
+    db.notificationPreference.findMany.mockResolvedValue([
+      { userId: "assignee1", reminderMinutesBefore: [30] },
+    ] as never);
     db.action.findMany.mockResolvedValue([action({ dueDate: inMinutes(30) })] as never);
 
     await generateDueDateReminders(db, NOW);
@@ -120,5 +121,37 @@ describe("generateDueDateReminders", () => {
         subject: expect.objectContaining({ workspaceId: "ws2", workspaceSlug: "beta" }),
       }),
     );
+  });
+
+  it("only scans actions due within one lookback window of an offset in use", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([
+      { userId: "assignee1", reminderMinutesBefore: [30] },
+    ] as never);
+    db.action.findMany.mockResolvedValue([] as never);
+
+    await generateDueDateReminders(db, NOW);
+
+    const where = db.action.findMany.mock.calls[0]?.[0]?.where;
+    // The defaults (15, 60, 1440) plus the configured 30, each a 15-min slice.
+    expect(where?.OR).toEqual(
+      expect.arrayContaining([
+        { dueDate: { gt: inMinutes(30 - 15), lte: inMinutes(30) } },
+        { dueDate: { gt: inMinutes(1440 - 15), lte: inMinutes(1440) } },
+      ]),
+    );
+    expect(where?.OR).toHaveLength(4);
+  });
+
+  it("loads every owner's offsets in one query, however many owners there are", async () => {
+    db.action.findMany.mockResolvedValue([
+      action({ id: "a1", assignees: [{ userId: "u1" }, { userId: "u2" }] }),
+      action({ id: "a2", assignees: [{ userId: "u3" }] }),
+    ] as never);
+
+    const result = await generateDueDateReminders(db, NOW);
+
+    expect(db.notificationPreference.findMany).toHaveBeenCalledTimes(1);
+    expect(db.notificationPreference.findUnique).not.toHaveBeenCalled();
+    expect(result.emitted).toBe(3);
   });
 });
