@@ -23,7 +23,6 @@ import {
   IconTargetArrow,
   IconUser,
 } from "@tabler/icons-react";
-import { notifications } from "@mantine/notifications";
 import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -33,6 +32,7 @@ import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { TicketDependenciesSection, BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
+import { useTicketPropertyMutations } from "~/app/_components/product/useTicketPropertyMutations";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
 import { ActivityFilterMenu, useActivityFilter } from "~/app/_components/shared/ActivityFilterMenu";
@@ -86,73 +86,16 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
     { enabled: !!workspaceId },
   );
 
-  const invalidate = async () => {
-    await utils.product.ticket.getById.invalidate({ id: ticketId });
-    await utils.product.ticket.listEvents.invalidate({ id: ticketId });
-    if (ticket?.product.id) {
-      await utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id });
-    }
-  };
-
-  // Optimistic single-field patches: pill edits land instantly in the cached
-  // getById (relations rebuilt from the already-loaded option lists), roll
-  // back on error, reconcile with a background refetch on settle.
-  const updateTicket = api.product.ticket.update.useMutation({
-    onMutate: async (vars) => {
-      await utils.product.ticket.getById.cancel({ id: ticketId });
-      const prev = utils.product.ticket.getById.getData({ id: ticketId });
-      if (prev) {
-        const next = { ...prev };
-        if (vars.title !== undefined) next.title = vars.title;
-        if (vars.status !== undefined) next.status = vars.status;
-        if (vars.type !== undefined) next.type = vars.type;
-        if (vars.priority !== undefined) next.priority = vars.priority ?? null;
-        if (vars.points !== undefined) next.points = vars.points ?? null;
-        if (vars.assigneeId !== undefined) {
-          const m = (workspace?.members ?? []).find(
-            (x: { user: { id: string } }) => x.user.id === vars.assigneeId,
-          );
-          next.assigneeId = vars.assigneeId ?? null;
-          next.assignee =
-            vars.assigneeId && m
-              ? { id: m.user.id, name: m.user.name, email: m.user.email ?? null, image: m.user.image ?? null }
-              : null;
-        }
-        if (vars.featureId !== undefined) {
-          const f = (features ?? []).find((x) => x.id === vars.featureId);
-          next.featureId = vars.featureId ?? null;
-          next.feature = vars.featureId && f ? { id: f.id, name: f.name, status: f.status } : null;
-        }
-        if (vars.epicId !== undefined) {
-          const e = (epics ?? []).find((x) => x.id === vars.epicId);
-          next.epicId = vars.epicId ?? null;
-          next.epic = vars.epicId && e ? { id: e.id, name: e.name, status: e.status } : null;
-        }
-        if (vars.cycleId !== undefined) {
-          const c = (cycles ?? []).find((x) => x.id === vars.cycleId);
-          next.cycleId = vars.cycleId ?? null;
-          next.cycle =
-            vars.cycleId && c
-              ? { id: c.id, name: c.name, startDate: c.startDate, endDate: c.endDate }
-              : null;
-        }
-        utils.product.ticket.getById.setData({ id: ticketId }, next);
-      }
-      return { prev };
-    },
-    onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) {
-        utils.product.ticket.getById.setData({ id: ticketId }, mctx.prev);
-      }
-      notifications.show({
-        title: "Update failed",
-        message: "Your change was not saved. Please try again.",
-        color: "red",
-      });
-    },
-    onSettled: invalidate,
+  // Pill edits land instantly in the cached getById, roll back on error, and
+  // reconcile with a background refetch on settle.
+  const { setTicketTags, setField } = useTicketPropertyMutations(ticketId, {
+    productId: ticket?.product.id,
+    members: workspace?.members ?? [],
+    features,
+    epics,
+    cycles,
+    tags: tags?.allTags,
   });
-  const setTicketTags = api.tag.setTicketTags.useMutation({ onSuccess: invalidate });
   const createTag = api.tag.create.useMutation({
     onSuccess: async (newTag) => {
       await utils.tag.list.invalidate();
@@ -160,10 +103,6 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
       setTicketTags.mutate({ ticketId, tagIds: [...currentIds, newTag.id] });
     },
   });
-
-  const setField = (field: string, value: unknown) => {
-    updateTicket.mutate({ id: ticketId, [field]: value });
-  };
 
   const [titleValue, setTitleValue] = useState("");
   // Esc-cancel guard: blur() fires before the revert setState applies (see
@@ -534,7 +473,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
           ticketId={ticketId}
           actions={ticket.actions ?? []}
           workspaceId={workspaceId}
-          onChanged={() => void invalidate()}
+          onChanged={() => void utils.product.ticket.getById.invalidate({ id: ticketId })}
         />
       </div>
 
