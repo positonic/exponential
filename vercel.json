@@ -1,6 +1,7 @@
 {
   "installCommand": "npm install",
   "buildCommand": "npm run build",
+  "regions": ["sfo1"],
   "crons": [
     {
       "path": "/api/cron/daily-plan-reminder",
