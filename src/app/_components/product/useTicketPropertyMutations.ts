@@ -28,7 +28,9 @@ interface TicketPropertyLookups {
  * the server round trip. Rolls back on error; reconciles with one background
  * refetch once the LAST in-flight edit settles - invalidating after each one
  * let an early refetch paint a stale value over a later edit (typing "13"
- * into Effort flashed back to "1").
+ * into Effort flashed back to "1"). Edits share a per-ticket mutation scope
+ * so they still reach the server in the order they were made: the UI updates
+ * at once, but an Effort of "1" can't commit after the "13" typed over it.
  *
  * Shared by the ticket detail page and the Backlog peek drawer.
  */
@@ -37,11 +39,15 @@ export function useTicketPropertyMutations(
   lookups: TicketPropertyLookups,
 ) {
   const utils = api.useUtils();
-  const inFlight = useRef(0);
+  // Keyed by ticket: the detail page's nav arrows swap tickets without
+  // remounting, and an edit still in flight on the previous ticket must not
+  // suppress (or be suppressed by) the next ticket's reconcile.
+  const inFlight = useRef(new Map<string, number>());
+  const scope = { id: `ticket-properties:${ticketId}` };
 
   const snapshot = async () => {
+    inFlight.current.set(ticketId, (inFlight.current.get(ticketId) ?? 0) + 1);
     await utils.product.ticket.getById.cancel({ id: ticketId });
-    inFlight.current += 1;
     return utils.product.ticket.getById.getData({ id: ticketId });
   };
 
@@ -55,8 +61,12 @@ export function useTicketPropertyMutations(
   };
 
   const settle = async () => {
-    inFlight.current -= 1;
-    if (inFlight.current > 0) return;
+    const remaining = (inFlight.current.get(ticketId) ?? 1) - 1;
+    if (remaining > 0) {
+      inFlight.current.set(ticketId, remaining);
+      return;
+    }
+    inFlight.current.delete(ticketId);
     await Promise.all([
       utils.product.ticket.getById.invalidate({ id: ticketId }),
       utils.product.ticket.listEvents.invalidate({ id: ticketId }),
@@ -67,6 +77,7 @@ export function useTicketPropertyMutations(
   };
 
   const updateTicket = api.product.ticket.update.useMutation({
+    scope,
     onMutate: async (vars) => {
       const prev = await snapshot();
       if (prev) {
@@ -114,6 +125,7 @@ export function useTicketPropertyMutations(
   // newly picked tags; an id we can't resolve yet (a tag created a moment ago)
   // is left for the reconcile refetch to fill in.
   const setTicketTags = api.tag.setTicketTags.useMutation({
+    scope,
     onMutate: async (vars) => {
       const prev = await snapshot();
       if (prev) {
