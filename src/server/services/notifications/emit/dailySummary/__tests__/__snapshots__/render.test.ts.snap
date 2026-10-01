@@ -36,9 +36,10 @@ Your in-flight tickets:
 2 of your cycle tickets still need refinement
 
 🧭 Your projects
-• ⚠️ Exponential GTM — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec
+• Exponential GTM — ➡️ Draft pricing page (overdue, 18 Sept) · ⚠️ review overdue (20 Sept), 2 overdue actions · ends 31 Dec
    https://app.test/w/acme/projects/exponential_gtm-p1
-• Reading — 10% · 3 open
+• Reading — ➡️ Finish chapter 3
+• Idle — ➡️ no next action · review 2 Oct
 
 💪 Have a productive day!"
 `;
@@ -72,6 +73,8 @@ No active projects you are DRI for
 exports[`renderer snapshots (markdown) > matches the full and empty snapshots 1`] = `
 "☀️ Good morning James! 👋
 
+ 
+
 **⏪ Yesterday**
 1. 09:00 CLEAR daily standup — [recording](https://app.test/recording/rec1)
 2. 14:00 Coffee with Ira
@@ -79,28 +82,41 @@ exports[`renderer snapshots (markdown) > matches the full and empty snapshots 1`
 4. 16:30 Pipeline sync (recorded) — [recording](https://app.test/recording/rec2)
 Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed → [/time](https://app.test/time)
 
+ 
+
 **📅 Today's meetings**
 1. 09:00 CLEAR daily standup
 2. Public holiday
+
+ 
 
 **✅ Today's actions**
 - Gather medical bills
 - Pay Malte
 32 overdue → [/today](https://app.test/today)
 
+ 
+
 **🔄 Current cycle** — [Cycle 15](https://app.test/w/acme/products/clear/cycles/cy1) · 3 Sep – 16 Sep · 7 days left
 0 / 2 pts done · 51% elapsed · Behind pace
 Your in-flight tickets:
 - [C-532 x.com signals - poc](https://app.test/w/acme/products/clear/tickets/t532) — In progress
+
+ 
 
 **⏭ Up next**
 1. [C-154 Specify a pipeline testing thunderdome](https://app.test/w/acme/products/clear/tickets/t154)
 2. [C-470 Define delivery playbook](https://app.test/w/acme/products/clear/tickets/t470)
 2 of your cycle tickets still need refinement
 
+ 
+
 **🧭 Your projects**
-- ⚠️ [Exponential GTM](https://app.test/w/acme/projects/exponential_gtm-p1) — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec
-- Reading — 10% · 3 open
+- [Exponential GTM](https://app.test/w/acme/projects/exponential_gtm-p1) — ➡️ Draft pricing page (overdue, 18 Sept) · ⚠️ review overdue (20 Sept), 2 overdue actions · ends 31 Dec
+- Reading — ➡️ Finish chapter 3
+- Idle — ➡️ no next action · review 2 Oct
+
+ 
 
 💪 Have a productive day!"
 `;
@@ -108,25 +124,39 @@ Your in-flight tickets:
 exports[`renderer snapshots (markdown) > matches the full and empty snapshots 2`] = `
 "☀️ Good morning there! 👋
 
+ 
+
 **⏪ Yesterday**
 No meetings yesterday
 No time recorded yesterday
 
+ 
+
 **📅 Today's meetings**
 No meetings today
+
+ 
 
 **✅ Today's actions**
 Nothing scheduled or due today
 0 overdue → [/today](https://app.test/today)
 
+ 
+
 **🔄 Current cycle**
 No active cycle
+
+ 
 
 **⏭ Up next**
 Nothing committed to you
 
+ 
+
 **🧭 Your projects**
 No active projects you are DRI for
+
+ 
 
 💪 Have a productive day!"
 `;

@@ -74,12 +74,18 @@ export interface DailySummaryTime {
   dayUrl: string;
 }
 
-/** One project the user is DRI for, with its one-line state. */
+/** One project the user is DRI for: its next action, then why it needs a look, if it does. */
 export interface DailySummaryDriProject {
   name: string;
-  /** "45% · 3 open, 1 overdue · review 2 Oct · ends 31 Dec" (see `describeDriProject`). */
-  state: string;
-  needsAttention: boolean;
+  /** "Draft budget (overdue, 20 Sept)" (see `nextActionLabel`); null when nothing is open. */
+  nextAction: string | null;
+  /**
+   * Why the project is flagged, in words — "ended 10 Sept", "2 overdue actions"
+   * (see `describeDriProjectDates`). Empty when it is calm.
+   */
+  attention: string[];
+  /** Dates that are not a concern yet: "review 2 Oct", "ends 31 Dec". */
+  dates: string[];
   /** Absolute project URL; null when the project has no workspace. */
   url: string | null;
 }

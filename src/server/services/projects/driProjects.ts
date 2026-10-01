@@ -188,13 +188,58 @@ export function describeDriProject(p: DriProjectState, now: Date): string {
 }
 
 /**
+ * "Draft budget (2 Oct)" / "Draft budget (overdue, 20 Sept)" — the next
+ * action with its date, or null when the project has no open action.
+ */
+export function nextActionLabel(p: Pick<DriProjectState, "nextAction">, now: Date): string | null {
+  const next = p.nextAction;
+  if (!next) return null;
+  if (!next.when) return next.name;
+  const label = next.when.toLocaleDateString("en-GB", dateFmt);
+  return `${next.name} (${next.when < now ? "overdue, " : ""}${label})`;
+}
+
+/**
  * "next: Draft budget (due 2 Oct)" — or "no next action" when the project has
  * no open action, which is itself worth a glance.
  */
 export function describeNextAction(p: Pick<DriProjectState, "nextAction">, now: Date): string {
-  const next = p.nextAction;
-  if (!next) return "no next action";
-  if (!next.when) return `next: ${next.name}`;
-  const label = next.when.toLocaleDateString("en-GB", dateFmt);
-  return `next: ${next.name} (${next.when < now ? "overdue, " : ""}${label})`;
+  const label = nextActionLabel(p, now);
+  return label ? `next: ${label}` : "no next action";
+}
+
+export interface DriProjectDates {
+  /**
+   * Why the project needs attention, in words — exactly the conditions behind
+   * `needsAttention`, so a flag is never shown without its reason:
+   * "ended 10 Sept" / "ends 5 Oct" (within 14 days), "review overdue (20 Sept)",
+   * "2 overdue actions". Empty when the project is calm.
+   */
+  attention: string[];
+  /** The dates that are not a concern yet: "review 2 Oct", "ends 31 Dec". */
+  calm: string[];
+}
+
+/** Split a project's dates and overdue count into reasons for attention and calm dates. */
+export function describeDriProjectDates(
+  p: Pick<DriProjectState, "overdueActions" | "reviewDate" | "endDate">,
+  now: Date,
+): DriProjectDates {
+  const attention: string[] = [];
+  const calm: string[] = [];
+  if (p.endDate) {
+    const label = p.endDate.toLocaleDateString("en-GB", dateFmt);
+    if (p.endDate < now) attention.push(`ended ${label}`);
+    else if (p.endDate.getTime() - now.getTime() < END_DATE_HORIZON_MS) attention.push(`ends ${label}`);
+    else calm.push(`ends ${label}`);
+  }
+  if (p.reviewDate) {
+    const label = p.reviewDate.toLocaleDateString("en-GB", dateFmt);
+    if (p.reviewDate < now) attention.push(`review overdue (${label})`);
+    else calm.unshift(`review ${label}`);
+  }
+  if (p.overdueActions > 0) {
+    attention.push(`${p.overdueActions} overdue action${p.overdueActions === 1 ? "" : "s"}`);
+  }
+  return { attention, calm };
 }

@@ -55,6 +55,24 @@ const PACE_LABELS: Record<DailySummaryPace, string> = {
   behind: "Behind pace",
 };
 
+/** Precedes each project's next action — the one thing to do on it. */
+export const NEXT_ACTION_ICON = "➡️";
+
+/** Precedes the reasons a project needs a look ("ended 10 Sept, 2 overdue actions"). */
+export const ATTENTION_ICON = "⚠️";
+
+const NO_BREAK_SPACE = "\u00A0";
+
+/**
+ * The gap before every section heading. Element shows the gateway's `<p>`s
+ * with no margin, so a blank line alone leaves a heading flush against the
+ * list above it; a paragraph holding one no-break space renders as an empty
+ * line. Plain text keeps an ordinary blank line.
+ */
+function sectionGap(mode: Mode): string[] {
+  return mode === "markdown" ? ["", NO_BREAK_SPACE, ""] : [""];
+}
+
 function heading(mode: Mode, text: string): string {
   return mode === "markdown" ? `**${text}**` : text;
 }
@@ -167,7 +185,7 @@ function cycleLines(mode: Mode, cycle: DailySummaryCycle, showProduct: boolean):
 }
 
 function render(digest: DailySummaryDigest, mode: Mode): string {
-  const lines: string[] = [`☀️ Good morning ${digest.firstName}! 👋`, ""];
+  const lines: string[] = [`☀️ Good morning ${digest.firstName}! 👋`, ...sectionGap(mode)];
 
   // ---- Yesterday ----
   lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.yesterday));
@@ -186,7 +204,7 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
     });
   }
   lines.push(...timeLines(mode, digest.time));
-  lines.push("");
+  lines.push(...sectionGap(mode));
 
   // ---- Today's meetings ----
   lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.todayMeetings));
@@ -197,7 +215,7 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
       lines.push(`${i + 1}. ${timePrefix(m.startLocal)}${m.title}`);
     });
   }
-  lines.push("");
+  lines.push(...sectionGap(mode));
 
   // ---- Today's actions ----
   lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.todaysActions));
@@ -211,18 +229,18 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
       ? `${digest.overdueCount} overdue → ${link(mode, "/today", digest.todayUrl)}`
       : `${digest.overdueCount} overdue → ${digest.todayUrl}`,
   );
-  lines.push("");
+  lines.push(...sectionGap(mode));
 
   // ---- Current cycle (one block per product) ----
   if (digest.cycles.length === 0) {
     lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.cycle), DAILY_SUMMARY_EMPTY.cycle);
   } else {
     digest.cycles.forEach((cycle, i) => {
-      if (i > 0) lines.push("");
+      if (i > 0) lines.push(...sectionGap(mode));
       lines.push(...cycleLines(mode, cycle, digest.cycles.length > 1));
     });
   }
-  lines.push("");
+  lines.push(...sectionGap(mode));
 
   // ---- Up next (the user's COMMITTED tickets across the cycle blocks) ----
   lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.upNext));
@@ -243,8 +261,7 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
         : `${unrefined} of your cycle tickets still need refinement`,
     );
   }
-
-  lines.push("");
+  lines.push(...sectionGap(mode));
 
   // ---- DRI projects (the projects the user owns, most urgent first) ----
   lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.driProjects));
@@ -253,14 +270,18 @@ function render(digest: DailySummaryDigest, mode: Mode): string {
     lines.push(DAILY_SUMMARY_EMPTY.driProjects);
   } else {
     for (const p of driProjects) {
-      const flag = p.needsAttention ? "⚠️ " : "";
       const name = p.url ? link(mode, p.name, p.url) : p.name;
-      lines.push(`${bullet(mode)}${flag}${name} — ${p.state}`);
+      const state = present([
+        `${NEXT_ACTION_ICON} ${p.nextAction ?? "no next action"}`,
+        p.attention.length > 0 ? `${ATTENTION_ICON} ${p.attention.join(", ")}` : null,
+        ...p.dates,
+      ]).join(" · ");
+      lines.push(`${bullet(mode)}${name} — ${state}`);
       if (p.url) lines.push(...urlLine(mode, p.url));
     }
   }
 
-  lines.push("", "💪 Have a productive day!");
+  lines.push(...sectionGap(mode), "💪 Have a productive day!");
   return lines.join("\n");
 }
 
