@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
-import { describeDriProject, describeNextAction, driProjectPath, loadDriProjectStates, pickNextAction } from "../driProjects";
+import { describeDriProject, describeDriProjectDates, describeNextAction, driProjectPath, loadDriProjectStates, nextActionLabel, pickNextAction } from "../driProjects";
 
 const now = new Date("2026-09-26T08:00:00.000Z");
 
@@ -74,6 +74,40 @@ describe("pickNextAction / describeNextAction", () => {
     expect(describeNextAction({ nextAction: { id: "a", name: "Ship it", when: new Date("2026-09-20T00:00:00.000Z") } }, now)).toBe("next: Ship it (overdue, 20 Sept)");
     expect(describeNextAction({ nextAction: { id: "a", name: "Ship it", when: null } }, now)).toBe("next: Ship it");
     expect(describeNextAction({ nextAction: null }, now)).toBe("no next action");
+    expect(nextActionLabel({ nextAction: { id: "a", name: "Ship it", when: new Date("2026-10-02T00:00:00.000Z") } }, now)).toBe("Ship it (2 Oct)");
+    expect(nextActionLabel({ nextAction: null }, now)).toBeNull();
+  });
+});
+
+describe("describeDriProjectDates", () => {
+  const calm = { overdueActions: 0, reviewDate: null, endDate: null };
+
+  it("names every reason behind needsAttention", () => {
+    expect(describeDriProjectDates({ ...calm, endDate: new Date("2026-09-10T00:00:00.000Z") }, now).attention).toEqual(["ended 10 Sept"]);
+    expect(describeDriProjectDates({ ...calm, endDate: new Date("2026-10-05T00:00:00.000Z") }, now).attention).toEqual(["ends 5 Oct"]);
+    expect(describeDriProjectDates({ ...calm, reviewDate: new Date("2026-09-20T00:00:00.000Z") }, now).attention).toEqual(["review overdue (20 Sept)"]);
+    expect(describeDriProjectDates({ ...calm, overdueActions: 1 }, now).attention).toEqual(["1 overdue action"]);
+    expect(describeDriProjectDates({ ...calm, overdueActions: 2 }, now).attention).toEqual(["2 overdue actions"]);
+  });
+
+  it("keeps dates that are not a concern yet out of the reasons", () => {
+    expect(
+      describeDriProjectDates({ ...calm, reviewDate: new Date("2026-10-02T00:00:00.000Z"), endDate: new Date("2026-12-31T00:00:00.000Z") }, now),
+    ).toEqual({ attention: [], calm: ["review 2 Oct", "ends 31 Dec"] });
+    expect(describeDriProjectDates(calm, now)).toEqual({ attention: [], calm: [] });
+  });
+
+  it("flags exactly the projects the loader marks needsAttention", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.project.findMany.mockResolvedValue([
+      row({ id: "p-1", name: "Calm", endDate: new Date("2026-12-31T00:00:00.000Z") }),
+      row({ id: "p-2", name: "Ended", endDate: new Date("2026-09-10T00:00:00.000Z") }),
+      row({ id: "p-3", name: "Late", actions: [action({ dueDate: new Date("2026-09-20T00:00:00.000Z") })] }),
+    ] as never);
+    const states = await loadDriProjectStates(db, "u-1", { now });
+    for (const s of states) {
+      expect(describeDriProjectDates(s, now).attention.length > 0).toBe(s.needsAttention);
+    }
   });
 });
 

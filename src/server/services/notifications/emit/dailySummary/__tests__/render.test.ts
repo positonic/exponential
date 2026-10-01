@@ -82,11 +82,13 @@ export const fullDigest: DailySummaryDigest = {
   driProjects: [
     {
       name: "Exponential GTM",
-      state: "40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec",
-      needsAttention: true,
+      nextAction: "Draft pricing page (overdue, 18 Sept)",
+      attention: ["review overdue (20 Sept)", "2 overdue actions"],
+      dates: ["ends 31 Dec"],
       url: `${BASE}/w/acme/projects/exponential_gtm-p1`,
     },
-    { name: "Reading", state: "10% · 3 open", needsAttention: false, url: null },
+    { name: "Reading", nextAction: "Finish chapter 3", attention: [], dates: [], url: null },
+    { name: "Idle", nextAction: null, attention: [], dates: ["review 2 Oct"], url: null },
   ],
 };
 
@@ -204,16 +206,33 @@ describe("renderDailySummaryPlainText", () => {
 });
 
 describe("DRI projects section", () => {
-  it("lists the user's DRI projects with their state, flags the ones needing attention and links them", () => {
+  it("lists each DRI project's next action, says why a flagged one needs a look, and links it", () => {
     const md = renderDailySummaryMarkdown(fullDigest);
     expect(md).toContain(`**${DAILY_SUMMARY_HEADINGS.driProjects}**`);
     expect(md).toContain(
-      `- ⚠️ [Exponential GTM](${BASE}/w/acme/projects/exponential_gtm-p1) — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec`,
+      `- [Exponential GTM](${BASE}/w/acme/projects/exponential_gtm-p1) — ➡️ Draft pricing page (overdue, 18 Sept) · ⚠️ review overdue (20 Sept), 2 overdue actions · ends 31 Dec`,
     );
-    expect(md).toContain("- Reading — 10% · 3 open");
+    expect(md).toContain("- Reading — ➡️ Finish chapter 3");
+    expect(md).toContain("- Idle — ➡️ no next action · review 2 Oct");
+    // The progress and open-count summary is gone.
+    expect(md).not.toMatch(/\d+% · \d+ open/);
     const text = renderDailySummaryPlainText(fullDigest);
-    expect(text).toContain("• ⚠️ Exponential GTM — 40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec");
+    expect(text).toContain(
+      "• Exponential GTM — ➡️ Draft pricing page (overdue, 18 Sept) · ⚠️ review overdue (20 Sept), 2 overdue actions · ends 31 Dec",
+    );
     expect(text).toContain(`   ${BASE}/w/acme/projects/exponential_gtm-p1`);
+  });
+
+  it("puts an empty paragraph before every heading in markdown (Element drops <p> margins) and a blank line in plain text", () => {
+    const md = renderDailySummaryMarkdown(fullDigest);
+    for (const h of HEADINGS) {
+      if (h === DAILY_SUMMARY_HEADINGS.cycle) continue; // the cycle heading carries its headline on the same line
+      expect(md).toContain(`\n\n\u00A0\n\n**${h}**`);
+    }
+    expect(md).toContain(`\n\n\u00A0\n\n**${DAILY_SUMMARY_HEADINGS.cycle}** — `);
+    const text = renderDailySummaryPlainText(fullDigest);
+    expect(text).not.toContain("\u00A0");
+    for (const h of HEADINGS) expect(text).toContain(`\n\n${h}`);
   });
 
   it("renders the empty state when the digest has no DRI block at all", () => {
