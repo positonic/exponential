@@ -34,7 +34,10 @@ export interface DriProjectState {
   overdueActions: number;
   reviewDate: Date | null;
   endDate: Date | null;
-  /** True when the review date has passed or the end date is within 14 days. */
+  /**
+   * True when the end date has passed or is within 14 days, the review date
+   * has passed, or an action is overdue — see `describeDriProjectDates`.
+   */
   needsAttention: boolean;
   /** The project's DRI, when one is set. */
   dri: { id: string; name: string | null } | null;
@@ -120,8 +123,8 @@ export async function loadProjectStates(
 
   const states = (rows ?? []).map<DriProjectState>((p) => {
     const overdueActions = p.actions.filter((a) => a.dueDate !== null && a.dueDate < now).length;
-    const reviewOverdue = p.reviewDate !== null && p.reviewDate < now;
-    const endingSoon = p.endDate !== null && p.endDate.getTime() - now.getTime() < END_DATE_HORIZON_MS;
+    // One rule for the flag and the words that explain it (`describeDriProjectDates`).
+    const { attention } = describeDriProjectDates({ overdueActions, reviewDate: p.reviewDate, endDate: p.endDate }, now);
     return {
       id: p.id,
       name: p.name,
@@ -133,7 +136,7 @@ export async function loadProjectStates(
       overdueActions,
       reviewDate: p.reviewDate,
       endDate: p.endDate,
-      needsAttention: reviewOverdue || endingSoon || overdueActions > 0,
+      needsAttention: attention.length > 0,
       dri: p.dri ?? null,
       nextAction: pickNextAction(p.actions),
     };
