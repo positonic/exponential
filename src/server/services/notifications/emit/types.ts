@@ -98,8 +98,9 @@ export interface SummarySubject {
   message: string;
   /**
    * Optional markdown rendering of the same digest (ADR-0059). Persisted as
-   * `metadata.markdown`; channels that render markdown (Matrix) prefer it,
-   * every other channel ignores it and sends `message`.
+   * `metadata.markdown`; channels that render markdown prefer it (Matrix
+   * sends it as-is, email renders it as the HTML body so links are linked
+   * text), every other channel ignores it and sends `message`.
    */
   markdown?: string;
   /** Period id for dedup — e.g. "2026-07-23" (daily) or "2026-W30" (weekly). */

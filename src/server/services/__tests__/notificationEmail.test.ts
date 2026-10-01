@@ -438,6 +438,76 @@ describe("buildNotificationEmail", () => {
     expect(textBody).toContain("First line\nsecond line\r\nthird <b>line</b>");
   });
 
+  describe("with a markdown variant", () => {
+    const markdownParams = {
+      ...notificationParams,
+      message: "Up next\n1. C-643 Hotline\n   https://app.test/tickets/1",
+      markdown: "**⏭ Up next**\n1. [C-643 Hotline](https://app.test/tickets/1)\n- Pick sources",
+    };
+
+    it("renders links as linked text and headings as bold in the HTML body", () => {
+      const { htmlBody } = buildNotificationEmail(markdownParams);
+
+      expect(htmlBody).toContain("<strong>⏭ Up next</strong><br>");
+      expect(htmlBody).toMatch(
+        /1\. <a href="https:\/\/app\.test\/tickets\/1"[^>]*>C-643 Hotline<\/a><br>• Pick sources/,
+      );
+      // The bare URL from the plain message does not appear as body text.
+      expect(htmlBody).not.toContain(">https://app.test/tickets/1<");
+    });
+
+    it("keeps the plain message, bare URLs and all, in the text body", () => {
+      const { textBody } = buildNotificationEmail(markdownParams);
+
+      expect(textBody).toContain(markdownParams.message);
+      expect(textBody).not.toContain("**");
+    });
+
+    it("escapes user text in the markdown, labels included", () => {
+      const { htmlBody } = buildNotificationEmail({
+        ...markdownParams,
+        markdown: `- ${XSS}\n1. [${XSS}](https://app.test/x?a=1&b=2)`,
+      });
+
+      expect(htmlBody).not.toContain("<img src=x");
+      expect(htmlBody).toContain(`• ${ESCAPED_XSS}`);
+      expect(htmlBody).toContain(`href="https://app.test/x?a=1&amp;b=2"`);
+    });
+
+    it("links labels with brackets and URLs with balanced parentheses", () => {
+      const { htmlBody } = buildNotificationEmail({
+        ...markdownParams,
+        markdown:
+          "1. [C-9 [Bug] Login fails](https://app.test/t/9) · [wiki](https://en.test/Foo_(bar))",
+      });
+
+      expect(htmlBody).toMatch(/<a href="https:\/\/app\.test\/t\/9"[^>]*>C-9 \[Bug\] Login fails<\/a>/);
+      expect(htmlBody).toMatch(/<a href="https:\/\/en\.test\/Foo_\(bar\)"[^>]*>wiki<\/a>/);
+      expect(htmlBody).not.toContain("](");
+    });
+
+    it("renders non-http links as their label, never as an anchor", () => {
+      const { htmlBody } = buildNotificationEmail({
+        ...markdownParams,
+        markdown: `[click](javascript:void(0)) and [x](data:text/html,hi)`,
+      });
+
+      expect(htmlBody).not.toContain("javascript:void");
+      expect(htmlBody).not.toContain(`href="data:`);
+      expect(htmlBody).toContain("click and x");
+    });
+
+    it("cannot break out of the href attribute", () => {
+      const { htmlBody } = buildNotificationEmail({
+        ...markdownParams,
+        markdown: `[x](https://app.test/"onmouseover="alert(1))`,
+      });
+
+      expect(htmlBody).not.toContain(`"onmouseover="`);
+      expect(htmlBody).toContain(`href="https://app.test/&quot;onmouseover=&quot;alert(1)"`);
+    });
+  });
+
   it("escapes the action URL so it cannot break out of the href attribute", () => {
     const { htmlBody } = buildNotificationEmail({
       ...notificationParams,

@@ -3,9 +3,10 @@ import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { buildTranscriptionAccessWhere } from "~/server/services/access";
 import {
-  describeDriProject,
+  describeDriProjectDates,
   driProjectPath,
   loadDriProjectStates,
+  nextActionLabel,
 } from "~/server/services/projects/driProjects";
 import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
@@ -155,7 +156,8 @@ async function loadYesterdayTime(
 
 /**
  * The projects the user is DRI for, across every workspace (the digest is
- * cross-workspace like Today's actions), as one line of state each. A
+ * cross-workspace like Today's actions): each one's next action and, when it
+ * is flagged, the reasons why. A
  * failing read degrades to the empty state rather than costing the digest.
  */
 async function loadDriProjects(
@@ -168,10 +170,12 @@ async function loadDriProjects(
     const states = await loadDriProjectStates(db, userId, { now });
     return states.map((p) => {
       const path = driProjectPath(p);
+      const { attention, calm } = describeDriProjectDates(p, now);
       return {
         name: p.name,
-        state: describeDriProject(p, now),
-        needsAttention: p.needsAttention,
+        nextAction: nextActionLabel(p, now),
+        attention,
+        dates: calm,
         url: path ? `${baseUrl}${path}` : null,
       };
     });

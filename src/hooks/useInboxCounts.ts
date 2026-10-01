@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import { api } from '~/trpc/react';
 import { useDayRollover } from '~/hooks/useDayRollover';
+import { useRefetchAfterMutations } from '~/hooks/useRefetchAfterMutations';
 import { NOTIFICATION_CATEGORIES } from '~/server/services/notifications/emit/constants';
 
 /**
@@ -23,9 +22,11 @@ export const BADGE_EXCLUDED_CATEGORIES = [NOTIFICATION_CATEGORIES.SUMMARY];
  *
  * Counts only, never rows, since the badge renders on every page. Three
  * things keep them current:
- * - any successful mutation refetches them, and marks the Waiting on me list
- *   stale (marking read, promoting a ticket, deciding, completing an action
- *   all change them), mirroring `useSidebarActionCounts`;
+ * - successful mutations refetch them, and mark the Waiting on me list stale
+ *   (marking read, promoting a ticket, deciding, completing an action all
+ *   change them), once per burst via `useRefetchAfterMutations` — the
+ *   Waiting on me counts are several access-scoped counts, too heavy to run
+ *   on every keystroke-level mutation;
  * - the unread count polls, because other people's mentions and
  *   assignments add to it;
  * - the day boundary rolls over at local midnight (`useDayRollover`), since
@@ -37,7 +38,6 @@ export function useInboxCounts(): {
   total: number | undefined;
   isError: boolean;
 } {
-  const queryClient = useQueryClient();
   const startOfToday = useDayRollover();
   const queryOptions = {
     refetchOnWindowFocus: false,
@@ -54,21 +54,11 @@ export function useInboxCounts(): {
     queryOptions,
   );
 
-  useEffect(() => {
-    const keys = [
-      getQueryKey(api.notification.unreadCount),
-      getQueryKey(api.inbox.waitingOnMeCounts),
-      getQueryKey(api.inbox.waitingOnMe),
-    ];
-    return queryClient.getMutationCache().subscribe((event) => {
-      if (event.type === 'updated' && event.action.type === 'success') {
-        // Several badges mount this hook; don't let them cancel each other's refetch.
-        for (const queryKey of keys) {
-          void queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
-        }
-      }
-    });
-  }, [queryClient]);
+  useRefetchAfterMutations([
+    getQueryKey(api.notification.unreadCount),
+    getQueryKey(api.inbox.waitingOnMeCounts),
+    getQueryKey(api.inbox.waitingOnMe),
+  ]);
 
   const notifications = unread.data;
   const waitingTotal = waiting.data?.total;
