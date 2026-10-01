@@ -274,7 +274,7 @@ function DependencyRow({
     await Promise.all([
       utils.product.ticket.getById.invalidate({ id: ticketId }),
       utils.product.ticket.getById.invalidate({ id: ticket.id }),
-      utils.product.ticket.list.invalidate({ productId }),
+      utils.product.ticket.listSummaries.invalidate({ productId }),
     ]);
   };
 
@@ -412,7 +412,7 @@ function AddDependencyCombobox({
         utils.product.ticket.getById.invalidate({
           id: direction === "out" ? vars.dependsOnId : vars.ticketId,
         }),
-        utils.product.ticket.list.invalidate({ productId }),
+        utils.product.ticket.listSummaries.invalidate({ productId }),
       ]);
       onDone();
     },

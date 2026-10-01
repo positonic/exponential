@@ -307,7 +307,7 @@ export default function TicketsBacklogPage() {
   const { workspace, workspaceId } = useWorkspace();
 
   // URL-driven filters - deep links from the Overview tab
-  // (?status=BLOCKED, ?assignee=me). Applied server-side via ticket.list.
+  // (?status=BLOCKED, ?assignee=me). Applied server-side via ticket.listSummaries.
   const statusParam = searchParams.get("status");
   const urlStatus =
     statusParam && statusParam in STATUS_LABELS
@@ -337,10 +337,16 @@ export default function TicketsBacklogPage() {
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   // ── Load & save view preferences ──
-  const { data: savedPrefs } = api.product.product.getViewPrefs.useQuery(
-    { productSlug, workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
-  );
+  const { data: savedPrefs, isError: prefsFailed } =
+    api.product.product.getViewPrefs.useQuery(
+      { productSlug, workspaceId: workspaceId ?? "" },
+      { enabled: !!workspaceId },
+    );
+  // The tickets wait for the saved view (filters, sort, grouping, view). A
+  // list that arrives first would otherwise render unfiltered, then re-sort
+  // and shrink when the prefs land: a second full render and a page-sized
+  // layout shift. A failed prefs read falls back to the defaults.
+  const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
   const savePrefs = api.product.product.saveViewPrefs.useMutation();
   const saveMutateRef = useRef(savePrefs.mutate);
@@ -442,7 +448,7 @@ export default function TicketsBacklogPage() {
     [product?.id, urlStatus, filterAssigneeMe, sessionUserId],
   );
 
-  const { data: tickets, isLoading } = api.product.ticket.list.useQuery(
+  const { data: tickets, isLoading } = api.product.ticket.listSummaries.useQuery(
     listInput,
     // When ?assignee=me is present, wait for the session so the first fetch
     // is already filtered instead of flashing the full backlog.
@@ -472,10 +478,10 @@ export default function TicketsBacklogPage() {
   // Optimistic so the pill shows the new value at once; rolled back on error.
   const updateTicket = api.product.ticket.update.useMutation({
     onMutate: async (vars) => {
-      await utils.product.ticket.list.cancel(listInput);
-      const prev = utils.product.ticket.list.getData(listInput);
+      await utils.product.ticket.listSummaries.cancel(listInput);
+      const prev = utils.product.ticket.listSummaries.getData(listInput);
       if (prev) {
-        utils.product.ticket.list.setData(
+        utils.product.ticket.listSummaries.setData(
           listInput,
           prev.map((t) => {
             if (t.id !== vars.id) return t;
@@ -490,7 +496,7 @@ export default function TicketsBacklogPage() {
       return { prev };
     },
     onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) utils.product.ticket.list.setData(listInput, mctx.prev);
+      if (mctx?.prev) utils.product.ticket.listSummaries.setData(listInput, mctx.prev);
       notifications.show({
         title: "Update failed",
         message: "Your change was not saved. Please try again.",
@@ -499,7 +505,7 @@ export default function TicketsBacklogPage() {
     },
     onSettled: async () => {
       if (product?.id) {
-        await utils.product.ticket.list.invalidate({ productId: product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
       }
     },
   });
@@ -536,11 +542,11 @@ export default function TicketsBacklogPage() {
   const bulkUpdate = api.product.ticket.bulkUpdate.useMutation({
     // Optimistic: patch the cached list immediately, roll back on error.
     onMutate: async (vars) => {
-      await utils.product.ticket.list.cancel(listInput);
-      const prev = utils.product.ticket.list.getData(listInput);
+      await utils.product.ticket.listSummaries.cancel(listInput);
+      const prev = utils.product.ticket.listSummaries.getData(listInput);
       if (prev) {
         const idSet = new Set(vars.ids);
-        utils.product.ticket.list.setData(
+        utils.product.ticket.listSummaries.setData(
           listInput,
           prev.map((t) => {
             if (!idSet.has(t.id)) return t;
@@ -579,7 +585,7 @@ export default function TicketsBacklogPage() {
       return { prev };
     },
     onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) utils.product.ticket.list.setData(listInput, mctx.prev);
+      if (mctx?.prev) utils.product.ticket.listSummaries.setData(listInput, mctx.prev);
       notifications.show({
         title: "Bulk update failed",
         message: "Your changes were not saved. Please try again.",
@@ -588,7 +594,7 @@ export default function TicketsBacklogPage() {
     },
     onSettled: async () => {
       if (product?.id) {
-        await utils.product.ticket.list.invalidate({ productId: product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
       }
     },
   });
@@ -603,7 +609,7 @@ export default function TicketsBacklogPage() {
         message: `Deleted ${res.count} ticket${res.count === 1 ? "" : "s"}`,
       });
       if (product?.id) {
-        await utils.product.ticket.list.invalidate({ productId: product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
       }
     },
     onError: () => {
@@ -1315,7 +1321,7 @@ export default function TicketsBacklogPage() {
             <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
           )}
         </div>
-      ) : (isLoading || sessionPending) ? (
+      ) : (isLoading || sessionPending || awaitingPrefs) ? (
         <Stack gap="xs" className="px-8 py-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>

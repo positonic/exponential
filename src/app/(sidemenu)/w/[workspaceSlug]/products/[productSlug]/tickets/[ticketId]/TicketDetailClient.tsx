@@ -365,7 +365,7 @@ export function TicketDetailClient() {
     onSuccess: async () => {
       await utils.product.ticket.getById.invalidate({ id: ticketId });
       if (ticket?.product.id) {
-        await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id });
       }
     },
   });
@@ -373,7 +373,7 @@ export function TicketDetailClient() {
   const deleteTicket = api.product.ticket.delete.useMutation({
     onSuccess: async () => {
       if (ticket?.product.id) {
-        await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id });
       }
       if (workspace) {
         router.push(`/w/${workspace.slug}/products/${productSlug}/tickets`);

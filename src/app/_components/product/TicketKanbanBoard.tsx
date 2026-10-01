@@ -172,7 +172,7 @@ export function TicketKanbanBoard({ tickets, productId, productName, funTicketId
 
   const updateTicket = api.product.ticket.update.useMutation({
     onSuccess: async () => {
-      await utils.product.ticket.list.invalidate({ productId });
+      await utils.product.ticket.listSummaries.invalidate({ productId });
     },
   });
 
