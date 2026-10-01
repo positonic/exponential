@@ -58,8 +58,10 @@ export function useTicketSummaryCache() {
    * the next focus or mount) - on a large product that refetch is the
    * heaviest request on the page. A filtered list (status, assignee,
    * feature...) refetches now: the edit may move the ticket in or out of it.
+   * `force` refetches every list - for when the patch couldn't build the row
+   * faithfully (a relation id not in the loaded option lists yet).
    */
-  const reconcile = async (productId: string, ticketId: string) => {
+  const reconcile = async (productId: string, ticketId: string, force = false) => {
     const productLists = getQueryKey(api.product.ticket.listSummaries, { productId }, "query");
     await queryClient.invalidateQueries({ queryKey: productLists, refetchType: "none" });
     await queryClient.refetchQueries({
@@ -68,7 +70,7 @@ export function useTicketSummaryCache() {
       predicate: (q) => {
         const input = (q.queryKey[1] as { input?: Record<string, unknown> } | undefined)?.input ?? {};
         const filtered = Object.entries(input).some(([k, v]) => k !== "productId" && v !== undefined);
-        return filtered || !holds(q.state.data, ticketId);
+        return force || filtered || !holds(q.state.data, ticketId);
       },
     });
   };

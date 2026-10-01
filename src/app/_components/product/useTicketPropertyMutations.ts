@@ -58,6 +58,14 @@ export function useTicketPropertyMutations(
   // remounting, and an edit still in flight on the previous ticket must not
   // suppress (or be suppressed by) the next ticket's reconcile.
   const inFlight = useRef(new Map<string, number>());
+  // Tickets whose row patch hit an id the lookups don't hold yet (an epic or
+  // label created inline a moment ago, an assignee outside the loaded
+  // members). Their row is incomplete, so the reconcile refetches it.
+  const unresolved = useRef(new Set<string>());
+  const resolve = <T,>(id: string | null | undefined, found: T | undefined) => {
+    if (id && !found) unresolved.current.add(ticketId);
+    return found;
+  };
   const scope = { id: `ticket-properties:${ticketId}` };
 
   const snapshot = async () => {
@@ -86,10 +94,11 @@ export function useTicketPropertyMutations(
       return;
     }
     inFlight.current.delete(ticketId);
+    const force = unresolved.current.delete(ticketId);
     await Promise.all([
       utils.product.ticket.getById.invalidate({ id: ticketId }),
       utils.product.ticket.listEvents.invalidate({ id: ticketId }),
-      lookups.productId ? summaries.reconcile(lookups.productId, ticketId) : undefined,
+      lookups.productId ? summaries.reconcile(lookups.productId, ticketId, force) : undefined,
     ]);
   };
 
@@ -140,22 +149,22 @@ export function useTicketPropertyMutations(
         if (vars.type !== undefined) r.type = vars.type;
         if (vars.priority !== undefined) r.priority = vars.priority ?? null;
         if (vars.assigneeId !== undefined) {
-          const m = lookups.members.find((x) => x.user.id === vars.assigneeId);
+          const m = resolve(vars.assigneeId, lookups.members.find((x) => x.user.id === vars.assigneeId));
           r.assignee =
             vars.assigneeId && m
               ? { id: m.user.id, name: m.user.name, image: m.user.image ?? null }
               : null;
         }
         if (vars.featureId !== undefined) {
-          const f = lookups.features?.find((x) => x.id === vars.featureId);
+          const f = resolve(vars.featureId, lookups.features?.find((x) => x.id === vars.featureId));
           r.feature = vars.featureId && f ? { id: f.id, name: f.name } : null;
         }
         if (vars.epicId !== undefined) {
-          const e = lookups.epics?.find((x) => x.id === vars.epicId);
+          const e = resolve(vars.epicId, lookups.epics?.find((x) => x.id === vars.epicId));
           r.epic = vars.epicId && e ? { id: e.id, name: e.name } : null;
         }
         if (vars.cycleId !== undefined) {
-          const c = lookups.cycles?.find((x) => x.id === vars.cycleId);
+          const c = resolve(vars.cycleId, lookups.cycles?.find((x) => x.id === vars.cycleId));
           r.cycle =
             vars.cycleId && c
               ? { id: c.id, name: c.name, status: c.status, startDate: c.startDate, endDate: c.endDate }
@@ -195,9 +204,11 @@ export function useTicketPropertyMutations(
       summaries.patch(ticketId, (row) => {
         const tags: TicketSummary["tags"] = [];
         for (const tagId of vars.tagIds) {
-          const tag =
+          const tag = resolve(
+            tagId,
             row.tags.find((t) => t.tag.id === tagId)?.tag ??
-            lookups.tags?.find((t) => t.id === tagId);
+              lookups.tags?.find((t) => t.id === tagId),
+          );
           if (tag) {
             tags.push({ tag: { id: tag.id, name: tag.name, color: tag.color, category: tag.category } });
           }
