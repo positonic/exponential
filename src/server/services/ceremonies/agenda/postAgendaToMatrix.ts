@@ -1,8 +1,9 @@
 /**
  * Post an occurrence's agenda to the ceremony's Matrix room (ADR-0059),
- * generalising the meeting-summary post: the same registered-server client,
- * the same Markdown → Matrix HTML rendering, and a transaction id derived
- * from the post's identity so a retry cannot double-post.
+ * generalising the meeting-summary post: the same registered-server client
+ * and a transaction id derived from the post's identity so a retry cannot
+ * double-post. The message itself is rendered from the structured sections
+ * (`renderAgendaMessage`), not the narrative.
  *
  * Two deliberate differences from `postMeetingSummaryToMatrix`:
  * - `MatrixPostLog` requires a `TranscriptionSession`, and the schema is not
@@ -15,9 +16,9 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { getMatrixClientForServer, listMatrixServers } from "~/server/services/matrix/matrixServer";
-import { markdownToMatrixHtml, markdownToPlainText } from "~/server/services/matrix/renderMeetingSummary";
 import { readAgendaSnapshot, type AgendaMatrixPost, type AgendaSnapshot } from "./types";
 import { withAgendaTransaction } from "./items";
+import { renderAgendaMessage } from "./renderAgendaMessage";
 
 export type { AgendaMatrixPost } from "./types";
 
@@ -37,40 +38,6 @@ interface MinimalClient {
 export function buildAgendaTransactionId(occurrenceId: string, roomId: string, attempt: number): string {
   const roomSlug = roomId.replace(/[^a-zA-Z0-9]/g, "");
   return `expo-agenda-${occurrenceId}-${roomSlug}-${attempt}`;
-}
-
-/**
- * Record-derived text (Action names, Decision statements, key-result titles)
- * is escaped before it reaches the Markdown. `markdownToMatrixHtml` turns
- * `[text](https://…)` into a real anchor, so an unescaped title would let
- * anyone who can name an Action get the workspace's bot to post an arbitrary
- * clickable link. Only text the code itself authors stays live — and a
- * hand-added item, which a workspace member wrote for this agenda as
- * Markdown (ADR-0017) and which the occurrence page renders as such; a
- * link they put in it is the point of the item, not an injection.
- */
-function mdEscape(value: string): string {
-  return value.replace(/([\\`*_[\]()<>#|~])/g, "\\$1");
-}
-
-/** The agenda as Markdown: the narrative when there is one, else a plain listing of the sections. */
-export function renderAgendaMarkdown(input: { ceremonyName: string; when: string; agenda: AgendaSnapshot; url: string }): string {
-  const lines: string[] = [`**${mdEscape(input.ceremonyName)} · ${input.when}** — agenda`, ""];
-  if (input.agenda.narrative) {
-    lines.push(input.agenda.narrative.trim(), "");
-  } else {
-    for (const section of input.agenda.sections) {
-      lines.push(`## ${mdEscape(section.title)}`);
-      if (section.items.length === 0) lines.push(`Nothing to raise.`);
-      for (const item of section.items) {
-        const title = item.addedByUserId ? item.title.trim() : mdEscape(item.title);
-        lines.push(`- ${item.resolvedAt ? `~~${title}~~` : title}${item.detail ? ` (${mdEscape(item.detail)})` : ""}${item.carriedFromOccurrenceId ? " (carried over)" : ""}`);
-      }
-      lines.push("");
-    }
-  }
-  lines.push(`Open in Exponential: ${input.url}`);
-  return lines.join("\n");
 }
 
 async function resolveServerId(db: PrismaClient, workspaceId: string, roomId: string, client?: MinimalClient): Promise<{ serverId: string } | { reason: string }> {
@@ -124,11 +91,12 @@ export async function postAgendaToMatrix(
     when = occurrence.scheduledStart.toISOString();
   }
   const base = input.appUrl ?? process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const markdown = renderAgendaMarkdown({
+  const message = renderAgendaMessage({
     ceremonyName: occurrence.ceremony.name,
     when,
     agenda,
     url: `${base}/w/${occurrence.ceremony.workspace.slug}/ceremonies/${occurrence.ceremony.id}/${occurrence.id}`,
+    baseUrl: base,
   });
 
   let client: MinimalClient | undefined = input.client;
@@ -137,8 +105,8 @@ export async function postAgendaToMatrix(
   let eventId: string;
   try {
     ({ eventId } = await client.send(roomId, {
-      html: markdownToMatrixHtml(markdown),
-      text: markdownToPlainText(markdown),
+      html: message.html,
+      text: message.text,
       txnId: buildAgendaTransactionId(occurrence.id, roomId, priorHere.length),
     }));
   } catch (error) {

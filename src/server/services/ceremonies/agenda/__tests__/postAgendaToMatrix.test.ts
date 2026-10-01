@@ -8,7 +8,7 @@ const report = vi.hoisted(() => vi.fn());
 vi.mock("~/server/services/matrix/matrixServer", () => ({ listMatrixServers, getMatrixClientForServer }));
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: report }));
 
-import { buildAgendaTransactionId, postAgendaToMatrix, renderAgendaMarkdown } from "../postAgendaToMatrix";
+import { buildAgendaTransactionId, postAgendaToMatrix } from "../postAgendaToMatrix";
 
 /** The ledger append runs in a serializable transaction; run the callback against the same mock. */
 function withTransaction(db: ReturnType<typeof mockDeep<PrismaClient>>) {
@@ -33,7 +33,7 @@ describe("postAgendaToMatrix", () => {
     report.mockReset();
   });
 
-  it("renders the narrative with a link, sends with an identity-derived txn id and stamps the post in the snapshot", async () => {
+  it("renders the sections with a link, sends with an identity-derived txn id and stamps the post in the snapshot", async () => {
     const db = withTransaction(mockDeep<PrismaClient>());
     db.ceremonyOccurrence.findUnique.mockResolvedValue(occurrence as never);
     db.ceremonyOccurrence.update.mockResolvedValue({} as never);
@@ -49,6 +49,7 @@ describe("postAgendaToMatrix", () => {
     expect(body.txnId).toBe(buildAgendaTransactionId("occ-1", "!room:syntro.fi", 0));
     expect(body.text).toContain("Fix login");
     expect(body.text).toContain("https://app.test/w/ws/ceremonies/cer-1/occ-1");
+    expect(body.html).toContain('<a href="https://app.test/w/ws/ceremonies/cer-1/occ-1">Open the agenda in Exponential</a>');
     const data = db.ceremonyOccurrence.update.mock.calls[0]![0].data as { agenda: { matrixPosts: Array<{ roomId: string; serverId: string; eventId: string }> } };
     expect(data.agenda.matrixPosts).toEqual([expect.objectContaining({ roomId: "!room:syntro.fi", serverId: "srv-1", eventId: "$evt1" })]);
   });
@@ -84,45 +85,6 @@ describe("postAgendaToMatrix", () => {
     expect(failed).toEqual({ kind: "failed", reason: "M_FORBIDDEN" });
     expect(report).toHaveBeenCalled();
     expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
-  });
-
-  it("renders a structured listing when there is no narrative", () => {
-    const md = renderAgendaMarkdown({ ceremonyName: "Retro", when: "Fri", agenda: { ...agenda, narrative: null }, url: "u" });
-    expect(md).toContain("## Blockers");
-    expect(md).toContain("- Fix login");
-    expect(md).toContain("Open in Exponential: u");
-  });
-
-  it("escapes Markdown in record-derived text so a record title cannot post a live link", () => {
-    const hostile = {
-      ...agenda,
-      narrative: null,
-      sections: [
-        { key: "blk", type: "blockers", title: "Blockers", items: [
-          { id: "i", sectionKey: "blk", title: "[Approve the budget](https://evil.example)", refType: "action", refId: "a", order: 0, detail: "**urgent**" },
-        ] },
-      ],
-    };
-    const md = renderAgendaMarkdown({ ceremonyName: "Retro", when: "Fri", agenda: hostile as never, url: "https://app.test/x" });
-    expect(md).not.toContain("[Approve the budget](https://evil.example)");
-    expect(md).toContain("\\[Approve the budget\\]");
-    expect(md).not.toContain("(**urgent**)");
-    // The app's own deep link stays live.
-    expect(md).toContain("Open in Exponential: https://app.test/x");
-  });
-
-  it("keeps the Markdown of a hand-added item, which a person wrote for this agenda", () => {
-    const withHand = {
-      ...agenda,
-      narrative: null,
-      sections: [
-        { key: "free", type: "free_text", title: "Anything else", items: [
-          { id: "h", sectionKey: "free", title: "Review our [projects](https://app.test/w/x/projects)", refType: "text", refId: "h", order: 0, addedByUserId: "u-1" },
-        ] },
-      ],
-    };
-    const md = renderAgendaMarkdown({ ceremonyName: "Retro", when: "Fri", agenda: withHand as never, url: "u" });
-    expect(md).toContain("- Review our [projects](https://app.test/w/x/projects)");
   });
 
   it("keeps the ledger written by a concurrent editor rather than reverting the snapshot", async () => {
