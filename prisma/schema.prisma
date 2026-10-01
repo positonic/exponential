@@ -925,6 +925,7 @@ model Action {
 
   @@index([projectId])
   @@index([createdById])
+  @@index([dueDate])
   @@index([teamId])
   @@index([workspaceId])
   @@index([transcriptionSessionId])
@@ -5821,6 +5822,7 @@ model Decision {
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
+  @@index([ownerId])
   @@index([transcriptionSessionId])
   @@index([occurrenceId])
   @@index([projectId])
