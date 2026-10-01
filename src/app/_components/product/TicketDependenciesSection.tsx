@@ -25,10 +25,15 @@ import {
 import { api } from "~/trpc/react";
 import { generateLinearId } from "~/lib/fun-ids";
 import {
+  COMPLETED_TICKET_STATUSES,
   STATUS_COLORS,
   STATUS_LABELS,
   type TicketStatus,
 } from "~/lib/ticket-statuses";
+import {
+  useTicketSummaryCache,
+  withBlockedFlag,
+} from "~/app/_components/product/useTicketSummaryCache";
 
 interface LinkedTicket {
   id: string;
@@ -99,6 +104,7 @@ interface DependencyMutations {
  */
 function useDependencyMutations(ticketId: string, productId: string): DependencyMutations {
   const utils = api.useUtils();
+  const summaries = useTicketSummaryCache();
   // addDependency's input is ids only; the optimistic row needs the whole
   // linked ticket, so add() parks it here for onMutate to pick up.
   const pendingLinked = useRef(new Map<string, LinkedTicket>());
@@ -112,20 +118,42 @@ function useDependencyMutations(ticketId: string, productId: string): Dependency
       ? { key: "dependsOn" as const, otherId: vars.dependsOnId }
       : { key: "requiredFor" as const, otherId: vars.ticketId };
 
+  // Patches this ticket's getById and, in the Backlog lists, the open-blocker
+  // count on the row of the ticket that depends (vars.ticketId) - it drives
+  // the row's blocked chip.
   const patch = async (
     vars: { ticketId: string; dependsOnId: string },
     update: (list: LinkedTicket[], otherId: string) => LinkedTicket[],
   ) => {
-    await utils.product.ticket.getById.cancel({ id: ticketId });
+    const [, prevSummaries] = await Promise.all([
+      utils.product.ticket.getById.cancel({ id: ticketId }),
+      summaries.snapshot(vars.ticketId),
+    ]);
     const prev = utils.product.ticket.getById.getData({ id: ticketId });
     if (prev) {
       const { key, otherId } = sideOf(vars);
-      utils.product.ticket.getById.setData(
-        { id: ticketId },
-        { ...prev, [key]: update(prev[key], otherId) },
-      );
+      const before = prev[key];
+      const after = update(before, otherId);
+      utils.product.ticket.getById.setData({ id: ticketId }, { ...prev, [key]: after });
+
+      const had = before.some((t) => t.id === otherId);
+      const has = after.some((t) => t.id === otherId);
+      // The blocker is the other ticket when this one depends on it, and this
+      // ticket itself when the other one does.
+      const blockerStatus =
+        key === "dependsOn"
+          ? (after.find((t) => t.id === otherId) ?? before.find((t) => t.id === otherId))?.status
+          : prev.status;
+      if (had !== has && blockerStatus && !COMPLETED_TICKET_STATUSES.includes(blockerStatus)) {
+        summaries.patch(vars.ticketId, (row) =>
+          withBlockedFlag({
+            ...row,
+            openBlockerCount: Math.max(0, row.openBlockerCount + (has ? 1 : -1)),
+          }),
+        );
+      }
     }
-    return { prev };
+    return { prev, prevSummaries };
   };
   const onError = (
     err: { message: string },
@@ -133,6 +161,7 @@ function useDependencyMutations(ticketId: string, productId: string): Dependency
     mctx: Awaited<ReturnType<typeof patch>> | undefined,
   ) => {
     if (mctx?.prev) utils.product.ticket.getById.setData({ id: ticketId }, mctx.prev);
+    summaries.restore(mctx?.prevSummaries);
     notifications.show({ title: "Dependency not saved", message: err.message, color: "red" });
   };
   const onSettled = async (
