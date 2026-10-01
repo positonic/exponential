@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
@@ -11,6 +12,12 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+  withCarriedCommentMarks,
+} from "~/server/services/prd/anchor-comment";
 import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
@@ -698,13 +705,23 @@ export const ticketRouter = createTRPCRouter({
       // runs even while `bodyDoc` is still null: a tab may already hold the
       // older `body` it is about to migrate, and without the doc + bump its
       // lazy migration and first save would silently undo this write.
+      // Comment marks are carried across from the old doc wherever their
+      // text survived, so the rewrite doesn't orphan those threads.
       const syncDoc =
         bodyDoc === undefined &&
         rest.body !== undefined &&
         rest.body !== previousTicket.body;
       if (syncDoc) {
+        const previousDoc = await ctx.db.ticket.findUnique({
+          where: { id },
+          select: { bodyDoc: true },
+        });
         try {
-          data.bodyDoc = markdownToDocServer(rest.body);
+          data.bodyDoc = withCarriedCommentMarks(
+            previousDoc?.bodyDoc as JSONContent | null | undefined,
+            markdownToDocServer(rest.body),
+            "ticket.update",
+          );
           data.docVersion = { increment: 1 };
         } catch (err) {
           throw new TRPCError({
@@ -1189,6 +1206,9 @@ export const ticketRouter = createTRPCRouter({
         // orphaned thread still renders. Both absent = plain feed comment.
         threadId: z.string().min(1).optional(),
         quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `bodyDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1232,7 +1252,36 @@ export const ticketRouter = createTRPCRouter({
         commentAuthorId: ctx.session.user.id,
       });
 
-      return comment;
+      const anchor = input.threadId
+        ? await anchorThreadInStoredDoc({
+            area: "ticket.addComment",
+            threadId: input.threadId,
+            quotedText: input.quotedText,
+            anchor: input.anchor,
+            read: async () => {
+              const row = await ctx.db.ticket.findUnique({
+                where: { id: input.ticketId },
+                select: { bodyDoc: true, docVersion: true },
+              });
+              return row && {
+                doc: row.bodyDoc as JSONContent | null,
+                docVersion: row.docVersion,
+              };
+            },
+            write: async (doc, expectedVersion) => {
+              const res = await ctx.db.ticket.updateMany({
+                where: { id: input.ticketId, docVersion: expectedVersion },
+                data: {
+                  bodyDoc: doc as Prisma.InputJsonValue,
+                  docVersion: { increment: 1 },
+                },
+              });
+              return res.count === 1;
+            },
+          })
+        : NOT_ANCHORED;
+
+      return { ...comment, anchor };
     }),
 
   updateComment: protectedProcedure

@@ -17,6 +17,10 @@ import {
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { docHasCommentMarks } from "~/lib/prd/comment-anchor";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { uploadToBlob } from "~/lib/blob";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import {
@@ -662,11 +666,35 @@ export const pageRouter = createTRPCRouter({
 
       // A Markdown-source write — `body` set without `bodyDoc` — comes from a
       // non-editor writer (the Zoe agent authors Markdown; the rich editor
-      // always sends both). Treat the Markdown as canonical: null out `bodyDoc`
-      // and bump `docVersion` so the editor re-derives the ProseMirror doc from
+      // always sends both). Treat the Markdown as canonical and bump
+      // `docVersion`: null out `bodyDoc` so the editor re-derives the doc from
       // the new Markdown on next open (the same lazy migration a null bodyDoc
-      // triggers), instead of rendering a now-stale canonical doc.
+      // triggers) — or, when the old doc has comment marks, derive it here so
+      // they can be carried across (below).
       const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
+      // Nulling the doc would take every comment mark with it, orphaning the
+      // page's anchored threads. When there are marks to keep, derive the doc
+      // here instead and carry them across wherever their text survived.
+      let carriedDoc: JSONContent | null = null;
+      if (markdownSourceWrite) {
+        const stored = await ctx.db.knowledgePage.findUnique({
+          where: { id },
+          select: { bodyDoc: true },
+        });
+        const storedDoc = stored?.bodyDoc as JSONContent | null | undefined;
+        if (docHasCommentMarks(storedDoc)) {
+          try {
+            carriedDoc = withCarriedCommentMarks(
+              storedDoc,
+              markdownToDocServer(body),
+              "page.update",
+            );
+          } catch (error) {
+            // Fall back to the lazy re-derivation (marks lost, as before).
+            reportHandledErrorServer(error, { area: "page.update" });
+          }
+        }
+      }
       const data: Prisma.KnowledgePageUpdateInput = {
         ...rest,
         ...(projectIdProvided
@@ -678,7 +706,12 @@ export const pageRouter = createTRPCRouter({
           : {}),
         ...(body !== undefined ? { body } : {}),
         ...(markdownSourceWrite
-          ? { bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } }
+          ? {
+              bodyDoc: carriedDoc
+                ? (carriedDoc as Prisma.InputJsonValue)
+                : Prisma.DbNull,
+              docVersion: { increment: 1 },
+            }
           : {}),
       };
 

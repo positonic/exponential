@@ -87,9 +87,16 @@ export function PageDocument({
     editable,
     adapter: {
       comments,
-      createThread: async ({ threadId, body: commentBody, quotedText }) => {
-        await createComment.mutateAsync({ pageId, threadId, body: commentBody, quotedText });
+      createThread: async ({ threadId, body: commentBody, quotedText, anchor }) => {
+        const created = await createComment.mutateAsync({
+          pageId,
+          threadId,
+          body: commentBody,
+          quotedText,
+          anchor,
+        });
         await invalidateComments();
+        return created.anchor;
       },
       reply: async ({ parentId, body: commentBody }) => {
         await replyComment.mutateAsync({ parentId, body: commentBody });

@@ -8,6 +8,8 @@ import { CommentResolution } from "~/lib/prd/comment-resolution";
 import { PendingCommentHighlight, getPendingComment } from "~/lib/prd/pending-comment";
 import { collectAnchoredThreadIds } from "~/lib/prd/thread-reconciliation";
 import type { AnchoredCommentsAdapter } from "../useAnchoredComments";
+import type { FeatureCommentRow, PanelThread } from "../PrdCommentsPanel";
+import { createSaveQueue } from "~/lib/prd/save-queue";
 
 vi.mock("next-auth/react", () => ({ useSession: () => ({ data: null }) }));
 vi.mock("~/hooks/useWorkspaceMentionCandidates", () => ({
@@ -22,6 +24,7 @@ vi.mock("~/app/_components/prd/PrdThreadPopover", () => ({ PrdThreadPopover: () 
 const { useAnchoredComments } = await import("../useAnchoredComments");
 
 interface PanelProps {
+  threads: PanelThread[];
   pendingThreadId: string | null;
   onSelect: (threadId: string) => void;
   onSubmit: (threadId: string, body: string) => Promise<void>;
@@ -67,16 +70,59 @@ function makeAdapter(over: Partial<AnchoredCommentsAdapter> = {}): AnchoredComme
   };
 }
 
+/** The doc version the editor's next save starts from. */
+const BASE_VERSION = 3;
+
+/**
+ * A stand-in for RichDocEditor's save machinery: a real save queue, a version
+ * base the fake server advances, and a log of the base each save went out on.
+ * Like the real editor, a save with nothing changed since the last one is a
+ * no-op.
+ */
+let version: number;
+let savedAt: number[];
+let currentEditor: Editor | null;
+let lastSaved: string | null;
 let flushSave: ReturnType<typeof vi.fn<() => Promise<void>>>;
+let fastForward: ReturnType<typeof vi.fn<(from: number, next: number) => void>>;
+let runExclusive: <T>(fn: () => Promise<T>) => Promise<T>;
 beforeEach(() => {
-  flushSave = vi.fn(async () => undefined);
+  version = BASE_VERSION;
+  savedAt = [];
+  currentEditor = null;
+  lastSaved = null;
+  const queue = createSaveQueue(async () => {
+    const json = JSON.stringify(currentEditor?.getJSON());
+    if (json === lastSaved) return;
+    lastSaved = json;
+    savedAt.push(version);
+    version++;
+  });
+  flushSave = vi.fn(() => queue.request());
+  fastForward = vi.fn((from: number, next: number) => {
+    if (version === from) version = next;
+  });
+  runExclusive = (fn) => {
+    void queue.request();
+    return queue.exclusive(fn);
+  };
 });
 
 function setup(editor: Editor, adapter: AnchoredCommentsAdapter) {
+  currentEditor = editor;
+  lastSaved = JSON.stringify(editor.getJSON());
   const hook = renderHook(() =>
     useAnchoredComments({ enabled: true, editable: true, adapter }),
   );
-  act(() => hook.result.current.handleReady({ editor, flushSave }));
+  act(() =>
+    hook.result.current.handleReady({
+      editor,
+      flushSave,
+      baseVersion: () => version,
+      fastForward,
+      runExclusive,
+    }),
+  );
   const panel = () => (hook.result.current.panel as ReactElement<PanelProps>).props;
   const startComment = () =>
     act(() => {
@@ -115,14 +161,16 @@ describe("useAnchoredComments — pending threads", () => {
     expect(flushSave).not.toHaveBeenCalled();
   });
 
-  it("posting the first comment anchors the mark, then persists it", async () => {
+  it("posting the first comment sends the anchor to the server, then mirrors the mark", async () => {
     const editor = makeEditor();
     let markedDuringPost: string[] = [];
     const createThread = vi.fn(async () => {
       markedDuringPost = [...markedThreads(editor)];
+      return { anchored: true, docVersion: BASE_VERSION + 1, fastForward: true };
     });
     const { panel, startComment } = setup(editor, makeAdapter({ createThread }));
     selectWord(editor, "brave");
+    const { from, to } = editor.state.selection;
     startComment();
     const threadId = panel().pendingThreadId!;
 
@@ -132,19 +180,99 @@ describe("useAnchoredComments — pending threads", () => {
       threadId,
       body: "Why brave?",
       quotedText: "brave",
+      anchor: { baseVersion: BASE_VERSION, from, to, prefix: "Hello ", suffix: " new world" },
     });
-    expect(markedDuringPost).toEqual([threadId]);
+    // The server pins the mark; the editor only mirrors it once the post is in.
+    expect(markedDuringPost).toEqual([]);
     expect([...markedThreads(editor)]).toEqual([threadId]);
-    // Saved once, and only after the thread row exists.
+    // The server wrote on top of this tab's base, so the tab adopts its
+    // version, and the mirrored mark saves on top of that — no conflict.
+    expect(fastForward).toHaveBeenCalledWith(BASE_VERSION, BASE_VERSION + 1);
     expect(flushSave).toHaveBeenCalledTimes(1);
-    expect(flushSave.mock.invocationCallOrder[0]).toBeGreaterThan(
-      createThread.mock.invocationCallOrder[0]!,
-    );
+    await act(() => flushSave());
+    expect(savedAt).toEqual([BASE_VERSION + 1]);
     expect(getPendingComment(editor.state)).toBeNull();
     expect(panel().pendingThreadId).toBeNull();
   });
 
-  it("a failed post rolls the mark back and keeps the pending thread to retry", async () => {
+  it("an edit saved during the post goes out after it, on the adopted version", async () => {
+    const editor = makeEditor();
+    const createThread = vi.fn(async () => {
+      // The user types meanwhile, and that edit's save fires mid-post.
+      editor.commands.insertContentAt(editor.state.doc.content.size - 1, "!");
+      void flushSave();
+      await Promise.resolve();
+      // The server's anchor write made v4 on top of the tab's v3.
+      return { anchored: true, docVersion: BASE_VERSION + 1, fastForward: true };
+    });
+    const { panel, startComment } = setup(editor, makeAdapter({ createThread }));
+    selectWord(editor, "brave");
+    startComment();
+
+    await act(() => panel().onSubmit(panel().pendingThreadId!, "Why brave?"));
+    await act(() => flushSave());
+
+    // Held back until the post settled, the edit saved on the adopted v4 —
+    // never on the stale v3 the server had already moved past.
+    expect(savedAt.length).toBeGreaterThan(0);
+    expect(savedAt).not.toContain(BASE_VERSION);
+    expect(savedAt[0]).toBe(BASE_VERSION + 1);
+  });
+
+  it("keeps its base, and doesn't force a doomed save, when someone else changed the doc first", async () => {
+    const editor = makeEditor();
+    const createThread = vi.fn(async () => ({
+      anchored: true,
+      docVersion: BASE_VERSION + 5,
+      fastForward: false,
+    }));
+    const { panel, startComment } = setup(editor, makeAdapter({ createThread }));
+    selectWord(editor, "brave");
+    startComment();
+    const threadId = panel().pendingThreadId!;
+
+    await act(() => panel().onSubmit(threadId, "Why brave?"));
+
+    expect(fastForward).not.toHaveBeenCalled();
+    // The highlight still shows locally, but no save is pushed into a conflict.
+    expect([...markedThreads(editor)]).toEqual([threadId]);
+    expect(flushSave).not.toHaveBeenCalled();
+  });
+
+  it("shows the thread as anchored, not orphaned, while its post lands", async () => {
+    const editor = makeEditor();
+    const adapter = makeAdapter();
+    const { hook, panel, startComment } = setup(editor, adapter);
+    selectWord(editor, "brave");
+    startComment();
+    const threadId = panel().pendingThreadId!;
+    let statusDuringPost: string | undefined;
+    adapter.createThread = vi.fn(async () => {
+      // The host refreshes its comment rows before resolving (adapter contract).
+      adapter.comments = [
+        {
+          id: "c1",
+          threadId,
+          parentId: null,
+          quotedText: "brave",
+          resolvedAt: null,
+          body: "Why brave?",
+          createdAt: new Date(),
+          createdBy: { id: "u1", name: "U", image: null },
+        } satisfies FeatureCommentRow,
+      ];
+      hook.rerender();
+      statusDuringPost = panel().threads.find((t) => t.threadId === threadId)?.status;
+      return { anchored: true, docVersion: BASE_VERSION + 1, fastForward: true };
+    });
+
+    await act(() => panel().onSubmit(threadId, "Why brave?"));
+
+    expect(statusDuringPost).toBe("anchored");
+    expect(panel().threads.find((t) => t.threadId === threadId)?.status).toBe("anchored");
+  });
+
+  it("a failed post leaves no mark and keeps the pending thread to retry", async () => {
     const editor = makeEditor();
     const createThread = vi.fn(async () => {
       throw new Error("network down");

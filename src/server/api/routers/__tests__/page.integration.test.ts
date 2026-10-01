@@ -282,4 +282,56 @@ describe("page router", () => {
       ).rejects.toThrow(TRPCError);
     });
   });
+
+  describe("update — Markdown-source writes", () => {
+    it("re-derives the doc and keeps comment marks whose text survived", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "pg-md-carry" });
+      const page = await createPage(db, { createdById: owner.id, workspaceId: ws.id });
+      await db.knowledgePage.update({
+        where: { id: page.id },
+        data: {
+          bodyDoc: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [
+                  { type: "text", text: "check the " },
+                  { type: "text", text: "indicator", marks: [{ type: "comment", attrs: { threadId: "t1" } }] },
+                  { type: "text", text: " value" },
+                ],
+              },
+            ],
+          },
+        },
+      });
+
+      await createTestCaller(owner.id).page.update({
+        id: page.id,
+        body: "An agent's new intro.\n\ncheck the indicator value",
+      });
+
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.docVersion).toBe(1);
+      expect(stored.bodyDoc).not.toBeNull();
+      expect(JSON.stringify(stored.bodyDoc)).toContain('"threadId":"t1"');
+    });
+
+    it("still nulls the doc when there are no comment marks to keep", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "pg-md-null" });
+      const page = await createPage(db, { createdById: owner.id, workspaceId: ws.id });
+      await db.knowledgePage.update({
+        where: { id: page.id },
+        data: { bodyDoc: { type: "doc", content: [{ type: "paragraph" }] } },
+      });
+
+      await createTestCaller(owner.id).page.update({ id: page.id, body: "new body" });
+
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.bodyDoc).toBeNull();
+      expect(stored.docVersion).toBe(1);
+    });
+  });
 });
