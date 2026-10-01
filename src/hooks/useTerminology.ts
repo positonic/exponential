@@ -82,6 +82,11 @@ const teamTerminology: Terminology = {
  *
  * - Personal workspaces: Human-friendly language (Goals, Weekly Focus)
  * - Team/Organization workspaces: Professional OKR terminology (Objectives, Key Results)
+ *
+ * Key Results are the one part of this that is separately switchable: the
+ * `enableKeyResults` workspace setting overrides the type-based default, so a
+ * personal workspace can turn them on (and a team can turn them off) without
+ * changing any of the other wording.
  */
 export function useTerminology(): Terminology {
   const { workspace } = useWorkspace();
@@ -93,8 +98,25 @@ export function useTerminology(): Terminology {
   }
 
   const isPersonal = workspace.type === 'personal';
+  const base = isPersonal ? personalTerminology : teamTerminology;
 
-  return isPersonal ? personalTerminology : teamTerminology;
+  // null = no explicit setting, so fall back to the workspace-type default.
+  const keyResultsEnabled = workspace.enableKeyResults ?? !isPersonal;
+  if (keyResultsEnabled === base.showKeyResults) {
+    return base;
+  }
+
+  // The override only moves the KR flags and labels — goals stay "Goals" in a
+  // personal workspace even with Key Results switched on.
+  return {
+    ...base,
+    keyResult: keyResultsEnabled ? 'Key Result' : '',
+    keyResults: keyResultsEnabled ? 'Key Results' : '',
+    okr: keyResultsEnabled ? 'OKR' : '',
+    okrs: keyResultsEnabled ? 'OKRs' : '',
+    showOkrFeatures: keyResultsEnabled,
+    showKeyResults: keyResultsEnabled,
+  };
 }
 
 /**
