@@ -18,6 +18,17 @@ export type AgendaRefType =
   | "project"
   | "text";
 
+/** One run of text on an item's line in the Matrix post. */
+export interface AgendaLineSpan {
+  text: string;
+  /** App-relative link for this run (the next action's page). */
+  href?: string | null;
+  /** A date that has passed and needs a look: shown red, with a warning sign. */
+  warn?: boolean | null;
+}
+
+export type AgendaItemLine = AgendaLineSpan[];
+
 export interface AgendaItem {
   /** Stable per occurrence: `<sectionKey>:<refType>:<refId>` for query items, a cuid-ish for hand-added ones. */
   id: string;
@@ -46,11 +57,10 @@ export interface AgendaItem {
   /**
    * `detail` broken into its own lines for the Matrix post, where one
    * " · "-joined run-on wraps into an unreadable block on a phone. `detail`
-   * stays the one-line form the app shows.
+   * stays the one-line form the app shows. A plain string is a line from a
+   * snapshot written before lines carried links.
    */
-  lines?: string[] | null;
-  /** The record needs a look (a project past its end date, an overdue action); counted in the post's header. */
-  needsAttention?: boolean | null;
+  lines?: Array<AgendaItemLine | string> | null;
   /** App-relative link to the record, when it has a page. */
   href?: string | null;
 }
