@@ -98,6 +98,8 @@ vi.mock("~/lib/blob", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import type { JSONContent } from "@tiptap/core";
+import { collectAnchoredThreadIds } from "~/lib/prd/thread-reconciliation";
 
 const callerId = "user-1";
 const workspaceId = "ws-1";
@@ -180,6 +182,32 @@ describe("ticket.update — Markdown-only body sync (mocked)", () => {
     };
     expect(doc.type).toBe("doc");
     expect(doc.content.map((n) => n.type)).toEqual(["heading", "taskList"]);
+  });
+
+  it("carries comment marks across the rewrite wherever their text survived", async () => {
+    stubTicketAccess(dbMock, {
+      body: "old",
+      bodyDoc: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "Check the " },
+              { type: "text", text: "indicator", marks: [{ type: "comment", attrs: { threadId: "t1" } }] },
+              { type: "text", text: " value." },
+            ],
+          },
+        ],
+      },
+    });
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.ticket.update({ id: ticketId, body: "# Spec\n\nCheck the indicator value twice." });
+
+    expect(collectAnchoredThreadIds(updateData(dbMock)?.bodyDoc as JSONContent)).toEqual(
+      new Set(["t1"]),
+    );
   });
 
   it("bumps docVersion even for a ticket never opened in the rich editor", async () => {

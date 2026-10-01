@@ -1,9 +1,20 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
+import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadPageForAccess, ensurePageAccess } from "./page";
 import { sendPageMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import {
+  getKnowledgePageAccess,
+  canEditKnowledgePage,
+} from "~/server/services/access";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+} from "~/server/services/prd/anchor-comment";
 
 const authorSelect = {
   id: true,
@@ -48,6 +59,9 @@ export const pageCommentRouter = createTRPCRouter({
         threadId: z.string().min(1).optional(),
         body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
         quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `bodyDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -72,7 +86,44 @@ export const pageCommentRouter = createTRPCRouter({
         commentAuthorId: ctx.session.user.id,
       });
 
-      return comment;
+      // Viewers may comment but not edit the body, so only an editor's
+      // thread writes its mark into the doc.
+      const canEdit =
+        !!input.threadId &&
+        canEditKnowledgePage(
+          await getKnowledgePageAccess(ctx.db, ctx.session.user.id, page),
+        );
+      const anchor =
+        input.threadId && canEdit
+          ? await anchorThreadInStoredDoc({
+              area: "pageComment.create",
+              threadId: input.threadId,
+              quotedText: input.quotedText,
+              anchor: input.anchor,
+              read: async () => {
+                const row = await ctx.db.knowledgePage.findUnique({
+                  where: { id: input.pageId },
+                  select: { bodyDoc: true, docVersion: true },
+                });
+                return row && {
+                  doc: row.bodyDoc as JSONContent | null,
+                  docVersion: row.docVersion,
+                };
+              },
+              write: async (doc, expectedVersion) => {
+                const res = await ctx.db.knowledgePage.updateMany({
+                  where: { id: input.pageId, docVersion: expectedVersion },
+                  data: {
+                    bodyDoc: doc as Prisma.InputJsonValue,
+                    docVersion: { increment: 1 },
+                  },
+                });
+                return res.count === 1;
+              },
+            })
+          : NOT_ANCHORED;
+
+      return { ...comment, anchor };
     }),
 
   reply: protectedProcedure

@@ -81,9 +81,16 @@ export function TicketBodyEditor({
     editable: true,
     adapter: {
       comments,
-      createThread: async ({ threadId, body: content, quotedText }) => {
-        await addComment.mutateAsync({ ticketId, threadId, content, quotedText });
+      createThread: async ({ threadId, body: content, quotedText, anchor }) => {
+        const created = await addComment.mutateAsync({
+          ticketId,
+          threadId,
+          content,
+          quotedText,
+          anchor,
+        });
         await invalidateComments();
+        return created.anchor;
       },
       reply: async ({ parentId, body: content }) => {
         await replyComment.mutateAsync({ parentId, content });

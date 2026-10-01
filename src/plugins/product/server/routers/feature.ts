@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
@@ -7,6 +8,7 @@ import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
 import { uploadToBlob } from "~/lib/blob";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { hasMinimumWorkspaceRole } from "~/server/services/access";
@@ -695,18 +697,19 @@ export const featureRouter = createTRPCRouter({
       // server-side (ADR-0024 - the doc is canonical; leaving it stale would
       // make the edit invisible in the UI and get clobbered on the next
       // editor save). Bumping `docVersion` turns any open editor tab's next
-      // autosave into a CONFLICT instead of a silent overwrite. Anchored
-      // comment marks don't survive the rewrite - the Markdown projection
-      // never carried them - which is the same trade-off as a full-body
-      // rewrite in the editor.
+      // autosave into a CONFLICT instead of a silent overwrite. The Markdown
+      // projection never carried comment marks, so they're carried across
+      // from the old doc wherever their text survived the rewrite; a thread
+      // whose text is gone becomes orphaned, as an editor deletion would.
       let syncDoc = descriptionDoc === undefined && rest.description !== undefined;
+      let previousDoc: JSONContent | null = null;
       if (syncDoc) {
         // Re-sending the stored Markdown unchanged (agents retry-write a lot)
         // must not rewrite the doc: it would bump `docVersion` for nothing
         // and hand every open editor tab a spurious CONFLICT.
         const current = await ctx.db.feature.findUnique({
           where: { id },
-          select: { description: true },
+          select: { description: true, descriptionDoc: true },
         });
         if (!current) {
           // Deleted between the access check and this read - fail the same
@@ -714,14 +717,17 @@ export const featureRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
         }
         if (current.description === rest.description) syncDoc = false;
+        previousDoc = current.descriptionDoc as JSONContent | null;
       }
       let data: Prisma.FeatureUncheckedUpdateInput = rest;
       if (syncDoc) {
         try {
           data = {
             ...rest,
-            descriptionDoc: markdownToDocServer(
-              rest.description,
+            descriptionDoc: withCarriedCommentMarks(
+              previousDoc,
+              markdownToDocServer(rest.description),
+              "feature.update",
             ) as Prisma.InputJsonValue,
             docVersion: { increment: 1 },
           };

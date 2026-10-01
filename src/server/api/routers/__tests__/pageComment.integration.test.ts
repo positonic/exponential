@@ -143,4 +143,61 @@ describe("pageComment router", () => {
     });
     expect(orphans).toHaveLength(0);
   });
+
+  describe("anchored threads pin their mark into bodyDoc", () => {
+    // "indicator" sits at positions 11..20: 1 for the paragraph's opening,
+    // plus its offset in the text.
+    const bodyDoc = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "check the indicator value" }] }],
+    };
+    const anchor = { baseVersion: 2, from: 11, to: 20, prefix: "check the ", suffix: " value" };
+
+    async function pageWithDoc(ownerId: string, workspaceId: string) {
+      const page = await createPage(db, { createdById: ownerId, workspaceId });
+      return db.knowledgePage.update({
+        where: { id: page.id },
+        data: { bodyDoc, docVersion: 2 },
+      });
+    }
+
+    it("an editor's new thread lands in the stored doc", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id });
+      const page = await pageWithDoc(owner.id, ws.id);
+
+      const created = await createTestCaller(owner.id).pageComment.create({
+        pageId: page.id,
+        threadId: "thread-1",
+        body: "Which indicator?",
+        quotedText: "indicator",
+        anchor,
+      });
+
+      expect(created.anchor).toEqual({ anchored: true, docVersion: 3, fastForward: true });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.docVersion).toBe(3);
+      expect(JSON.stringify(stored.bodyDoc)).toContain('"threadId":"thread-1"');
+    });
+
+    it("a viewer's thread doesn't write to a doc they can't edit", async () => {
+      const owner = await createUser(db);
+      const viewer = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id });
+      await addWorkspaceMember(db, ws.id, viewer.id, "viewer");
+      const page = await pageWithDoc(owner.id, ws.id);
+
+      const created = await createTestCaller(viewer.id).pageComment.create({
+        pageId: page.id,
+        threadId: "thread-1",
+        body: "Which indicator?",
+        quotedText: "indicator",
+        anchor,
+      });
+
+      expect(created.anchor).toEqual({ anchored: false, fastForward: false });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.docVersion).toBe(2);
+    });
+  });
 });

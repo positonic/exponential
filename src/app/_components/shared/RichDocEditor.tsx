@@ -34,6 +34,15 @@ export interface RichDocEditorHandle {
    * once the save has settled, so a host can await it before navigating away
    * (a rejected save resolves too — the conflict modal handles the error). */
   flushSave: () => Promise<void>;
+  /** The optimistic-concurrency base the next save will send. */
+  baseVersion: () => number;
+  /**
+   * Adopt `next` as the base when it was built on top of `from` — a version
+   * the server produced from this tab's own content (e.g. a comment mark it
+   * wrote), so this tab's next save doesn't conflict with it. No-op if the
+   * base has moved on since.
+   */
+  fastForward: (from: number, next: number) => void;
 }
 
 export interface RichDocEditorProps {
@@ -386,7 +395,14 @@ export function RichDocEditor({
 
   // Hand the imperative handle to the host once the editor exists.
   useEffect(() => {
-    onReady?.({ editor, flushSave });
+    onReady?.({
+      editor,
+      flushSave,
+      baseVersion: () => versionRef.current,
+      fastForward: (from, next) => {
+        if (versionRef.current === from) versionRef.current = next;
+      },
+    });
     // flushSave is stable enough; re-run when editor changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
