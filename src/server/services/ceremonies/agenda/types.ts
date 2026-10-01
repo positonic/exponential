@@ -41,6 +41,16 @@ export interface AgendaItem {
   order: number;
   /** One line of supporting detail ("no check-in for 9 days", "due 2 Sep"). */
   detail?: string | null;
+  /** Who the item belongs to (a project's DRI), shown beside the title in the Matrix post. */
+  owner?: string | null;
+  /**
+   * `detail` broken into its own lines for the Matrix post, where one
+   * " · "-joined run-on wraps into an unreadable block on a phone. `detail`
+   * stays the one-line form the app shows.
+   */
+  lines?: string[] | null;
+  /** The record needs a look (a project past its end date, an overdue action); counted in the post's header. */
+  needsAttention?: boolean | null;
   /** App-relative link to the record, when it has a page. */
   href?: string | null;
 }

@@ -120,6 +120,7 @@ describe("describeDriProject / driProjectPath", () => {
     };
     expect(describeDriProject(state, now)).toBe("40% · 5 open, 2 overdue · review overdue (20 Sept) · ends 31 Dec");
     expect(describeDriProject({ ...state, overdueActions: 0, reviewDate: new Date("2026-10-02T00:00:00.000Z"), endDate: null }, now)).toBe("40% · 5 open · review 2 Oct");
+    expect(describeDriProject({ ...state, overdueActions: 0, reviewDate: null, endDate: new Date("2026-09-20T00:00:00.000Z") }, now)).toBe("40% · 5 open · ended 20 Sept");
     expect(driProjectPath(state)).toBe("/w/acme/projects/gtm-p-1");
     expect(driProjectPath({ ...state, workspaceSlug: null })).toBeNull();
   });
