@@ -97,9 +97,12 @@ export function useAnchoredComments({
 }) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const flushSaveRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const versionRef = useRef<Pick<RichDocEditorHandle, "baseVersion" | "fastForward">>({
+  const docRef = useRef<
+    Pick<RichDocEditorHandle, "baseVersion" | "fastForward" | "runExclusive">
+  >({
     baseVersion: () => 0,
     fastForward: () => undefined,
+    runExclusive: (fn) => fn(),
   });
 
   // Bumped on every doc change so thread reconciliation re-reads the live marks.
@@ -224,7 +227,7 @@ export function useAnchoredComments({
   const handleReady = (handle: RichDocEditorHandle) => {
     setEditor(handle.editor);
     flushSaveRef.current = handle.flushSave;
-    versionRef.current = handle;
+    docRef.current = handle;
   };
 
   // Push the set of resolved threads to the editor so their highlights hide.
@@ -350,40 +353,50 @@ export function useAnchoredComments({
       // autosave lost it whenever that save was rejected — e.g. a CONFLICT
       // after a CLI/agent rewrote the doc while the tab was open.
       inFlightRef.current.add(threadId);
+      let anchored = false;
+      let result: CommentAnchorResult | void;
       try {
-        // Settle unsaved edits first, so the positions sent are positions in
-        // the stored doc and the base version is current.
-        await flushSaveRef.current();
-        const range = editor ? getPendingComment(editor.state) : null;
-        const anchor =
-          editor && range?.threadId === threadId && range.from < range.to
-            ? anchorPayload(
-                editor.state.doc,
-                range.from,
-                range.to,
-                versionRef.current.baseVersion(),
-              )
-            : undefined;
-        const result = await adapter.createThread({
-          threadId,
-          body,
-          quotedText: pending.quotedText,
-          ...(anchor ? { anchor } : {}),
+        // The post writes the doc server-side, so it runs in line with this
+        // tab's saves: unsaved edits land first (making the positions sent
+        // positions in the stored doc, and the base version current), and no
+        // save can start until the version is adopted and the mark mirrored.
+        result = await docRef.current.runExclusive(async () => {
+          const range = editor ? getPendingComment(editor.state) : null;
+          const anchor =
+            editor && range?.threadId === threadId && range.from < range.to
+              ? anchorPayload(
+                  editor.state.doc,
+                  range.from,
+                  range.to,
+                  docRef.current.baseVersion(),
+                )
+              : undefined;
+          const res = await adapter.createThread({
+            threadId,
+            body,
+            quotedText: pending.quotedText,
+            ...(anchor ? { anchor } : {}),
+          });
+          // The server's write was made on top of this tab's base: adopt its
+          // version so this tab's next save doesn't conflict with it.
+          if (anchor && res?.anchored && res.fastForward && res.docVersion != null) {
+            docRef.current.fastForward(anchor.baseVersion, res.docVersion);
+          }
+          // Mirror the mark locally (the server has it already, unless it
+          // found nowhere to put it).
+          anchored = editor ? anchorPendingComment(editor, threadId) : false;
+          return res;
         });
-        // The server's write was made on top of this tab's base: adopt its
-        // version so the save below doesn't conflict with it.
-        if (anchor && result?.anchored && result.fastForward && result.docVersion != null) {
-          versionRef.current.fastForward(anchor.baseVersion, result.docVersion);
-        }
       } finally {
         inFlightRef.current.delete(threadId);
       }
-      // Mirror the mark locally (the server has it already, unless it found
-      // nowhere to put it) and save, so this tab's doc matches the store.
-      const anchored = editor ? anchorPendingComment(editor, threadId) : false;
       if (editor) clearPendingComment(editor);
       setPending((p) => (p?.threadId === threadId ? null : p));
-      if (anchored) {
+      // Save the mirrored mark — unless the server stored it on top of a doc
+      // someone else had changed: this tab is stale then, and the save could
+      // only raise the conflict dialog. Its next real edit will, honestly.
+      const serverStale = result?.anchored === true && !result.fastForward;
+      if (anchored && !serverStale) {
         flushSaveRef.current().catch(() => {
           notifications.show({
             color: "red",

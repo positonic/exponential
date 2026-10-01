@@ -43,6 +43,12 @@ export interface RichDocEditorHandle {
    * base has moved on since.
    */
   fastForward: (from: number, next: number) => void;
+  /**
+   * Run `fn` — a request that also writes the stored doc server-side — in
+   * line with this tab's saves: pending edits are saved first, and no save
+   * starts until `fn` settles, so the tab can't conflict with itself.
+   */
+  runExclusive: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
 export interface RichDocEditorProps {
@@ -401,6 +407,11 @@ export function RichDocEditor({
       baseVersion: () => versionRef.current,
       fastForward: (from, next) => {
         if (versionRef.current === from) versionRef.current = next;
+      },
+      runExclusive: (fn) => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        void saveQueueRef.current.request();
+        return saveQueueRef.current.exclusive(fn);
       },
     });
     // flushSave is stable enough; re-run when editor changes.
