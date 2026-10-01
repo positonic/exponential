@@ -186,7 +186,7 @@ export function EditTicketModal({
         tagIds,
       });
 
-      await utils.product.ticket.list.invalidate();
+      await utils.product.ticket.listSummaries.invalidate();
       await utils.product.ticket.getById.invalidate({ id: ticketId });
       await utils.tag.listForEntity.invalidate({
         entityType: "ticket",

@@ -90,7 +90,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
     await utils.product.ticket.getById.invalidate({ id: ticketId });
     await utils.product.ticket.listEvents.invalidate({ id: ticketId });
     if (ticket?.product.id) {
-      await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
+      await utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id });
     }
   };
 

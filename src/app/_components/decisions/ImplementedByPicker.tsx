@@ -57,7 +57,7 @@ export function ImplementedByPicker({
     { workspaceId },
     { enabled: adding },
   );
-  const { data: tickets } = api.product.ticket.list.useQuery(
+  const { data: tickets } = api.product.ticket.listSummaries.useQuery(
     { productId: productId ?? "" },
     { enabled: adding && !!productId },
   );
