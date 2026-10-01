@@ -3,6 +3,11 @@
 import { useRef } from "react";
 import { notifications } from "@mantine/notifications";
 import { api, type RouterOutputs } from "~/trpc/react";
+import {
+  useTicketSummaryCache,
+  withBlockedFlag,
+  type TicketSummary,
+} from "~/app/_components/product/useTicketSummaryCache";
 
 type TicketDetail = NonNullable<RouterOutputs["product"]["ticket"]["getById"]>;
 type TicketTagRow = TicketDetail["tags"][number];
@@ -18,7 +23,13 @@ interface TicketPropertyLookups {
   }>;
   features?: Array<NonNullable<TicketDetail["feature"]>>;
   epics?: Array<NonNullable<TicketDetail["epic"]>>;
-  cycles?: Array<{ id: string; name: string; startDate: Date | null; endDate: Date | null }>;
+  cycles?: Array<{
+    id: string;
+    name: string;
+    status: NonNullable<TicketSummary["cycle"]>["status"];
+    startDate: Date | null;
+    endDate: Date | null;
+  }>;
   tags?: Array<TicketTagRow["tag"]>;
 }
 
@@ -32,6 +43,9 @@ interface TicketPropertyLookups {
  * so they still reach the server in the order they were made: the UI updates
  * at once, but an Effort of "1" can't commit after the "13" typed over it.
  *
+ * The same patch lands on the ticket's row in every cached Backlog list, so
+ * an edit in the peek drawer updates the row behind it in the same frame.
+ *
  * Shared by the ticket detail page and the Backlog peek drawer.
  */
 export function useTicketPropertyMutations(
@@ -39,6 +53,7 @@ export function useTicketPropertyMutations(
   lookups: TicketPropertyLookups,
 ) {
   const utils = api.useUtils();
+  const summaries = useTicketSummaryCache();
   // Keyed by ticket: the detail page's nav arrows swap tickets without
   // remounting, and an edit still in flight on the previous ticket must not
   // suppress (or be suppressed by) the next ticket's reconcile.
@@ -47,12 +62,16 @@ export function useTicketPropertyMutations(
 
   const snapshot = async () => {
     inFlight.current.set(ticketId, (inFlight.current.get(ticketId) ?? 0) + 1);
-    await utils.product.ticket.getById.cancel({ id: ticketId });
-    return utils.product.ticket.getById.getData({ id: ticketId });
+    const [, prevSummaries] = await Promise.all([
+      utils.product.ticket.getById.cancel({ id: ticketId }),
+      summaries.snapshot(ticketId),
+    ]);
+    return { prev: utils.product.ticket.getById.getData({ id: ticketId }), prevSummaries };
   };
 
-  const rollback = (prev: TicketDetail | undefined) => {
-    if (prev) utils.product.ticket.getById.setData({ id: ticketId }, prev);
+  const rollback = (snap: Awaited<ReturnType<typeof snapshot>> | undefined) => {
+    if (snap?.prev) utils.product.ticket.getById.setData({ id: ticketId }, snap.prev);
+    summaries.restore(snap?.prevSummaries);
     notifications.show({
       title: "Update failed",
       message: "Your change was not saved. Please try again.",
@@ -70,16 +89,15 @@ export function useTicketPropertyMutations(
     await Promise.all([
       utils.product.ticket.getById.invalidate({ id: ticketId }),
       utils.product.ticket.listEvents.invalidate({ id: ticketId }),
-      lookups.productId
-        ? utils.product.ticket.listSummaries.invalidate({ productId: lookups.productId })
-        : undefined,
+      lookups.productId ? summaries.reconcile(lookups.productId, ticketId) : undefined,
     ]);
   };
 
   const updateTicket = api.product.ticket.update.useMutation({
     scope,
     onMutate: async (vars) => {
-      const prev = await snapshot();
+      const snap = await snapshot();
+      const { prev } = snap;
       if (prev) {
         const next = { ...prev };
         if (vars.title !== undefined) next.title = vars.title;
@@ -115,9 +133,39 @@ export function useTicketPropertyMutations(
         }
         utils.product.ticket.getById.setData({ id: ticketId }, next);
       }
-      return { prev };
+      summaries.patch(ticketId, (row) => {
+        const r = { ...row };
+        if (vars.title !== undefined) r.title = vars.title;
+        if (vars.status !== undefined) r.status = vars.status;
+        if (vars.type !== undefined) r.type = vars.type;
+        if (vars.priority !== undefined) r.priority = vars.priority ?? null;
+        if (vars.assigneeId !== undefined) {
+          const m = lookups.members.find((x) => x.user.id === vars.assigneeId);
+          r.assignee =
+            vars.assigneeId && m
+              ? { id: m.user.id, name: m.user.name, image: m.user.image ?? null }
+              : null;
+        }
+        if (vars.featureId !== undefined) {
+          const f = lookups.features?.find((x) => x.id === vars.featureId);
+          r.feature = vars.featureId && f ? { id: f.id, name: f.name } : null;
+        }
+        if (vars.epicId !== undefined) {
+          const e = lookups.epics?.find((x) => x.id === vars.epicId);
+          r.epic = vars.epicId && e ? { id: e.id, name: e.name } : null;
+        }
+        if (vars.cycleId !== undefined) {
+          const c = lookups.cycles?.find((x) => x.id === vars.cycleId);
+          r.cycle =
+            vars.cycleId && c
+              ? { id: c.id, name: c.name, status: c.status, startDate: c.startDate, endDate: c.endDate }
+              : null;
+        }
+        return withBlockedFlag(r);
+      });
+      return snap;
     },
-    onError: (_err, _vars, mctx) => rollback(mctx?.prev),
+    onError: (_err, _vars, mctx) => rollback(mctx),
     onSettled: settle,
   });
 
@@ -127,7 +175,8 @@ export function useTicketPropertyMutations(
   const setTicketTags = api.tag.setTicketTags.useMutation({
     scope,
     onMutate: async (vars) => {
-      const prev = await snapshot();
+      const snap = await snapshot();
+      const { prev } = snap;
       if (prev) {
         const tags: TicketTagRow[] = [];
         for (const tagId of vars.tagIds) {
@@ -143,9 +192,21 @@ export function useTicketPropertyMutations(
         }
         utils.product.ticket.getById.setData({ id: ticketId }, { ...prev, tags });
       }
-      return { prev };
+      summaries.patch(ticketId, (row) => {
+        const tags: TicketSummary["tags"] = [];
+        for (const tagId of vars.tagIds) {
+          const tag =
+            row.tags.find((t) => t.tag.id === tagId)?.tag ??
+            lookups.tags?.find((t) => t.id === tagId);
+          if (tag) {
+            tags.push({ tag: { id: tag.id, name: tag.name, color: tag.color, category: tag.category } });
+          }
+        }
+        return { ...row, tags };
+      });
+      return snap;
     },
-    onError: (_err, _vars, mctx) => rollback(mctx?.prev),
+    onError: (_err, _vars, mctx) => rollback(mctx),
     onSettled: settle,
   });
 
