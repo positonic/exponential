@@ -113,10 +113,10 @@ function withDom<T>(fn: () => T): T {
 /**
  * Convert a Markdown `description` into the canonical `descriptionDoc` form.
  * Same output as the client's lazy migration ({@link markdownToDoc}) — it *is*
- * that function, run under a throwaway DOM. Comment marks cannot survive (the
- * Markdown projection never carried them), so callers rewriting an existing
- * doc orphan any anchored comment threads — the same trade-off as a full-body
- * rewrite in the editor.
+ * that function, run under a throwaway DOM. The Markdown projection never
+ * carried comment marks, so the result has none; callers rewriting an existing
+ * doc carry them across with `withCarriedCommentMarks`
+ * (`~/server/services/prd/anchor-comment`).
  */
 export function markdownToDocServer(
   markdown: string | null | undefined,

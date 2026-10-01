@@ -211,6 +211,38 @@ describe("ticket router — anchored comment threads (mocked)", () => {
       expect(res.anchor).toEqual({ anchored: true, docVersion: 7, fastForward: false });
     });
 
+    it("re-reads and retries once after losing the compare-and-set", async () => {
+      // v4 when first read; another write lands (v5) before ours goes in.
+      dbMock.ticket.findUnique
+        .mockResolvedValueOnce(
+          // loadTicketWithAccess
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { id: ticketId, productId: "prod-1", body: null, docVersion: 4, bodyDoc, product: { workspaceId } } as any,
+        )
+        .mockResolvedValueOnce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { docVersion: 4, bodyDoc } as any,
+        )
+        .mockResolvedValueOnce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { docVersion: 5, bodyDoc } as any,
+        );
+      dbMock.ticket.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const res = await caller.product.ticket.addComment({
+        ticketId,
+        content: "Is this right?",
+        threadId: "thread-1",
+        quotedText: "indicator",
+        anchor,
+      });
+
+      expect(dbMock.ticket.updateMany.mock.calls[1]?.[0]?.where).toEqual({ id: ticketId, docVersion: 5 });
+      // Written on top of someone else's v5, so the client must not adopt v6.
+      expect(res.anchor).toEqual({ anchored: true, docVersion: 6, fastForward: false });
+    });
+
     it("still returns the comment when the doc keeps changing under the write", async () => {
       stubStoredDoc(4);
       dbMock.ticket.updateMany.mockResolvedValue({ count: 0 });

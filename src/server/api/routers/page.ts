@@ -666,10 +666,11 @@ export const pageRouter = createTRPCRouter({
 
       // A Markdown-source write — `body` set without `bodyDoc` — comes from a
       // non-editor writer (the Zoe agent authors Markdown; the rich editor
-      // always sends both). Treat the Markdown as canonical: null out `bodyDoc`
-      // and bump `docVersion` so the editor re-derives the ProseMirror doc from
+      // always sends both). Treat the Markdown as canonical and bump
+      // `docVersion`: null out `bodyDoc` so the editor re-derives the doc from
       // the new Markdown on next open (the same lazy migration a null bodyDoc
-      // triggers), instead of rendering a now-stale canonical doc.
+      // triggers) — or, when the old doc has comment marks, derive it here so
+      // they can be carried across (below).
       const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
       // Nulling the doc would take every comment mark with it, orphaning the
       // page's anchored threads. When there are marks to keep, derive the doc
