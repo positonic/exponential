@@ -473,7 +473,13 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
           ticketId={ticketId}
           actions={ticket.actions ?? []}
           workspaceId={workspaceId}
-          onChanged={() => void utils.product.ticket.getById.invalidate({ id: ticketId })}
+          onChanged={() =>
+            void Promise.all([
+              utils.product.ticket.getById.invalidate({ id: ticketId }),
+              utils.product.ticket.listEvents.invalidate({ id: ticketId }),
+              utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id }),
+            ])
+          }
         />
       </div>
 
