@@ -4,8 +4,14 @@ import { mockDeep, mockReset } from "vitest-mock-extended";
 
 const generateMock = vi.hoisted(() => vi.fn());
 vi.mock("../generate", () => ({ generateWorkspaceUpdate: generateMock }));
+const distributeMock = vi.hoisted(() => vi.fn());
+vi.mock("../distribute", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../distribute")>()),
+  distributeWorkspaceUpdate: distributeMock,
+}));
 
-import { runDueWorkspaceUpdates } from "../runner";
+import { DISTRIBUTION_LEASE_MS } from "../distribute";
+import { DISTRIBUTION_RETRY_WINDOW_MS, runDueWorkspaceUpdates, runPendingDistributions } from "../runner";
 
 const db = mockDeep<PrismaClient>();
 const deps = { writer: { write: vi.fn() }, notify: vi.fn(), baseUrl: "https://app.test" };
@@ -67,5 +73,46 @@ describe("runDueWorkspaceUpdates", () => {
 
     expect(result.empty).toEqual(["ws-ok"]);
     expect(result.failed.map((f) => f.workspaceId)).toEqual(["ws-bad-tz", "ws-throws"]);
+  });
+});
+
+describe("runPendingDistributions", () => {
+  const channels = { public: vi.fn(), email: vi.fn(), matrix: vi.fn() };
+
+  it("retries unleased approved updates inside the window, least recently tried first", async () => {
+    db.workspaceUpdate.findMany.mockResolvedValue([
+      { id: "u-sent" },
+      { id: "u-partial" },
+      { id: "u-busy" },
+      { id: "u-boom" },
+    ] as never);
+    distributeMock
+      .mockResolvedValueOnce({ kind: "sent", deliveries: {} })
+      .mockResolvedValueOnce({ kind: "partial", deliveries: {} })
+      .mockResolvedValueOnce({ kind: "busy" })
+      .mockRejectedValueOnce(new Error("db down"));
+
+    const result = await runPendingDistributions(db, NOW, channels);
+
+    expect(result).toEqual({
+      retried: 4,
+      sent: ["u-sent"],
+      stillFailing: ["u-partial"],
+      busy: ["u-busy"],
+      errored: [{ updateId: "u-boom", error: "db down" }],
+    });
+    expect(db.workspaceUpdate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          status: "APPROVED",
+          approvedAt: { gte: new Date(NOW.getTime() - DISTRIBUTION_RETRY_WINDOW_MS) },
+          OR: [
+            { distributionAttemptAt: null },
+            { distributionAttemptAt: { lt: new Date(NOW.getTime() - DISTRIBUTION_LEASE_MS) } },
+          ],
+        },
+        orderBy: { distributionAttemptAt: { sort: "asc", nulls: "first" } },
+      }),
+    );
   });
 });

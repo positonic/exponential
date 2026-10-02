@@ -9,22 +9,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
-const { headersMock, runDueWorkspaceUpdatesMock } = vi.hoisted(() => ({
+const { headersMock, runDueWorkspaceUpdatesMock, runPendingDistributionsMock } = vi.hoisted(() => ({
   headersMock: vi.fn(),
   runDueWorkspaceUpdatesMock: vi.fn(),
+  runPendingDistributionsMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({ headers: headersMock }));
 vi.mock("~/server/db", () => ({ db: { __stub: "db" } }));
 vi.mock("~/server/services/workspaceUpdates/deps", () => ({ defaultGenerateDeps: vi.fn() }));
+vi.mock("~/server/services/workspaceUpdates/channels", () => ({ defaultDistributeChannels: vi.fn() }));
 vi.mock("~/server/services/workspaceUpdates/runner", () => ({
   runDueWorkspaceUpdates: runDueWorkspaceUpdatesMock,
+  runPendingDistributions: runPendingDistributionsMock,
 }));
 
 import { GET } from "../workspace-updates/route";
 
 const request = {} as NextRequest;
 const runnerResult = { evaluated: 0, due: 0, drafted: [], empty: [], alreadyClaimed: [], failed: [] };
+const distributionResult = { retried: 0, sent: [], stillFailing: [], errored: [] };
 
 function authHeader(value: string | null) {
   headersMock.mockResolvedValue(
@@ -40,6 +44,7 @@ describe("/api/cron/workspace-updates", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     process.env.CRON_SECRET = "test-secret";
     runDueWorkspaceUpdatesMock.mockResolvedValue(runnerResult);
+    runPendingDistributionsMock.mockResolvedValue(distributionResult);
     authHeader("Bearer test-secret");
   });
 
@@ -82,6 +87,7 @@ describe("/api/cron/workspace-updates", () => {
     expect(response.status).toBe(200);
     expect(runDueWorkspaceUpdatesMock).toHaveBeenCalledTimes(1);
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body).toEqual({ success: true, ...runnerResult });
+    expect(body).toEqual({ success: true, ...runnerResult, distribution: distributionResult });
+    expect(runPendingDistributionsMock).toHaveBeenCalledTimes(1);
   });
 });

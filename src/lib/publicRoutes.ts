@@ -47,6 +47,7 @@ export const PUBLIC_EXACT = new Set([
  */
 export const PUBLIC_PREFIXES = [
   '/p/', // published Knowledge Pages (ADR-0038)
+  '/updates/', // a workspace's approved, opted-in Workspace updates (ADR-0064)
   '/f/', // public forms intake (ADR-0029)
   '/auth/verify-request', // sign-in code redemption happens logged-out
   '/invite/', // token pages render their own signed-out state

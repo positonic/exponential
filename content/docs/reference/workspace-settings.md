@@ -97,7 +97,7 @@ A resident AI copywriter drafts a short update of what shipped in the workspace 
 
 **Nothing is sent without approval.** Each draft is a page linked from the workspace's **Updates** page. Reviewers get it by Matrix (if they have paired it) and by email. Open the draft to edit it in the page editor, then choose one of:
 
-- **Approve**: accept the draft.
+- **Approve**: publish the draft. Approval freezes this version, then it goes to the public page (if on), the newsletter List (if set) and the workspace's team Matrix room (if one is linked). Edits made after approval are not sent. If a channel fails, it is retried hourly and the update's banner shows what was delivered.
 - **Regenerate**: rewrite it, optionally with feedback such as "shorter, lead with the export fix". This replaces the page's content, including your edits.
 - **Skip this week**: nothing is sent for that week.
 
@@ -108,6 +108,8 @@ If nothing user-facing shipped, there is no draft. Reviewers get a one-line note
 | Weekly draft | Turns the automatic weekly draft on or off. |
 | When | Day, hour and time zone of the draft. Each draft covers everything since the previous one. |
 | Reviewers | Who gets each draft and may approve it. If none are set, the workspace's owners and admins review. |
+| Public page | Lists approved updates on a public page, `/updates/<workspace-slug>`, with an RSS feed. Off by default. |
+| Newsletter | Emails each approved update to a contact List. Every email has an unsubscribe link, and opted-out contacts are skipped. |
 | Voice | Writes in the personality of one of your assistants instead of the neutral house voice. |
 
 **Generate draft now** writes a draft immediately, covering everything since the last scheduled update. It is a preview: it does not change what the next scheduled draft covers.

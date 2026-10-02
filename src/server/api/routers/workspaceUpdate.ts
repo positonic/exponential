@@ -6,6 +6,8 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { defaultGenerateDeps } from "~/server/services/workspaceUpdates/deps";
 import { generateWorkspaceUpdate, regenerateWorkspaceUpdate } from "~/server/services/workspaceUpdates/generate";
+import { defaultDistributeChannels } from "~/server/services/workspaceUpdates/channels";
+import { distributeWorkspaceUpdate } from "~/server/services/workspaceUpdates/distribute";
 import { canReviewUpdates } from "~/server/services/workspaceUpdates/reviewers";
 import {
   WORKSPACE_UPDATE_KIND,
@@ -22,6 +24,8 @@ const CONFIG_SELECT = {
   assistantId: true,
   indexPageId: true,
   enabledAt: true,
+  isPublic: true,
+  newsletterCollectionId: true,
 } as const;
 
 const DEFAULT_CONFIG = {
@@ -33,6 +37,8 @@ const DEFAULT_CONFIG = {
   assistantId: null as string | null,
   indexPageId: null as string | null,
   enabledAt: null as Date | null,
+  isPublic: false,
+  newsletterCollectionId: null as string | null,
 };
 
 function isValidTimeZone(tz: string): boolean {
@@ -97,6 +103,8 @@ export const workspaceUpdateRouter = createTRPCRouter({
         timezone: z.string().refine(isValidTimeZone, "Unknown time zone").optional(),
         reviewerIds: z.array(z.string()).max(20).optional(),
         assistantId: z.string().nullable().optional(),
+        isPublic: z.boolean().optional(),
+        newsletterCollectionId: z.string().nullable().optional(),
       }),
     )
     .use(requireWorkspaceMembership("manage_members"))
@@ -117,6 +125,14 @@ export const workspaceUpdateRouter = createTRPCRouter({
           select: { id: true },
         });
         if (!assistant) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown assistant" });
+      }
+
+      if (patch.newsletterCollectionId) {
+        const list = await ctx.db.collection.findFirst({
+          where: { id: patch.newsletterCollectionId, workspaceId, memberType: "crm_contact" },
+          select: { id: true },
+        });
+        if (!list) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown contact List" });
       }
 
       const existing = await ctx.db.workspaceUpdateConfig.findUnique({
@@ -203,6 +219,8 @@ export const workspaceUpdateRouter = createTRPCRouter({
           version: true,
           approvedAt: true,
           skippedAt: true,
+          sentAt: true,
+          deliveries: true,
         },
       });
       if (!update) return null;
@@ -250,6 +268,14 @@ export const workspaceUpdateRouter = createTRPCRouter({
           code: "CONFLICT",
           message: "This draft changed or was already decided. Reload to see the latest.",
         });
+      }
+      // Distribute now; anything that fails is retried by the hourly sweep, so
+      // a failed channel never undoes the approval.
+      try {
+        const result = await distributeWorkspaceUpdate(ctx.db, input.updateId, defaultDistributeChannels(ctx.db));
+        if (result.kind === "sent") return { status: WORKSPACE_UPDATE_STATUS.SENT };
+      } catch (err) {
+        console.error("[workspaceUpdate.approve] distribution failed; the sweep will retry", err);
       }
       return { status: WORKSPACE_UPDATE_STATUS.APPROVED };
     }),

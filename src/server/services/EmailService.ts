@@ -1524,6 +1524,78 @@ Unsubscribe: ${params.unsubscribeUrl}`;
 }
 
 /**
+ * Build a Workspace update email: the approved update's already-sanitized HTML
+ * (rendered from the approval snapshot by the shared document schema and the
+ * published-Page sanitizer), framed with the workspace name, a "read on the
+ * web" link when the update is public, and the mandatory one-click
+ * unsubscribe. Colours come from the design tokens. Pure, so the framing and
+ * escaping are unit-testable without a Postmark stub.
+ */
+export function buildWorkspaceUpdateEmail(params: {
+  subject: string;
+  /** Sanitized HTML of the approved body. */
+  bodyHtml: string;
+  /** Plain-text fallback (the approved Markdown). */
+  bodyText: string;
+  workspaceName: string;
+  unsubscribeUrl: string;
+  webUrl?: string | null;
+  greetingName?: string | null;
+}): { subject: string; htmlBody: string; textBody: string } {
+  const t = colorTokens.light;
+  const greeting = params.greetingName ? `Hi ${escapeDigestHtml(params.greetingName)},` : "Hi,";
+  const webLink = params.webUrl
+    ? `<p style="margin: 0 0 16px; font-size: 13px;"><a href="${escapeDigestHtml(params.webUrl)}" style="color: ${EMAIL_BRAND_COLOR};">Read this update on the web</a></p>`
+    : "";
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: ${t.text.primary}; line-height: 1.6; background-color: ${t.background.secondary};">
+    <div style="max-width: 640px; margin: 0 auto; background-color: ${t.background.primary}; border: 1px solid ${t.border.primary}; border-radius: 8px; padding: 24px;">
+      <p style="margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: ${t.text.muted};">${escapeDigestHtml(params.workspaceName)} update</p>
+      <h1 style="margin: 0 0 16px; font-size: 22px; color: ${t.text.primary};">${escapeDigestHtml(params.subject)}</h1>
+      <p style="margin: 0 0 8px;">${greeting}</p>
+      ${webLink}
+      <div>${params.bodyHtml}</div>
+      <hr style="border: none; border-top: 1px solid ${t.border.primary}; margin: 24px 0;" />
+      <p style="font-size: 12px; color: ${t.text.muted};">
+        You are receiving this because you subscribed to updates from ${escapeDigestHtml(params.workspaceName)}.
+        <a href="${escapeDigestHtml(params.unsubscribeUrl)}" style="color: ${t.text.muted};">Unsubscribe</a>.
+      </p>
+    </div>
+  </body>
+</html>`;
+
+  const textBody = `${params.subject}
+
+${params.greetingName ? `Hi ${params.greetingName},` : "Hi,"}
+${params.webUrl ? `\nRead on the web: ${params.webUrl}\n` : ""}
+${params.bodyText}
+
+—
+You are receiving this because you subscribed to updates from ${params.workspaceName}.
+Unsubscribe: ${params.unsubscribeUrl}`;
+
+  return { subject: params.subject, htmlBody, textBody };
+}
+
+/** Render + send a Workspace update email; returns what was sent for the CRM log. */
+export async function sendWorkspaceUpdateEmail(
+  params: Parameters<typeof buildWorkspaceUpdateEmail>[0] & { to: string; workspaceId?: string },
+): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const rendered = buildWorkspaceUpdateEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject: rendered.subject,
+    htmlBody: rendered.htmlBody,
+    textBody: rendered.textBody,
+    workspaceId: params.workspaceId,
+  });
+  return rendered;
+}
+
+/**
  * Send a meeting invite (or cancellation) with the iCalendar payload as a
  * Postmark attachment. The .ics IS the write path to the attendee's real
  * calendar — Outlook and Gmail render METHOD:REQUEST natively with
@@ -1602,5 +1674,6 @@ export const EmailService = {
   sendCrmOnboardingWelcomeEmail,
   sendCrmAutomationEmail,
   sendBroadcastDigestEmail,
+  sendWorkspaceUpdateEmail,
   sendMeetingInviteEmail,
 };

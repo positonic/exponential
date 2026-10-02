@@ -56,6 +56,7 @@ export function WorkspaceUpdatesSettings({
   const { data: config } = api.workspaceUpdate.getConfig.useQuery({ workspaceId });
   const { data: recent } = api.workspaceUpdate.list.useQuery({ workspaceId, limit: 5 });
   const { data: assistants } = api.assistant.list.useQuery({ workspaceId });
+  const { data: lists } = api.collection.list.useQuery({ workspaceId });
 
   const onError = (err: { message: string }) =>
     notifications.show({ title: 'Could not save', message: err.message, color: 'red' });
@@ -164,6 +165,39 @@ export function WorkspaceUpdatesSettings({
             onChange={(ids) => save({ reviewerIds: ids })}
             placeholder={config.reviewerIds.length ? undefined : 'Owners and admins'}
             searchable
+            clearable
+          />
+        </SettingsField>
+        <SettingsField
+          label="Public page"
+          sublabel="List approved updates on a public page with an RSS feed"
+          action={
+            config.isPublic ? (
+              <Link
+                href={`/updates/${workspaceSlug}`}
+                target="_blank"
+                className="text-xs text-text-muted hover:text-text-primary"
+              >
+                View page
+              </Link>
+            ) : undefined
+          }
+        >
+          <Switch
+            checked={config.isPublic}
+            onChange={(e) => save({ isPublic: e.currentTarget.checked })}
+            aria-label="List approved updates publicly"
+          />
+        </SettingsField>
+        <SettingsField label="Newsletter" sublabel="Email each approved update to a contact List (with unsubscribe)">
+          <Select
+            size="xs"
+            data={(lists ?? [])
+              .filter((l) => l.memberType === 'crm_contact')
+              .map((l) => ({ value: l.id, label: l.name }))}
+            value={config.newsletterCollectionId}
+            onChange={(v) => save({ newsletterCollectionId: v })}
+            placeholder="No newsletter"
             clearable
           />
         </SettingsField>

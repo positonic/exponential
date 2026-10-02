@@ -234,6 +234,8 @@ describe('middleware matcher', () => {
       '/explore',
       '/features/some-marketing-page',
       '/p/published-page',
+      '/updates/acme',
+      '/updates/acme/feed.xml',
       '/f/intake-form',
       '/',
       '/privacy',

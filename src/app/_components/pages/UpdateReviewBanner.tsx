@@ -23,6 +23,37 @@ const STATUS_COLOR: Record<string, string> = {
   SKIPPED: 'gray',
 };
 
+const CHANNEL_LABEL: Record<string, string> = {
+  public: 'Public page',
+  email: 'Newsletter',
+  matrix: 'Team Matrix room',
+};
+
+interface Delivery {
+  status: 'done' | 'skipped' | 'failed';
+  detail?: string;
+}
+
+/** Where an approved update went: one line per configured channel. */
+function DeliveryList({ deliveries }: { deliveries: unknown }) {
+  if (!deliveries || typeof deliveries !== 'object') return null;
+  const entries = Object.entries(deliveries as Record<string, Delivery>).filter(
+    ([, d]) => d.status !== 'skipped',
+  );
+  if (entries.length === 0) return null;
+  return (
+    <ul className="m-0 mt-2 list-none space-y-0.5 p-0" data-testid="update-deliveries">
+      {entries.map(([channel, d]) => (
+        <li key={channel} className="text-xs text-text-muted">
+          <span className="font-medium text-text-secondary">{CHANNEL_LABEL[channel] ?? channel}:</span>{' '}
+          {d.status === 'done' ? 'delivered' : 'failed, retrying hourly'}
+          {d.detail ? ` (${d.detail})` : ''}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function formatWindow(start: Date, end: Date): string {
   const lastDay = new Date(new Date(end).getTime() - 1);
   const fmt = (d: Date) => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
@@ -154,6 +185,7 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
           Edit the draft below as you like. Approving freezes this version for sending; later edits are not sent.
         </Text>
       ) : null}
+      <DeliveryList deliveries={update.deliveries} />
     </div>
   );
 }

@@ -692,6 +692,10 @@ model WorkspaceUpdateConfig {
   indexPageId String?
   // Stamped when enabled; scheduled runs never backfill periods before it.
   enabledAt   DateTime?
+  // Approved updates are listed on the public /updates/<workspace> page and RSS.
+  isPublic    Boolean   @default(false)
+  // The contact List (Collection of CRM contacts) approved updates are emailed to.
+  newsletterCollectionId String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -727,6 +731,13 @@ model WorkspaceUpdate {
   approvedBody  String?  @db.Text
   skippedById  String?
   skippedAt    DateTime?
+  // Distribution after approval: per-channel outcome (public / email / matrix)
+  // and when every configured channel finished.
+  deliveries   Json?
+  sentAt       DateTime?
+  // Start of the latest distribution attempt. Doubles as a lease (no second
+  // attempt while it is fresh) and as the retry sweep's fairness order.
+  distributionAttemptAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -735,6 +746,7 @@ model WorkspaceUpdate {
 
   @@unique([workspaceId, kind, periodKey])
   @@index([workspaceId, kind, windowEnd])
+  @@index([status, approvedAt])
 }
 
 model WorkspaceUser {

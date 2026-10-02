@@ -71,6 +71,10 @@ vi.mock("~/server/services/workspaceUpdates/generate", () => ({
   regenerateWorkspaceUpdate: regenerateMock,
 }));
 
+const distributeMock = vi.hoisted(() => vi.fn());
+vi.mock("~/server/services/workspaceUpdates/distribute", () => ({ distributeWorkspaceUpdate: distributeMock }));
+vi.mock("~/server/services/workspaceUpdates/channels", () => ({ defaultDistributeChannels: vi.fn() }));
+
 import { createMockCaller } from "~/test/trpc-helpers";
 
 const WORKSPACE_ID = "ws-1";
@@ -105,6 +109,7 @@ describe("workspaceUpdate router (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     regenerateMock.mockReset();
+    distributeMock.mockReset().mockResolvedValue({ kind: "partial", deliveries: {} });
   });
 
   describe("approve / skip — who decides a draft", () => {
@@ -144,6 +149,28 @@ describe("workspaceUpdate router (mocked)", () => {
       });
       await expect(caller.workspaceUpdate.skip({ updateId: UPDATE_ID })).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(dbMock.workspaceUpdate.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("distributes right after approval and reports SENT when every channel finished", async () => {
+      mockRole(dbMock, "owner");
+      mockDraft(dbMock);
+      dbMock.workspaceUpdate.updateMany.mockResolvedValue({ count: 1 });
+      distributeMock.mockResolvedValue({ kind: "sent", deliveries: {} });
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID, version: 1 })).resolves.toEqual({ status: "SENT" });
+      expect(distributeMock).toHaveBeenCalledWith(dbMock, UPDATE_ID, undefined);
+    });
+
+    it("keeps the approval when distribution throws (the sweep retries)", async () => {
+      mockRole(dbMock, "owner");
+      mockDraft(dbMock);
+      dbMock.workspaceUpdate.updateMany.mockResolvedValue({ count: 1 });
+      distributeMock.mockRejectedValue(new Error("postmark down"));
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID, version: 1 })).resolves.toEqual({ status: "APPROVED" });
     });
 
     it("refuses to approve a version the reviewer did not see (a rewrite landed)", async () => {
