@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Button, Card, Group, Stack, Text } from '@mantine/core';
+import { Button, Group, Paper, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconBrandGithub } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
@@ -87,27 +87,26 @@ export function GithubIdentityCard({ returnPath = '/settings/profile' }: { retur
   const linkHref = `/api/auth/github-identity?returnUrl=${encodeURIComponent(returnPath)}`;
 
   return (
-    <Card withBorder radius="md" className="border-border-primary bg-surface-secondary">
+    <Paper p="md" withBorder className="bg-surface-primary">
       <Suspense fallback={null}>
         <LinkOutcomeNotifier />
       </Suspense>
       <Group justify="space-between" align="center" wrap="nowrap" gap="md">
         <Group gap="sm" wrap="nowrap" align="flex-start">
-          <IconBrandGithub size={22} className="mt-0.5 text-text-secondary" />
+          <IconBrandGithub size={20} className="mt-0.5 text-text-muted" />
           <Stack gap={2}>
-            <Text fw={500} className="text-text-primary">
-              GitHub account
+            <Text size="sm" fw={500}>
+              GitHub
             </Text>
             {isLoading ? (
               <div className="h-4 w-40 animate-pulse rounded bg-surface-hover" />
             ) : data?.login ? (
               <Text size="sm" className="text-text-secondary">
-                Linked as <span className="font-medium text-text-primary">@{data.login}</span>. Your PRs
-                and commits count toward you on the Metrics page.
+                Linked as <span className="font-medium text-text-primary">@{data.login}</span>
               </Text>
             ) : (
               <Text size="sm" className="text-text-secondary">
-                Link your GitHub account so your PRs and commits count toward you on the Metrics page.
+                Not linked
               </Text>
             )}
           </Stack>
@@ -118,6 +117,7 @@ export function GithubIdentityCard({ returnPath = '/settings/profile' }: { retur
             <Button
               variant="default"
               size="sm"
+              className="shrink-0"
               loading={unlink.isPending}
               onClick={() => unlink.mutate()}
             >
@@ -128,16 +128,17 @@ export function GithubIdentityCard({ returnPath = '/settings/profile' }: { retur
               component="a"
               href={linkHref}
               size="sm"
+              className="shrink-0"
               leftSection={<IconBrandGithub size={16} />}
             >
               Link GitHub
             </Button>
           ) : (
-            <Text size="xs" className="max-w-[180px] text-right text-text-muted">
+            <Text size="xs" className="max-w-[180px] shrink-0 text-right text-text-muted">
               GitHub linking isn&apos;t set up on this server yet.
             </Text>
           ))}
       </Group>
-    </Card>
+    </Paper>
   );
 }
