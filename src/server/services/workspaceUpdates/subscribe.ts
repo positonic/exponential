@@ -6,8 +6,12 @@
  *    the token is the pending signup.
  * 2. `confirmSubscription`: following the link (and pressing Confirm) creates
  *    or reuses the workspace's CRM contact for that email and adds it to the
- *    newsletter List. Confirming is an explicit consent, so it also clears an
- *    earlier opt-out.
+ *    newsletter List. Confirming is an explicit consent, so it clears an
+ *    opt-out from *before* the signup was requested; an unsubscribe made after
+ *    it wins, so replaying an old link never re-subscribes anyone.
+ *
+ * Both steps need signups to be open: a public updates page and a newsletter
+ * List that still exists.
  */
 import type { PrismaClient } from "@prisma/client";
 
@@ -16,6 +20,7 @@ import { createMemberTypeRegistry } from "~/server/services/collections/createMe
 import { dispatchListMemberAddedAutomations } from "~/server/services/crm/automation/dispatchListMemberAddedAutomations";
 import { createCrmContact } from "~/server/services/crm/createCrmContact";
 
+import { findNewsletterList } from "./newsletterList";
 import { publicUpdatesPath } from "./public";
 import { signSubscribeToken, verifySubscribeToken } from "./subscribeToken";
 
@@ -61,9 +66,13 @@ async function loadSignupWorkspace(db: PrismaClient, where: { slug: string } | {
   };
 }
 
-/** Signups are open on a public updates page whose workspace has a newsletter List. */
-export function acceptsSignups(config: { isPublic: boolean; newsletterCollectionId: string | null } | null): boolean {
-  return Boolean(config?.isPublic && config.newsletterCollectionId);
+/** Signups are open on a public updates page whose newsletter List still exists. */
+async function openSignupList(
+  db: PrismaClient,
+  workspace: { id: string; isPublic: boolean; collectionId: string | null },
+): Promise<{ id: string } | null> {
+  if (!workspace.isPublic) return null;
+  return findNewsletterList(db, workspace.id, workspace.collectionId);
 }
 
 export async function requestSubscription(
@@ -72,9 +81,7 @@ export async function requestSubscription(
   deps: RequestSubscriptionDeps,
 ): Promise<RequestSubscriptionResult> {
   const workspace = await loadSignupWorkspace(db, { slug: input.workspaceSlug });
-  if (!workspace || !acceptsSignups({ isPublic: workspace.isPublic, newsletterCollectionId: workspace.collectionId })) {
-    return { kind: "unavailable" };
-  }
+  if (!workspace || !(await openSignupList(db, workspace))) return { kind: "unavailable" };
 
   const token = signSubscribeToken(workspace.id, input.email);
   await deps.sendConfirmation({
@@ -102,6 +109,7 @@ export type ConfirmSubscriptionResult =
   | { kind: "subscribed"; workspaceSlug: string; workspaceName: string; alreadySubscribed: boolean }
   /** The workspace no longer has a newsletter List to join. */
   | { kind: "closed"; workspaceSlug: string; workspaceName: string }
+  /** Tampered or expired, or the address unsubscribed after this link was sent. */
   | { kind: "invalid" };
 
 export async function confirmSubscription(db: PrismaClient, token: string): Promise<ConfirmSubscriptionResult> {
@@ -110,14 +118,9 @@ export async function confirmSubscription(db: PrismaClient, token: string): Prom
   const workspace = await loadSignupWorkspace(db, { id: signup.workspaceId });
   if (!workspace) return { kind: "invalid" };
 
-  // The List must still be this workspace's contact List (settings validate
-  // this on save; checked again because the token outlives the settings).
-  const collection = workspace.collectionId
-    ? await db.collection.findFirst({
-        where: { id: workspace.collectionId, workspaceId: workspace.id, memberType: "crm_contact" },
-        select: { id: true },
-      })
-    : null;
+  // Checked again at confirm time: the token outlives the settings, and an
+  // owner who closed signups (or deleted the List) meant it.
+  const collection = await openSignupList(db, workspace);
   if (!collection) return { kind: "closed", workspaceSlug: workspace.slug, workspaceName: workspace.name };
 
   const { contactId } = await createCrmContact(db, {
@@ -125,11 +128,14 @@ export async function confirmSubscription(db: PrismaClient, token: string): Prom
     email: signup.email,
     importSource: UPDATE_SIGNUP_SOURCE,
   });
-  // Confirming is a fresh, explicit consent: lift an earlier unsubscribe.
+  // Confirming is a fresh consent, so it lifts an unsubscribe from before the
+  // signup was requested. One made after it wins: the link is spent.
   await db.crmContact.updateMany({
-    where: { id: contactId, emailOptedOutAt: { not: null } },
+    where: { id: contactId, emailOptedOutAt: { lt: signup.requestedAt } },
     data: { emailOptedOutAt: null },
   });
+  const contact = await db.crmContact.findUnique({ where: { id: contactId }, select: { emailOptedOutAt: true } });
+  if (contact?.emailOptedOutAt) return { kind: "invalid" };
 
   const { addedMemberIds } = await new CollectionService(db, createMemberTypeRegistry(db)).addMembers(collection.id, [
     contactId,

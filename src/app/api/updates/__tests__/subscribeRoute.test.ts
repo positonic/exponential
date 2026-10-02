@@ -104,7 +104,8 @@ describe("POST /api/updates/[workspaceSlug]/subscribe", () => {
     spy.mockRestore();
   });
 
-  it("rejects a malformed body", async () => {
-    expect((await post("{not json")).status).toBe(400);
+  it.each(["{not json", "null", '"ada@example.com"', "[]"])("rejects a non-object body (%s)", async (body) => {
+    expect((await post(body)).status).toBe(400);
+    expect(requestSubscription).not.toHaveBeenCalled();
   });
 });

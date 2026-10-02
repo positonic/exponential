@@ -16,6 +16,7 @@ interface SubscribePayload {
   workspaceId: string;
   email: string;
   purpose: typeof PURPOSE;
+  iat: number;
 }
 
 function authSecret(): string {
@@ -30,14 +31,26 @@ export function signSubscribeToken(workspaceId: string, email: string): string {
   });
 }
 
+export interface VerifiedSignup {
+  workspaceId: string;
+  email: string;
+  /** When the visitor asked to subscribe (the token's issue time). */
+  requestedAt: Date;
+}
+
 /** The signup a valid token confirms; null for tampered, foreign or expired tokens. */
-export function verifySubscribeToken(token: string): { workspaceId: string; email: string } | null {
+export function verifySubscribeToken(token: string): VerifiedSignup | null {
   try {
     const decoded = jwt.verify(token, authSecret()) as Partial<SubscribePayload>;
-    if (decoded.purpose !== PURPOSE || typeof decoded.workspaceId !== "string" || typeof decoded.email !== "string") {
+    if (
+      decoded.purpose !== PURPOSE ||
+      typeof decoded.workspaceId !== "string" ||
+      typeof decoded.email !== "string" ||
+      typeof decoded.iat !== "number"
+    ) {
       return null;
     }
-    return { workspaceId: decoded.workspaceId, email: decoded.email };
+    return { workspaceId: decoded.workspaceId, email: decoded.email, requestedAt: new Date(decoded.iat * 1000) };
   } catch {
     return null;
   }

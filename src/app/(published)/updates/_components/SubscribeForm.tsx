@@ -4,6 +4,17 @@ import { Button, TextInput } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
 
 /**
+ * The signup route treats anything faster than this as a bot (time trap) and
+ * fakes success. A human with autofill can be that fast, so the form waits out
+ * the remainder before posting instead of having its signup silently dropped.
+ */
+const MIN_FILL_MS = 1600;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Newsletter signup on a workspace's public updates page. Double opt-in: this
  * only sends a confirmation email; the address joins the List once its owner
  * follows the link. Carries the Forms spam defences: a hidden honeypot field
@@ -25,14 +36,13 @@ export function SubscribeForm({ workspaceSlug, workspaceName }: { workspaceSlug:
     event.preventDefault();
     setState({ kind: "sending" });
     try {
+      const renderedAt = renderedAtRef.current ?? Date.now();
+      const wait = MIN_FILL_MS - (Date.now() - renderedAt);
+      if (wait > 0) await sleep(wait);
       const res = await fetch(`/api/updates/${encodeURIComponent(workspaceSlug)}/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          honeypot,
-          elapsedMs: renderedAtRef.current ? Date.now() - renderedAtRef.current : 0,
-        }),
+        body: JSON.stringify({ email, honeypot, elapsedMs: Date.now() - renderedAt }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (res.ok && data.ok) {

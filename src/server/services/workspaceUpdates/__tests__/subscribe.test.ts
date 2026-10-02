@@ -46,6 +46,7 @@ beforeEach(() => {
   dispatch.mockReset().mockResolvedValue({ firedDefinitionIds: [] });
   db.collection.findFirst.mockResolvedValue({ id: "list-1" } as never);
   db.crmContact.updateMany.mockResolvedValue({ count: 0 });
+  db.crmContact.findUnique.mockResolvedValue({ emailOptedOutAt: null } as never);
 });
 
 describe("requestSubscription", () => {
@@ -64,12 +65,27 @@ describe("requestSubscription", () => {
     expect(sent).toMatchObject({ to: "ada@example.com", workspaceName: "Acme", workspaceId: "ws-1" });
     const url = new URL(sent.confirmUrl);
     expect(url.origin + url.pathname).toBe("https://app.test/updates/acme/confirm");
-    expect(verifySubscribeToken(url.searchParams.get("token")!)).toEqual({
+    expect(verifySubscribeToken(url.searchParams.get("token")!)).toMatchObject({
       workspaceId: "ws-1",
       email: "ada@example.com",
     });
     expect(createContact).not.toHaveBeenCalled();
     expect(addMembers).not.toHaveBeenCalled();
+  });
+
+  it("is unavailable when the configured List was deleted", async () => {
+    db.workspace.findUnique.mockResolvedValue(workspace({ isPublic: true, newsletterCollectionId: "gone" }) as never);
+    db.collection.findFirst.mockResolvedValue(null);
+    const sendConfirmation = vi.fn();
+
+    const result = await requestSubscription(
+      db,
+      { workspaceSlug: "acme", email: "ada@example.com" },
+      { sendConfirmation, baseUrl: "https://app.test" },
+    );
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(sendConfirmation).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -106,9 +122,9 @@ describe("confirmSubscription", () => {
       email: "ada@example.com",
       importSource: UPDATE_SIGNUP_SOURCE,
     });
-    // Confirming re-consents: an earlier unsubscribe is lifted.
+    // Confirming re-consents: only an unsubscribe from before the request is lifted.
     expect(db.crmContact.updateMany).toHaveBeenCalledWith({
-      where: { id: "c1", emailOptedOutAt: { not: null } },
+      where: { id: "c1", emailOptedOutAt: { lt: expect.any(Date) } },
       data: { emailOptedOutAt: null },
     });
     expect(addMembers).toHaveBeenCalledWith("list-1", ["c1"]);
@@ -134,6 +150,27 @@ describe("confirmSubscription", () => {
       kind: "subscribed",
     });
     spy.mockRestore();
+  });
+
+  it("never re-subscribes someone who unsubscribed after the link was sent", async () => {
+    db.workspace.findUnique.mockResolvedValue(workspace({ isPublic: true, newsletterCollectionId: "list-1" }) as never);
+    // The earlier-opt-out clear matches nothing; the later opt-out stays.
+    db.crmContact.findUnique.mockResolvedValue({ emailOptedOutAt: new Date() } as never);
+
+    const result = await confirmSubscription(db, signSubscribeToken("ws-1", "ada@example.com"));
+
+    expect(result).toEqual({ kind: "invalid" });
+    expect(addMembers).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("is closed once the public page is turned off", async () => {
+    db.workspace.findUnique.mockResolvedValue(workspace({ isPublic: false, newsletterCollectionId: "list-1" }) as never);
+
+    expect(await confirmSubscription(db, signSubscribeToken("ws-1", "ada@example.com"))).toMatchObject({
+      kind: "closed",
+    });
+    expect(createContact).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid token without touching contacts", async () => {

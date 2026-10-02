@@ -7,6 +7,7 @@
  */
 import type { PrismaClient } from "@prisma/client";
 
+import { findNewsletterList } from "./newsletterList";
 import { WORKSPACE_UPDATE_STATUS } from "./types";
 
 const PUBLISHED_STATUSES = [WORKSPACE_UPDATE_STATUS.APPROVED, WORKSPACE_UPDATE_STATUS.SENT];
@@ -52,12 +53,13 @@ export async function getPublicWorkspace(db: PrismaClient, slug: string): Promis
     },
   });
   if (!workspace?.updateConfig?.isPublic) return null;
+  const newsletterList = await findNewsletterList(db, workspace.id, workspace.updateConfig.newsletterCollectionId);
   return {
     id: workspace.id,
     name: workspace.name,
     slug: workspace.slug,
     timezone: workspace.updateConfig.timezone,
-    acceptsSignups: Boolean(workspace.updateConfig.newsletterCollectionId),
+    acceptsSignups: newsletterList !== null,
   };
 }
 

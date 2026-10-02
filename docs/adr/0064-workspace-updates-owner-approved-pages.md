@@ -98,8 +98,12 @@ The link opens a page with a Confirm button rather than confirming on open, beca
 follow links. Confirming:
 
 - creates or reuses the workspace's CRM contact for that email;
-- clears an earlier opt-out, since confirming is a fresh consent;
+- clears an opt-out made *before* the signup was requested, since confirming is a fresh consent. An
+  unsubscribe made after it wins, so replaying an old link never re-subscribes anyone;
 - adds the contact to the List and fires the List's automations.
+
+Signups need a public updates page and a newsletter List that still exists, checked both when the
+form is offered and again at confirmation.
 
 The form reuses the Forms intake defences (honeypot, time trap) and the shared rate limiter, per IP
 and per email. The per-email limit stops the form being used to flood someone else's inbox.

@@ -23,7 +23,10 @@ export const dynamic = "force-dynamic";
 
 const IP_LIMIT = { limit: 5, windowSeconds: 10 * 60 };
 const EMAIL_LIMIT = { limit: 3, windowSeconds: 60 * 60 };
-/** One field, often autofilled: a lower bar than the full Forms time trap. */
+/**
+ * One field, often autofilled: a lower bar than the full Forms time trap. The
+ * signup form waits this long before posting, so a fast human is never caught.
+ */
 const MIN_SIGNUP_FILL_MS = 1500;
 
 const emailSchema = z.string().trim().min(3).max(254).email();
@@ -39,12 +42,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
   }
 
-  let body: { email?: unknown; honeypot?: unknown; elapsedMs?: unknown };
+  let parsedBody: unknown;
   try {
-    body = (await request.json()) as typeof body;
+    parsedBody = await request.json();
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid request body" }, { status: 400 });
   }
+  // Valid JSON is not necessarily an object (`null`, `"x"`, `[]`).
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return NextResponse.json({ ok: false, error: "Invalid request body" }, { status: 400 });
+  }
+  const body = parsedBody as { email?: unknown; honeypot?: unknown; elapsedMs?: unknown };
 
   // Honeypot and time trap: pretend it worked.
   const honeypotTripped = typeof body.honeypot === "string" && body.honeypot.trim().length > 0;

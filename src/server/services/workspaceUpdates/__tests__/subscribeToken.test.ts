@@ -14,10 +14,10 @@ afterAll(() => {
 
 describe("subscribe tokens", () => {
   it("round-trips the workspace and email", () => {
-    expect(verifySubscribeToken(signSubscribeToken("ws-1", "ada@example.com"))).toEqual({
-      workspaceId: "ws-1",
-      email: "ada@example.com",
-    });
+    const before = Math.floor(Date.now() / 1000) * 1000;
+    const signup = verifySubscribeToken(signSubscribeToken("ws-1", "ada@example.com"));
+    expect(signup).toMatchObject({ workspaceId: "ws-1", email: "ada@example.com" });
+    expect(signup!.requestedAt.getTime()).toBeGreaterThanOrEqual(before);
   });
 
   it("rejects tampered, foreign-purpose, wrongly signed and expired tokens", () => {
