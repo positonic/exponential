@@ -1,6 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import { buildMentionContent } from "./mention";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { formatWindowLabel } from "~/server/services/workspaceUpdates/window";
 import type { EmitNotificationInput, NotificationContent } from "./types";
 
 /**
@@ -291,9 +294,81 @@ export async function buildContent(
     }
     case NOTIFICATION_CATEGORIES.MENTION:
       return buildMentionContent(input, recipientId);
+    case NOTIFICATION_CATEGORIES.UPDATE_REVIEW:
+      return buildUpdateReviewContent(input.db, input.subject.updateId);
     default:
       return null;
   }
+}
+
+/**
+ * Update review: the draft itself rides in `metadata.markdown`, so Matrix and
+ * email reviewers read the update where it arrives and approve from its link;
+ * other channels get a one-line pointer. A quiet week (status EMPTY) is a
+ * one-line notice. Keyed on the update's version, so a regenerated draft
+ * notifies again while a retry of the same version never does.
+ */
+async function buildUpdateReviewContent(
+  db: PrismaClient,
+  updateId: string,
+): Promise<NotificationContent | null> {
+  const update = await db.workspaceUpdate.findUnique({
+    where: { id: updateId },
+    select: {
+      status: true,
+      version: true,
+      windowStart: true,
+      windowEnd: true,
+      pageId: true,
+      page: { select: { title: true, body: true } },
+      workspace: {
+        select: { id: true, slug: true, name: true, updateConfig: { select: { timezone: true } } },
+      },
+    },
+  });
+  if (!update) return null;
+  const { workspace } = update;
+  const window = formatWindowLabel(
+    update.windowStart,
+    update.windowEnd,
+    workspace.updateConfig?.timezone ?? "UTC",
+  );
+  const metadata = { updateId, workspaceId: workspace.id, workspaceSlug: workspace.slug, workspaceName: workspace.name };
+
+  if (update.status === "EMPTY") {
+    return {
+      category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+      title: `No update this week for ${workspace.name}`,
+      message: `Nothing user-facing shipped ${window}, so there is no update to review.`,
+      deeplink: `/w/${workspace.slug}/settings`,
+      metadata,
+      workspaceId: workspace.id,
+      dedupeKey: `update_review:${updateId}:empty`,
+    };
+  }
+  if (!update.pageId || !update.page) return null;
+
+  const path = buildPageEditorPath(workspace.slug, update.pageId);
+  const reviewUrl = `${getPublicBaseUrlFromEnv()}${path}`;
+  const draft = update.page.body?.trim() ?? "";
+  return {
+    category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+    title: `Update ready for review: ${update.page.title}`,
+    message: `This week's update for ${workspace.name} (${window}) is drafted. Nothing is sent until you approve it.`,
+    deeplink: path,
+    metadata: {
+      ...metadata,
+      markdown: [
+        `**${workspace.name} · update for ${window}**: review and approve before anything is sent.`,
+        draft,
+        `**[Review and approve →](${reviewUrl})**`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    },
+    workspaceId: workspace.id,
+    dedupeKey: `update_review:${updateId}:${update.version}`,
+  };
 }
 
 /** Human label for a reminder offset, e.g. 60 → "in 1 hour". */

@@ -12,6 +12,7 @@ import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
+import { UpdateReviewBanner } from '~/app/_components/pages/UpdateReviewBanner';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
 import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
 
@@ -171,6 +172,7 @@ function PageEditorContent({
           })}
         </Link>
       ) : null}
+      <UpdateReviewBanner pageId={page.id} />
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />

@@ -85,6 +85,7 @@ import {
   SettingsRowLink,
   type SidebarGroup,
 } from '~/app/_components/settings/SettingsShell';
+import { WorkspaceUpdatesSettings } from '~/app/_components/settings/WorkspaceUpdatesSettings';
 
 type SectionId =
   | 'general'
@@ -94,6 +95,7 @@ type SectionId =
   | 'integrations'
   | 'plugins'
   | 'ceremonies'
+  | 'updates'
   | 'danger';
 
 export default function WorkspaceSettingsPage() {
@@ -630,6 +632,9 @@ export default function WorkspaceSettingsPage() {
         { id: 'integrations', label: 'Integrations', icon: IconPalette },
         { id: 'plugins', label: 'Plugins', icon: IconPlug },
         { id: 'ceremonies', label: 'Ceremonies', icon: IconCalendarRepeat },
+        ...(userRole === 'owner' || userRole === 'admin'
+          ? [{ id: 'updates' as const, label: 'Updates', icon: IconSparkles }]
+          : []),
       ],
     },
     ...(userRole === 'owner'
@@ -1574,6 +1579,14 @@ export default function WorkspaceSettingsPage() {
               description="Define recurring meetings from templates, set cadence, owner and participants, and link recordings to occurrences."
             />
           </SettingsSection>
+        )}
+
+        {section === 'updates' && (userRole === 'owner' || userRole === 'admin') && (
+          <WorkspaceUpdatesSettings
+            workspaceId={workspace.id}
+            workspaceSlug={workspace.slug}
+            members={workspace.members ?? []}
+          />
         )}
 
         {section === 'danger' && userRole === 'owner' && (

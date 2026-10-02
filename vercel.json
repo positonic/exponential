@@ -50,6 +50,10 @@
     {
       "path": "/api/cron/sync-calendars",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/workspace-updates",
+      "schedule": "30 * * * *"
     }
   ]
 }

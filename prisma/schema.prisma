@@ -513,6 +513,9 @@ model Workspace {
   ceremonyOccurrences CeremonyOccurrence[]
   // Decisions (ADR-0060)
   decisions           Decision[]
+  // Workspace updates: the resident copywriter's owner-approved progress posts
+  updateConfig        WorkspaceUpdateConfig?
+  updates             WorkspaceUpdate[]
 
   @@index([slug])
   @@index([ownerId])
@@ -668,6 +671,70 @@ model WeeklyWorkDigest {
 
   @@unique([userId, isoYear, isoWeek])
   @@index([userId, generatedAt])
+}
+
+// Per-workspace settings for the resident copywriter that drafts a Workspace
+// update each period and hands it to reviewers for approval. One row per
+// workspace; absent = disabled. Weekday/hour are local to `timezone`.
+// See src/server/services/workspaceUpdates/.
+model WorkspaceUpdateConfig {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  enabled     Boolean   @default(false)
+  weekday     Int       @default(5) // 0=Sun ... 6=Sat
+  hour        Int       @default(9) // 0-23
+  timezone    String    @default("UTC") // IANA
+  // Users asked to approve each draft. Empty = the workspace's owners + admins.
+  reviewerIds String[]  @default([])
+  // Writer voice: an Assistant's personality. Null = neutral house voice.
+  assistantId String?
+  // The "Updates" index Page each draft is linked from (pageLink graph, ADR-0039).
+  indexPageId String?
+  // Stamped when enabled; scheduled runs never backfill periods before it.
+  enabledAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// One period's curated progress post for a workspace. The body lives in a
+// KnowledgePage (draft, later published); this row carries the lifecycle.
+// Nothing is sent or published unless a reviewer moves it to APPROVED.
+model WorkspaceUpdate {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  kind         String // "weekly" | "monthly"
+  // Local date of the trigger instant ("2026-10-02"), or "manual-<ISO>" for an
+  // on-demand draft. Unique per workspace + kind, so a period runs once.
+  periodKey    String
+  windowStart  DateTime
+  windowEnd    DateTime
+  // "DRAFT" | "REGENERATING" (a rewrite holds the draft) | "APPROVED" | "SENT" | "SKIPPED" | "EMPTY"
+  status       String
+  pageId       String?   @unique
+  // The ranked, capped selection the writer was given: its whole universe.
+  items        Json?
+  // Bumps on each regenerate; keys the review notification's dedupe.
+  version      Int       @default(1)
+  feedback     String?   @db.Text
+  model        String?
+  approvedById String?
+  approvedAt   DateTime?
+  // What was approved, frozen at approval: distribution sends this, so a
+  // later edit to the live Page never goes out unreviewed.
+  approvedTitle String?
+  approvedBody  String?  @db.Text
+  skippedById  String?
+  skippedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  page      KnowledgePage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, kind, periodKey])
+  @@index([workspaceId, kind, windowEnd])
 }
 
 model WorkspaceUser {
@@ -3238,6 +3305,8 @@ model KnowledgePage {
   comments  KnowledgePageComment[]
   /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
   ceremonyOccurrence CeremonyOccurrence?
+  /// Set when this page is a Workspace update's draft / published body.
+  workspaceUpdate    WorkspaceUpdate?
 
   @@index([workspaceId])
   @@index([projectId])

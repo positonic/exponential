@@ -785,3 +785,91 @@ describe("emitNotification — Draft decisions ready (meeting_ready variant, ADR
     expect(db.notification.create).not.toHaveBeenCalled();
   });
 });
+
+describe("emitNotification — Update review", () => {
+  const UPDATE = {
+    status: "DRAFT",
+    version: 2,
+    windowStart: new Date("2026-09-25T07:00:00.000Z"),
+    windowEnd: new Date("2026-10-02T07:00:00.000Z"),
+    pageId: "page-1",
+    page: { title: "Bulk edit lands", body: "# Bulk edit lands\n\n_Edit many tickets at once._" },
+    workspace: { id: "ws1", slug: "acme", name: "Acme", updateConfig: { timezone: "Europe/Berlin" } },
+  };
+
+  function stubUpdate(overrides: Record<string, unknown> = {}) {
+    db.workspaceUpdate.findUnique.mockResolvedValue({ ...UPDATE, ...overrides } as never);
+    // No explicit preferences → the category's defaults apply.
+    db.notificationChannelPreference.findMany.mockResolvedValue([] as never);
+  }
+
+  function pairMatrix(paired: boolean) {
+    db.integration.findFirst.mockResolvedValue({ id: "gateway" } as never);
+    db.integrationUserMapping.findFirst.mockResolvedValue((paired ? { id: "map1" } : null) as never);
+  }
+
+  it("sends the draft as markdown with a review link, keyed on the version", async () => {
+    stubUpdate();
+    pairMatrix(true);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+      actorUserId: null,
+      subject: { updateId: "upd1", reviewerIds: ["rev1", "rev1"] },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledTimes(1);
+    const data = db.notification.create.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data).toMatchObject({
+      userId: "rev1",
+      category: "update_review",
+      title: "Update ready for review: Bulk edit lands",
+      deeplink: "/w/acme/pages/page-1",
+      dedupeKey: "update_review:upd1:2",
+    });
+    const markdown = (data.metadata as { markdown: string }).markdown;
+    expect(markdown).toContain("_Edit many tickets at once._");
+    expect(markdown).toMatch(/\[Review and approve →\]\(https?:\/\/.+\/w\/acme\/pages\/page-1\)/);
+
+    // Defaults: push + email + Matrix (paired).
+    const channels = vi.mocked(NotificationServiceFactory.createService).mock.calls.map((c) => c[0]);
+    expect(channels.sort()).toEqual(["email", "matrix", "push"]);
+  });
+
+  it("skips the defaulted Matrix DM for a reviewer who never paired Matrix", async () => {
+    stubUpdate();
+    pairMatrix(false);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+      actorUserId: null,
+      subject: { updateId: "upd1", reviewerIds: ["rev1"] },
+      db,
+    });
+
+    const channels = vi.mocked(NotificationServiceFactory.createService).mock.calls.map((c) => c[0]);
+    expect(channels.sort()).toEqual(["email", "push"]);
+  });
+
+  it("sends a one-line notice for a quiet week", async () => {
+    stubUpdate({ status: "EMPTY", pageId: null, page: null });
+    pairMatrix(true);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+      actorUserId: null,
+      subject: { updateId: "upd1", reviewerIds: ["rev1"] },
+      db,
+    });
+
+    expect(db.notification.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          title: "No update this week for Acme",
+          dedupeKey: "update_review:upd1:empty",
+        }),
+      }),
+    );
+  });
+});

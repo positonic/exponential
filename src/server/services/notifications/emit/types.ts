@@ -108,6 +108,17 @@ export interface SummarySubject {
 }
 
 /**
+ * Update review: a Workspace update draft is waiting for approval, or nothing
+ * shipped this period (status EMPTY). The generator resolves the reviewers; the
+ * content builder reads the update's current version, so a regenerated draft
+ * notifies again.
+ */
+export interface UpdateReviewSubject {
+  updateId: string;
+  reviewerIds: string[];
+}
+
+/**
  * Discriminated union pairing each category with its subject. `emitNotification`
  * narrows on `category`, so recipient resolvers and content builders get a
  * fully-typed subject with no casts.
@@ -146,6 +157,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.AGENDA_READY;
       subject: AgendaReadySubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.UPDATE_REVIEW;
+      subject: UpdateReviewSubject;
     }
 );
 
