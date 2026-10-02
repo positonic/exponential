@@ -326,6 +326,22 @@ describe("SprintAnalyticsService.getContributions", () => {
     });
   });
 
+  it("resolves the GitHub link of a former member who only logged time", async () => {
+    const service = makeService({
+      tickets: TICKETS.filter((t) => t.assigneeId !== "bob"),
+      members: ["alice", "carol"],
+      activity: [merged(1, "bobby", "2026-01-05")],
+      time: [{ userId: "bob", startedAt: new Date("2026-01-02T09:00:00Z"), endedAt: new Date("2026-01-02T10:00:00Z") }],
+    });
+    const { rows } = await service.getContributions("ws-1");
+    expect(rows.find((r) => r.userId === "bob")).toMatchObject({
+      isMember: false,
+      githubLinked: true,
+      mergedPrs: 1,
+      minutesLogged: 60,
+    });
+  });
+
   it("omits the Unassigned row when every ticket has an owner", async () => {
     const service = makeService({
       tickets: TICKETS.filter((t) => t.assigneeId != null),
