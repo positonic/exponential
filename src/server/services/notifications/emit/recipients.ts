@@ -92,6 +92,10 @@ export async function resolveRecipients(
       });
       return members.map((m) => m.userId);
     }
+    case NOTIFICATION_CATEGORIES.UPDATE_REVIEW:
+      // Update review → the reviewers the generator resolved (configured
+      // reviewers, else owners + admins). De-duplicate defensively.
+      return Promise.resolve(Array.from(new Set(input.subject.reviewerIds)));
     default:
       return Promise.resolve([]);
   }

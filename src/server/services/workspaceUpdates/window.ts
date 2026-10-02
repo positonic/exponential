@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { formatInTimeZone } from "date-fns-tz";
 
 import type { WorkspaceUpdateKind } from "./types";
 
@@ -32,4 +33,10 @@ export async function resolveWindowStart(
     select: { windowEnd: true },
   });
   return previous?.windowEnd ?? new Date(input.windowEnd.getTime() - WEEK_MS);
+}
+
+/** "25 Sep – 1 Oct": a half-open window labelled by its first and last included day. */
+export function formatWindowLabel(start: Date, end: Date, timezone: string): string {
+  const lastDay = new Date(end.getTime() - 1);
+  return `${formatInTimeZone(start, timezone, "d MMM")} – ${formatInTimeZone(lastDay, timezone, "d MMM")}`;
 }

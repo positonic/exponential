@@ -7,7 +7,6 @@
  * that only ever follows a reviewer's approval.
  */
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { formatInTimeZone } from "date-fns-tz";
 
 import { gatherShippedWork } from "./gather";
 import { createDraftPage, ensureUpdatesIndexPage, prependPageLink } from "./pages";
@@ -20,6 +19,7 @@ import {
   type WorkspaceUpdateKind,
   type WrittenUpdate,
 } from "./types";
+import { formatWindowLabel } from "./window";
 import { constrainToSelection, templateWriter, type UpdateWriter, type WriteContext } from "./writer";
 
 export interface ReviewNotice {
@@ -52,12 +52,6 @@ export type GenerateResult =
   | { kind: "drafted"; updateId: string; pageId: string }
   | { kind: "empty"; updateId: string }
   | { kind: "already-claimed" };
-
-export function formatWindowLabel(start: Date, end: Date, timezone: string): string {
-  // The window is half-open; label its last included day.
-  const lastDay = new Date(end.getTime() - 1);
-  return `${formatInTimeZone(start, timezone, "d MMM")} – ${formatInTimeZone(lastDay, timezone, "d MMM")}`;
-}
 
 /**
  * Write prose for a selection with `writer`, falling back to the deterministic

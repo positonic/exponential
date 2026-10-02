@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@prisma/client";
 
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 
 import { createClaudeWriter } from "./claudeWriter";
 import type { GenerateDeps } from "./generate";
@@ -19,7 +21,15 @@ export function defaultGenerateDeps(
     writer: process.env.ANTHROPIC_API_KEY
       ? createClaudeWriter({ log: { db, workspaceId: scope.workspaceId, userId: scope.userId ?? undefined } })
       : templateWriter,
-    notify: () => Promise.resolve(),
+    // The review message is how a reviewer gets the draft (Matrix DM, email),
+    // so whoever pressed "Generate draft now" receives it too: no actor.
+    notify: (notice) =>
+      emitNotification({
+        db,
+        category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+        actorUserId: null,
+        subject: { updateId: notice.updateId, reviewerIds: notice.reviewerIds },
+      }),
     baseUrl: getPublicBaseUrlFromEnv(),
   };
 }
