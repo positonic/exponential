@@ -145,6 +145,25 @@ describe("notification.list cursor pagination", () => {
       }),
     );
   });
+
+  it("exposes a summary's Markdown body but not the rest of its metadata", async () => {
+    dbMock.notification.findMany.mockResolvedValue([
+      {
+        ...ALL_ROWS[0]!,
+        category: "summary",
+        message: "Plain digest",
+        metadata: { kind: "daily", periodKey: "2026-09-30", markdown: "**Rich** digest" },
+      },
+      { ...ALL_ROWS[1]!, metadata: null },
+    ] as never);
+    const { notifications } = await createMockCaller({
+      userId: USER_ID,
+      db: dbMock,
+    }).notification.list({ limit: 3 });
+    expect(notifications[0]).toMatchObject({ markdown: "**Rich** digest" });
+    expect(notifications[0]).not.toHaveProperty("metadata");
+    expect(notifications[1]).toMatchObject({ markdown: null });
+  });
 });
 
 describe("notification.unreadCount", () => {

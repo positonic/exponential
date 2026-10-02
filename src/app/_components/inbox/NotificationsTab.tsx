@@ -29,6 +29,7 @@ import {
   type NotificationCategory,
 } from '~/server/services/notifications/emit/constants';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import { toPlainText } from '~/lib/content/plainText';
 
 const PAGE_SIZE = 20;
@@ -59,14 +60,17 @@ function isCategory(value: string): value is NotificationCategory {
 /**
  * The inbox's Notifications tab: every in-app Notification for the user
  * (ADR-0045), newest first, across all categories. Unread by default —
- * reading an item clears it from the list, so the tab works down to zero;
- * "All" shows the read history too. Notifications are personal and
- * cross-workspace, like the inbox itself.
+ * marking an item read (its tick, or "Mark all read") clears it from the
+ * list, so the tab works down to zero; "All" shows the read history too.
+ * Opening an item never marks it read: a row with a deeplink navigates to
+ * what it refers to, and one without (a summary) expands its full body in
+ * place. Notifications are personal and cross-workspace, like the inbox.
  */
 export function NotificationsTab() {
   const utils = api.useUtils();
   const [show, setShow] = useState<'unread' | 'all'>('unread');
   const [category, setCategory] = useState<NotificationCategory | 'all'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const categoryFilter = category === 'all' ? undefined : category;
 
   const list = api.notification.list.useInfiniteQuery(
@@ -142,9 +146,8 @@ export function NotificationsTab() {
             const isUnread = notification.readAt === null;
             // Messages may be Markdown excerpts; the row is one line, so text only.
             const preview = toPlainText(notification.message);
-            const readOnOpen = () => {
-              if (isUnread) markRead.mutate({ notificationId: notification.id });
-            };
+            const isExpanded = expandedId === notification.id;
+            const body = notification.markdown ?? notification.message;
             const row = (
               <>
                 <span className="wsa-item__icon" title={display.label}>
@@ -165,33 +168,43 @@ export function NotificationsTab() {
               </>
             );
             return (
-              <div key={notification.id} className="flex items-center gap-1">
-                {notification.deeplink ? (
-                  <UnstyledButton
-                    component={Link}
-                    href={notification.deeplink}
-                    className="wsa-item min-w-0 flex-1"
-                    onClick={readOnOpen}
-                  >
-                    {row}
-                  </UnstyledButton>
-                ) : (
-                  <UnstyledButton className="wsa-item min-w-0 flex-1" onClick={readOnOpen}>
-                    {row}
-                  </UnstyledButton>
+              <div key={notification.id}>
+                <div className="flex items-center gap-1">
+                  {notification.deeplink ? (
+                    <UnstyledButton
+                      component={Link}
+                      href={notification.deeplink}
+                      className="wsa-item min-w-0 flex-1"
+                    >
+                      {row}
+                    </UnstyledButton>
+                  ) : (
+                    <UnstyledButton
+                      className="wsa-item min-w-0 flex-1"
+                      aria-expanded={isExpanded}
+                      onClick={() => setExpandedId(isExpanded ? null : notification.id)}
+                    >
+                      {row}
+                    </UnstyledButton>
+                  )}
+                  {/* Always rendered so read and unread rows line up. */}
+                  <Tooltip label="Mark read" disabled={!isUnread}>
+                    <ActionIcon
+                      variant="subtle"
+                      size="sm"
+                      aria-label="Mark read"
+                      className={isUnread ? undefined : 'invisible'}
+                      onClick={() => markRead.mutate({ notificationId: notification.id })}
+                    >
+                      <IconCheck size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </div>
+                {isExpanded && body && (
+                  <div className="mb-2 ml-8 mr-8 rounded-md border border-border-primary bg-surface-secondary px-3 py-2 text-sm">
+                    <MarkdownRenderer content={body} variant="compact" />
+                  </div>
                 )}
-                {/* Always rendered so read and unread rows line up. */}
-                <Tooltip label="Mark read" disabled={!isUnread}>
-                  <ActionIcon
-                    variant="subtle"
-                    size="sm"
-                    aria-label="Mark read"
-                    className={isUnread ? undefined : 'invisible'}
-                    onClick={() => markRead.mutate({ notificationId: notification.id })}
-                  >
-                    <IconCheck size={14} />
-                  </ActionIcon>
-                </Tooltip>
               </div>
             );
           })}
