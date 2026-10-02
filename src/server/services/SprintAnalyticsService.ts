@@ -290,7 +290,7 @@ export class SprintAnalyticsService {
   ): Promise<Set<string> | null> {
     const memberIds = filterMemberIds(filter);
     if (!memberIds) return null;
-    const logins = await resolveGithubLogins(this.prisma, workspaceId, memberIds);
+    const logins = await resolveGithubLogins(this.prisma, memberIds);
     return new Set([...logins.values()].map((l) => l.toLowerCase()));
   }
 
@@ -1086,7 +1086,7 @@ export class SprintAnalyticsService {
       .filter((id): id is string => id != null);
 
     const [logins, prs, pushes, timeEntries] = await Promise.all([
-      resolveGithubLogins(this.prisma, workspaceId, [
+      resolveGithubLogins(this.prisma, [
         ...new Set([...memberIds, ...assigneeIds]),
       ]),
       span ? this.getMergedPrDurations(workspaceId, span) : Promise.resolve([]),

@@ -75,6 +75,7 @@ import { workflowPipelineRouter } from "./routers/workflowPipeline";
 import { pipelineRouter } from "./routers/pipeline";
 import { contentRouter } from "./routers/content";
 import { sprintAnalyticsRouter } from "./routers/sprintAnalytics";
+import { githubIdentityRouter } from "./routers/githubIdentity";
 import { briefingRouter } from "./routers/briefing";
 import { pmSchedulerRouter } from "./routers/pmScheduler";
 import { bountyRouter } from "./routers/bounty";
@@ -178,6 +179,7 @@ export const appRouter = createTRPCRouter({
   content: contentRouter,
   pipeline: pipelineRouter,
   sprintAnalytics: sprintAnalyticsRouter,
+  githubIdentity: githubIdentityRouter,
   briefing: briefingRouter,
   pmScheduler: pmSchedulerRouter,
   bounty: bountyRouter,

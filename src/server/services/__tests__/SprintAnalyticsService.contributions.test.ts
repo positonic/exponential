@@ -58,16 +58,11 @@ const CYCLES = [
   },
 ];
 
+/** GitHub identity claims: Alice and Bob linked GitHub; Carol didn't. */
 const USERS = [
-  { id: "alice", name: "Alice", email: "alice@x.test", image: null },
-  { id: "bob", name: "Bob", email: "bob@x.test", image: null },
-  { id: "carol", name: "Carol", email: "carol@x.test", image: null },
-];
-
-/** Logins: Alice and Bob linked GitHub; Carol didn't. */
-const GITHUB = [
-  { userId: "alice", login: "Alice-GH" },
-  { userId: "bob", login: "bobby" },
+  { id: "alice", name: "Alice", email: "alice@x.test", image: null, githubLogin: "Alice-GH" },
+  { id: "bob", name: "Bob", email: "bob@x.test", image: null, githubLogin: "bobby" },
+  { id: "carol", name: "Carol", email: "carol@x.test", image: null, githubLogin: null },
 ];
 
 function makeService(opts: {
@@ -95,22 +90,19 @@ function makeService(opts: {
     },
     teamUser: { findMany: vi.fn().mockResolvedValue([]) },
     user: {
+      // Serves both the name lookup and `resolveGithubLogins` (which also
+      // filters to users holding a claim).
       findMany: vi
         .fn()
-        .mockImplementation((args: { where: { id: { in: string[] } } }) =>
-          Promise.resolve(USERS.filter((u) => args.where.id.in.includes(u.id))),
-        ),
-    },
-    integration: {
-      findMany: vi
-        .fn()
-        .mockImplementation((args: { where: { userId: { in: string[] } } }) =>
-          Promise.resolve(
-            GITHUB.filter((g) => args.where.userId.in.includes(g.userId)).map((g) => ({
-              userId: g.userId,
-              credentials: [{ key: JSON.stringify({ githubUsername: g.login }) }],
-            })),
-          ),
+        .mockImplementation(
+          (args: { where: { id: { in: string[] }; githubLogin?: { not: null } } }) =>
+            Promise.resolve(
+              USERS.filter(
+                (u) =>
+                  args.where.id.in.includes(u.id) &&
+                  (!args.where.githubLogin || u.githubLogin != null),
+              ),
+            ),
         ),
     },
     timeEntry: { findMany: vi.fn().mockResolvedValue(opts.time ?? []) },

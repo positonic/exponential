@@ -2,7 +2,9 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData } from '@tanstack/react-query';
+import Link from 'next/link';
 import {
+  Anchor,
   Card,
   Text,
   Group,
@@ -323,8 +325,12 @@ function GithubLinkNotice({
 
   return (
     <Text size="xs" className="text-text-muted">
-      PRs and commits aren&apos;t counted for {unlinked.join(', ')} — no GitHub
-      account is linked.
+      PRs and commits aren&apos;t counted for {unlinked.join(', ')} — they
+      haven&apos;t linked a GitHub account yet (
+      <Anchor component={Link} href="/settings/profile" size="xs">
+        Settings → Profile
+      </Anchor>
+      ).
     </Text>
   );
 }

@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo } from 'react';
+import Link from 'next/link';
 import {
+  Anchor,
   Avatar,
   Card,
   Checkbox,
@@ -118,8 +120,12 @@ export function ContributorsTable({
 
         <Text size="xs" className="text-text-muted">
           Tickets count toward their assignee. PRs and commits are matched
-          through each member&apos;s connected GitHub account (— means none is
-          linked); time is confirmed time logged inside the cycle window.
+          through each member&apos;s linked GitHub account (— means none is
+          linked yet; link yours in{' '}
+          <Anchor component={Link} href="/settings/profile" size="xs">
+            Settings → Profile
+          </Anchor>
+          ); time is confirmed time logged inside the cycle window.
         </Text>
       </Stack>
     </Card>
@@ -146,7 +152,7 @@ function ContributorTableRow({
     row.githubLinked ? (
       n
     ) : (
-      <Tooltip label="No GitHub account linked" withArrow>
+      <Tooltip label="Hasn't linked a GitHub account yet" withArrow>
         <span className="text-text-muted">—</span>
       </Tooltip>
     );

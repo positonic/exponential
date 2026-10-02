@@ -14,7 +14,8 @@ function db() {
   mock.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
   mock.ticket.findMany.mockResolvedValue([] as never);
   mock.gitHubActivity.findMany.mockResolvedValue([] as never);
-  mock.integration.findFirst.mockResolvedValue(null as never);
+  // No GitHub identity claim unless a test sets one.
+  mock.user.findMany.mockResolvedValue([] as never);
   return mock;
 }
 
@@ -130,11 +131,9 @@ describe("ticket and commit sources", () => {
     expect(answers.done).toBe("- #42 Nameless (backlog)");
   });
 
-  it("matches commits through the participant's own github login", async () => {
+  it("matches commits through the participant's github identity claim", async () => {
     const mock = db();
-    mock.integration.findFirst.mockResolvedValue({
-      credentials: [{ key: JSON.stringify({ githubUsername: "positonic" }) }],
-    } as never);
+    mock.user.findMany.mockResolvedValue([{ id: "u-1", githubLogin: "positonic" }] as never);
     mock.gitHubActivity.findMany.mockResolvedValue([
       { commitSha: "9ac790c", commitMessage: "feat(ceremonies): draft an update\n\nbody" },
       { commitSha: null, commitMessage: "   " },
@@ -153,15 +152,19 @@ describe("ticket and commit sources", () => {
     expect(answers.done).toBe("- `9ac790c` feat(ceremonies): draft an update");
   });
 
-  it("drafts no commits for someone with no github integration", async () => {
+  it("drafts no commits for someone who hasn't linked github", async () => {
     const mock = db();
     await buildDraftAnswers(mock, { workspaceId: "ws-1", userId: "u-1", questions, since, until });
     expect(mock.gitHubActivity.findMany).not.toHaveBeenCalled();
   });
 
-  it("survives unreadable integration metadata", async () => {
+  it("ignores a GitHub App install's account login without a claim", async () => {
+    // The install's github_metadata names the installing account (often an
+    // org), not the participant — it must never stand in for the claim.
     const mock = db();
-    mock.integration.findFirst.mockResolvedValue({ credentials: [{ key: "not json" }] } as never);
+    mock.integration.findFirst.mockResolvedValue({
+      credentials: [{ key: JSON.stringify({ githubUsername: "positonic" }) }],
+    } as never);
     const { answers } = await buildDraftAnswers(mock, {
       workspaceId: "ws-1",
       userId: "u-1",
