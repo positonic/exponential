@@ -6,6 +6,7 @@
  */
 import { describeDriProject, describeNextAction, driProjectPath, loadDriProjectStates } from "~/server/services/projects/driProjects";
 import type { AgendaItem, SectionModule } from "../types";
+import { projectCardLines } from "./projectCard";
 import { briefPeople, personPrefix } from "./dailyBrief";
 
 export const driProjectsSection: SectionModule = {
@@ -39,6 +40,7 @@ export const driProjectsSection: SectionModule = {
           goalTitle: goal?.title ?? null,
           order: items.length,
           detail: `${describeNextAction(p, now)} · ${describeDriProject(p, now)}`,
+          lines: projectCardLines(p, now),
           href: driProjectPath(p),
         });
       }

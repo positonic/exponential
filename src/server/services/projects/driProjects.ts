@@ -186,7 +186,7 @@ export function describeDriProject(p: DriProjectState, now: Date): string {
     const label = p.reviewDate.toLocaleDateString("en-GB", dateFmt);
     parts.push(p.reviewDate < now ? `review overdue (${label})` : `review ${label}`);
   }
-  if (p.endDate) parts.push(`ends ${p.endDate.toLocaleDateString("en-GB", dateFmt)}`);
+  if (p.endDate) parts.push(`${p.endDate < now ? "ended" : "ends"} ${p.endDate.toLocaleDateString("en-GB", dateFmt)}`);
   return parts.join(" · ");
 }
 
