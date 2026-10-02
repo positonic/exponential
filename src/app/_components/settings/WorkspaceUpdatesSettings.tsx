@@ -56,6 +56,7 @@ export function WorkspaceUpdatesSettings({
   const { data: config } = api.workspaceUpdate.getConfig.useQuery({ workspaceId });
   const { data: recent } = api.workspaceUpdate.list.useQuery({ workspaceId, limit: 5 });
   const { data: assistants } = api.assistant.list.useQuery({ workspaceId });
+  const { data: lists } = api.collection.list.useQuery({ workspaceId });
 
   const onError = (err: { message: string }) =>
     notifications.show({ title: 'Could not save', message: err.message, color: 'red' });
@@ -186,6 +187,18 @@ export function WorkspaceUpdatesSettings({
             checked={config.isPublic}
             onChange={(e) => save({ isPublic: e.currentTarget.checked })}
             aria-label="List approved updates publicly"
+          />
+        </SettingsField>
+        <SettingsField label="Newsletter" sublabel="Email each approved update to a contact List (with unsubscribe)">
+          <Select
+            size="xs"
+            data={(lists ?? [])
+              .filter((l) => l.memberType === 'crm_contact')
+              .map((l) => ({ value: l.id, label: l.name }))}
+            value={config.newsletterCollectionId}
+            onChange={(v) => save({ newsletterCollectionId: v })}
+            placeholder="No newsletter"
+            clearable
           />
         </SettingsField>
         <SettingsField label="Voice" sublabel="Write in the personality of one of your assistants">

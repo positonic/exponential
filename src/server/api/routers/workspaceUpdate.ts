@@ -104,6 +104,7 @@ export const workspaceUpdateRouter = createTRPCRouter({
         reviewerIds: z.array(z.string()).max(20).optional(),
         assistantId: z.string().nullable().optional(),
         isPublic: z.boolean().optional(),
+        newsletterCollectionId: z.string().nullable().optional(),
       }),
     )
     .use(requireWorkspaceMembership("manage_members"))
@@ -124,6 +125,14 @@ export const workspaceUpdateRouter = createTRPCRouter({
           select: { id: true },
         });
         if (!assistant) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown assistant" });
+      }
+
+      if (patch.newsletterCollectionId) {
+        const list = await ctx.db.collection.findFirst({
+          where: { id: patch.newsletterCollectionId, workspaceId, memberType: "crm_contact" },
+          select: { id: true },
+        });
+        if (!list) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown contact List" });
       }
 
       const existing = await ctx.db.workspaceUpdateConfig.findUnique({
