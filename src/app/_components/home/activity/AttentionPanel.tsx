@@ -16,14 +16,15 @@ import {
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
+import { DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
 
 const MAX_ROWS = 5;
 
 /**
  * Tier 1 of the daily home: "Needs your attention" — the only content that is
  * genuinely new each day. Three subsections, each of which vanishes when
- * empty: unread mentions (reading them shrinks the card — that's the reward
- * loop), QA tickets waiting on you to promote (with a "PR merged" chip when
+ * empty: unread mentions (ticking them done shrinks the card — that's the
+ * reward loop; opening one does NOT mark it done), QA tickets waiting on you to promote (with a "PR merged" chip when
  * the merge webhook has landed), and overdue actions. When all three are
  * empty the whole card disappears.
  */
@@ -53,6 +54,9 @@ export function AttentionPanel() {
   });
   const markAllRead = api.notification.markAllRead.useMutation({
     onSuccess: invalidateInbox,
+  });
+  const completeAction = api.action.update.useMutation({
+    onSuccess: () => void utils.action.getAll.invalidate(),
   });
 
   const { data: waiting, isLoading: waitingLoading } =
@@ -155,27 +159,30 @@ export function AttentionPanel() {
                     </span>
                   </>
                 );
-                // Opening a mention reads it — mark before navigation unmounts us.
-                const readOnOpen = () =>
-                  markRead.mutate({ notificationId: mention.id });
-                return mention.deeplink ? (
-                  <UnstyledButton
-                    key={mention.id}
-                    component={Link}
-                    href={mention.deeplink}
-                    className="wsa-item"
-                    onClick={readOnOpen}
-                  >
-                    {row}
-                  </UnstyledButton>
-                ) : (
-                  <UnstyledButton
-                    key={mention.id}
-                    className="wsa-item"
-                    onClick={readOnOpen}
-                  >
-                    {row}
-                  </UnstyledButton>
+                // Opening a mention only navigates; the tick box is what
+                // marks it done, so you can open it and come back to it.
+                return (
+                  <div key={mention.id} className="wsa-row">
+                    {mention.deeplink ? (
+                      <UnstyledButton
+                        component={Link}
+                        href={mention.deeplink}
+                        className="wsa-item"
+                      >
+                        {row}
+                      </UnstyledButton>
+                    ) : (
+                      <div className="wsa-item">{row}</div>
+                    )}
+                    <span className="wsa-row__done">
+                      <DoneCheckbox
+                        label="Mark mention done"
+                        onDone={() =>
+                          markRead.mutateAsync({ notificationId: mention.id })
+                        }
+                      />
+                    </span>
+                  </div>
                 );
               })}
             </>
@@ -221,30 +228,42 @@ export function AttentionPanel() {
                 <span className="wsa-sub__label">Overdue</span>
               </div>
               {overdue.map((action) => (
-                <UnstyledButton
-                  key={action.id}
-                  component={Link}
-                  href={`/w/${workspaceSlug}/actions/${action.id}`}
-                  className="wsa-item"
-                >
-                  <span className="wsa-item__icon">
-                    <IconClockExclamation size={14} stroke={1.75} />
-                  </span>
-                  {/* Legacy HTML / Markdown name inside an anchor row: text only. */}
-                  <span className="wsa-item__label">
-                    {toPlainText(action.name)}
-                    {action.project && (
-                      <span className="wsa-item__sub">{action.project.name}</span>
-                    )}
-                  </span>
-                  <span className="wsa-item__meta">
-                    <span className="wsa-item__chip wsa-item__chip--warn">
-                      {action.dueDate
-                        ? `due ${compactAge(action.dueDate)} ago`
-                        : 'overdue'}
+                <div key={action.id} className="wsa-row">
+                  <UnstyledButton
+                    component={Link}
+                    href={`/w/${workspaceSlug}/actions/${action.id}`}
+                    className="wsa-item"
+                  >
+                    <span className="wsa-item__icon">
+                      <IconClockExclamation size={14} stroke={1.75} />
                     </span>
+                    {/* Legacy HTML / Markdown name inside an anchor row: text only. */}
+                    <span className="wsa-item__label">
+                      {toPlainText(action.name)}
+                      {action.project && (
+                        <span className="wsa-item__sub">{action.project.name}</span>
+                      )}
+                    </span>
+                    <span className="wsa-item__meta">
+                      <span className="wsa-item__chip wsa-item__chip--warn">
+                        {action.dueDate
+                          ? `due ${compactAge(action.dueDate)} ago`
+                          : 'overdue'}
+                      </span>
+                    </span>
+                  </UnstyledButton>
+                  <span className="wsa-row__done">
+                    <DoneCheckbox
+                      label="Mark action done"
+                      onDone={() =>
+                        completeAction.mutateAsync({
+                          id: action.id,
+                          status: 'COMPLETED',
+                        })
+                      }
+                    />
                   </span>
-                </UnstyledButton>
+                </div>
               ))}
             </>
           )}
