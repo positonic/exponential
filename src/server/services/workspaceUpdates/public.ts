@@ -10,7 +10,11 @@ import type { PrismaClient } from "@prisma/client";
 import { WORKSPACE_UPDATE_STATUS } from "./types";
 
 const PUBLISHED_STATUSES = [WORKSPACE_UPDATE_STATUS.APPROVED, WORKSPACE_UPDATE_STATUS.SENT];
-const LIST_LIMIT = 50;
+/** Updates per page of the public index; older ones are on later pages. */
+export const PUBLIC_INDEX_PAGE_SIZE = 20;
+/** Items in the RSS feed (newest first). Readers keep what they already fetched. */
+export const FEED_ITEM_LIMIT = 50;
+const MAX_PAGE = 1000;
 
 export interface PublicUpdateSummary {
   id: string;
@@ -74,11 +78,23 @@ const SUMMARY_SELECT = {
   approvedAt: true,
 } as const;
 
-/** A public workspace and its approved updates, newest first; null if it is not public. */
+/** `?page=` as a page number: anything missing or malformed is page 1. */
+export function parsePageParam(value: string | string[] | undefined): number {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !/^\d+$/.test(raw)) return 1;
+  return Math.min(Math.max(Number(raw), 1), MAX_PAGE);
+}
+
+/**
+ * One page of a public workspace's approved updates, newest first (page 1 is
+ * the newest); null if the workspace is not public. `hasOlder` says whether a
+ * later page exists, so every update stays reachable from the index.
+ */
 export async function listPublicUpdates(
   db: PrismaClient,
   workspaceSlug: string,
-): Promise<{ workspace: PublicWorkspace; updates: PublicUpdateSummary[] } | null> {
+  { page = 1, pageSize = PUBLIC_INDEX_PAGE_SIZE }: { page?: number; pageSize?: number } = {},
+): Promise<{ workspace: PublicWorkspace; updates: PublicUpdateSummary[]; page: number; hasOlder: boolean } | null> {
   const workspace = await loadPublicWorkspace(db, workspaceSlug);
   if (!workspace) return null;
   const rows = await db.workspaceUpdate.findMany({
@@ -87,11 +103,18 @@ export async function listPublicUpdates(
       status: { in: PUBLISHED_STATUSES },
       approvedBody: { not: null },
     },
-    orderBy: { approvedAt: "desc" },
-    take: LIST_LIMIT,
+    orderBy: [{ approvedAt: "desc" }, { id: "desc" }],
+    skip: (page - 1) * pageSize,
+    // One extra row tells us whether an older page exists.
+    take: pageSize + 1,
     select: SUMMARY_SELECT,
   });
-  return { workspace, updates: rows.map(toSummary) };
+  return {
+    workspace,
+    updates: rows.slice(0, pageSize).map(toSummary),
+    page,
+    hasOlder: rows.length > pageSize,
+  };
 }
 
 /** One approved update of a public workspace; null if either is not public. */

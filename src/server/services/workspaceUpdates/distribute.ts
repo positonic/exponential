@@ -6,6 +6,9 @@
  *
  * Only ever sends the snapshot frozen at approval (`approvedTitle` /
  * `approvedBody`), never the live Page.
+ *
+ * Each attempt first claims the update (`distributionAttemptAt`) so approval's
+ * own attempt and the sweep never send at the same time.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 
@@ -46,7 +49,16 @@ export type DistributeChannels = Record<ChannelName, Channel>;
 export type DistributeResult =
   | { kind: "sent"; deliveries: Deliveries }
   | { kind: "partial"; deliveries: Deliveries }
+  /** Another attempt holds the lease; it will record the outcome. */
+  | { kind: "busy" }
   | { kind: "not-approved" };
+
+/**
+ * How long a claimed attempt keeps others out. Longer than any function that
+ * distributes can run (the cron route's 300s), so a live attempt is never
+ * overlapped; a crashed one is retried once it lapses.
+ */
+export const DISTRIBUTION_LEASE_MS = 15 * 60 * 1000;
 
 export function outcome(status: ChannelOutcome["status"], detail?: string): ChannelOutcome {
   return { status, at: new Date().toISOString(), ...(detail ? { detail } : {}) };
@@ -61,6 +73,25 @@ export async function distributeWorkspaceUpdate(
   updateId: string,
   channels: DistributeChannels,
 ): Promise<DistributeResult> {
+  // Claim before reading `deliveries`, so what this attempt skips as done is
+  // what the previous attempt recorded, never a read racing another sender.
+  const claimedAt = new Date();
+  const claim = await db.workspaceUpdate.updateMany({
+    where: {
+      id: updateId,
+      status: WORKSPACE_UPDATE_STATUS.APPROVED,
+      OR: [
+        { distributionAttemptAt: null },
+        { distributionAttemptAt: { lt: new Date(claimedAt.getTime() - DISTRIBUTION_LEASE_MS) } },
+      ],
+    },
+    data: { distributionAttemptAt: claimedAt },
+  });
+  if (claim.count === 0) {
+    const current = await db.workspaceUpdate.findUnique({ where: { id: updateId }, select: { status: true } });
+    return current?.status === WORKSPACE_UPDATE_STATUS.APPROVED ? { kind: "busy" } : { kind: "not-approved" };
+  }
+
   const row = await db.workspaceUpdate.findUnique({
     where: { id: updateId },
     select: {
@@ -111,10 +142,10 @@ export async function distributeWorkspaceUpdate(
   }
 
   const finished = Object.values(deliveries).every((d) => d.status !== "failed");
-  // Conditional on still being APPROVED, so a concurrent sweep cannot flip a
-  // row another run already marked SENT back, or revive a changed one.
+  // Conditional on still holding the lease (and still APPROVED), so an
+  // attempt that outlived its lease cannot overwrite a newer attempt's record.
   await db.workspaceUpdate.updateMany({
-    where: { id: updateId, status: WORKSPACE_UPDATE_STATUS.APPROVED },
+    where: { id: updateId, status: WORKSPACE_UPDATE_STATUS.APPROVED, distributionAttemptAt: claimedAt },
     data: {
       deliveries: deliveries as Prisma.InputJsonValue,
       ...(finished ? { status: WORKSPACE_UPDATE_STATUS.SENT, sentAt: new Date() } : {}),

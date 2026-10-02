@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { mockDeep, mockReset } from "vitest-mock-extended";
 
 import {
+  DISTRIBUTION_LEASE_MS,
   distributeWorkspaceUpdate,
   outcome,
   publicChannel,
@@ -54,8 +55,21 @@ describe("distributeWorkspaceUpdate", () => {
     expect(ch.email).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Bulk edit lands", body: "# Bulk edit lands\n\nEdit many tickets at once." }),
     );
-    expect(db.workspaceUpdate.updateMany).toHaveBeenCalledWith({
-      where: { id: "upd-1", status: "APPROVED" },
+    const claimedAt = db.workspaceUpdate.updateMany.mock.calls[0]![0].data.distributionAttemptAt as Date;
+    expect(db.workspaceUpdate.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: "upd-1",
+        status: "APPROVED",
+        OR: [
+          { distributionAttemptAt: null },
+          { distributionAttemptAt: { lt: new Date(claimedAt.getTime() - DISTRIBUTION_LEASE_MS) } },
+        ],
+      },
+      data: { distributionAttemptAt: claimedAt },
+    });
+    // The outcome is only written while this attempt still holds the lease.
+    expect(db.workspaceUpdate.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: "upd-1", status: "APPROVED", distributionAttemptAt: claimedAt },
       data: expect.objectContaining({
         status: "SENT",
         sentAt: expect.any(Date),
@@ -78,18 +92,30 @@ describe("distributeWorkspaceUpdate", () => {
 
     expect(result.kind).toBe("partial");
     expect(ch.email).not.toHaveBeenCalled();
-    const data = db.workspaceUpdate.updateMany.mock.calls[0]![0].data as Record<string, unknown>;
+    const data = db.workspaceUpdate.updateMany.mock.calls[1]![0].data as Record<string, unknown>;
     expect(data.status).toBeUndefined();
     expect(data.deliveries).toMatchObject({ matrix: { status: "failed", detail: "room is encrypted" } });
   });
 
   it("does nothing for an update that is not approved", async () => {
-    db.workspaceUpdate.findUnique.mockResolvedValue(approvedRow({ status: "DRAFT" }) as never);
+    db.workspaceUpdate.updateMany.mockResolvedValueOnce({ count: 0 });
+    db.workspaceUpdate.findUnique.mockResolvedValue({ status: "DRAFT" } as never);
     const ch = channels();
 
     expect(await distributeWorkspaceUpdate(db, "upd-1", ch)).toEqual({ kind: "not-approved" });
     expect(ch.email).not.toHaveBeenCalled();
-    expect(db.workspaceUpdate.updateMany).not.toHaveBeenCalled();
+    expect(db.workspaceUpdate.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends nothing while another attempt holds the lease", async () => {
+    db.workspaceUpdate.updateMany.mockResolvedValueOnce({ count: 0 });
+    db.workspaceUpdate.findUnique.mockResolvedValue({ status: "APPROVED" } as never);
+    const ch = channels();
+
+    expect(await distributeWorkspaceUpdate(db, "upd-1", ch)).toEqual({ kind: "busy" });
+    expect(ch.email).not.toHaveBeenCalled();
+    expect(ch.matrix).not.toHaveBeenCalled();
+    expect(db.workspaceUpdate.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it("skips the public page for a workspace that is not public", async () => {

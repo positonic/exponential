@@ -27,9 +27,14 @@ export interface EmailChannelDeps {
  *
  * Reuses the Broadcast machinery: the List resolver already drops opted-out
  * and unmailable contacts; `fanoutSend` sends each in isolation; every send is
- * logged as a CrmCommunication (SENT / FAILED) keyed to the update, and
- * contacts already SENT this update are skipped — so the hourly retry only
- * reaches the ones that failed, and nobody gets the same update twice.
+ * logged as a CrmCommunication keyed to the update, and the hourly retry only
+ * reaches contacts whose send definitely failed.
+ *
+ * The record is written as QUEUED *before* the send and moved to SENT or
+ * FAILED after it. A contact with a SENT or QUEUED record is never sent to
+ * again, so a send whose outcome went unrecorded (the SENT write failed, or
+ * the process died mid-send) is not repeated: a missed email beats a
+ * duplicate one.
  */
 export function createEmailChannel(db: PrismaClient, deps: EmailChannelDeps): Channel {
   return async (update: ApprovedUpdate) => {
@@ -41,7 +46,7 @@ export function createEmailChannel(db: PrismaClient, deps: EmailChannelDeps): Ch
       where: {
         sourceType: UPDATE_EMAIL_SOURCE,
         sourceId: update.id,
-        status: "SENT",
+        status: { in: ["SENT", "QUEUED"] },
         contactId: { in: recipients.map((r) => r.memberId) },
       },
       select: { contactId: true },
@@ -61,8 +66,24 @@ export function createEmailChannel(db: PrismaClient, deps: EmailChannelDeps): Ch
       })),
       alreadySent,
       send: async (r) => {
+        const record = await db.crmCommunication.create({
+          data: {
+            contactId: r.memberId,
+            workspaceId: update.workspaceId,
+            type: "EMAIL",
+            toEmail: encryptString(r.email!),
+            subject: update.title,
+            status: "QUEUED",
+            agentGenerated: true,
+            sourceType: UPDATE_EMAIL_SOURCE,
+            sourceId: update.id,
+            createdById: update.approvedById,
+          },
+          select: { id: true },
+        });
+        let rendered: Awaited<ReturnType<EmailChannelDeps["send"]>>;
         try {
-          const rendered = await deps.send({
+          rendered = await deps.send({
             to: r.email!,
             subject: update.title,
             bodyHtml,
@@ -73,41 +94,33 @@ export function createEmailChannel(db: PrismaClient, deps: EmailChannelDeps): Ch
             greetingName: r.greetingName,
             workspaceId: update.workspaceId,
           });
-          await db.crmCommunication.create({
-            data: {
-              contactId: r.memberId,
-              workspaceId: update.workspaceId,
-              type: "EMAIL",
-              toEmail: encryptString(r.email!),
-              subject: rendered.subject,
-              htmlContent: rendered.htmlBody,
-              textContent: rendered.textBody,
-              status: "SENT",
-              sentAt: new Date(),
-              agentGenerated: true,
-              sourceType: UPDATE_EMAIL_SOURCE,
-              sourceId: update.id,
-              createdById: update.approvedById,
-            },
-          });
         } catch (e) {
+          // Only a FAILED record lets the retry reach this contact; if this
+          // write fails too the record stays QUEUED and they are not retried.
           await db.crmCommunication
-            .create({
-              data: {
-                contactId: r.memberId,
-                workspaceId: update.workspaceId,
-                type: "EMAIL",
-                status: "FAILED",
-                errorMessage: e instanceof Error ? e.message : "send failed",
-                agentGenerated: true,
-                sourceType: UPDATE_EMAIL_SOURCE,
-                sourceId: update.id,
-                createdById: update.approvedById,
-              },
+            .update({
+              where: { id: record.id },
+              data: { status: "FAILED", errorMessage: e instanceof Error ? e.message : "send failed" },
             })
             .catch(() => undefined);
           throw e;
         }
+        // The email went out. If recording that fails the record stays QUEUED,
+        // which the retry already treats as sent, so it still counts as sent.
+        await db.crmCommunication
+          .update({
+            where: { id: record.id },
+            data: {
+              status: "SENT",
+              sentAt: new Date(),
+              subject: rendered.subject,
+              htmlContent: rendered.htmlBody,
+              textContent: rendered.textBody,
+            },
+          })
+          .catch((err: unknown) => {
+            console.error("[workspaceUpdates.email] sent but could not record SENT", record.id, err);
+          });
       },
     });
 

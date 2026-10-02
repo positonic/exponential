@@ -6,20 +6,32 @@ import { db } from "~/server/db";
 import { getPublicBaseUrl } from "~/lib/urls";
 import {
   listPublicUpdates,
+  parsePageParam,
   publicUpdatePath,
   publicUpdatesPath,
 } from "~/server/services/workspaceUpdates/public";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { UpdatesShell, formatPublishedDate } from "../_components/UpdatesShell";
 
-/** Approved updates change rarely; revalidate so new ones appear within minutes. */
-export const revalidate = 300;
+/**
+ * Rendered per request, never cached: turning the public page off must take
+ * it down at once, and a cached copy would outlive the opt-out.
+ */
+export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ workspaceSlug: string }> };
+type Params = {
+  params: Promise<{ workspaceSlug: string }>;
+  searchParams: Promise<{ page?: string | string[] }>;
+};
 
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
+function pageHref(workspaceSlug: string, page: number): string {
+  return page > 1 ? `${publicUpdatesPath(workspaceSlug)}?page=${page}` : publicUpdatesPath(workspaceSlug);
+}
+
+export async function generateMetadata({ params, searchParams }: Params): Promise<Metadata> {
   const { workspaceSlug } = await params;
-  const result = await listPublicUpdates(db, workspaceSlug);
+  const page = parsePageParam((await searchParams).page);
+  const result = await listPublicUpdates(db, workspaceSlug, { page });
   if (!result) return { title: "Not found" };
   const baseUrl = await getPublicBaseUrl();
   const title = `${result.workspace.name} updates`;
@@ -28,7 +40,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     title,
     description,
     alternates: {
-      canonical: `${baseUrl}${publicUpdatesPath(workspaceSlug)}`,
+      canonical: `${baseUrl}${pageHref(workspaceSlug, page)}`,
       types: { "application/rss+xml": `${baseUrl}${publicUpdatesPath(workspaceSlug)}/feed.xml` },
     },
     openGraph: { title, description, type: "website", url: `${baseUrl}${publicUpdatesPath(workspaceSlug)}` },
@@ -37,14 +49,16 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
 /**
  * A workspace's public updates: each approved Workspace update, newest first,
- * rendered from the snapshot frozen at approval. 404 unless the workspace
- * made its updates public.
+ * rendered from the snapshot frozen at approval and paged so older ones stay
+ * reachable. 404 unless the workspace made its updates public.
  */
-export default async function PublicUpdatesPage({ params }: Params) {
+export default async function PublicUpdatesPage({ params, searchParams }: Params) {
   const { workspaceSlug } = await params;
-  const result = await listPublicUpdates(db, workspaceSlug);
+  const page = parsePageParam((await searchParams).page);
+  const result = await listPublicUpdates(db, workspaceSlug, { page });
   if (!result) notFound();
-  const { workspace, updates } = result;
+  const { workspace, updates, hasOlder } = result;
+  if (page > 1 && updates.length === 0) notFound();
 
   return (
     <UpdatesShell
@@ -72,6 +86,22 @@ export default async function PublicUpdatesPage({ params }: Params) {
             </article>
           ))}
         </div>
+      )}
+      {(page > 1 || hasOlder) && (
+        <nav className="mt-10 flex justify-between text-sm" aria-label="More updates">
+          {page > 1 ? (
+            <Link href={pageHref(workspace.slug, page - 1)} className="text-text-secondary hover:text-text-primary">
+              ← Newer updates
+            </Link>
+          ) : (
+            <span />
+          )}
+          {hasOlder && (
+            <Link href={pageHref(workspace.slug, page + 1)} className="text-text-secondary hover:text-text-primary">
+              Older updates →
+            </Link>
+          )}
+        </nav>
       )}
     </UpdatesShell>
   );

@@ -735,6 +735,9 @@ model WorkspaceUpdate {
   // and when every configured channel finished.
   deliveries   Json?
   sentAt       DateTime?
+  // Start of the latest distribution attempt. Doubles as a lease (no second
+  // attempt while it is fresh) and as the retry sweep's fairness order.
+  distributionAttemptAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

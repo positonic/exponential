@@ -12,7 +12,8 @@ import {
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { UpdatesShell, formatPublishedDate } from "../../_components/UpdatesShell";
 
-export const revalidate = 300;
+/** Never cached, so turning the public page off takes this down at once. */
+export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ workspaceSlug: string; updateId: string }> };
 

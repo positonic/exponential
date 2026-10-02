@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 
-import { distributeWorkspaceUpdate, type DistributeChannels } from "./distribute";
+import { DISTRIBUTION_LEASE_MS, distributeWorkspaceUpdate, type DistributeChannels } from "./distribute";
 import { generateWorkspaceUpdate, type GenerateDeps, type GenerateResult } from "./generate";
 import { dueWeeklyInstant, weeklyPeriodKey } from "./schedule";
 import { WORKSPACE_UPDATE_KIND, WORKSPACE_UPDATE_STATUS } from "./types";
@@ -101,13 +101,13 @@ function errorMessage(err: unknown): string {
 /** How long after approval a failed channel keeps being retried. */
 export const DISTRIBUTION_RETRY_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const DISTRIBUTION_BATCH = 50;
-/** Leave a fresh approval to its own distribution attempt (no concurrent sends). */
-export const DISTRIBUTION_SETTLE_MS = 10 * 60 * 1000;
 
 export interface RunDistributionsResult {
   retried: number;
   sent: string[];
   stillFailing: string[];
+  /** Another attempt (usually approval's own) held the lease. */
+  busy: string[];
   errored: { updateId: string; error: string }[];
 }
 
@@ -125,22 +125,33 @@ export async function runPendingDistributions(
   const pending = await db.workspaceUpdate.findMany({
     where: {
       status: WORKSPACE_UPDATE_STATUS.APPROVED,
-      approvedAt: {
-        gte: new Date(now.getTime() - DISTRIBUTION_RETRY_WINDOW_MS),
-        lte: new Date(now.getTime() - DISTRIBUTION_SETTLE_MS),
-      },
+      approvedAt: { gte: new Date(now.getTime() - DISTRIBUTION_RETRY_WINDOW_MS) },
+      // An attempt in flight (approval's own included) holds a lease; leave it be.
+      OR: [
+        { distributionAttemptAt: null },
+        { distributionAttemptAt: { lt: new Date(now.getTime() - DISTRIBUTION_LEASE_MS) } },
+      ],
     },
-    orderBy: { approvedAt: "asc" },
+    // Least recently tried first, so a backlog of failing updates rotates
+    // through the batch instead of the oldest ones starving the rest.
+    orderBy: { distributionAttemptAt: { sort: "asc", nulls: "first" } },
     take: DISTRIBUTION_BATCH,
     select: { id: true },
   });
 
-  const result: RunDistributionsResult = { retried: pending.length, sent: [], stillFailing: [], errored: [] };
+  const result: RunDistributionsResult = {
+    retried: pending.length,
+    sent: [],
+    stillFailing: [],
+    busy: [],
+    errored: [],
+  };
   for (const { id } of pending) {
     try {
       const outcome = await distributeWorkspaceUpdate(db, id, channels);
       if (outcome.kind === "sent") result.sent.push(id);
       else if (outcome.kind === "partial") result.stillFailing.push(id);
+      else if (outcome.kind === "busy") result.busy.push(id);
     } catch (err) {
       result.errored.push({ updateId: id, error: errorMessage(err) });
     }

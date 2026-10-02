@@ -44,7 +44,8 @@ beforeEach(() => {
     { memberId: "c3", email: null, mergeVars: {} },
   ]);
   db.crmCommunication.findMany.mockResolvedValue([]);
-  db.crmCommunication.create.mockResolvedValue({} as never);
+  db.crmCommunication.create.mockResolvedValue({ id: "comm-1" } as never);
+  db.crmCommunication.update.mockResolvedValue({} as never);
 });
 
 describe("email channel", () => {
@@ -54,7 +55,7 @@ describe("email channel", () => {
     const result = await channel()(update);
 
     expect(result.status).toBe("done");
-    // c2 already got this update, c3 has no address.
+    // c2 already got (or may have got) this update, c3 has no address.
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -68,11 +69,40 @@ describe("email channel", () => {
       }),
     );
     expect(db.crmCommunication.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ sourceType: UPDATE_EMAIL_SOURCE, sourceId: "upd-1", status: "SENT" }) }),
+      expect.objectContaining({ where: expect.objectContaining({ sourceType: UPDATE_EMAIL_SOURCE, sourceId: "upd-1", status: { in: ["SENT", "QUEUED"] } }) }),
     );
+    // Recorded as QUEUED before the send, then SENT after it.
     expect(db.crmCommunication.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ contactId: "c1", status: "SENT", sourceType: UPDATE_EMAIL_SOURCE, sourceId: "upd-1" }),
+      data: expect.objectContaining({ contactId: "c1", status: "QUEUED", sourceType: UPDATE_EMAIL_SOURCE, sourceId: "upd-1" }),
+      select: { id: true },
     });
+    expect(db.crmCommunication.create.mock.invocationCallOrder[0]!).toBeLessThan(send.mock.invocationCallOrder[0]!);
+    expect(db.crmCommunication.update).toHaveBeenCalledWith({
+      where: { id: "comm-1" },
+      data: expect.objectContaining({ status: "SENT", sentAt: expect.any(Date), htmlContent: "<html/>" }),
+    });
+  });
+
+  it("counts a send whose SENT record failed as sent, leaving it QUEUED so it is never resent", async () => {
+    resolveMembers.mockResolvedValue([{ memberId: "c1", email: "ada@example.com", mergeVars: {} }]);
+    db.crmCommunication.update.mockRejectedValueOnce(new Error("db blip"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await channel()(update);
+
+    expect(result.status).toBe("done");
+    expect(send).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+
+  it("does not send when the QUEUED record cannot be written", async () => {
+    resolveMembers.mockResolvedValue([{ memberId: "c1", email: "ada@example.com", mergeVars: {} }]);
+    db.crmCommunication.create.mockRejectedValueOnce(new Error("db down"));
+
+    const result = await channel()(update);
+
+    expect(result.status).toBe("failed");
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("reports failed (for the retry sweep) when any recipient failed, logging the failure", async () => {
@@ -82,8 +112,9 @@ describe("email channel", () => {
 
     expect(result.status).toBe("failed");
     expect(result.detail).toContain("failed 1");
-    expect(db.crmCommunication.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ contactId: "c1", status: "FAILED", errorMessage: "mailbox full" }),
+    expect(db.crmCommunication.update).toHaveBeenCalledWith({
+      where: { id: "comm-1" },
+      data: { status: "FAILED", errorMessage: "mailbox full" },
     });
   });
 
