@@ -15,7 +15,7 @@ import {
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
-import { DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
+import { completeActionPatch, DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
 
 const MAX_ROWS = 6;
 
@@ -137,10 +137,7 @@ export function TodayPanel() {
                 <DoneCheckbox
                   label="Mark action done"
                   onDone={() =>
-                    completeAction.mutateAsync({
-                      id: action.id,
-                      status: 'COMPLETED',
-                    })
+                    completeAction.mutateAsync(completeActionPatch(action))
                   }
                 />
               </span>

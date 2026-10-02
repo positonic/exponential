@@ -18,7 +18,7 @@ import { ActivityFeed } from './activity/ActivityFeed';
 import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
 import { toPlainText } from '~/lib/content/plainText';
-import { DoneCheckbox } from './shared/DoneCheckbox';
+import { completeActionPatch, DoneCheckbox } from './shared/DoneCheckbox';
 
 type ActionRow = RouterOutputs['action']['getAll'][number];
 
@@ -245,10 +245,7 @@ export function YourWorkPanel() {
                       <DoneCheckbox
                         label="Mark action done"
                         onDone={() =>
-                          completeAction.mutateAsync({
-                            id: action.id,
-                            status: 'COMPLETED',
-                          })
+                          completeAction.mutateAsync(completeActionPatch(action))
                         }
                       />
                     </span>
