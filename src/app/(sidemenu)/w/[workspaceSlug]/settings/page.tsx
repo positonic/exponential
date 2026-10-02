@@ -1582,7 +1582,11 @@ export default function WorkspaceSettingsPage() {
         )}
 
         {section === 'updates' && (userRole === 'owner' || userRole === 'admin') && (
-          <WorkspaceUpdatesSettings workspaceId={workspace.id} workspaceSlug={workspace.slug} />
+          <WorkspaceUpdatesSettings
+            workspaceId={workspace.id}
+            workspaceSlug={workspace.slug}
+            members={workspace.members ?? []}
+          />
         )}
 
         {section === 'danger' && userRole === 'owner' && (

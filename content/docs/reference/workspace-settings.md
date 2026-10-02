@@ -1,10 +1,10 @@
 ---
 title: Workspace settings
-description: Identity, members, teams, feature switches, integrations, plugins and ceremonies for one workspace
+description: Identity, members, teams, feature switches, integrations, plugins, ceremonies and weekly updates for one workspace
 section: reference
 order: 2
 icon: IconBuildingSkyscraper
-updated: 2026-09-28
+updated: 2026-10-02
 ---
 
 Workspace settings apply to everyone in the workspace: who is in it, which features and plugins are on, how effort is estimated, and which recurring meetings it runs. Owners and admins can change them; members can read them. Personal preferences live in [Your settings](/docs/reference/your-settings).
@@ -13,7 +13,7 @@ Workspace settings apply to everyone in the workspace: who is in it, which featu
 
 ## Where to find it
 
-Open the workspace switcher at the top of the sidebar and choose the settings entry, or open `/w/<workspace-slug>/settings`. The tabs are **General**, **Members**, **Teams**, **Features**, **Integrations**, **Plugins**, **Ceremonies** and, for owners, **Danger zone**.
+Open the workspace switcher at the top of the sidebar and choose the settings entry, or open `/w/<workspace-slug>/settings`. The tabs are **General**, **Members**, **Teams**, **Features**, **Integrations**, **Plugins**, **Ceremonies**, **Updates** (owners and admins) and, for owners, **Danger zone**.
 
 ## General
 
@@ -90,6 +90,27 @@ Turn plugins on or off for this workspace: OKRs and CRM are on by default, Produ
 ## Ceremonies
 
 Define the workspace's recurring meetings once: cadence, participants, purpose, agenda template, and which projects each one reviews. Each date becomes an occurrence with its own agenda and captured outputs. See [Ceremonies & occurrences](/docs/meet/ceremonies).
+
+## Updates
+
+A resident AI copywriter drafts a short update of what shipped in the workspace each week: a headline, a one-line summary, up to three highlights and up to eight one-liners, with a link to everything else. It draws on features that went live, shipped feature scopes, finished tickets, cycle achievements and on-track goal updates. It mentions only work that actually shipped. Chores, spikes and research never appear.
+
+**Nothing is sent without approval.** Each draft is a page linked from the workspace's **Updates** page. Reviewers get it by Matrix (if they have paired it) and by email. Open the draft to edit it in the page editor, then choose one of:
+
+- **Approve**: accept the draft.
+- **Regenerate**: rewrite it, optionally with feedback such as "shorter, lead with the export fix". This replaces the page's content, including your edits.
+- **Skip this week**: nothing is sent for that week.
+
+If nothing user-facing shipped, there is no draft. Reviewers get a one-line note instead.
+
+| Setting | What it does |
+|---|---|
+| Weekly draft | Turns the automatic weekly draft on or off. |
+| When | Day, hour and time zone of the draft. Each draft covers everything since the previous one. |
+| Reviewers | Who gets each draft and may approve it. If none are set, the workspace's owners and admins review. |
+| Voice | Writes in the personality of one of your assistants instead of the neutral house voice. |
+
+**Generate draft now** writes a draft immediately, covering everything since the last scheduled update. It is a preview: it does not change what the next scheduled draft covers.
 
 ## Danger zone
 
