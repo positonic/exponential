@@ -11,6 +11,7 @@ import {
   publicUpdatesPath,
 } from "~/server/services/workspaceUpdates/public";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { SubscribeForm } from "../_components/SubscribeForm";
 import { UpdatesShell, formatPublishedDate } from "../_components/UpdatesShell";
 
 /**
@@ -67,7 +68,10 @@ export default async function PublicUpdatesPage({ params, searchParams }: Params
       feedHref={`${publicUpdatesPath(workspace.slug)}/feed.xml`}
     >
       <h1 className="mb-2 text-3xl font-bold text-text-primary">What {workspace.name} shipped</h1>
-      <p className="mb-10 text-sm text-text-muted">A short update every week, newest first.</p>
+      <p className="mb-8 text-sm text-text-muted">A short update every week, newest first.</p>
+      {workspace.acceptsSignups && page === 1 && (
+        <SubscribeForm workspaceSlug={workspace.slug} workspaceName={workspace.name} />
+      )}
       {updates.length === 0 ? (
         <p className="text-text-muted">No updates yet.</p>
       ) : (

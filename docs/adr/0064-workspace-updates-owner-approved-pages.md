@@ -87,3 +87,20 @@ Retries favour a missed send over a duplicate one:
   record is never emailed that update again.
 - The public page and feed are never cached, so switching the public page off takes them down at
   once.
+
+## Amendment: public signup is double opt-in (2026-10-02)
+
+A public updates page whose workspace has a newsletter List shows a signup form. Submitting it only
+emails a confirmation link. The link carries a signed, 7-day token holding the workspace and the
+email, so nothing about the visitor is stored until they confirm.
+
+The link opens a page with a Confirm button rather than confirming on open, because mail scanners
+follow links. Confirming:
+
+- creates or reuses the workspace's CRM contact for that email;
+- clears an earlier opt-out, since confirming is a fresh consent;
+- adds the contact to the List and fires the List's automations.
+
+The form reuses the Forms intake defences (honeypot, time trap) and the shared rate limiter, per IP
+and per email. The per-email limit stops the form being used to flood someone else's inbox.
+

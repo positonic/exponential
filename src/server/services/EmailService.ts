@@ -1444,6 +1444,11 @@ function escapeDigestHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/** For values inside a double-quoted attribute (hrefs): text escaping plus quotes. */
+function escapeEmailAttr(s: string): string {
+  return escapeDigestHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /**
  * Renders + sends a "What Shipped Today" Broadcast digest email. The body leads
  * with the AI prose summary, then the structured per-category list; the footer
@@ -1545,7 +1550,7 @@ export function buildWorkspaceUpdateEmail(params: {
   const t = colorTokens.light;
   const greeting = params.greetingName ? `Hi ${escapeDigestHtml(params.greetingName)},` : "Hi,";
   const webLink = params.webUrl
-    ? `<p style="margin: 0 0 16px; font-size: 13px;"><a href="${escapeDigestHtml(params.webUrl)}" style="color: ${EMAIL_BRAND_COLOR};">Read this update on the web</a></p>`
+    ? `<p style="margin: 0 0 16px; font-size: 13px;"><a href="${escapeEmailAttr(params.webUrl)}" style="color: ${EMAIL_BRAND_COLOR};">Read this update on the web</a></p>`
     : "";
 
   const htmlBody = `
@@ -1561,7 +1566,7 @@ export function buildWorkspaceUpdateEmail(params: {
       <hr style="border: none; border-top: 1px solid ${t.border.primary}; margin: 24px 0;" />
       <p style="font-size: 12px; color: ${t.text.muted};">
         You are receiving this because you subscribed to updates from ${escapeDigestHtml(params.workspaceName)}.
-        <a href="${escapeDigestHtml(params.unsubscribeUrl)}" style="color: ${t.text.muted};">Unsubscribe</a>.
+        <a href="${escapeEmailAttr(params.unsubscribeUrl)}" style="color: ${t.text.muted};">Unsubscribe</a>.
       </p>
     </div>
   </body>
@@ -1593,6 +1598,60 @@ export async function sendWorkspaceUpdateEmail(
     workspaceId: params.workspaceId,
   });
   return rendered;
+}
+
+/**
+ * The double-opt-in email for a workspace's update newsletter: one button that
+ * confirms the signup. Says plainly what happens if they ignore it, since the
+ * address was typed by whoever filled the form, not necessarily its owner.
+ */
+export function buildUpdateSubscribeConfirmEmail(params: {
+  workspaceName: string;
+  confirmUrl: string;
+}): { subject: string; htmlBody: string; textBody: string } {
+  const t = colorTokens.light;
+  const name = escapeDigestHtml(params.workspaceName);
+  const url = escapeEmailAttr(params.confirmUrl);
+  const subject = `Confirm your subscription to ${params.workspaceName} updates`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: ${t.text.primary}; line-height: 1.6; background-color: ${t.background.secondary};">
+    <div style="max-width: 560px; margin: 0 auto; background-color: ${t.background.primary}; border: 1px solid ${t.border.primary}; border-radius: 8px; padding: 24px;">
+      <h1 style="margin: 0 0 16px; font-size: 20px; color: ${t.text.primary};">Confirm your subscription</h1>
+      <p style="margin: 0 0 16px;">Someone, hopefully you, asked to get ${name} updates at this address. Confirm and you'll get a short update when there's news.</p>
+      <p style="margin: 0 0 24px;"><a href="${url}" style="display: inline-block; padding: 10px 18px; background-color: ${EMAIL_BRAND_COLOR}; color: ${t.background.primary}; text-decoration: none; border-radius: 6px; font-weight: bold;">Confirm subscription</a></p>
+      <p style="margin: 0; font-size: 12px; color: ${t.text.muted};">If you didn't ask for this, ignore this email and you won't be subscribed. The link expires in 7 days.</p>
+    </div>
+  </body>
+</html>`;
+
+  const textBody = `Confirm your subscription
+
+Someone, hopefully you, asked to get ${params.workspaceName} updates at this address. Confirm and you'll get a short update when there's news:
+
+${params.confirmUrl}
+
+If you didn't ask for this, ignore this email and you won't be subscribed. The link expires in 7 days.`;
+
+  return { subject, htmlBody, textBody };
+}
+
+export async function sendUpdateSubscribeConfirmEmail(params: {
+  to: string;
+  workspaceName: string;
+  confirmUrl: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const rendered = buildUpdateSubscribeConfirmEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject: rendered.subject,
+    htmlBody: rendered.htmlBody,
+    textBody: rendered.textBody,
+    workspaceId: params.workspaceId,
+  });
 }
 
 /**
@@ -1675,5 +1734,6 @@ export const EmailService = {
   sendCrmAutomationEmail,
   sendBroadcastDigestEmail,
   sendWorkspaceUpdateEmail,
+  sendUpdateSubscribeConfirmEmail,
   sendMeetingInviteEmail,
 };

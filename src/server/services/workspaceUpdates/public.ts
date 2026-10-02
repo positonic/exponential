@@ -32,6 +32,8 @@ export interface PublicWorkspace {
   name: string;
   slug: string;
   timezone: string;
+  /** Visitors can subscribe here: the workspace has a newsletter List. */
+  acceptsSignups: boolean;
 }
 
 /** The leading `# headline` duplicates the title the page already shows. */
@@ -39,13 +41,24 @@ export function stripLeadingHeadline(markdown: string): string {
   return markdown.replace(/^\s*#\s[^\n]*\n*/, "").trim();
 }
 
-async function loadPublicWorkspace(db: PrismaClient, slug: string): Promise<PublicWorkspace | null> {
+export async function getPublicWorkspace(db: PrismaClient, slug: string): Promise<PublicWorkspace | null> {
   const workspace = await db.workspace.findUnique({
     where: { slug },
-    select: { id: true, name: true, slug: true, updateConfig: { select: { isPublic: true, timezone: true } } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      updateConfig: { select: { isPublic: true, timezone: true, newsletterCollectionId: true } },
+    },
   });
   if (!workspace?.updateConfig?.isPublic) return null;
-  return { id: workspace.id, name: workspace.name, slug: workspace.slug, timezone: workspace.updateConfig.timezone };
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    slug: workspace.slug,
+    timezone: workspace.updateConfig.timezone,
+    acceptsSignups: Boolean(workspace.updateConfig.newsletterCollectionId),
+  };
 }
 
 function toSummary(row: {
@@ -95,7 +108,7 @@ export async function listPublicUpdates(
   workspaceSlug: string,
   { page = 1, pageSize = PUBLIC_INDEX_PAGE_SIZE }: { page?: number; pageSize?: number } = {},
 ): Promise<{ workspace: PublicWorkspace; updates: PublicUpdateSummary[]; page: number; hasOlder: boolean } | null> {
-  const workspace = await loadPublicWorkspace(db, workspaceSlug);
+  const workspace = await getPublicWorkspace(db, workspaceSlug);
   if (!workspace) return null;
   const rows = await db.workspaceUpdate.findMany({
     where: {
@@ -123,7 +136,7 @@ export async function getPublicUpdate(
   workspaceSlug: string,
   updateId: string,
 ): Promise<{ workspace: PublicWorkspace; update: PublicUpdateSummary } | null> {
-  const workspace = await loadPublicWorkspace(db, workspaceSlug);
+  const workspace = await getPublicWorkspace(db, workspaceSlug);
   if (!workspace) return null;
   const row = await db.workspaceUpdate.findFirst({
     where: {

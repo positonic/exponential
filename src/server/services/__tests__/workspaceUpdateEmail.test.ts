@@ -6,7 +6,7 @@ vi.hoisted(() => {
 });
 vi.mock("~/server/db", () => ({ db: {} }));
 
-import { buildWorkspaceUpdateEmail } from "../EmailService";
+import { buildUpdateSubscribeConfirmEmail, buildWorkspaceUpdateEmail } from "../EmailService";
 
 describe("buildWorkspaceUpdateEmail", () => {
   const base = {
@@ -40,5 +40,21 @@ describe("buildWorkspaceUpdateEmail", () => {
     expect(email.htmlBody).not.toContain("<script>");
     expect(email.htmlBody).toContain("Acme &lt;b&gt;&amp;&lt;/b&gt;");
     expect(email.htmlBody).not.toContain("Read this update on the web");
+  });
+});
+
+describe("buildUpdateSubscribeConfirmEmail", () => {
+  it("links the confirmation and escapes what it adds", () => {
+    const email = buildUpdateSubscribeConfirmEmail({
+      workspaceName: "Acme <script>",
+      confirmUrl: "https://app.test/updates/acme/confirm?token=a&b=\"x",
+    });
+
+    expect(email.subject).toBe("Confirm your subscription to Acme <script> updates");
+    expect(email.htmlBody).toContain("Acme &lt;script&gt;");
+    expect(email.htmlBody).not.toContain("<script>");
+    expect(email.htmlBody).toContain('href="https://app.test/updates/acme/confirm?token=a&amp;b=&quot;x"');
+    expect(email.textBody).toContain("https://app.test/updates/acme/confirm?token=a&b=\"x");
+    expect(email.textBody).toContain("ignore this email and you won't be subscribed");
   });
 });
