@@ -1095,10 +1095,7 @@ export class SprintAnalyticsService {
       .map((t) => t.assigneeId)
       .filter((id): id is string => id != null);
 
-    const [logins, prs, pushes, timeEntries] = await Promise.all([
-      resolveGithubLogins(this.prisma, [
-        ...new Set([...memberIds, ...assigneeIds]),
-      ]),
+    const [prs, pushes, timeEntries] = await Promise.all([
       span ? this.getMergedPrDurations(workspaceId, span) : Promise.resolve([]),
       span
         ? this.prisma.gitHubActivity.findMany({
@@ -1124,6 +1121,17 @@ export class SprintAnalyticsService {
             select: { userId: true, startedAt: true, endedAt: true },
           })
         : Promise.resolve([]),
+    ]);
+
+    // Everyone who can get a row: members, assignees and anyone who logged
+    // time (a former member may appear through time alone) — so every row's
+    // GitHub link is resolved, not just members' and assignees'.
+    const logins = await resolveGithubLogins(this.prisma, [
+      ...new Set([
+        ...memberIds,
+        ...assigneeIds,
+        ...timeEntries.map((e) => e.userId),
+      ]),
     ]);
 
     const userByLogin = new Map(
