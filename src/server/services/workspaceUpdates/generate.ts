@@ -9,7 +9,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { gatherShippedWork } from "./gather";
-import { createDraftPage, ensureUpdatesIndexPage, prependPageLink, replacePageContent } from "./pages";
+import { createDraftPage, ensureUpdatesIndexPage, replacePageContent, syncUpdatesIndex } from "./pages";
 import { renderUpdateMarkdown } from "./render";
 import { resolveReviewerIds } from "./reviewers";
 import { isSelectionEmpty, selectItems } from "./select";
@@ -195,12 +195,14 @@ export async function generateWorkspaceUpdate(
       },
     });
 
-    const indexPageId = await ensureUpdatesIndexPage(db, {
+    // The draft exists from here on: whatever happens to the index, the
+    // reviewers must hear about it, or the claimed period would sit unseen.
+    await linkFromUpdatesIndex(db, {
       workspaceId: input.workspaceId,
+      workspaceSlug: slug,
       createdById: ownerId,
       indexPageId: config?.indexPageId ?? null,
     });
-    await prependPageLink(db, { indexPageId, workspaceSlug: slug, childPageId: pageId, childTitle: written.headline });
 
     // Everyone hears about a fresh draft, including whoever pressed "Generate
     // draft now": the review message is how the draft reaches their Matrix DM.
@@ -216,6 +218,36 @@ export async function generateWorkspaceUpdate(
   }
 }
 
+/** How many recent updates the index sync checks for a missing link. */
+const INDEX_SYNC_DEPTH = 50;
+
+/**
+ * Best-effort: make sure the workspace's "Updates" index links its recent
+ * update Pages (newest first), repairing any an earlier run failed to link.
+ * Never throws — the draft and its review message matter more than the index.
+ */
+async function linkFromUpdatesIndex(
+  db: PrismaClient,
+  input: { workspaceId: string; workspaceSlug: string; createdById: string; indexPageId: string | null },
+): Promise<void> {
+  try {
+    const indexPageId = await ensureUpdatesIndexPage(db, input);
+    const recent = await db.workspaceUpdate.findMany({
+      where: { workspaceId: input.workspaceId, pageId: { not: null } },
+      orderBy: { windowEnd: "desc" },
+      take: INDEX_SYNC_DEPTH,
+      select: { pageId: true, page: { select: { title: true } } },
+    });
+    const pages = recent.flatMap((u) => (u.pageId && u.page ? [{ id: u.pageId, title: u.page.title }] : []));
+    const synced = await syncUpdatesIndex(db, { indexPageId, workspaceSlug: input.workspaceSlug, pages });
+    if (!synced) {
+      console.warn(`[workspaceUpdates] index ${indexPageId} kept changing; links will be repaired on the next run`);
+    }
+  } catch (err) {
+    console.error("[workspaceUpdates] could not update the Updates index", err);
+  }
+}
+
 export type RegenerateResult =
   | { kind: "regenerated"; version: number }
   | { kind: "not-draft" }
@@ -227,6 +259,12 @@ export type RegenerateResult =
  * window — and the Page is replaced wholesale (the reviewer is warned that
  * their own edits go). Bumps the version, which re-notifies the other
  * reviewers; the one who asked is not pinged about their own request.
+ *
+ * Concurrency: the model call runs first, unlocked. Then the draft is held
+ * (DRAFT → REGENERATING, conditional on the version read) so nobody can
+ * approve or skip it while its Page is replaced, and the Page is replaced only
+ * if it is still at the docVersion read before writing — a save that landed
+ * meanwhile is newer work and wins. Either way the hold is released.
  */
 export async function regenerateWorkspaceUpdate(
   db: PrismaClient,
@@ -243,13 +281,15 @@ export async function regenerateWorkspaceUpdate(
       items: true,
       windowStart: true,
       windowEnd: true,
+      page: { select: { docVersion: true } },
     },
   });
-  if (update?.status !== WORKSPACE_UPDATE_STATUS.DRAFT || !update.pageId) {
+  if (update?.status !== WORKSPACE_UPDATE_STATUS.DRAFT || !update.pageId || !update.page) {
     return { kind: "not-draft" };
   }
   const selection = update.items as unknown as UpdateSelection | null;
   if (!selection?.highlights?.length) return { kind: "not-draft" };
+  const expectedDocVersion = update.page.docVersion;
 
   const feedback = input.feedback?.trim() ? input.feedback.trim() : null;
   const { ctx, slug, config } = await loadWriteContext(
@@ -262,16 +302,30 @@ export async function regenerateWorkspaceUpdate(
   const written = await writeForSelection(deps.writer, selection, ctx);
   const markdown = renderUpdateMarkdown(written, selection, { moreUrl: moreUrl(deps.baseUrl, slug) });
 
-  // Claim the new version before touching the Page, so two concurrent
-  // regenerates (or an approve racing one) cannot both win.
-  const { count } = await db.workspaceUpdate.updateMany({
+  const hold = await db.workspaceUpdate.updateMany({
     where: { id: input.updateId, status: WORKSPACE_UPDATE_STATUS.DRAFT, version: update.version },
-    data: { version: { increment: 1 }, feedback, model: written.model },
+    data: { status: WORKSPACE_UPDATE_STATUS.REGENERATING },
   });
-  if (count === 0) return { kind: "conflict" };
+  if (hold.count === 0) return { kind: "conflict" };
 
-  const replaced = await replacePageContent(db, { pageId: update.pageId, title: written.headline, markdown });
-  if (replaced !== "replaced") return { kind: "conflict" };
+  let replaced = false;
+  try {
+    replaced =
+      (await replacePageContent(db, {
+        pageId: update.pageId,
+        title: written.headline,
+        markdown,
+        expectedDocVersion,
+      })) === "replaced";
+  } finally {
+    await db.workspaceUpdate.updateMany({
+      where: { id: input.updateId, status: WORKSPACE_UPDATE_STATUS.REGENERATING },
+      data: replaced
+        ? { status: WORKSPACE_UPDATE_STATUS.DRAFT, version: { increment: 1 }, feedback, model: written.model }
+        : { status: WORKSPACE_UPDATE_STATUS.DRAFT },
+    });
+  }
+  if (!replaced) return { kind: "conflict" };
 
   const version = update.version + 1;
   const reviewerIds = await resolveReviewerIds(db, update.workspaceId, config?.reviewerIds ?? []);

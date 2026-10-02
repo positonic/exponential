@@ -15,6 +15,8 @@ export type WorkspaceUpdateKind =
 
 export const WORKSPACE_UPDATE_STATUS = {
   DRAFT: "DRAFT",
+  /** A rewrite holds the draft; nothing can approve or skip it meanwhile. */
+  REGENERATING: "REGENERATING",
   APPROVED: "APPROVED",
   SENT: "SENT",
   SKIPPED: "SKIPPED",

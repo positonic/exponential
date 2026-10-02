@@ -710,7 +710,8 @@ model WorkspaceUpdate {
   periodKey    String
   windowStart  DateTime
   windowEnd    DateTime
-  status       String // "DRAFT" | "APPROVED" | "SENT" | "SKIPPED" | "EMPTY"
+  // "DRAFT" | "REGENERATING" (a rewrite holds the draft) | "APPROVED" | "SENT" | "SKIPPED" | "EMPTY"
+  status       String
   pageId       String?   @unique
   // The ranked, capped selection the writer was given: its whole universe.
   items        Json?
@@ -720,6 +721,10 @@ model WorkspaceUpdate {
   model        String?
   approvedById String?
   approvedAt   DateTime?
+  // What was approved, frozen at approval: distribution sends this, so a
+  // later edit to the live Page never goes out unreviewed.
+  approvedTitle String?
+  approvedBody  String?  @db.Text
   skippedById  String?
   skippedAt    DateTime?
   createdAt    DateTime  @default(now())

@@ -95,6 +95,7 @@ function mockDraft(dbMock: DeepMockProxy<PrismaClient>) {
     pageId: "page-1",
     version: 1,
   } as never);
+  dbMock.knowledgePage.findUnique.mockResolvedValue({ title: "Bulk edit lands", body: "# Bulk edit lands" } as never);
 }
 
 describe("workspaceUpdate router (mocked)", () => {
@@ -117,11 +118,19 @@ describe("workspaceUpdate router (mocked)", () => {
       dbMock.workspaceUpdate.updateMany.mockResolvedValue({ count: 1 });
 
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
-      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID })).resolves.toEqual({ status: "APPROVED" });
+      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID, version: 1 })).resolves.toEqual({
+        status: "APPROVED",
+      });
 
+      // Only the version the reviewer saw, with what they saw frozen onto the row.
       expect(dbMock.workspaceUpdate.updateMany).toHaveBeenCalledWith({
-        where: { id: UPDATE_ID, status: "DRAFT" },
-        data: expect.objectContaining({ status: "APPROVED", approvedById: USER_ID }),
+        where: { id: UPDATE_ID, status: "DRAFT", version: 1 },
+        data: expect.objectContaining({
+          status: "APPROVED",
+          approvedById: USER_ID,
+          approvedTitle: "Bulk edit lands",
+          approvedBody: "# Bulk edit lands",
+        }),
       });
     });
 
@@ -130,9 +139,22 @@ describe("workspaceUpdate router (mocked)", () => {
       mockDraft(dbMock);
 
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
-      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID })).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID, version: 1 })).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
       await expect(caller.workspaceUpdate.skip({ updateId: UPDATE_ID })).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(dbMock.workspaceUpdate.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("refuses to approve a version the reviewer did not see (a rewrite landed)", async () => {
+      mockRole(dbMock, "owner");
+      mockDraft(dbMock);
+      dbMock.workspaceUpdate.updateMany.mockResolvedValue({ count: 0 });
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(caller.workspaceUpdate.approve({ updateId: UPDATE_ID, version: 1 })).rejects.toMatchObject({
+        code: "CONFLICT",
+      });
     });
 
     it("decides a draft only once (double click, or approve racing skip)", async () => {

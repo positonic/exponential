@@ -9,6 +9,7 @@ import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Draft, waiting for approval',
+  REGENERATING: 'Rewriting…',
   APPROVED: 'Approved',
   SENT: 'Sent',
   SKIPPED: 'Skipped',
@@ -16,6 +17,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_COLOR: Record<string, string> = {
   DRAFT: 'yellow',
+  REGENERATING: 'blue',
   APPROVED: 'green',
   SENT: 'green',
   SKIPPED: 'gray',
@@ -116,7 +118,7 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
               leftSection={<IconCheck size={14} />}
               disabled={busy}
               loading={approve.isPending}
-              onClick={() => approve.mutate({ updateId: update.id })}
+              onClick={() => approve.mutate({ updateId: update.id, version: update.version })}
             >
               Approve
             </Button>
@@ -149,7 +151,7 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
       ) : null}
       {isDraft ? (
         <Text size="xs" mt={6} className="text-text-muted">
-          Edit the draft below as you like. Nothing is sent until a reviewer approves it.
+          Edit the draft below as you like. Approving freezes this version for sending; later edits are not sent.
         </Text>
       ) : null}
     </div>

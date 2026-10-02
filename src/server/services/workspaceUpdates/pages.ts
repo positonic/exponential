@@ -13,6 +13,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import type { JSONContent } from "@tiptap/core";
 
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { collectPageLinkIds } from "~/lib/pages/public-doc";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import { docToMarkdownServer, markdownToDocServer } from "~/server/services/prd/markdown-doc";
 
@@ -78,22 +79,20 @@ export async function ensureUpdatesIndexPage(
 }
 
 /**
- * Insert a pageLink to `child` on the index Page, newest first (after the
- * intro paragraph). Idempotent: a child already linked is left where it is.
+ * Make the index Page link every given update Page, newest first, beneath its
+ * intro paragraph. Links already present stay where they are; missing ones —
+ * a new draft, or one an earlier run failed to link — are inserted in the
+ * given order. So the index repairs itself on every run.
  */
-export async function prependPageLink(
+export async function syncUpdatesIndex(
   db: PrismaClient,
-  input: { indexPageId: string; workspaceSlug: string; childPageId: string; childTitle: string },
+  input: {
+    indexPageId: string;
+    workspaceSlug: string;
+    /** Newest first. */
+    pages: { id: string; title: string }[];
+  },
 ): Promise<boolean> {
-  const link: JSONContent = {
-    type: "pageLink",
-    attrs: {
-      pageId: input.childPageId,
-      title: input.childTitle,
-      href: buildPageEditorPath(input.workspaceSlug, input.childPageId),
-    },
-  };
-
   for (let attempt = 0; attempt < 2; attempt++) {
     const page = await db.knowledgePage.findUnique({
       where: { id: input.indexPageId },
@@ -102,15 +101,21 @@ export async function prependPageLink(
     if (!page) return false;
     const baseDoc = (page.bodyDoc as JSONContent | null) ?? markdownToDocServer(page.body);
     const content = baseDoc.content ?? [];
-    if (content.some((n) => n.type === "pageLink" && n.attrs?.pageId === input.childPageId)) {
-      return true;
-    }
+    const linked = new Set(collectPageLinkIds(baseDoc));
+    const missing: JSONContent[] = input.pages
+      .filter((p) => !linked.has(p.id))
+      .map((p) => ({
+        type: "pageLink",
+        attrs: { pageId: p.id, title: p.title, href: buildPageEditorPath(input.workspaceSlug, p.id) },
+      }));
+    if (missing.length === 0) return true;
+
     // Keep a leading intro paragraph on top; links go newest-first beneath it.
     const introLength = content[0]?.type === "paragraph" ? 1 : 0;
     const nextDoc: JSONContent = {
       ...baseDoc,
       type: "doc",
-      content: [...content.slice(0, introLength), link, ...content.slice(introLength)],
+      content: [...content.slice(0, introLength), ...missing, ...content.slice(introLength)],
     };
     const { count } = await db.knowledgePage.updateMany({
       where: { id: input.indexPageId, docVersion: page.docVersion },
@@ -126,34 +131,26 @@ export async function prependPageLink(
 }
 
 /**
- * Replace a draft Page's content and title (regenerate). Compare-and-set on
- * the version read, so a reviewer's concurrent save is never silently lost —
- * the caller reports "conflict" and the reviewer retries.
+ * Replace a draft Page's content and title (regenerate). One compare-and-set
+ * against `expectedDocVersion` — the version the rewrite started from — with
+ * no retry: a save that lands while the rewrite was being written is the
+ * reviewer's newer work, so it is reported as a conflict, never overwritten.
  */
 export async function replacePageContent(
   db: PrismaClient,
-  input: { pageId: string; title: string; markdown: string },
-): Promise<"replaced" | "missing" | "conflict"> {
+  input: { pageId: string; title: string; markdown: string; expectedDocVersion: number },
+): Promise<"replaced" | "conflict"> {
   const { bodyDoc, body } = docAndBody(input.markdown);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const page = await db.knowledgePage.findUnique({
-      where: { id: input.pageId },
-      select: { docVersion: true },
-    });
-    if (!page) return "missing";
-    const { count } = await db.knowledgePage.updateMany({
-      where: { id: input.pageId, docVersion: page.docVersion },
-      data: {
-        title: input.title,
-        bodyDoc: bodyDoc as Prisma.InputJsonValue,
-        body,
-        docVersion: { increment: 1 },
-      },
-    });
-    if (count === 1) {
-      getEmbeddingTriggerService(db).triggerPageEmbedding(input.pageId);
-      return "replaced";
-    }
-  }
-  return "conflict";
+  const { count } = await db.knowledgePage.updateMany({
+    where: { id: input.pageId, docVersion: input.expectedDocVersion },
+    data: {
+      title: input.title,
+      bodyDoc: bodyDoc as Prisma.InputJsonValue,
+      body,
+      docVersion: { increment: 1 },
+    },
+  });
+  if (count !== 1) return "conflict";
+  getEmbeddingTriggerService(db).triggerPageEmbedding(input.pageId);
+  return "replaced";
 }

@@ -81,6 +81,9 @@ describe("generateWorkspaceUpdate", () => {
       docVersion: 3,
     } as never);
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
+    db.workspaceUpdate.findMany.mockResolvedValue([
+      { pageId: "page-1", page: { title: "Backlog V2, and 1 more change" } },
+    ] as never);
 
     const result = await generateWorkspaceUpdate(db, input, deps());
 
@@ -103,6 +106,51 @@ describe("generateWorkspaceUpdate", () => {
     expect(JSON.stringify(linkWrite.data.bodyDoc)).toContain('"pageId":"page-1"');
 
     expect(notify).toHaveBeenCalledWith({ updateId: "upd-1", version: 1, variant: "draft", reviewerIds: ["owner-1"], actorUserId: null });
+  });
+
+  it("still notifies the reviewers when the Updates index cannot be updated", async () => {
+    stubWorkspace();
+    stubShipped();
+    db.knowledgePage.create.mockResolvedValue({ id: "page-1" } as never);
+    db.knowledgePage.findUnique.mockRejectedValue(new Error("index unavailable"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await generateWorkspaceUpdate(db, input, deps());
+
+    expect(result).toEqual({ kind: "drafted", updateId: "upd-1", pageId: "page-1" });
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ updateId: "upd-1", variant: "draft" }));
+    // The draft row is kept, not released: it is the reviewers' to act on.
+    expect(db.workspaceUpdate.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("re-links earlier drafts missing from the index", async () => {
+    stubWorkspace();
+    stubShipped();
+    db.knowledgePage.create.mockResolvedValue({ id: "page-new" } as never);
+    db.knowledgePage.findUnique.mockResolvedValue({
+      id: "index-1",
+      workspaceId: "ws-1",
+      bodyDoc: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Intro" }] },
+          { type: "pageLink", attrs: { pageId: "page-old", title: "Old", href: "/w/acme/pages/page-old" } },
+        ],
+      },
+      body: "Intro",
+      docVersion: 1,
+    } as never);
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
+    db.workspaceUpdate.findMany.mockResolvedValue([
+      { pageId: "page-new", page: { title: "New" } },
+      { pageId: "page-missed", page: { title: "Missed last week" } },
+      { pageId: "page-old", page: { title: "Old" } },
+    ] as never);
+
+    await generateWorkspaceUpdate(db, input, deps());
+
+    const doc = db.knowledgePage.updateMany.mock.calls[0]![0].data.bodyDoc as { content: { type: string; attrs?: { pageId: string } }[] };
+    expect(doc.content.map((n) => n.attrs?.pageId ?? n.type)).toEqual(["paragraph", "page-new", "page-missed", "page-old"]);
   });
 
   it("marks a quiet week EMPTY, creates no Page and tells the reviewers", async () => {
@@ -206,6 +254,7 @@ describe("regenerateWorkspaceUpdate", () => {
       items: selection,
       windowStart: input.windowStart,
       windowEnd: input.windowEnd,
+      page: { docVersion: 7 },
       ...overrides,
     } as never);
     db.workspace.findUniqueOrThrow.mockResolvedValue({ name: "Acme", slug: "acme" } as never);
@@ -213,10 +262,9 @@ describe("regenerateWorkspaceUpdate", () => {
     db.workspaceUser.findMany.mockResolvedValue([{ userId: "owner-1" }, { userId: "rev-2" }] as never);
   }
 
-  it("rewrites from the stored selection with feedback, bumps the version and re-notifies", async () => {
+  it("rewrites from the stored selection with feedback, holding the draft while the Page is replaced", async () => {
     stubDraft();
     db.workspaceUpdate.updateMany.mockResolvedValue({ count: 1 });
-    db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 7 } as never);
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
     const write = vi.fn<UpdateWriter["write"]>().mockResolvedValue({
       headline: "Exports fixed",
@@ -237,15 +285,20 @@ describe("regenerateWorkspaceUpdate", () => {
     expect(db.ticket.findMany).not.toHaveBeenCalled();
     expect(write.mock.calls[0]![0]).toEqual(selection);
     expect(write.mock.calls[0]![1]).toMatchObject({ feedback: "lead with exports" });
-    // Version claimed conditionally on the one read.
-    expect(db.workspaceUpdate.updateMany).toHaveBeenCalledWith({
+    // Held (DRAFT → REGENERATING at the version read), so nothing can approve mid-rewrite…
+    expect(db.workspaceUpdate.updateMany.mock.calls[0]![0]).toEqual({
       where: { id: "upd-1", status: "DRAFT", version: 2 },
-      data: { version: { increment: 1 }, feedback: "lead with exports", model: "claude-test" },
+      data: { status: "REGENERATING" },
     });
-    // Page replaced with a compare-and-set.
+    // …the Page replaced only at the docVersion read before writing…
     expect(db.knowledgePage.updateMany.mock.calls[0]![0]).toMatchObject({
       where: { id: "page-1", docVersion: 7 },
       data: { title: "Exports fixed" },
+    });
+    // …then released with the new version.
+    expect(db.workspaceUpdate.updateMany.mock.calls[1]![0]).toEqual({
+      where: { id: "upd-1", status: "REGENERATING" },
+      data: { status: "DRAFT", version: { increment: 1 }, feedback: "lead with exports", model: "claude-test" },
     });
     // The other reviewers hear about it; the requester is excluded.
     expect(notify).toHaveBeenCalledWith({
@@ -255,6 +308,23 @@ describe("regenerateWorkspaceUpdate", () => {
       reviewerIds: ["owner-1", "rev-2"],
       actorUserId: "owner-1",
     });
+  });
+
+  it("never overwrites a save that landed while rewriting, and releases the hold", async () => {
+    stubDraft();
+    db.workspaceUpdate.updateMany.mockResolvedValue({ count: 1 });
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 0 });
+
+    const result = await regenerateWorkspaceUpdate(db, { updateId: "upd-1", feedback: null, actorUserId: "owner-1" }, deps());
+
+    expect(result).toEqual({ kind: "conflict" });
+    // One compare-and-set, no retry against the newer version.
+    expect(db.knowledgePage.updateMany).toHaveBeenCalledTimes(1);
+    expect(db.workspaceUpdate.updateMany.mock.calls[1]![0]).toEqual({
+      where: { id: "upd-1", status: "REGENERATING" },
+      data: { status: "DRAFT" },
+    });
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it("refuses anything that is no longer a draft", async () => {

@@ -32,6 +32,8 @@ CREATE TABLE "WorkspaceUpdate" (
     "model" TEXT,
     "approvedById" TEXT,
     "approvedAt" TIMESTAMP(3),
+    "approvedTitle" TEXT,
+    "approvedBody" TEXT,
     "skippedById" TEXT,
     "skippedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

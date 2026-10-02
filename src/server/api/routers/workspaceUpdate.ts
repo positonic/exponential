@@ -215,16 +215,42 @@ export const workspaceUpdateRouter = createTRPCRouter({
       return { ...update, canReview };
     }),
 
-  /** Approve a draft. Only ever moves DRAFT → APPROVED; distribution hangs off this (V2). */
+  /**
+   * Approve the draft the reviewer saw. Only ever moves DRAFT → APPROVED, and
+   * only at the version shown, so a regeneration that landed in between is
+   * never approved unseen. The Page's title and body are frozen onto the row:
+   * distribution (V2) sends this snapshot, so a later edit to the live Page
+   * never goes out unreviewed.
+   */
   approve: protectedProcedure
-    .input(z.object({ updateId: z.string() }))
+    .input(z.object({ updateId: z.string(), version: z.number().int().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await loadReviewableUpdate(ctx.db, input.updateId, ctx.session.user.id);
-      await transitionFromDraft(ctx.db, input.updateId, {
-        status: WORKSPACE_UPDATE_STATUS.APPROVED,
-        approvedById: ctx.session.user.id,
-        approvedAt: new Date(),
+      const update = await loadReviewableUpdate(ctx.db, input.updateId, ctx.session.user.id);
+      const page = update.pageId
+        ? await ctx.db.knowledgePage.findUnique({
+            where: { id: update.pageId },
+            select: { title: true, body: true },
+          })
+        : null;
+      if (!page) {
+        throw new TRPCError({ code: "CONFLICT", message: "This update has no draft to approve" });
+      }
+      const { count } = await ctx.db.workspaceUpdate.updateMany({
+        where: { id: input.updateId, status: WORKSPACE_UPDATE_STATUS.DRAFT, version: input.version },
+        data: {
+          status: WORKSPACE_UPDATE_STATUS.APPROVED,
+          approvedById: ctx.session.user.id,
+          approvedAt: new Date(),
+          approvedTitle: page.title,
+          approvedBody: page.body ?? "",
+        },
       });
+      if (count === 0) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This draft changed or was already decided. Reload to see the latest.",
+        });
+      }
       return { status: WORKSPACE_UPDATE_STATUS.APPROVED };
     }),
 
