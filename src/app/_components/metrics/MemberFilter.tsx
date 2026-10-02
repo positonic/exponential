@@ -52,15 +52,37 @@ export function MemberFilter({
     { enabled: !!workspaceId },
   );
 
-  const options = useMemo(
-    () =>
-      (members ?? []).map((m) => ({
-        value: m.id,
-        label: m.name ?? m.email ?? 'Unknown',
-        image: m.image,
-      })),
-    [members],
+  // Same query (and cache entry) as the all-cycles Contributors table — it
+  // knows former members who still hold assigned tickets or logged time.
+  const { data: contributions } = api.sprintAnalytics.getContributions.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId },
   );
+
+  const options = useMemo(() => {
+    const list = (members ?? []).map((m) => ({
+      value: m.id,
+      label: m.name ?? m.email ?? 'Unknown',
+      image: m.image,
+    }));
+    const known = new Set(list.map((o) => o.value));
+    // A former member can be ticked in the Contributors table, so they need an
+    // option here too — otherwise the selection is invisible and unremovable.
+    for (const row of contributions?.rows ?? []) {
+      if (row.userId == null || known.has(row.userId)) continue;
+      known.add(row.userId);
+      list.push({
+        value: row.userId,
+        label: `${row.name ?? row.email ?? 'Unknown'} (former member)`,
+        image: row.image,
+      });
+    }
+    // Last resort for an id in a shared URL we can't name: still removable.
+    for (const id of value) {
+      if (!known.has(id)) list.push({ value: id, label: 'Unknown member', image: null });
+    }
+    return list;
+  }, [members, contributions, value]);
   const imageById = useMemo(
     () => new Map(options.map((o) => [o.value, o.image])),
     [options],
