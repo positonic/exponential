@@ -5,7 +5,7 @@ section: zoe
 order: 3
 icon: IconBrandWhatsapp
 sidebarTitle: Chat gateways
-updated: 2026-09-29
+updated: 2026-10-02
 ---
 
 A chat gateway puts Zoe in a messaging app you already have open: WhatsApp, Telegram or Matrix. Whichever you use, it is the same assistant with the same workspace access, so "add an action: call the landlord tomorrow" or "what is on my plate?" works the same way from your phone as from the Zoe drawer. Each gateway also doubles as a delivery channel for reminders and summaries.
@@ -51,7 +51,7 @@ Matrix pairing is started from your side and completed in your Matrix client, so
 3. Send the pairing code the card shows you into that chat; the code expires after a few minutes. The card polls and switches to **Connected**.
 4. Chat with Zoe in that direct message. `!agent NAME` switches to a specialist agent; the **Default agent** on the card sets who answers first.
 
-Matrix is also a notification channel: a **Matrix (Zoe DM)** column appears on [Settings → Notifications](/settings/notifications) once you are paired, and workspaces can circulate ceremony agendas to a Matrix room.
+Matrix is also a notification channel: a **Matrix (Zoe DM)** column appears on [Settings → Notifications](/settings/notifications) once you are paired, and workspaces can circulate ceremony agendas to a Matrix room. To get your daily summary there, see [How to get your daily summary in Matrix](/docs/collaborate/notifications#how-to-get-your-daily-summary-in-matrix).
 
 ## How it connects
 
