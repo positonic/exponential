@@ -161,7 +161,7 @@ export const workspaceUpdateRouter = createTRPCRouter({
           windowEnd: now,
           actorUserId: ctx.session.user.id,
         },
-        defaultGenerateDeps(),
+        defaultGenerateDeps(ctx.db, { workspaceId: input.workspaceId, userId: ctx.session.user.id }),
       );
     }),
 
