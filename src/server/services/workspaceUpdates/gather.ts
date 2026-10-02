@@ -1,5 +1,6 @@
 import type { PrismaClient, TicketType } from "@prisma/client";
 
+import { parseCommitMessage, type CommitCategory } from "~/lib/changelog/commitCategories";
 import { ticketUrlId } from "~/lib/fun-ids";
 
 import type { ShippedItem } from "./types";
@@ -25,6 +26,9 @@ export const TICKET_TYPE_WEIGHT: Record<TicketType, number> = {
   RESEARCH: 0,
 };
 
+/** Conventional-commit types that never describe a user-facing change. */
+const INTERNAL_PR_CATEGORIES = new Set<CommitCategory>(["chore", "ci", "build", "test", "style", "refactor"]);
+
 export interface GatherInput {
   workspaceId: string;
   workspaceSlug: string;
@@ -47,7 +51,7 @@ export async function gatherShippedWork(
   const productBase = (productSlug: string) =>
     `${input.baseUrl}/w/${input.workspaceSlug}/products/${productSlug}`;
 
-  const [scopes, tickets] = await Promise.all([
+  const [scopes, tickets, featureEvents, cycles, goalUpdates] = await Promise.all([
     db.featureScope.findMany({
       where: {
         status: "SHIPPED",
@@ -79,6 +83,46 @@ export async function gatherShippedWork(
         product: { select: { slug: true } },
       },
     }),
+    // Feature has no shippedAt; going Live is recorded as a status change.
+    db.workspaceActivityEvent.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        entityType: "feature",
+        action: "status_changed",
+        createdAt: window,
+        metadata: { path: ["to"], equals: "SHIPPED" },
+      },
+      select: { entityId: true, createdAt: true },
+    }),
+    db.list.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        listType: "SPRINT",
+        endDate: window,
+        achievements: { not: null },
+      },
+      select: {
+        id: true,
+        name: true,
+        achievements: true,
+        endDate: true,
+        product: { select: { slug: true } },
+      },
+    }),
+    // Only good news ships: at-risk / off-track notes are internal health.
+    db.goalUpdate.findMany({
+      where: {
+        createdAt: window,
+        health: "on-track",
+        goal: { workspaceId: input.workspaceId },
+      },
+      select: {
+        id: true,
+        content: true,
+        createdAt: true,
+        goal: { select: { id: true, title: true } },
+      },
+    }),
   ]);
 
   const items: ShippedItem[] = [];
@@ -104,6 +148,82 @@ export async function gatherShippedWork(
       weight: TICKET_TYPE_WEIGHT[ticket.type],
       at: (ticket.completedAt ?? input.windowEnd).toISOString(),
     });
+  }
+
+  const featureIds = [...new Set(featureEvents.map((e) => e.entityId))];
+  const features = featureIds.length
+    ? await db.feature.findMany({
+        where: { id: { in: featureIds }, status: "SHIPPED", product: { workspaceId: input.workspaceId } },
+        select: { id: true, name: true, description: true, product: { select: { slug: true } } },
+      })
+    : [];
+  const liveAt = new Map(featureEvents.map((e) => [e.entityId, e.createdAt]));
+  for (const feature of features) {
+    items.push({
+      id: `feature:${feature.id}`,
+      source: "feature",
+      title: feature.name,
+      detail: feature.description ?? undefined,
+      url: `${productBase(feature.product.slug)}/features/${feature.id}`,
+      weight: SOURCE_WEIGHT.feature,
+      at: (liveAt.get(feature.id) ?? input.windowEnd).toISOString(),
+    });
+  }
+
+  for (const cycle of cycles) {
+    if (!cycle.achievements?.trim()) continue;
+    items.push({
+      id: `cycle:${cycle.id}`,
+      source: "cycle",
+      title: `${cycle.name} wrapped up`,
+      detail: cycle.achievements.trim(),
+      url: cycle.product ? `${productBase(cycle.product.slug)}/cycles/${cycle.id}` : undefined,
+      weight: SOURCE_WEIGHT.cycle,
+      at: (cycle.endDate ?? input.windowEnd).toISOString(),
+    });
+  }
+
+  for (const update of goalUpdates) {
+    items.push({
+      id: `goal_update:${update.id}`,
+      source: "goal_update",
+      title: `Progress on ${update.goal.title}`,
+      detail: update.content,
+      url: `${input.baseUrl}/w/${input.workspaceSlug}/goals/${update.goal.id}`,
+      weight: SOURCE_WEIGHT.goal_update,
+      at: update.createdAt.toISOString(),
+    });
+  }
+
+  // Merged PRs are a last resort: they describe how, not what. Only used when
+  // the workspace tracks nothing richer for the window.
+  if (!items.some((item) => item.weight > 0)) {
+    const prs = await db.gitHubActivity.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        eventType: "pull_request",
+        prMergedAt: window,
+      },
+      select: { prNumber: true, prTitle: true, prUrl: true, prMergedAt: true, repoFullName: true },
+      orderBy: { prMergedAt: "desc" },
+    });
+    const seen = new Set<string>();
+    for (const pr of prs) {
+      const key = `${pr.repoFullName}#${pr.prNumber}`;
+      if (!pr.prTitle || seen.has(key)) continue;
+      seen.add(key);
+      // Non-conventional titles stay ("update"); only known-internal types go.
+      const { category, text } = parseCommitMessage(pr.prTitle);
+      if (INTERNAL_PR_CATEGORIES.has(category)) continue;
+      items.push({
+        id: `pull_request:${key}`,
+        source: "pull_request",
+        title: text,
+        url: pr.prUrl ?? undefined,
+        weight: SOURCE_WEIGHT.pull_request,
+        at: (pr.prMergedAt ?? input.windowEnd).toISOString(),
+      });
+    }
   }
 
   return items;

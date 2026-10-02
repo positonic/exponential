@@ -59,6 +59,11 @@ function stubShipped() {
 
 beforeEach(() => {
   mockReset(db);
+  // Sources this suite doesn't exercise ship nothing.
+  db.workspaceActivityEvent.findMany.mockResolvedValue([]);
+  db.list.findMany.mockResolvedValue([]);
+  db.goalUpdate.findMany.mockResolvedValue([]);
+  db.gitHubActivity.findMany.mockResolvedValue([]);
   notify.mockReset().mockResolvedValue(undefined);
   triggerPageEmbedding.mockReset();
 });
