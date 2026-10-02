@@ -106,6 +106,17 @@ function PageEditorContent({
   const utils = api.useUtils();
   const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
 
+  // Markdown for the "Copy/Export as Markdown" actions. Read off the live
+  // editor rather than `page.body` so an export includes edits the debounced
+  // autosave hasn't written yet.
+  const currentMarkdown = () => {
+    const editor = editorHandleRef.current?.editor;
+    if (!editor) return null;
+    return (
+      editor.storage.markdown as { getMarkdown: () => string }
+    ).getMarkdown();
+  };
+
   // Detach a sub-page: remove its `pageLink` block(s) from the live doc, flush
   // the save, then refresh the child list. Editing the live editor (not the DB)
   // keeps the body the single source of truth and avoids a docVersion conflict
@@ -211,6 +222,8 @@ function PageEditorContent({
             publicSlug={page.publicSlug}
             publicSeoIndexed={page.publicSeoIndexed}
             canEdit={page.canEdit}
+            title={page.title}
+            getMarkdown={currentMarkdown}
           />
         </div>
       </div>
