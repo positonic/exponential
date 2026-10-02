@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildUpdatesFeed, xmlEscape } from "../feed";
 
-const workspace = { id: "ws-1", name: "Acme & Co", slug: "acme", timezone: "UTC" };
+const workspace = { id: "ws-1", name: "Acme & Co", slug: "acme", timezone: "UTC", acceptsSignups: false };
 
 describe("buildUpdatesFeed", () => {
   it("lists each update with escaped text, a permalink and the full HTML", () => {

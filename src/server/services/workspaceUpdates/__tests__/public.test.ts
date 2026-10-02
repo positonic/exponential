@@ -34,6 +34,8 @@ describe("public updates", () => {
       expect.objectContaining({ id: "u1", title: "Bulk edit lands", body: "_Edit many tickets at once._" }),
     ]);
     expect(result?.hasOlder).toBe(false);
+    // No newsletter List configured: no signup form.
+    expect(result?.workspace.acceptsSignups).toBe(false);
     expect(db.workspaceUpdate.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { workspaceId: "ws-1", status: { in: ["APPROVED", "SENT"] }, approvedBody: { not: null } },
@@ -74,6 +76,22 @@ describe("public updates", () => {
     expect(parsePageParam("-2")).toBe(1);
     expect(parsePageParam("1e9")).toBe(1);
     expect(parsePageParam("999999")).toBe(1000);
+  });
+
+  it("offers signups only while the configured List still exists", async () => {
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1",
+      name: "Acme",
+      slug: "acme",
+      updateConfig: { isPublic: true, timezone: "UTC", newsletterCollectionId: "list-1" },
+    } as never);
+    db.workspaceUpdate.findMany.mockResolvedValue([] as never);
+
+    db.collection.findFirst.mockResolvedValueOnce({ id: "list-1" } as never);
+    expect((await listPublicUpdates(db, "acme"))?.workspace.acceptsSignups).toBe(true);
+
+    db.collection.findFirst.mockResolvedValueOnce(null);
+    expect((await listPublicUpdates(db, "acme"))?.workspace.acceptsSignups).toBe(false);
   });
 
   it("returns nothing for a workspace that has not opted in", async () => {
