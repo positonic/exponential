@@ -167,6 +167,27 @@ export function WorkspaceUpdatesSettings({
             clearable
           />
         </SettingsField>
+        <SettingsField
+          label="Public page"
+          sublabel="List approved updates on a public page with an RSS feed"
+          action={
+            config.isPublic ? (
+              <Link
+                href={`/updates/${workspaceSlug}`}
+                target="_blank"
+                className="text-xs text-text-muted hover:text-text-primary"
+              >
+                View page
+              </Link>
+            ) : undefined
+          }
+        >
+          <Switch
+            checked={config.isPublic}
+            onChange={(e) => save({ isPublic: e.currentTarget.checked })}
+            aria-label="List approved updates publicly"
+          />
+        </SettingsField>
         <SettingsField label="Voice" sublabel="Write in the personality of one of your assistants">
           <Select
             size="xs"
