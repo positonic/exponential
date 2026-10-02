@@ -29,7 +29,8 @@ name: PR Agent (GLM)
 # WHAT IT WAS: a second automated reviewer — the same qodo-ai/pr-agent action as
 # pr_agent.yml, pointed at GLM via OpenRouter instead of Anthropic. Two
 # independent readers applying the same house rules from .pr_agent.toml.
-# pr_agent.yml (Anthropic) is unaffected and remains the active reviewer.
+# pr_agent.yml (Anthropic) was the active reviewer; it is parked too since
+# 2026-10-02 (its key ran out of credit). Greptile still reviews PRs.
 # It deliberately carried no `issue_comment` trigger (unlike pr_agent.yml), so
 # that manual `/review` commands reached one reviewer rather than both — keep
 # that in mind when restoring the trigger block.
