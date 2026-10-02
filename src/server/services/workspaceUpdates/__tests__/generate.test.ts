@@ -7,7 +7,7 @@ vi.mock("~/server/services/embedding/EmbeddingTriggerService", () => ({
   getEmbeddingTriggerService: () => ({ triggerPageEmbedding }),
 }));
 
-import { generateWorkspaceUpdate, type GenerateDeps } from "../generate";
+import { generateWorkspaceUpdate, regenerateWorkspaceUpdate, type GenerateDeps } from "../generate";
 import { templateWriter, type UpdateWriter } from "../writer";
 
 const db = mockDeep<PrismaClient>();
@@ -187,5 +187,89 @@ describe("generateWorkspaceUpdate", () => {
     const body = db.knowledgePage.create.mock.calls[0]![0].data.body!;
     expect(body).toContain("Select rows and edit together.");
     expect(body).not.toContain("Teleportation");
+  });
+});
+
+describe("regenerateWorkspaceUpdate", () => {
+  const selection = {
+    highlights: [{ id: "ticket:t-1", source: "ticket", title: "Fix CSV export", weight: 20, at: "2026-09-29T10:00:00.000Z" }],
+    also: [],
+    moreCount: 0,
+  };
+
+  function stubDraft(overrides: Record<string, unknown> = {}) {
+    db.workspaceUpdate.findUnique.mockResolvedValue({
+      workspaceId: "ws-1",
+      status: "DRAFT",
+      version: 2,
+      pageId: "page-1",
+      items: selection,
+      windowStart: input.windowStart,
+      windowEnd: input.windowEnd,
+      ...overrides,
+    } as never);
+    db.workspace.findUniqueOrThrow.mockResolvedValue({ name: "Acme", slug: "acme" } as never);
+    db.workspaceUpdateConfig.findUnique.mockResolvedValue({ timezone: "UTC", reviewerIds: [], assistantId: null, indexPageId: null } as never);
+    db.workspaceUser.findMany.mockResolvedValue([{ userId: "owner-1" }, { userId: "rev-2" }] as never);
+  }
+
+  it("rewrites from the stored selection with feedback, bumps the version and re-notifies", async () => {
+    stubDraft();
+    db.workspaceUpdate.updateMany.mockResolvedValue({ count: 1 });
+    db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 7 } as never);
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
+    const write = vi.fn<UpdateWriter["write"]>().mockResolvedValue({
+      headline: "Exports fixed",
+      tldr: "CSV export works again.",
+      highlights: [{ itemId: "ticket:t-1", title: "CSV export", body: "Large exports finish now." }],
+      also: [],
+      model: "claude-test",
+    });
+
+    const result = await regenerateWorkspaceUpdate(
+      db,
+      { updateId: "upd-1", feedback: "  lead with exports  ", actorUserId: "owner-1" },
+      deps({ write }),
+    );
+
+    expect(result).toEqual({ kind: "regenerated", version: 3 });
+    // No re-gather: the writer sees the stored selection, plus the feedback.
+    expect(db.ticket.findMany).not.toHaveBeenCalled();
+    expect(write.mock.calls[0]![0]).toEqual(selection);
+    expect(write.mock.calls[0]![1]).toMatchObject({ feedback: "lead with exports" });
+    // Version claimed conditionally on the one read.
+    expect(db.workspaceUpdate.updateMany).toHaveBeenCalledWith({
+      where: { id: "upd-1", status: "DRAFT", version: 2 },
+      data: { version: { increment: 1 }, feedback: "lead with exports", model: "claude-test" },
+    });
+    // Page replaced with a compare-and-set.
+    expect(db.knowledgePage.updateMany.mock.calls[0]![0]).toMatchObject({
+      where: { id: "page-1", docVersion: 7 },
+      data: { title: "Exports fixed" },
+    });
+    // The other reviewers hear about it; the requester is excluded.
+    expect(notify).toHaveBeenCalledWith({
+      updateId: "upd-1",
+      version: 3,
+      variant: "draft",
+      reviewerIds: ["owner-1", "rev-2"],
+      actorUserId: "owner-1",
+    });
+  });
+
+  it("refuses anything that is no longer a draft", async () => {
+    stubDraft({ status: "APPROVED" });
+    const result = await regenerateWorkspaceUpdate(db, { updateId: "upd-1", feedback: null, actorUserId: "owner-1" }, deps());
+    expect(result).toEqual({ kind: "not-draft" });
+    expect(db.knowledgePage.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("reports a conflict when another decision won the race", async () => {
+    stubDraft();
+    db.workspaceUpdate.updateMany.mockResolvedValue({ count: 0 });
+    const result = await regenerateWorkspaceUpdate(db, { updateId: "upd-1", feedback: null, actorUserId: "owner-1" }, deps());
+    expect(result).toEqual({ kind: "conflict" });
+    expect(db.knowledgePage.updateMany).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
   });
 });

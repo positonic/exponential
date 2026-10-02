@@ -9,7 +9,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { gatherShippedWork } from "./gather";
-import { createDraftPage, ensureUpdatesIndexPage, prependPageLink } from "./pages";
+import { createDraftPage, ensureUpdatesIndexPage, prependPageLink, replacePageContent } from "./pages";
 import { renderUpdateMarkdown } from "./render";
 import { resolveReviewerIds } from "./reviewers";
 import { isSelectionEmpty, selectItems } from "./select";
@@ -27,6 +27,7 @@ export interface ReviewNotice {
   version: number;
   variant: "draft" | "empty";
   reviewerIds: string[];
+  /** Left out of the notice (they asked for it). Null: every reviewer hears. */
   actorUserId: string | null;
 }
 
@@ -170,7 +171,7 @@ export async function generateWorkspaceUpdate(
         where: { id: updateId },
         data: { status: WORKSPACE_UPDATE_STATUS.EMPTY, items: selection as unknown as Prisma.InputJsonValue },
       });
-      await deps.notify({ updateId, version: 1, variant: "empty", reviewerIds, actorUserId: input.actorUserId });
+      await deps.notify({ updateId, version: 1, variant: "empty", reviewerIds, actorUserId: null });
       return { kind: "empty", updateId };
     }
 
@@ -201,7 +202,9 @@ export async function generateWorkspaceUpdate(
     });
     await prependPageLink(db, { indexPageId, workspaceSlug: slug, childPageId: pageId, childTitle: written.headline });
 
-    await deps.notify({ updateId, version: 1, variant: "draft", reviewerIds, actorUserId: input.actorUserId });
+    // Everyone hears about a fresh draft, including whoever pressed "Generate
+    // draft now": the review message is how the draft reaches their Matrix DM.
+    await deps.notify({ updateId, version: 1, variant: "draft", reviewerIds, actorUserId: null });
     return { kind: "drafted", updateId, pageId };
   } catch (err) {
     // Release the claim so the period can be retried, unless a draft Page
@@ -211,4 +214,73 @@ export async function generateWorkspaceUpdate(
       .catch(() => undefined);
     throw err;
   }
+}
+
+export type RegenerateResult =
+  | { kind: "regenerated"; version: number }
+  | { kind: "not-draft" }
+  | { kind: "conflict" };
+
+/**
+ * Rewrite a draft with a reviewer's feedback. The selection stays the one the
+ * draft was written from — the reviewer is iterating on the words, not the
+ * window — and the Page is replaced wholesale (the reviewer is warned that
+ * their own edits go). Bumps the version, which re-notifies the other
+ * reviewers; the one who asked is not pinged about their own request.
+ */
+export async function regenerateWorkspaceUpdate(
+  db: PrismaClient,
+  input: { updateId: string; feedback: string | null; actorUserId: string },
+  deps: GenerateDeps,
+): Promise<RegenerateResult> {
+  const update = await db.workspaceUpdate.findUnique({
+    where: { id: input.updateId },
+    select: {
+      workspaceId: true,
+      status: true,
+      version: true,
+      pageId: true,
+      items: true,
+      windowStart: true,
+      windowEnd: true,
+    },
+  });
+  if (update?.status !== WORKSPACE_UPDATE_STATUS.DRAFT || !update.pageId) {
+    return { kind: "not-draft" };
+  }
+  const selection = update.items as unknown as UpdateSelection | null;
+  if (!selection?.highlights?.length) return { kind: "not-draft" };
+
+  const feedback = input.feedback?.trim() ? input.feedback.trim() : null;
+  const { ctx, slug, config } = await loadWriteContext(
+    db,
+    update.workspaceId,
+    update.windowStart,
+    update.windowEnd,
+    feedback,
+  );
+  const written = await writeForSelection(deps.writer, selection, ctx);
+  const markdown = renderUpdateMarkdown(written, selection, { moreUrl: moreUrl(deps.baseUrl, slug) });
+
+  // Claim the new version before touching the Page, so two concurrent
+  // regenerates (or an approve racing one) cannot both win.
+  const { count } = await db.workspaceUpdate.updateMany({
+    where: { id: input.updateId, status: WORKSPACE_UPDATE_STATUS.DRAFT, version: update.version },
+    data: { version: { increment: 1 }, feedback, model: written.model },
+  });
+  if (count === 0) return { kind: "conflict" };
+
+  const replaced = await replacePageContent(db, { pageId: update.pageId, title: written.headline, markdown });
+  if (replaced !== "replaced") return { kind: "conflict" };
+
+  const version = update.version + 1;
+  const reviewerIds = await resolveReviewerIds(db, update.workspaceId, config?.reviewerIds ?? []);
+  await deps.notify({
+    updateId: input.updateId,
+    version,
+    variant: "draft",
+    reviewerIds,
+    actorUserId: input.actorUserId,
+  });
+  return { kind: "regenerated", version };
 }

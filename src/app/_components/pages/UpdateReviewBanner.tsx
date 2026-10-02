@@ -1,9 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import { Badge, Button, Group, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconSparkles } from '@tabler/icons-react';
+import { IconCheck, IconPlayerSkipForward, IconRefresh, IconSparkles } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Draft, waiting for approval',
@@ -33,6 +35,8 @@ function formatWindow(start: Date, end: Date): string {
 export function UpdateReviewBanner({ pageId }: { pageId: string }) {
   const utils = api.useUtils();
   const { data: update } = api.workspaceUpdate.getForPage.useQuery({ pageId });
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedback, setFeedback] = useState('');
 
   const refresh = () => {
     void utils.workspaceUpdate.getForPage.invalidate({ pageId });
@@ -48,9 +52,23 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
     },
     onError,
   });
+  const skip = api.workspaceUpdate.skip.useMutation({
+    onSuccess: () => {
+      notifications.show({ title: 'Skipped', message: 'Nothing will be sent for this period.', color: 'gray' });
+      refresh();
+    },
+    onError,
+  });
+  const regenerate = api.workspaceUpdate.regenerate.useMutation({
+    // The editor loads the body once; reload so it shows the rewrite and no
+    // stale autosave can overwrite it.
+    onSuccess: () => window.location.reload(),
+    onError,
+  });
 
   if (!update) return null;
   const isDraft = update.status === 'DRAFT';
+  const busy = approve.isPending || skip.isPending || regenerate.isPending;
 
   return (
     <div
@@ -72,7 +90,31 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
           <Group gap="xs">
             <Button
               size="xs"
+              variant="subtle"
+              leftSection={<IconPlayerSkipForward size={14} />}
+              disabled={busy}
+              loading={skip.isPending}
+              onClick={() => {
+                if (window.confirm('Skip this period? Nothing will be sent for it.')) {
+                  skip.mutate({ updateId: update.id });
+                }
+              }}
+            >
+              Skip this week
+            </Button>
+            <Button
+              size="xs"
+              variant="light"
+              leftSection={<IconRefresh size={14} />}
+              disabled={busy}
+              onClick={() => setFeedbackOpen((open) => !open)}
+            >
+              Regenerate
+            </Button>
+            <Button
+              size="xs"
               leftSection={<IconCheck size={14} />}
+              disabled={busy}
               loading={approve.isPending}
               onClick={() => approve.mutate({ updateId: update.id })}
             >
@@ -81,6 +123,30 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
           </Group>
         ) : null}
       </Group>
+      {isDraft && update.canReview && feedbackOpen ? (
+        <div className="mt-3">
+          <MarkdownInput
+            value={feedback}
+            onChange={setFeedback}
+            placeholder="What should change? e.g. lead with the export fix, shorter, less formal…"
+            minRows={2}
+            maxRows={6}
+          />
+          <Group justify="space-between" mt="xs">
+            <Text size="xs" className="text-text-muted">
+              Rewrites the whole draft from the same shipped work. Your own edits on this page are replaced.
+            </Text>
+            <Button
+              size="xs"
+              leftSection={<IconRefresh size={14} />}
+              loading={regenerate.isPending}
+              onClick={() => regenerate.mutate({ updateId: update.id, feedback: feedback.trim() || undefined })}
+            >
+              Rewrite draft
+            </Button>
+          </Group>
+        </div>
+      ) : null}
       {isDraft ? (
         <Text size="xs" mt={6} className="text-text-muted">
           Edit the draft below as you like. Nothing is sent until a reviewer approves it.

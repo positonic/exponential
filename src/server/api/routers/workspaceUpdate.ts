@@ -5,7 +5,7 @@ import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { defaultGenerateDeps } from "~/server/services/workspaceUpdates/deps";
-import { generateWorkspaceUpdate } from "~/server/services/workspaceUpdates/generate";
+import { generateWorkspaceUpdate, regenerateWorkspaceUpdate } from "~/server/services/workspaceUpdates/generate";
 import { canReviewUpdates } from "~/server/services/workspaceUpdates/reviewers";
 import {
   WORKSPACE_UPDATE_KIND,
@@ -226,5 +226,40 @@ export const workspaceUpdateRouter = createTRPCRouter({
         approvedAt: new Date(),
       });
       return { status: WORKSPACE_UPDATE_STATUS.APPROVED };
+    }),
+
+  /**
+   * Rewrite a draft, optionally steered by feedback. Replaces the Page's
+   * content (the reviewer's own edits included) and re-notifies the others.
+   */
+  regenerate: protectedProcedure
+    .input(z.object({ updateId: z.string(), feedback: z.string().max(2000).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const update = await loadReviewableUpdate(ctx.db, input.updateId, ctx.session.user.id);
+      const result = await regenerateWorkspaceUpdate(
+        ctx.db,
+        { updateId: input.updateId, feedback: input.feedback ?? null, actorUserId: ctx.session.user.id },
+        defaultGenerateDeps(ctx.db, { workspaceId: update.workspaceId, userId: ctx.session.user.id }),
+      );
+      if (result.kind === "not-draft") {
+        throw new TRPCError({ code: "CONFLICT", message: "Only a draft can be regenerated" });
+      }
+      if (result.kind === "conflict") {
+        throw new TRPCError({ code: "CONFLICT", message: "The draft changed while rewriting it. Try again." });
+      }
+      return result;
+    }),
+
+  /** Skip this period: nothing will be sent for it, and it is not redrafted. */
+  skip: protectedProcedure
+    .input(z.object({ updateId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await loadReviewableUpdate(ctx.db, input.updateId, ctx.session.user.id);
+      await transitionFromDraft(ctx.db, input.updateId, {
+        status: WORKSPACE_UPDATE_STATUS.SKIPPED,
+        skippedById: ctx.session.user.id,
+        skippedAt: new Date(),
+      });
+      return { status: WORKSPACE_UPDATE_STATUS.SKIPPED };
     }),
 });

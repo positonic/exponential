@@ -21,13 +21,11 @@ export function defaultGenerateDeps(
     writer: process.env.ANTHROPIC_API_KEY
       ? createClaudeWriter({ log: { db, workspaceId: scope.workspaceId, userId: scope.userId ?? undefined } })
       : templateWriter,
-    // The review message is how a reviewer gets the draft (Matrix DM, email),
-    // so whoever pressed "Generate draft now" receives it too: no actor.
     notify: (notice) =>
       emitNotification({
         db,
         category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
-        actorUserId: null,
+        actorUserId: notice.actorUserId,
         subject: { updateId: notice.updateId, reviewerIds: notice.reviewerIds },
       }),
     baseUrl: getPublicBaseUrlFromEnv(),
