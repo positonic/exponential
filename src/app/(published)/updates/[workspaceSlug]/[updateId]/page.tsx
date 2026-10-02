@@ -10,6 +10,7 @@ import {
   publicUpdatesPath,
 } from "~/server/services/workspaceUpdates/public";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { SubscribeForm } from "../../_components/SubscribeForm";
 import { UpdatesShell, formatPublishedDate } from "../../_components/UpdatesShell";
 
 /** Never cached, so turning the public page off takes this down at once. */
@@ -62,6 +63,11 @@ export default async function PublicUpdatePage({ params }: Params) {
         <h1 className="mb-6 text-3xl font-bold text-text-primary">{update.title}</h1>
         <MarkdownRenderer content={update.body} variant="prose" />
       </article>
+      {workspace.acceptsSignups && (
+        <div className="mt-12">
+          <SubscribeForm workspaceSlug={workspace.slug} workspaceName={workspace.name} />
+        </div>
+      )}
       <p className="mt-12 text-sm">
         <Link href={publicUpdatesPath(workspace.slug)} className="text-text-muted hover:text-text-primary">
           ← All updates

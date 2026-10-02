@@ -109,7 +109,7 @@ If nothing user-facing shipped, there is no draft. Reviewers get a one-line note
 | When | Day, hour and time zone of the draft. Each draft covers everything since the previous one. |
 | Reviewers | Who gets each draft and may approve it. If none are set, the workspace's owners and admins review. |
 | Public page | Lists approved updates on a public page, `/updates/<workspace-slug>`, with an RSS feed. Off by default. |
-| Newsletter | Emails each approved update to a contact List. Every email has an unsubscribe link, and opted-out contacts are skipped. |
+| Newsletter | Emails each approved update to a contact List. Every email has an unsubscribe link, and opted-out contacts are skipped. With the public page also on, visitors can subscribe there: they get a confirmation email and join the List only after they confirm. |
 | Voice | Writes in the personality of one of your assistants instead of the neutral house voice. |
 
 **Generate draft now** writes a draft immediately, covering everything since the last scheduled update. It is a preview: it does not change what the next scheduled draft covers.
