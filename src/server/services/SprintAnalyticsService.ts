@@ -272,8 +272,18 @@ function unionOf(windows: TimeWindow[]): TimeWindow | null {
   };
 }
 
-function inAnyWindow(at: Date, windows: TimeWindow[]): boolean {
-  return windows.some((w) => at >= w.start && at <= w.end);
+/**
+ * Whether `at` falls in any window. PR merges use an inclusive end (as
+ * `getPrTurnaround`); time entries an exclusive one (as untracked work).
+ */
+function inAnyWindow(
+  at: Date,
+  windows: TimeWindow[],
+  opts?: { endExclusive?: boolean },
+): boolean {
+  return windows.some(
+    (w) => at >= w.start && (opts?.endExclusive ? at < w.end : at <= w.end),
+  );
 }
 
 export class SprintAnalyticsService {
@@ -1098,7 +1108,8 @@ export class SprintAnalyticsService {
               commitAuthor: { not: null },
               eventTimestamp: { gte: span.start, lte: span.end },
             },
-            select: { commitSha: true, commitAuthor: true, eventTimestamp: true },
+            // externalId is the full commit SHA; commitSha is only 7 chars.
+            select: { externalId: true, commitAuthor: true, eventTimestamp: true },
           })
         : Promise.resolve([]),
       span
@@ -1106,7 +1117,8 @@ export class SprintAnalyticsService {
             where: {
               workspaceId,
               status: "CONFIRMED",
-              startedAt: { gte: span.start, lte: span.end },
+              // Exclusive end, matching the cycle's untracked-work metric.
+              startedAt: { gte: span.start, lt: span.end },
               endedAt: { not: null },
             },
             select: { userId: true, startedAt: true, endedAt: true },
@@ -1162,19 +1174,19 @@ export class SprintAnalyticsService {
       if (userId) rowFor(userId).mergedPrs += 1;
     }
 
-    const seenShas = new Set<string>();
+    const seenCommits = new Set<string>();
     for (const push of pushes) {
       if (!push.commitAuthor || !inAnyWindow(push.eventTimestamp, windows)) continue;
-      if (push.commitSha) {
-        if (seenShas.has(push.commitSha)) continue;
-        seenShas.add(push.commitSha);
-      }
+      if (seenCommits.has(push.externalId)) continue;
+      seenCommits.add(push.externalId);
       const userId = userByLogin.get(push.commitAuthor.toLowerCase());
       if (userId) rowFor(userId).commits += 1;
     }
 
     for (const entry of timeEntries) {
-      if (!entry.endedAt || !inAnyWindow(entry.startedAt, windows)) continue;
+      if (!entry.endedAt || !inAnyWindow(entry.startedAt, windows, { endExclusive: true })) {
+        continue;
+      }
       rowFor(entry.userId).minutesLogged += Math.max(
         0,
         Math.round((entry.endedAt.getTime() - entry.startedAt.getTime()) / 60_000),

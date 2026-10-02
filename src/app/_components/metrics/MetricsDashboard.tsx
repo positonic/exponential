@@ -86,7 +86,7 @@ export function MetricsDashboard() {
       cycleId: selectedCycleId ?? undefined,
       memberIds: memberFilter,
     },
-    { enabled: !!workspaceId, placeholderData: keepPreviousData },
+    { enabled: !!workspaceId, placeholderData: keepWhileSameCycle(selectedCycleId ?? undefined) },
   );
 
   const cycleOptions = useMemo(
@@ -181,6 +181,24 @@ export function MetricsDashboard() {
       </Stack>
     </Container>
   );
+}
+
+/**
+ * `placeholderData` for the cycle-scoped queries: keep the previous result on
+ * screen while only the member filter changes, but never across a cycle switch
+ * — otherwise the breakdown briefly mixes two cycles' numbers. Reads the cycle
+ * off tRPC's query key (`[path, { input }]`).
+ */
+function keepWhileSameCycle<T>(cycleId: string | undefined) {
+  return (
+    previous: T | undefined,
+    previousQuery?: { queryKey: readonly unknown[] },
+  ): T | undefined => {
+    const key = previousQuery?.queryKey[1] as
+      | { input?: { cycleId?: string } }
+      | undefined;
+    return key?.input?.cycleId === cycleId ? previous : undefined;
+  };
 }
 
 type AllCycles = RouterOutputs['sprintAnalytics']['getAllCyclesMetrics'];
@@ -541,7 +559,7 @@ function PrTurnaroundCard({
   const { data, isLoading } =
     api.sprintAnalytics.getActiveCyclePrTurnaround.useQuery(
       { workspaceId: workspaceId ?? '', cycleId, memberIds },
-      { enabled: !!workspaceId, placeholderData: keepPreviousData },
+      { enabled: !!workspaceId, placeholderData: keepWhileSameCycle(cycleId) },
     );
 
   const header = (
