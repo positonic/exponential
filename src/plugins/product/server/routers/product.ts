@@ -297,7 +297,7 @@ export const productRouter = createTRPCRouter({
         // events to this product *in the database* (events carry no productId)
         // and to resolve the shown events' display. Never loads events from
         // other products/workspaces. Lighter than the Backlog tab's own
-        // ticket.list, which already loads every product ticket with includes.
+        // ticket.listSummaries, which loads every product ticket with includes.
         ctx.db.ticket.findMany({
           where: { productId: input.productId },
           select: { id: true, shortId: true, number: true, title: true },

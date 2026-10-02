@@ -219,6 +219,78 @@ describe("ticket router — list Area filter (mocked)", () => {
   });
 });
 
+describe("ticket router — listSummaries (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubProductLookup(dbMock);
+    stubMembership(dbMock, true);
+    dbMock.ticket.findMany.mockResolvedValue([]);
+  });
+
+  it("selects list columns only, never the body, its doc or the links", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.listSummaries({ productId });
+
+    const args = dbMock.ticket.findMany.mock.calls[0]?.[0];
+    expect(args).not.toHaveProperty("include");
+    expect(args?.select).toMatchObject({ id: true, title: true, status: true });
+    for (const heavy of ["body", "bodyDoc", "links", "branchName", "prUrl"]) {
+      expect(args?.select).not.toHaveProperty(heavy);
+    }
+  });
+
+  it("applies the same filters and order as list", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const input = {
+      productId,
+      areaTagId,
+      status: "IN_PROGRESS" as const,
+      featureId: "feat-1",
+      assigneeId: "user-2",
+    };
+    await caller.product.ticket.list(input);
+    await caller.product.ticket.listSummaries(input);
+
+    const [listArgs, summaryArgs] = dbMock.ticket.findMany.mock.calls.map((c) => c[0]);
+    expect(summaryArgs?.where).toEqual(listArgs?.where);
+    expect(summaryArgs?.orderBy).toEqual(listArgs?.orderBy);
+  });
+
+  it("swaps depsOut for open-blocker counts", async () => {
+    dbMock.ticket.findMany.mockResolvedValue([
+      {
+        id: "t1",
+        status: "IN_PROGRESS",
+        depsOut: [
+          { dependsOn: { status: "BACKLOG" } },
+          { dependsOn: { status: "DONE" } },
+        ],
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const [row] = await caller.product.ticket.listSummaries({ productId });
+
+    expect(row).toMatchObject({ id: "t1", openBlockerCount: 1, isBlocked: true });
+    expect(row).not.toHaveProperty("depsOut");
+  });
+
+  it("refuses a caller outside the product's workspace", async () => {
+    stubMembership(dbMock, false);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.listSummaries({ productId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticket.findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("ticket router — cross-workspace link guard (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
 

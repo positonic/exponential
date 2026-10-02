@@ -16,6 +16,7 @@
 import type { Ceremony, Prisma } from "@prisma/client";
 import { describeDriProject, describeNextAction, driProjectPath, loadProjectStates } from "~/server/services/projects/driProjects";
 import type { AgendaItem, SectionModule } from "../types";
+import { projectCardLines } from "./projectCard";
 
 const MAX_PROJECTS = 25;
 
@@ -53,7 +54,9 @@ export const linkedProjectsSection: SectionModule = {
     const items: AgendaItem[] = [];
     for (const p of states) {
       const goal = goalByProject.get(p.id) ?? null;
-      const dri = p.dri ? `DRI ${p.dri.name ?? "unnamed"}` : "no DRI";
+      const named = p.dri?.name?.trim();
+      const driName = p.dri ? (named ? named : "unnamed") : null;
+      const dri = driName ? `DRI ${driName}` : "no DRI";
       items.push({
         id: `${section.key}:project:${p.id}`,
         sectionKey: section.key,
@@ -64,6 +67,8 @@ export const linkedProjectsSection: SectionModule = {
         goalTitle: goal?.title ?? null,
         order: items.length,
         detail: [dri, describeNextAction(p, now), describeDriProject(p, now)].join(" · "),
+        owner: driName ?? "no DRI",
+        lines: projectCardLines(p, now),
         href: driProjectPath(p),
       });
     }

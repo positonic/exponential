@@ -87,6 +87,14 @@ model User {
   email                          String?                         @unique
   emailVerified                  DateTime?
   image                          String?
+  /// GitHub identity claim (CONTEXT.md): the GitHub login this user proved they
+  /// own via the OAuth round trip on /settings/profile — never free text, never
+  /// derived from a GitHub App install. Attributes GitHubActivity PRs/commits.
+  githubLogin                    String?
+  /// GitHub's numeric user id for the claim: stable across login renames, and
+  /// unique so one GitHub account can back at most one user.
+  githubId                       String?                         @unique
+  githubLinkedAt                 DateTime?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
   onboardingCompletedAt          DateTime?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).

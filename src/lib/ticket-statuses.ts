@@ -60,7 +60,7 @@ export const COMPLETED_TICKET_STATUSES: ReadonlyArray<TicketStatus> = [
 /**
  * Ticket statuses where an open blocker means the ticket is actively
  * "blocked" rather than merely waiting in the backlog. Mirrors the
- * server-side computation in `ticket.list`.
+ * server-side computation in `ticket.list` and `ticket.listSummaries`.
  */
 export const IN_FLIGHT_TICKET_STATUSES: ReadonlyArray<TicketStatus> = [
   "READY_TO_PLAN",

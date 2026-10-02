@@ -8,6 +8,7 @@
  * returns no lines, and the question it feeds drafts empty.
  */
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { resolveGithubLogins } from "~/server/services/github/memberLogins";
 
 /** Per-source caps: a standup answer nobody reads is as useless as an empty one. */
 const COMPLETED_ACTION_LIMIT = 20;
@@ -115,13 +116,13 @@ export async function ticketMoveLines(db: PrismaClient, window: ActivityWindow):
 }
 
 /**
- * The participant's commits, matched through the GitHub login on their own
- * workspace integration. Without that mapping there is no honest way to tell
- * whose commit is whose, so someone who has not connected GitHub simply gets
- * no commit lines rather than someone else's work.
+ * The participant's commits, matched through their GitHub identity claim
+ * (`User.githubLogin`). Without that mapping there is no honest way to tell
+ * whose commit is whose, so someone who has not linked GitHub simply gets no
+ * commit lines rather than someone else's work.
  */
 export async function commitLines(db: PrismaClient, window: ActivityWindow): Promise<string[]> {
-  const login = await resolveGithubLogin(db, window.workspaceId, window.userId);
+  const login = await resolveGithubLogin(db, window.userId);
   if (!login) return [];
   const commits = await db.gitHubActivity.findMany({
     where: {
@@ -143,26 +144,8 @@ export async function commitLines(db: PrismaClient, window: ActivityWindow): Pro
     .filter((line): line is string => line !== null);
 }
 
-/** The participant's GitHub username, from the metadata on their own integration. */
-export async function resolveGithubLogin(
-  db: PrismaClient,
-  workspaceId: string,
-  userId: string,
-): Promise<string | null> {
-  const integration = await db.integration.findFirst({
-    where: { workspaceId, provider: "github", userId },
-    orderBy: { updatedAt: "desc" },
-    select: { credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 } },
-  });
-  const raw = integration?.credentials[0]?.key;
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as { githubUsername?: unknown };
-    return typeof parsed.githubUsername === "string" && parsed.githubUsername.length > 0
-      ? parsed.githubUsername
-      : null;
-  } catch {
-    // A metadata blob we can't read is not worth failing a standup draft over.
-    return null;
-  }
+/** The participant's GitHub login, from their GitHub identity claim (`User.githubLogin`). */
+export async function resolveGithubLogin(db: PrismaClient, userId: string): Promise<string | null> {
+  const logins = await resolveGithubLogins(db, [userId]);
+  return logins.get(userId) ?? null;
 }

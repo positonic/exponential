@@ -59,10 +59,10 @@ import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
+import { useTicketPropertyMutations } from "~/app/_components/product/useTicketPropertyMutations";
 import {
   STATUS_OPTIONS,
   STATUS_COLORS,
-  type TicketStatus,
 } from "~/lib/ticket-statuses";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
@@ -313,10 +313,15 @@ export function TicketDetailClient() {
     { workspaceId: workspaceId ?? "" },
     { enabled: !!workspaceId },
   );
-  const setTicketTags = api.tag.setTicketTags.useMutation({
-    onSuccess: async () => {
-      await utils.product.ticket.getById.invalidate({ id: ticketId });
-    },
+  // Property edits land instantly in the cached getById, roll back on error,
+  // and reconcile with a background refetch on settle.
+  const { setTicketTags, setField } = useTicketPropertyMutations(ticketId, {
+    productId: ticket?.product.id,
+    members,
+    features,
+    epics,
+    cycles,
+    tags: tags?.allTags,
   });
   const createTag = api.tag.create.useMutation({
     onSuccess: async (newTag) => {
@@ -329,11 +334,10 @@ export function TicketDetailClient() {
   const createEpic = api.epic.create.useMutation({
     onSuccess: async (newEpic) => {
       await utils.epic.list.invalidate();
-      handleFieldUpdate("epicId", newEpic.id);
+      setField("epicId", newEpic.id);
     },
   });
 
-  const [status, setStatus] = useState<TicketStatus | null>(null);
   const [titleValue, setTitleValue] = useState(ticket?.title ?? "");
   const activity = useTicketActivity(ticketId, {
     initialEvents: seed?.events,
@@ -343,7 +347,6 @@ export function TicketDetailClient() {
 
   useEffect(() => {
     if (ticket) {
-      setStatus(ticket.status);
       setTitleValue(ticket.title);
     }
   }, [ticket]);
@@ -361,19 +364,10 @@ export function TicketDetailClient() {
     }
   }, [ticket, workspace, routeParam, productSlug, router]);
 
-  const updateTicket = api.product.ticket.update.useMutation({
-    onSuccess: async () => {
-      await utils.product.ticket.getById.invalidate({ id: ticketId });
-      if (ticket?.product.id) {
-        await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
-      }
-    },
-  });
-
   const deleteTicket = api.product.ticket.delete.useMutation({
     onSuccess: async () => {
       if (ticket?.product.id) {
-        await utils.product.ticket.list.invalidate({ productId: ticket.product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id });
       }
       if (workspace) {
         router.push(`/w/${workspace.slug}/products/${productSlug}/tickets`);
@@ -392,14 +386,8 @@ export function TicketDetailClient() {
   }
   if (!ticket) return <Text className="text-text-muted">Ticket not found</Text>;
 
-  const handleFieldUpdate = (field: string, value: unknown) => {
-    updateTicket.mutate({ id: ticketId, [field]: value });
-  };
-
   const onStatusChange = (val: string | null) => {
-    if (!val) return;
-    setStatus(val as TicketStatus);
-    handleFieldUpdate("status", val);
+    if (val) setField("status", val);
   };
 
   const onDelete = () => {
@@ -479,7 +467,7 @@ export function TicketDetailClient() {
                 onBlur={() => {
                   const trimmed = titleValue.trim();
                   if (trimmed && trimmed !== ticket.title) {
-                    handleFieldUpdate("title", trimmed);
+                    setField("title", trimmed);
                   }
                 }}
                 onKeyDown={(e) => {
@@ -566,7 +554,7 @@ export function TicketDetailClient() {
         {/* Status */}
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
           <Select
-            value={status}
+            value={ticket.status}
             onChange={onStatusChange}
             data={STATUS_OPTIONS}
             size="xs"
@@ -581,7 +569,7 @@ export function TicketDetailClient() {
         <PropertyRow icon={<IconFlag size={14} />} label="Priority">
           <Select
             value={ticket.priority != null ? String(ticket.priority) : undefined}
-            onChange={(val) => handleFieldUpdate("priority", val != null ? Number(val) : null)}
+            onChange={(val) => setField("priority", val != null ? Number(val) : null)}
             data={PRIORITY_OPTIONS}
             size="xs"
             variant="unstyled"
@@ -599,7 +587,7 @@ export function TicketDetailClient() {
         <PropertyRow icon={<IconCategory size={14} />} label="Type">
           <Select
             value={ticket.type}
-            onChange={(val) => val && handleFieldUpdate("type", val)}
+            onChange={(val) => val && setField("type", val)}
             data={TYPE_OPTIONS}
             size="xs"
             variant="unstyled"
@@ -613,7 +601,7 @@ export function TicketDetailClient() {
         <PropertyRow icon={<IconUser size={14} />} label="Assignee">
           <Select
             value={ticket.assigneeId ?? null}
-            onChange={(val) => handleFieldUpdate("assigneeId", val)}
+            onChange={(val) => setField("assigneeId", val)}
             data={members.map((m) => ({ value: m.user.id, label: m.user.name ?? m.user.email ?? "Unknown" }))}
             size="xs"
             variant="unstyled"
@@ -629,7 +617,7 @@ export function TicketDetailClient() {
         <PropertyRow icon={<IconFlame size={14} />} label="Effort">
           <NumberInput
             value={ticket.points ?? ""}
-            onChange={(val) => handleFieldUpdate("points", val === "" ? null : Number(val))}
+            onChange={(val) => setField("points", val === "" ? null : Number(val))}
             size="xs"
             variant="unstyled"
             placeholder="None"
@@ -655,7 +643,7 @@ export function TicketDetailClient() {
         <PropertyRow icon={<IconFolder size={14} />} label="Feature">
           <Select
             value={ticket.featureId ?? null}
-            onChange={(val) => handleFieldUpdate("featureId", val)}
+            onChange={(val) => setField("featureId", val)}
             data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
             size="xs"
             variant="unstyled"
@@ -672,7 +660,7 @@ export function TicketDetailClient() {
           <EpicCombobox
             value={ticket.epicId ?? null}
             epics={epics ?? []}
-            onChange={(val) => handleFieldUpdate("epicId", val)}
+            onChange={(val) => setField("epicId", val)}
             onCreate={(name) => {
               // Inline creation lands the epic on this ticket's own product.
               if (workspaceId && ticket.product.id) {
@@ -690,7 +678,7 @@ export function TicketDetailClient() {
         <PropertyRow icon={<IconClock size={14} />} label="Cycle">
           <Select
             value={ticket.cycleId ?? null}
-            onChange={(val) => handleFieldUpdate("cycleId", val)}
+            onChange={(val) => setField("cycleId", val)}
             data={(cycles ?? []).map((c) => ({ value: c.id, label: c.name }))}
             size="xs"
             variant="unstyled"

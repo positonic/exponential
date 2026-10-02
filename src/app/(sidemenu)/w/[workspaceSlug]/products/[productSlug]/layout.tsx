@@ -125,8 +125,8 @@ export default function ProductLayout({
   //
   // Only from a tab page itself. A detail route (a ticket, a feature) is still
   // streaming its own queries when the browser first goes idle, and the warm
-  // set includes the full ticket list with every body — the heaviest read in
-  // the product — for tabs the user may never open from there. It runs once
+  // set includes every ticket in the product — the heaviest read in the
+  // product — for tabs the user may never open from there. It runs once
   // per product, when they land on a tab.
   const productId = product?.id;
   const isOnTab =
@@ -142,7 +142,10 @@ export default function ProductLayout({
 
     const warm = () => {
       warmedProductRef.current = productId;
-      void utils.product.ticket.list.prefetch({ productId });
+      void utils.product.ticket.listSummaries.prefetch({ productId });
+      // The Backlog holds its tickets until the saved view loads, so warm
+      // that too or the cached list still waits on a round trip.
+      void utils.product.product.getViewPrefs.prefetch({ productSlug, workspaceId });
       void utils.product.feature.list.prefetch({ productId });
       void utils.product.product.getDependencyGraph.prefetch({
         productId,
@@ -163,7 +166,7 @@ export default function ProductLayout({
     }
     const id = window.setTimeout(warm, 200);
     return () => window.clearTimeout(id);
-  }, [productId, workspaceId, isOnTab, utils]);
+  }, [productId, productSlug, workspaceId, isOnTab, utils]);
 
   // Tell the AI assistant which product (and tab) the user is looking at, so
   // "the tickets in cycle 10" resolves without the agent asking. The workspace

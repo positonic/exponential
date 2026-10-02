@@ -17,6 +17,7 @@ import {
 import { ProfileCard } from './ProfileCard';
 import { WorkHoursCard } from './WorkHoursCard';
 import { TimezoneCard } from './TimezoneCard';
+import { GithubIdentityCard } from '~/app/_components/settings/GithubIdentityCard';
 
 const PROVIDERS = [
   { id: 'discord', label: 'Discord', icon: IconBrandDiscord, color: 'indigo' },
@@ -44,6 +45,18 @@ export default function ProfileSettingsPage() {
         <TimezoneCard />
 
         <WorkHoursCard />
+
+        {/* GitHub identity claim — a verified link, not a sign-in provider */}
+        <div>
+          <Title order={4} className="text-text-primary mb-3">
+            GitHub
+          </Title>
+          <Text size="sm" c="dimmed" mb="md">
+            Link the GitHub account you commit with, so your PRs and commits are
+            credited to you. This doesn&apos;t add a way to sign in.
+          </Text>
+          <GithubIdentityCard />
+        </div>
 
         {/* Connected Accounts */}
         <div>

@@ -91,7 +91,7 @@ export function DraftFeaturesReviewCard({
         transcriptionId,
       }),
       utils.product.feature.list.invalidate(),
-      utils.product.ticket.list.invalidate(),
+      utils.product.ticket.listSummaries.invalidate(),
     ]);
   }, [utils, transcriptionId]);
 

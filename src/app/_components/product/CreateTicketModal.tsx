@@ -155,7 +155,7 @@ export function CreateTicketModal({
 
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
-      await utils.product.ticket.list.invalidate({ productId });
+      await utils.product.ticket.listSummaries.invalidate({ productId });
       resetForm();
       onClose();
       router.push(`${basePath}/${ticket.id}`);
