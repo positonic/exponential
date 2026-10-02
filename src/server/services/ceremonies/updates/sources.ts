@@ -8,6 +8,7 @@
  * returns no lines, and the question it feeds drafts empty.
  */
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { parseGithubUsername } from "~/server/services/github/memberLogins";
 
 /** Per-source caps: a standup answer nobody reads is as useless as an empty one. */
 const COMPLETED_ACTION_LIMIT = 20;
@@ -154,15 +155,6 @@ export async function resolveGithubLogin(
     orderBy: { updatedAt: "desc" },
     select: { credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 } },
   });
-  const raw = integration?.credentials[0]?.key;
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as { githubUsername?: unknown };
-    return typeof parsed.githubUsername === "string" && parsed.githubUsername.length > 0
-      ? parsed.githubUsername
-      : null;
-  } catch {
-    // A metadata blob we can't read is not worth failing a standup draft over.
-    return null;
-  }
+  // A metadata blob we can't read is not worth failing a standup draft over.
+  return parseGithubUsername(integration?.credentials[0]?.key);
 }

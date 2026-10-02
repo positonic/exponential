@@ -32,6 +32,20 @@ excluded from the series, and a PR falling inside two overlapping cycle windows 
 the roll-up. The bar-list "velocity trend" widget was removed: the chart is a strictly better
 version of it. `getVelocityTrend` remains on the router, now unused by the UI.
 
+**Amended — 2026-10-01 (per-person contributions + member filter).** This lifts the v1 "no
+per-person slicing" line below. A page-wide **member filter** (`?members=` in the URL, multi-select)
+narrows every number to the selected people, and both tiers gain a **Contributors** table (one row
+per member, plus "Unassigned"). Attribution: a Ticket counts toward its **assignee**; a merged PR or
+pushed commit toward the member whose GitHub login authored it; confirmed time toward who logged
+it — PRs/commits/time only inside the cycle window(s). Filtering keeps the same cycles on the trend
+chart (zeros where the members had nothing) so the x-axis doesn't shift. Still live, still batched
+(`getContributions` is a fixed handful of queries regardless of member count), still nothing
+persisted. **Known gap:** member ↔ GitHub login reuses the `github_metadata.githubUsername` lookup
+the standup drafts already use (`resolveGithubLogins`), which in practice links only the member who
+connected GitHub. `CONTEXT.md` says the real mapping is the OAuth-verified **GitHub identity claim**
+(`User.githubLogin`), still unbuilt; once it exists, `resolveGithubLogins` should read it instead —
+members without a link show "—", never a guessed number.
+
 ## Context
 
 The app already has a sprint-analytics backend built for the Mastra PM agent, reached
