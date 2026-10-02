@@ -6,6 +6,7 @@ import {
   isDue,
   resolveDueDefinitions,
   parseCadence,
+  periodWindow,
   type Cadence,
   type ScheduledDefinition,
 } from "../scheduleResolver";
@@ -129,5 +130,25 @@ describe("resolveDueDefinitions", () => {
     expect(resolveDueDefinitions(defs, now).map((d) => d.id)).toEqual([
       "due-never-run",
     ]);
+  });
+});
+
+describe("periodWindow", () => {
+  it("daily → the 24h ending at the trigger instant", () => {
+    const w = periodWindow(daily, new Date("2026-06-20T08:00:00Z"));
+    expect(w.since.toISOString()).toBe("2026-06-19T08:00:00.000Z");
+    expect(w.until.toISOString()).toBe("2026-06-20T08:00:00.000Z");
+  });
+
+  it("weekly → the 7 days ending at the trigger instant", () => {
+    const w = periodWindow(weeklyMon, new Date("2026-06-22T09:00:00Z"));
+    expect(w.since.toISOString()).toBe("2026-06-15T09:00:00.000Z");
+    expect(w.until.toISOString()).toBe("2026-06-22T09:00:00.000Z");
+  });
+
+  it("consecutive runs tile with no gap or overlap", () => {
+    const first = periodWindow(daily, new Date("2026-06-20T08:00:00Z"));
+    const second = periodWindow(daily, new Date("2026-06-21T08:00:00Z"));
+    expect(second.since.getTime()).toBe(first.until.getTime());
   });
 });

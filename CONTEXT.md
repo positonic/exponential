@@ -674,18 +674,6 @@ _Avoid_: Digest (in this codebase "digest" = an **in-app read-side** synthesis, 
 The first **Broadcast** — a **daily**, AI-summarised email of the changes shipped across a workspace's repositories. Source is **live-fetched** commits (via `githubService`) from the workspace's `WorkspaceRepository` set (not the deferred persisted-commit store of ADR-0019/0022), grouped by conventional-commit type like the public `product-timeline`, summarised by reusing the `ai_analyze` step + the deterministic-gather→one-LLM-call pattern of [ADR-0018](docs/adr/0018-weekly-work-digest-personal-sibling.md). Email-only in v1; social drafts are a fast-follow.
 _Avoid_: Confusing with the **Weekly work digest** — that is *personal*, *cross-workspace*, *private*, an *in-app `/activity` panel*; "What Shipped Today" is *workspace/product-level*, *outbound email to a List*, daily.
 
-**List** _(generic — user-facing)_:
-A curated, named membership set, stored as the generic `Collection` + `CollectionMember { collectionId, memberType, memberId }` — polymorphic **by convention** (like `WorkspaceActivityEvent`'s `entityType`+id) and **homogeneous per List** (a `memberType` discriminator: a List is "of contacts" *or* "of projects", not mixed). v1 ships `crm_contact` membership (the **CRM** registers that member-type resolver, id → `{ email, mergeVars }`); "a list of projects" later needs only a new `memberType` + resolver, no migration ([ADR-0030](docs/adr/0030-generic-collection-list-primitive.md)).
-_Avoid_: `List` (the **sprint/cycle** model — unrelated, legacy-named), Audience (a lookup catalog table), segment, group.
-
-**Broadcast**:
-A **scheduled Automation** that renders content and sends it to a **List** — the first non-CRM consumer of the generalised Automation platform ([ADR-0029](docs/adr/0029-automation-platform-primitive.md)). Wiring: `scheduled` trigger → a render step → the CRM-contributed `send_email_to_list` step. The send is a **fan-out**: it pre-filters recipients by consent (`CrmContact.emailOptedOutAt IS NULL`), is **internally resilient** (per-recipient try/catch, collect-and-continue, logs one `CrmCommunication` per recipient, recipient-level idempotency, throws only on whole-batch failure), and is idempotent per `(definitionId, period)`.
-_Avoid_: Digest (in this codebase "digest" = an **in-app read-side** synthesis, never an outbound send), Campaign (implies multi-step drips), Newsletter.
-
-**What Shipped Today**:
-The first **Broadcast** — a **daily**, AI-summarised email of the changes shipped across a workspace's repositories. Source is **live-fetched** commits (via `githubService`) from the workspace's `WorkspaceRepository` set (not the deferred persisted-commit store of ADR-0019/0022), grouped by conventional-commit type like the public `product-timeline`, summarised by reusing the `ai_analyze` step + the deterministic-gather→one-LLM-call pattern of [ADR-0018](docs/adr/0018-weekly-work-digest-personal-sibling.md). Email-only in v1; social drafts are a fast-follow.
-_Avoid_: Confusing with the **Weekly work digest** — that is *personal*, *cross-workspace*, *private*, an *in-app `/activity` panel*; "What Shipped Today" is *workspace/product-level*, *outbound email to a List*, daily.
-
 **Recipient email experience**:
 Two emails, each with one job: **(1)** a branded "Welcome — you're signed up as a {Customer type}" email we send and log as a `CrmCommunication`; **(2)** Adobe Sign's own secure "review & sign" email, where signing happens on Adobe's hosted page. We deliberately do **not** attach the unsigned agreement to our email or self-host the signing link in the PoC.
 

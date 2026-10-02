@@ -1406,6 +1406,36 @@
   background: var(--color-brand-primary);
 }
 
+/* A .wsa-item link with a done tick box beside it. The tick is a sibling,
+   not a child, so clicking it never follows the link (and the link never
+   marks anything done). */
+.wsa-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 7px;
+}
+
+.wsa-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.wsa-row > .wsa-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.wsa-row > .wsa-item:hover {
+  background: transparent;
+}
+
+.wsa-row__done {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0 8px 0 4px;
+}
+
 /* Subsection label inside a tier card ("Mentions", "Waiting on you", …) */
 .wsa-sub {
   display: flex;
