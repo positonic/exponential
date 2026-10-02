@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 
@@ -19,7 +20,23 @@ export async function GET(_request: NextRequest) {
     const authHeader = headersList.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    // Fail closed: this sweep sends Broadcast email to whole contact Lists. A
+    // missing CRON_SECRET must not open it to unauthenticated callers.
+    if (!cronSecret) {
+      console.error(
+        "[Cron] run-scheduled-automations: CRON_SECRET is not configured — refusing to run",
+      );
+      return NextResponse.json(
+        { error: "CRON_SECRET is not configured" },
+        { status: 503 },
+      );
+    }
+    const expected = Buffer.from(`Bearer ${cronSecret}`);
+    const provided = Buffer.from(authHeader ?? "");
+    if (
+      provided.length !== expected.length ||
+      !timingSafeEqual(provided, expected)
+    ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
