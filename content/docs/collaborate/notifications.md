@@ -80,7 +80,7 @@ The **Summary schedule** card controls when digests go out. Which channels recei
 - **Daily summary** — actions due today, what is completed and pending, overdue items and your top priorities, plus yesterday's [time](/docs/do/time-tracking). Pick the **Send at** time.
 - **Weekly summary** — completion rate, active projects and week-over-week progress. Pick the weekday; it goes out at the same time as the daily summary.
 
-Both summaries start switched off. Turn one on, then click **Save schedule**.
+If you have never saved a schedule, both summaries show as off. Turn one on, then click **Save schedule**.
 
 Times use the timezone on your [profile](/settings/profile). If you have not set one, times are read as UTC and the card offers to use your browser's timezone.
 
@@ -90,9 +90,9 @@ A common setup is a Daily Summary arriving as a Matrix message from Zoe every mo
 
 1. **Pair Matrix.** Follow [How to get notifications in Matrix](#how-to-get-notifications-in-matrix) until [Settings → AI assistant](/settings/assistant) shows **Connected**.
 2. **Send summaries to Matrix.** On [Settings → Notifications](/settings/notifications), under **Delivery preferences**, tick **Summaries** in the **Matrix (Zoe DM)** card. Untick it in the **Email** card if you only want it in Matrix.
-3. **Switch the daily summary on.** In the **Summary schedule** card, turn on **Daily summary**, set **Send at** (for example `08:00`), and click **Save schedule**.
+3. **Switch the daily summary on.** In the **Summary schedule** card, check **Daily summary** is on, set **Send at** (for example `08:00`), and click **Save schedule**.
 
-The first summary arrives at the next **Send at** time, in your profile's timezone. Click **Send test** on the Matrix card if you want to check the chat works before then. Turn on **Weekly summary** in the same card to get the weekly digest in Matrix too.
+The first summary arrives at the next **Send at** time, in your profile's timezone. A summary can go out up to an hour after **Send at**, so if you save within that hour, today's may arrive straight away. Click **Send test** on the Matrix card if you want to check the chat works before then. Turn on **Weekly summary** in the same card to get the weekly digest in Matrix too.
 
 ## Due-date reminders
 
