@@ -56,17 +56,23 @@ describe("statesMatch", () => {
 
 describe("pending link cookie", () => {
   it("round-trips and re-validates the return path", () => {
-    const raw = encodePendingLink({ state: "s1", returnTo: "/settings/profile" });
-    expect(decodePendingLink(raw)).toEqual({ state: "s1", returnTo: "/settings/profile" });
+    const raw = encodePendingLink({ state: "s1", returnTo: "/settings/profile", userId: "u-a" });
+    expect(decodePendingLink(raw)).toEqual({ state: "s1", returnTo: "/settings/profile", userId: "u-a" });
 
-    const tampered = Buffer.from(JSON.stringify({ state: "s1", returnTo: "https://evil.test" })).toString("base64url");
-    expect(decodePendingLink(tampered)).toEqual({ state: "s1", returnTo: "/settings/profile" });
+    const tampered = Buffer.from(
+      JSON.stringify({ state: "s1", returnTo: "https://evil.test", userId: "u-a" }),
+    ).toString("base64url");
+    expect(decodePendingLink(tampered)).toEqual({ state: "s1", returnTo: "/settings/profile", userId: "u-a" });
   });
 
   it("rejects garbage", () => {
     expect(decodePendingLink(undefined)).toBeNull();
     expect(decodePendingLink("not-base64-json")).toBeNull();
     expect(decodePendingLink(Buffer.from(JSON.stringify({ state: 1 })).toString("base64url"))).toBeNull();
+    // A pending link that doesn't name who started it is never trusted.
+    expect(
+      decodePendingLink(Buffer.from(JSON.stringify({ state: "s1", returnTo: "/x" })).toString("base64url")),
+    ).toBeNull();
   });
 });
 

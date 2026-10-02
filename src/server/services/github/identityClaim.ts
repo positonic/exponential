@@ -73,6 +73,13 @@ export function statesMatch(expected: string | undefined, actual: string | null)
 export interface PendingLink {
   state: string;
   returnTo: string;
+  /**
+   * The user who started the link. The callback must find the same user
+   * signed in, or a session switched mid-flow (user A starts, user B is
+   * signed in by the time GitHub redirects back) would hand A's GitHub
+   * account to B.
+   */
+  userId: string;
 }
 
 export function encodePendingLink(pending: PendingLink): string {
@@ -83,8 +90,19 @@ export function decodePendingLink(raw: string | undefined): PendingLink | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(Buffer.from(raw, "base64url").toString()) as Partial<PendingLink>;
-    if (typeof parsed.state !== "string" || typeof parsed.returnTo !== "string") return null;
-    return { state: parsed.state, returnTo: safeReturnPath(parsed.returnTo) };
+    if (
+      typeof parsed.state !== "string" ||
+      typeof parsed.returnTo !== "string" ||
+      typeof parsed.userId !== "string" ||
+      !parsed.userId
+    ) {
+      return null;
+    }
+    return {
+      state: parsed.state,
+      returnTo: safeReturnPath(parsed.returnTo),
+      userId: parsed.userId,
+    };
   } catch {
     return null;
   }

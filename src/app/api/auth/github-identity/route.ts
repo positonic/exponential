@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
       state,
     }),
   );
-  response.cookies.set(GITHUB_IDENTITY_COOKIE, encodePendingLink({ state, returnTo }), {
+  response.cookies.set(GITHUB_IDENTITY_COOKIE, encodePendingLink({ state, returnTo, userId: session.user.id }), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     // Lax still rides GitHub's top-level redirect back to the callback.

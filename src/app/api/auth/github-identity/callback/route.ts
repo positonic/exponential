@@ -44,6 +44,9 @@ export async function GET(request: NextRequest) {
   if (!pending || !statesMatch(pending.state, params.get("state"))) {
     return finish("invalid_state");
   }
+  // Only the user who started the link may finish it — never whoever happens
+  // to be signed in when GitHub redirects back.
+  if (pending.userId !== session.user.id) return finish("invalid_state");
 
   const client = getGithubIdentityClient();
   if (!client) return finish("not_configured");
