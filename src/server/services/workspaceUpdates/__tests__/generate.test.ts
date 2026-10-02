@@ -91,7 +91,8 @@ describe("generateWorkspaceUpdate", () => {
 
     // Template writer; the chore never appears.
     const pageData = db.knowledgePage.create.mock.calls[0]![0].data;
-    expect(pageData).toMatchObject({ workspaceId: "ws-1", projectId: null, createdById: "owner-1", title: "Backlog V2, and 1 more change" });
+    // The scope is told under its feature's name.
+    expect(pageData).toMatchObject({ workspaceId: "ws-1", projectId: null, createdById: "owner-1", title: "Backlog" });
     expect(pageData.body).toContain("Fix CSV export");
     expect(pageData.body).not.toContain("Bump deps");
 
@@ -206,7 +207,7 @@ describe("generateWorkspaceUpdate", () => {
 
     expect(result.kind).toBe("drafted");
     expect(db.workspaceUpdate.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ model: "template" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ model: "template (Claude failed: model down)" }) }),
     );
   });
 
@@ -220,9 +221,9 @@ describe("generateWorkspaceUpdate", () => {
       write: () =>
         Promise.resolve({
           headline: "Bulk edit lands",
-          tldr: "Edit many tickets at once.",
+          intro: "Edit many tickets at once.",
           highlights: [
-            { itemId: "feature_scope:scope-1", title: "Bulk edit", body: "Select rows and edit together." },
+            { itemId: "story:feat-1", title: "Bulk edit", body: "Select rows and edit together." },
             { itemId: "ticket:made-up", title: "Teleportation", body: "Not real." },
           ],
           also: [],
@@ -268,7 +269,7 @@ describe("regenerateWorkspaceUpdate", () => {
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
     const write = vi.fn<UpdateWriter["write"]>().mockResolvedValue({
       headline: "Exports fixed",
-      tldr: "CSV export works again.",
+      intro: "CSV export works again.",
       highlights: [{ itemId: "ticket:t-1", title: "CSV export", body: "Large exports finish now." }],
       also: [],
       model: "claude-test",

@@ -8,6 +8,7 @@ import { getMatrixClientForServer } from "~/server/services/matrix/matrixServer"
 
 import { outcome, type ApprovedUpdate, type Channel } from "./distribute";
 import { publicUpdatePath, stripLeadingHeadline } from "./public";
+import { toChatMarkdown } from "./render";
 
 /** The slice of MatrixClient the channel needs. */
 export interface RoomSender {
@@ -32,7 +33,8 @@ export function renderRoomMessage(
   renderHtml: (markdown: string) => string,
   webUrl: string | null,
 ): { html: string; text: string } {
-  const body = stripLeadingHeadline(update.body);
+  // Chat clients render headings huge; the room gets bold lines instead.
+  const body = toChatMarkdown(stripLeadingHeadline(update.body));
   const header = `${update.workspaceName} update: ${update.title}`;
   const html = [
     `<p><strong>${escapeHtml(header)}</strong></p>`,

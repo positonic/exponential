@@ -3,6 +3,7 @@ import { NOTIFICATION_CATEGORIES } from "./constants";
 import { buildMentionContent } from "./mention";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { toChatMarkdown } from "~/server/services/workspaceUpdates/render";
 import { formatWindowLabel } from "~/server/services/workspaceUpdates/window";
 import type { EmitNotificationInput, NotificationContent } from "./types";
 
@@ -358,10 +359,13 @@ async function buildUpdateReviewContent(
     deeplink: path,
     metadata: {
       ...metadata,
+      // Chat-shaped (bold lines, not headings) so it reads well in a Matrix DM.
       markdown: [
-        `**${workspace.name} · update for ${window}**: review and approve before anything is sent.`,
-        draft,
-        `**[Review and approve →](${reviewUrl})**`,
+        `**Draft update for ${workspace.name}** · ${window}`,
+        "---",
+        toChatMarkdown(draft),
+        "---",
+        `Nothing is sent until you approve it. **[Review and approve →](${reviewUrl})**`,
       ]
         .filter(Boolean)
         .join("\n\n"),

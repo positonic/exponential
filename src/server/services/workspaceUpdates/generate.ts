@@ -20,7 +20,7 @@ import {
   type WrittenUpdate,
 } from "./types";
 import { formatWindowLabel } from "./window";
-import { constrainToSelection, templateWriter, type UpdateWriter, type WriteContext } from "./writer";
+import { constrainToSelection, createTemplateWriter, type UpdateWriter, type WriteContext } from "./writer";
 
 export interface ReviewNotice {
   updateId: string;
@@ -69,7 +69,9 @@ export async function writeForSelection(
     written = await writer.write(selection, ctx);
   } catch (err) {
     console.error("[workspaceUpdates] writer failed; using the template", err);
-    written = await templateWriter.write(selection, ctx);
+    // Say why on the draft, so a reviewer knows it was written without the model.
+    const message = err instanceof Error ? err.message : String(err);
+    written = await createTemplateWriter(`Claude failed: ${message.slice(0, 160)}`).write(selection, ctx);
   }
   return constrainToSelection(written, selection);
 }

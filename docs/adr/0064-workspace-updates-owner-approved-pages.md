@@ -108,3 +108,24 @@ form is offered and again at confirmation.
 The form reuses the Forms intake defences (honeypot, time trap) and the shared rate limiter, per IP
 and per email. The per-email limit stops the form being used to flood someone else's inbox.
 
+## Amendment: updates are told as stories (2026-10-02)
+
+The first real drafts listed ticket titles such as "V2: Publish & distribute on approval". Those are
+internal labels, and the drafts were dry. Selection now groups shipped work into **stories**, one per
+feature:
+
+- A feature going Live, its shipped milestones and its finished tickets become one story told under
+  the feature's name, with the feature's description and a short summary of each piece.
+- Version labels ("V2:", "Docs v3:") are stripped from piece titles.
+- A story ranks by its most newsworthy piece. Within the same kind of change, the story with more
+  shipped pieces comes first. Breadth only breaks ties, so it never lifts a story above a more
+  newsworthy kind (six tickets never outrank a milestone).
+- At most eight pieces are listed per story; the rest are counted as "N more smaller changes".
+
+The writer gets that context, keeps the order, never uses internal labels, and opens with a two-to-
+three-sentence intro that ties the week together. Code still chooses what is mentioned.
+
+Chat gets its own shape: the Matrix review DM and the team-room post turn headings into bold lines.
+A draft written by the template says so on its review banner, with the reason (no key, or the
+Claude call failed).
+
