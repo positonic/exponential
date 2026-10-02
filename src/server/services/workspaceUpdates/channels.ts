@@ -4,7 +4,7 @@ import { EmailService } from "~/server/services/EmailService";
 
 import { publicChannel, type DistributeChannels } from "./distribute";
 import { createEmailChannel } from "./emailChannel";
-import { renderUpdateHtml } from "./html";
+import { renderUpdateEmailHtml, renderUpdateHtml } from "./html";
 import { createMatrixChannel } from "./matrixChannel";
 
 /** Production channels for distributing an approved Workspace update. */
@@ -13,7 +13,7 @@ export function defaultDistributeChannels(db: PrismaClient): DistributeChannels 
     public: publicChannel,
     email: createEmailChannel(db, {
       send: EmailService.sendWorkspaceUpdateEmail,
-      renderHtml: renderUpdateHtml,
+      renderHtml: renderUpdateEmailHtml,
     }),
     matrix: createMatrixChannel(db, { renderHtml: renderUpdateHtml }),
   };
