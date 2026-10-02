@@ -60,3 +60,21 @@ Matrix.
   `/blog`.
 - Regenerating a draft replaces the Page's content, including the reviewer's own edits. The UI
   warns before it does.
+
+## Amendment: approved snapshots are what get distributed (2026-10-02)
+
+Decision 1 said publishing would reuse Page publishing (ADR-0038). It doesn't. A published Page shows
+its **live** content, so any edit after approval would go public unreviewed, which breaks decision 2.
+
+Instead, approving freezes the Page's title and body onto the row (`approvedTitle` / `approvedBody`),
+and every channel sends that snapshot:
+
+- the public `/updates/<workspace>` page, each update's own page under it, and the RSS feed (rendered
+  with the canonical `MarkdownRenderer`, or with the shared document schema and the public sanitizer
+  for RSS and email);
+- the newsletter List (the Broadcast fan-out, logged per recipient against the update);
+- the team Matrix room.
+
+Each channel's outcome is recorded on the row. A channel that finished never runs again, so a retry
+never double-sends. The update becomes SENT once no channel failed. The hourly sweep retries failures
+for three days after approval. The draft Page stays the team's working document.

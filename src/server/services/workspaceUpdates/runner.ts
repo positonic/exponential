@@ -1,8 +1,9 @@
 import type { PrismaClient } from "@prisma/client";
 
+import { distributeWorkspaceUpdate, type DistributeChannels } from "./distribute";
 import { generateWorkspaceUpdate, type GenerateDeps, type GenerateResult } from "./generate";
 import { dueWeeklyInstant, weeklyPeriodKey } from "./schedule";
-import { WORKSPACE_UPDATE_KIND } from "./types";
+import { WORKSPACE_UPDATE_KIND, WORKSPACE_UPDATE_STATUS } from "./types";
 import { resolveWindowStart } from "./window";
 
 export interface RunWorkspaceUpdatesResult {
@@ -95,4 +96,54 @@ export async function runDueWorkspaceUpdates(
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "Unknown error";
+}
+
+/** How long after approval a failed channel keeps being retried. */
+export const DISTRIBUTION_RETRY_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+const DISTRIBUTION_BATCH = 50;
+/** Leave a fresh approval to its own distribution attempt (no concurrent sends). */
+export const DISTRIBUTION_SETTLE_MS = 10 * 60 * 1000;
+
+export interface RunDistributionsResult {
+  retried: number;
+  sent: string[];
+  stillFailing: string[];
+  errored: { updateId: string; error: string }[];
+}
+
+/**
+ * Retry distribution for approved updates that have not finished (a channel
+ * failed, or approval's own attempt never ran): each channel that already
+ * succeeded is skipped, so this only re-runs what failed. Gives up after the
+ * retry window — the per-channel failure stays recorded on the update.
+ */
+export async function runPendingDistributions(
+  db: PrismaClient,
+  now: Date,
+  channels: DistributeChannels,
+): Promise<RunDistributionsResult> {
+  const pending = await db.workspaceUpdate.findMany({
+    where: {
+      status: WORKSPACE_UPDATE_STATUS.APPROVED,
+      approvedAt: {
+        gte: new Date(now.getTime() - DISTRIBUTION_RETRY_WINDOW_MS),
+        lte: new Date(now.getTime() - DISTRIBUTION_SETTLE_MS),
+      },
+    },
+    orderBy: { approvedAt: "asc" },
+    take: DISTRIBUTION_BATCH,
+    select: { id: true },
+  });
+
+  const result: RunDistributionsResult = { retried: pending.length, sent: [], stillFailing: [], errored: [] };
+  for (const { id } of pending) {
+    try {
+      const outcome = await distributeWorkspaceUpdate(db, id, channels);
+      if (outcome.kind === "sent") result.sent.push(id);
+      else if (outcome.kind === "partial") result.stillFailing.push(id);
+    } catch (err) {
+      result.errored.push({ updateId: id, error: errorMessage(err) });
+    }
+  }
+  return result;
 }

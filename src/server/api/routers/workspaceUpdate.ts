@@ -219,6 +219,8 @@ export const workspaceUpdateRouter = createTRPCRouter({
           version: true,
           approvedAt: true,
           skippedAt: true,
+          sentAt: true,
+          deliveries: true,
         },
       });
       if (!update) return null;

@@ -4,8 +4,10 @@ import { mockDeep, mockReset } from "vitest-mock-extended";
 
 const generateMock = vi.hoisted(() => vi.fn());
 vi.mock("../generate", () => ({ generateWorkspaceUpdate: generateMock }));
+const distributeMock = vi.hoisted(() => vi.fn());
+vi.mock("../distribute", () => ({ distributeWorkspaceUpdate: distributeMock }));
 
-import { runDueWorkspaceUpdates } from "../runner";
+import { DISTRIBUTION_RETRY_WINDOW_MS, DISTRIBUTION_SETTLE_MS, runDueWorkspaceUpdates, runPendingDistributions } from "../runner";
 
 const db = mockDeep<PrismaClient>();
 const deps = { writer: { write: vi.fn() }, notify: vi.fn(), baseUrl: "https://app.test" };
@@ -67,5 +69,37 @@ describe("runDueWorkspaceUpdates", () => {
 
     expect(result.empty).toEqual(["ws-ok"]);
     expect(result.failed.map((f) => f.workspaceId)).toEqual(["ws-bad-tz", "ws-throws"]);
+  });
+});
+
+describe("runPendingDistributions", () => {
+  const channels = { public: vi.fn(), email: vi.fn(), matrix: vi.fn() };
+
+  it("retries approved updates inside the window, leaving fresh approvals to their own attempt", async () => {
+    db.workspaceUpdate.findMany.mockResolvedValue([{ id: "u-sent" }, { id: "u-partial" }, { id: "u-boom" }] as never);
+    distributeMock
+      .mockResolvedValueOnce({ kind: "sent", deliveries: {} })
+      .mockResolvedValueOnce({ kind: "partial", deliveries: {} })
+      .mockRejectedValueOnce(new Error("db down"));
+
+    const result = await runPendingDistributions(db, NOW, channels);
+
+    expect(result).toEqual({
+      retried: 3,
+      sent: ["u-sent"],
+      stillFailing: ["u-partial"],
+      errored: [{ updateId: "u-boom", error: "db down" }],
+    });
+    expect(db.workspaceUpdate.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          status: "APPROVED",
+          approvedAt: {
+            gte: new Date(NOW.getTime() - DISTRIBUTION_RETRY_WINDOW_MS),
+            lte: new Date(NOW.getTime() - DISTRIBUTION_SETTLE_MS),
+          },
+        },
+      }),
+    );
   });
 });
