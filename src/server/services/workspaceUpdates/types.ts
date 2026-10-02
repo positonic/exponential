@@ -70,6 +70,8 @@ export interface ShippedItem {
   feature?: ShippedFeature;
   /** Set on stories: the shipped pieces it is made of. */
   parts?: ShippedPart[];
+  /** Set on stories: how many shipped items it groups (ranks a busier story first within a kind). */
+  size?: number;
 }
 
 /** The ranked, capped selection the writer may mention — its whole universe. */

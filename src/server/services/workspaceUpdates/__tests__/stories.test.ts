@@ -50,8 +50,9 @@ describe("groupIntoStories", () => {
       title: "Docs",
       detail: "Help pages for every part of the app.",
       url: "https://app/docs",
-      // Best piece (40) + 5 for the second piece.
-      weight: 45,
+      // Its best piece's weight; breadth is recorded separately.
+      weight: 40,
+      size: 2,
       at: "2026-10-02T10:00:00.000Z",
     });
     expect(story.parts).toEqual([
@@ -69,8 +70,15 @@ describe("groupIntoStories", () => {
       ticket("t", "V1: Weekly draft & owner approval", { feature: updates }),
     ]);
 
-    expect(story).toMatchObject({ id: "story:f-upd", source: "feature", title: "Workspace updates", weight: 110 });
+    expect(story).toMatchObject({ id: "story:f-upd", source: "feature", title: "Workspace updates", weight: 100, size: 3 });
     expect(story!.parts!.map((p) => p.title)).toEqual(["Publish on approval", "Weekly draft & owner approval"]);
+  });
+
+  it("counts the pieces beyond the cap instead of silently dropping them", () => {
+    const [story] = groupIntoStories(Array.from({ length: 11 }, (_, i) => ticket(`p${i}`, `Piece ${i}`, { feature: docs })));
+    expect(story!.parts).toHaveLength(8);
+    expect(story!.parts![7]).toEqual({ title: "4 more smaller changes" });
+    expect(story!.size).toBe(11);
   });
 
   it("drops chores, spikes and research before grouping", () => {
@@ -89,5 +97,22 @@ describe("selectItems with stories", () => {
 
     expect(selection.highlights.map((s) => s.title)).toEqual(["Docs", "Faster search"]);
     expect(selection.highlights[0]!.parts).toHaveLength(3);
+  });
+
+  it("never lets breadth lift a story above a more newsworthy kind of change", () => {
+    const selection = selectItems([
+      ...Array.from({ length: 6 }, (_, i) => ticket(`d${i}`, `Docs piece ${i}`, { feature: docs, at: "2026-10-02T12:00:00.000Z" })),
+      {
+        id: "feature_scope:s1",
+        source: "feature_scope",
+        title: "Publish on approval",
+        weight: 80,
+        at: "2026-09-26T10:00:00.000Z",
+        feature: updates,
+      },
+    ]);
+
+    // A milestone outranks six finished tickets, however recent.
+    expect(selection.highlights.map((s) => s.title)).toEqual(["Workspace updates", "Docs"]);
   });
 });

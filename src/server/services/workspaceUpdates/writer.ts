@@ -1,5 +1,5 @@
 import { MAX_ALSO, MAX_HIGHLIGHTS } from "./select";
-import type { ShippedItem, UpdateSelection, WrittenUpdate } from "./types";
+import type { ShippedItem, ShippedPart, UpdateSelection, WrittenUpdate } from "./types";
 
 export interface WriteContext {
   workspaceName: string;
@@ -31,12 +31,21 @@ function sentence(text: string): string {
   return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+const PIECE_DETAIL_CHARS = 160;
+
+/** A piece in its own words: its title, and its summary when it has one. */
+function describePiece(part: ShippedPart): string {
+  if (!part.detail || part.detail === part.title) return part.title;
+  const detail = part.detail.length > PIECE_DETAIL_CHARS ? `${part.detail.slice(0, PIECE_DETAIL_CHARS).trimEnd()}…` : part.detail;
+  return `${part.title} (${detail.replace(/[.\s]+$/, "")})`;
+}
+
 /** What shipped for a story, from its own words: the feature's description, then its pieces. */
 function storyBody(item: ShippedItem): string {
-  const pieces = (item.parts ?? []).map((part) => part.title);
+  const pieces = (item.parts ?? []).map(describePiece);
   const parts = [
     item.detail ? sentence(item.detail) : "",
-    pieces.length > 0 ? sentence(`What shipped: ${listJoin(pieces)}`) : "",
+    pieces.length > 0 ? sentence(`What shipped: ${pieces.join("; ")}`) : "",
   ];
   return parts.filter(Boolean).join(" ");
 }

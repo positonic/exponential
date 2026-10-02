@@ -97,8 +97,10 @@ feature:
 - A feature going Live, its shipped milestones and its finished tickets become one story told under
   the feature's name, with the feature's description and a short summary of each piece.
 - Version labels ("V2:", "Docs v3:") are stripped from piece titles.
-- A story ranks by its most newsworthy piece, plus a little for each further piece (capped). A
-  feature that moved a lot outranks a lone ticket of the same kind.
+- A story ranks by its most newsworthy piece. Within the same kind of change, the story with more
+  shipped pieces comes first. Breadth only breaks ties, so it never lifts a story above a more
+  newsworthy kind (six tickets never outrank a milestone).
+- At most eight pieces are listed per story; the rest are counted as "N more smaller changes".
 
 The writer gets that context, keeps the order, never uses internal labels, and opens with a two-to-
 three-sentence intro that ties the week together. Code still chooses what is mentioned.

@@ -15,12 +15,18 @@ export const MAX_ALSO = 8;
  * Order of importance (see `SOURCE_WEIGHT` / `TICKET_TYPE_WEIGHT`): a feature
  * going Live, then a feature reaching a milestone, then a cycle's results, then
  * finished features, improvements and fixes. Within a level, a story with more
- * shipped pieces ranks higher (`groupIntoStories`), then the most recent.
+ * shipped pieces ranks higher (`groupIntoStories`'s `size`), then the most
+ * recent. Breadth only breaks ties, so it never lifts a story above a more
+ * newsworthy kind of change.
  * Chores, spikes and research are never selected or counted.
  */
 export function selectItems(items: ShippedItem[]): UpdateSelection {
   const selectable = groupIntoStories(items).sort(
-    (a, b) => b.weight - a.weight || b.at.localeCompare(a.at) || a.id.localeCompare(b.id),
+    (a, b) =>
+      b.weight - a.weight ||
+      (b.size ?? 1) - (a.size ?? 1) ||
+      b.at.localeCompare(a.at) ||
+      a.id.localeCompare(b.id),
   );
 
   return {

@@ -82,6 +82,23 @@ describe("renderUpdateMarkdown", () => {
     expect(md).toContain("[+2 more changes →](https://app/w/acme/activity)");
   });
 
+  it("the template explains each piece with its summary when it has one", async () => {
+    const selection = selectItems([
+      item("s", 80, undefined, {
+        title: "Workspace updates",
+        detail: "A weekly update, written for you",
+        parts: [
+          { title: "Publish on approval", detail: "Approving an update sends it to the List, the page and Matrix." },
+          { title: "Weekly draft" },
+        ],
+      }),
+    ]);
+    const written = await templateWriter.write(selection, { workspaceName: "Acme", windowLabel: "25 Sep – 1 Oct" });
+    expect(written.highlights[0]!.body).toBe(
+      "A weekly update, written for you. What shipped: Publish on approval (Approving an update sends it to the List, the page and Matrix); Weekly draft.",
+    );
+  });
+
   it("uses the writer's plain title for a one-liner when it gives one", () => {
     const selection = selectItems([
       item("a", 80),
@@ -114,6 +131,11 @@ describe("toChatMarkdown", () => {
     expect(toChatMarkdown(md)).toBe(
       "**Headline**\n\nIntro.\n\n**Highlights**\n\n**[Bulk edit](https://app/x)**\n\nBody.\n\n- **A**: a\n- **B**: b",
     );
+  });
+
+  it("leaves fenced code untouched", () => {
+    const md = "## Setup\n\n```sh\n# install\nnpm i\n```\n\n~~~\n## not a heading\n~~~";
+    expect(toChatMarkdown(md)).toBe("**Setup**\n\n```sh\n# install\nnpm i\n```\n\n~~~\n## not a heading\n~~~");
   });
 
   it("doesn't double-bold a heading that is already bold", () => {

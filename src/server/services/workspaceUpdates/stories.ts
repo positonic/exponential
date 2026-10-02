@@ -1,10 +1,7 @@
 import type { ShippedItem, ShippedPart } from "./types";
 
-/** At most this many pieces of work are listed under one story. */
+/** At most this many pieces of work are listed under one story; the rest are counted. */
 export const MAX_PARTS = 8;
-/** Each extra piece of work adds this much weight, up to MAX_BREADTH_BONUS. */
-const BREADTH_BONUS = 5;
-const MAX_BREADTH_BONUS = 20;
 const DETAIL_CHARS = 300;
 
 /**
@@ -71,9 +68,11 @@ function partOf(item: ShippedItem): ShippedPart {
  * feature's name, instead of several disconnected one-liners. Items with no
  * feature stay stories of their own.
  *
- * A story's weight is its most newsworthy piece plus a little for each further
- * piece (capped), so a feature that moved a lot outranks a lone ticket of the
- * same kind. It shipped when its latest piece did.
+ * A story's weight is its most newsworthy piece's, so breadth never lifts a
+ * story above a more newsworthy kind of change; `size` (how many pieces
+ * shipped) breaks ties within a kind (see `selectItems`). It shipped when its
+ * latest piece did. Beyond MAX_PARTS, the remaining pieces are summarised as
+ * one "N more" part, so no shipped work disappears without a trace.
  */
 export function groupIntoStories(items: ShippedItem[]): ShippedItem[] {
   const byFeature = new Map<string, ShippedItem[]>();
@@ -97,17 +96,22 @@ export function groupIntoStories(items: ShippedItem[]): ShippedItem[] {
     const lead = ordered[0]!;
     // The feature's own "went Live" item is the story itself, not a part of it.
     const pieces = ordered.filter((item) => item.source !== "feature");
-    const weight = lead.weight + Math.min(MAX_BREADTH_BONUS, BREADTH_BONUS * (group.length - 1));
+    const listed = pieces.length > MAX_PARTS ? pieces.slice(0, MAX_PARTS - 1) : pieces;
+    const unlisted = pieces.length - listed.length;
     stories.push({
       id: `story:${feature.id}`,
       source: lead.source,
       title: feature.name,
       ...(feature.description ? { detail: feature.description } : {}),
       url: feature.url ?? lead.url,
-      weight,
+      weight: lead.weight,
       at: ordered.reduce((latest, item) => (item.at > latest ? item.at : latest), lead.at),
+      size: group.length,
       feature,
-      parts: pieces.slice(0, MAX_PARTS).map(partOf),
+      parts: [
+        ...listed.map(partOf),
+        ...(unlisted > 0 ? [{ title: `${unlisted} more smaller change${unlisted === 1 ? "" : "s"}` }] : []),
+      ],
     });
   }
   return stories;

@@ -75,9 +75,17 @@ export function renderUpdateMarkdown(
  * reviewer's own edits read the same way.
  */
 export function toChatMarkdown(markdown: string): string {
+  let fence: string | null = null;
   return markdown
     .split("\n")
     .map((line) => {
+      // Leave fenced code exactly as written: a `# comment` there is not a heading.
+      const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (marker && (fence === null || marker.startsWith(fence))) {
+        fence = fence === null ? marker : null;
+        return line;
+      }
+      if (fence !== null) return line;
       const heading = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
       if (!heading?.[1]) return line;
       const text = heading[1];
