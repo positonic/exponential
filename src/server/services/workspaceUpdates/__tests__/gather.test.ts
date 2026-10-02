@@ -88,4 +88,58 @@ describe("gatherShippedWork", () => {
     expect(prs.map((p) => p.title)).toEqual(["instant results", "Improve onboarding copy"]);
     expect(prs.every((p) => p.weight === SOURCE_WEIGHT.pull_request)).toBe(true);
   });
+
+  it("attaches each ticket and milestone to its feature, with a short summary", async () => {
+    const feature = {
+      id: "feat-9",
+      name: "Workspace updates",
+      description: "## What it is\n\nA weekly update, written for you.",
+      product: { slug: "core" },
+    };
+    db.ticket.findMany.mockResolvedValue([
+      {
+        id: "t-9",
+        number: 9,
+        title: "V2: Publish & distribute on approval",
+        type: "FEATURE",
+        body: "## Parent\n\nx\n\n## What to build\n\nApproving an update **sends** it.\n\n## Actions\n\n1. y",
+        completedAt: new Date("2026-09-30T00:00:00.000Z"),
+        product: { slug: "core" },
+        feature,
+      },
+    ] as never);
+    db.featureScope.findMany.mockResolvedValue([
+      {
+        id: "s-9",
+        version: "V1",
+        description: "Weekly draft and owner approval.",
+        shippedAt: new Date("2026-09-29T00:00:00.000Z"),
+        feature,
+      },
+    ] as never);
+
+    const items = await gatherShippedWork(db, input);
+
+    const expectedFeature = {
+      id: "feat-9",
+      name: "Workspace updates",
+      description: "A weekly update, written for you.",
+      url: "https://app.test/w/acme/products/core/features/feat-9",
+    };
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "ticket:t-9",
+          title: "V2: Publish & distribute on approval",
+          detail: "Approving an update sends it.",
+          feature: expectedFeature,
+        }),
+        expect.objectContaining({
+          id: "feature_scope:s-9",
+          title: "Weekly draft and owner approval.",
+          feature: expectedFeature,
+        }),
+      ]),
+    );
+  });
 });

@@ -61,6 +61,15 @@ function formatWindow(start: Date, end: Date): string {
 }
 
 /**
+ * Why a draft reads like a list: the template wrote it, not Claude. `model` is
+ * "template" or "template (<reason>)".
+ */
+function templateNote(model: string): string {
+  const reason = /^template \((.*)\)$/.exec(model)?.[1];
+  return `Written from a plain template, without AI${reason ? ` (${reason})` : ''}. Edit it here, or press Regenerate once that's fixed.`;
+}
+
+/**
  * Shown above a Page that is a Workspace update's body: what period it covers,
  * where it is in its lifecycle, and — for reviewers — the decision. Nothing is
  * sent until someone with review rights approves it here.
@@ -156,6 +165,11 @@ export function UpdateReviewBanner({ pageId }: { pageId: string }) {
           </Group>
         ) : null}
       </Group>
+      {isDraft && update.model?.startsWith('template') ? (
+        <Text size="xs" className="mt-2 text-text-muted" data-testid="update-template-note">
+          {templateNote(update.model)}
+        </Text>
+      ) : null}
       {isDraft && update.canReview && feedbackOpen ? (
         <div className="mt-3">
           <MarkdownInput

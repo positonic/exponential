@@ -3,7 +3,8 @@ import type { PrismaClient, TicketType } from "@prisma/client";
 import { parseCommitMessage, type CommitCategory } from "~/lib/changelog/commitCategories";
 import { ticketUrlId } from "~/lib/fun-ids";
 
-import type { ShippedItem } from "./types";
+import { summarizeBody } from "./stories";
+import type { ShippedFeature, ShippedItem } from "./types";
 
 /**
  * Newsworthiness by source. Feature-level shipping outranks the ticket that
@@ -64,7 +65,7 @@ export async function gatherShippedWork(
         description: true,
         shippedAt: true,
         feature: {
-          select: { id: true, name: true, product: { select: { slug: true } } },
+          select: { id: true, name: true, description: true, product: { select: { slug: true } } },
         },
       },
     }),
@@ -79,8 +80,12 @@ export async function gatherShippedWork(
         number: true,
         title: true,
         type: true,
+        body: true,
         completedAt: true,
         product: { select: { slug: true } },
+        feature: {
+          select: { id: true, name: true, description: true, product: { select: { slug: true } } },
+        },
       },
     }),
     // Feature has no shippedAt; going Live is recorded as a status change.
@@ -126,16 +131,33 @@ export async function gatherShippedWork(
   ]);
 
   const items: ShippedItem[] = [];
+  const featureOf = (feature: {
+    id: string;
+    name: string;
+    description: string | null;
+    product: { slug: string };
+  }): ShippedFeature => {
+    const description = summarizeBody(feature.description, 600);
+    return {
+      id: feature.id,
+      name: feature.name,
+      ...(description ? { description } : {}),
+      url: `${productBase(feature.product.slug)}/features/${feature.id}`,
+    };
+  };
 
   for (const scope of scopes) {
+    const feature = featureOf(scope.feature);
     items.push({
       id: `feature_scope:${scope.id}`,
       source: "feature_scope",
-      title: `${scope.feature.name} ${scope.version}`,
-      detail: scope.description || undefined,
-      url: `${productBase(scope.feature.product.slug)}/features/${scope.feature.id}`,
+      // Told under the feature's name; the milestone's own words describe it.
+      title: summarizeBody(scope.description, 120) ?? `${scope.feature.name} ${scope.version}`,
+      detail: summarizeBody(scope.description),
+      url: feature.url,
       weight: SOURCE_WEIGHT.feature_scope,
       at: (scope.shippedAt ?? input.windowEnd).toISOString(),
+      feature,
     });
   }
 
@@ -144,9 +166,11 @@ export async function gatherShippedWork(
       id: `ticket:${ticket.id}`,
       source: "ticket",
       title: ticket.title,
+      detail: summarizeBody(ticket.body),
       url: `${productBase(ticket.product.slug)}/tickets/${ticketUrlId(ticket)}`,
       weight: TICKET_TYPE_WEIGHT[ticket.type],
       at: (ticket.completedAt ?? input.windowEnd).toISOString(),
+      ...(ticket.feature ? { feature: featureOf(ticket.feature) } : {}),
     });
   }
 
@@ -159,14 +183,16 @@ export async function gatherShippedWork(
     : [];
   const liveAt = new Map(featureEvents.map((e) => [e.entityId, e.createdAt]));
   for (const feature of features) {
+    const shipped = featureOf(feature);
     items.push({
       id: `feature:${feature.id}`,
       source: "feature",
       title: feature.name,
-      detail: feature.description ?? undefined,
-      url: `${productBase(feature.product.slug)}/features/${feature.id}`,
+      detail: shipped.description,
+      url: shipped.url,
       weight: SOURCE_WEIGHT.feature,
       at: (liveAt.get(feature.id) ?? input.windowEnd).toISOString(),
+      feature: shipped,
     });
   }
 

@@ -6,7 +6,7 @@ import { emitNotification } from "~/server/services/notifications/emit/emitNotif
 
 import { createClaudeWriter } from "./claudeWriter";
 import type { GenerateDeps } from "./generate";
-import { templateWriter } from "./writer";
+import { createTemplateWriter } from "./writer";
 
 /**
  * Production wiring for generation, shared by the router and the cron: Claude
@@ -20,7 +20,7 @@ export function defaultGenerateDeps(
   return {
     writer: process.env.ANTHROPIC_API_KEY
       ? createClaudeWriter({ log: { db, workspaceId: scope.workspaceId, userId: scope.userId ?? undefined } })
-      : templateWriter,
+      : createTemplateWriter("ANTHROPIC_API_KEY is not set"),
     notify: (notice) =>
       emitNotification({
         db,

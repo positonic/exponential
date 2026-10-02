@@ -830,6 +830,10 @@ describe("emitNotification — Update review", () => {
     });
     const markdown = (data.metadata as { markdown: string }).markdown;
     expect(markdown).toContain("_Edit many tickets at once._");
+    // Chat-shaped: the draft's headings arrive as bold lines, not giant headers.
+    expect(markdown).toContain("**Bulk edit lands**");
+    expect(markdown).not.toMatch(/^#/m);
+    expect(markdown).toContain("Nothing is sent until you approve it.");
     expect(markdown).toMatch(/\[Review and approve →\]\(https?:\/\/.+\/w\/acme\/pages\/page-1\)/);
 
     // Defaults: push + email + Matrix (paired).

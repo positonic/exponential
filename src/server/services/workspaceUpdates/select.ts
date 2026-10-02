@@ -1,3 +1,4 @@
+import { groupIntoStories } from "./stories";
 import type { ShippedItem, UpdateSelection } from "./types";
 
 /** At most this many items get a highlight paragraph. */
@@ -6,22 +7,21 @@ export const MAX_HIGHLIGHTS = 3;
 export const MAX_ALSO = 8;
 
 /**
- * Rank and cap what shipped — deterministically, before any model sees it, so
- * an update can only ever mention work that actually shipped (the PRD's
- * CONSTRAINT requirement) and never runs past two minutes of reading.
+ * Group what shipped into stories, then rank and cap them — deterministically,
+ * before any model sees them, so an update can only ever mention work that
+ * actually shipped (the PRD's CONSTRAINT requirement) and never runs past two
+ * minutes of reading.
  *
- * Items with weight 0 (chores, spikes, research) are never selected or counted.
- * Ties break on the most recent first, then on id for a stable order.
+ * Order of importance (see `SOURCE_WEIGHT` / `TICKET_TYPE_WEIGHT`): a feature
+ * going Live, then a feature reaching a milestone, then a cycle's results, then
+ * finished features, improvements and fixes. Within a level, a story with more
+ * shipped pieces ranks higher (`groupIntoStories`), then the most recent.
+ * Chores, spikes and research are never selected or counted.
  */
 export function selectItems(items: ShippedItem[]): UpdateSelection {
-  const selectable = items
-    .filter((item) => item.weight > 0)
-    .sort(
-      (a, b) =>
-        b.weight - a.weight ||
-        b.at.localeCompare(a.at) ||
-        a.id.localeCompare(b.id),
-    );
+  const selectable = groupIntoStories(items).sort(
+    (a, b) => b.weight - a.weight || b.at.localeCompare(a.at) || a.id.localeCompare(b.id),
+  );
 
   return {
     highlights: selectable.slice(0, MAX_HIGHLIGHTS),

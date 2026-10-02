@@ -87,3 +87,23 @@ Retries favour a missed send over a duplicate one:
   record is never emailed that update again.
 - The public page and feed are never cached, so switching the public page off takes them down at
   once.
+
+## Amendment: updates are told as stories (2026-10-02)
+
+The first real drafts listed ticket titles such as "V2: Publish & distribute on approval". Those are
+internal labels, and the drafts were dry. Selection now groups shipped work into **stories**, one per
+feature:
+
+- A feature going Live, its shipped milestones and its finished tickets become one story told under
+  the feature's name, with the feature's description and a short summary of each piece.
+- Version labels ("V2:", "Docs v3:") are stripped from piece titles.
+- A story ranks by its most newsworthy piece, plus a little for each further piece (capped). A
+  feature that moved a lot outranks a lone ticket of the same kind.
+
+The writer gets that context, keeps the order, never uses internal labels, and opens with a two-to-
+three-sentence intro that ties the week together. Code still chooses what is mentioned.
+
+Chat gets its own shape: the Matrix review DM and the team-room post turn headings into bold lines.
+A draft written by the template says so on its review banner, with the reason (no key, or the
+Claude call failed).
+
