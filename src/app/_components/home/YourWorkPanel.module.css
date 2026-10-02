@@ -133,6 +133,41 @@
   background: var(--color-bg-secondary);
 }
 
+/* A .row link with a done tick box beside it — the tick is a sibling, not a
+   child, so clicking it never follows the link. Takes over .row's
+   full-bleed margin and hover so the pair reads as one row. */
+.rowWithDone {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -8px;
+  width: calc(100% + 16px);
+  border-radius: 4px;
+  transition: background 120ms;
+}
+
+.rowWithDone:hover {
+  background: var(--color-bg-secondary);
+}
+
+.rowWithDone > .row {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  width: auto;
+}
+
+.rowWithDone > .row:hover {
+  background: transparent;
+}
+
+.rowDone {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0 8px 0 4px;
+}
+
 .rowLabel {
   flex: 1;
   overflow: hidden;
