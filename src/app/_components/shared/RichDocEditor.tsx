@@ -10,6 +10,7 @@ import {
   IconColumnInsertLeft,
   IconColumnInsertRight,
   IconColumnRemove,
+  IconMarkdown,
   IconRowInsertBottom,
   IconRowInsertTop,
   IconRowRemove,
@@ -22,6 +23,7 @@ import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand, type SlashCommandItem } from "~/lib/prd/slash-command";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { createSaveQueue } from "~/lib/prd/save-queue";
+import { selectionToMarkdown } from "~/lib/prd/selection-markdown";
 import { PageLinkWithView } from "./PageLinkView";
 import "@mantine/tiptap/styles.css";
 
@@ -49,6 +51,94 @@ export interface RichDocEditorHandle {
    * starts until `fn` settles, so the tab can't conflict with itself.
    */
   runExclusive: <T>(fn: () => Promise<T>) => Promise<T>;
+}
+
+/**
+ * Bubble-menu control that copies the selection as Markdown. Separate from
+ * plain Cmd-C, which copies text (and rich HTML) — this is the explicit route
+ * for a Markdown-source target.
+ */
+function useCopyMarkdown(editor: Editor) {
+  const [copied, setCopied] = useState(false);
+  const resetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (resetRef.current) clearTimeout(resetRef.current);
+    },
+    [],
+  );
+
+  const copy = async () => {
+    const markdown = selectionToMarkdown(editor);
+    if (!markdown) return;
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopied(true);
+      if (resetRef.current) clearTimeout(resetRef.current);
+      resetRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Denied permission, or a non-secure origin.
+      notifications.show({
+        color: "red",
+        title: "Could not copy",
+        message: "Your browser blocked clipboard access.",
+      });
+    }
+  };
+
+  return {
+    copied,
+    copy: () => void copy(),
+    label: copied ? "Copied as Markdown" : "Copy as Markdown",
+  };
+}
+
+/** The control as it appears in the editor's formatting bubble menu. */
+function CopyMarkdownControl({ editor }: { editor: Editor }) {
+  const { copied, copy, label } = useCopyMarkdown(editor);
+  return (
+    <RichTextEditor.Control onClick={copy} aria-label={label} title={label}>
+      <IconMarkdown
+        size={16}
+        color={copied ? "var(--mantine-color-teal-6)" : undefined}
+      />
+    </RichTextEditor.Control>
+  );
+}
+
+/**
+ * The same control for read-only viewers, who get no formatting bubble menu
+ * (and are outside Mantine's `RichTextEditor` context, so they can't use
+ * `RichTextEditor.Control`). Selecting text is the one editor interaction they
+ * do have, so copying that selection as Markdown should be available to them
+ * too.
+ */
+function CopyMarkdownBubble({ editor }: { editor: Editor }) {
+  const { copied, copy, label } = useCopyMarkdown(editor);
+  return (
+    <BubbleMenu
+      editor={editor}
+      pluginKey="readOnlyCopyMarkdown"
+      tippyOptions={{ duration: 150 }}
+      shouldShow={({ state }) => !state.selection.empty}
+    >
+      <Tooltip label={label}>
+        <ActionIcon
+          variant="default"
+          size="md"
+          onClick={copy}
+          aria-label={label}
+          className="shadow-sm"
+        >
+          <IconMarkdown
+            size={16}
+            color={copied ? "var(--mantine-color-teal-6)" : undefined}
+          />
+        </ActionIcon>
+      </Tooltip>
+    </BubbleMenu>
+  );
 }
 
 export interface RichDocEditorProps {
@@ -438,7 +528,12 @@ export function RichDocEditor({
       </Text>
     );
   } else if (!editable) {
-    body = <EditorContent editor={editor} className="prd-document" />;
+    body = (
+      <>
+        <EditorContent editor={editor} className="prd-document" />
+        {editor && <CopyMarkdownBubble editor={editor} />}
+      </>
+    );
   } else {
     body = (
       <RichTextEditor
@@ -465,6 +560,7 @@ export function RichDocEditor({
               <RichTextEditor.H3 />
               <RichTextEditor.BulletList />
               <RichTextEditor.OrderedList />
+              <CopyMarkdownControl editor={editor} />
               {bubbleExtras}
             </RichTextEditor.ControlsGroup>
           </BubbleMenu>
