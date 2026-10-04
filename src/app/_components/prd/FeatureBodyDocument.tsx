@@ -68,9 +68,16 @@ export function FeatureBodyDocument({
     editable,
     adapter: {
       comments,
-      createThread: async ({ threadId, body, quotedText }) => {
-        await createComment.mutateAsync({ featureId, threadId, body, quotedText });
+      createThread: async ({ threadId, body, quotedText, anchor }) => {
+        const created = await createComment.mutateAsync({
+          featureId,
+          threadId,
+          body,
+          quotedText,
+          anchor,
+        });
         await invalidateComments();
+        return created.anchor;
       },
       reply: async ({ parentId, body }) => {
         await replyComment.mutateAsync({ parentId, body });

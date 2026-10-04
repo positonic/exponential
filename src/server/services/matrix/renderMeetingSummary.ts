@@ -43,7 +43,7 @@ export interface SummarySection {
   content: string;
 }
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -109,7 +109,7 @@ function humanizeKey(key: string): string {
 }
 
 /** Inline markdown (code, bold, links) → HTML. Input must already be escaped. */
-function inlineMarkdownToHtml(escaped: string): string {
+export function inlineMarkdownToHtml(escaped: string): string {
   return escaped
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -117,7 +117,7 @@ function inlineMarkdownToHtml(escaped: string): string {
 }
 
 /** Inline markdown → readable plain text (`**x**` → `x`, `[t](u)` → `t (u)`). */
-function stripInlineMarkdown(line: string): string {
+export function stripInlineMarkdown(line: string): string {
   return line
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")

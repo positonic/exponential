@@ -20,6 +20,7 @@ import {
   IconListDetails,
   IconMicrophone,
   IconNews,
+  IconSparkles,
   IconUserCheck,
   type Icon,
 } from '@tabler/icons-react';
@@ -45,6 +46,7 @@ const CATEGORY_DISPLAY: Record<NotificationCategory, { label: string; icon: Icon
   },
   [NOTIFICATION_CATEGORIES.AGENDA_READY]: { label: 'Agendas', icon: IconListDetails },
   [NOTIFICATION_CATEGORIES.SUMMARY]: { label: 'Summaries', icon: IconNews },
+  [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { label: 'Updates to review', icon: IconSparkles },
 };
 
 const CATEGORY_OPTIONS = [

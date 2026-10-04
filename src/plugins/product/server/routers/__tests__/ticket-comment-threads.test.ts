@@ -148,6 +148,135 @@ describe("ticket router — anchored comment threads (mocked)", () => {
     });
   });
 
+  describe("addComment pins the thread's mark into bodyDoc", () => {
+    // "indicator" sits at positions 11..20: 1 for the paragraph's opening,
+    // plus its offset in the text.
+    const bodyDoc = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "check the indicator value" }] }],
+    };
+    const anchor = { baseVersion: 4, from: 11, to: 20, prefix: "check the ", suffix: " value" };
+
+    function stubStoredDoc(docVersion: number) {
+      dbMock.ticket.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: ticketId, productId: "prod-1", body: null, docVersion, bodyDoc, product: { workspaceId } } as any,
+      );
+    }
+
+    /** The thread ids marked in the doc the router wrote, and the text under them. */
+    function writtenMarks() {
+      const data = dbMock.ticket.updateMany.mock.calls[0]?.[0]?.data as {
+        bodyDoc: { content: Array<{ content: Array<{ text: string; marks?: Array<{ attrs: { threadId: string } }> }> }> };
+      };
+      return data.bodyDoc.content[0]!.content
+        .filter((n) => n.marks?.length)
+        .map((n) => [n.text, n.marks![0]!.attrs.threadId]);
+    }
+
+    it("on top of the client's base: uses its positions and lets it fast-forward", async () => {
+      stubStoredDoc(4);
+      dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const res = await caller.product.ticket.addComment({
+        ticketId,
+        content: "Is this right?",
+        threadId: "thread-1",
+        quotedText: "indicator",
+        anchor,
+      });
+
+      expect(dbMock.ticket.updateMany.mock.calls[0]?.[0]?.where).toEqual({ id: ticketId, docVersion: 4 });
+      expect(dbMock.ticket.updateMany.mock.calls[0]?.[0]?.data).toMatchObject({ docVersion: { increment: 1 } });
+      expect(writtenMarks()).toEqual([["indicator", "thread-1"]]);
+      expect(res.anchor).toEqual({ anchored: true, docVersion: 5, fastForward: true });
+    });
+
+    it("after someone else's write: finds the quote, and the client keeps its base", async () => {
+      // The doc moved on to v6 (say, a CLI rewrite) since the client's v4.
+      stubStoredDoc(6);
+      dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const res = await caller.product.ticket.addComment({
+        ticketId,
+        content: "Is this right?",
+        threadId: "thread-1",
+        quotedText: "indicator",
+        anchor: { ...anchor, from: 2, to: 5 },
+      });
+
+      expect(writtenMarks()).toEqual([["indicator", "thread-1"]]);
+      expect(res.anchor).toEqual({ anchored: true, docVersion: 7, fastForward: false });
+    });
+
+    it("re-reads and retries once after losing the compare-and-set", async () => {
+      // v4 when first read; another write lands (v5) before ours goes in.
+      dbMock.ticket.findUnique
+        .mockResolvedValueOnce(
+          // loadTicketWithAccess
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { id: ticketId, productId: "prod-1", body: null, docVersion: 4, bodyDoc, product: { workspaceId } } as any,
+        )
+        .mockResolvedValueOnce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { docVersion: 4, bodyDoc } as any,
+        )
+        .mockResolvedValueOnce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { docVersion: 5, bodyDoc } as any,
+        );
+      dbMock.ticket.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const res = await caller.product.ticket.addComment({
+        ticketId,
+        content: "Is this right?",
+        threadId: "thread-1",
+        quotedText: "indicator",
+        anchor,
+      });
+
+      expect(dbMock.ticket.updateMany.mock.calls[1]?.[0]?.where).toEqual({ id: ticketId, docVersion: 5 });
+      // Written on top of someone else's v5, so the client must not adopt v6.
+      expect(res.anchor).toEqual({ anchored: true, docVersion: 6, fastForward: false });
+    });
+
+    it("still returns the comment when the doc keeps changing under the write", async () => {
+      stubStoredDoc(4);
+      dbMock.ticket.updateMany.mockResolvedValue({ count: 0 });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const res = await caller.product.ticket.addComment({
+        ticketId,
+        content: "Is this right?",
+        threadId: "thread-1",
+        quotedText: "indicator",
+        anchor,
+      });
+
+      // One retry, then give up: the thread is orphaned, the comment stands.
+      expect(dbMock.ticket.updateMany).toHaveBeenCalledTimes(2);
+      expect(res.id).toBe("new-comment");
+      expect(res.anchor).toEqual({ anchored: false, fastForward: false });
+    });
+
+    it("leaves the doc alone for a comment with no anchor", async () => {
+      stubStoredDoc(4);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.product.ticket.addComment({
+        ticketId,
+        content: "Is this right?",
+        threadId: "thread-1",
+        quotedText: "indicator",
+      });
+
+      expect(dbMock.ticket.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
   it("replyComment hangs a reply-to-a-reply off the thread root", async () => {
     dbMock.ticketComment.findUnique.mockResolvedValue(
       // The parent is itself a reply to root-1.

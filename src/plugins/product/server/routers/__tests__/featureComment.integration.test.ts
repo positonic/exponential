@@ -192,4 +192,49 @@ describe("featureComment router", () => {
       caller.product.featureComment.list({ featureId: feature.id }),
     ).rejects.toThrow();
   });
+
+  it("pins a stale tab's highlight server-side, and keeps it through an agent's rewrite", async () => {
+    // The CLEAR Agent incident: an agent rewrote the description while the
+    // commenting tab was open, so the tab's base version (1) is stale.
+    const { db, user, feature } = await setupFeature();
+    const sentence =
+      "It can change what the user is looking at (Agent navigation, always undoable) but never changes data.";
+    await db.feature.update({
+      where: { id: feature.id },
+      data: {
+        description: sentence,
+        descriptionDoc: {
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: "Rewritten intro." }] },
+            { type: "paragraph", content: [{ type: "text", text: sentence }] },
+          ],
+        },
+        docVersion: 2,
+      },
+    });
+    const caller = createTestCaller(user.id);
+
+    const created = await caller.product.featureComment.create({
+      featureId: feature.id,
+      threadId: "thread-1",
+      body: "I find this exciting",
+      quotedText: "Agent navigation",
+      // Positions from the tab's v1 doc, which no longer hold the quote.
+      anchor: { baseVersion: 1, from: 44, to: 60, prefix: "is looking at (", suffix: ", always undoable)" },
+    });
+
+    expect(created.anchor).toEqual({ anchored: true, docVersion: 3, fastForward: false });
+    const anchored = await db.feature.findUniqueOrThrow({ where: { id: feature.id } });
+    expect(JSON.stringify(anchored.descriptionDoc)).toContain('"threadId":"thread-1"');
+
+    // An agent rewrites the Markdown again; the highlight's text survives.
+    await caller.product.feature.update({
+      id: feature.id,
+      description: `A third intro.\n\n${sentence}`,
+    });
+    const rewritten = await db.feature.findUniqueOrThrow({ where: { id: feature.id } });
+    expect(rewritten.docVersion).toBe(4);
+    expect(JSON.stringify(rewritten.descriptionDoc)).toContain('"threadId":"thread-1"');
+  });
 });

@@ -18,6 +18,7 @@ import { ActivityFeed } from './activity/ActivityFeed';
 import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
 import { toPlainText } from '~/lib/content/plainText';
+import { completeActionPatch, DoneCheckbox } from './shared/DoneCheckbox';
 
 type ActionRow = RouterOutputs['action']['getAll'][number];
 
@@ -98,8 +99,8 @@ export function YourWorkPanel() {
 
   // Mention notifications — the ADR-0045 pipeline writes these rows; this
   // inbox is their first reader. User-scoped, not workspace-scoped: a mention
-  // follows the person. Only unread ones render — marking read removes the
-  // row for good. Filtered server-side so any volume of read mentions can't
+  // follows the person. Only unread ones render — ticking one done (never
+  // merely opening it) removes the row for good. Filtered server-side so any volume of read mentions can't
   // crowd out an unread one.
   const utils = api.useUtils();
   const { data: mentionData, isLoading: mentionsLoading } =
@@ -120,6 +121,9 @@ export function YourWorkPanel() {
   });
   const markAllRead = api.notification.markAllRead.useMutation({
     onSuccess: invalidateInbox,
+  });
+  const completeAction = api.action.update.useMutation({
+    onSuccess: () => void utils.action.getAll.invalidate(),
   });
 
   if (!workspaceId || !workspaceSlug) return null;
@@ -209,34 +213,43 @@ export function YourWorkPanel() {
               <div key={bucket}>
                 <div className={styles.bucketLabel}>{bucket}</div>
                 {rows.map((action) => (
-                  <UnstyledButton
-                    key={action.id}
-                    component={Link}
-                    href={`/w/${workspaceSlug}/actions/${action.id}`}
-                    className={styles.row}
-                  >
-                    <IconSquareRoundedCheck
-                      size={14}
-                      stroke={1.75}
-                      style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
-                    />
-                    {/* Legacy HTML / Markdown name inside an anchor row: text only. */}
-                    <span className={styles.rowLabel}>{toPlainText(action.name)}</span>
-                    {action.project && (
-                      <span className={styles.rowMeta}>{action.project.name}</span>
-                    )}
-                    {action.dueDate && (
-                      <span
-                        className={
-                          bucket === 'Overdue'
-                            ? `${styles.rowMeta} ${styles.rowMetaOverdue}`
-                            : styles.rowMeta
+                  <div key={action.id} className={styles.rowWithDone}>
+                    <UnstyledButton
+                      component={Link}
+                      href={`/w/${workspaceSlug}/actions/${action.id}`}
+                      className={styles.row}
+                    >
+                      <IconSquareRoundedCheck
+                        size={14}
+                        stroke={1.75}
+                        style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}
+                      />
+                      {/* Legacy HTML / Markdown name inside an anchor row: text only. */}
+                      <span className={styles.rowLabel}>{toPlainText(action.name)}</span>
+                      {action.project && (
+                        <span className={styles.rowMeta}>{action.project.name}</span>
+                      )}
+                      {action.dueDate && (
+                        <span
+                          className={
+                            bucket === 'Overdue'
+                              ? `${styles.rowMeta} ${styles.rowMetaOverdue}`
+                              : styles.rowMeta
+                          }
+                        >
+                          {formatDue(new Date(action.dueDate))}
+                        </span>
+                      )}
+                    </UnstyledButton>
+                    <span className={styles.rowDone}>
+                      <DoneCheckbox
+                        label="Mark action done"
+                        onDone={() =>
+                          completeAction.mutateAsync(completeActionPatch(action))
                         }
-                      >
-                        {formatDue(new Date(action.dueDate))}
-                      </span>
-                    )}
-                  </UnstyledButton>
+                      />
+                    </span>
+                  </div>
                 ))}
               </div>
             );
@@ -315,27 +328,32 @@ export function YourWorkPanel() {
                 </span>
               </>
             );
-            // Opening a mention reads it — mark before the navigation unmounts us.
-            const readOnOpen = () =>
-              markRead.mutate({ notificationId: mention.id });
-            return mention.deeplink ? (
-              <UnstyledButton
-                key={mention.id}
-                component={Link}
-                href={mention.deeplink}
-                className={styles.row}
-                onClick={readOnOpen}
-              >
-                {row}
-              </UnstyledButton>
-            ) : (
-              <UnstyledButton
-                key={mention.id}
-                className={styles.row}
-                onClick={readOnOpen}
-              >
-                {row}
-              </UnstyledButton>
+            // Opening a mention only navigates; the tick box is what marks
+            // it done, so you can open it and come back to it.
+            return (
+              <div key={mention.id} className={styles.rowWithDone}>
+                {mention.deeplink ? (
+                  <UnstyledButton
+                    component={Link}
+                    href={mention.deeplink}
+                    className={styles.row}
+                  >
+                    {row}
+                  </UnstyledButton>
+                ) : (
+                  <div className={styles.row} style={{ cursor: 'default' }}>
+                    {row}
+                  </div>
+                )}
+                <span className={styles.rowDone}>
+                  <DoneCheckbox
+                    label="Mark mention done"
+                    onDone={() =>
+                      markRead.mutateAsync({ notificationId: mention.id })
+                    }
+                  />
+                </span>
+              </div>
             );
           })}
         </>

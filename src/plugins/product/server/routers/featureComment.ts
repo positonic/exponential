@@ -1,9 +1,16 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
+import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadFeatureWithAccess } from "./feature";
 import { emitFeatureCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+} from "~/server/services/prd/anchor-comment";
 
 const authorSelect = {
   id: true,
@@ -44,6 +51,9 @@ export const featureCommentRouter = createTRPCRouter({
         threadId: z.string().min(1).optional(),
         body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
         quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `descriptionDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -83,7 +93,36 @@ export const featureCommentRouter = createTRPCRouter({
         commentAuthorId: ctx.session.user.id,
       });
 
-      return comment;
+      const anchor = input.threadId
+        ? await anchorThreadInStoredDoc({
+            area: "featureComment.create",
+            threadId: input.threadId,
+            quotedText: input.quotedText,
+            anchor: input.anchor,
+            read: async () => {
+              const row = await ctx.db.feature.findUnique({
+                where: { id: input.featureId },
+                select: { descriptionDoc: true, docVersion: true },
+              });
+              return row && {
+                doc: row.descriptionDoc as JSONContent | null,
+                docVersion: row.docVersion,
+              };
+            },
+            write: async (doc, expectedVersion) => {
+              const res = await ctx.db.feature.updateMany({
+                where: { id: input.featureId, docVersion: expectedVersion },
+                data: {
+                  descriptionDoc: doc as Prisma.InputJsonValue,
+                  docVersion: { increment: 1 },
+                },
+              });
+              return res.count === 1;
+            },
+          })
+        : NOT_ANCHORED;
+
+      return { ...comment, anchor };
     }),
 
   reply: protectedProcedure

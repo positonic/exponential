@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { shouldSendEmailNotification } from "~/server/services/notifications/EmailNotificationService";
+import { hasPairedMatrix } from "~/server/utils/matrixGatewayIntegration";
 import {
   CHANNEL_LIST,
   DEFAULT_MATRIX,
@@ -31,8 +32,16 @@ export async function resolveEnabledChannels(
 
   const enabled: NotificationChannel[] = [];
   for (const channel of CHANNEL_LIST) {
-    const isEnabled = byChannel.get(channel) ?? defaults?.[channel] ?? false;
+    const explicit = byChannel.get(channel);
+    const isEnabled = explicit ?? defaults?.[channel] ?? false;
     if (!isEnabled) continue;
+
+    // A category that defaults Matrix on (Update review) must not queue DMs —
+    // five failing retries each — for users who never paired Matrix. An
+    // explicit opt-in is the user's own choice and is left as is.
+    if (channel === NOTIFICATION_CHANNELS.MATRIX && explicit === undefined) {
+      if (!(await hasPairedMatrix(db, userId))) continue;
+    }
 
     // Per-workspace email override is a hard suppression on top of the matrix.
     if (channel === NOTIFICATION_CHANNELS.EMAIL) {

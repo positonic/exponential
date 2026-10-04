@@ -60,6 +60,8 @@ import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
+import { GoalIcon } from "./GoalIcon";
+import { IconPicker } from "./IconPicker";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { notifications } from "@mantine/notifications";
@@ -201,6 +203,33 @@ export function ProjectContent({
     { enabled: dependentQueriesEnabled },
   );
   const utils = api.useUtils();
+  const updateIcon = api.project.updateIcon.useMutation({
+    onMutate: async (newData) => {
+      await utils.project.getById.cancel({ id: projectId });
+      const previous = utils.project.getById.getData({ id: projectId });
+      if (previous) {
+        utils.project.getById.setData({ id: projectId }, {
+          ...previous,
+          icon: newData.icon,
+          iconColor: newData.iconColor,
+        });
+      }
+      return { previous };
+    },
+    onError: (error, _newData, context) => {
+      if (context?.previous) {
+        utils.project.getById.setData({ id: projectId }, context.previous);
+      }
+      notifications.show({
+        title: "Error",
+        message: error.message,
+        color: "red",
+      });
+    },
+    onSettled: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+    },
+  });
   const updateDates = api.project.updateDates.useMutation({
     onSuccess: () => {
       void utils.project.getById.invalidate({ id: projectId });
@@ -316,7 +345,21 @@ export function ProjectContent({
             {workspace?.name ? ` · ${workspace.name}` : ""}
           </div>
           <h1 className={overviewStyles.title}>
-            <span className={overviewStyles.titleGlyph}>{monogram}</span>
+            <IconPicker
+              value={project.icon}
+              color={project.iconColor}
+              onChange={(icon, iconColor) => {
+                updateIcon.mutate({ id: project.id, icon, iconColor });
+              }}
+            >
+              {project.icon ? (
+                <span className={`${overviewStyles.titleGlyph} ${overviewStyles.titleGlyphIcon}`}>
+                  <GoalIcon icon={project.icon} iconColor={project.iconColor} size={20} />
+                </span>
+              ) : (
+                <span className={overviewStyles.titleGlyph}>{monogram}</span>
+              )}
+            </IconPicker>
             {project.name}
             {project.isRestricted && (
               <Tooltip label="Restricted — only members can access">

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { loadProductWithAccess, assertWorkspaceMember } from "./product";
@@ -11,6 +12,12 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+  withCarriedCommentMarks,
+} from "~/server/services/prd/anchor-comment";
 import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
@@ -50,6 +57,8 @@ const ticketStatusEnum = z.enum([
   "DEPLOYED",
   "ARCHIVED",
 ]);
+
+type TicketStatusValue = z.infer<typeof ticketStatusEnum>;
 
 async function loadTicketWithAccess(
   db: PrismaClient,
@@ -104,6 +113,97 @@ const DEP_TICKET_SELECT = {
   priority: true,
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
+
+/** Filters shared by `list` and `listSummaries`. */
+const ticketListInput = z.object({
+  productId: z.string(),
+  status: ticketStatusEnum.optional(),
+  type: ticketTypeEnum.optional(),
+  featureId: z.string().optional(),
+  epicId: z.string().optional(),
+  cycleId: z.string().optional(),
+  assigneeId: z.string().optional(),
+  // Area filter: a Tag CUID (category = "area"). Constrains results to
+  // tickets carrying that Area tag. No-op when omitted.
+  areaTagId: z.string().optional(),
+});
+
+function ticketListWhere(
+  input: z.infer<typeof ticketListInput>,
+): Prisma.TicketWhereInput {
+  return {
+    productId: input.productId,
+    ...(input.status ? { status: input.status } : {}),
+    ...(input.type ? { type: input.type } : {}),
+    ...(input.featureId ? { featureId: input.featureId } : {}),
+    ...(input.epicId ? { epicId: input.epicId } : {}),
+    ...(input.cycleId ? { cycleId: input.cycleId } : {}),
+    ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
+    ...(input.areaTagId
+      ? { tags: { some: { tagId: input.areaTagId } } }
+      : {}),
+  };
+}
+
+const TICKET_LIST_ORDER_BY: Prisma.TicketOrderByWithRelationInput[] = [
+  { status: "asc" },
+  { createdAt: "desc" },
+];
+
+/** Swap each ticket's `depsOut` edges for its open-blocker count. */
+function withBlockerCounts<
+  T extends {
+    status: TicketStatusValue;
+    depsOut: Array<{ dependsOn: { status: TicketStatusValue } }>;
+  },
+>(tickets: T[]) {
+  return tickets.map((t) => {
+    const openBlockerCount = t.depsOut.filter(
+      (d) => !COMPLETED_TICKET_STATUSES.includes(d.dependsOn.status),
+    ).length;
+    const isBlocked =
+      openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
+    const { depsOut: _depsOut, ...rest } = t;
+    return { ...rest, openBlockerCount, isBlocked };
+  });
+}
+
+/**
+ * The columns a list view renders (backlog table, list and board, a Feature's
+ * ticket list, the Decision pickers). Leaves out the body, its ProseMirror
+ * doc and the engineering links: on a large product those are most of the
+ * bytes, and every view that shows them loads the ticket by id.
+ */
+const TICKET_SUMMARY_SELECT = {
+  id: true,
+  productId: true,
+  number: true,
+  shortId: true,
+  title: true,
+  type: true,
+  status: true,
+  priority: true,
+  createdAt: true,
+  assignee: { select: { id: true, name: true, image: true } },
+  feature: { select: { id: true, name: true } },
+  epic: { select: { id: true, name: true } },
+  cycle: { select: { id: true, name: true, status: true, startDate: true, endDate: true } },
+  tags: {
+    select: {
+      tag: { select: { id: true, name: true, color: true, category: true } },
+    },
+  },
+  depsOut: { select: { dependsOn: { select: { status: true } } } },
+  syncs: {
+    select: {
+      provider: true,
+      externalId: true,
+      externalUrl: true,
+      lastSyncedAt: true,
+      tombstonedAt: true,
+    },
+  },
+} satisfies Prisma.TicketSelect;
 
 /** Everything the ticket detail page renders, shared by getById and getByRef. */
 const TICKET_DETAIL_INCLUDE = {
@@ -224,38 +324,19 @@ async function loadTemplateWithAccess(
 
 export const ticketRouter = createTRPCRouter({
   // ────────────────── Tickets ──────────────────
+  /**
+   * Every ticket in a product with all of its columns, body included. The
+   * public API: the SDK and CLI read this. In-app list views use
+   * `listSummaries`, which leaves the body out.
+   */
   list: protectedProcedure
-    .input(
-      z.object({
-        productId: z.string(),
-        status: ticketStatusEnum.optional(),
-        type: ticketTypeEnum.optional(),
-        featureId: z.string().optional(),
-        epicId: z.string().optional(),
-        cycleId: z.string().optional(),
-        assigneeId: z.string().optional(),
-        // Area filter: a Tag CUID (category = "area"). Constrains results to
-        // tickets carrying that Area tag. No-op when omitted.
-        areaTagId: z.string().optional(),
-      }),
-    )
+    .input(ticketListInput)
     .query(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
       const tickets = await ctx.db.ticket.findMany({
-        where: {
-          productId: input.productId,
-          ...(input.status ? { status: input.status } : {}),
-          ...(input.type ? { type: input.type } : {}),
-          ...(input.featureId ? { featureId: input.featureId } : {}),
-          ...(input.epicId ? { epicId: input.epicId } : {}),
-          ...(input.cycleId ? { cycleId: input.cycleId } : {}),
-          ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
-          ...(input.areaTagId
-            ? { tags: { some: { tagId: input.areaTagId } } }
-            : {}),
-        },
-        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+        where: ticketListWhere(input),
+        orderBy: TICKET_LIST_ORDER_BY,
         include: {
           assignee: { select: { id: true, name: true, image: true } },
           feature: { select: { id: true, name: true } },
@@ -276,15 +357,27 @@ export const ticketRouter = createTRPCRouter({
         },
       });
 
-      return tickets.map((t) => {
-        const openBlockerCount = t.depsOut.filter(
-          (d) => !COMPLETED_TICKET_STATUSES.includes(d.dependsOn.status),
-        ).length;
-        const isBlocked =
-          openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
-        const { depsOut: _depsOut, ...rest } = t;
-        return { ...rest, openBlockerCount, isBlocked };
+      return withBlockerCounts(tickets);
+    }),
+
+  /**
+   * The product's tickets as list views need them: same filters and order as
+   * `list`, but only the columns in TICKET_SUMMARY_SELECT. On CLEAR (656
+   * tickets) `list` returns 2.1 MB, most of it body text the backlog never
+   * shows.
+   */
+  listSummaries: protectedProcedure
+    .input(ticketListInput)
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      const tickets = await ctx.db.ticket.findMany({
+        where: ticketListWhere(input),
+        orderBy: TICKET_LIST_ORDER_BY,
+        select: TICKET_SUMMARY_SELECT,
       });
+
+      return withBlockerCounts(tickets);
     }),
 
   getById: protectedProcedure
@@ -612,13 +705,23 @@ export const ticketRouter = createTRPCRouter({
       // runs even while `bodyDoc` is still null: a tab may already hold the
       // older `body` it is about to migrate, and without the doc + bump its
       // lazy migration and first save would silently undo this write.
+      // Comment marks are carried across from the old doc wherever their
+      // text survived, so the rewrite doesn't orphan those threads.
       const syncDoc =
         bodyDoc === undefined &&
         rest.body !== undefined &&
         rest.body !== previousTicket.body;
       if (syncDoc) {
+        const previousDoc = await ctx.db.ticket.findUnique({
+          where: { id },
+          select: { bodyDoc: true },
+        });
         try {
-          data.bodyDoc = markdownToDocServer(rest.body);
+          data.bodyDoc = withCarriedCommentMarks(
+            previousDoc?.bodyDoc as JSONContent | null | undefined,
+            markdownToDocServer(rest.body),
+            "ticket.update",
+          );
           data.docVersion = { increment: 1 };
         } catch (err) {
           throw new TRPCError({
@@ -1103,6 +1206,9 @@ export const ticketRouter = createTRPCRouter({
         // orphaned thread still renders. Both absent = plain feed comment.
         threadId: z.string().min(1).optional(),
         quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `bodyDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1146,7 +1252,36 @@ export const ticketRouter = createTRPCRouter({
         commentAuthorId: ctx.session.user.id,
       });
 
-      return comment;
+      const anchor = input.threadId
+        ? await anchorThreadInStoredDoc({
+            area: "ticket.addComment",
+            threadId: input.threadId,
+            quotedText: input.quotedText,
+            anchor: input.anchor,
+            read: async () => {
+              const row = await ctx.db.ticket.findUnique({
+                where: { id: input.ticketId },
+                select: { bodyDoc: true, docVersion: true },
+              });
+              return row && {
+                doc: row.bodyDoc as JSONContent | null,
+                docVersion: row.docVersion,
+              };
+            },
+            write: async (doc, expectedVersion) => {
+              const res = await ctx.db.ticket.updateMany({
+                where: { id: input.ticketId, docVersion: expectedVersion },
+                data: {
+                  bodyDoc: doc as Prisma.InputJsonValue,
+                  docVersion: { increment: 1 },
+                },
+              });
+              return res.count === 1;
+            },
+          })
+        : NOT_ANCHORED;
+
+      return { ...comment, anchor };
     }),
 
   updateComment: protectedProcedure

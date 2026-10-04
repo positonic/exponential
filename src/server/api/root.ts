@@ -59,6 +59,7 @@ import { formRouter } from "./routers/form";
 import { collectionRouter } from "./routers/collection";
 import { listAutomationRouter } from "./routers/listAutomation";
 import { broadcastRouter } from "./routers/broadcast";
+import { workspaceUpdateRouter } from "./routers/workspaceUpdate";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
 import { taskScheduleRouter } from "./routers/taskSchedule";
@@ -162,6 +163,7 @@ export const appRouter = createTRPCRouter({
   collection: collectionRouter,
   listAutomation: listAutomationRouter,
   broadcast: broadcastRouter,
+  workspaceUpdate: workspaceUpdateRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
   taskSchedule: taskScheduleRouter,
