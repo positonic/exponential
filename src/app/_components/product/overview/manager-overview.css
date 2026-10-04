@@ -811,3 +811,10 @@
     grid-column: 3;
   }
 }
+.mo-link {
+  color: var(--mo-blue);
+  text-decoration: none;
+}
+.mo-link:hover {
+  text-decoration: underline;
+}
