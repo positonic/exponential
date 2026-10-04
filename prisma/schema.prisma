@@ -4711,10 +4711,29 @@ model Product {
   cycles            List[]                @relation("ProductCycles")
   ceremonies        Ceremony[]
   decisions         Decision[]
+  overviewSummary   ProductOverviewSummary?
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
   @@index([createdById])
+}
+
+// Cached AI summary for the product Overview tab. One row per product, holding
+// the latest summary. Regenerated on demand when the underlying facts change
+// (inputHash differs) and the row is at least an hour old, or when it is more
+// than 24h old. See src/plugins/product/server/overviewSummaryService.ts.
+model ProductOverviewSummary {
+  id          String   @id @default(cuid())
+  productId   String   @unique
+  summary     String   @db.Text
+  risk        String?  @db.Text
+  inputHash   String
+  model       String
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 // Feature lifecycle (Features V2): Idea -> Defined -> In progress -> Live ->

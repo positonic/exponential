@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { Skeleton } from "@mantine/core";
 import {
@@ -12,47 +11,42 @@ import {
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
-import { CycleHero } from "./CycleHero";
-import { NeedsAttention } from "./NeedsAttention";
-import { BacklogPulse } from "./BacklogPulse";
-import { QuickActions } from "./QuickActions";
-import { RecentActivity } from "./RecentActivity";
-import type { OverviewProduct, ProductOverviewData } from "./overviewShared";
+import { ManagerOverview } from "./ManagerOverview";
+import type { OverviewProduct } from "./overviewShared";
 import "./product-overview.css";
+import "./manager-overview.css";
 
 export function OverviewSkeleton() {
   return (
-    <div className="po-grid" aria-busy="true">
-      <div className="po-col">
-        <div className="po-block" style={{ padding: "20px 22px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <Skeleton height={14} width={200} />
-            <Skeleton height={34} width={44} />
-          </div>
-          <Skeleton height={12} width="100%" mt={24} />
-          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-            {[70, 60, 80, 66].map((w, i) => (
-              <Skeleton key={i} height={24} width={w} radius={20} />
-            ))}
-          </div>
-          <Skeleton height={11} width="100%" mt={22} />
-          <Skeleton height={11} width="92%" mt={10} />
+    <div className="mo-page" aria-busy="true">
+      <div className="mo-card">
+        <Skeleton height={12} width={160} />
+        <Skeleton height={13} width="90%" mt={18} />
+        <Skeleton height={13} width="70%" mt={10} />
+      </div>
+      <div className="mo-cockpit">
+        <div className="mo-card mo-cockpit__main">
+          <Skeleton height={12} width={180} />
+          <Skeleton height={40} width={140} mt={16} />
+          <Skeleton height={190} mt={16} />
         </div>
-        <div className="po-block" style={{ padding: 16 }}>
-          <Skeleton height={11} width={130} />
-          <Skeleton height={11} width="90%" mt={14} />
-          <Skeleton height={11} width="78%" mt={10} />
-          <Skeleton height={11} width="66%" mt={10} />
+        <div className="mo-cockpit__side">
+          {[4, 4].map((lines, i) => (
+            <div key={i} className="mo-card">
+              <Skeleton height={12} width={130} />
+              {Array.from({ length: lines }).map((_, j) => (
+                <Skeleton key={j} height={12} width={`${90 - j * 10}%`} mt={14} />
+              ))}
+            </div>
+          ))}
         </div>
       </div>
-      <div className="po-col">
-        {[3, 4].map((lines, block) => (
-          <div key={block} className="po-block" style={{ padding: 16 }}>
-            <Skeleton height={11} width={130} />
-            {Array.from({ length: lines }).map((_, i) => (
-              <Skeleton key={i} height={11} width={`${90 - i * 12}%`} mt={12} />
-            ))}
+      <div className="mo-stages">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="mo-stage">
+            <Skeleton height={12} width={80} />
+            <Skeleton height={30} width={40} mt={12} />
+            <Skeleton height={10} width={100} mt={12} />
           </div>
         ))}
       </div>
@@ -129,16 +123,6 @@ function FirstRun({
   );
 }
 
-function isFirstRun(data: ProductOverviewData): boolean {
-  const totalTickets = data.statusCounts.reduce((s, g) => s + g.count, 0);
-  return (
-    totalTickets === 0 &&
-    data.counts.features === 0 &&
-    data.counts.researches === 0 &&
-    data.counts.retrospectives === 0
-  );
-}
-
 export function ProductOverview({
   product,
   basePath,
@@ -146,19 +130,12 @@ export function ProductOverview({
   product: OverviewProduct;
   basePath: string;
 }) {
-  const [ticketModalOpen, setTicketModalOpen] = useState(false);
-
-  const { data, isLoading } = api.product.product.getOverview.useQuery({
+  const { data, isLoading } = api.product.product.getManagerOverview.useQuery({
     productId: product.id,
   });
 
-  // Per-product accent: product.color if set, else brand. All tints in the
-  // CSS derive from this one variable via color-mix, so any value works in
-  // both themes.
-  const accent = product.color ?? "var(--brand-500)";
-
   return (
-    <div className="product-overview" style={{ "--po-accent": accent } as React.CSSProperties}>
+    <div className="product-overview mo-root">
       {product.description?.trim() && (
         <div className="po-description">
           <MarkdownRenderer content={product.description} variant="compact" />
@@ -166,44 +143,16 @@ export function ProductOverview({
       )}
       {isLoading || !data ? (
         <OverviewSkeleton />
-      ) : isFirstRun(data) ? (
+      ) : data.firstRun ? (
         <FirstRun product={product} basePath={basePath} />
       ) : (
-        <div className="po-grid">
-          <div className="po-col">
-            <CycleHero cycle={data.cycle} product={product} basePath={basePath} />
-            <BacklogPulse
-              statusCounts={data.statusCounts}
-              counts={data.counts}
-              basePath={basePath}
-            />
-            <RecentActivity
-              activity={data.activity}
-              product={product}
-              basePath={basePath}
-            />
-          </div>
-          <div className="po-col">
-            <NeedsAttention
-              attention={data.attention}
-              product={product}
-              basePath={basePath}
-            />
-            <QuickActions
-              basePath={basePath}
-              onNewTicket={() => setTicketModalOpen(true)}
-            />
-          </div>
-        </div>
+        <ManagerOverview
+          data={data}
+          productId={product.id}
+          productName={product.name}
+          basePath={basePath}
+        />
       )}
-
-      <CreateTicketModal
-        opened={ticketModalOpen}
-        onClose={() => setTicketModalOpen(false)}
-        productId={product.id}
-        productName={product.name}
-        basePath={`${basePath}/tickets`}
-      />
     </div>
   );
 }
