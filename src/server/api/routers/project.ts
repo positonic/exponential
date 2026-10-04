@@ -410,8 +410,8 @@ export const projectRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string(),
-        icon: z.string().nullable(),
-        iconColor: z.string().nullable(),
+        icon: z.string().max(100).nullable(),
+        iconColor: z.string().max(32).nullable(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
