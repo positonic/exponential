@@ -467,6 +467,17 @@ export default function FeaturesListPage() {
     [groups],
   );
 
+  // A selected feature that has left the list is deselected. Bulk-editing the
+  // very field a filter is on (filter "No area", then set an Area) moves the
+  // rows out of view, and the bulk bar - Delete included - must never act on
+  // rows that are no longer on screen.
+  const selSetMany = sel.setMany;
+  useEffect(() => {
+    const visible = new Set(visibleIds);
+    const hidden = Array.from(sel.selected).filter((id) => !visible.has(id));
+    if (hidden.length > 0) selSetMany(hidden, false);
+  }, [visibleIds, sel.selected, selSetMany]);
+
   // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
   const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/features`;
   const peekId = searchParams.get("peek");
