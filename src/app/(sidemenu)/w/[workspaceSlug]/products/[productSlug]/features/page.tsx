@@ -195,18 +195,31 @@ export default function FeaturesListPage() {
   // prefs land. A failed prefs read falls back to no filters.
   const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
-  const savePrefs = api.product.product.saveViewPrefs.useMutation();
+  const savePrefs = api.product.product.saveViewPrefs.useMutation({
+    // Keep the cached prefs in step with what is being saved: coming back to
+    // this tab remounts the page, which restores from that cache. A read still
+    // in flight is cancelled first, or it would land afterwards and put the
+    // pre-save value back.
+    onMutate: async (vars) => {
+      const key = { productSlug: vars.productSlug, workspaceId: vars.workspaceId };
+      await utils.product.product.getViewPrefs.cancel(key);
+      utils.product.product.getViewPrefs.setData(key, (prev) => ({ ...prev, ...vars.prefs }));
+    },
+    // A failed save leaves that cache ahead of the server: read it again.
+    onError: (_err, vars) =>
+      utils.product.product.getViewPrefs.invalidate({
+        productSlug: vars.productSlug,
+        workspaceId: vars.workspaceId,
+      }),
+  });
   const saveMutateRef = useRef(savePrefs.mutate);
   saveMutateRef.current = savePrefs.mutate;
 
   const { push: debouncedSave } = useCoalescedSave<{ filters: FeatureFilters }>(
     useCallback((prefs: Partial<{ filters: FeatureFilters }>) => {
       if (!prefsInput.workspaceId) return;
-      // Keep the cached prefs in step with what was saved: coming back to this
-      // tab remounts the page, which restores from that cache.
-      utils.product.product.getViewPrefs.setData(prefsInput, (prev) => ({ ...prev, ...prefs }));
       saveMutateRef.current({ ...prefsInput, prefs });
-    }, [prefsInput, utils]),
+    }, [prefsInput]),
   );
 
   useEffect(() => {
