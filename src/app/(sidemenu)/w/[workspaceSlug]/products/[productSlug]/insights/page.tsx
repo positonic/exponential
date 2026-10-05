@@ -264,6 +264,7 @@ export default function InsightsPage() {
     { enabled: !!workspaceId },
   );
   const savePrefs = api.product.product.saveViewPrefs.useMutation();
+  const utils = api.useUtils();
 
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {
@@ -277,6 +278,12 @@ export default function InsightsPage() {
   const changeView = (v: "list" | "board") => {
     setView(v);
     if (workspaceId) {
+      // Patch the cached prefs too: a client-side tab switch remounts this
+      // page and the effect above restores from the getViewPrefs cache.
+      utils.product.product.getViewPrefs.setData(
+        { productSlug: prefsKey, workspaceId },
+        (prev) => ({ ...prev, view: v }),
+      );
       savePrefs.mutate({ productSlug: prefsKey, workspaceId, prefs: { view: v } });
     }
   };
@@ -296,7 +303,6 @@ export default function InsightsPage() {
     { enabled: !!product?.id },
   );
 
-  const utils = api.useUtils();
   const invalidate = () => {
     if (product?.id) void utils.product.insight.list.invalidate({ productId: product.id });
   };

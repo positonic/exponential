@@ -348,6 +348,7 @@ export default function TicketsBacklogPage() {
   // layout shift. A failed prefs read falls back to the defaults.
   const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
+  const utils = api.useUtils();
   const savePrefs = api.product.product.saveViewPrefs.useMutation();
   const saveMutateRef = useRef(savePrefs.mutate);
   saveMutateRef.current = savePrefs.mutate;
@@ -357,8 +358,15 @@ export default function TicketsBacklogPage() {
   const { push: debouncedSave } = useCoalescedSave<SavedViewPrefs>(
     useCallback((prefs: Partial<SavedViewPrefs>) => {
       if (!workspaceId) return;
+      // Patch the cached prefs too. A client-side tab switch remounts this
+      // page, and the restore effect below reads whatever getViewPrefs has
+      // cached - without this, the pre-save value, so the change is undone.
+      utils.product.product.getViewPrefs.setData(
+        { productSlug, workspaceId },
+        (prev) => ({ ...prev, ...prefs }),
+      );
       saveMutateRef.current({ productSlug, workspaceId, prefs });
-    }, [workspaceId, productSlug]),
+    }, [workspaceId, productSlug, utils]),
   );
 
   // Restore prefs on load
@@ -471,8 +479,6 @@ export default function TicketsBacklogPage() {
     { workspaceId: workspaceId ?? "", productId: product?.id },
     { enabled: !!workspaceId && !!product?.id },
   );
-
-  const utils = api.useUtils();
 
   // In-place Status / Priority / Type edits from the table's pill selects.
   // Optimistic so the pill shows the new value at once; rolled back on error.
