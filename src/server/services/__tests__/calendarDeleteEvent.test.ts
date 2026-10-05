@@ -149,6 +149,26 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
     expect(init.headers).toEqual({ Authorization: "Bearer token-1" });
   });
 
+  it("deletes through the calendar the event was listed from", async () => {
+    respond(204);
+
+    await service.deleteEvent(userId, { eventId: "evt-1", calendarId: "AAMk/cal=2" });
+
+    // me/events can't reach an event on a shared calendar, and its 404 would
+    // be reported as a successful delete.
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://graph.microsoft.com/v1.0/me/calendars/AAMk%2Fcal%3D2/events/evt-1",
+    );
+  });
+
+  it("uses me/events for the default calendar", async () => {
+    respond(204);
+
+    await service.deleteEvent(userId, { eventId: "evt-1", calendarId: "primary" });
+
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://graph.microsoft.com/v1.0/me/events/evt-1");
+  });
+
   it("treats 404 (already deleted in Outlook) as success", async () => {
     respond(404);
 

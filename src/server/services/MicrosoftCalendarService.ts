@@ -520,12 +520,20 @@ export class MicrosoftCalendarService implements CalendarProvider {
    * recurring events as occurrences, so this removes one occurrence, never
    * the series. Graph sends the cancellation itself when the organizer
    * deletes a meeting — there is no silent variant, so `notifyAttendees` is
-   * not consulted. Event ids are mailbox-wide, so no calendar path is needed.
+   * not consulted.
    */
   async deleteEvent(userId: string, input: DeleteEventInput): Promise<void> {
-    const accessToken = await this.getAccessToken(userId, input.accountId);
+    const { eventId, calendarId, accountId } = input;
+    const accessToken = await this.getAccessToken(userId, accountId);
+    // Address the event through the calendar it was listed from, as getEvents
+    // does: an event on a shared calendar isn't reachable at me/events, and
+    // the 404 that produces would read as "already deleted".
+    const calendarPath =
+      calendarId && calendarId !== "primary"
+        ? `me/calendars/${encodeURIComponent(calendarId)}/events`
+        : "me/events";
     const response = await fetch(
-      `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(input.eventId)}`,
+      `https://graph.microsoft.com/v1.0/${calendarPath}/${encodeURIComponent(eventId)}`,
       {
         method: "DELETE",
         headers: { Authorization: `Bearer ${accessToken}` },
