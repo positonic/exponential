@@ -17,14 +17,12 @@ import {
   Stack,
   Text,
   Tooltip,
-  UnstyledButton,
 } from "@mantine/core";
 import {
   IconAdjustments,
   IconChevronDown,
   IconChevronRight,
   IconDots,
-  IconFilter,
   IconLayoutKanban,
   IconList,
   IconPencil,
@@ -54,7 +52,7 @@ import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
-import { useCoalescedSave } from "./useCoalescedSave";
+import { useCoalescedSave } from "~/hooks/useCoalescedSave";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import {
   PRIORITY_PILL_OPTIONS,
@@ -75,6 +73,7 @@ import {
   ListPageButton,
   ListPagePrimaryButton,
   ListPageFilterPills,
+  ListPageFilterPopover,
   PillSelect,
 } from "~/app/_components/listPage";
 import type { ListPageFilterPill } from "~/app/_components/listPage";
@@ -216,81 +215,6 @@ function SortHeader({ label, field, sortField, sortDir, onSort, width }: {
         )}
       </span>
     </th>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Filter popover
-// ---------------------------------------------------------------------------
-
-function FilterPopover({ facetOptions, filters, activeCount, onToggle, onClear }: {
-  facetOptions: FacetOptions;
-  filters: TicketFilters;
-  activeCount: number;
-  onToggle: (key: FilterKey, value: string) => void;
-  onClear: () => void;
-}) {
-  return (
-    <Popover position="bottom-end" withinPortal shadow="md">
-      <Popover.Target>
-        <ListPageButton active={activeCount > 0} count={activeCount} aria-label="Filter tickets">
-          <IconFilter size={13} stroke={1.75} />
-          Filter
-        </ListPageButton>
-      </Popover.Target>
-      <Popover.Dropdown
-        styles={{
-          dropdown: {
-            backgroundColor: "var(--color-bg-elevated)",
-            border: "1px solid var(--color-border-primary)",
-            minWidth: 240,
-            maxWidth: 280,
-            maxHeight: 440,
-            overflowY: "auto",
-          },
-        }}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <Text size="xs" fw={600} className="text-text-primary">Filter</Text>
-          {activeCount > 0 && (
-            <UnstyledButton onClick={onClear} className="text-[10px] text-text-muted hover:text-text-primary">
-              Clear all
-            </UnstyledButton>
-          )}
-        </div>
-        <Stack gap="sm">
-          {FILTER_FACET_META.map((facet) => {
-            const opts = facetOptions[facet.key];
-            if (opts.length === 0) return null;
-            const sel = filters[facet.key];
-            return (
-              <div key={facet.key}>
-                <Text size="xs" className="text-text-muted mb-1.5">{facet.label}</Text>
-                <div className="flex flex-wrap gap-1">
-                  {opts.map((o) => {
-                    const on = sel.includes(o.value);
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        onClick={() => onToggle(facet.key, o.value)}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                          on
-                            ? "bg-brand-primary text-white"
-                            : "bg-surface-hover text-text-muted hover:text-text-primary"
-                        }`}
-                      >
-                        {o.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </Stack>
-      </Popover.Dropdown>
-    </Popover>
   );
 }
 
@@ -1218,9 +1142,11 @@ export default function TicketsBacklogPage() {
             <ListPageSearch ref={searchRef} value={search} onChange={setSearch} />
 
             {entity === "tickets" && (
-              <FilterPopover
-                facetOptions={facetOptions}
-                filters={filters}
+              <ListPageFilterPopover
+                aria-label="Filter tickets"
+                facets={FILTER_FACET_META}
+                options={facetOptions}
+                selected={filters}
                 activeCount={activeFilterCount}
                 onToggle={toggleFilter}
                 onClear={clearFilters}

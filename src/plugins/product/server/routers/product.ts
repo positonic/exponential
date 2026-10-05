@@ -756,6 +756,9 @@ export const productRouter = createTRPCRouter({
             epic: z.array(z.string().max(200)).max(200).optional(),
             cycle: z.array(z.string().max(200)).max(200).optional(),
             labels: z.array(z.string().max(200)).max(200).optional(),
+            // The Features list's own facets (saved under its own prefs key).
+            area: z.array(z.string().max(200)).max(200).optional(),
+            goal: z.array(z.string().max(200)).max(200).optional(),
           })
           .optional(),
       }),
