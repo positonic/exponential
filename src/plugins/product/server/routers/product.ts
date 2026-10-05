@@ -10,6 +10,11 @@ import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { currentCycleWhere, currentCycleOrder } from "../currentCycle";
 import { computeCycleRollup } from "../cycleRollup";
+import { loadManagerOverview } from "../managerOverviewLoader";
+import {
+  getOrGenerateOverviewSummary,
+  getRecentOverviewSummary,
+} from "../overviewSummaryService";
 
 /**
  * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
@@ -393,6 +398,48 @@ export const productRouter = createTRPCRouter({
         },
         activity,
       };
+    }),
+
+  /**
+   * Manager view of the product Overview tab: cycle burn-up, at-risk tickets,
+   * critical path, flow stages, waiting-on split, WIP, team and waiting PRs.
+   * Read-only and derived from existing tables (see managerOverviewLoader.ts).
+   */
+  getManagerOverview: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const product = await ctx.db.product.findUniqueOrThrow({
+        where: { id: input.productId },
+        select: { id: true, name: true, workspaceId: true, funTicketIds: true },
+      });
+      return loadManagerOverview(ctx.db, product, new Date());
+    }),
+
+  /**
+   * AI summary for the Overview tab, cached per product
+   * (ProductOverviewSummary). Separate from getManagerOverview so the page
+   * renders immediately and the summary card shows a skeleton until this
+   * resolves.
+   */
+  getOverviewSummary: protectedProcedure
+    .input(z.object({ productId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      // Too recent to regenerate: skip loading the overview data, which is
+      // only needed to hash the facts.
+      const recent = await getRecentOverviewSummary(ctx.db, input.productId);
+      if (recent) return recent;
+      const product = await ctx.db.product.findUniqueOrThrow({
+        where: { id: input.productId },
+        select: { id: true, name: true, workspaceId: true, funTicketIds: true },
+      });
+      const data = await loadManagerOverview(ctx.db, product, new Date());
+      return getOrGenerateOverviewSummary(ctx.db, {
+        product,
+        data,
+        userId: ctx.session.user.id,
+      });
     }),
 
   create: protectedProcedure
