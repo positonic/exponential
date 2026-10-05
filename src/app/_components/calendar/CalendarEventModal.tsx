@@ -42,15 +42,19 @@ function formatEventWhen(event: CalendarEventWithSource): string {
     : "All day";
 }
 
-/** Why an event has no Delete button, in the user's terms. */
-function readOnlyReason(event: CalendarEventWithSource): string {
+/** Why an event has no Delete button, in the user's terms — when we know why. */
+function readOnlyReason(event: CalendarEventWithSource): string | null {
   if (event.provider === "ics") {
     return "This event comes from a calendar feed, which is read-only. Delete it in the calendar that publishes the feed.";
   }
   if (event.provider === "meeting") {
     return "This is a scheduled meeting. Its organizer can cancel it from Schedule meeting.";
   }
-  return "You have view-only access to this calendar, so this event can't be deleted here.";
+  // Only an explicit false is a known read-only calendar; undefined is a
+  // producer that never computed it, and claiming view-only there would be a guess.
+  return event.canDelete === false
+    ? "You have view-only access to this calendar, so this event can't be deleted here."
+    : null;
 }
 
 /**

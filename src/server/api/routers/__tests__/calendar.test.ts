@@ -157,6 +157,90 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
     });
   });
 
+  describe("getEventsMultiCalendar — canDelete", () => {
+    const eventsSpy = vi.spyOn(GoogleCalendarService.prototype, "getEventsFromMultipleCalendars");
+    const googleEvent = (id: string, calendarId: string) => ({
+      id,
+      summary: id,
+      start: { dateTime: "2026-10-05T10:00:00Z" },
+      end: { dateTime: "2026-10-05T11:00:00Z" },
+      htmlLink: `https://calendar.google.com/event?eid=${id}`,
+      status: "confirmed",
+      calendarId,
+    });
+
+    beforeEach(() => {
+      vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", `${userId}@test.com`);
+      dbMock.connectedAccount.findMany.mockResolvedValue([
+        {
+          id: "ca-1",
+          provider: "google",
+          scope: "https://www.googleapis.com/auth/calendar.events",
+          expires_at: null,
+          access_token: "token",
+          refresh_token: "refresh",
+          providerEmail: "me@example.com",
+        },
+      ] as never);
+      // A fresh cached list, so the provider's calendarList is never called.
+      // "lost@example.com" is selected but absent from it — a failed refresh.
+      dbMock.calendarPreference.findUnique.mockResolvedValue({
+        id: "pref-1",
+        selectedCalendarIds: ["me@example.com", "team@example.com", "lost@example.com"],
+        cachedCalendars: [
+          { id: "me@example.com", summary: "Me", primary: true, accessRole: "owner" },
+          { id: "team@example.com", summary: "Team", primary: false, accessRole: "reader" },
+        ],
+        cacheUpdatedAt: new Date(),
+      } as never);
+      dbMock.calendarEvent.findMany.mockResolvedValue([
+        {
+          id: "ics-1",
+          calendarFeedId: "feed-1",
+          title: "Feed event",
+          location: null,
+          startsAt: new Date("2026-10-05T12:00:00Z"),
+          endsAt: new Date("2026-10-05T13:00:00Z"),
+          isAllDay: false,
+          calendarFeed: { name: "Feed" },
+        },
+      ] as never);
+      dbMock.meeting.findMany.mockResolvedValue([]);
+      eventsSpy.mockReset().mockResolvedValue([
+        googleEvent("own", "me@example.com"),
+        googleEvent("shared", "team@example.com"),
+        googleEvent("unlisted", "lost@example.com"),
+      ]);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("withholds Delete only where the calendar is known to be read-only", async () => {
+      const caller = createMockCaller({ userId, db: dbMock });
+      const events = await caller.calendar.getEventsMultiCalendar({
+        timeMin: new Date("2026-10-05T00:00:00Z"),
+        timeMax: new Date("2026-10-06T00:00:00Z"),
+      });
+
+      const canDelete = Object.fromEntries(events.map((e) => [e.id, e.canDelete]));
+      expect(canDelete).toEqual({
+        own: true,
+        shared: false,
+        // Not in the cached list: offered, and left to Google to refuse.
+        unlisted: true,
+        // Feed events never carry it — there is no account to delete through.
+        "ics-1": undefined,
+      });
+      expect(events.find((e) => e.id === "own")).toMatchObject({
+        provider: "google",
+        accountId: "ca-1",
+        accountEmail: "me@example.com",
+      });
+    });
+  });
+
   describe("deleteEvent", () => {
     const deleteSpy = vi.spyOn(GoogleCalendarService.prototype, "deleteEvent");
 

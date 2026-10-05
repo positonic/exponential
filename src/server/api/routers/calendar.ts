@@ -59,8 +59,8 @@ const GOOGLE_CALENDAR_GATED_MESSAGE =
   "select users during our verification process. Contact " +
   "support@exponential.im to request early access.";
 
-/** Calendar roles that may change events; "reader" and "freeBusyReader" may not. */
-const WRITABLE_CALENDAR_ROLES = new Set(["owner", "writer"]);
+/** Calendar roles that cannot change events ("owner" and "writer" can). */
+const READ_ONLY_CALENDAR_ROLES = new Set(["reader", "freeBusyReader"]);
 
 /** The OAuth scope that grants calendar access for each provider */
 function calendarScopeFor(accountProvider: string): string {
@@ -1002,9 +1002,9 @@ export const calendarRouter = createTRPCRouter({
               { ...input, accountId: account.id },
               calendars,
             );
-            const writableCalendarIds = new Set(
+            const readOnlyCalendarIds = new Set(
               calendars
-                .filter((c) => WRITABLE_CALENDAR_ROLES.has(c.accessRole))
+                .filter((c) => READ_ONLY_CALENDAR_ROLES.has(c.accessRole))
                 .map((c) => c.id),
             );
             return events.map((e) => ({
@@ -1012,9 +1012,11 @@ export const calendarRouter = createTRPCRouter({
               provider,
               accountId: account.id,
               accountEmail: account.providerEmail,
-              // "primary" is the fallback selection when the calendar list
-              // couldn't be loaded; it is always the user's own calendar.
-              canDelete: e.calendarId === "primary" || writableCalendarIds.has(e.calendarId),
+              // Only a calendar known to be read-only withholds Delete. One
+              // missing from the cached list (its refresh failed) is offered
+              // rather than mislabelled view-only; the provider still refuses
+              // what it shouldn't allow.
+              canDelete: !readOnlyCalendarIds.has(e.calendarId),
             }));
           } catch (error) {
             console.error(`Failed to fetch ${provider} calendar events for account ${account.id}:`, error);

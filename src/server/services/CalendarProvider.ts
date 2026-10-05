@@ -43,10 +43,17 @@ export interface CalendarEventWithSource extends CalendarEvent {
   calendarColor?: string;
   provider?: "google" | "microsoft" | "ics" | "meeting";
   // Set by the multi-calendar merge (calendar.getEventsMultiCalendar) only.
-  /** The connected account (or feed) the event was read through. */
+  /**
+   * The source the event was read through: a ConnectedAccount id when
+   * `provider` is google or microsoft, otherwise a feed or workspace-meetings
+   * key that is not an account.
+   */
   accountId?: string;
   accountEmail?: string | null;
-  /** True when the user can delete the event at its provider. */
+  /**
+   * Whether the user can delete the event at its provider. False means its
+   * calendar is known to be read-only; undefined means this producer doesn't say.
+   */
   canDelete?: boolean;
 }
 

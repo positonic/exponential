@@ -192,6 +192,16 @@ describe("CalendarEventModal", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
+  test("an event whose producer never said whether it's deletable isn't called view-only", async () => {
+    render(
+      <CalendarEventModal event={{ ...googleEvent, canDelete: undefined }} onClose={onClose} />,
+    );
+
+    expect(await screen.findByRole("link", { name: /Open in Google Calendar/ })).toBeInTheDocument();
+    expect(screen.queryByText(/view-only access/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
   test("a feed event gets no Delete and no provider link", async () => {
     const feedEvent: CalendarEventWithSource = {
       ...googleEvent,
