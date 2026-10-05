@@ -80,9 +80,11 @@ export function CalendarEventModal({ event, onClose, onDeleted }: CalendarEventM
     // Not awaited: the mutate-level onSuccess below (which closes the modal)
     // only runs once this returns, and a calendar refetch can take seconds.
     onSuccess: () => {
+      // Every event query a mounted surface reads: this page, the Today rail,
+      // and getEvents behind the drawer, project card and daily-plan importer.
       void utils.calendar.getEventsMultiCalendar.invalidate();
       void utils.calendar.getTodayEvents.invalidate();
-      void utils.calendar.getUpcomingEvents.invalidate();
+      void utils.calendar.getEvents.invalidate();
     },
     onError: (error) => {
       notifications.show({ title: "Couldn't delete event", message: error.message, color: "red" });

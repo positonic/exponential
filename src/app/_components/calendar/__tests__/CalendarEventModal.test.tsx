@@ -16,9 +16,14 @@ interface MutationCallbacks {
   onError?: (error: Error) => void;
 }
 
-const { deleteMutate, showNotification, mutation } = vi.hoisted(() => ({
+const { deleteMutate, showNotification, invalidate, mutation } = vi.hoisted(() => ({
   deleteMutate: vi.fn(),
   showNotification: vi.fn(),
+  invalidate: {
+    getEventsMultiCalendar: vi.fn(),
+    getTodayEvents: vi.fn(),
+    getEvents: vi.fn(),
+  },
   /** How the next delete settles; a test sets it to drive that branch. */
   mutation: { outcome: { alreadyGone: false } as { alreadyGone: boolean } | Error },
 }));
@@ -27,9 +32,9 @@ vi.mock("~/trpc/react", () => ({
   api: {
     useUtils: () => ({
       calendar: {
-        getEventsMultiCalendar: { invalidate: vi.fn() },
-        getTodayEvents: { invalidate: vi.fn() },
-        getUpcomingEvents: { invalidate: vi.fn() },
+        getEventsMultiCalendar: { invalidate: invalidate.getEventsMultiCalendar },
+        getTodayEvents: { invalidate: invalidate.getTodayEvents },
+        getEvents: { invalidate: invalidate.getEvents },
       },
     }),
     calendar: {
@@ -84,6 +89,7 @@ describe("CalendarEventModal", () => {
   beforeEach(() => {
     deleteMutate.mockClear();
     showNotification.mockClear();
+    Object.values(invalidate).forEach((fn) => fn.mockClear());
     onClose.mockClear();
     onDeleted.mockClear();
     mutation.outcome = { alreadyGone: false };
@@ -118,6 +124,11 @@ describe("CalendarEventModal", () => {
     expect(showNotification).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Event deleted" }),
     );
+    // getEvents feeds the drawer, project card, Today and the daily-plan
+    // importer, which would otherwise keep offering the deleted event.
+    expect(invalidate.getEventsMultiCalendar).toHaveBeenCalled();
+    expect(invalidate.getTodayEvents).toHaveBeenCalled();
+    expect(invalidate.getEvents).toHaveBeenCalled();
   });
 
   test("an event the provider no longer had is hidden without claiming it was deleted", async () => {
@@ -151,6 +162,7 @@ describe("CalendarEventModal", () => {
     // Hiding it here would drop a live event from the calendar for the session.
     expect(onDeleted).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+    expect(invalidate.getEventsMultiCalendar).not.toHaveBeenCalled();
   });
 
   test("Keep event backs out without deleting", async () => {
