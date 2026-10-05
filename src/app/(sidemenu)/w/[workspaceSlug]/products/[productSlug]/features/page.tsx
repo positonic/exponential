@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   Badge,
@@ -62,10 +62,26 @@ import {
   ListPageSearch,
   ListPageButton,
   ListPagePrimaryButton,
+  ListPageFilterPills,
+  ListPageFilterPopover,
   PillSelect,
 } from "~/app/_components/listPage";
+import type { ListPageFilterPill } from "~/app/_components/listPage";
 import table from "~/app/_components/listPage/DataTable.module.css";
 import { usePageSearchHotkey } from "~/hooks/usePageSearchHotkey";
+import { useCoalescedSave } from "~/hooks/useCoalescedSave";
+import {
+  buildFeatureFacetOptions,
+  countActiveFeatureFilters,
+  goalTitleForFilterValue,
+  matchesFeatureFilters,
+  parseSavedFeatureFilters,
+  EMPTY_FEATURE_FILTERS,
+  FEATURE_FILTER_FACETS,
+  FILTER_NONE,
+  type FeatureFilterKey,
+  type FeatureFilters,
+} from "./featureFilters";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -79,6 +95,12 @@ const VIEW_TABS = [
   { value: "list", label: "List", icon: IconList },
   { value: "cards", label: "Cards", icon: IconLayoutGrid },
 ];
+
+// Colours of the toolbar pills naming each applied filter (status pills take
+// the status's own colour). Matches the Backlog's pills facet for facet.
+const FACET_PILL_COLORS: Record<Exclude<FeatureFilterKey, "status">, string> = {
+  priority: "grape", area: "indigo", goal: "cyan", labels: "teal",
+};
 
 // ---------------------------------------------------------------------------
 // Sort
@@ -154,8 +176,64 @@ export default function FeaturesListPage() {
   // The registry default: features grouped by Area - the product's carve.
   const [groupBy, setGroupBy] = useState<GroupByField>("area");
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  // Null until a filter is changed in this visit; until then the saved ones apply.
+  const [editedFilters, setEditedFilters] = useState<FeatureFilters | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   usePageSearchHotkey(searchRef);
+  const utils = api.useUtils();
+
+  // ── Saved filters (per user, per product) ──
+  // Keyed apart from the Backlog's prefs for the same product, like Insights.
+  const prefsInput = useMemo(
+    () => ({ productSlug: `${productSlug}/features`, workspaceId: workspaceId ?? "" }),
+    [productSlug, workspaceId],
+  );
+  const { data: savedPrefs, isError: prefsFailed } =
+    api.product.product.getViewPrefs.useQuery(prefsInput, {
+      enabled: !!workspaceId,
+      // The list waits on this read (below): one retry, then show it
+      // unfiltered rather than hold a skeleton through the default backoff.
+      retry: 1,
+    });
+  // The features wait for the saved filters, as the Backlog's tickets do: a
+  // list that arrives first would render unfiltered, then shrink when the
+  // prefs land. A failed prefs read falls back to no filters.
+  const awaitingPrefs = savedPrefs === undefined && !prefsFailed;
+  // Read straight from the query rather than copied into state by an effect,
+  // so a warm cache (the layout prewarms it) filters the very first render
+  // instead of costing a skeleton frame on every visit.
+  const savedFilters = useMemo(
+    () => parseSavedFeatureFilters(savedPrefs?.filters),
+    [savedPrefs],
+  );
+  const filters = editedFilters ?? savedFilters;
+
+  const savePrefs = api.product.product.saveViewPrefs.useMutation({
+    // Keep the cached prefs in step with what is being saved: coming back to
+    // this tab remounts the page, which restores from that cache. A read still
+    // in flight is cancelled first, or it would land afterwards and put the
+    // pre-save value back.
+    onMutate: async (vars) => {
+      const key = { productSlug: vars.productSlug, workspaceId: vars.workspaceId };
+      await utils.product.product.getViewPrefs.cancel(key);
+      utils.product.product.getViewPrefs.setData(key, (prev) => ({ ...prev, ...vars.prefs }));
+    },
+    // A failed save leaves that cache ahead of the server: read it again.
+    onError: (_err, vars) =>
+      utils.product.product.getViewPrefs.invalidate({
+        productSlug: vars.productSlug,
+        workspaceId: vars.workspaceId,
+      }),
+  });
+  const saveMutateRef = useRef(savePrefs.mutate);
+  saveMutateRef.current = savePrefs.mutate;
+
+  const { push: debouncedSave } = useCoalescedSave<{ filters: FeatureFilters }>(
+    useCallback((prefs: Partial<{ filters: FeatureFilters }>) => {
+      if (!prefsInput.workspaceId) return;
+      saveMutateRef.current({ ...prefsInput, prefs });
+    }, [prefsInput]),
+  );
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -172,16 +250,14 @@ export default function FeaturesListPage() {
     { enabled: !!product?.id },
   );
 
-  const utils = api.useUtils();
-
   // ── Multi-select ──
   const sel = useMultiSelect();
   const selClear = sel.clear;
   // Selection survives the list ↔ cards switch; it clears when the item set
-  // changes meaning (search, product).
+  // changes meaning (filters, search, product).
   useEffect(() => {
     selClear();
-  }, [selClear, search, productSlug]);
+  }, [selClear, search, filters, productSlug]);
 
   type BulkPatch = {
     status?: FeatureStatus;
@@ -337,18 +413,42 @@ export default function FeaturesListPage() {
     inlineUpdate.mutate({ ids: [featureId], ...patch });
   };
 
+  // ── Filters ──
+  // No facets are offered until the saved filters have loaded: a toggle made
+  // before then would start from an empty set and overwrite them.
+  const facetOptions = useMemo(
+    () => buildFeatureFacetOptions(awaitingPrefs ? [] : (features ?? [])),
+    [features, awaitingPrefs],
+  );
+  const activeFilterCount = countActiveFeatureFilters(filters);
+
+  const applyFilters = (next: FeatureFilters) => {
+    setEditedFilters(next);
+    debouncedSave({ filters: next });
+  };
+
+  const toggleFilter = (key: FeatureFilterKey, value: string) => {
+    const cur = filters[key];
+    applyFilters({
+      ...filters,
+      [key]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value],
+    });
+  };
+
+  const clearFilters = () => applyFilters(EMPTY_FEATURE_FILTERS);
+
   // Filter + sort
   const sorted = useMemo(() => {
     if (!features) return [];
     const q = search.toLowerCase().trim();
-    const list = q
-      ? features.filter(
-          (f) =>
-            f.name.toLowerCase().includes(q) ||
-            f.status.toLowerCase().includes(q) ||
-            (f.description ?? "").toLowerCase().includes(q),
-        )
-      : [...features];
+    const list = features.filter(
+      (f) =>
+        matchesFeatureFilters(f, filters) &&
+        (!q ||
+          f.name.toLowerCase().includes(q) ||
+          f.status.toLowerCase().includes(q) ||
+          (f.description ?? "").toLowerCase().includes(q)),
+    );
     list.sort((a, b) =>
       cmp(
         sortValue(a as unknown as Record<string, unknown>, sortField),
@@ -357,7 +457,7 @@ export default function FeaturesListPage() {
       ),
     );
     return list;
-  }, [features, search, sortField, sortDir]);
+  }, [features, search, filters, sortField, sortDir]);
 
   // Group
   const groups = useMemo(() => {
@@ -391,6 +491,17 @@ export default function FeaturesListPage() {
     [groups],
   );
 
+  // A selected feature that has left the list is deselected. Bulk-editing the
+  // very field a filter is on (filter "No area", then set an Area) moves the
+  // rows out of view, and the bulk bar - Delete included - must never act on
+  // rows that are no longer on screen.
+  const selSetMany = sel.setMany;
+  useEffect(() => {
+    const visible = new Set(visibleIds);
+    const hidden = Array.from(sel.selected).filter((id) => !visible.has(id));
+    if (hidden.length > 0) selSetMany(hidden, false);
+  }, [visibleIds, sel.selected, selSetMany]);
+
   // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
   const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/features`;
   const peekId = searchParams.get("peek");
@@ -410,6 +521,40 @@ export default function FeaturesListPage() {
 
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}/features`;
+
+  // One toolbar pill per applied filter value. A saved filter can name an
+  // area, goal or label no loaded feature carries any more (deleted, or moved
+  // off every feature), so the fallback says so instead of showing a raw id.
+  const facetPillLabel = (key: FeatureFilterKey, value: string): string => {
+    const fromFacets = facetOptions[key].find((o) => o.value === value)?.label;
+    switch (key) {
+      case "status": return STATUS_LABELS[value] ?? value;
+      case "priority":
+        return value === FILTER_NONE ? "No priority" : `${PRIORITY_LABELS[Number(value)] ?? value} priority`;
+      case "area":
+        if (value === FILTER_NONE) return "No area";
+        return `Area: ${(areas ?? []).find((a) => a.id === value)?.name ?? fromFacets ?? "Unknown area"}`;
+      case "goal":
+        if (value === FILTER_NONE) return "No goal";
+        return `Goal: ${goalTitleForFilterValue(features ?? [], value) ?? "Unknown goal"}`;
+      case "labels":
+        return fromFacets ?? "Unknown label";
+    }
+  };
+  // Saved filters wait for the features: goals and labels only resolve from
+  // them, and a flash of "Unknown label" on every load is noise.
+  const filterPills: ListPageFilterPill[] = (features ? FEATURE_FILTER_FACETS : []).flatMap(
+    (facet) =>
+      filters[facet.key].map((value) => ({
+        key: `${facet.key}-${value}`,
+        label: facetPillLabel(facet.key, value),
+        color:
+          facet.key === "status"
+            ? (STATUS_COLORS[value] ?? "gray")
+            : FACET_PILL_COLORS[facet.key],
+        onRemove: () => toggleFilter(facet.key, value),
+      })),
+  );
 
   // Selection handlers shared by list rows and cards (both are Links):
   // cmd/ctrl-click toggles, shift-click range-selects, plain click peeks
@@ -614,16 +759,29 @@ export default function FeaturesListPage() {
     <div className="flex flex-col">
       <ListPageTopBar
         left={
-          <ListPageViewTabs
-            aria-label="View"
-            tabs={VIEW_TABS}
-            active={view}
-            onTabClick={setView}
-          />
+          <>
+            <ListPageViewTabs
+              aria-label="View"
+              tabs={VIEW_TABS}
+              active={view}
+              onTabClick={setView}
+            />
+            <ListPageFilterPills pills={filterPills} onClearAll={clearFilters} />
+          </>
         }
         actions={
           <>
             <ListPageSearch ref={searchRef} value={search} onChange={setSearch} />
+
+            <ListPageFilterPopover
+              aria-label="Filter features"
+              facets={FEATURE_FILTER_FACETS}
+              options={facetOptions}
+              selected={filters}
+              activeCount={activeFilterCount}
+              onToggle={toggleFilter}
+              onClear={clearFilters}
+            />
 
             <Popover position="bottom-end" withinPortal shadow="md">
               <Popover.Target>
@@ -682,7 +840,7 @@ export default function FeaturesListPage() {
       />
 
       {/* Content */}
-      {isLoading ? (
+      {isLoading || awaitingPrefs ? (
         <Stack gap="xs" className="px-8 py-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={view === "cards" ? 80 : 36} />)}
         </Stack>
@@ -739,7 +897,20 @@ export default function FeaturesListPage() {
           </div>
         )
       ) : features && features.length > 0 ? (
-        <div className={table.empty}>No features match your search.</div>
+        <div className={table.empty}>
+          <span className="inline-flex items-center gap-3">
+            No features match your{" "}
+            {activeFilterCount > 0 && search.trim()
+              ? "filters and search"
+              : activeFilterCount > 0
+                ? "filters"
+                : "search"}
+            .
+            {activeFilterCount > 0 && (
+              <ListPageButton onClick={clearFilters}>Clear filters</ListPageButton>
+            )}
+          </span>
+        </div>
       ) : (
         <div className="px-8 py-6">
         <EmptyState
