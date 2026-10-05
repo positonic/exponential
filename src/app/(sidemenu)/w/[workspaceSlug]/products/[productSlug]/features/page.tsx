@@ -176,8 +176,8 @@ export default function FeaturesListPage() {
   // The registry default: features grouped by Area - the product's carve.
   const [groupBy, setGroupBy] = useState<GroupByField>("area");
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [filters, setFilters] = useState<FeatureFilters>(EMPTY_FEATURE_FILTERS);
-  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  // Null until a filter is changed in this visit; until then the saved ones apply.
+  const [editedFilters, setEditedFilters] = useState<FeatureFilters | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   usePageSearchHotkey(searchRef);
   const utils = api.useUtils();
@@ -189,11 +189,24 @@ export default function FeaturesListPage() {
     [productSlug, workspaceId],
   );
   const { data: savedPrefs, isError: prefsFailed } =
-    api.product.product.getViewPrefs.useQuery(prefsInput, { enabled: !!workspaceId });
+    api.product.product.getViewPrefs.useQuery(prefsInput, {
+      enabled: !!workspaceId,
+      // The list waits on this read (below): one retry, then show it
+      // unfiltered rather than hold a skeleton through the default backoff.
+      retry: 1,
+    });
   // The features wait for the saved filters, as the Backlog's tickets do: a
   // list that arrives first would render unfiltered, then shrink when the
   // prefs land. A failed prefs read falls back to no filters.
-  const awaitingPrefs = !prefsLoaded && !prefsFailed;
+  const awaitingPrefs = savedPrefs === undefined && !prefsFailed;
+  // Read straight from the query rather than copied into state by an effect,
+  // so a warm cache (the layout prewarms it) filters the very first render
+  // instead of costing a skeleton frame on every visit.
+  const savedFilters = useMemo(
+    () => parseSavedFeatureFilters(savedPrefs?.filters),
+    [savedPrefs],
+  );
+  const filters = editedFilters ?? savedFilters;
 
   const savePrefs = api.product.product.saveViewPrefs.useMutation({
     // Keep the cached prefs in step with what is being saved: coming back to
@@ -221,13 +234,6 @@ export default function FeaturesListPage() {
       saveMutateRef.current({ ...prefsInput, prefs });
     }, [prefsInput]),
   );
-
-  useEffect(() => {
-    if (savedPrefs && !prefsLoaded) {
-      setFilters(parseSavedFeatureFilters(savedPrefs.filters));
-      setPrefsLoaded(true);
-    }
-  }, [savedPrefs, prefsLoaded]);
 
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
@@ -408,23 +414,28 @@ export default function FeaturesListPage() {
   };
 
   // ── Filters ──
-  const facetOptions = useMemo(() => buildFeatureFacetOptions(features ?? []), [features]);
+  // No facets are offered until the saved filters have loaded: a toggle made
+  // before then would start from an empty set and overwrite them.
+  const facetOptions = useMemo(
+    () => buildFeatureFacetOptions(awaitingPrefs ? [] : (features ?? [])),
+    [features, awaitingPrefs],
+  );
   const activeFilterCount = countActiveFeatureFilters(filters);
 
+  const applyFilters = (next: FeatureFilters) => {
+    setEditedFilters(next);
+    debouncedSave({ filters: next });
+  };
+
   const toggleFilter = (key: FeatureFilterKey, value: string) => {
-    setFilters((prev) => {
-      const cur = prev[key];
-      const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
-      const updated = { ...prev, [key]: next };
-      debouncedSave({ filters: updated });
-      return updated;
+    const cur = filters[key];
+    applyFilters({
+      ...filters,
+      [key]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value],
     });
   };
 
-  const clearFilters = () => {
-    setFilters(EMPTY_FEATURE_FILTERS);
-    debouncedSave({ filters: EMPTY_FEATURE_FILTERS });
-  };
+  const clearFilters = () => applyFilters(EMPTY_FEATURE_FILTERS);
 
   // Filter + sort
   const sorted = useMemo(() => {
