@@ -919,6 +919,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           status: true,
+          cycleId: true,
           productId: true,
           product: { select: { workspaceId: true } },
         },
@@ -977,9 +978,14 @@ export const ticketRouter = createTRPCRouter({
         data,
       });
 
-      const fieldsChanged = fields.map(([k]) => k).filter((k) => k !== "status");
+      const patchedFields = fields.map(([k]) => k).filter((k) => k !== "status");
       await Promise.all(
         tickets.map((t) => {
+          // A ticket already in the target cycle didn't move; recording a
+          // cycleId change would re-date its entry in the Overview burn-up.
+          const fieldsChanged = patchedFields.filter(
+            (k) => !(k === "cycleId" && t.cycleId === input.cycleId),
+          );
           const statusChanged =
             input.status !== undefined && input.status !== t.status;
           if (statusChanged) {

@@ -74,12 +74,15 @@ interface PrInfo {
   state: PrState;
   /** Latest submitted review, if any. */
   reviewed: boolean;
+  /** From the "opened" event; null when the PR predates the webhook. */
   openedAt: Date | null;
+  /** Earliest event seen, the wait-time fallback when openedAt is null. */
+  firstSeenAt: Date | null;
   mergedAt: Date | null;
 }
 
 /** Folds GitHub webhook rows (one per PR event / review) into PR state. */
-function foldPrEvents(
+export function foldPrEvents(
   rows: {
     eventType: string;
     eventAction: string | null;
@@ -111,19 +114,22 @@ function foldPrEvents(
       state: "open",
       reviewed: false,
       openedAt: null,
+      firstSeenAt: null,
       mergedAt: null,
     };
     pr.title = r.prTitle ?? pr.title;
     pr.author = pr.author ?? r.prAuthor;
+    pr.firstSeenAt ??= r.eventTimestamp;
     if (r.eventType === "pull_request") {
       if (r.eventAction === "opened") pr.openedAt = r.eventTimestamp;
-      pr.openedAt ??= r.eventTimestamp;
-      if (r.prState === "merged" || r.prMergedAt) {
+      if (pr.state === "merged") {
+        // A merged PR cannot be reopened; ignore anything after the merge.
+      } else if (r.prState === "merged" || r.prMergedAt) {
         pr.state = "merged";
         pr.mergedAt = r.prMergedAt ?? r.eventTimestamp;
       } else if (r.prState === "closed") {
         pr.state = "closed";
-      } else if (pr.state === "closed" || pr.state === "merged") {
+      } else if (pr.state === "closed") {
         pr.state = "open"; // reopened
       }
     } else if (r.eventType === "pull_request_review" && pr.state !== "merged" && pr.state !== "closed") {
@@ -185,6 +191,7 @@ export async function loadManagerOverview(
     }),
     db.ticket.findMany({
       where: { productId: product.id, status: { in: OPEN_STATUSES } },
+      orderBy: { id: "asc" },
       select: ticketSelect,
     }),
     db.ticket.findMany({
@@ -236,6 +243,7 @@ export async function loadManagerOverview(
   const cycleTickets = cycle
     ? await db.ticket.findMany({
         where: { productId: product.id, cycleId: cycle.id },
+        orderBy: { id: "asc" },
         select: ticketSelect,
       })
     : [];
@@ -280,7 +288,7 @@ export async function loadManagerOverview(
             workspaceId: product.workspaceId,
             entityType: "ticket",
             entityId: { in: eventIds },
-            action: { in: ["status_changed", "updated", "created"] },
+            action: { in: ["status_changed", "updated"] },
           },
           orderBy: { createdAt: "asc" },
           select: { entityId: true, action: true, metadata: true, createdAt: true },
@@ -377,10 +385,20 @@ export async function loadManagerOverview(
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
+  // "Blocked" = BLOCKED status or an open "Depends on" ticket, the same
+  // meaning in At risk, Waiting on and Team (CONTEXT.md: Blocked).
+  const openById = new Map(openTickets.map((t) => [t.id, t]));
+  const blockerOf = new Map<string, string>();
+  for (const d of deps) {
+    const b = openById.get(d.dependsOnId);
+    if (b && !blockerOf.has(d.ticketId)) blockerOf.set(d.ticketId, ticketDisplayId(product, b));
+  }
+  const isBlocked = (t: LoadedTicket) => t.status === "BLOCKED" || blockerOf.has(t.id);
+
   const stages = summarizeStages(stageTickets);
   const bottleneck = findBottleneck(stageTickets);
   const waitingOn = computeWaitingOn(
-    stageTickets.map((s) => ({ stage: s.stage, status: s.ticket.status, isAgent: s.isAgent })),
+    stageTickets.map((s) => ({ stage: s.stage, blocked: isBlocked(s.ticket), isAgent: s.isAgent })),
   );
   const inFlight = stageTickets.filter((s) =>
     (["inProgress", "inReview"] as StageKey[]).includes(s.stage),
@@ -411,7 +429,6 @@ export async function loadManagerOverview(
     : null;
 
   // ---- critical path (open tickets, blocker first) ----
-  const openById = new Map(openTickets.map((t) => [t.id, t]));
   const scopedOpenIds = new Set(scoped.filter((t) => openById.has(t.id)).map((t) => t.id));
   // Longest chain ending at a ticket in scope (the cycle, or the product's
   // active work); its blockers may sit outside the scope.
@@ -439,11 +456,6 @@ export async function loadManagerOverview(
   );
 
   // ---- at risk (cycle only) ----
-  const blockerOf = new Map<string, string>();
-  for (const d of deps) {
-    const b = openById.get(d.dependsOnId);
-    if (b && !blockerOf.has(d.ticketId)) blockerOf.set(d.ticketId, ticketDisplayId(product, b));
-  }
   // Median cycle time (first move to IN_PROGRESS -> completion), last 12 weeks.
   const cycleTimes = completedLast12Weeks
     .map((t) => {
@@ -454,7 +466,8 @@ export async function loadManagerOverview(
     .filter((ms): ms is number => ms !== null && ms > 0);
   const medianCycleMs =
     cycleTimes.length >= MIN_CYCLE_TIME_SAMPLES ? median(cycleTimes) : null;
-  const msUntilDue = cycleEnd ? cycleEnd.getTime() + DAY - now.getTime() : null;
+  // endDate is exclusive (see computeBurnup).
+  const msUntilDue = cycleEnd ? cycleEnd.getTime() - now.getTime() : null;
   const atRisk = cycle
     ? stageTickets
         .filter((s) => s.stage !== "done" && s.stage !== "deployed")
@@ -467,7 +480,7 @@ export async function loadManagerOverview(
             | { kind: "noReview"; ageMs: number }
             | { kind: "unassigned" }
             | null = null;
-          if (t.status === "BLOCKED" || blockerOf.has(t.id)) {
+          if (isBlocked(t)) {
             reason = { kind: "blocked", by: blockerOf.get(t.id) ?? null };
           } else if (
             cycleEnd &&
@@ -523,7 +536,7 @@ export async function loadManagerOverview(
     row.tickets.push({
       ticket: ref(s.ticket),
       stage: s.stage,
-      blocked: s.ticket.status === "BLOCKED",
+      blocked: isBlocked(s.ticket),
       pr: s.ticket.prUrl
         ? {
             number: pr?.number ?? parsed?.number ?? 0,
@@ -565,7 +578,10 @@ export async function loadManagerOverview(
         author: p.author,
         state: p.state,
         reviewed: p.reviewed,
-        waitMs: p.openedAt ? Math.max(0, now.getTime() - p.openedAt.getTime()) : 0,
+        waitMs: (() => {
+          const since = p.openedAt ?? p.firstSeenAt;
+          return since ? Math.max(0, now.getTime() - since.getTime()) : 0;
+        })(),
         ticket: t ? ref(t) : null,
         authorIsAgent: t?.assignee?.isAgent ?? false,
       };
@@ -580,8 +596,13 @@ export async function loadManagerOverview(
     .map((p) => p.mergedAt!.getTime() - p.openedAt!.getTime());
 
   // ---- summary inputs ----
-  const doneInWindow = recentCompleted.filter((t) => t.status === "DONE").length;
-  const deployedInWindow = recentCompleted.filter((t) => t.status === "DEPLOYED").length;
+  // completedAt (the query filter) is reset by later saves, so re-check the
+  // window against the actual finish time.
+  const finishedInWindow = recentCompleted.filter(
+    (t) => (finishedAt(t) ?? t.completedAt!) >= windowStart,
+  );
+  const doneInWindow = finishedInWindow.filter((t) => t.status === "DONE").length;
+  const deployedInWindow = finishedInWindow.filter((t) => t.status === "DEPLOYED").length;
 
   return {
     firstRun,

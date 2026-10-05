@@ -120,7 +120,11 @@ export function findBottleneck(tickets: StageTicket[]): Bottleneck | null {
 
 export interface WaitingTicket {
   stage: StageKey;
-  status: TicketStatus;
+  /**
+   * BLOCKED status, or an open "Depends on" ticket (the computed flag the
+   * glossary treats as authoritative).
+   */
+  blocked: boolean;
   isAgent: boolean;
 }
 
@@ -129,7 +133,7 @@ export interface WaitingOn {
   people: number;
   /** In progress and assigned to an agent: waiting on the agent to build. */
   agents: number;
-  /** BLOCKED: waiting on something else to finish first. */
+  /** Blocked: waiting on something else to finish first. */
   blocked: number;
 }
 
@@ -138,7 +142,7 @@ export function computeWaitingOn(tickets: WaitingTicket[]): WaitingOn {
   let agents = 0;
   let blocked = 0;
   for (const t of tickets) {
-    if (t.status === "BLOCKED") blocked += 1;
+    if (t.blocked) blocked += 1;
     else if (t.stage === "inReview") people += 1;
     else if (t.stage === "inProgress" && t.isAgent) agents += 1;
   }
@@ -183,6 +187,11 @@ function startOfUtcDay(d: Date): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
+/**
+ * `cycle.endDate` is exclusive, as everywhere else for cycles: auto-generated
+ * cycles end at the next one's start, and a cycle completes once
+ * `endDate <= now` (cycle.ts reconcileCycleStatuses, computeCyclePacing).
+ */
 export function computeBurnup(
   cycle: { startDate: Date; endDate: Date },
   tickets: BurnupTicket[],
@@ -190,7 +199,7 @@ export function computeBurnup(
 ): Burnup {
   const start = startOfUtcDay(cycle.startDate);
   const end = startOfUtcDay(cycle.endDate);
-  const totalDays = Math.max(1, Math.round((end - start) / DAY) + 1);
+  const totalDays = Math.max(1, Math.round((end - start) / DAY));
   const todayIndex = Math.min(
     totalDays - 1,
     Math.max(0, Math.floor((startOfUtcDay(now) - start) / DAY)),

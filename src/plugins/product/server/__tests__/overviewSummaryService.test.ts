@@ -15,6 +15,7 @@ import {
   buildFacts,
   constrainBold,
   getOrGenerateOverviewSummary,
+  getRecentOverviewSummary,
   hashFacts,
   type SummaryOpenAIClient,
 } from "../overviewSummaryService";
@@ -162,6 +163,48 @@ describe("getOrGenerateOverviewSummary", () => {
     expect(logInteraction).toHaveBeenCalledWith(
       expect.objectContaining({ hadError: true, aiResponse: "not json" }),
     );
+  });
+
+  // The failure cooldown is per product and per server instance, so each of
+  // these uses its own product id.
+  it("does not call the model again during the cooldown after a failure", async () => {
+    const p = { ...product, id: "p-cooldown" };
+    db.productOverviewSummary.findUnique.mockResolvedValue(null);
+    const openai = fakeOpenAI("not json");
+    const call = (now: Date) =>
+      getOrGenerateOverviewSummary(db, { product: p, data: overview(), userId: "u1", now, openai });
+    await expect(call(NOW)).rejects.toThrow();
+    await expect(call(new Date(NOW.getTime() + 60_000))).rejects.toThrow(/recently failed/);
+    expect(openai.calls).toBe(1);
+    // After the cooldown it tries again.
+    await expect(call(new Date(NOW.getTime() + HOUR))).rejects.toThrow();
+    expect(openai.calls).toBe(2);
+  });
+
+  it("serves the stored summary when regeneration fails", async () => {
+    const p = { ...product, id: "p-fallback" };
+    db.productOverviewSummary.findUnique.mockResolvedValue({
+      ...storedRow("old-hash", 2 * HOUR),
+      productId: p.id,
+    });
+    const openai = fakeOpenAI("not json");
+    const r = await getOrGenerateOverviewSummary(db, { product: p, data: overview(), userId: "u1", now: NOW, openai });
+    expect(openai.calls).toBe(1);
+    expect(r).toMatchObject({ summary: "Cached summary.", cached: true });
+  });
+});
+
+describe("getRecentOverviewSummary", () => {
+  it("returns the stored summary only while it is under an hour old", async () => {
+    db.productOverviewSummary.findUnique.mockResolvedValue(storedRow("h", 20 * 60_000));
+    await expect(getRecentOverviewSummary(db, product.id, NOW)).resolves.toMatchObject({
+      summary: "Cached summary.",
+      cached: true,
+    });
+    db.productOverviewSummary.findUnique.mockResolvedValue(storedRow("h", 2 * HOUR));
+    await expect(getRecentOverviewSummary(db, product.id, NOW)).resolves.toBeNull();
+    db.productOverviewSummary.findUnique.mockResolvedValue(null);
+    await expect(getRecentOverviewSummary(db, product.id, NOW)).resolves.toBeNull();
   });
 });
 

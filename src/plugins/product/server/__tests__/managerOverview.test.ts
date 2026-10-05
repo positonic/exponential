@@ -65,18 +65,20 @@ describe("computeWaitingOn", () => {
   it("separates reviews, agent building and blocked", () => {
     expect(
       computeWaitingOn([
-        { stage: "inReview", status: "QA", isAgent: true },
-        { stage: "inReview", status: "QA", isAgent: false },
-        { stage: "inProgress", status: "IN_PROGRESS", isAgent: true },
-        { stage: "inProgress", status: "IN_PROGRESS", isAgent: false },
-        { stage: "inProgress", status: "BLOCKED", isAgent: false },
+        { stage: "inReview", blocked: false, isAgent: true },
+        { stage: "inReview", blocked: false, isAgent: false },
+        { stage: "inProgress", blocked: false, isAgent: true },
+        { stage: "inProgress", blocked: false, isAgent: false },
+        { stage: "inProgress", blocked: true, isAgent: false }, // BLOCKED status
+        { stage: "inProgress", blocked: true, isAgent: true }, // open dependency
       ]),
-    ).toEqual({ people: 2, agents: 1, blocked: 1 });
+    ).toEqual({ people: 2, agents: 1, blocked: 2 });
   });
 });
 
 describe("computeBurnup", () => {
-  const cycle = { startDate: d("2026-09-28"), endDate: d("2026-10-11") };
+  // endDate is exclusive: a 14-day cycle ends at the next one's start.
+  const cycle = { startDate: d("2026-09-28"), endDate: d("2026-10-12") };
 
   it("builds scope and done lines up to today and projects the finish", () => {
     const tickets = [

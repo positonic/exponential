@@ -473,6 +473,32 @@ describe("ticket router — assignee containment guard (mocked)", () => {
     );
   });
 
+  it("records a bulk cycle move only for tickets not already in that cycle", async () => {
+    dbMock.ticket.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-in", status: "IN_PROGRESS", cycleId: "cycle-1", productId: "p1", product: { workspaceId } } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-out", status: "IN_PROGRESS", cycleId: null, productId: "p1", product: { workspaceId } } as any,
+    ]);
+    dbMock.list.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { workspaceId, productId: null } as any,
+    );
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.bulkUpdate({ ids: ["ticket-in", "ticket-out"], cycleId: "cycle-1" });
+
+    const events = dbMock.workspaceActivityEvent.create.mock.calls.map((c) => c[0].data);
+    expect(events.filter((e) => e.entityId === "ticket-in")).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        entityId: "ticket-out",
+        action: "updated",
+        metadata: { fieldsChanged: ["cycleId"], bulk: true },
+      }),
+    );
+  });
+
   it("refuses a bulkUpdate that assigns a non-member", async () => {
     dbMock.ticket.findMany.mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
