@@ -107,13 +107,30 @@ describe("GoogleCalendarService.deleteEvent", () => {
 
   it("raises CalendarEventPermissionError when Google refuses", async () => {
     eventsDelete.mockRejectedValue(
-      Object.assign(new Error("forbidden"), { response: { status: 403 } }),
+      Object.assign(new Error("forbidden"), {
+        response: { status: 403 },
+        errors: [{ reason: "forbiddenForNonOrganizer" }],
+      }),
     );
 
     await expect(service.deleteEvent(userId, target)).rejects.toBeInstanceOf(
       CalendarEventPermissionError,
     );
   });
+
+  it.each(["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"])(
+    "treats a 403 %s as retryable, not as a permission refusal",
+    async (reason) => {
+      eventsDelete.mockRejectedValue(
+        Object.assign(new Error("throttled"), { status: 403, errors: [{ reason }] }),
+      );
+
+      const failure = await service.deleteEvent(userId, target).catch((e: Error) => e);
+
+      expect(failure).not.toBeInstanceOf(CalendarEventPermissionError);
+      expect((failure as Error).message).toContain("Please try again");
+    },
+  );
 
   it("fails on any other error, keeps the cache, and carries the provider error as cause", async () => {
     const clearCache = vi.spyOn(service, "clearUserCache");

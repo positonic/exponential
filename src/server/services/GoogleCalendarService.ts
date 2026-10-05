@@ -402,14 +402,21 @@ export class GoogleCalendarService implements CalendarProvider {
         { timeout: GOOGLE_TIMEOUT_MS },
       );
     } catch (error) {
-      const { status, response } = error as { status?: number; response?: { status?: number } };
+      const { status, response, errors } = error as {
+        status?: number;
+        response?: { status?: number };
+        errors?: Array<{ reason?: string }>;
+      };
       const httpStatus = status ?? response?.status;
       // 410 is Google's "already deleted"; 404 means the event isn't on this
       // calendar, which also covers one that moved. Neither is a failure, but
       // neither is a delete we made — the caller is told which.
       if (httpStatus !== 404 && httpStatus !== 410) {
         console.error(`Failed to delete calendar event ${eventId} (account ${accountId}):`, error);
-        if (httpStatus === 403) throw new CalendarEventPermissionError();
+        // Google also answers 403 when it is throttling (rateLimitExceeded,
+        // userRateLimitExceeded, quotaExceeded) — retryable, not a refusal.
+        const isThrottled = /limit|quota/i.test(errors?.[0]?.reason ?? '');
+        if (httpStatus === 403 && !isThrottled) throw new CalendarEventPermissionError();
         throw new Error('Failed to delete calendar event. Please try again.', { cause: error });
       }
       alreadyGone = true;
