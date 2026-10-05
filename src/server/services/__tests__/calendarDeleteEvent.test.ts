@@ -176,6 +176,18 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
     expect(url).toBe("https://graph.microsoft.com/v1.0/me/events/AAMk%2Fev%3D1");
     expect(init.method).toBe("DELETE");
     expect(init.headers).toEqual({ Authorization: "Bearer token-1" });
+    // Capped: the modal can't be closed while this is pending.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("turns a timeout or network failure into the retryable error, keeping the cause", async () => {
+    const timeout = new DOMException("The operation timed out.", "TimeoutError");
+    fetchMock.mockRejectedValue(timeout);
+
+    const failure = await service.deleteEvent(userId, target).catch((e: Error) => e);
+
+    expect((failure as Error).message).toContain("Please try again");
+    expect((failure as Error).cause).toBe(timeout);
   });
 
   it("deletes through the calendar the event was listed from", async () => {

@@ -12,6 +12,13 @@ import type {
   DeleteEventResult,
 } from "./CalendarProvider";
 
+/**
+ * Cap on the event DELETE, matching GOOGLE_TIMEOUT_MS in GoogleCalendarService.
+ * The event modal cannot be dismissed while a delete is pending, so an
+ * uncapped stall would hold it until the function's own budget ran out.
+ */
+const GRAPH_DELETE_TIMEOUT_MS = 10_000;
+
 // Cache with 15 minute TTL (same as Google)
 const calendarCache = new NodeCache({
   stdTTL: 900,
@@ -533,13 +540,21 @@ export class MicrosoftCalendarService implements CalendarProvider {
       calendarId !== "primary"
         ? `me/calendars/${encodeURIComponent(calendarId)}/events`
         : "me/events";
-    const response = await fetch(
-      `https://graph.microsoft.com/v1.0/${calendarPath}/${encodeURIComponent(eventId)}`,
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://graph.microsoft.com/v1.0/${calendarPath}/${encodeURIComponent(eventId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(GRAPH_DELETE_TIMEOUT_MS),
+        },
+      );
+    } catch (error) {
+      // Network failure, or the timeout above.
+      console.error(`Failed to reach Outlook to delete event ${eventId} (account ${accountId}):`, error);
+      throw new Error("Failed to delete calendar event. Please try again.", { cause: error });
+    }
 
     // 404: the event is no longer on that calendar — deleted or moved since
     // our last fetch. Not a failure, but not a delete we made either.
