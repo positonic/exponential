@@ -112,7 +112,9 @@ export function CalendarEventModal({ event, onClose, onDeleted }: CalendarEventM
         eventId: event.id,
         calendarId: event.calendarId,
         accountId,
-        notifyAttendees: notifyGuests,
+        // No guests listed means no checkbox was shown, and nobody gets an
+        // email the user wasn't offered a say in.
+        notifyAttendees: guests.length > 0 && notifyGuests,
       },
       {
         onSuccess: ({ alreadyGone }) => {
@@ -204,20 +206,26 @@ export function CalendarEventModal({ event, onClose, onDeleted }: CalendarEventM
               Delete this event? It is removed from {provider} too, not just from Exponential. If
               it repeats, only this occurrence is deleted.
             </Text>
-            {guests.length > 0 &&
-              (event.provider === "microsoft" ? (
+            {guests.length > 0 && (
+              <>
+                {/* We don't know who organized it, so say what each case does. */}
                 <Text size="sm" c="dimmed">
-                  If you organized it, Outlook tells the guests it was cancelled.
+                  If you organized it, this cancels it for everyone. If you were invited, it only
+                  comes off your calendar.
+                  {event.provider === "microsoft" &&
+                    " Outlook emails the guests itself when the organizer deletes."}
                 </Text>
-              ) : (
-                <Checkbox
-                  size="sm"
-                  label="Email guests that it was cancelled"
-                  checked={notifyGuests}
-                  onChange={(e) => setNotifyGuests(e.currentTarget.checked)}
-                  disabled={deleteEvent.isPending}
-                />
-              ))}
+                {event.provider !== "microsoft" && (
+                  <Checkbox
+                    size="sm"
+                    label="Email the guests about it"
+                    checked={notifyGuests}
+                    onChange={(e) => setNotifyGuests(e.currentTarget.checked)}
+                    disabled={deleteEvent.isPending}
+                  />
+                )}
+              </>
+            )}
             <Group justify="flex-end" gap="xs">
               <Button
                 variant="default"

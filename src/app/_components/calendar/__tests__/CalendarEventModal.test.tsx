@@ -167,12 +167,33 @@ describe("CalendarEventModal", () => {
     render(<CalendarEventModal event={googleEvent} onClose={onClose} onDeleted={onDeleted} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /Email guests/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Email the guests/ }));
     fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
 
     expect(deleteMutate).toHaveBeenCalledWith(
       expect.objectContaining({ notifyAttendees: false }),
     );
+  });
+
+  test("with no guests listed there is no email choice, and none is sent", async () => {
+    const soloEvent = { ...googleEvent, attendees: undefined };
+    render(<CalendarEventModal event={soloEvent} onClose={onClose} onDeleted={onDeleted} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
+
+    expect(deleteMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ notifyAttendees: false }),
+    );
+  });
+
+  test("the confirmation doesn't assume the user organized the event", async () => {
+    render(<CalendarEventModal event={googleEvent} onClose={onClose} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    expect(screen.getByText(/If you were invited, it only\s+comes off your calendar/)).toBeInTheDocument();
   });
 
   test("lists guests without the account's own address, and links out to the provider", async () => {
