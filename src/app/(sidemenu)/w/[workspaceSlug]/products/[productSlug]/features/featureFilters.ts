@@ -101,6 +101,19 @@ export function buildFeatureFacetOptions(features: FilterableFeature[]): Feature
   };
 }
 
+/**
+ * The title of the goal a filter value names, read from the features that
+ * serve it. Not from the facet options: those leave the Goal facet out when
+ * every feature serves the same goal, and an applied filter still needs its
+ * name.
+ */
+export function goalTitleForFilterValue(
+  features: FilterableFeature[],
+  value: string,
+): string | undefined {
+  return features.find((f) => f.goal && goalKey(f) === value)?.goal?.title;
+}
+
 /** Values within a facet are OR-ed; facets are AND-ed. An empty facet passes. */
 export function matchesFeatureFilters(f: FilterableFeature, filters: FeatureFilters): boolean {
   if (filters.status.length && !filters.status.includes(f.status)) return false;

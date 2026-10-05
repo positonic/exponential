@@ -73,6 +73,7 @@ import { useCoalescedSave } from "~/hooks/useCoalescedSave";
 import {
   buildFeatureFacetOptions,
   countActiveFeatureFilters,
+  goalTitleForFilterValue,
   matchesFeatureFilters,
   parseSavedFeatureFilters,
   EMPTY_FEATURE_FILTERS,
@@ -500,7 +501,7 @@ export default function FeaturesListPage() {
         return `Area: ${(areas ?? []).find((a) => a.id === value)?.name ?? fromFacets ?? "Unknown area"}`;
       case "goal":
         if (value === FILTER_NONE) return "No goal";
-        return `Goal: ${fromFacets ?? "Unknown goal"}`;
+        return `Goal: ${goalTitleForFilterValue(features ?? [], value) ?? "Unknown goal"}`;
       case "labels":
         return fromFacets ?? "Unknown label";
     }

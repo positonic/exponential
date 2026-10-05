@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildFeatureFacetOptions,
   countActiveFeatureFilters,
+  goalTitleForFilterValue,
   matchesFeatureFilters,
   parseSavedFeatureFilters,
   EMPTY_FEATURE_FILTERS,
@@ -159,6 +160,20 @@ describe("matchesFeatureFilters", () => {
     expect(matchesFeatureFilters(f, filters({ labels: ["t-ai", "t-other"] }))).toBe(true);
     expect(matchesFeatureFilters(f, filters({ labels: ["t-other"] }))).toBe(false);
     expect(matchesFeatureFilters(feature({ id: "f2" }), filters({ labels: ["t-ai"] }))).toBe(false);
+  });
+});
+
+describe("goalTitleForFilterValue", () => {
+  it("names a goal even when every feature serves it and the facet is not offered", () => {
+    const features = [feature({ id: "f1", goal: growth }), feature({ id: "f2", goal: growth })];
+
+    expect(buildFeatureFacetOptions(features).goal).toEqual([]);
+    expect(goalTitleForFilterValue(features, "7")).toBe("Grow revenue");
+  });
+
+  it("is undefined for a goal no feature serves any more", () => {
+    expect(goalTitleForFilterValue([feature({ id: "f1", goal: growth })], "8")).toBeUndefined();
+    expect(goalTitleForFilterValue([feature({ id: "f1" })], "7")).toBeUndefined();
   });
 });
 
