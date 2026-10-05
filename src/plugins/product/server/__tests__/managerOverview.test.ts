@@ -4,6 +4,7 @@ import {
   computeCriticalPath,
   computeWaitingOn,
   findBottleneck,
+  finishedAtFromEvents,
   isSlipping,
   median,
   parsePrUrl,
@@ -129,6 +130,17 @@ describe("computeCriticalPath", () => {
     expect(computeCriticalPath(tickets, edges)).toEqual(["x", "y"]);
   });
 
+  it("only picks chains that end at a ticket in scope", () => {
+    const tickets = ["b1", "b2", "b3", "b4", "c1", "c2"].map((id) => ({ id, weight: 1 }));
+    const edges = [
+      { blockerId: "b1", ticketId: "b2" },
+      { blockerId: "b2", ticketId: "b3" },
+      { blockerId: "b3", ticketId: "b4" },
+      { blockerId: "c1", ticketId: "c2" },
+    ];
+    expect(computeCriticalPath(tickets, edges, new Set(["c1", "c2"]))).toEqual(["c1", "c2"]);
+  });
+
   it("returns nothing without dependencies and survives a cycle", () => {
     expect(computeCriticalPath([{ id: "a", weight: 1 }], [])).toEqual([]);
     const loop = computeCriticalPath(
@@ -152,6 +164,26 @@ describe("isSlipping", () => {
   it("never flags review or tickets without enough history", () => {
     expect(isSlipping("inReview", 9 * DAY, median, HOUR)).toBe(false);
     expect(isSlipping("committed", 0, null, HOUR)).toBe(false);
+  });
+});
+
+describe("finishedAtFromEvents", () => {
+  it("keeps the first finish, not the later deploy", () => {
+    const m = finishedAtFromEvents([
+      { ticketId: "t", to: "IN_PROGRESS", at: d("2026-09-01") },
+      { ticketId: "t", to: "DONE", at: d("2026-09-03") },
+      { ticketId: "t", to: "DEPLOYED", at: d("2026-09-10") },
+    ]);
+    expect(m.get("t")).toEqual(d("2026-09-03"));
+  });
+  it("starts over when a ticket is reopened", () => {
+    const m = finishedAtFromEvents([
+      { ticketId: "t", to: "DONE", at: d("2026-09-03") },
+      { ticketId: "t", to: "IN_PROGRESS", at: d("2026-09-04") },
+      { ticketId: "t", to: "DONE", at: d("2026-09-08") },
+    ]);
+    expect(m.get("t")).toEqual(d("2026-09-08"));
+    expect(finishedAtFromEvents([{ ticketId: "u", to: "QA", at: d("2026-09-01") }]).has("u")).toBe(false);
   });
 });
 

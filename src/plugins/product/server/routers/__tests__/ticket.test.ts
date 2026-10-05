@@ -454,6 +454,25 @@ describe("ticket router — assignee containment guard (mocked)", () => {
     expect(dbMock.ticket.update).toHaveBeenCalled();
   });
 
+  it("records other fields changed in the same edit on the status event", async () => {
+    stubTicketLoad();
+    dbMock.ticket.update.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-1", status: "IN_PROGRESS" } as any,
+    );
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.update({ id: "ticket-1", status: "IN_PROGRESS", priority: 2 });
+
+    const events = dbMock.workspaceActivityEvent.create.mock.calls.map((c) => c[0].data);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        action: "status_changed",
+        metadata: { from: "BACKLOG", to: "IN_PROGRESS", fieldsChanged: ["priority"] },
+      }),
+    );
+  });
+
   it("refuses a bulkUpdate that assigns a non-member", async () => {
     dbMock.ticket.findMany.mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

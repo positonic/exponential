@@ -6,8 +6,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
+const logInteraction = vi.hoisted(() => vi.fn());
 vi.mock("~/server/services/AiInteractionLogger", () => ({
-  getAiInteractionLogger: () => ({ logInteraction: vi.fn().mockResolvedValue(undefined) }),
+  getAiInteractionLogger: () => ({ logInteraction }),
 }));
 
 import {
@@ -84,6 +85,7 @@ function storedRow(inputHash: string, ageMs: number) {
 
 beforeEach(() => {
   mockReset(db);
+  logInteraction.mockReset().mockResolvedValue(undefined);
   db.productOverviewSummary.upsert.mockImplementation(
     (async (args: { create: { summary: string; risk: string | null } }) => ({
       ...storedRow("x", 0),
@@ -139,12 +141,27 @@ describe("getOrGenerateOverviewSummary", () => {
     expect(r.summary).toMatch(/Nothing was completed/);
   });
 
-  it("propagates an invalid model response as an error", async () => {
+  it("still calls the model when the only news is a shipped scope", async () => {
+    db.productOverviewSummary.findUnique.mockResolvedValue(null);
+    const shippedOnly = overview({
+      summary: { shippedScopes: [{ feature: "Graph", scope: "Label filters" }], doneInWindow: 0, deployedInWindow: 0 },
+      stages: overview().stages.map((s) => ({ ...s, count: 0 })),
+    });
+    const openai = fakeOpenAI(JSON.stringify({ summary: "**Graph · Label filters** shipped.", risk: null }));
+    const r = await getOrGenerateOverviewSummary(db, { product, data: shippedOnly, userId: "u1", now: NOW, openai });
+    expect(openai.calls).toBe(1);
+    expect(r.summary).toMatch(/Label filters/);
+  });
+
+  it("logs and propagates an invalid model response", async () => {
     db.productOverviewSummary.findUnique.mockResolvedValue(null);
     const openai = fakeOpenAI("not json");
     await expect(
       getOrGenerateOverviewSummary(db, { product, data: overview(), userId: "u1", now: NOW, openai }),
     ).rejects.toThrow();
+    expect(logInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ hadError: true, aiResponse: "not json" }),
+    );
   });
 });
 

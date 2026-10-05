@@ -268,6 +268,8 @@ export interface PathEdge {
 export function computeCriticalPath(
   tickets: PathTicket[],
   edges: PathEdge[],
+  /** Only chains ending at one of these tickets count (e.g. the cycle's). */
+  endCandidates?: ReadonlySet<string>,
 ): string[] {
   const weight = new Map(tickets.map((t) => [t.id, t.weight]));
   const blockersOf = new Map<string, string[]>();
@@ -303,6 +305,7 @@ export function computeCriticalPath(
   let endId: string | null = null;
   let endScore = 0;
   for (const t of tickets) {
+    if (endCandidates && !endCandidates.has(t.id)) continue;
     const s = solve(t.id);
     if (s > endScore && blockersOf.has(t.id)) {
       endScore = s;
@@ -348,6 +351,32 @@ export function isSlipping(
     return remaining > msUntilDue;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Completion time
+// ---------------------------------------------------------------------------
+
+const COMPLETED: ReadonlySet<string> = new Set(["DONE", "DEPLOYED"]);
+
+/**
+ * When each ticket was finished: the first move into DONE/DEPLOYED after its
+ * last reopen. `Ticket.completedAt` is reset by every save that sends a
+ * completed status (including DONE -> DEPLOYED), so it reads as "deployed at"
+ * or "last edited at" rather than "finished at". Events must be oldest first.
+ */
+export function finishedAtFromEvents(
+  events: { ticketId: string; to: string; at: Date }[],
+): Map<string, Date> {
+  const finished = new Map<string, Date>();
+  for (const e of events) {
+    if (COMPLETED.has(e.to)) {
+      if (!finished.has(e.ticketId)) finished.set(e.ticketId, e.at);
+    } else {
+      finished.delete(e.ticketId);
+    }
+  }
+  return finished;
 }
 
 // ---------------------------------------------------------------------------

@@ -206,7 +206,12 @@ function isQuiet(facts: Facts): boolean {
   const inFlightCount = Object.entries(facts.stages)
     .filter(([k]) => k === "inProgress" || k === "inReview")
     .reduce((s, [, n]) => s + n, 0);
-  return completed === 0 && inFlightCount === 0 && facts.atRisk.length === 0;
+  return (
+    completed === 0 &&
+    inFlightCount === 0 &&
+    facts.atRisk.length === 0 &&
+    facts.shippedScopes.length === 0
+  );
 }
 
 async function generateAndStore(
@@ -277,11 +282,26 @@ async function generateAndStore(
   }
 
   const raw = completion.choices[0]?.message?.content?.trim() ?? "";
-  if (!raw) throw new Error("Empty LLM response");
-  const parsed = PayloadSchema.parse(JSON.parse(raw));
-  const allowed = allowedNames(args.facts);
   const tokensIn = completion.usage?.prompt_tokens ?? null;
   const tokensOut = completion.usage?.completion_tokens ?? null;
+  let parsed: z.infer<typeof PayloadSchema>;
+  try {
+    if (!raw) throw new Error("Empty LLM response");
+    parsed = PayloadSchema.parse(JSON.parse(raw));
+  } catch (err) {
+    // Log unusable output too, so validation failures show up in history.
+    await logAiCall(db, {
+      ...args,
+      responseTime: Date.now() - startedAt,
+      hadError: true,
+      errorMessage: `Invalid model response: ${err instanceof Error ? err.message : String(err)}`,
+      aiResponse: raw,
+      tokensIn,
+      tokensOut,
+    });
+    throw err;
+  }
+  const allowed = allowedNames(args.facts);
 
   await logAiCall(db, {
     ...args,

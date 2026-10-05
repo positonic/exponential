@@ -14,6 +14,7 @@ import {
   computeCriticalPath,
   computeWaitingOn,
   findBottleneck,
+  finishedAtFromEvents,
   isSlipping,
   median,
   MIN_CYCLE_TIME_SAMPLES,
@@ -25,7 +26,8 @@ import {
 } from "./managerOverview";
 
 const DAY = 86_400_000;
-const PR_HISTORY_DAYS = 60;
+/** Window for the "median time to merge" stat. */
+const MERGE_STATS_DAYS = 60;
 const OPEN_STATUSES: TicketStatus[] = [
   "BACKLOG",
   "NEEDS_REFINEMENT",
@@ -253,7 +255,25 @@ export async function loadManagerOverview(
     .map((t) => t.prUrl)
     .filter((u): u is string => !!u);
 
-  const [events, deps, prRows] = await Promise.all([
+  const prScope = [
+    ...(repoNames.length ? [{ repoFullName: { in: repoNames } }] : []),
+    ...(ticketPrUrls.length ? [{ prUrl: { in: ticketPrUrls } }] : []),
+  ];
+  const prSelect = {
+    eventType: true,
+    eventAction: true,
+    prUrl: true,
+    prNumber: true,
+    prTitle: true,
+    prState: true,
+    prAuthor: true,
+    prMergedAt: true,
+    prReviewState: true,
+    repoFullName: true,
+    eventTimestamp: true,
+  } satisfies Prisma.GitHubActivitySelect;
+
+  const [events, deps, lifecycleRows] = await Promise.all([
     eventIds.length
       ? db.workspaceActivityEvent.findMany({
           where: {
@@ -272,52 +292,62 @@ export async function loadManagerOverview(
           select: { ticketId: true, dependsOnId: true },
         })
       : Promise.resolve([]),
-    repoNames.length || ticketPrUrls.length
+    // PR lifecycle events only (opened / reopened / closed), with no time
+    // limit: an open PR may have had no event for months. Pushes
+    // ("synchronize") are left out to keep this small.
+    prScope.length
       ? db.gitHubActivity.findMany({
           where: {
             workspaceId: product.workspaceId,
-            eventType: { in: ["pull_request", "pull_request_review"] },
-            eventTimestamp: { gte: new Date(now.getTime() - PR_HISTORY_DAYS * DAY) },
-            OR: [
-              ...(repoNames.length ? [{ repoFullName: { in: repoNames } }] : []),
-              ...(ticketPrUrls.length ? [{ prUrl: { in: ticketPrUrls } }] : []),
-            ],
+            eventType: "pull_request",
+            eventAction: { in: ["opened", "reopened", "closed"] },
+            OR: prScope,
           },
-          select: {
-            eventType: true,
-            eventAction: true,
-            prUrl: true,
-            prNumber: true,
-            prTitle: true,
-            prState: true,
-            prAuthor: true,
-            prMergedAt: true,
-            prReviewState: true,
-            repoFullName: true,
-            eventTimestamp: true,
-          },
+          select: prSelect,
         })
       : Promise.resolve([]),
   ]);
 
-  const prs = foldPrEvents(prRows);
-  const hasPrData = prRows.length > 0;
+  // Reviews only matter for PRs that are still open.
+  const openPrUrls = [...foldPrEvents(lifecycleRows).values()]
+    .filter((p) => p.state === "open")
+    .map((p) => p.url);
+  const reviewRows = openPrUrls.length
+    ? await db.gitHubActivity.findMany({
+        where: {
+          workspaceId: product.workspaceId,
+          eventType: "pull_request_review",
+          prUrl: { in: openPrUrls },
+        },
+        select: prSelect,
+      })
+    : [];
+  const prs = foldPrEvents([...lifecycleRows, ...reviewRows]);
+  const hasPrData = lifecycleRows.length > 0;
 
   // ---- time each ticket entered its current status / the cycle ----
   const statusSince = new Map<string, Date>();
   const cycleJoinedAt = new Map<string, Date>();
   const startedAt = new Map<string, Date>();
+  const statusMoves: { ticketId: string; to: string; at: Date }[] = [];
   for (const e of events) {
     const meta = (e.metadata ?? {}) as { to?: string; fieldsChanged?: string[] };
     if (e.action === "status_changed" && meta.to) {
       statusSince.set(`${e.entityId}:${meta.to}`, e.createdAt);
+      statusMoves.push({ ticketId: e.entityId, to: meta.to, at: e.createdAt });
       if (meta.to === "IN_PROGRESS" && !startedAt.has(e.entityId)) {
         startedAt.set(e.entityId, e.createdAt);
       }
-    } else if (e.action === "updated" && meta.fieldsChanged?.includes("cycleId")) {
+    }
+    // A cycle move is recorded on `updated`, or on `status_changed` when the
+    // status changed in the same edit.
+    if (meta.fieldsChanged?.includes("cycleId")) {
       cycleJoinedAt.set(e.entityId, e.createdAt);
     }
   }
+  const finishedAtByTicket = finishedAtFromEvents(statusMoves);
+  const finishedAt = (t: { id: string; completedAt: Date | null; updatedAt?: Date }) =>
+    finishedAtByTicket.get(t.id) ?? t.completedAt ?? t.updatedAt ?? null;
 
   const ref = (t: LoadedTicket) => ({
     id: t.id,
@@ -335,7 +365,7 @@ export async function loadManagerOverview(
       if (!stage) return null;
       const since =
         stage === "done" || stage === "deployed"
-          ? (t.completedAt ?? t.updatedAt)
+          ? (finishedAt(t) ?? t.updatedAt)
           : (statusSince.get(`${t.id}:${t.status}`) ?? t.updatedAt);
       return {
         ticket: t,
@@ -373,9 +403,7 @@ export async function loadManagerOverview(
           return {
             addedAt: addedAt < cycleStart ? cycleStart : addedAt,
             doneAt:
-              t.status === "DONE" || t.status === "DEPLOYED"
-                ? (t.completedAt ?? t.updatedAt)
-                : null,
+              t.status === "DONE" || t.status === "DEPLOYED" ? finishedAt(t) : null,
           };
         }),
         now,
@@ -385,12 +413,14 @@ export async function loadManagerOverview(
   // ---- critical path (open tickets, blocker first) ----
   const openById = new Map(openTickets.map((t) => [t.id, t]));
   const scopedOpenIds = new Set(scoped.filter((t) => openById.has(t.id)).map((t) => t.id));
+  // Longest chain ending at a ticket in scope (the cycle, or the product's
+  // active work); its blockers may sit outside the scope.
   const chainIds = computeCriticalPath(
     openTickets.map((t) => ({ id: t.id, weight: t.points ?? 1 })),
     deps.map((d) => ({ blockerId: d.dependsOnId, ticketId: d.ticketId })),
+    scopedOpenIds,
   );
-  const chainTouchesScope = chainIds.some((id) => scopedOpenIds.has(id));
-  const criticalPath = (chainTouchesScope ? chainIds : []).map((id, i, all) => {
+  const criticalPath = chainIds.map((id, i, all) => {
     const t = openById.get(id)!;
     const prev = i > 0 ? openById.get(all[i - 1]!) : undefined;
     const started = t.status === "IN_PROGRESS" || t.status === "QA";
@@ -418,7 +448,8 @@ export async function loadManagerOverview(
   const cycleTimes = completedLast12Weeks
     .map((t) => {
       const start = startedAt.get(t.id);
-      return start && t.completedAt ? t.completedAt.getTime() - start.getTime() : null;
+      const end = finishedAt(t);
+      return start && end ? end.getTime() - start.getTime() : null;
     })
     .filter((ms): ms is number => ms !== null && ms > 0);
   const medianCycleMs =
@@ -540,8 +571,12 @@ export async function loadManagerOverview(
       };
     })
     .sort((a, b) => b.waitMs - a.waitMs);
+  const mergeStatsFrom = now.getTime() - MERGE_STATS_DAYS * DAY;
   const mergeTimes = allPrs
-    .filter((p) => p.state === "merged" && p.openedAt && p.mergedAt)
+    .filter(
+      (p) =>
+        p.state === "merged" && p.openedAt && p.mergedAt && p.mergedAt.getTime() >= mergeStatsFrom,
+    )
     .map((p) => p.mergedAt!.getTime() - p.openedAt!.getTime());
 
   // ---- summary inputs ----
@@ -561,7 +596,9 @@ export async function loadManagerOverview(
         }
       : null,
     weekly: weeklyCompleted(
-      completedLast12Weeks.map((t) => t.completedAt!).filter(Boolean),
+      completedLast12Weeks
+        .map((t) => finishedAt(t))
+        .filter((d): d is Date => d !== null),
       now,
     ),
     summary: {
