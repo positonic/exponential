@@ -101,13 +101,22 @@ export function CalendarEventModal({ event, onClose, onDeleted }: CalendarEventM
         notifyAttendees: notifyGuests,
       },
       {
-        onSuccess: () => {
+        onSuccess: ({ alreadyGone }) => {
+          // Either way it should stop rendering here; only the claim differs.
           onDeleted?.(event);
-          notifications.show({
-            title: "Event deleted",
-            message: `“${event.summary}” was removed from ${provider}.`,
-            color: "blue",
-          });
+          notifications.show(
+            alreadyGone
+              ? {
+                  title: "Event was already gone",
+                  message: `“${event.summary}” was no longer on that calendar in ${provider} — it may have been deleted or moved.`,
+                  color: "yellow",
+                }
+              : {
+                  title: "Event deleted",
+                  message: `“${event.summary}” was removed from ${provider}.`,
+                  color: "blue",
+                },
+          );
           close();
         },
       },

@@ -62,6 +62,14 @@ export interface DeleteEventInput {
   notifyAttendees?: boolean;
 }
 
+export interface DeleteEventResult {
+  /**
+   * The provider no longer had the event on that calendar — deleted or moved
+   * since we last read it — so this call deleted nothing.
+   */
+  alreadyGone: boolean;
+}
+
 /** The provider refused a write: a view-only calendar, or an event the user may not change. */
 export class CalendarEventPermissionError extends Error {
   constructor(message = "You don't have permission to delete this event.") {
@@ -146,10 +154,11 @@ export interface CalendarProvider {
   ): Promise<CreatedCalendarEvent>;
 
   /**
-   * Delete an event at the provider. Resolves when the event is already gone;
-   * throws CalendarEventPermissionError when the provider refuses.
+   * Delete an event at the provider. Resolves `alreadyGone` rather than
+   * failing when the provider no longer has it there; throws
+   * CalendarEventPermissionError when the provider refuses.
    */
-  deleteEvent(userId: string, input: DeleteEventInput): Promise<void>;
+  deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult>;
 
   /** Fetch the account's email from the provider and persist it. Used to backfill providerEmail. */
   fetchAndUpdateProviderEmail(

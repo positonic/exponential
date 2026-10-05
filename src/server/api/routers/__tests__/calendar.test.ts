@@ -163,7 +163,7 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
     beforeEach(() => {
       // createMockCaller's session email — on the allowlist, so Google isn't gated.
       vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", `${userId}@test.com`);
-      deleteSpy.mockReset().mockResolvedValue(undefined);
+      deleteSpy.mockReset().mockResolvedValue({ alreadyGone: false });
     });
 
     afterEach(() => {
@@ -183,7 +183,7 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
         accountId: "ca-1",
       });
 
-      expect(res.success).toBe(true);
+      expect(res).toEqual({ success: true, alreadyGone: false });
       // The account lookup is what stops one user deleting through another's connection.
       expect(dbMock.connectedAccount.findFirst.mock.calls[0]![0]!.where).toEqual({
         id: "ca-1",
@@ -205,6 +205,19 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
         caller.calendar.deleteEvent({ eventId: "evt-1", accountId: "someone-elses" }),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it("passes on that the event was already gone, so the client doesn't claim a delete", async () => {
+      dbMock.connectedAccount.findFirst.mockResolvedValue({
+        id: "ca-1",
+        provider: "google",
+      } as never);
+      deleteSpy.mockResolvedValue({ alreadyGone: true });
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.deleteEvent({ eventId: "evt-1", accountId: "ca-1" });
+
+      expect(res).toEqual({ success: true, alreadyGone: true });
     });
 
     it("reports a provider refusal as FORBIDDEN", async () => {

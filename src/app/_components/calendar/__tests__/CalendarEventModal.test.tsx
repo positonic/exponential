@@ -8,7 +8,20 @@ import { render, screen, fireEvent, cleanup } from "~/test/test-utils";
 import "@testing-library/jest-dom/vitest";
 import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
 
-const deleteMutate = vi.fn();
+interface DeleteResult {
+  alreadyGone: boolean;
+}
+interface MutationCallbacks {
+  onSuccess?: (result: DeleteResult) => void;
+  onError?: (error: Error) => void;
+}
+
+const { deleteMutate, showNotification, mutation } = vi.hoisted(() => ({
+  deleteMutate: vi.fn(),
+  showNotification: vi.fn(),
+  /** How the next delete settles; a test sets it to drive that branch. */
+  mutation: { outcome: { alreadyGone: false } as { alreadyGone: boolean } | Error },
+}));
 
 vi.mock("~/trpc/react", () => ({
   api: {
@@ -21,10 +34,18 @@ vi.mock("~/trpc/react", () => ({
     }),
     calendar: {
       deleteEvent: {
-        useMutation: () => ({
-          mutate: (vars: unknown, opts?: { onSuccess?: () => void }) => {
+        // Mirrors react-query's ordering: the hook's callbacks run first, and
+        // the mutate-level onSuccess only on success.
+        useMutation: (hookOptions?: MutationCallbacks) => ({
+          mutate: (vars: unknown, callOptions?: MutationCallbacks) => {
             deleteMutate(vars);
-            opts?.onSuccess?.();
+            const { outcome } = mutation;
+            if (outcome instanceof Error) {
+              hookOptions?.onError?.(outcome);
+              return;
+            }
+            hookOptions?.onSuccess?.(outcome);
+            callOptions?.onSuccess?.(outcome);
           },
           isPending: false,
         }),
@@ -33,7 +54,7 @@ vi.mock("~/trpc/react", () => ({
   },
 }));
 
-vi.mock("@mantine/notifications", () => ({ notifications: { show: vi.fn() } }));
+vi.mock("@mantine/notifications", () => ({ notifications: { show: showNotification } }));
 
 import { CalendarEventModal } from "../CalendarEventModal";
 
@@ -62,9 +83,16 @@ describe("CalendarEventModal", () => {
 
   beforeEach(() => {
     deleteMutate.mockClear();
+    showNotification.mockClear();
     onClose.mockClear();
     onDeleted.mockClear();
+    mutation.outcome = { alreadyGone: false };
   });
+
+  const confirmDelete = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete event" }));
+  };
 
   afterEach(() => {
     cleanup();
@@ -87,6 +115,42 @@ describe("CalendarEventModal", () => {
     });
     expect(onDeleted).toHaveBeenCalledWith(googleEvent);
     expect(onClose).toHaveBeenCalled();
+    expect(showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Event deleted" }),
+    );
+  });
+
+  test("an event the provider no longer had is hidden without claiming it was deleted", async () => {
+    mutation.outcome = { alreadyGone: true };
+    render(<CalendarEventModal event={googleEvent} onClose={onClose} onDeleted={onDeleted} />);
+
+    await confirmDelete();
+
+    expect(showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Event was already gone" }),
+    );
+    expect(showNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Event deleted" }),
+    );
+    expect(onDeleted).toHaveBeenCalledWith(googleEvent);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  test("a failed delete says so and leaves the event showing", async () => {
+    mutation.outcome = new Error("You don't have permission to delete this event.");
+    render(<CalendarEventModal event={googleEvent} onClose={onClose} onDeleted={onDeleted} />);
+
+    await confirmDelete();
+
+    expect(showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Couldn't delete event",
+        message: "You don't have permission to delete this event.",
+      }),
+    );
+    // Hiding it here would drop a live event from the calendar for the session.
+    expect(onDeleted).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   test("Keep event backs out without deleting", async () => {

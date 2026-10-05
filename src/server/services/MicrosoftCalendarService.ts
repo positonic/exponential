@@ -9,6 +9,7 @@ import type {
   CreatedCalendarEvent,
   CalendarProvider,
   DeleteEventInput,
+  DeleteEventResult,
 } from "./CalendarProvider";
 
 // Cache with 15 minute TTL (same as Google)
@@ -522,7 +523,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
    * deletes a meeting — there is no silent variant, so `notifyAttendees` is
    * not consulted.
    */
-  async deleteEvent(userId: string, input: DeleteEventInput): Promise<void> {
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult> {
     const { eventId, calendarId, accountId } = input;
     const accessToken = await this.getAccessToken(userId, accountId);
     // Address the event through the calendar it was listed from, as getEvents
@@ -540,15 +541,23 @@ export class MicrosoftCalendarService implements CalendarProvider {
       },
     );
 
-    // 404: already deleted in Outlook since our last fetch — the outcome the caller wanted.
-    if (!response.ok && response.status !== 404) {
+    // 404: the event is no longer on that calendar — deleted or moved since
+    // our last fetch. Not a failure, but not a delete we made either.
+    const alreadyGone = response.status === 404;
+    if (!response.ok && !alreadyGone) {
       const text = await response.text();
-      console.error(`Microsoft Graph API error: ${response.status} ${text}`);
+      console.error(
+        `Failed to delete Outlook event ${eventId} (account ${accountId}): ${response.status} ${text}`,
+      );
       if (response.status === 403) throw new CalendarEventPermissionError();
       throw new Error("Failed to delete calendar event. Please try again.");
     }
 
     this.clearUserCache(userId);
+    console.log(
+      `Outlook event ${eventId} ${alreadyGone ? "was already gone" : "deleted"} for user ${userId} (account ${accountId})`,
+    );
+    return { alreadyGone };
   }
 
   clearUserCache(userId: string): void {

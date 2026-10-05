@@ -757,20 +757,19 @@ export const calendarRouter = createTRPCRouter({
 
       const service = getCalendarService(provider);
       try {
-        await service.deleteEvent(userId, {
+        const { alreadyGone } = await service.deleteEvent(userId, {
           eventId: input.eventId,
           calendarId: input.calendarId,
           accountId: account.id,
           notifyAttendees: input.notifyAttendees,
         });
+        return { success: true, alreadyGone };
       } catch (error) {
         if (error instanceof CalendarEventPermissionError) {
           throw new TRPCError({ code: "FORBIDDEN", message: error.message });
         }
         throw error;
       }
-
-      return { success: true };
     }),
 
   // ============================================

@@ -11,6 +11,7 @@ import type {
   CreatedCalendarEvent,
   CalendarProvider,
   DeleteEventInput,
+  DeleteEventResult,
 } from './CalendarProvider';
 
 // Re-export shared types for backwards compatibility
@@ -390,10 +391,11 @@ export class GoogleCalendarService implements CalendarProvider {
    * `singleEvents: true`, so a recurring event's id is its instance id and
    * this removes that one occurrence, never the series.
    */
-  async deleteEvent(userId: string, input: DeleteEventInput): Promise<void> {
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult> {
     const { eventId, calendarId = 'primary', accountId, notifyAttendees = true } = input;
     const calendar = await this.getCalendarClient(userId, accountId);
 
+    let alreadyGone = false;
     try {
       await calendar.events.delete(
         { calendarId, eventId, sendUpdates: notifyAttendees ? 'all' : 'none' },
@@ -402,15 +404,22 @@ export class GoogleCalendarService implements CalendarProvider {
     } catch (error) {
       const { status, response } = error as { status?: number; response?: { status?: number } };
       const httpStatus = status ?? response?.status;
-      // 404/410: already deleted at Google since our last fetch — the outcome the caller wanted.
+      // 410 is Google's "already deleted"; 404 means the event isn't on this
+      // calendar, which also covers one that moved. Neither is a failure, but
+      // neither is a delete we made — the caller is told which.
       if (httpStatus !== 404 && httpStatus !== 410) {
-        console.error('Failed to delete calendar event:', error);
+        console.error(`Failed to delete calendar event ${eventId} (account ${accountId}):`, error);
         if (httpStatus === 403) throw new CalendarEventPermissionError();
-        throw new Error('Failed to delete calendar event. Please try again.');
+        throw new Error('Failed to delete calendar event. Please try again.', { cause: error });
       }
+      alreadyGone = true;
     }
 
     this.clearUserCache(userId);
+    console.log(
+      `Calendar event ${eventId} ${alreadyGone ? 'was already gone' : 'deleted'} for user ${userId} (account ${accountId}, notifyAttendees=${notifyAttendees})`,
+    );
+    return { alreadyGone };
   }
 
   /**

@@ -1,7 +1,8 @@
 /**
  * deleteEvent on both calendar providers: what is sent to Google / Graph, and
  * how each provider's failure modes map onto the shared contract — "already
- * gone" is success, a refusal is CalendarEventPermissionError.
+ * gone" resolves as such instead of failing, a refusal is
+ * CalendarEventPermissionError.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -62,11 +63,13 @@ describe("GoogleCalendarService.deleteEvent", () => {
   it("deletes the event on its own calendar, through the given account", async () => {
     const clearCache = vi.spyOn(service, "clearUserCache");
 
-    await service.deleteEvent(userId, {
+    const result = await service.deleteEvent(userId, {
       eventId: "evt-1",
       calendarId: "team@group.calendar.google.com",
       accountId: "ca-1",
     });
+
+    expect(result).toEqual({ alreadyGone: false });
 
     expect(findFirst.mock.calls[0]![0].where).toEqual({
       id: "ca-1",
@@ -90,11 +93,13 @@ describe("GoogleCalendarService.deleteEvent", () => {
     });
   });
 
-  it.each([404, 410])("treats %i (already deleted at Google) as success", async (status) => {
+  it.each([404, 410])("reports %i as already gone, not as a delete", async (status) => {
     const clearCache = vi.spyOn(service, "clearUserCache");
     eventsDelete.mockRejectedValue(Object.assign(new Error("gone"), { status }));
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).resolves.toBeUndefined();
+    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).resolves.toEqual({
+      alreadyGone: true,
+    });
     // The stale copy must still leave the cache, or it keeps rendering.
     expect(clearCache).toHaveBeenCalledWith(userId);
   });
@@ -109,13 +114,17 @@ describe("GoogleCalendarService.deleteEvent", () => {
     );
   });
 
-  it("fails on any other error and keeps the cache", async () => {
+  it("fails on any other error, keeps the cache, and carries the provider error as cause", async () => {
     const clearCache = vi.spyOn(service, "clearUserCache");
-    eventsDelete.mockRejectedValue(Object.assign(new Error("boom"), { status: 500 }));
+    const providerError = Object.assign(new Error("boom"), { status: 500 });
+    eventsDelete.mockRejectedValue(providerError);
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).rejects.toThrow(
-      "Failed to delete calendar event",
-    );
+    const failure = await service.deleteEvent(userId, { eventId: "evt-1" }).catch((e: Error) => e);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("Failed to delete calendar event");
+    // The route handler reports error.cause to Sentry; without it only the generic text survives.
+    expect((failure as Error).cause).toBe(providerError);
     expect(clearCache).not.toHaveBeenCalled();
   });
 });
@@ -136,7 +145,9 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("DELETEs the event with the given account's token", async () => {
     respond(204);
 
-    await service.deleteEvent(userId, { eventId: "AAMk/ev=1", accountId: "ca-1" });
+    const result = await service.deleteEvent(userId, { eventId: "AAMk/ev=1", accountId: "ca-1" });
+
+    expect(result).toEqual({ alreadyGone: false });
 
     expect(findFirst.mock.calls[0]![0].where).toEqual({
       id: "ca-1",
@@ -169,10 +180,12 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe("https://graph.microsoft.com/v1.0/me/events/evt-1");
   });
 
-  it("treats 404 (already deleted in Outlook) as success", async () => {
+  it("reports 404 as already gone, not as a delete", async () => {
     respond(404);
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).resolves.toBeUndefined();
+    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).resolves.toEqual({
+      alreadyGone: true,
+    });
   });
 
   it("raises CalendarEventPermissionError when Graph refuses", async () => {
