@@ -171,6 +171,24 @@ test("Backlog keeps a filter when the tab switch lands inside the save debounce"
   await expectStatusFilterSaved();
 });
 
+test("Backlog drops a filter whose save failed", async ({ page }) => {
+  await openBacklog(page);
+  const saveFailed = page.waitForEvent("requestfailed", (r) => r.url().includes("product.product.saveViewPrefs"));
+  await page.route("**/api/trpc/product.product.saveViewPrefs**", (route) => route.abort());
+
+  await toggleInProgressFilter(page);
+  await saveFailed;
+  await page.keyboard.press("Escape");
+  await expect(inProgressPill(page)).toBeVisible();
+
+  await switchTabAndBack(page, BACKLOG);
+
+  // The server never got the filter, so the remounted page must not claim it.
+  await expect(backlogTicket(page).first()).toBeVisible({ timeout: 15_000 });
+  await expect(inProgressPill(page)).toHaveCount(0);
+  expect((await readSavedPrefs(BACKLOG_PREFS_KEY)).filters).toBeUndefined();
+});
+
 test("Insights keeps a just-saved view across a tab switch", async ({ page }) => {
   // Insights renders before its prefs arrive, and the default view is the
   // list. Start from a saved board so the toggle flipping to it is the

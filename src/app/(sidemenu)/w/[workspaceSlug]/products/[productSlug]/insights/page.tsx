@@ -263,8 +263,14 @@ export default function InsightsPage() {
     { productSlug: prefsKey, workspaceId: workspaceId ?? "" },
     { enabled: !!workspaceId },
   );
-  const savePrefs = api.product.product.saveViewPrefs.useMutation();
   const utils = api.useUtils();
+  const savePrefs = api.product.product.saveViewPrefs.useMutation({
+    // changeView patches the cached prefs before saving. If the save fails,
+    // drop them, so the next visit restores what the server really holds.
+    onError: (_error, { productSlug: key, workspaceId: wsId }) => {
+      void utils.product.product.getViewPrefs.reset({ productSlug: key, workspaceId: wsId });
+    },
+  });
 
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {

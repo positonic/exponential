@@ -349,7 +349,14 @@ export default function TicketsBacklogPage() {
   const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
   const utils = api.useUtils();
-  const savePrefs = api.product.product.saveViewPrefs.useMutation();
+  const savePrefs = api.product.product.saveViewPrefs.useMutation({
+    // The save below patches the cached prefs first. If it then fails, drop
+    // them, so the next visit restores what the server really holds rather
+    // than a change that never landed.
+    onError: (_error, { productSlug: key, workspaceId: wsId }) => {
+      void utils.product.product.getViewPrefs.reset({ productSlug: key, workspaceId: wsId });
+    },
+  });
   const saveMutateRef = useRef(savePrefs.mutate);
   saveMutateRef.current = savePrefs.mutate;
 
