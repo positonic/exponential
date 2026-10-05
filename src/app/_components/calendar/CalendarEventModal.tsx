@@ -11,7 +11,7 @@ import {
   IconTrash,
   IconUsers,
 } from "@tabler/icons-react";
-import { format, parseISO } from "date-fns";
+import { format, isAfter, isSameDay, parseISO, subDays } from "date-fns";
 import { api } from "~/trpc/react";
 import { stripHtml } from "~/lib/utils";
 import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
@@ -28,18 +28,28 @@ function providerLabel(provider: CalendarEventWithSource["provider"]): string {
   return provider === "microsoft" ? "Outlook" : "Google Calendar";
 }
 
+const DAY_FORMAT = "EEE, MMM d";
+const TIME_FORMAT = "h:mm a";
+
+/** The event's whole span — this is what the user confirms a delete against. */
 function formatEventWhen(event: CalendarEventWithSource): string {
   if (event.start.dateTime) {
     const start = parseISO(event.start.dateTime);
-    const day = format(start, "EEE, MMM d");
     const end = event.end.dateTime ? parseISO(event.end.dateTime) : null;
-    return end
-      ? `${day} · ${format(start, "h:mm a")} – ${format(end, "h:mm a")}`
-      : `${day} · ${format(start, "h:mm a")}`;
+    const from = `${format(start, DAY_FORMAT)} · ${format(start, TIME_FORMAT)}`;
+    if (!end) return from;
+    // An event that runs past midnight names the day it ends on.
+    return isSameDay(start, end)
+      ? `${from} – ${format(end, TIME_FORMAT)}`
+      : `${from} – ${format(end, DAY_FORMAT)} · ${format(end, TIME_FORMAT)}`;
   }
-  return event.start.date
-    ? `${format(parseISO(event.start.date), "EEE, MMM d")} · All day`
-    : "All day";
+  if (!event.start.date) return "All day";
+  const firstDay = parseISO(event.start.date);
+  // An all-day event's end date is exclusive: a one-day event ends "tomorrow".
+  const lastDay = event.end.date ? subDays(parseISO(event.end.date), 1) : firstDay;
+  return isAfter(lastDay, firstDay)
+    ? `${format(firstDay, DAY_FORMAT)} – ${format(lastDay, DAY_FORMAT)} · All day`
+    : `${format(firstDay, DAY_FORMAT)} · All day`;
 }
 
 /** Why an event has no Delete button, in the user's terms — when we know why. */

@@ -185,6 +185,34 @@ describe("CalendarEventModal", () => {
     );
   });
 
+  // Offset-free strings parse as local time, so these read the same in any timezone.
+  test.each([
+    [
+      "a same-day event",
+      { start: { dateTime: "2026-10-05T10:00:00" }, end: { dateTime: "2026-10-05T11:30:00" } },
+      "Mon, Oct 5 · 10:00 AM – 11:30 AM",
+    ],
+    [
+      "an event that runs past midnight",
+      { start: { dateTime: "2026-10-05T22:00:00" }, end: { dateTime: "2026-10-06T01:00:00" } },
+      "Mon, Oct 5 · 10:00 PM – Tue, Oct 6 · 1:00 AM",
+    ],
+    [
+      "a one-day all-day event (its end date is exclusive)",
+      { start: { date: "2026-10-05" }, end: { date: "2026-10-06" } },
+      "Mon, Oct 5 · All day",
+    ],
+    [
+      "a multi-day all-day event",
+      { start: { date: "2026-10-05" }, end: { date: "2026-10-08" } },
+      "Mon, Oct 5 – Wed, Oct 7 · All day",
+    ],
+  ])("shows the full span of %s", async (_label, times, expected) => {
+    render(<CalendarEventModal event={{ ...googleEvent, ...times }} onClose={onClose} />);
+
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+
   test("a view-only calendar gets no Delete, and says why", async () => {
     render(<CalendarEventModal event={{ ...googleEvent, canDelete: false }} onClose={onClose} />);
 
