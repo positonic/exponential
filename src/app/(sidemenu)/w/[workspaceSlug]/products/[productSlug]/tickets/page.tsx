@@ -361,9 +361,12 @@ export default function TicketsBacklogPage() {
       // Patch the cached prefs too. A client-side tab switch remounts this
       // page, and the restore effect below reads whatever getViewPrefs has
       // cached - without this, the pre-save value, so the change is undone.
+      // Only once the prefs are cached, though: a lone patch in an empty
+      // cache would pass for the whole saved view, and that effect would
+      // apply it and then ignore the real prefs when they arrive.
       utils.product.product.getViewPrefs.setData(
         { productSlug, workspaceId },
-        (prev) => ({ ...prev, ...prefs }),
+        (prev) => (prev ? { ...prev, ...prefs } : prev),
       );
       saveMutateRef.current({ productSlug, workspaceId, prefs });
     }, [workspaceId, productSlug, utils]),
