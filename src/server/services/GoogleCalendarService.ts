@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { db } from '~/server/db';
 import NodeCache from 'node-cache';
 import { withTimeout } from '~/server/utils/withTimeout';
+import { CalendarEventPermissionError } from './CalendarProvider';
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -9,6 +10,7 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  DeleteEventInput,
 } from './CalendarProvider';
 
 // Re-export shared types for backwards compatibility
@@ -381,6 +383,34 @@ export class GoogleCalendarService implements CalendarProvider {
       console.error('Failed to create calendar event:', error);
       throw new Error('Failed to create calendar event. Please try again.');
     }
+  }
+
+  /**
+   * Delete an event from the user's Google calendar. Events are listed with
+   * `singleEvents: true`, so a recurring event's id is its instance id and
+   * this removes that one occurrence, never the series.
+   */
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<void> {
+    const { eventId, calendarId = 'primary', accountId, notifyAttendees = true } = input;
+    const calendar = await this.getCalendarClient(userId, accountId);
+
+    try {
+      await calendar.events.delete(
+        { calendarId, eventId, sendUpdates: notifyAttendees ? 'all' : 'none' },
+        { timeout: GOOGLE_TIMEOUT_MS },
+      );
+    } catch (error) {
+      const { status, response } = error as { status?: number; response?: { status?: number } };
+      const httpStatus = status ?? response?.status;
+      // 404/410: already deleted at Google since our last fetch — the outcome the caller wanted.
+      if (httpStatus !== 404 && httpStatus !== 410) {
+        console.error('Failed to delete calendar event:', error);
+        if (httpStatus === 403) throw new CalendarEventPermissionError();
+        throw new Error('Failed to delete calendar event. Please try again.');
+      }
+    }
+
+    this.clearUserCache(userId);
   }
 
   /**

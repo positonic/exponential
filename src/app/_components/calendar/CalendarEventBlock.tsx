@@ -22,6 +22,8 @@ interface EventBlockProps {
   // it, and the multi-calendar payload always supplies it.
   event: CalendarEventWithSource;
   style: React.CSSProperties;
+  /** Falls back to opening the event at its provider when omitted. */
+  onClick?: (event: CalendarEventWithSource) => void;
 }
 
 interface ActionBlockProps {
@@ -43,7 +45,7 @@ function formatEventTime(event: CalendarEvent): string {
   return "All day";
 }
 
-export function CalendarEventBlock({ event, style }: EventBlockProps) {
+export function CalendarEventBlock({ event, style, onClick }: EventBlockProps) {
   const height = typeof style.height === "number" ? style.height : 60;
   const hue = getEventHue(event);
   const isPast = isEventPast(event.end);
@@ -77,7 +79,9 @@ export function CalendarEventBlock({ event, style }: EventBlockProps) {
       <div
         className={`absolute cursor-pointer overflow-hidden rounded-sm p-1.5 transition-all ${eventChipClasses(hue, { isPast })}`}
         style={style}
-        onClick={() => event.htmlLink && window.open(event.htmlLink, "_blank")}
+        onClick={() =>
+          onClick ? onClick(event) : event.htmlLink && window.open(event.htmlLink, "_blank")
+        }
       >
         <Text
           size="xs"

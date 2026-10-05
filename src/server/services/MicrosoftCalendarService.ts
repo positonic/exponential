@@ -1,5 +1,6 @@
 import { db } from "~/server/db";
 import NodeCache from "node-cache";
+import { CalendarEventPermissionError } from "./CalendarProvider";
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -7,6 +8,7 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  DeleteEventInput,
 } from "./CalendarProvider";
 
 // Cache with 15 minute TTL (same as Google)
@@ -511,6 +513,34 @@ export class MicrosoftCalendarService implements CalendarProvider {
         created.onlineMeeting?.joinUrl ??
         undefined,
     };
+  }
+
+  /**
+   * Delete an event from the user's Outlook calendar. calendarView lists
+   * recurring events as occurrences, so this removes one occurrence, never
+   * the series. Graph sends the cancellation itself when the organizer
+   * deletes a meeting — there is no silent variant, so `notifyAttendees` is
+   * not consulted. Event ids are mailbox-wide, so no calendar path is needed.
+   */
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<void> {
+    const accessToken = await this.getAccessToken(userId, input.accountId);
+    const response = await fetch(
+      `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(input.eventId)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+
+    // 404: already deleted in Outlook since our last fetch — the outcome the caller wanted.
+    if (!response.ok && response.status !== 404) {
+      const text = await response.text();
+      console.error(`Microsoft Graph API error: ${response.status} ${text}`);
+      if (response.status === 403) throw new CalendarEventPermissionError();
+      throw new Error("Failed to delete calendar event. Please try again.");
+    }
+
+    this.clearUserCache(userId);
   }
 
   clearUserCache(userId: string): void {

@@ -4,7 +4,7 @@ description: See your calendar beside your actions, subscribe to published calen
 section: meet
 order: 4
 icon: IconCalendarWeek
-updated: 2026-09-28
+updated: 2026-10-05
 ---
 
 The calendar shows your connected calendars and feeds by week or day, with your scheduled meetings on it, and the same events appear in the right-hand rail of [Today](/today). From it (or from the Meetings page) you can schedule a meeting with workspace members: Exponential finds times inside everyone's working hours and sends real calendar invites. A scheduled meeting is a future booking; once it happens and is recorded it becomes a [meeting](/docs/meet/meetings).
@@ -19,6 +19,7 @@ The calendar shows your connected calendars and feeds by week or day, with your 
 
 - **Week** and **Day** views; **Today**, **Previous** and **Next** to move; a month picker on the right.
 - Events come from every connected calendar and feed. **Refresh events** pulls the latest; feeds also refresh themselves every 15 minutes.
+- Click an event for its details and a link to open it in Google Calendar or Outlook. On a calendar you can edit there is also **Delete**, which removes the event from that calendar itself (only that occurrence, if it repeats). For a Google event you choose whether guests are emailed; Outlook always tells them. Feed events are read-only, and a scheduled meeting is cancelled from **Schedule meeting** instead.
 - Under **Calendars** you see what is connected, with **Disconnect calendar** for each, and can **Add Outlook** or **Add calendar feed**.
 
 ## How to connect a calendar

@@ -42,6 +42,32 @@ export interface CalendarEventWithSource extends CalendarEvent {
   calendarName?: string;
   calendarColor?: string;
   provider?: "google" | "microsoft" | "ics" | "meeting";
+  // Set by the multi-calendar merge (calendar.getEventsMultiCalendar) only.
+  /** The connected account (or feed) the event was read through. */
+  accountId?: string;
+  accountEmail?: string | null;
+  /** True when the user can delete the event at its provider. */
+  canDelete?: boolean;
+}
+
+export interface DeleteEventInput {
+  eventId: string;
+  calendarId?: string;
+  /** Defaults to the user's first account for this provider when omitted. */
+  accountId?: string;
+  /**
+   * Tell the event's guests it was cancelled. Google honours either value;
+   * Microsoft always notifies when an organizer deletes a meeting.
+   */
+  notifyAttendees?: boolean;
+}
+
+/** The provider refused a write: a view-only calendar, or an event the user may not change. */
+export class CalendarEventPermissionError extends Error {
+  constructor(message = "You don't have permission to delete this event.") {
+    super(message);
+    this.name = "CalendarEventPermissionError";
+  }
 }
 
 export interface CreateEventInput {
@@ -118,6 +144,12 @@ export interface CalendarProvider {
     userId: string,
     input: CreateEventInput,
   ): Promise<CreatedCalendarEvent>;
+
+  /**
+   * Delete an event at the provider. Resolves when the event is already gone;
+   * throws CalendarEventPermissionError when the provider refuses.
+   */
+  deleteEvent(userId: string, input: DeleteEventInput): Promise<void>;
 
   /** Fetch the account's email from the provider and persist it. Used to backfill providerEmail. */
   fetchAndUpdateProviderEmail(
