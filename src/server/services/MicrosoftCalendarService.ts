@@ -530,7 +530,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
     // does: an event on a shared calendar isn't reachable at me/events, and
     // the 404 that produces would read as "already deleted".
     const calendarPath =
-      calendarId && calendarId !== "primary"
+      calendarId !== "primary"
         ? `me/calendars/${encodeURIComponent(calendarId)}/events`
         : "me/events";
     const response = await fetch(

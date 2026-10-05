@@ -34,6 +34,7 @@ import { MicrosoftCalendarService } from "../MicrosoftCalendarService";
 import { CalendarEventPermissionError } from "../CalendarProvider";
 
 const userId = "user-1";
+const target = { eventId: "evt-1", calendarId: "primary", accountId: "ca-1" };
 
 beforeEach(() => {
   findFirst.mockReset().mockResolvedValue({
@@ -85,7 +86,7 @@ describe("GoogleCalendarService.deleteEvent", () => {
   });
 
   it("sends guests nothing when notifyAttendees is off", async () => {
-    await service.deleteEvent(userId, { eventId: "evt-1", notifyAttendees: false });
+    await service.deleteEvent(userId, { ...target, notifyAttendees: false });
 
     expect(eventsDelete.mock.calls[0]![0]).toMatchObject({
       calendarId: "primary",
@@ -97,7 +98,7 @@ describe("GoogleCalendarService.deleteEvent", () => {
     const clearCache = vi.spyOn(service, "clearUserCache");
     eventsDelete.mockRejectedValue(Object.assign(new Error("gone"), { status }));
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).resolves.toEqual({
+    await expect(service.deleteEvent(userId, target)).resolves.toEqual({
       alreadyGone: true,
     });
     // The stale copy must still leave the cache, or it keeps rendering.
@@ -109,7 +110,7 @@ describe("GoogleCalendarService.deleteEvent", () => {
       Object.assign(new Error("forbidden"), { response: { status: 403 } }),
     );
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).rejects.toBeInstanceOf(
+    await expect(service.deleteEvent(userId, target)).rejects.toBeInstanceOf(
       CalendarEventPermissionError,
     );
   });
@@ -119,7 +120,7 @@ describe("GoogleCalendarService.deleteEvent", () => {
     const providerError = Object.assign(new Error("boom"), { status: 500 });
     eventsDelete.mockRejectedValue(providerError);
 
-    const failure = await service.deleteEvent(userId, { eventId: "evt-1" }).catch((e: Error) => e);
+    const failure = await service.deleteEvent(userId, target).catch((e: Error) => e);
 
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toContain("Failed to delete calendar event");
@@ -145,7 +146,7 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("DELETEs the event with the given account's token", async () => {
     respond(204);
 
-    const result = await service.deleteEvent(userId, { eventId: "AAMk/ev=1", accountId: "ca-1" });
+    const result = await service.deleteEvent(userId, { ...target, eventId: "AAMk/ev=1" });
 
     expect(result).toEqual({ alreadyGone: false });
 
@@ -163,7 +164,7 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("deletes through the calendar the event was listed from", async () => {
     respond(204);
 
-    await service.deleteEvent(userId, { eventId: "evt-1", calendarId: "AAMk/cal=2" });
+    await service.deleteEvent(userId, { ...target, calendarId: "AAMk/cal=2" });
 
     // me/events can't reach an event on a shared calendar, and its 404 would
     // be reported as a successful delete.
@@ -175,7 +176,7 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("uses me/events for the default calendar", async () => {
     respond(204);
 
-    await service.deleteEvent(userId, { eventId: "evt-1", calendarId: "primary" });
+    await service.deleteEvent(userId, target);
 
     expect(fetchMock.mock.calls[0]![0]).toBe("https://graph.microsoft.com/v1.0/me/events/evt-1");
   });
@@ -183,7 +184,7 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("reports 404 as already gone, not as a delete", async () => {
     respond(404);
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).resolves.toEqual({
+    await expect(service.deleteEvent(userId, target)).resolves.toEqual({
       alreadyGone: true,
     });
   });
@@ -191,7 +192,7 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("raises CalendarEventPermissionError when Graph refuses", async () => {
     respond(403);
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).rejects.toBeInstanceOf(
+    await expect(service.deleteEvent(userId, target)).rejects.toBeInstanceOf(
       CalendarEventPermissionError,
     );
   });
@@ -199,7 +200,7 @@ describe("MicrosoftCalendarService.deleteEvent", () => {
   it("fails on any other error", async () => {
     respond(500);
 
-    await expect(service.deleteEvent(userId, { eventId: "evt-1" })).rejects.toThrow(
+    await expect(service.deleteEvent(userId, target)).rejects.toThrow(
       "Failed to delete calendar event",
     );
   });

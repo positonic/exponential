@@ -202,8 +202,24 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
 
       const caller = createMockCaller({ userId, db: dbMock });
       await expect(
-        caller.calendar.deleteEvent({ eventId: "evt-1", accountId: "someone-elses" }),
+        caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "someone-elses" }),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a dot-segment event id", { eventId: "..", calendarId: "primary", accountId: "ca-1" }],
+      ["an empty account id", { eventId: "evt-1", calendarId: "primary", accountId: "" }],
+      ["an empty calendar id", { eventId: "evt-1", calendarId: "", accountId: "ca-1" }],
+    ])("rejects %s before any account lookup or provider call", async (_label, input) => {
+      const caller = createMockCaller({ userId, db: dbMock });
+
+      await expect(caller.calendar.deleteEvent(input)).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+      // ".." would collapse the provider URL onto the calendar itself; "" would
+      // fall through resolveAccount to the user's first account.
+      expect(dbMock.connectedAccount.findFirst).not.toHaveBeenCalled();
       expect(deleteSpy).not.toHaveBeenCalled();
     });
 
@@ -215,7 +231,7 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
       deleteSpy.mockResolvedValue({ alreadyGone: true });
 
       const caller = createMockCaller({ userId, db: dbMock });
-      const res = await caller.calendar.deleteEvent({ eventId: "evt-1", accountId: "ca-1" });
+      const res = await caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "ca-1" });
 
       expect(res).toEqual({ success: true, alreadyGone: true });
     });
@@ -229,7 +245,7 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
 
       const caller = createMockCaller({ userId, db: dbMock });
       await expect(
-        caller.calendar.deleteEvent({ eventId: "evt-1", accountId: "ca-1" }),
+        caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "ca-1" }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
 
@@ -242,7 +258,7 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
 
       const caller = createMockCaller({ userId, db: dbMock });
       await expect(
-        caller.calendar.deleteEvent({ eventId: "evt-1", accountId: "ca-1" }),
+        caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "ca-1" }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
       expect(deleteSpy).not.toHaveBeenCalled();
     });

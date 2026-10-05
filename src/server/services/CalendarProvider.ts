@@ -52,9 +52,10 @@ export interface CalendarEventWithSource extends CalendarEvent {
 
 export interface DeleteEventInput {
   eventId: string;
-  calendarId?: string;
-  /** Defaults to the user's first account for this provider when omitted. */
-  accountId?: string;
+  // Both required, unlike the read paths: a delete aimed at a defaulted
+  // calendar or account misses, and a miss is reported as "already gone".
+  calendarId: string;
+  accountId: string;
   /**
    * Tell the event's guests it was cancelled. Google honours either value;
    * Microsoft always notifies when an organizer deletes a meeting.

@@ -392,7 +392,7 @@ export class GoogleCalendarService implements CalendarProvider {
    * this removes that one occurrence, never the series.
    */
   async deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult> {
-    const { eventId, calendarId = 'primary', accountId, notifyAttendees = true } = input;
+    const { eventId, calendarId, accountId, notifyAttendees = true } = input;
     const calendar = await this.getCalendarClient(userId, accountId);
 
     let alreadyGone = false;

@@ -729,14 +729,21 @@ export const calendarRouter = createTRPCRouter({
       return service.createEvent(ctx.session.user.id, eventInput);
     }),
 
-  // Deletes the event at Google/Outlook, not just from this view. accountId is
-  // required: an event belongs to exactly one connected account, and ICS feed
-  // events and scheduled meetings (which have none) are not deletable here.
+  // Deletes the event at Google/Outlook, not just from this view. accountId
+  // and calendarId are required: an event lives on exactly one calendar of one
+  // connected account, and ICS feed events and scheduled meetings (which have
+  // no connected account) are not deletable here.
   deleteEvent: protectedProcedure
     .input(z.object({
-      eventId: z.string().min(1),
-      calendarId: z.string().default("primary"),
-      accountId: z.string(),
+      // The id becomes a URL path segment at the provider. encodeURIComponent
+      // leaves "." and ".." intact and fetch collapses dot segments, so ".."
+      // would retarget the DELETE at the calendar that contains the event.
+      eventId: z
+        .string()
+        .min(1)
+        .refine((id) => id !== "." && id !== "..", "Invalid event id"),
+      calendarId: z.string().min(1),
+      accountId: z.string().min(1),
       notifyAttendees: z.boolean().default(true),
     }))
     .mutation(async ({ input, ctx }) => {
