@@ -1,5 +1,9 @@
 /** @type {import("eslint").Linter.Config} */
 const config = {
+  // Stop the config cascade here. Without this, ESLint run inside a nested git
+  // worktree (.claude/worktrees/<name>/) also loads the parent checkout's
+  // .eslintrc.cjs and fails on two copies of the "@next/next" plugin.
+  "root": true,
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "project": true
