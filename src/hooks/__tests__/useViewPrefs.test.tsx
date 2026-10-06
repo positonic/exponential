@@ -3,7 +3,9 @@
  * plain React Query hooks so each test decides when the prefs read and each
  * save resolve. The contract under test: whichever order the read and the
  * saves land in, the cached prefs end up holding the saved values, and
- * `prefs` never shows a pre-save value for a key the page has changed.
+ * `prefs` never shows a pre-save value for a key the page has changed. Saves
+ * run one at a time, so a second save's request goes out only once the first
+ * has landed.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ReactNode } from "react";
@@ -63,10 +65,19 @@ vi.mock("~/trpc/react", async () => {
   };
 });
 
-vi.mock("@trpc/react-query", () => ({
-  getQueryKey: (_procedure: unknown, input: unknown) => h.prefsKey(input),
-  getMutationKey: () => h.SAVE_KEY,
-}));
+vi.mock("@trpc/react-query", async () => {
+  const { api } = await import("~/trpc/react");
+  return {
+    getQueryKey: (procedure: unknown, input: unknown) => {
+      if (procedure !== api.product.product.getViewPrefs) throw new Error("getQueryKey: not getViewPrefs");
+      return h.prefsKey(input);
+    },
+    getMutationKey: (procedure: unknown) => {
+      if (procedure !== api.product.product.saveViewPrefs) throw new Error("getMutationKey: not saveViewPrefs");
+      return h.SAVE_KEY;
+    },
+  };
+});
 
 import { useViewPrefs } from "../useViewPrefs";
 
@@ -150,7 +161,7 @@ describe("useViewPrefs", () => {
     expect(result.current.prefs).toEqual({ view: "board" });
   });
 
-  test("a save that lands while a later save is still running leaves the later value in place", async () => {
+  test("a save that lands while a later one is queued leaves the later value in place", async () => {
     h.read.mockResolvedValue({ view: "table" });
     const first = deferred<unknown>();
     const second = deferred<unknown>();
@@ -160,16 +171,98 @@ describe("useViewPrefs", () => {
 
     act(() => result.current.save({ view: "board" }));
     act(() => result.current.save({ view: "list" }));
-    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(cached()).toEqual({ view: "list" }));
 
     await act(async () => first.resolve({}));
-    await waitFor(() => expect(queryClient.isMutating()).toBe(1));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(2));
     expect(cached()).toEqual({ view: "list" });
     expect(result.current.prefs).toEqual({ view: "list" });
 
     await act(async () => second.resolve({}));
     await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+    expect(cached()).toEqual({ view: "list" });
+  });
+
+  test("saves go out one at a time, in the order they were made", async () => {
+    h.read.mockResolvedValue({ view: "table" });
+    const first = deferred<unknown>();
+    h.save.mockReturnValueOnce(first.promise).mockResolvedValue({});
+    const { result } = render();
+    await waitFor(() => expect(result.current.prefs).toEqual({ view: "table" }));
+
+    act(() => result.current.save({ view: "board" }));
+    act(() => result.current.save({ groupBy: "status" }));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1));
+    // Both show at once; the second waits for the first to land.
+    expect(result.current.prefs).toEqual({ view: "board", groupBy: "status" });
+    expect(h.save).toHaveBeenCalledTimes(1);
+
+    await act(async () => first.resolve({}));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(2));
+    expect(h.save).toHaveBeenLastCalledWith({ ...h.KEY, prefs: { groupBy: "status" } });
+  });
+
+  test("two saves made while the first read is in flight both outlive it", async () => {
+    const firstRead = deferred<Prefs>();
+    h.read.mockReturnValueOnce(firstRead.promise);
+    const first = deferred<unknown>();
+    const second = deferred<unknown>();
+    h.save.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result } = render();
+
+    act(() => result.current.save({ view: "board" }));
+    act(() => result.current.save({ groupBy: "status" }));
+    // The first lands while the second is still to come back.
+    await waitFor(() => expect(h.save).toHaveBeenCalled());
+    await act(async () => first.resolve({}));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(2));
+    await act(async () => second.resolve({}));
+
+    // The read was built before either save committed.
+    await act(async () => firstRead.resolve({ view: "table", groupBy: "none", sortDir: "asc" }));
+
+    await waitFor(() => expect(cached()).toEqual({ view: "board", groupBy: "status", sortDir: "asc" }));
+    expect(result.current.prefs).toEqual({ view: "board", groupBy: "status", sortDir: "asc" });
+  });
+
+  test("a save that lands while an earlier one waits on the read keeps its value", async () => {
+    const firstRead = deferred<Prefs>();
+    h.read.mockReturnValueOnce(firstRead.promise);
+    h.save.mockResolvedValue({});
+    const { result } = render();
+
+    // The first save lands while the read is still out...
+    act(() => result.current.save({ view: "board" }));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1));
+    await act(async () => Promise.resolve());
+    // ...and so does a second, made after it.
+    act(() => result.current.save({ groupBy: "status" }));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(2));
+    await act(async () => Promise.resolve());
+
+    await act(async () => firstRead.resolve({ view: "table", groupBy: "none" }));
+
+    await waitFor(() => expect(cached()).toEqual({ view: "board", groupBy: "status" }));
+    expect(result.current.prefs).toEqual({ view: "board", groupBy: "status" });
+  });
+
+  test("an older save never overwrites a newer value for the same pref", async () => {
+    // Insights, slow first read: board, then straight back to list.
+    const firstRead = deferred<Prefs>();
+    h.read.mockReturnValueOnce(firstRead.promise);
+    h.save.mockResolvedValue({});
+    const { result } = render();
+
+    act(() => result.current.save({ view: "board" }));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1));
+    await act(async () => Promise.resolve());
+    act(() => result.current.save({ view: "list" }));
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(2));
+    await act(async () => Promise.resolve());
+
+    await act(async () => firstRead.resolve({ view: "list" }));
+
+    await waitFor(() => expect(result.current.prefs).toEqual({ view: "list" }));
     expect(cached()).toEqual({ view: "list" });
   });
 

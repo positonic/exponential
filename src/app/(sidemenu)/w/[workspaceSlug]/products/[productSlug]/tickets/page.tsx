@@ -278,16 +278,26 @@ export default function TicketsBacklogPage() {
   // Restore prefs on load
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {
-      if (savedPrefs.view) setView(savedPrefs.view);
-      if (savedPrefs.groupBy) setGroupBy(savedPrefs.groupBy as GroupByField);
+      // Saved prefs are untrusted JSON: take only values of the right shape.
+      const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
+      const savedView = str(savedPrefs.view);
+      if (savedView) setView(savedView);
+      const savedGroupBy = str(savedPrefs.groupBy);
+      if (savedGroupBy) setGroupBy(savedGroupBy as GroupByField);
       // Epic and Cycle are sub-line metadata now, with no header to show or
       // flip that sort; fall back to the default rather than sort invisibly.
-      if (savedPrefs.sortField) {
-        const f = savedPrefs.sortField as SortField;
+      const savedSortField = str(savedPrefs.sortField);
+      if (savedSortField) {
+        const f = savedSortField as SortField;
         setSortField(f === "epic" || f === "cycle" ? "status" : f);
       }
-      if (savedPrefs.sortDir) setSortDir(savedPrefs.sortDir as SortDir);
-      if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns));
+      const savedSortDir = str(savedPrefs.sortDir);
+      if (savedSortDir) setSortDir(savedSortDir as SortDir);
+      if (Array.isArray(savedPrefs.visibleColumns)) {
+        setVisibleColumns(
+          new Set(savedPrefs.visibleColumns.filter((c): c is string => typeof c === "string")),
+        );
+      }
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
         setEntity(savedPrefs.entity);
       }
