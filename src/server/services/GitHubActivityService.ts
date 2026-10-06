@@ -376,17 +376,23 @@ export class GitHubActivityService {
     // key. Rows written before the per-delivery key carry the legacy
     // `node_id:action` key instead: one of those with this delivery's GUID is
     // a redelivery too, while one with a different GUID was an earlier close
-    // or reopen and must not swallow this one.
+    // or reopen and must not swallow this one. A PR merges only once, so a
+    // legacy merged close (including a backfilled one, which has no delivery
+    // GUID) already records this merge.
+    const isMerge = data.action === "closed" && !!pr.merged_at;
     const existing = await this.prisma.gitHubActivity.findMany({
       where: {
         externalId: { in: [...new Set([externalId, legacyExternalId])] },
         eventType: "pull_request",
       },
-      select: { externalId: true, deliveryId: true },
+      select: { externalId: true, deliveryId: true, prMergedAt: true },
     });
     if (
       existing.some(
-        (row) => row.externalId === externalId || row.deliveryId === deliveryId,
+        (row) =>
+          row.externalId === externalId ||
+          row.deliveryId === deliveryId ||
+          (isMerge && row.prMergedAt != null),
       )
     ) {
       return;

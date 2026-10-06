@@ -271,6 +271,29 @@ describe("GitHubActivityService.processPullRequestEvent dedup", () => {
     });
   });
 
+  it("drops a merge already recorded by the backfill script", async () => {
+    // backfill-github-prs.ts writes the merge under the legacy key with no
+    // delivery GUID; the webhook's own delivery of that merge must not add a
+    // second one.
+    const { service, rows } = setup([
+      {
+        externalId: `${NODE_ID}:closed`,
+        eventType: "pull_request",
+        eventAction: "closed",
+        deliveryId: null,
+        prState: "merged",
+        prMergedAt: new Date("2026-10-03T12:00:00Z"),
+      },
+    ]);
+
+    await service.processPullRequestEvent(
+      prEvent("closed", { mergedAt: "2026-10-03T12:00:00Z" }),
+      "d-merge",
+    );
+
+    expect(rows).toHaveLength(1);
+  });
+
   it("keeps one row per non-lifecycle action across deliveries", async () => {
     const { service, rows } = setup();
 
