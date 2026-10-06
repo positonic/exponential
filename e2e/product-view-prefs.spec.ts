@@ -219,9 +219,11 @@ test("Insights keeps a just-saved view across a tab switch", async ({ page }) =>
  * Holds the page's prefs read for `key` until the returned function is
  * called. The server answers at once - so the response carries what was
  * saved before it, as a read in flight during a save does - but the page
- * only hears back on release, which resolves once it has. Reads after the
- * release pass straight through (the route stays, as a pass-through: removing
- * it mid-hold would hand the request on instead).
+ * only hears back on release. Release resolves once the page has had the
+ * response and a moment to act on it, so what a test checks next is the page
+ * after the stale read, not before. Reads after the release pass straight
+ * through (the route stays, as a pass-through: removing it mid-hold would
+ * hand the request on instead).
  */
 async function holdPrefsRead(page: Page, key: string): Promise<() => Promise<void>> {
   let release!: () => void;
@@ -246,10 +248,20 @@ async function holdPrefsRead(page: Page, key: string): Promise<() => Promise<voi
   await page.route(isPrefsRead, hold);
   return async () => {
     expect(held, "the prefs read should have been held").toBe(true);
+    const received = page.waitForResponse((response) => isPrefsRead(new URL(response.url())));
     release();
     await delivered;
+    await (await received).finished();
+    // React Query hands the response on in a later task, then React renders
+    // and runs the page's restore effect. Nothing on the page marks that
+    // moment, so allow it a beat: without this, a check that the control
+    // kept its value could pass before the stale read had a chance to undo it.
+    await page.waitForTimeout(PAGE_SETTLE_MS);
   };
 }
+
+/** Time for the page to act on a response it has received (see holdPrefsRead). */
+const PAGE_SETTLE_MS = 750;
 
 const viewTab = (page: Page, name: string) =>
   page.getByRole("navigation", { name: "View" }).getByRole("button", { name, exact: true });
@@ -289,6 +301,7 @@ test("Insights keeps a view chosen before its saved prefs arrive", async ({ page
   await boardLabel.click();
   await expectSaved(INSIGHTS_PREFS_KEY, (prefs) => prefs.view, "board");
 
+  // The stale read lands only now; the restore it triggers must keep board.
   await releasePrefsRead();
   await expect(boardRadio).toBeChecked();
 
