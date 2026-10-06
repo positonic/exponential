@@ -538,6 +538,7 @@ export function MeetingDetail({
                 hasTranscript={session.hasTranscript}
                 transcription={transcriptQuery.data?.transcription}
                 isTranscriptLoading={session.hasTranscript && transcriptQuery.isLoading}
+                isTranscriptError={transcriptQuery.isError}
               />
             )}
           </main>

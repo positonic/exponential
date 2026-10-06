@@ -9,6 +9,7 @@ import { useFileDrop } from "~/hooks/useFileDrop";
 import { isImageFile, readMeetingImages } from "~/lib/meetings/meetingImages";
 import {
   buildScreenshotNarrative,
+  countScreenshotMarkers,
   sortScreenshotsChronologically,
   type NarrativeScreenshot,
   type ScreenshotNarrativeEntry,
@@ -33,6 +34,8 @@ interface ScreenshotsTabProps {
    *  loading or when the meeting has none. */
   transcription: string | null | undefined;
   isTranscriptLoading: boolean;
+  /** The transcript request failed: a different thing from "no narration". */
+  isTranscriptError: boolean;
 }
 
 function isEditableTarget(target: EventTarget | null) {
@@ -72,6 +75,7 @@ export function ScreenshotsTab({
   hasTranscript,
   transcription,
   isTranscriptLoading,
+  isTranscriptError,
 }: ScreenshotsTabProps) {
   const utils = api.useUtils();
   const uploadScreenshot = api.transcription.uploadScreenshot.useMutation();
@@ -106,7 +110,9 @@ export function ScreenshotsTab({
         : [],
     [effectiveView, transcription, screenshots],
   );
-  const hasAnyNarration = narrative.some((entry) => entry.turns.length > 0);
+  // "No markers" is a property of the transcript, not of the passages: a
+  // marker with nothing said before it is still a marker.
+  const hasMarkers = countScreenshotMarkers(transcription) > 0;
 
   async function uploadFiles(files: File[]) {
     const { images, errors, skippedCount } = await readMeetingImages(files);
@@ -253,9 +259,14 @@ export function ScreenshotsTab({
           <div className="mp-empty" data-testid="screenshots-narrative-loading">
             <Loader size="sm" />
           </div>
+        ) : isTranscriptError ? (
+          <div className="mp-empty" data-testid="screenshots-narrative-error">
+            Couldn&apos;t load the transcript, so the images can&apos;t be matched to
+            what was said.
+          </div>
         ) : (
           <>
-            {transcription !== undefined && !hasAnyNarration && (
+            {transcription !== undefined && !hasMarkers && (
               <p className="mp-story__note" data-testid="screenshots-narrative-note">
                 This transcript has no capture markers, so the images can&apos;t be
                 matched to what was said.
