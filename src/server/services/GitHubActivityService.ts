@@ -34,6 +34,8 @@ interface PullRequestEventData {
     html_url: string;
     created_at: string;
     merged_at: string | null;
+    closed_at?: string | null;
+    updated_at?: string | null;
     user: {
       login: string;
     };
@@ -99,6 +101,29 @@ export function pullRequestActivityKey(
   return REPEATABLE_PR_ACTIONS.has(action)
     ? `${nodeId}:${action}:${deliveryId}`
     : `${nodeId}:${action}`;
+}
+
+/**
+ * When a pull_request event happened, by GitHub's clock. Readers fold PR state
+ * oldest-first, and GitHub doesn't guarantee delivery order, so webhook-receipt
+ * time would let a late-delivered close sort after the reopen that followed it.
+ * Receipt time is only the fallback for actions with no timestamp of their own.
+ */
+export function pullRequestEventTimestamp(
+  action: string,
+  pr: PullRequestEventData["pull_request"],
+  receivedAt: Date = new Date(),
+): Date {
+  const at =
+    action === "opened"
+      ? pr.created_at
+      : pr.merged_at ??
+        (action === "closed"
+          ? pr.closed_at
+          : action === "reopened"
+            ? pr.updated_at
+            : null);
+  return at ? new Date(at) : receivedAt;
 }
 
 /**
@@ -395,12 +420,7 @@ export class GitHubActivityService {
         // Use the PR's real timestamps, not webhook-receipt time, so
         // opened→merged turnaround (getPrTurnaround) is measured accurately
         // even if a webhook is delivered late or replayed.
-        eventTimestamp:
-          data.action === "opened" && pr.created_at
-            ? new Date(pr.created_at)
-            : pr.merged_at
-              ? new Date(pr.merged_at)
-              : new Date(),
+        eventTimestamp: pullRequestEventTimestamp(data.action, pr),
         actionId: mapping?.actionId ?? null,
         mappingMethod: mapping?.method ?? null,
         mappingConfidence: mapping?.confidence ?? null,

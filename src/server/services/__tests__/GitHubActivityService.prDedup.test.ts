@@ -28,6 +28,7 @@ vi.mock("~/server/db", () => ({ db: {} }));
 import {
   GitHubActivityService,
   pullRequestActivityKey,
+  pullRequestEventTimestamp,
 } from "../GitHubActivityService";
 
 const NODE_ID = "PR_kwDOabc123";
@@ -137,6 +138,47 @@ describe("pullRequestActivityKey", () => {
     );
     expect(pullRequestActivityKey(NODE_ID, "synchronize", "d-1")).toBe(
       `${NODE_ID}:synchronize`,
+    );
+  });
+});
+
+describe("pullRequestEventTimestamp", () => {
+  const received = new Date("2026-10-04T00:00:00Z");
+  const pr = {
+    ...prEvent("closed").pull_request,
+    closed_at: "2026-10-02T10:00:00Z",
+    updated_at: "2026-10-02T11:00:00Z",
+  };
+
+  it("stamps a close and a reopen by GitHub's clock, not receipt time", () => {
+    // Delivered out of order, the close still sorts before the reopen.
+    expect(pullRequestEventTimestamp("closed", pr, received)).toEqual(
+      new Date("2026-10-02T10:00:00Z"),
+    );
+    expect(pullRequestEventTimestamp("reopened", pr, received)).toEqual(
+      new Date("2026-10-02T11:00:00Z"),
+    );
+  });
+
+  it("uses created_at for opened and merged_at once merged", () => {
+    expect(pullRequestEventTimestamp("opened", pr, received)).toEqual(
+      new Date("2026-10-01T09:00:00Z"),
+    );
+    expect(
+      pullRequestEventTimestamp(
+        "closed",
+        { ...pr, merged_at: "2026-10-03T12:00:00Z" },
+        received,
+      ),
+    ).toEqual(new Date("2026-10-03T12:00:00Z"));
+  });
+
+  it("falls back to receipt time when the payload has no timestamp", () => {
+    expect(
+      pullRequestEventTimestamp("closed", { ...pr, closed_at: null }, received),
+    ).toEqual(received);
+    expect(pullRequestEventTimestamp("synchronize", pr, received)).toEqual(
+      received,
     );
   });
 });
