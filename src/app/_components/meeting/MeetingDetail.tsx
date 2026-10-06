@@ -29,6 +29,10 @@ import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
 type Tab = "summary" | "transcript" | "decisions" | "screenshots";
+const TABS: readonly Tab[] = ["summary", "transcript", "decisions", "screenshots"];
+function isTab(value: string | null | undefined): value is Tab {
+  return TABS.includes(value as Tab);
+}
 
 interface MeetingDetailProps {
   session: MeetingSession;
@@ -92,10 +96,12 @@ export function MeetingDetail({
   isExtractingDecisions,
   onArchive,
 }: MeetingDetailProps) {
-  // `?tab=transcript` opens straight onto the transcript — decision evidence
-  // deep-links there with a `#turn-<n>` anchor (ADR-0060).
+  // `?tab=<name>` opens straight onto that tab — decision evidence deep-links
+  // to the transcript with a `#turn-<n>` anchor (ADR-0060), and the screenshot
+  // narrative is shareable the same way.
   const searchParams = useSearchParams();
-  const initialTab: Tab = searchParams?.get("tab") === "transcript" ? "transcript" : "summary";
+  const requestedTab = searchParams?.get("tab");
+  const initialTab: Tab = isTab(requestedTab) ? requestedTab : "summary";
   const [tab, setTab] = useState<Tab>(initialTab);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -148,7 +154,13 @@ export function MeetingDetail({
   // tab opens rather than with the meeting record.
   const transcriptQuery = api.transcription.getTranscript.useQuery(
     { id: session.id },
-    { enabled: tab === "transcript" && session.hasTranscript },
+    {
+      enabled:
+        session.hasTranscript &&
+        // The screenshot narrative pairs captures with the transcript's
+        // `[SCREENSHOT]` markers, so it needs the body too.
+        (tab === "transcript" || (tab === "screenshots" && session.screenshots.length > 0)),
+    },
   );
 
   // Identity keys already on the meeting so the picker hides existing people.
@@ -520,8 +532,13 @@ export function MeetingDetail({
                   id: s.id,
                   url: s.url,
                   timestamp: s.timestamp,
+                  createdAt: s.createdAt,
                 }))}
                 videoUrl={session.videoUrl}
+                hasTranscript={session.hasTranscript}
+                transcription={transcriptQuery.data?.transcription}
+                isTranscriptLoading={session.hasTranscript && transcriptQuery.isLoading}
+                isTranscriptError={transcriptQuery.isError}
               />
             )}
           </main>
