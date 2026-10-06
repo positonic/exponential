@@ -78,6 +78,30 @@ interface PullRequestReviewEventData {
 }
 
 /**
+ * PR actions that can happen more than once in a PR's life and that readers
+ * fold into its state: opened → closed → reopened → closed (merged). Each
+ * delivery of these is its own row.
+ */
+const REPEATABLE_PR_ACTIONS = new Set(["closed", "reopened"]);
+
+/**
+ * Dedup key for a pull_request activity row. Repeatable lifecycle actions
+ * include the delivery GUID, so a second close is stored while a redelivery
+ * (same GUID) still collapses. Every other action keeps one row per PR and
+ * action, as before, so a push-heavy PR doesn't write a `synchronize` row per
+ * push.
+ */
+export function pullRequestActivityKey(
+  nodeId: string,
+  action: string,
+  deliveryId: string,
+): string {
+  return REPEATABLE_PR_ACTIONS.has(action)
+    ? `${nodeId}:${action}:${deliveryId}`
+    : `${nodeId}:${action}`;
+}
+
+/**
  * Finds the GitHub integration matching a repository.
  * Returns the first active integration whose github_metadata
  * credential matches the given repoFullName.
@@ -320,18 +344,28 @@ export class GitHubActivityService {
     // on every action so an opened PR is linked well before it merges.
     await linkPrToTickets(this.prisma, ctx.workspaceId, pr);
 
-    // Use PR node_id + action as unique key
-    const externalId = `${pr.node_id}:${data.action}`;
+    const externalId = pullRequestActivityKey(pr.node_id, data.action, deliveryId);
+    const legacyExternalId = `${pr.node_id}:${data.action}`;
 
-    const existing = await this.prisma.gitHubActivity.findUnique({
+    // A redelivery reuses its X-GitHub-Delivery GUID, so it lands on the same
+    // key. Rows written before the per-delivery key carry the legacy
+    // `node_id:action` key instead: one of those with this delivery's GUID is
+    // a redelivery too, while one with a different GUID was an earlier close
+    // or reopen and must not swallow this one.
+    const existing = await this.prisma.gitHubActivity.findMany({
       where: {
-        externalId_eventType: {
-          externalId,
-          eventType: "pull_request",
-        },
+        externalId: { in: [...new Set([externalId, legacyExternalId])] },
+        eventType: "pull_request",
       },
+      select: { externalId: true, deliveryId: true },
     });
-    if (existing) return;
+    if (
+      existing.some(
+        (row) => row.externalId === externalId || row.deliveryId === deliveryId,
+      )
+    ) {
+      return;
+    }
 
     const branchName = pr.head.ref;
     const mapping = await this.resolveActionMapping(
@@ -508,6 +542,8 @@ export class GitHubActivityService {
         eventType: true,
         eventAction: true,
         prState: true,
+        prNumber: true,
+        repoFullName: true,
         actionId: true,
       },
     });
@@ -516,9 +552,13 @@ export class GitHubActivityService {
     const totalPRsOpened = activities.filter(
       (a) => a.eventType === "pull_request" && a.eventAction === "opened",
     ).length;
-    const totalPRsMerged = activities.filter(
-      (a) => a.eventType === "pull_request" && a.prState === "merged",
-    ).length;
+    // Once per PR: any action after the merge (a label, an edit) also carries
+    // prState "merged".
+    const totalPRsMerged = new Set(
+      activities
+        .filter((a) => a.eventType === "pull_request" && a.prState === "merged")
+        .map((a) => `${a.repoFullName}#${a.prNumber}`),
+    ).size;
     const totalReviews = activities.filter(
       (a) => a.eventType === "pull_request_review",
     ).length;

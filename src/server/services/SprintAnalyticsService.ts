@@ -449,26 +449,39 @@ export class SprintAnalyticsService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Get GitHub activity for today
+    // Commits pushed today (one push row per commit)
     const githubActivity = await this.prisma.gitHubActivity.count({
       where: {
+        eventType: "push",
         eventTimestamp: { gte: today },
       },
     });
 
-    const prActivity = await this.prisma.gitHubActivity.groupBy({
-      by: ["eventAction"],
+    const prActivity = await this.prisma.gitHubActivity.findMany({
       where: {
         eventType: "pull_request",
+        eventAction: { in: ["opened", "closed"] },
         eventTimestamp: { gte: today },
       },
-      _count: true,
+      select: {
+        eventAction: true,
+        prMergedAt: true,
+        prNumber: true,
+        repoFullName: true,
+      },
     });
 
-    const prsOpened = prActivity.find((p) => p.eventAction === "opened")?._count ?? 0;
-    const prsMerged = prActivity.find(
-      (p) => p.eventAction === "closed",
-    )?._count ?? 0; // merged PRs come as "closed" with merged_at set
+    // Counted per PR, not per row: a PR can be closed more than once (closed,
+    // reopened, then merged), and each close is its own row. Merged PRs come
+    // as "closed" with merged_at set; a close without it is not a merge.
+    const distinctPrs = (rows: typeof prActivity) =>
+      new Set(rows.map((p) => `${p.repoFullName}#${p.prNumber}`)).size;
+    const prsOpened = distinctPrs(
+      prActivity.filter((p) => p.eventAction === "opened"),
+    );
+    const prsMerged = distinctPrs(
+      prActivity.filter((p) => p.eventAction === "closed" && p.prMergedAt),
+    );
 
     const reviewCount = await this.prisma.gitHubActivity.count({
       where: {
