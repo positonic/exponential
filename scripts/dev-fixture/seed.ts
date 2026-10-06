@@ -525,8 +525,12 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // resolves to a real turn on the recording page.
   const transcriptTurns = [
     "Dev Fixture: Morning. Blockers first - anything stuck?",
-    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear.",
-    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances?",
+    // `[SCREENSHOT]` markers are what the capture extension writes when it
+    // saves a frame; the parser strips them, and the Screenshots tab pairs the
+    // n-th marker with the n-th Screenshot row seeded below. Kept off turns 3
+    // and 4 so the decision evidence text below still matches the parsed turns.
+    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear. [SCREENSHOT]",
+    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances? [SCREENSHOT]",
     "Pat Reviewer: That is a prioritisation call, not a standup one. Let's park it for the prioritisation ceremony.",
     "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
     "Pat Reviewer: Noted. I'll take the accordion review today.",
@@ -561,6 +565,34 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       participantCount: 2,
     },
   });
+
+  // Two captured frames for the Screenshots tab, in the order of the markers
+  // above. Inline SVGs (named colours: the pre-commit hook rejects hex) so the
+  // fixture needs no blob storage; re-created each run so edits in a dev
+  // session converge back on the fixture.
+  await db.screenshot.deleteMany({ where: { transcriptionSessionId: meeting.id } });
+  const captureSvg = (label: string) =>
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">` +
+        `<rect width="1280" height="800" fill="darkslategray"/>` +
+        `<rect x="40" y="40" width="1200" height="64" rx="8" fill="slategray"/>` +
+        `<rect x="40" y="136" width="760" height="624" rx="8" fill="slategray"/>` +
+        `<rect x="832" y="136" width="408" height="300" rx="8" fill="slategray"/>` +
+        `<rect x="832" y="460" width="408" height="300" rx="8" fill="slategray"/>` +
+        `<text x="640" y="430" text-anchor="middle" font-family="sans-serif" font-size="56" fill="gainsboro">${label}</text>` +
+        `</svg>`,
+    );
+  for (const [i, label] of ["Accordion PR", "Peek drawer"].entries()) {
+    await db.screenshot.create({
+      data: {
+        url: captureSvg(label),
+        timestamp: i === 0 ? "00:42" : "01:58",
+        transcriptionSessionId: meeting.id,
+        createdAt: new Date(occurrenceStart.getTime() + (i + 1) * 60_000),
+      },
+    });
+  }
 
   // Decisions (ADR-0060): one confirmed decision logged from that meeting with
   // two quoted transcript turns as evidence. The label comes from the
