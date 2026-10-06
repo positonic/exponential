@@ -9,7 +9,6 @@ import {
   Select,
   Skeleton,
   Tooltip,
-  UnstyledButton,
 } from '@mantine/core';
 import {
   IconAt,
@@ -60,10 +59,11 @@ function isCategory(value: string): value is NotificationCategory {
 
 /**
  * The inbox's Notifications tab: every in-app Notification for the user
- * (ADR-0045), newest first, across all categories. Unread by default —
- * reading an item clears it from the list, so the tab works down to zero;
- * "All" shows the read history too. Notifications are personal and
- * cross-workspace, like the inbox itself.
+ * (ADR-0045), newest first, across all categories. Unread by default, so
+ * the tab works down to zero; "All" shows the read history too. Opening a
+ * row never marks it read (a cmd-click into a new tab shouldn't clear it):
+ * only the row's tick, or "Mark all read", does. Notifications are personal
+ * and cross-workspace, like the inbox itself.
  */
 export function NotificationsTab() {
   const utils = api.useUtils();
@@ -144,9 +144,6 @@ export function NotificationsTab() {
             const isUnread = notification.readAt === null;
             // Messages may be Markdown excerpts; the row is one line, so text only.
             const preview = toPlainText(notification.message);
-            const readOnOpen = () => {
-              if (isUnread) markRead.mutate({ notificationId: notification.id });
-            };
             const row = (
               <>
                 <span className="wsa-item__icon" title={display.label}>
@@ -169,18 +166,11 @@ export function NotificationsTab() {
             return (
               <div key={notification.id} className="flex items-center gap-1">
                 {notification.deeplink ? (
-                  <UnstyledButton
-                    component={Link}
-                    href={notification.deeplink}
-                    className="wsa-item min-w-0 flex-1"
-                    onClick={readOnOpen}
-                  >
+                  <Link href={notification.deeplink} className="wsa-item min-w-0 flex-1">
                     {row}
-                  </UnstyledButton>
+                  </Link>
                 ) : (
-                  <UnstyledButton className="wsa-item min-w-0 flex-1" onClick={readOnOpen}>
-                    {row}
-                  </UnstyledButton>
+                  <div className="wsa-item min-w-0 flex-1">{row}</div>
                 )}
                 {/* Always rendered so read and unread rows line up. */}
                 <Tooltip label="Mark read" disabled={!isUnread}>
