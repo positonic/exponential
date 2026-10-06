@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -52,7 +52,7 @@ import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
-import { useCoalescedSave } from "~/hooks/useCoalescedSave";
+import { useViewPrefs } from "~/hooks/useViewPrefs";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import {
   PRIORITY_PILL_OPTIONS,
@@ -261,11 +261,12 @@ export default function TicketsBacklogPage() {
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   // ── Load & save view preferences ──
-  const { data: savedPrefs, isError: prefsFailed } =
-    api.product.product.getViewPrefs.useQuery(
-      { productSlug, workspaceId: workspaceId ?? "" },
-      { enabled: !!workspaceId },
-    );
+  // Every control saves only the key it owns; saves inside one debounce
+  // window are merged so none is dropped (see useCoalescedSave). The hook
+  // keeps the cached prefs, which a remount restores from, in step with the
+  // saves - including ones made while the prefs are still loading.
+  const { prefs: savedPrefs, isError: prefsFailed, save: debouncedSave } =
+    useViewPrefs<Partial<SavedViewPrefs>>({ productSlug, workspaceId }, { debounceMs: 500 });
   // The tickets wait for the saved view (filters, sort, grouping, view). A
   // list that arrives first would otherwise render unfiltered, then re-sort
   // and shrink when the prefs land: a second full render and a page-sized
@@ -273,40 +274,11 @@ export default function TicketsBacklogPage() {
   const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
   const utils = api.useUtils();
-  const savePrefs = api.product.product.saveViewPrefs.useMutation({
-    // The save below patches the cached prefs first. If it then fails, drop
-    // them, so the next visit restores what the server really holds rather
-    // than a change that never landed.
-    onError: (_error, { productSlug: key, workspaceId: wsId }) => {
-      void utils.product.product.getViewPrefs.reset({ productSlug: key, workspaceId: wsId });
-    },
-  });
-  const saveMutateRef = useRef(savePrefs.mutate);
-  saveMutateRef.current = savePrefs.mutate;
-
-  // Every control saves only the key it owns; the hook merges saves that land
-  // inside one debounce window so none of them is dropped (see its doc).
-  const { push: debouncedSave } = useCoalescedSave<SavedViewPrefs>(
-    useCallback((prefs: Partial<SavedViewPrefs>) => {
-      if (!workspaceId) return;
-      // Patch the cached prefs too. A client-side tab switch remounts this
-      // page, and the restore effect below reads whatever getViewPrefs has
-      // cached - without this, the pre-save value, so the change is undone.
-      // Only once the prefs are cached, though: a lone patch in an empty
-      // cache would pass for the whole saved view, and that effect would
-      // apply it and then ignore the real prefs when they arrive.
-      utils.product.product.getViewPrefs.setData(
-        { productSlug, workspaceId },
-        (prev) => (prev ? { ...prev, ...prefs } : prev),
-      );
-      saveMutateRef.current({ productSlug, workspaceId, prefs });
-    }, [workspaceId, productSlug, utils]),
-  );
 
   // Restore prefs on load
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {
-      if (savedPrefs.view) setView(savedPrefs.view as string);
+      if (savedPrefs.view) setView(savedPrefs.view);
       if (savedPrefs.groupBy) setGroupBy(savedPrefs.groupBy as GroupByField);
       // Epic and Cycle are sub-line metadata now, with no header to show or
       // flip that sort; fall back to the default rather than sort invisibly.
@@ -315,7 +287,7 @@ export default function TicketsBacklogPage() {
         setSortField(f === "epic" || f === "cycle" ? "status" : f);
       }
       if (savedPrefs.sortDir) setSortDir(savedPrefs.sortDir as SortDir);
-      if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns as string[]));
+      if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns));
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
         setEntity(savedPrefs.entity);
       }

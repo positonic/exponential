@@ -1,0 +1,210 @@
+import { useCallback, useMemo, useReducer, useRef } from "react";
+import { useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { getMutationKey, getQueryKey } from "@trpc/react-query";
+import { api, type RouterInputs } from "~/trpc/react";
+import { useCoalescedSave } from "./useCoalescedSave";
+
+type SaveViewPrefsInput = RouterInputs["product"]["product"]["saveViewPrefs"];
+/** What `saveViewPrefs` accepts: every view pref, each optional. */
+export type ViewPrefsPatch = SaveViewPrefsInput["prefs"];
+
+/** Prefs are kept per user, per product (or per product page, by suffixing the slug). */
+export interface ViewPrefsKey {
+  productSlug: string;
+  workspaceId: string;
+}
+
+interface UseViewPrefsOptions {
+  /** Merge saves that land inside this window into one (see useCoalescedSave). */
+  debounceMs?: number;
+}
+
+export interface UseViewPrefsResult<T extends ViewPrefsPatch> {
+  /**
+   * The saved view once it has loaded, with this page's unsaved changes laid
+   * over it. Untrusted JSON: check each field before using it.
+   */
+  prefs: T | undefined;
+  /** The read failed; the page falls back to its defaults. */
+  isError: boolean;
+  /** Persist a change. It shows in `prefs` and the cached prefs at once. */
+  save: (patch: T) => void;
+}
+
+/**
+ * A page's saved view prefs (`product.product.getViewPrefs`), kept in step
+ * with what the page saves through `saveViewPrefs`.
+ *
+ * Pages restore their view from the cached prefs when they mount, and a
+ * client-side tab switch remounts them, so the cache has to carry a change
+ * from the moment it is made. Each save patches the cached prefs. The patch
+ * waits for the prefs to have loaded: a lone patch in an empty cache would
+ * pass for the whole saved view (the Backlog would restore it, then ignore
+ * the real prefs when they arrived and overwrite the saved filters).
+ *
+ * The patch alone is not enough while a read is in flight - most easily, when
+ * a control is changed before the prefs have loaded. The response was built
+ * before the save committed, lands after the patch, and puts the old value
+ * back; a remount inside staleTime then restores it. So:
+ *
+ * - `prefs` lays the pending changes - saves in flight for this key, plus any
+ *   still inside the debounce window - over the cached prefs, so a restore
+ *   that runs before they settle keeps the user's choice;
+ * - when a save succeeds and no later save for the key is running, the hook
+ *   waits for any read still in flight (one started after the commit is
+ *   fine, one started before may carry the old value), then writes the
+ *   pending changes over whatever landed;
+ * - a failed save resets the cached prefs, so the next read restores what the
+ *   server really holds.
+ *
+ * Cancelling the in-flight read would be simpler, but a cancelled first read
+ * is not retried, and the Backlog holds its ticket list until the prefs load.
+ */
+export function useViewPrefs<T extends ViewPrefsPatch>(
+  key: { productSlug: string; workspaceId: string | null | undefined },
+  { debounceMs = 0 }: UseViewPrefsOptions = {},
+): UseViewPrefsResult<T> {
+  const queryClient = useQueryClient();
+  const utils = api.useUtils();
+  const { productSlug } = key;
+  const workspaceId = key.workspaceId ?? "";
+  const input = useMemo<ViewPrefsKey>(
+    () => ({ productSlug, workspaceId }),
+    [productSlug, workspaceId],
+  );
+
+  const query = api.product.product.getViewPrefs.useQuery(input, { enabled: !!key.workspaceId });
+
+  // Changes handed to `save` that no mutation has picked up yet: the debounce
+  // window. Once sent, the mutation cache tracks them until they settle.
+  const unsentRef = useRef<ViewPrefsPatch>({});
+  // Bumped whenever the pending changes move, so `prefs` recomputes.
+  const [version, bump] = useReducer((n: number) => n + 1, 0);
+
+  const mutation = api.product.product.saveViewPrefs.useMutation({
+    onMutate: (vars) => {
+      unsentRef.current = withoutSent(unsentRef.current, vars.prefs);
+      utils.product.product.getViewPrefs.setData(keyOf(vars), (prev) =>
+        prev ? { ...prev, ...vars.prefs } : prev,
+      );
+    },
+    onSuccess: async (_data, vars) => {
+      const saved = keyOf(vars);
+      // A later save for this key is still running; it reconciles when it lands.
+      if (inFlightSaves(queryClient, saved).length > 1) return;
+      await untilNotFetching(
+        queryClient,
+        getQueryKey(api.product.product.getViewPrefs, saved, "query"),
+      );
+      const pending = pendingPatch(queryClient, saved, unsentRef.current);
+      utils.product.product.getViewPrefs.setData(saved, (prev) =>
+        prev ? { ...prev, ...pending } : prev,
+      );
+    },
+    onError: (_error, vars) => {
+      void utils.product.product.getViewPrefs.reset(keyOf(vars));
+    },
+    onSettled: () => bump(),
+  });
+  const mutateRef = useRef(mutation.mutate);
+  mutateRef.current = mutation.mutate;
+
+  const send = useCallback(
+    (patch: ViewPrefsPatch) => mutateRef.current({ ...input, prefs: patch }),
+    [input],
+  );
+  const { push } = useCoalescedSave<ViewPrefsPatch>(send, debounceMs);
+
+  const save = useCallback(
+    (patch: T) => {
+      if (!key.workspaceId) return;
+      unsentRef.current = { ...unsentRef.current, ...patch };
+      bump();
+      if (debounceMs > 0) push(patch);
+      else send(patch);
+    },
+    [key.workspaceId, debounceMs, push, send],
+  );
+
+  const prefs = useMemo(() => {
+    if (query.data === undefined) return undefined;
+    const pending = pendingPatch(queryClient, input, unsentRef.current);
+    return { ...query.data, ...pending } as unknown as T;
+    // `version` stands in for the pending changes, which live in a ref and
+    // the mutation cache rather than in state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query.data, queryClient, input, version]);
+
+  return { prefs, isError: query.isError, save };
+}
+
+function keyOf(vars: SaveViewPrefsInput): ViewPrefsKey {
+  return { productSlug: vars.productSlug, workspaceId: vars.workspaceId };
+}
+
+function isSaveViewPrefsInput(value: unknown): value is SaveViewPrefsInput {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "productSlug" in value &&
+    "workspaceId" in value &&
+    "prefs" in value
+  );
+}
+
+/** The saves for `key` that have not settled, oldest first. */
+function inFlightSaves(queryClient: QueryClient, key: ViewPrefsKey) {
+  return queryClient
+    .getMutationCache()
+    .findAll({
+      mutationKey: getMutationKey(api.product.product.saveViewPrefs),
+      status: "pending",
+      predicate: (mutation) => {
+        const vars = mutation.state.variables;
+        return (
+          isSaveViewPrefsInput(vars) &&
+          vars.productSlug === key.productSlug &&
+          vars.workspaceId === key.workspaceId
+        );
+      },
+    })
+    .sort((a, b) => a.mutationId - b.mutationId);
+}
+
+/** Every change for `key` the server may not hold yet, later changes winning. */
+function pendingPatch(
+  queryClient: QueryClient,
+  key: ViewPrefsKey,
+  unsent: ViewPrefsPatch,
+): ViewPrefsPatch {
+  const sent = inFlightSaves(queryClient, key).reduce<ViewPrefsPatch>(
+    (acc, mutation) => ({ ...acc, ...(mutation.state.variables as SaveViewPrefsInput).prefs }),
+    {},
+  );
+  return { ...sent, ...unsent };
+}
+
+/** `unsent` minus the entries a save has just picked up (same key, same value). */
+function withoutSent(unsent: ViewPrefsPatch, sent: ViewPrefsPatch): ViewPrefsPatch {
+  const rest: Record<string, unknown> = { ...unsent };
+  for (const [k, value] of Object.entries(sent)) {
+    if (rest[k] === value) delete rest[k];
+  }
+  return rest as ViewPrefsPatch;
+}
+
+/** Resolves once no fetch is in flight for the query (at once if none is). */
+function untilNotFetching(queryClient: QueryClient, queryKey: QueryKey): Promise<void> {
+  const cache = queryClient.getQueryCache();
+  const query = cache.find({ queryKey });
+  if (!query || query.state.fetchStatus === "idle") return Promise.resolve();
+  return new Promise((resolve) => {
+    const unsubscribe = cache.subscribe((event) => {
+      if (event.query !== query) return;
+      if (event.type === "removed" || query.state.fetchStatus === "idle") {
+        unsubscribe();
+        resolve();
+      }
+    });
+  });
+}
