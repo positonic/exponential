@@ -525,16 +525,20 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // resolves to a real turn on the recording page.
   const transcriptTurns = [
     "Dev Fixture: Morning. Blockers first - anything stuck?",
-    // `[SCREENSHOT]` markers are what the capture extension writes when it
-    // saves a frame; the parser strips them, and the Screenshots tab pairs the
-    // n-th marker with the n-th Screenshot row seeded below. Kept off turns 3
-    // and 4 so the decision evidence text below still matches the parsed turns.
-    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear. [SCREENSHOT]",
-    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances? [SCREENSHOT]",
+    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear.",
+    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances?",
     "Pat Reviewer: That is a prioritisation call, not a standup one. Let's park it for the prioritisation ceremony.",
     "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
     "Pat Reviewer: Noted. I'll take the accordion review today.",
   ];
+  // `[SCREENSHOT]` markers are what the capture extension writes when it
+  // saves a frame. They live only in the stored transcript (the parser strips
+  // them on read), so the decision evidence below quotes clean turn text; the
+  // Screenshots tab pairs the n-th marker with the n-th capture seeded below.
+  const markerTurnIndices = new Set([1, 2]);
+  const storedTranscript = transcriptTurns
+    .map((turn, i) => (markerTurnIndices.has(i) ? `${turn} [SCREENSHOT]` : turn))
+    .join("\n");
   const meetingSummary =
     "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.";
   const meeting = await db.transcriptionSession.upsert({
@@ -548,7 +552,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       userId: user.id,
       title: FIXTURE.meetingTitle,
       meetingDate: occurrenceStart,
-      transcription: transcriptTurns.join("\n"),
+      transcription: storedTranscript,
       summary: meetingSummary,
     },
     create: {
@@ -558,7 +562,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       userId: user.id,
       workspaceId: workspace.id,
       occurrenceId: occurrence.id,
-      transcription: transcriptTurns.join("\n"),
+      transcription: storedTranscript,
       summary: meetingSummary,
       processedAt: occurrenceStart,
       durationSeconds: 9 * 60,
