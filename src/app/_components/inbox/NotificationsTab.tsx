@@ -170,7 +170,7 @@ export function NotificationsTab() {
                     {row}
                   </Link>
                 ) : (
-                  <div className="wsa-item min-w-0 flex-1">{row}</div>
+                  <div className="wsa-item wsa-item--static min-w-0 flex-1">{row}</div>
                 )}
                 {/* Always rendered so read and unread rows line up. */}
                 <Tooltip label="Mark read" disabled={!isUnread}>
