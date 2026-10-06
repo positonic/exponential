@@ -26,14 +26,19 @@ export interface ScreenshotNarrativeEntry {
   screenshot: NarrativeScreenshot;
   /** 1-based capture order. */
   index: number;
-  /** Speaker-attributed turns said before this capture; empty when the
-   *  transcript has no marker for it (e.g. a hand-attached image). */
+  /** Speaker-attributed turns said before this capture; empty for a
+   *  hand-attached image (no marker) or a capture past the marker count. */
   turns: TranscriptTurn[];
 }
 
 /** A marker, optionally followed by a sentence-ending period (the extension
  *  emits both shapes). Same shape `stripScreenshots` matches. */
-const MARKER_RE = /\[SCREENSHOT\]\.?/;
+const MARKER_RE = /\[SCREENSHOT\]\.?/g;
+
+/** Stands in for a marker through the transcript parser. A private-use code
+ *  point: nothing in the parsers strips it, `trim()` keeps it, and it can't
+ *  collide with real text. */
+const MARKER_SENTINEL = "\uE000";
 
 function createdAtMs(value: Date | string): number {
   const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -53,28 +58,56 @@ export function countScreenshotMarkers(transcription: string | null | undefined)
   return transcription.split(MARKER_RE).length - 1;
 }
 
-function segmentToTurns(segment: string): TranscriptTurn[] {
-  if (segment.trim().length === 0) return [];
-  // The canonical parser strips header blocks and markers, and attributes
-  // `Name:` lines to speakers; a plain prose segment becomes one speakerless
-  // turn. Segments that start mid-turn (text after a marker on the same line)
-  // render as a speakerless continuation, which is honest: nobody new spoke.
-  return parseTranscript({ transcription: segment, sentencesJson: null, participants: [] });
+/** Only the extension writes a marker, and only the extension records a
+ *  capture position; a hand-attached image has neither, so it must not
+ *  consume a marker that belongs to the next real capture. */
+function isExtensionCapture(screenshot: NarrativeScreenshot): boolean {
+  return typeof screenshot.timestamp === "string" && screenshot.timestamp.length > 0;
+}
+
+/**
+ * Split the transcript into one passage per marker, keeping speaker
+ * attribution across marker boundaries. The whole transcript goes through the
+ * canonical parser once (so header blocks and speaker labels are handled the
+ * same way the Transcript tab does), with each marker carried through as a
+ * sentinel; a turn is then cut at its sentinels and every piece keeps the
+ * turn's speaker. Index n holds what was said before marker n+1; the final
+ * element is what followed the last marker.
+ */
+function splitAtMarkers(transcription: string): TranscriptTurn[][] {
+  const turns = parseTranscript({
+    transcription: transcription.replace(MARKER_RE, MARKER_SENTINEL),
+    sentencesJson: null,
+    participants: [],
+  });
+  const passages: TranscriptTurn[][] = [[]];
+  for (const turn of turns) {
+    const pieces = turn.text.split(MARKER_SENTINEL);
+    pieces.forEach((piece, i) => {
+      const text = piece.trim();
+      if (text.length > 0) passages[passages.length - 1]!.push({ ...turn, text });
+      if (i < pieces.length - 1) passages.push([]);
+    });
+  }
+  return passages;
 }
 
 export function buildScreenshotNarrative(
   transcription: string | null | undefined,
   screenshots: readonly NarrativeScreenshot[],
 ): ScreenshotNarrativeEntry[] {
-  const ordered = sortScreenshotsChronologically(screenshots);
-  const segments = transcription ? transcription.split(MARKER_RE) : [];
-  // The last segment is what was said after the final capture; it belongs to
+  const passages = transcription ? splitAtMarkers(transcription) : [];
+  // The last passage is what was said after the final capture; it belongs to
   // no screenshot.
-  const markerCount = Math.max(segments.length - 1, 0);
+  const markerCount = Math.max(passages.length - 1, 0);
 
-  return ordered.map((screenshot, i) => ({
-    screenshot,
-    index: i + 1,
-    turns: i < markerCount ? segmentToTurns(segments[i] ?? "") : [],
-  }));
+  let marker = 0;
+  return sortScreenshotsChronologically(screenshots).map((screenshot, i) => {
+    let turns: TranscriptTurn[] = [];
+    if (isExtensionCapture(screenshot)) {
+      if (marker < markerCount) turns = passages[marker] ?? [];
+      marker += 1;
+    }
+    return { screenshot, index: i + 1, turns };
+  });
 }

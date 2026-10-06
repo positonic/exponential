@@ -15,7 +15,7 @@ describe("buildScreenshotNarrative", () => {
       "Visually great. I don't like the line break here. [SCREENSHOT] " +
       "I don't like the indentation here. [SCREENSHOT] Closing remarks.";
     // Newest first, the order `getDetail` returns them in.
-    const screenshots = [shot("b", "2026-10-05T10:01:00Z"), shot("a", "2026-10-05T10:00:00Z")];
+    const screenshots = [shot("b", "2026-10-05T10:01:00Z", "00:50"), shot("a", "2026-10-05T10:00:00Z", "00:10")];
 
     const entries = buildScreenshotNarrative(transcription, screenshots);
 
@@ -36,19 +36,54 @@ describe("buildScreenshotNarrative", () => {
 
   it("drops the prose said after the final capture", () => {
     const entries = buildScreenshotNarrative("before [SCREENSHOT] after", [
-      shot("a", "2026-10-05T10:00:00Z"),
+      shot("a", "2026-10-05T10:00:00Z", "00:10"),
     ]);
     expect(entries).toHaveLength(1);
     expect(entries[0]!.turns.map((t) => t.text)).toEqual(["before"]);
   });
 
-  it("gives screenshots beyond the marker count no turns (hand-attached images)", () => {
+  it("gives captures beyond the marker count no turns", () => {
     const entries = buildScreenshotNarrative("said [SCREENSHOT]. more", [
       shot("a", "2026-10-05T10:00:00Z", "00:12"),
-      shot("uploaded", "2026-10-05T11:00:00Z"),
+      shot("b", "2026-10-05T11:00:00Z", "00:50"),
     ]);
     expect(entries[0]!.turns.map((t) => t.text)).toEqual(["said"]);
     expect(entries[1]!.turns).toEqual([]);
+  });
+
+  it("a hand-attached image between two captures does not consume a marker", () => {
+    const entries = buildScreenshotNarrative("first [SCREENSHOT] second [SCREENSHOT] after", [
+      shot("cap1", "2026-10-05T10:00:00Z", "00:10"),
+      shot("uploaded", "2026-10-05T10:01:00Z"),
+      shot("cap2", "2026-10-05T10:02:00Z", "00:40"),
+    ]);
+    expect(entries.map((e) => [e.screenshot.id, e.turns.map((t) => t.text)])).toEqual([
+      ["cap1", ["first"]],
+      ["uploaded", []],
+      ["cap2", ["second"]],
+    ]);
+  });
+
+  it("keeps the speaker when a marker splits a turn", () => {
+    const transcription = [
+      "Me: Perfect. [SCREENSHOT] Here's where it breaks.",
+      "Them: Got it. [SCREENSHOT]",
+    ].join("\n");
+    const entries = buildScreenshotNarrative(transcription, [
+      shot("a", "2026-10-05T10:00:00Z", "00:10"),
+      shot("b", "2026-10-05T10:01:00Z", "00:20"),
+    ]);
+    expect(entries[0]!.turns.map((t) => [t.speaker, t.text])).toEqual([["Me", "Perfect."]]);
+    expect(entries[1]!.turns.map((t) => [t.speaker, t.text])).toEqual([
+      ["Me", "Here's where it breaks."],
+      ["Them", "Got it."],
+    ]);
+  });
+
+  it("drops a header block above the Transcript: marker from the first passage", () => {
+    const transcription = ["Date: 04 Jun 2026", "Transcript:", "Me: Hello. [SCREENSHOT]"].join("\n");
+    const entries = buildScreenshotNarrative(transcription, [shot("a", "2026-10-05T10:00:00Z", "00:10")]);
+    expect(entries[0]!.turns.map((t) => [t.speaker, t.text])).toEqual([["Me", "Hello."]]);
   });
 
   it("returns every screenshot with no turns when there is no transcript", () => {
@@ -64,7 +99,7 @@ describe("buildScreenshotNarrative", () => {
       "Them: Of course. Here is the onboarding flow. [SCREENSHOT]",
       "Me: Got it.",
     ].join("\n");
-    const entries = buildScreenshotNarrative(transcription, [shot("a", "2026-10-05T10:00:00Z")]);
+    const entries = buildScreenshotNarrative(transcription, [shot("a", "2026-10-05T10:00:00Z", "00:10")]);
     expect(entries[0]!.turns.map((t) => [t.speaker, t.text])).toEqual([
       ["Me", "Hey, thanks for hopping on."],
       ["Them", "Of course. Here is the onboarding flow."],
@@ -73,8 +108,8 @@ describe("buildScreenshotNarrative", () => {
 
   it("ignores an empty segment between back-to-back markers", () => {
     const entries = buildScreenshotNarrative("one [SCREENSHOT] [SCREENSHOT] three", [
-      shot("a", "2026-10-05T10:00:00Z"),
-      shot("b", "2026-10-05T10:01:00Z"),
+      shot("a", "2026-10-05T10:00:00Z", "00:10"),
+      shot("b", "2026-10-05T10:01:00Z", "00:20"),
     ]);
     expect(entries[0]!.turns.map((t) => t.text)).toEqual(["one"]);
     expect(entries[1]!.turns).toEqual([]);
