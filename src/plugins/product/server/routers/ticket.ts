@@ -794,38 +794,45 @@ export const ticketRouter = createTRPCRouter({
       const activityWorkspaceId = previousTicket.product.workspaceId;
       const statusChanged =
         input.status !== undefined && input.status !== previousTicket.status;
+      const previousRecord = previousTicket as unknown as Record<
+        string,
+        unknown
+      >;
+      const fieldsChanged = Object.keys(rest).filter((key) => {
+        if (key === "status") return false;
+        const incoming = (rest as Record<string, unknown>)[key];
+        if (incoming === undefined) return false;
+        if (!(key in previousRecord)) return true;
+        const existing = previousRecord[key];
+        // links is a Json object - JSON-stringify for a coarse equality check.
+        if (
+          existing !== null &&
+          typeof existing === "object" &&
+          incoming !== null &&
+          typeof incoming === "object"
+        ) {
+          return JSON.stringify(existing) !== JSON.stringify(incoming);
+        }
+        return existing !== incoming;
+      });
       if (statusChanged) {
+        // Other fields changed in the same edit (e.g. cycleId) ride along on
+        // the status event, so readers such as the Overview burn-up see them.
         await recordActivity(ctx.db, {
           workspaceId: activityWorkspaceId,
           userId: ctx.session.user.id,
           entityType: "ticket",
           entityId: id,
           action: "status_changed",
-          metadata: { from: previousTicket.status, to: input.status! },
+          metadata: {
+            from: previousTicket.status,
+            to: input.status!,
+            ...(fieldsChanged.length > 0 ? { fieldsChanged } : {}),
+          },
         }).catch(() => {
           /* instrumentation failure is non-fatal */
         });
       } else {
-        const previousRecord = previousTicket as unknown as Record<
-          string,
-          unknown
-        >;
-        const fieldsChanged = Object.keys(rest).filter((key) => {
-          const incoming = (rest as Record<string, unknown>)[key];
-          if (incoming === undefined) return false;
-          if (!(key in previousRecord)) return true;
-          const existing = previousRecord[key];
-          // links is a Json object - JSON-stringify for a coarse equality check.
-          if (
-            existing !== null &&
-            typeof existing === "object" &&
-            incoming !== null &&
-            typeof incoming === "object"
-          ) {
-            return JSON.stringify(existing) !== JSON.stringify(incoming);
-          }
-          return existing !== incoming;
-        });
         if (fieldsChanged.length > 0) {
           await recordActivity(ctx.db, {
             workspaceId: activityWorkspaceId,
@@ -912,6 +919,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           status: true,
+          cycleId: true,
           productId: true,
           product: { select: { workspaceId: true } },
         },
@@ -970,9 +978,14 @@ export const ticketRouter = createTRPCRouter({
         data,
       });
 
-      const fieldsChanged = fields.map(([k]) => k).filter((k) => k !== "status");
+      const patchedFields = fields.map(([k]) => k).filter((k) => k !== "status");
       await Promise.all(
         tickets.map((t) => {
+          // A ticket already in the target cycle didn't move; recording a
+          // cycleId change would re-date its entry in the Overview burn-up.
+          const fieldsChanged = patchedFields.filter(
+            (k) => !(k === "cycleId" && t.cycleId === input.cycleId),
+          );
           const statusChanged =
             input.status !== undefined && input.status !== t.status;
           if (statusChanged) {
@@ -982,7 +995,12 @@ export const ticketRouter = createTRPCRouter({
               entityType: "ticket",
               entityId: t.id,
               action: "status_changed",
-              metadata: { from: t.status, to: input.status!, bulk: true },
+              metadata: {
+                from: t.status,
+                to: input.status!,
+                bulk: true,
+                ...(fieldsChanged.length > 0 ? { fieldsChanged } : {}),
+              },
             });
           }
           if (fieldsChanged.length === 0) return Promise.resolve(true);

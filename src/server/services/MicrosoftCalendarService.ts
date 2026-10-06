@@ -1,5 +1,6 @@
 import { db } from "~/server/db";
 import NodeCache from "node-cache";
+import { CalendarEventPermissionError } from "./CalendarProvider";
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -7,7 +8,16 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  DeleteEventInput,
+  DeleteEventResult,
 } from "./CalendarProvider";
+
+/**
+ * Cap on the event DELETE, matching GOOGLE_TIMEOUT_MS in GoogleCalendarService.
+ * The event modal cannot be dismissed while a delete is pending, so an
+ * uncapped stall would hold it until the function's own budget ran out.
+ */
+const GRAPH_DELETE_TIMEOUT_MS = 10_000;
 
 // Cache with 15 minute TTL (same as Google)
 const calendarCache = new NodeCache({
@@ -527,6 +537,58 @@ export class MicrosoftCalendarService implements CalendarProvider {
         created.onlineMeeting?.joinUrl ??
         undefined,
     };
+  }
+
+  /**
+   * Delete an event from the user's Outlook calendar. calendarView lists
+   * recurring events as occurrences, so this removes one occurrence, never
+   * the series. Graph sends the cancellation itself when the organizer
+   * deletes a meeting — there is no silent variant, so `notifyAttendees` is
+   * not consulted.
+   */
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult> {
+    const { eventId, calendarId, accountId } = input;
+    const accessToken = await this.getAccessToken(userId, accountId);
+    // Address the event through the calendar it was listed from, as getEvents
+    // does: an event on a shared calendar isn't reachable at me/events, and
+    // the 404 that produces would read as "already deleted".
+    const calendarPath =
+      calendarId !== "primary"
+        ? `me/calendars/${encodeURIComponent(calendarId)}/events`
+        : "me/events";
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://graph.microsoft.com/v1.0/${calendarPath}/${encodeURIComponent(eventId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(GRAPH_DELETE_TIMEOUT_MS),
+        },
+      );
+    } catch (error) {
+      // Network failure, or the timeout above.
+      console.error(`Failed to reach Outlook to delete event ${eventId} (account ${accountId}):`, error);
+      throw new Error("Failed to delete calendar event. Please try again.", { cause: error });
+    }
+
+    // 404: the event is no longer on that calendar — deleted or moved since
+    // our last fetch. Not a failure, but not a delete we made either.
+    const alreadyGone = response.status === 404;
+    if (!response.ok && !alreadyGone) {
+      const text = await response.text();
+      console.error(
+        `Failed to delete Outlook event ${eventId} (account ${accountId}): ${response.status} ${text}`,
+      );
+      if (response.status === 403) throw new CalendarEventPermissionError();
+      throw new Error("Failed to delete calendar event. Please try again.");
+    }
+
+    this.clearUserCache(userId);
+    console.log(
+      `Outlook event ${eventId} ${alreadyGone ? "was already gone" : "deleted"} for user ${userId} (account ${accountId})`,
+    );
+    return { alreadyGone };
   }
 
   clearUserCache(userId: string): void {

@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
+import { CalendarEventPermissionError } from "~/server/services/CalendarProvider";
 import type { CalendarInfo, CalendarProvider } from "~/server/services/CalendarProvider";
 import { GOOGLE_SCOPES, isGoogleOAuthTester } from "~/lib/googleAuth";
 import { encryptToBase64 } from "~/server/utils/encryption";
@@ -52,6 +53,14 @@ function isGoogleCalendarGated(
 ): boolean {
   return provider === "google" && !isGoogleOAuthTester(email);
 }
+
+const GOOGLE_CALENDAR_GATED_MESSAGE =
+  "Google Calendar is a premium feature that is currently available to " +
+  "select users during our verification process. Contact " +
+  "support@exponential.im to request early access.";
+
+/** Calendar roles that cannot change events ("owner" and "writer" can). */
+const READ_ONLY_CALENDAR_ROLES = new Set(["reader", "freeBusyReader"]);
 
 /** The OAuth scope that grants calendar access for each provider */
 function calendarScopeFor(accountProvider: string): string {
@@ -714,16 +723,60 @@ export const calendarRouter = createTRPCRouter({
     .mutation(async ({ input, ctx }) => {
       const { provider, ...eventInput } = input;
       if (isGoogleCalendarGated(ctx.session.user.email, provider)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message:
-            "Google Calendar is a premium feature that is currently available to " +
-            "select users during our verification process. Contact " +
-            "support@exponential.im to request early access.",
-        });
+        throw new TRPCError({ code: "FORBIDDEN", message: GOOGLE_CALENDAR_GATED_MESSAGE });
       }
       const service = getCalendarService(provider);
       return service.createEvent(ctx.session.user.id, eventInput);
+    }),
+
+  // Deletes the event at Google/Outlook, not just from this view. accountId
+  // and calendarId are required: an event lives on exactly one calendar of one
+  // connected account, and ICS feed events and scheduled meetings (which have
+  // no connected account) are not deletable here.
+  deleteEvent: protectedProcedure
+    .input(z.object({
+      // The id becomes a URL path segment at the provider. encodeURIComponent
+      // leaves "." and ".." intact and fetch collapses dot segments, so ".."
+      // would retarget the DELETE at the calendar that contains the event.
+      eventId: z
+        .string()
+        .min(1)
+        .refine((id) => id !== "." && id !== "..", "Invalid event id"),
+      calendarId: z.string().min(1),
+      accountId: z.string().min(1),
+      notifyAttendees: z.boolean().default(true),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.session.user.id;
+      const account = await resolveAccount(ctx.db as DbClient, userId, {
+        accountId: input.accountId,
+      });
+      if (!account) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This event's calendar account is no longer connected.",
+        });
+      }
+      const provider = toProviderType(account.provider);
+      if (isGoogleCalendarGated(ctx.session.user.email, provider)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: GOOGLE_CALENDAR_GATED_MESSAGE });
+      }
+
+      const service = getCalendarService(provider);
+      try {
+        const { alreadyGone } = await service.deleteEvent(userId, {
+          eventId: input.eventId,
+          calendarId: input.calendarId,
+          accountId: account.id,
+          notifyAttendees: input.notifyAttendees,
+        });
+        return { success: true, alreadyGone };
+      } catch (error) {
+        if (error instanceof CalendarEventPermissionError) {
+          throw new TRPCError({ code: "FORBIDDEN", message: error.message });
+        }
+        throw error;
+      }
     }),
 
   // ============================================
@@ -906,6 +959,7 @@ export const calendarRouter = createTRPCRouter({
         attendees?: Array<{ email: string; displayName?: string; responseStatus: string }>;
         htmlLink: string;
         status: string;
+        canDelete?: boolean;
       }> = [];
 
       // DB-backed ICS feed events merge in alongside the live provider
@@ -948,11 +1002,21 @@ export const calendarRouter = createTRPCRouter({
               { ...input, accountId: account.id },
               calendars,
             );
+            const readOnlyCalendarIds = new Set(
+              calendars
+                .filter((c) => READ_ONLY_CALENDAR_ROLES.has(c.accessRole))
+                .map((c) => c.id),
+            );
             return events.map((e) => ({
               ...e,
               provider,
               accountId: account.id,
               accountEmail: account.providerEmail,
+              // Only a calendar known to be read-only withholds Delete. One
+              // missing from the cached list (its refresh failed) is offered
+              // rather than mislabelled view-only; the provider still refuses
+              // what it shouldn't allow.
+              canDelete: !readOnlyCalendarIds.has(e.calendarId),
             }));
           } catch (error) {
             console.error(`Failed to fetch ${provider} calendar events for account ${account.id}:`, error);

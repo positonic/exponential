@@ -531,6 +531,14 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
     "Pat Reviewer: Noted. I'll take the accordion review today.",
   ];
+  // `[SCREENSHOT]` markers are what the capture extension writes when it
+  // saves a frame. They live only in the stored transcript (the parser strips
+  // them on read), so the decision evidence below quotes clean turn text; the
+  // Screenshots tab pairs the n-th marker with the n-th capture seeded below.
+  const markerTurnIndices = new Set([1, 2]);
+  const storedTranscript = transcriptTurns
+    .map((turn, i) => (markerTurnIndices.has(i) ? `${turn} [SCREENSHOT]` : turn))
+    .join("\n");
   const meetingSummary =
     "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.";
   const meeting = await db.transcriptionSession.upsert({
@@ -544,7 +552,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       userId: user.id,
       title: FIXTURE.meetingTitle,
       meetingDate: occurrenceStart,
-      transcription: transcriptTurns.join("\n"),
+      transcription: storedTranscript,
       summary: meetingSummary,
     },
     create: {
@@ -554,13 +562,41 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       userId: user.id,
       workspaceId: workspace.id,
       occurrenceId: occurrence.id,
-      transcription: transcriptTurns.join("\n"),
+      transcription: storedTranscript,
       summary: meetingSummary,
       processedAt: occurrenceStart,
       durationSeconds: 9 * 60,
       participantCount: 2,
     },
   });
+
+  // Two captured frames for the Screenshots tab, in the order of the markers
+  // above. Inline SVGs (named colours: the pre-commit hook rejects hex) so the
+  // fixture needs no blob storage; re-created each run so edits in a dev
+  // session converge back on the fixture.
+  await db.screenshot.deleteMany({ where: { transcriptionSessionId: meeting.id } });
+  const captureSvg = (label: string) =>
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">` +
+        `<rect width="1280" height="800" fill="darkslategray"/>` +
+        `<rect x="40" y="40" width="1200" height="64" rx="8" fill="slategray"/>` +
+        `<rect x="40" y="136" width="760" height="624" rx="8" fill="slategray"/>` +
+        `<rect x="832" y="136" width="408" height="300" rx="8" fill="slategray"/>` +
+        `<rect x="832" y="460" width="408" height="300" rx="8" fill="slategray"/>` +
+        `<text x="640" y="430" text-anchor="middle" font-family="sans-serif" font-size="56" fill="gainsboro">${label}</text>` +
+        `</svg>`,
+    );
+  for (const [i, label] of ["Accordion PR", "Peek drawer"].entries()) {
+    await db.screenshot.create({
+      data: {
+        url: captureSvg(label),
+        timestamp: i === 0 ? "00:42" : "01:58",
+        transcriptionSessionId: meeting.id,
+        createdAt: new Date(occurrenceStart.getTime() + (i + 1) * 60_000),
+      },
+    });
+  }
 
   // Decisions (ADR-0060): one confirmed decision logged from that meeting with
   // two quoted transcript turns as evidence. The label comes from the

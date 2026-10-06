@@ -5,7 +5,7 @@ section: build
 order: 1
 icon: IconStack2
 sidebarTitle: Products & tickets
-updated: 2026-09-29
+updated: 2026-10-05
 ---
 
 A product is a unit of delivery with its own backlog. Inside it, **features** are the permanent registry of what the product is made of, **tickets** are the engineering work items, and **cycles** are the time boxes tickets are planned into. Tickets and actions are different things: a ticket is a product artefact that can have child actions; an action is a piece of daily work. All of this needs the Product Management plugin, which is off by default.
@@ -25,7 +25,11 @@ Each product page has eight tabs: **Overview**, **Backlog**, **Features**, **Gra
 2. Enter a **Name** and a **Slug** (lowercase letters, numbers and hyphens; it becomes part of the URL). Add a **Description** if you like.
 3. Click **Create product**.
 
-The **Overview** tab shows the current cycle's progress, a backlog pulse (how many tickets sit in Backlog, Ready to plan, In progress and QA), what needs attention, recent activity, and quick actions (**New ticket**, **New feature**, **New research**, **New retro**, **My tickets**).
+The **Overview** tab shows how the product is doing, in three groups:
+
+- **Cycle**: a short AI-written summary of what matters right now, a burn-up chart of the current cycle with its projected finish date, the tickets at risk (blocked, slipping past the cycle's end date, waiting for review, or unassigned), and the critical path through the tickets' **Depends on** links. Without an active cycle, a chart of tickets completed per week replaces the burn-up. **Copy as Markdown** copies the summary, the at-risk list and the critical path.
+- **Flow**: how many tickets sit in each stage (**Committed**, **In progress**, **In review**, **Done**, **Deployed**) and for how long, which stage is the bottleneck, and whether waiting work is waiting on people, agents or a blocker. **In review** is the **QA** status.
+- **Team**: who is working on what, people and agents, and the open pull requests with the reason each is waiting. Pull requests appear once the product's GitHub repositories are tracked under [**Settings → Integrations**](/settings/integrations) and assigned to the product in [workspace settings → **Decisions**](/go/settings/decisions).
 
 ## How to work with tickets
 

@@ -147,6 +147,11 @@ export default function ProductLayout({
       // that too or the cached list still waits on a round trip.
       void utils.product.product.getViewPrefs.prefetch({ productSlug, workspaceId });
       void utils.product.feature.list.prefetch({ productId });
+      // Features holds its list until its saved filters load, like the Backlog.
+      void utils.product.product.getViewPrefs.prefetch({
+        productSlug: `${productSlug}/features`,
+        workspaceId,
+      });
       void utils.product.product.getDependencyGraph.prefetch({
         productId,
         includeCompleted: false,
