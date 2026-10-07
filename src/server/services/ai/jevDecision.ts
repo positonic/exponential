@@ -108,6 +108,26 @@ const TIER_QUESTION = {
   },
 };
 
+/**
+ * `TYPESAFE_TIER_TIMEOUT_MS`, validated. An empty or non-numeric value would
+ * otherwise become a 0 ms / NaN timer that fires at once and silently turns
+ * Jev off on every turn; anything that is not a positive finite number
+ * falls back to the default.
+ */
+export function readTimeoutMsFromEnv(
+  raw: string | undefined = process.env.TYPESAFE_TIER_TIMEOUT_MS,
+): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(
+      `⚠️ [jevDecision] Ignoring invalid TYPESAFE_TIER_TIMEOUT_MS="${raw}"; using ${DEFAULT_TIMEOUT_MS}ms`,
+    );
+    return DEFAULT_TIMEOUT_MS;
+  }
+  return parsed;
+}
+
 let authFailureUntil = 0;
 
 /** Test hook: clear the auth-failure circuit breaker. */
@@ -168,8 +188,7 @@ export async function decideTierWithJev(
   const fetchImpl = options.fetchImpl ?? fetch;
   const baseUrl = options.baseUrl ?? process.env.TYPESAFE_API_URL ?? DEFAULT_BASE_URL;
   const model = options.model ?? DEFAULT_MODEL;
-  const timeoutMs = options.timeoutMs
-    ?? Number(process.env.TYPESAFE_TIER_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  const timeoutMs = options.timeoutMs ?? readTimeoutMsFromEnv();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

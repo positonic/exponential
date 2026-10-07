@@ -548,11 +548,20 @@ export async function POST(req: Request) {
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
+    // finalMessages holds only the latest user turn plus server-injected
+    // context (see the thread-memory note above), so hand the decision layer
+    // the client transcript explicitly — minus the latest user message,
+    // which it receives separately.
+    const priorTurns = conversationMessages.slice(
+      0,
+      conversationMessages.lastIndexOf(latestUserMessage),
+    );
     const tierPick = await pickModelTier({
       agentId: requestedAgentId,
       conversationId,
       userId: session.user.id,
       finalMessages,
+      priorTurns,
       db,
     });
     const resolvedAgentId = tierPick.agentId;

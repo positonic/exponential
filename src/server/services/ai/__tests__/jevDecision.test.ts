@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   buildJevState,
   decideTierWithJev,
+  readTimeoutMsFromEnv,
   resetJevCircuitBreaker,
   JEV_MIN_CONFIDENCE,
 } from "../jevDecision";
@@ -194,5 +195,43 @@ describe("buildJevState", () => {
       priorTurns: [{ role: "system", content: "You are Zoe" }],
     });
     expect(state).toBe("LATEST user message:\nhi");
+  });
+});
+
+// ── Timeout env parsing ───────────────────────────────────────────────
+
+describe("readTimeoutMsFromEnv", () => {
+  it("uses the default when the variable is unset or blank", () => {
+    expect(readTimeoutMsFromEnv(undefined)).toBe(800);
+    expect(readTimeoutMsFromEnv("")).toBe(800);
+    expect(readTimeoutMsFromEnv("   ")).toBe(800);
+  });
+
+  it("uses the default for non-numeric, zero, negative or infinite values", () => {
+    expect(readTimeoutMsFromEnv("abc")).toBe(800);
+    expect(readTimeoutMsFromEnv("0")).toBe(800);
+    expect(readTimeoutMsFromEnv("-5")).toBe(800);
+    expect(readTimeoutMsFromEnv("Infinity")).toBe(800);
+  });
+
+  it("accepts a positive number", () => {
+    expect(readTimeoutMsFromEnv("1200")).toBe(1200);
+    expect(readTimeoutMsFromEnv("250.5")).toBe(250.5);
+  });
+
+  it("does not silently disable Jev when the env value is garbage", async () => {
+    const prev = process.env.TYPESAFE_TIER_TIMEOUT_MS;
+    process.env.TYPESAFE_TIER_TIMEOUT_MS = "not-a-number";
+    try {
+      // A fetch that takes 30 ms would be killed by a 0/NaN timer but not by the 800 ms default.
+      const fetchImpl = vi.fn<FetchImpl>(
+        () => new Promise((resolve) => setTimeout(() => resolve(jsonResponse(choiceBody("fast", 0.9))), 30)),
+      );
+      const result = await decideTierWithJev(input, { apiKey: "ts_test_key", fetchImpl });
+      expect(result?.tier).toBe("fast");
+    } finally {
+      if (prev === undefined) delete process.env.TYPESAFE_TIER_TIMEOUT_MS;
+      else process.env.TYPESAFE_TIER_TIMEOUT_MS = prev;
+    }
   });
 });

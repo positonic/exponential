@@ -35,15 +35,17 @@ Three facts shaped the answer:
 ## Decision
 
 1. **Jev is the turn decision layer.** `pickModelTier` asks Jev one Choice question (`fast` vs
-   `deep`) over the latest message plus up to six prior turns, after stickiness and the explicit
+   `deep`) over the latest message plus up to six prior turns of the client transcript (the
+   route sends Mastra only the latest turn; thread memory holds the rest), after stickiness and the explicit
    `@think` opt-in, and before the regexes. It acts on confidence ≥ 0.5 (TypeSafe's documented
    floor). On no key, low confidence, timeout (800 ms ceiling), malformed response or any error,
    the regexes decide exactly as before. A 401/402/403 from TypeSafe disables Jev for ten
    minutes so a dead key costs one failed round-trip per cooldown.
 2. **Provider errors are classified, not masked uniformly.** The stream route classifies the
    agent error into billing, auth, rate-limit, overloaded or unknown. Billing and auth skip the
-   Sonnet retry, show a "provider unavailable, team notified" line instead of "try again", and
-   carry the kind into the error report.
+   Sonnet retry, show a "provider unavailable, try again in a little while" line instead of
+   "try again", and carry the kind into the error report. The line does not claim anyone was
+   notified, because error reporting is best-effort.
 3. **Anthropic direct stays the primary path for Zoe and the assistant.** OpenRouter is adopted
    as a second provider through Mastra's model strings and fallback arrays: first for the
    batch-shaped jobs (observational memory, channel summarizer) and as an outage fallback for

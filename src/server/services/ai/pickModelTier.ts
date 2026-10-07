@@ -57,6 +57,15 @@ export interface PickModelTierInput {
   conversationId: string | undefined;
   userId: string;
   finalMessages: MessageLike[];
+  /**
+   * Prior turns of the conversation, oldest first, for the decision layer.
+   * The route sends Mastra only the latest user message (thread memory holds
+   * the rest), so `finalMessages` carries no history — the caller must pass
+   * the client-supplied transcript here or Jev decides "do the second one"
+   * blind. Defaults to whatever precedes the last user message in
+   * `finalMessages`.
+   */
+  priorTurns?: MessageLike[];
   db: PrismaClient;
   /**
    * Decision-layer override. Defaults to Jev (`decideTierWithJev`), which
@@ -144,7 +153,8 @@ export async function pickModelTier(
     );
     const decision = await decideTier({
       message: trimmed,
-      priorTurns: finalMessages.slice(0, Math.max(0, lastUserIndex)),
+      priorTurns:
+        input.priorTurns ?? finalMessages.slice(0, Math.max(0, lastUserIndex)),
     });
     if (decision) {
       return {

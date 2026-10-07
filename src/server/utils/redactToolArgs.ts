@@ -76,12 +76,14 @@ export const USER_FACING_STREAM_ERROR =
 
 /**
  * Shown instead of USER_FACING_STREAM_ERROR when the provider error is a
- * billing or auth failure (see classifyProviderError). "Try again" would be
- * a lie — nothing the user does fixes an exhausted account — and the team
- * is paged through reportHandledErrorServer, so say that instead.
+ * billing or auth failure (see classifyProviderError). Retrying immediately
+ * cannot help — nothing the user does fixes an exhausted account — so point
+ * at "later" rather than "again". Deliberately does NOT promise that anyone
+ * has been notified: reportHandledErrorServer is best-effort and may be
+ * disabled, so that assurance could be false.
  */
 export const USER_FACING_PROVIDER_UNAVAILABLE =
-  "⚠️ The assistant's AI provider is unavailable right now. The team has been notified — please try again a little later.";
+  "⚠️ The assistant's AI provider is unavailable right now — please try again in a little while.";
 
 /**
  * Build the masked, server-side-safe rendering of a raw agent-stream error

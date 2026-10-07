@@ -407,7 +407,35 @@ describe("pickModelTier — Jev decision layer", () => {
     expect(decideTier).not.toHaveBeenCalled();
   });
 
-  it("hands Jev the prior turns but not the latest user message twice", async () => {
+  it("hands Jev the caller's priorTurns, not finalMessages (which carries no history)", async () => {
+    // The route's finalMessages is [latest user message] plus server-injected
+    // system context — Mastra thread memory holds the transcript. Jev must
+    // get the client transcript explicitly or it decides follow-ups blind.
+    const decideTier = vi.fn(decideFast);
+    await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [
+        { role: "system" as const, content: "server-injected context" },
+        userMsg("do the second one"),
+      ],
+      priorTurns: [
+        userMsg("list my projects"),
+        { role: "assistant" as const, content: "1. Alpha\n2. Beta" },
+      ],
+      db: makeDb(null),
+      decideTier,
+    });
+    expect(decideTier).toHaveBeenCalledWith({
+      message: "do the second one",
+      priorTurns: [
+        { role: "user", content: "list my projects" },
+        { role: "assistant", content: "1. Alpha\n2. Beta" },
+      ],
+    });
+  });
+
+  it("derives prior turns from finalMessages when priorTurns is not supplied", async () => {
     const decideTier = vi.fn(decideFast);
     await pickModelTier({
       ...baseInput,
