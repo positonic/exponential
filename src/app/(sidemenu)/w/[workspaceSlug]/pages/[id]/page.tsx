@@ -12,6 +12,7 @@ import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
+import { PageProjectPicker } from '~/app/_components/pages/PageProjectPicker';
 import { UpdateReviewBanner } from '~/app/_components/pages/UpdateReviewBanner';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
 import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
@@ -187,6 +188,15 @@ function PageEditorContent({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
+          <div className="mt-1">
+            <PageProjectPicker
+              pageId={page.id}
+              workspaceId={page.workspaceId}
+              workspaceSlug={workspaceSlug}
+              project={page.project}
+              editable={page.canEdit}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>

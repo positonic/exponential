@@ -44,12 +44,21 @@ import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu, type SortFieldDef } from '~/app/_components/toolbar';
 import type { ProjectSortState } from '~/app/_components/toolbar/useProjectSort';
 import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
-import { hasActiveFilters, type FilterBarConfig, type FilterState } from '~/types/filter';
+import {
+  hasActiveFilters,
+  type FilterBarConfig,
+  type FilterField,
+  type FilterState,
+} from '~/types/filter';
 import styles from './PagesList.module.css';
 
 interface PagesListContentProps {
   workspaceId: string;
   workspaceSlug: string;
+  /** Scope the list to one Project (the project page's Pages tab): only its
+   * pages are listed, "New page" creates inside it, and the now-redundant
+   * project filter + per-row project label are dropped. */
+  projectId?: string;
 }
 
 type PageRow = RouterOutputs['page']['tree'][number];
@@ -90,7 +99,7 @@ function initialOf(name: string | null | undefined) {
   return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
 }
 
-export function PagesListContent({ workspaceId, workspaceSlug }: PagesListContentProps) {
+export function PagesListContent({ workspaceId, workspaceSlug, projectId }: PagesListContentProps) {
   const router = useRouter();
   const utils = api.useUtils();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -107,7 +116,7 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
   // The tree carries the nesting (ADR-0039) — pages ordered depth-first with a
   // `depth` for indentation. Any narrowing or re-ordering flattens it: matches
   // surface without their ancestors, so indentation would be misleading.
-  const { data: pages, isLoading } = api.page.tree.useQuery({ workspaceId });
+  const { data: pages, isLoading } = api.page.tree.useQuery({ workspaceId, projectId });
 
   // One favourites read for the whole list rather than an `isFavorite` query
   // per row. Page favourites key on the workspace-relative path.
@@ -217,27 +226,24 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
       [...map.entries()]
         .map(([value, label]) => ({ value, label }))
         .sort((a, b) => a.label.localeCompare(b.label));
-    return {
-      fields: [
-        {
-          key: 'projectId',
-          label: 'Project',
-          type: 'multi-select',
-          icon: IconFolder,
-          badgeColor: 'cyan',
-          options: toOptions(projects),
-        },
-        {
-          key: 'createdById',
-          label: 'Created by',
-          type: 'multi-select',
-          icon: IconUser,
-          badgeColor: 'grape',
-          options: toOptions(authors),
-        },
-      ],
+    const projectField: FilterField = {
+      key: 'projectId',
+      label: 'Project',
+      type: 'multi-select',
+      icon: IconFolder,
+      badgeColor: 'cyan',
+      options: toOptions(projects),
     };
-  }, [pages]);
+    const authorField: FilterField = {
+      key: 'createdById',
+      label: 'Created by',
+      type: 'multi-select',
+      icon: IconUser,
+      badgeColor: 'grape',
+      options: toOptions(authors),
+    };
+    return { fields: projectId ? [authorField] : [projectField, authorField] };
+  }, [pages, projectId]);
 
   const filtersActive = hasActiveFilters(filterConfig, filters);
   const query = search.trim().toLowerCase();
@@ -291,7 +297,9 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
   const emptyMessage =
     pages && pages.length > 0
       ? 'No pages match.'
-      : 'No pages yet. Create your first one.';
+      : projectId
+        ? 'No pages in this project yet. Create one, or add an existing page to this project from its header.'
+        : 'No pages yet. Create your first one.';
 
   return (
     <div className={styles.page}>
@@ -359,7 +367,7 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
           <button
             className={styles.newBtn}
             type="button"
-            onClick={() => createPage.mutate({ workspaceId })}
+            onClick={() => createPage.mutate({ workspaceId, projectId })}
             disabled={createPage.isPending}
           >
             <IconPlus size={13} stroke={2.5} />
@@ -404,7 +412,7 @@ export function PagesListContent({ workspaceId, workspaceSlug }: PagesListConten
                   <IconFileText size={18} stroke={1.75} className={styles.rowIcon} aria-hidden />
                   <div className={styles.rowMain}>
                     <span className={styles.rowTitle}>{page.title}</span>
-                    {page.project ? (
+                    {page.project && !projectId ? (
                       <span className={styles.rowMeta}>· {page.project.name}</span>
                     ) : null}
                   </div>

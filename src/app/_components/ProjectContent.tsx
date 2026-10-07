@@ -46,6 +46,7 @@ import {
   IconLock,
   IconWorld,
   IconStopwatch,
+  IconFileText,
 } from "@tabler/icons-react";
 import { addDays, format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
@@ -62,6 +63,7 @@ import { ProjectOverview } from "./ProjectOverview";
 import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
 import { ProjectTimeTab } from "./ProjectTimeTab";
+import { PagesListContent } from "~/app/_components/pages/PagesListContent";
 import { daysLeftLabel, daysUntil, resolveProjectTargetDate } from "~/lib/projectTargetDate";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -75,6 +77,7 @@ type TabValue =
   | "goals"
   | "timeline"
   | "time"
+  | "pages"
   | "transcriptions"
   | "integrations"
   | "workflows"
@@ -88,6 +91,7 @@ const VALID_TABS: TabValue[] = [
   "goals",
   "timeline",
   "time",
+  "pages",
   "transcriptions",
   "integrations",
   "workflows",
@@ -208,6 +212,11 @@ export function ProjectContent({
   const goalsQuery = api.goal.getProjectGoals.useQuery(
     { projectId: resolvedProjectId },
     { enabled: dependentQueriesEnabled },
+  );
+  // Same key as the Overview's Docs section, so the tab count rides its cache.
+  const { data: projectPages } = api.page.list.useQuery(
+    { workspaceId: workspaceId ?? "", projectId: resolvedProjectId },
+    { enabled: dependentQueriesEnabled && !!workspaceId },
   );
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
     { projectId: resolvedProjectId },
@@ -492,6 +501,25 @@ export function ProjectContent({
               <Tabs.Tab value="time" leftSection={<IconStopwatch size={14} />}>
                 Time
               </Tabs.Tab>
+              {workspaceId && workspace?.slug && (
+                <Tabs.Tab
+                  value="pages"
+                  leftSection={<IconFileText size={14} />}
+                  rightSection={
+                    projectPages && projectPages.length > 0 ? (
+                      <span
+                        className={`${overviewStyles.tabCount} ${
+                          activeTab === "pages" ? overviewStyles.tabCountActive : ""
+                        }`}
+                      >
+                        {projectPages.length}
+                      </span>
+                    ) : null
+                  }
+                >
+                  Pages
+                </Tabs.Tab>
+              )}
               {/* Team Weekly Planning Tabs - Only show for team projects */}
               {project.teamId && (
                 <>
@@ -584,6 +612,18 @@ export function ProjectContent({
 
             <Tabs.Panel value="time">
               <ProjectTimeTab projectId={resolvedProjectId} />
+            </Tabs.Panel>
+
+            <Tabs.Panel value="pages">
+              {/* Mounted only while active: the list owns a ⌘F binding and a
+                  tree query that the other tabs don't need. */}
+              {activeTab === "pages" && workspaceId && workspace?.slug && (
+                <PagesListContent
+                  workspaceId={workspaceId}
+                  workspaceSlug={workspace.slug}
+                  projectId={resolvedProjectId}
+                />
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="workflows">
