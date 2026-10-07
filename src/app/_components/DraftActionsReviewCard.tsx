@@ -118,7 +118,7 @@ export function DraftActionsReviewCard({
   // draft set, and it doesn't write "deleted" project activity for Actions
   // that were never published.
   const discardMutation = api.transcription.discardDraftActions.useMutation({
-    onSuccess: async (result) => {
+    onSuccess: async (result, variables) => {
       if (result.discardedCount > 0) {
         notifications.show({
           title: "Drafts discarded",
@@ -126,7 +126,16 @@ export function DraftActionsReviewCard({
           color: "gray",
         });
       }
-      setSelectedIds(new Set());
+      // Drop only what was discarded from the selection: a per-row trash
+      // click must not deselect the drafts the reviewer still means to
+      // create. No ids means "discard all", so nothing is left to select.
+      const discarded = variables.actionIds;
+      setSelectedIds((prev) => {
+        if (!discarded) return new Set();
+        const next = new Set(prev);
+        for (const id of discarded) next.delete(id);
+        return next;
+      });
       await invalidateQueries();
     },
     onError: (error) => {
