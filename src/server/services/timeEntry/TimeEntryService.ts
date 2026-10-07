@@ -32,6 +32,7 @@ import {
   type ProposedPiece,
 } from "./reconcile";
 import { computeDayReport, type DayReport } from "./dayReport";
+import { computeProjectTimeReport, type ProjectTimeReport } from "./projectTimeReport";
 
 export type TimeEntryWithAction = Prisma.TimeEntryGetPayload<{
   include: {
@@ -933,6 +934,26 @@ export class TimeEntryService {
       take,
       include: ACTION_INCLUDE,
     });
+  }
+
+  /**
+   * Everyone's time on one Project's Actions, in total and per person — the
+   * project Time tab. The caller's right to see it is checked by the router;
+   * the arithmetic lives in `projectTimeReport.ts`.
+   */
+  async projectReport(input: { projectId: string }): Promise<ProjectTimeReport> {
+    const rows = await this.db.timeEntry.findMany({
+      where: { action: { projectId: input.projectId } },
+      select: {
+        userId: true,
+        startedAt: true,
+        endedAt: true,
+        source: true,
+        status: true,
+        user: { select: { id: true, name: true, image: true } },
+      },
+    });
+    return computeProjectTimeReport(rows);
   }
 
   /**

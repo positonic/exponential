@@ -45,6 +45,7 @@ import {
   IconShieldLock,
   IconLock,
   IconWorld,
+  IconStopwatch,
 } from "@tabler/icons-react";
 import { format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
@@ -60,6 +61,8 @@ import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
+import { ProjectTimeTab } from "./ProjectTimeTab";
+import { daysLeftLabel, daysUntil, resolveProjectTargetDate } from "~/lib/projectTargetDate";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { notifications } from "@mantine/notifications";
@@ -71,6 +74,7 @@ type TabValue =
   | "tasks"
   | "goals"
   | "timeline"
+  | "time"
   | "transcriptions"
   | "integrations"
   | "workflows"
@@ -83,6 +87,7 @@ const VALID_TABS: TabValue[] = [
   "tasks",
   "goals",
   "timeline",
+  "time",
   "transcriptions",
   "integrations",
   "workflows",
@@ -300,6 +305,15 @@ export function ProjectContent({
   const dueLabel = dueDate ? format(dueDate, "MMM d") : null;
   const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
 
+  // Days left counts down to the project's end date, else the linked goal's.
+  const targetDate = resolveProjectTargetDate(project.endDate, goalsQuery.data ?? []);
+  const daysLeft = targetDate ? daysUntil(targetDate.date) : null;
+  const daysLeftTooltip = targetDate
+    ? targetDate.source === "project"
+      ? `Project due ${format(targetDate.date, "MMM d, yyyy")}`
+      : `From goal "${targetDate.goalTitle}" · ${format(targetDate.date, "MMM d, yyyy")}`
+    : null;
+
   const ownerUser = project.dri ?? project.createdBy;
   const ownerName = ownerUser?.name ?? null;
   const ownerFirstName = ownerName ? ownerName.split(" ")[0] : null;
@@ -339,6 +353,17 @@ export function ProjectContent({
                   />
                 </div>
                 {progressPct}%
+                {daysLeft !== null && (
+                  <Tooltip label={daysLeftTooltip}>
+                    <span
+                      className={`${overviewStyles.daysLeft} ${
+                        daysLeft < 0 ? overviewStyles.daysLeftOverdue : ""
+                      }`}
+                    >
+                      {daysLeftLabel(daysLeft)}
+                    </span>
+                  </Tooltip>
+                )}
               </div>
             </div>
             <div className={overviewStyles.stat}>
@@ -456,6 +481,9 @@ export function ProjectContent({
               <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
+              <Tabs.Tab value="time" leftSection={<IconStopwatch size={14} />}>
+                Time
+              </Tabs.Tab>
               {/* Team Weekly Planning Tabs - Only show for team projects */}
               {project.teamId && (
                 <>
@@ -544,6 +572,10 @@ export function ProjectContent({
               >
                 <ProjectTimeline projectId={resolvedProjectId} />
               </Paper>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="time">
+              <ProjectTimeTab projectId={resolvedProjectId} />
             </Tabs.Panel>
 
             <Tabs.Panel value="workflows">

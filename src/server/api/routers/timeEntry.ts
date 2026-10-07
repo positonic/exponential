@@ -10,6 +10,7 @@ import {
   getActionAccess,
   getProjectAccess,
   hasProjectAccess,
+  isProjectInsider,
   getWorkspaceMembership,
 } from "~/server/services/access";
 
@@ -433,6 +434,22 @@ export const timeEntryRouter = createTRPCRouter({
         endDate: input.endDate,
         workspaceId: input.workspaceId ?? null,
       });
+    }),
+
+  /**
+   * Everyone's logged time on a Project, in total and per person — the
+   * project Time tab. Other people's hours are organisational data, so this
+   * needs a membership path to the project: public visibility is not enough.
+   */
+  projectSummary: apiKeyMiddleware
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.userId, input.projectId);
+      if (!access || !isProjectInsider(access)) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" });
+      }
+      const service = new TimeEntryService(ctx.db);
+      return service.projectReport({ projectId: input.projectId });
     }),
 
   /**
