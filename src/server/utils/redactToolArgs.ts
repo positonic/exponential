@@ -75,6 +75,15 @@ export const USER_FACING_STREAM_ERROR =
   "⚠️ Something went wrong on my end — please try that again.";
 
 /**
+ * Shown instead of USER_FACING_STREAM_ERROR when the provider error is a
+ * billing or auth failure (see classifyProviderError). "Try again" would be
+ * a lie — nothing the user does fixes an exhausted account — and the team
+ * is paged through reportHandledErrorServer, so say that instead.
+ */
+export const USER_FACING_PROVIDER_UNAVAILABLE =
+  "⚠️ The assistant's AI provider is unavailable right now. The team has been notified — please try again a little later.";
+
+/**
  * Build the masked, server-side-safe rendering of a raw agent-stream error
  * for logging/diagnostics. Token-like runs are masked so credentials never
  * land in logs; this is NOT what gets streamed to the user (see
