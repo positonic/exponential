@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { notifications } from '@mantine/notifications';
 import { IconFolder } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 import {
   MeetingProjectPicker,
   type MeetingProjectOption,
@@ -33,6 +34,13 @@ export function PageProjectPicker({
   editable,
 }: PageProjectPickerProps) {
   const utils = api.useUtils();
+  const { workspace, userRole } = useWorkspace();
+  // Detaching (projectId: null) is a workspace-level placement, which
+  // `assertCanPlacePage` only allows for members and up — a viewer who can
+  // edit the page through its project can move it between projects, not out.
+  const canDetach =
+    workspace?.id === workspaceId &&
+    (userRole === 'owner' || userRole === 'admin' || userRole === 'member');
   // Candidates load lazily on first open — most page views never re-place.
   const [wantProjects, setWantProjects] = useState(false);
   const { data: assignable = [], isLoading } = api.project.getAssignable.useQuery(
@@ -85,6 +93,7 @@ export function PageProjectPicker({
           setProject.mutate({ id: pageId, projectId });
         }}
         noneLabel="No project"
+        allowNone={canDetach}
         loading={isLoading}
         onOpen={() => setWantProjects(true)}
       >
