@@ -499,55 +499,58 @@ export const projectRouter = createTRPCRouter({
         }
       }
 
-      const updated = await ctx.db.project.update({
-        where: { id },
-        data: {
-          ...updateData,
-          slug,
-          goals: goalIds?.length ? {
-            set: goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          lifeDomains: lifeDomainIds !== undefined ? {
-            set: lifeDomainIds.map(id => ({ id })),
-          } : undefined,
-          // Handle workspace: null means disconnect, string means connect
-          workspace: workspaceId === null
-            ? { disconnect: true }
-            : workspaceId !== undefined
-              ? { connect: { id: workspaceId } }
-              : undefined,
-          // Handle DRI: null means disconnect, string means connect
-          dri: driId === null
-            ? { disconnect: true }
-            : driId !== undefined
-              ? { connect: { id: driId } }
-              : undefined,
-          // Handle Product: null means disconnect, string means connect
-          product: productId === null
-            ? { disconnect: true }
-            : productId !== undefined
-              ? { connect: { id: productId } }
-              : undefined,
-          // Handle public visibility toggle
-          ...(isPublic !== undefined ? { isPublic } : {}),
-          // Handle restriction toggle (gated above by canManageProjectMembers)
-          ...(isRestricted !== undefined ? { isRestricted } : {}),
-          // Handle detailed actions override (null = inherit from workspace)
-          ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
-          // Handle bounties override (null = inherit from workspace)
-          ...(enableBounties !== undefined ? { enableBounties } : {}),
-        },
-      });
-
       // A project moved to another workspace takes its meetings, and the
-      // actions extracted from them, with it: a meeting's workspace is always
-      // its project's (CONTEXT.md → Meeting↔Workspace).
-      if (workspaceId !== undefined && updated.workspaceId !== (priorProject?.workspaceId ?? null)) {
-        await rehomeProjectMeetings(ctx.db, {
-          projectId: id,
-          workspaceId: updated.workspaceId ?? null,
+      // actions under it, with it: a meeting's workspace is always its
+      // project's (CONTEXT.md → Meeting↔Workspace). One transaction, so the
+      // project row and its meetings move together or not at all.
+      const movesWorkspace =
+        workspaceId !== undefined && workspaceId !== (priorProject?.workspaceId ?? null);
+      const updated = await ctx.db.$transaction(async (tx) => {
+        const row = await tx.project.update({
+          where: { id },
+          data: {
+            ...updateData,
+            slug,
+            goals: goalIds?.length ? {
+              set: goalIds.map(id => ({ id: parseInt(id) })),
+            } : undefined,
+            lifeDomains: lifeDomainIds !== undefined ? {
+              set: lifeDomainIds.map(id => ({ id })),
+            } : undefined,
+            // Handle workspace: null means disconnect, string means connect
+            workspace: workspaceId === null
+              ? { disconnect: true }
+              : workspaceId !== undefined
+                ? { connect: { id: workspaceId } }
+                : undefined,
+            // Handle DRI: null means disconnect, string means connect
+            dri: driId === null
+              ? { disconnect: true }
+              : driId !== undefined
+                ? { connect: { id: driId } }
+                : undefined,
+            // Handle Product: null means disconnect, string means connect
+            product: productId === null
+              ? { disconnect: true }
+              : productId !== undefined
+                ? { connect: { id: productId } }
+                : undefined,
+            // Handle public visibility toggle
+            ...(isPublic !== undefined ? { isPublic } : {}),
+            // Handle restriction toggle (gated above by canManageProjectMembers)
+            ...(isRestricted !== undefined ? { isRestricted } : {}),
+            // Handle detailed actions override (null = inherit from workspace)
+            ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
+            // Handle bounties override (null = inherit from workspace)
+            ...(enableBounties !== undefined ? { enableBounties } : {}),
+          },
         });
-      }
+
+        if (movesWorkspace) {
+          await rehomeProjectMeetings(tx, { projectId: id, workspaceId: row.workspaceId ?? null });
+        }
+        return row;
+      });
 
       // Record a milestone activity event when a project is newly completed.
       // Fire-and-forget: recordActivity never throws, and a null workspaceId is

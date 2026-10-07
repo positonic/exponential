@@ -1,8 +1,11 @@
 -- A project-linked Meeting inherits its Project's Workspace (CONTEXT.md,
 -- ADR-0014). The device recorder's create path stored meetings with a project
 -- and no workspace, and a project moved between workspaces left its meetings
--- behind. Bring those rows, and the Actions extracted from them, in line.
--- Personal projects (no workspace) are left as they are.
+-- behind. Bring those rows in line, along with what travels with a meeting's
+-- workspace: the actions still in its project, its participants (whose CRM
+-- contact belongs to the old workspace, so that link is cleared) and a
+-- ceremony link to another workspace's occurrence. Personal projects (no
+-- workspace) are left as they are.
 
 UPDATE "TranscriptionSession" s
 SET "workspaceId" = p."workspaceId"
@@ -16,7 +19,8 @@ WHERE s."projectId" = p."id"
 -- timestamp prefix and so applies AFTER every timestamped migration on a fresh
 -- database (CI, tests). On such a database the tables are empty and there is
 -- nothing to backfill; on an existing database the column is present and the
--- backfill runs.
+-- backfill runs. Only actions still in the meeting's project follow it; one
+-- moved to another project keeps that project's placement.
 DO $$
 BEGIN
   IF EXISTS (
@@ -27,7 +31,21 @@ BEGIN
     SET "workspaceId" = s."workspaceId"
     FROM "TranscriptionSession" s
     WHERE a."transcriptionSessionId" = s."id"
+      AND a."projectId" = s."projectId"
       AND s."workspaceId" IS NOT NULL
       AND a."workspaceId" IS DISTINCT FROM s."workspaceId";
   END IF;
 END $$;
+
+UPDATE "TranscriptionSessionParticipant" tp
+SET "workspaceId" = s."workspaceId", "contactId" = NULL
+FROM "TranscriptionSession" s
+WHERE tp."transcriptionSessionId" = s."id"
+  AND s."workspaceId" IS NOT NULL
+  AND tp."workspaceId" <> s."workspaceId";
+
+UPDATE "TranscriptionSession" s
+SET "occurrenceId" = NULL
+FROM "CeremonyOccurrence" o
+WHERE s."occurrenceId" = o."id"
+  AND (s."workspaceId" IS NULL OR o."workspaceId" <> s."workspaceId");

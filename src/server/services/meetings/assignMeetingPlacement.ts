@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import {
   getProjectAccess,
@@ -66,7 +66,7 @@ export interface AssignMeetingPlacementResult {
  * `noDirectMeetingWorkspaceWrites.test.ts` keeps new writers on this path.
  */
 export async function resolveMeetingWorkspace(
-  db: PrismaClient,
+  db: Prisma.TransactionClient,
   input: { projectId: string | null | undefined; workspaceId: string | null | undefined },
 ): Promise<string | null> {
   if (!input.projectId) return input.workspaceId ?? null;
@@ -89,34 +89,73 @@ export async function resolveMeetingWorkspace(
 }
 
 /**
+ * Everything workspace-bound that travels with a set of Meetings whose
+ * `workspaceId` just changed to `workspaceId`. Called inside the caller's
+ * transaction, after the Meetings themselves were updated:
+ *
+ * - Participants follow the meeting. Their CRM contact link is cleared, since
+ *   a contact belongs to the old workspace. (`workspaceId` on a participant is
+ *   non-null, so on a move to Personal the rows are left where they are; the
+ *   manual create path refuses participants on a workspace-less meeting for
+ *   the same reason.)
+ * - A ceremony occurrence from another workspace is detached: ceremonies are
+ *   workspace-owned and `ceremony.attachMeeting` would refuse the link.
+ * - Feature links whose feature is outside the new workspace are dropped.
+ */
+async function followMeetingsToWorkspace(
+  tx: Prisma.TransactionClient,
+  input: { meetingIds: string[]; workspaceId: string | null },
+): Promise<void> {
+  const { meetingIds, workspaceId } = input;
+  if (workspaceId) {
+    await tx.transcriptionSessionParticipant.updateMany({
+      where: { transcriptionSessionId: { in: meetingIds }, workspaceId: { not: workspaceId } },
+      data: { workspaceId, contactId: null },
+    });
+  }
+  await tx.transcriptionSession.updateMany({
+    where: {
+      id: { in: meetingIds },
+      occurrenceId: { not: null },
+      ...(workspaceId ? { occurrence: { workspaceId: { not: workspaceId } } } : {}),
+    },
+    data: { occurrenceId: null },
+  });
+  await dropStrandedMeetingFeatureLinks(tx, { meetingIds, workspaceId });
+}
+
+/**
  * A Project moved to another Workspace takes its Meetings with it. Same
  * invariant as `assignMeetingPlacement` from the other side: the Meetings keep
- * their `projectId`, their `workspaceId` follows the Project, their extracted
- * Actions follow them, and feature links stranded in the old Workspace are
- * dropped. `project.update` calls this whenever the workspace changes.
+ * their `projectId` and their `workspaceId` follows the Project; the Project's
+ * Actions (extracted from those meetings or not — an Action lives in its
+ * Project's workspace) follow too; participants, ceremony link and feature
+ * links are reconciled by `followMeetingsToWorkspace`.
+ *
+ * Runs inside the caller's transaction so the Project row and its Meetings
+ * move together or not at all — `project.update` wraps both.
  */
 export async function rehomeProjectMeetings(
-  db: PrismaClient,
+  tx: Prisma.TransactionClient,
   input: { projectId: string; workspaceId: string | null },
 ): Promise<{ meetings: number; actions: number }> {
-  const meetings = await db.transcriptionSession.findMany({
+  const meetings = await tx.transcriptionSession.findMany({
     where: { projectId: input.projectId },
     select: { id: true },
   });
   const meetingIds = meetings.map((m) => m.id);
-  if (meetingIds.length === 0) return { meetings: 0, actions: 0 };
 
-  const [sessionResult, actionResult] = await db.$transaction([
-    db.transcriptionSession.updateMany({
-      where: { id: { in: meetingIds } },
-      data: { workspaceId: input.workspaceId, updatedAt: new Date() },
-    }),
-    db.action.updateMany({
-      where: { transcriptionSessionId: { in: meetingIds } },
-      data: { workspaceId: input.workspaceId },
-    }),
-    dropStrandedMeetingFeatureLinks(db, { meetingIds, workspaceId: input.workspaceId }),
-  ]);
+  const actionResult = await tx.action.updateMany({
+    where: { projectId: input.projectId, workspaceId: { not: input.workspaceId } },
+    data: { workspaceId: input.workspaceId },
+  });
+  if (meetingIds.length === 0) return { meetings: 0, actions: actionResult.count };
+
+  const sessionResult = await tx.transcriptionSession.updateMany({
+    where: { id: { in: meetingIds } },
+    data: { workspaceId: input.workspaceId, updatedAt: new Date() },
+  });
+  await followMeetingsToWorkspace(tx, { meetingIds, workspaceId: input.workspaceId });
 
   return { meetings: sessionResult.count, actions: actionResult.count };
 }
@@ -183,22 +222,21 @@ export async function assignMeetingPlacement(
   //    and workspaceId always move together. The owner guard is repeated in the
   //    where clauses as defense-in-depth for the bulk path.
   const ownerGuard = scope === "owner" ? { userId } : {};
-  const [sessionResult] = await db.$transaction([
-    db.transcriptionSession.updateMany({
+  const count = await db.$transaction(async (tx) => {
+    const sessionResult = await tx.transcriptionSession.updateMany({
       where: { id: { in: placeableIds }, ...ownerGuard },
       data: { projectId, workspaceId, updatedAt: new Date() },
-    }),
-    db.action.updateMany({
+    });
+    await tx.action.updateMany({
       where: {
         transcriptionSessionId: { in: placeableIds },
         ...(scope === "owner" ? { transcriptionSession: { userId } } : {}),
       },
       data: { projectId, workspaceId },
-    }),
-    // Feature links are workspace-bound: drop the ones the move strands in the
-    // old workspace (all of them when the meeting goes Personal).
-    dropStrandedMeetingFeatureLinks(db, { meetingIds: placeableIds, workspaceId }),
-  ]);
+    });
+    await followMeetingsToWorkspace(tx, { meetingIds: placeableIds, workspaceId });
+    return sessionResult.count;
+  });
 
-  return { count: sessionResult.count, projectId, workspaceId };
+  return { count, projectId, workspaceId };
 }

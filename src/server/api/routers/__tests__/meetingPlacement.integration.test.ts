@@ -5,6 +5,7 @@
  * meeting listed under a workspace but "workspace-less" on its own page.
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import { randomUUID } from "node:crypto";
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller, createApiKeyCaller } from "~/test/trpc-helpers";
 import {
@@ -70,14 +71,14 @@ describe("meeting placement invariant", () => {
   });
 
   describe("project.update moving a project between workspaces", () => {
-    it("re-homes the project's meetings and their extracted actions", async () => {
+    it("re-homes the project's meetings, actions and participants", async () => {
       const user = await createUser(db);
       const from = await createWorkspace(db, { ownerId: user.id, slug: `place-from-${Date.now()}` });
       const to = await createWorkspace(db, { ownerId: user.id, slug: `place-to-${Date.now()}` });
       const project = await createProject(db, { createdById: user.id, workspaceId: from.id });
       const meeting = await db.transcriptionSession.create({
         data: {
-          sessionId: `s-${Date.now()}`,
+          sessionId: `s-${randomUUID()}`,
           transcription: "hello",
           userId: user.id,
           projectId: project.id,
@@ -93,12 +94,31 @@ describe("meeting placement invariant", () => {
           transcriptionSessionId: meeting.id,
         },
       });
-      // An action on the project that did not come from a meeting is untouched
-      // by this rule: only meeting-derived actions follow the meeting.
+      // An action in the project that did not come from a meeting follows the
+      // project too: an action lives in its project's workspace.
       const unrelated = await createAction(db, {
         createdById: user.id,
         projectId: project.id,
         workspaceId: from.id,
+      });
+      // An action extracted from the meeting but since moved to another
+      // project keeps that project's placement.
+      const elsewhere = await createProject(db, { createdById: user.id, workspaceId: from.id });
+      const repointed = await db.action.create({
+        data: {
+          name: "Moved to another project",
+          createdById: user.id,
+          projectId: elsewhere.id,
+          workspaceId: from.id,
+          transcriptionSessionId: meeting.id,
+        },
+      });
+      const participant = await db.transcriptionSessionParticipant.create({
+        data: {
+          transcriptionSessionId: meeting.id,
+          workspaceId: from.id,
+          email: "attendee@example.com",
+        },
       });
 
       await createTestCaller(user.id).project.update({
@@ -114,8 +134,14 @@ describe("meeting placement invariant", () => {
       expect(movedMeeting.workspaceId).toBe(to.id);
       const movedAction = await db.action.findUniqueOrThrow({ where: { id: extracted.id } });
       expect(movedAction.workspaceId).toBe(to.id);
-      const untouched = await db.action.findUniqueOrThrow({ where: { id: unrelated.id } });
+      const projectAction = await db.action.findUniqueOrThrow({ where: { id: unrelated.id } });
+      expect(projectAction.workspaceId).toBe(to.id);
+      const untouched = await db.action.findUniqueOrThrow({ where: { id: repointed.id } });
       expect(untouched.workspaceId).toBe(from.id);
+      const movedParticipant = await db.transcriptionSessionParticipant.findUniqueOrThrow({
+        where: { id: participant.id },
+      });
+      expect(movedParticipant.workspaceId).toBe(to.id);
     });
 
     it("leaves meetings alone when the workspace does not change", async () => {
@@ -124,7 +150,7 @@ describe("meeting placement invariant", () => {
       const project = await createProject(db, { createdById: user.id, workspaceId: ws.id });
       const meeting = await db.transcriptionSession.create({
         data: {
-          sessionId: `s-${Date.now()}`,
+          sessionId: `s-${randomUUID()}`,
           transcription: "hello",
           userId: user.id,
           projectId: project.id,
@@ -154,7 +180,7 @@ describe("meeting placement invariant", () => {
       const project = await createProject(db, { createdById: user.id, workspaceId: ws.id });
       const meeting = await db.transcriptionSession.create({
         data: {
-          sessionId: `s-${Date.now()}`,
+          sessionId: `s-${randomUUID()}`,
           transcription: "hello",
           userId: user.id,
           projectId: project.id,

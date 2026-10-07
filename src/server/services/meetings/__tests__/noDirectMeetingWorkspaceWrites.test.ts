@@ -16,7 +16,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const ROOT = resolve(__dirname, "../../../../..");
-const SERVER = join(ROOT, "src/server");
+const SRC = join(ROOT, "src");
 
 /**
  * Files allowed to put `workspaceId` in a TranscriptionSession write.
@@ -41,7 +41,7 @@ function* sourceFiles(dir: string): Generator<string> {
     if (statSync(full).isDirectory()) {
       if (entry === "__tests__" || entry === "node_modules") continue;
       yield* sourceFiles(full);
-    } else if (/\.ts$/.test(entry) && !/\.test\.ts$/.test(entry)) {
+    } else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) {
       yield full;
     }
   }
@@ -97,7 +97,7 @@ const WRITES_WORKSPACE = /\bworkspaceId\b\s*[:,}]/;
 describe("Meeting workspaceId is written only through the placement module", () => {
   it("no file outside the allow-list writes workspaceId into a TranscriptionSession row", () => {
     const offenders: string[] = [];
-    for (const file of sourceFiles(SERVER)) {
+    for (const file of sourceFiles(SRC)) {
       const rel = relative(ROOT, file);
       if (ALLOWED_WRITERS.has(rel)) continue;
       if (sessionWriteDataBlocks(read(file)).some((block) => WRITES_WORKSPACE.test(block))) {
