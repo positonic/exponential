@@ -47,7 +47,7 @@ import {
   IconWorld,
   IconStopwatch,
 } from "@tabler/icons-react";
-import { format, isBefore, startOfDay } from "date-fns";
+import { addDays, format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
@@ -124,6 +124,14 @@ export function ProjectContent({
 
   const pathname = usePathname();
   const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
+  // The days-left label is per calendar day: re-render at local midnight so a
+  // page left open overnight doesn't keep yesterday's count.
+  const [today, setToday] = useState(() => new Date());
+  useEffect(() => {
+    const msToMidnight = addDays(startOfDay(today), 1).getTime() - Date.now();
+    const timer = setTimeout(() => setToday(new Date()), Math.max(msToMidnight, 0) + 1000);
+    return () => clearTimeout(timer);
+  }, [today]);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
   const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
@@ -306,8 +314,8 @@ export function ProjectContent({
   const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
 
   // Days left counts down to the project's end date, else the linked goal's.
-  const targetDate = resolveProjectTargetDate(project.endDate, goalsQuery.data ?? []);
-  const daysLeft = targetDate ? daysUntil(targetDate.date) : null;
+  const targetDate = resolveProjectTargetDate(project.endDate, project.goals);
+  const daysLeft = targetDate ? daysUntil(targetDate.date, today) : null;
   const daysLeftTooltip = targetDate
     ? targetDate.source === "project"
       ? `Project due ${format(targetDate.date, "MMM d, yyyy")}`

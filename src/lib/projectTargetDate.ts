@@ -20,6 +20,11 @@ export type ProjectTargetDate =
   | { date: Date; source: "project" }
   | { date: Date; source: "goal"; goalTitle: string };
 
+/**
+ * The date the project counts down to: its own end date, else the earliest
+ * due date (or OKR period end) among its non-archived linked goals. Null when
+ * nothing carries a date.
+ */
 export function resolveProjectTargetDate(
   projectEndDate: Date | string | null | undefined,
   goals: readonly TargetDateGoal[],
@@ -45,6 +50,7 @@ export function daysUntil(target: Date, now: Date = new Date()): number {
   return differenceInCalendarDays(startOfDay(target), startOfDay(now));
 }
 
+/** "24 days left" / "Due today" / "3 days overdue" for a `daysUntil` result. */
 export function daysLeftLabel(days: number): string {
   if (days === 0) return "Due today";
   if (days === 1) return "1 day left";

@@ -38,7 +38,7 @@ export function ProjectTimeTab({ projectId }: { projectId: string }) {
     );
   }
 
-  const hasAnyTime = report.entryCount > 0 || report.agentRunMinutes > 0;
+  const hasAnyTime = report.people.length > 0 || report.agentRunMinutes > 0;
 
   if (!hasAnyTime) {
     return (
@@ -123,8 +123,9 @@ export function ProjectTimeTab({ projectId }: { projectId: string }) {
                   <Progress value={share} size="xs" radius="xl" aria-label={`${share}% of total`} />
                   <Group justify="space-between" wrap="nowrap" gap="xs">
                     <Text size="xs" c="dimmed" truncate>
-                      {person.entryCount} {person.entryCount === 1 ? "entry" : "entries"} · last logged{" "}
-                      {formatDistanceToNow(new Date(person.lastLoggedAt), { addSuffix: true })}
+                      {person.lastLoggedAt
+                        ? `${person.entryCount} ${person.entryCount === 1 ? "entry" : "entries"} · last logged ${formatDistanceToNow(new Date(person.lastLoggedAt), { addSuffix: true })}`
+                        : "No confirmed time yet"}
                     </Text>
                     <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
                       {person.proposedMinutes > 0

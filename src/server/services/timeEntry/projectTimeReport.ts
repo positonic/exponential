@@ -6,7 +6,8 @@
  *
  *  - Confirmed minutes are the headline: time people have signed off on.
  *  - Proposed minutes (Daily worklog drafts awaiting confirmation) are kept
- *    beside them, never folded in.
+ *    beside them, never folded in — and never move a person's entry count
+ *    or "last logged" time, which describe confirmed time only.
  *  - Agent-run entries (`source: "agent-run"`) are not a person's time; they
  *    are summed on their own and kept out of the per-person rows.
  *  - A running entry counts up to `now`.
@@ -29,14 +30,17 @@ export interface ProjectTimePerson {
   image: string | null;
   confirmedMinutes: number;
   proposedMinutes: number;
+  /** Confirmed entries only. */
   entryCount: number;
-  lastLoggedAt: Date;
+  /** Start of the latest confirmed entry; null when all their time is proposed. */
+  lastLoggedAt: Date | null;
 }
 
 export interface ProjectTimeReport {
   confirmedMinutes: number;
   proposedMinutes: number;
   agentRunMinutes: number;
+  /** Confirmed entries only. */
   entryCount: number;
   people: ProjectTimePerson[];
 }
@@ -50,7 +54,7 @@ export function computeProjectTimeReport(
   let agentRunMs = 0;
   const byUser = new Map<
     string,
-    { person: ProjectTimeEntryInput["user"]; confirmedMs: number; proposedMs: number; count: number; last: Date }
+    { person: ProjectTimeEntryInput["user"]; confirmedMs: number; proposedMs: number; count: number; last: Date | null }
   >();
 
   for (const entry of entries) {
@@ -67,12 +71,15 @@ export function computeProjectTimeReport(
       confirmedMs: 0,
       proposedMs: 0,
       count: 0,
-      last: entry.startedAt,
+      last: null,
     };
-    if (entry.status === "CONFIRMED") row.confirmedMs += ms;
-    else row.proposedMs += ms;
-    row.count += 1;
-    if (entry.startedAt > row.last) row.last = entry.startedAt;
+    if (entry.status === "CONFIRMED") {
+      row.confirmedMs += ms;
+      row.count += 1;
+      if (!row.last || entry.startedAt > row.last) row.last = entry.startedAt;
+    } else {
+      row.proposedMs += ms;
+    }
     byUser.set(entry.userId, row);
   }
 

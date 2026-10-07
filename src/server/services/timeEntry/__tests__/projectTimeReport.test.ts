@@ -49,6 +49,17 @@ describe("computeProjectTimeReport", () => {
     expect(report.people[0]).toMatchObject({ confirmedMinutes: 60, proposedMinutes: 45 });
   });
 
+  it("leaves entry count and last-logged to confirmed entries", () => {
+    const report = computeProjectTimeReport([
+      entry(ana, t(9), t(10)),
+      entry(ana, t(15), t(16), { status: "PROPOSED" }),
+      entry(ben, t(11), t(12), { status: "PROPOSED" }),
+    ]);
+    expect(report.entryCount).toBe(1);
+    expect(report.people.find((p) => p.name === "Ana")).toMatchObject({ entryCount: 1, lastLoggedAt: t(9) });
+    expect(report.people.find((p) => p.name === "Ben")).toMatchObject({ entryCount: 0, lastLoggedAt: null });
+  });
+
   it("keeps agent-run time off the per-person rows", () => {
     const report = computeProjectTimeReport([
       entry(ana, t(9), t(10)),
