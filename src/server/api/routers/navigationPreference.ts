@@ -22,7 +22,6 @@ const VALID_ITEMS = [
   "tools/meetings",
   "tools/workflows",
   "tools/ai-sales-demo",
-  "tools/ai-automation",
   "tools/connect-services",
   "tools/ai-history",
   "tools/api-access",
