@@ -10,7 +10,6 @@ import {
 } from '@mantine/core';
 import {
   IconSparkles,
-  IconRobot,
   IconChevronRight,
 } from '@tabler/icons-react';
 import Link from 'next/link';
@@ -22,13 +21,6 @@ const AI_TOOLS = [
       'Interactive demo of AI-powered sales page generation. See how AI can create and refine sales content in real-time.',
     icon: IconSparkles,
     href: '/ai-sales-demo',
-  },
-  {
-    title: 'AI Automation',
-    description:
-      'Explore AI automation services for streamlining business processes, reducing manual work, and improving efficiency.',
-    icon: IconRobot,
-    href: '/ai-automation',
   },
 ] as const;
 
