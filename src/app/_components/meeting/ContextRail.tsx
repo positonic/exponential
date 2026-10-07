@@ -242,7 +242,7 @@ export function ContextRail({
                     ? formatOccurrenceWhen(occurrence.scheduledStart)
                     : onOccurrenceChange
                       ? "Link to an occurrence"
-                      : "Assign to a workspace first"}
+                      : "Assign to a project first"}
                 </div>
               </div>
             </button>
@@ -316,7 +316,7 @@ export function ContextRail({
                   {linkedFeatures.length > 0 ? "Link another feature" : "Discussed a feature?"}
                 </div>
                 <div className="mp-linkrow__sub">
-                  {onFeatureToggle ? "Link to features" : "Assign to a workspace first"}
+                  {onFeatureToggle ? "Link to features" : "Assign to a project first"}
                 </div>
               </div>
             </button>

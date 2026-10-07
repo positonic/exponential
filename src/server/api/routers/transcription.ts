@@ -36,7 +36,10 @@ import {
   assertFeaturesLinkable,
   dropStrandedMeetingFeatureLinks,
 } from "~/server/services/meetings/meetingFeatures";
-import { assignMeetingPlacement } from "~/server/services/meetings/assignMeetingPlacement";
+import {
+  assignMeetingPlacement,
+  resolveMeetingWorkspace,
+} from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   TranscriptSummarizerService,
@@ -581,14 +584,21 @@ export const transcriptionRouter = createTRPCRouter({
         }
       }
 
-      // Create record in database using ctx.db
+      // A project-linked meeting inherits its project's workspace; the device
+      // clients send only a projectId, so the workspace is derived here rather
+      // than left null (which hid the meeting's workspace from its own page).
+      const resolvedWorkspaceId = await resolveMeetingWorkspace(ctx.db, {
+        projectId,
+        workspaceId,
+      });
+
       const session = await ctx.db.transcriptionSession.create({
         data: {
           sessionId: `session_${Date.now()}`,
           transcription: "",
           userId,
-          projectId, // Save projectId
-          workspaceId: workspaceId ?? null,
+          projectId,
+          workspaceId: resolvedWorkspaceId,
           title: title ?? null,
         },
       });
@@ -965,7 +975,12 @@ export const transcriptionRouter = createTRPCRouter({
             });
           }
         }
-        updateData.workspaceId = input.workspaceId;
+        // A project-linked meeting's workspace is its project's: the resolver
+        // keeps it there and rejects a workspace that disagrees.
+        updateData.workspaceId = await resolveMeetingWorkspace(ctx.db, {
+          projectId: existing.projectId,
+          workspaceId: input.workspaceId,
+        });
       }
       if (input.meetingDate !== undefined) {
         updateData.meetingDate = input.meetingDate;
@@ -1078,12 +1093,8 @@ export const transcriptionRouter = createTRPCRouter({
       // A project-linked Meeting always inherits its Project's Workspace
       // (CONTEXT.md → Meeting↔Workspace): a meeting with a Project but no
       // Workspace is an incoherent state that breaks participant management
-      // (TranscriptionSessionParticipant.workspaceId is non-null). Enforce the
-      // invariant server-side so it holds regardless of caller — when a project
-      // is supplied the project's workspace is authoritative, never the caller's
-      // workspaceId. A caller-supplied workspaceId that disagrees with the
-      // project is a coherence bug, so reject it rather than silently override.
-      let workspaceId = input.workspaceId ?? null;
+      // (TranscriptionSessionParticipant.workspaceId is non-null). The rule
+      // lives in `resolveMeetingWorkspace` so every create path shares it.
       if (input.projectId) {
         // You can only file a meeting into a project you can see. Deliberately
         // view, not edit: the project page offers Add Meeting to every member,
@@ -1099,23 +1110,11 @@ export const transcriptionRouter = createTRPCRouter({
             message: "You do not have access to this project",
           });
         }
-        const project = await ctx.db.project.findUnique({
-          where: { id: input.projectId },
-          select: { workspaceId: true },
-        });
-        if (
-          input.workspaceId &&
-          project?.workspaceId &&
-          input.workspaceId !== project.workspaceId
-        ) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "workspaceId does not match the project's workspace; a project-linked meeting inherits its project's workspace.",
-          });
-        }
-        workspaceId = project?.workspaceId ?? null;
       }
+      const workspaceId = await resolveMeetingWorkspace(ctx.db, {
+        projectId: input.projectId,
+        workspaceId: input.workspaceId,
+      });
 
       // Participants are workspace-scoped (members + CRM), so a meeting with no
       // workspace can't carry them. Reject rather than silently dropping them.
@@ -1707,56 +1706,6 @@ export const transcriptionRouter = createTRPCRouter({
       );
 
       return { count: result.count };
-    }),
-
-  assignWorkspace: protectedProcedure
-    .input(
-      z.object({
-        transcriptionId: z.string(),
-        workspaceId: z.string().nullable(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      // Verify ownership
-      const existing = await ctx.db.transcriptionSession.findUnique({
-        where: { id: input.transcriptionId },
-        select: {
-          userId: true,
-          projectId: true,
-          project: { select: { workspaceId: true } },
-        },
-      });
-
-      if (!existing || existing.userId !== ctx.session.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized" });
-      }
-
-      // Clear project if it doesn't belong to the new workspace
-      let projectId = existing.projectId;
-      if (input.workspaceId) {
-        if (existing.project?.workspaceId !== input.workspaceId) {
-          projectId = null;
-        }
-      } else {
-        // Clearing workspace also clears project
-        projectId = null;
-      }
-
-      const [updated] = await ctx.db.$transaction([
-        ctx.db.transcriptionSession.update({
-          where: { id: input.transcriptionId },
-          data: {
-            workspaceId: input.workspaceId,
-            projectId,
-            updatedAt: new Date(),
-          },
-        }),
-        dropStrandedMeetingFeatureLinks(ctx.db, {
-          meetingIds: [input.transcriptionId],
-          workspaceId: input.workspaceId,
-        }),
-      ]);
-      return updated;
     }),
 
   // Add to your transcriptionRouter

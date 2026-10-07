@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import {
   getProjectAccess,
@@ -18,7 +18,9 @@ import { dropStrandedMeetingFeatureLinks } from "./meetingFeatures";
  * an Action from a Meeting never sits in a different Workspace than its Meeting
  * (see CONTEXT.md). This module is the canonical home of that invariant —
  * `assignProject`, `bulkAssignProject`, and the detail page's placement write
- * all delegate here so there is exactly one placement path.
+ * all delegate here so there is exactly one placement path. The create paths
+ * derive their workspace through `resolveMeetingWorkspace`, and a Project
+ * changing Workspace re-homes its Meetings through `rehomeProjectMeetings`.
  *
  * Deep module: pure server logic, no tRPC procedure types and no React in the
  * interface. Errors surface as `TRPCError` to preserve the existing FORBIDDEN /
@@ -50,6 +52,116 @@ export interface AssignMeetingPlacementResult {
   workspaceId: string | null;
 }
 
+/**
+ * The one rule for which Workspace a Meeting lands in, shared by every path
+ * that writes a Meeting's `workspaceId`: the device recorder's `startSession`,
+ * the manual form, `updateDetails`, and the placement move below.
+ *
+ * - With a Project, the Project's Workspace is authoritative. A caller-supplied
+ *   `workspaceId` that disagrees is a coherence bug, so it is rejected rather
+ *   than silently overridden.
+ * - Without a Project, the caller's `workspaceId` stands (a workspace-level
+ *   meeting such as a retro), or null for Personal.
+ *
+ * `noDirectMeetingWorkspaceWrites.test.ts` keeps new writers on this path.
+ */
+export async function resolveMeetingWorkspace(
+  db: Prisma.TransactionClient,
+  input: { projectId: string | null | undefined; workspaceId: string | null | undefined },
+): Promise<string | null> {
+  if (!input.projectId) return input.workspaceId ?? null;
+
+  const project = await db.project.findUnique({
+    where: { id: input.projectId },
+    select: { workspaceId: true },
+  });
+  if (!project) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Target project not found" });
+  }
+  // Including a Personal project (null workspace): a supplied workspace that
+  // disagrees is a conflicting request, not one to quietly place in Personal.
+  if (input.workspaceId && input.workspaceId !== project.workspaceId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "workspaceId does not match the project's workspace; a project-linked meeting inherits its project's workspace.",
+    });
+  }
+  return project.workspaceId ?? null;
+}
+
+/**
+ * Everything workspace-bound that travels with a set of Meetings whose
+ * `workspaceId` just changed to `workspaceId`. Called inside the caller's
+ * transaction, after the Meetings themselves were updated:
+ *
+ * - Participants follow the meeting. Their CRM contact link is cleared, since
+ *   a contact belongs to the old workspace. (`workspaceId` on a participant is
+ *   non-null, so on a move to Personal the rows are left where they are; the
+ *   manual create path refuses participants on a workspace-less meeting for
+ *   the same reason.)
+ * - A ceremony occurrence from another workspace is detached: ceremonies are
+ *   workspace-owned and `ceremony.attachMeeting` would refuse the link.
+ * - Feature links whose feature is outside the new workspace are dropped.
+ */
+async function followMeetingsToWorkspace(
+  tx: Prisma.TransactionClient,
+  input: { meetingIds: string[]; workspaceId: string | null },
+): Promise<void> {
+  const { meetingIds, workspaceId } = input;
+  if (workspaceId) {
+    await tx.transcriptionSessionParticipant.updateMany({
+      where: { transcriptionSessionId: { in: meetingIds }, workspaceId: { not: workspaceId } },
+      data: { workspaceId, contactId: null },
+    });
+  }
+  await tx.transcriptionSession.updateMany({
+    where: {
+      id: { in: meetingIds },
+      occurrenceId: { not: null },
+      ...(workspaceId ? { occurrence: { workspaceId: { not: workspaceId } } } : {}),
+    },
+    data: { occurrenceId: null },
+  });
+  await dropStrandedMeetingFeatureLinks(tx, { meetingIds, workspaceId });
+}
+
+/**
+ * A Project moved to another Workspace takes its Meetings with it. Same
+ * invariant as `assignMeetingPlacement` from the other side: the Meetings keep
+ * their `projectId` and their `workspaceId` follows the Project; the Project's
+ * Actions (extracted from those meetings or not — an Action lives in its
+ * Project's workspace) follow too; participants, ceremony link and feature
+ * links are reconciled by `followMeetingsToWorkspace`.
+ *
+ * Runs inside the caller's transaction so the Project row and its Meetings
+ * move together or not at all — `project.update` wraps both.
+ */
+export async function rehomeProjectMeetings(
+  tx: Prisma.TransactionClient,
+  input: { projectId: string; workspaceId: string | null },
+): Promise<{ meetings: number; actions: number }> {
+  const meetings = await tx.transcriptionSession.findMany({
+    where: { projectId: input.projectId },
+    select: { id: true },
+  });
+  const meetingIds = meetings.map((m) => m.id);
+
+  const actionResult = await tx.action.updateMany({
+    where: { projectId: input.projectId, workspaceId: { not: input.workspaceId } },
+    data: { workspaceId: input.workspaceId },
+  });
+  if (meetingIds.length === 0) return { meetings: 0, actions: actionResult.count };
+
+  const sessionResult = await tx.transcriptionSession.updateMany({
+    where: { id: { in: meetingIds } },
+    data: { workspaceId: input.workspaceId, updatedAt: new Date() },
+  });
+  await followMeetingsToWorkspace(tx, { meetingIds, workspaceId: input.workspaceId });
+
+  return { meetings: sessionResult.count, actions: actionResult.count };
+}
+
 export async function assignMeetingPlacement(
   db: PrismaClient,
   userId: string,
@@ -63,7 +175,6 @@ export async function assignMeetingPlacement(
 
   // 1. Resolve the target Workspace from the Project (project-authoritative).
   //    Placing onto a Project requires edit access to that Project.
-  let workspaceId: string | null = null;
   if (projectId) {
     const projectAccess = await getProjectAccess(db, userId, projectId);
     if (!canEditProject(projectAccess)) {
@@ -72,18 +183,8 @@ export async function assignMeetingPlacement(
         message: "You do not have edit access to the target project",
       });
     }
-    const project = await db.project.findUnique({
-      where: { id: projectId },
-      select: { workspaceId: true },
-    });
-    if (!project) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Target project not found",
-      });
-    }
-    workspaceId = project.workspaceId ?? null;
   }
+  const workspaceId = await resolveMeetingWorkspace(db, { projectId, workspaceId: null });
 
   // 2. Determine which of the requested Meetings the caller may place.
   let placeableIds: string[];
@@ -123,22 +224,21 @@ export async function assignMeetingPlacement(
   //    and workspaceId always move together. The owner guard is repeated in the
   //    where clauses as defense-in-depth for the bulk path.
   const ownerGuard = scope === "owner" ? { userId } : {};
-  const [sessionResult] = await db.$transaction([
-    db.transcriptionSession.updateMany({
+  const count = await db.$transaction(async (tx) => {
+    const sessionResult = await tx.transcriptionSession.updateMany({
       where: { id: { in: placeableIds }, ...ownerGuard },
       data: { projectId, workspaceId, updatedAt: new Date() },
-    }),
-    db.action.updateMany({
+    });
+    await tx.action.updateMany({
       where: {
         transcriptionSessionId: { in: placeableIds },
         ...(scope === "owner" ? { transcriptionSession: { userId } } : {}),
       },
       data: { projectId, workspaceId },
-    }),
-    // Feature links are workspace-bound: drop the ones the move strands in the
-    // old workspace (all of them when the meeting goes Personal).
-    dropStrandedMeetingFeatureLinks(db, { meetingIds: placeableIds, workspaceId }),
-  ]);
+    });
+    await followMeetingsToWorkspace(tx, { meetingIds: placeableIds, workspaceId });
+    return sessionResult.count;
+  });
 
-  return { count: sessionResult.count, projectId, workspaceId };
+  return { count, projectId, workspaceId };
 }
