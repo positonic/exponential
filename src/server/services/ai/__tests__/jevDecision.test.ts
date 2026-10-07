@@ -5,7 +5,9 @@ import {
   decideTierWithJev,
   readTimeoutMsFromEnv,
   resetJevCircuitBreaker,
+  resolveJevProvider,
   JEV_MIN_CONFIDENCE,
+  type JevProvider,
 } from "../jevDecision";
 
 // ── Fakes ─────────────────────────────────────────────────────────────
@@ -42,7 +44,19 @@ const input = {
   ],
 };
 
-const base = { apiKey: "ts_test_key", timeoutMs: 500 };
+const typesafeProvider: JevProvider = {
+  name: "typesafe",
+  apiKey: "ts_test_key",
+  baseUrl: "https://api.typesafe.ai",
+  model: "jev-latest",
+};
+const openrouterProvider: JevProvider = {
+  name: "openrouter",
+  apiKey: "sk-or-test",
+  baseUrl: "https://openrouter.ai/api",
+  model: "jev-latest",
+};
+const base = { provider: typesafeProvider, timeoutMs: 500 };
 
 beforeEach(() => {
   resetJevCircuitBreaker();
@@ -56,7 +70,8 @@ describe("decideTierWithJev — request shape", () => {
     const fetchImpl = vi.fn<FetchImpl>(async () => jsonResponse(choiceBody("fast", 0.93)));
     const result = await decideTierWithJev(input, { ...base, fetchImpl });
 
-    expect(result).toMatchObject({ tier: "fast", confidence: 0.93, model: "jev-1.13.0" });
+    expect(result).toMatchObject({ tier: "fast", confidence: 0.93, model: "jev-1.13.0", provider: "typesafe" });
+    expect(result?.costUsd).toBeUndefined();
     expect(result?.latencyMs).toBeGreaterThanOrEqual(0);
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -87,14 +102,22 @@ describe("decideTierWithJev — request shape", () => {
 // ── Every way it must fall back to null ───────────────────────────────
 
 describe("decideTierWithJev — fallback to null", () => {
-  it("is a no-op without an API key", async () => {
+  it("is a no-op when no provider is configured", async () => {
     const fetchImpl = vi.fn<FetchImpl>();
-    const prev = process.env.TYPESAFE_API_KEY;
+    expect(await decideTierWithJev(input, { provider: null, fetchImpl })).toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("resolves no provider from an environment without either key", async () => {
+    const fetchImpl = vi.fn<FetchImpl>();
+    const saved = { or: process.env.OPENROUTER_API_KEY, ts: process.env.TYPESAFE_API_KEY };
+    delete process.env.OPENROUTER_API_KEY;
     delete process.env.TYPESAFE_API_KEY;
     try {
       expect(await decideTierWithJev(input, { fetchImpl })).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.TYPESAFE_API_KEY = prev;
+      if (saved.or !== undefined) process.env.OPENROUTER_API_KEY = saved.or;
+      if (saved.ts !== undefined) process.env.TYPESAFE_API_KEY = saved.ts;
     }
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -227,11 +250,89 @@ describe("readTimeoutMsFromEnv", () => {
       const fetchImpl = vi.fn<FetchImpl>(
         () => new Promise((resolve) => setTimeout(() => resolve(jsonResponse(choiceBody("fast", 0.9))), 30)),
       );
-      const result = await decideTierWithJev(input, { apiKey: "ts_test_key", fetchImpl });
+      const result = await decideTierWithJev(input, { provider: typesafeProvider, fetchImpl });
       expect(result?.tier).toBe("fast");
     } finally {
       if (prev === undefined) delete process.env.TYPESAFE_TIER_TIMEOUT_MS;
       else process.env.TYPESAFE_TIER_TIMEOUT_MS = prev;
     }
+  });
+});
+
+// ── Provider resolution ───────────────────────────────────────────────
+
+describe("resolveJevProvider", () => {
+  it("returns null when neither key is set", () => {
+    expect(resolveJevProvider({})).toBeNull();
+  });
+
+  it("prefers OpenRouter when its key is set", () => {
+    const p = resolveJevProvider({ OPENROUTER_API_KEY: "sk-or", TYPESAFE_API_KEY: "ts" });
+    expect(p).toEqual({
+      name: "openrouter",
+      apiKey: "sk-or",
+      baseUrl: "https://openrouter.ai/api",
+      model: "jev-latest",
+    });
+  });
+
+  it("uses TypeSafe direct when only that key is set", () => {
+    const p = resolveJevProvider({ TYPESAFE_API_KEY: "ts" });
+    expect(p).toEqual({
+      name: "typesafe",
+      apiKey: "ts",
+      baseUrl: "https://api.typesafe.ai",
+      model: "jev-latest",
+    });
+  });
+
+  it("honours JEV_PROVIDER=typesafe even when the OpenRouter key exists", () => {
+    const p = resolveJevProvider({ OPENROUTER_API_KEY: "sk-or", TYPESAFE_API_KEY: "ts", JEV_PROVIDER: "typesafe" });
+    expect(p?.name).toBe("typesafe");
+  });
+
+  it("returns null when JEV_PROVIDER names a provider whose key is missing", () => {
+    expect(resolveJevProvider({ TYPESAFE_API_KEY: "ts", JEV_PROVIDER: "openrouter" })).toBeNull();
+  });
+
+  it("falls back to the key-based default on an unknown JEV_PROVIDER", () => {
+    expect(resolveJevProvider({ OPENROUTER_API_KEY: "sk-or", JEV_PROVIDER: "banana" })?.name).toBe("openrouter");
+  });
+
+  it("applies JEV_MODEL and base URL overrides", () => {
+    const p = resolveJevProvider({
+      OPENROUTER_API_KEY: "sk-or",
+      OPENROUTER_API_URL: "http://localhost:9999/api",
+      JEV_MODEL: "typesafe/jev-1.13",
+    });
+    expect(p?.baseUrl).toBe("http://localhost:9999/api");
+    expect(p?.model).toBe("typesafe/jev-1.13");
+  });
+});
+
+describe("decideTierWithJev — OpenRouter provider", () => {
+  it("posts to OpenRouter's System One endpoint with its key and app title, and reads usage.cost", async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      jsonResponse({
+        ...choiceBody("deep", 0.88),
+        model: "typesafe/jev-1.13-20260917",
+        provider: "TypeSafe",
+        usage: { input_tokens: 476, output_tokens: 70, cost: 0.000019992 },
+      }),
+    );
+    const result = await decideTierWithJev(input, { provider: openrouterProvider, fetchImpl, timeoutMs: 500 });
+
+    expect(result).toMatchObject({
+      tier: "deep",
+      provider: "openrouter",
+      model: "typesafe/jev-1.13-20260917",
+      costUsd: 0.000019992,
+    });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://openrouter.ai/api/v1/systemone");
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer sk-or-test");
+    expect(headers["X-Title"]).toBe("Exponential");
+    expect((JSON.parse(init?.body as string) as { model: string }).model).toBe("jev-latest");
   });
 });

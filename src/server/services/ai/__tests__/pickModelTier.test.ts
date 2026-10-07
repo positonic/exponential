@@ -322,6 +322,8 @@ describe("pickModelTier — Jev decision layer", () => {
     probabilities: { fast: 0.95, deep: 0.05 },
     latencyMs: 120,
     model: "jev-1.13.0",
+    provider: "openrouter" as const,
+    costUsd: 0.00002,
   });
   const decideDeep = async () => ({ ...(await decideFast()), tier: "deep" as const });
   const decideUnsure = async () => null;
@@ -342,7 +344,13 @@ describe("pickModelTier — Jev decision layer", () => {
     });
     expect(result.agentId).toBe("zoeAgentHaiku");
     expect(result.reason).toBe("jev-fast");
-    expect(result.decision).toEqual({ confidence: 0.91, latencyMs: 120, model: "jev-1.13.0" });
+    expect(result.decision).toEqual({
+      confidence: 0.91,
+      latencyMs: 120,
+      model: "jev-1.13.0",
+      provider: "openrouter",
+      costUsd: 0.00002,
+    });
   });
 
   it("routes to Sonnet on a confident deep decision, even for a greeting-shaped prompt", async () => {

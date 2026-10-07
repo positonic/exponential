@@ -19,10 +19,20 @@
  *   - Raw fetch, no SDK: one endpoint, one question shape, and the request
  *     must be abortable on a tight timeout.
  *
- * API: POST https://api.typesafe.ai/v1/systemone, bearer key, body
- * `{ model, state, questions: { id: { type: "choice", instructions,
- * criteria } } }`, response `{ model, answers: { id: { type, choice,
- * confidence, probabilities } }, usage }`.
+ * API: POST <base>/v1/systemone, bearer key, body `{ model, state,
+ * questions: { id: { type: "choice", instructions, criteria } } }`,
+ * response `{ model, answers: { id: { type, choice, confidence,
+ * probabilities } }, usage }`.
+ *
+ * Two providers serve that exact shape, chosen by `resolveJevProvider`:
+ *   - OpenRouter: `https://openrouter.ai/api/v1/systemone`, "compatible with
+ *     the TypeSafe SDKs", bare ids like `jev-latest` mapped onto the
+ *     `typesafe/` namespace, billed to the OpenRouter account. Preferred when
+ *     `OPENROUTER_API_KEY` is set — one account, one bill, and it is the
+ *     same key the Mastra-side OpenRouter work (ADR-0065 §3) will use.
+ *   - TypeSafe direct: `https://api.typesafe.ai/v1/systemone` with
+ *     `TYPESAFE_API_KEY`. Used when only that key is set, or when
+ *     `JEV_PROVIDER=typesafe` forces it.
  */
 
 export type TurnTier = "fast" | "deep";
@@ -33,6 +43,68 @@ export interface TierDecision {
   probabilities: Record<string, number>;
   latencyMs: number;
   model: string;
+  provider: JevProviderName;
+  /** OpenRouter reports the request cost in USD; TypeSafe direct does not. */
+  costUsd?: number;
+}
+
+export type JevProviderName = "openrouter" | "typesafe";
+
+export interface JevProvider {
+  name: JevProviderName;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}
+
+interface JevEnv {
+  OPENROUTER_API_KEY?: string;
+  TYPESAFE_API_KEY?: string;
+  TYPESAFE_API_URL?: string;
+  OPENROUTER_API_URL?: string;
+  JEV_PROVIDER?: string;
+  JEV_MODEL?: string;
+}
+
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api";
+const TYPESAFE_BASE_URL = "https://api.typesafe.ai";
+
+/**
+ * Pick which System One endpoint to call from the environment. Null means
+ * Jev is not configured at all and the caller must use its own heuristics.
+ *
+ * Precedence: `JEV_PROVIDER` if set and its key exists; otherwise OpenRouter
+ * when `OPENROUTER_API_KEY` is set; otherwise TypeSafe direct when
+ * `TYPESAFE_API_KEY` is set. Exported for tests.
+ */
+export function resolveJevProvider(
+  env: JevEnv = process.env as JevEnv,
+): JevProvider | null {
+  const model = env.JEV_MODEL?.trim() || DEFAULT_MODEL;
+  const openrouter: JevProvider | null = env.OPENROUTER_API_KEY
+    ? {
+        name: "openrouter",
+        apiKey: env.OPENROUTER_API_KEY,
+        baseUrl: env.OPENROUTER_API_URL ?? OPENROUTER_BASE_URL,
+        model,
+      }
+    : null;
+  const typesafe: JevProvider | null = env.TYPESAFE_API_KEY
+    ? {
+        name: "typesafe",
+        apiKey: env.TYPESAFE_API_KEY,
+        baseUrl: env.TYPESAFE_API_URL ?? TYPESAFE_BASE_URL,
+        model,
+      }
+    : null;
+
+  const forced = env.JEV_PROVIDER?.trim().toLowerCase();
+  if (forced === "openrouter") return openrouter;
+  if (forced === "typesafe") return typesafe;
+  if (forced) {
+    console.warn(`⚠️ [jevDecision] Unknown JEV_PROVIDER="${env.JEV_PROVIDER}"; using key-based default`);
+  }
+  return openrouter ?? typesafe;
 }
 
 interface MessageLike {
@@ -48,9 +120,8 @@ export interface TierDecisionInput {
 }
 
 export interface JevClientOptions {
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
+  /** Full provider override (tests, or callers that already resolved one). */
+  provider?: JevProvider | null;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   now?: () => number;
@@ -63,7 +134,10 @@ export type TierDecider = (
 /** TypeSafe's documented floor for acting on a Choice without a fallback. */
 export const JEV_MIN_CONFIDENCE = 0.5;
 
-const DEFAULT_BASE_URL = "https://api.typesafe.ai";
+/**
+ * Bare id works on both providers: TypeSafe's default alias, and OpenRouter
+ * maps bare System One ids onto the `typesafe/` namespace.
+ */
 const DEFAULT_MODEL = "jev-latest";
 /**
  * Hard ceiling on what the decision may add to first-token latency. Jev's
@@ -165,6 +239,7 @@ interface JevChoiceAnswer {
 interface JevResponse {
   model?: string;
   answers?: Record<string, JevChoiceAnswer>;
+  usage?: { input_tokens?: number; output_tokens?: number; cost?: number };
 }
 
 function isTier(value: unknown): value is TurnTier {
@@ -179,30 +254,35 @@ export async function decideTierWithJev(
   input: TierDecisionInput,
   options: JevClientOptions = {},
 ): Promise<TierDecision | null> {
-  const apiKey = options.apiKey ?? process.env.TYPESAFE_API_KEY;
-  if (!apiKey) return null;
+  const provider =
+    options.provider === undefined ? resolveJevProvider() : options.provider;
+  if (!provider) return null;
 
   const now = options.now ?? Date.now;
   if (now() < authFailureUntil) return null;
 
   const fetchImpl = options.fetchImpl ?? fetch;
-  const baseUrl = options.baseUrl ?? process.env.TYPESAFE_API_URL ?? DEFAULT_BASE_URL;
-  const model = options.model ?? DEFAULT_MODEL;
   const timeoutMs = options.timeoutMs ?? readTimeoutMsFromEnv();
+  const label = provider.name === "openrouter" ? "OpenRouter" : "TypeSafe";
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = now();
 
   try {
-    const response = await fetchImpl(`${baseUrl}/v1/systemone`, {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${provider.apiKey}`,
+      "Content-Type": "application/json",
+    };
+    if (provider.name === "openrouter") {
+      // Optional app attribution OpenRouter shows in its activity view.
+      headers["X-Title"] = "Exponential";
+    }
+    const response = await fetchImpl(`${provider.baseUrl}/v1/systemone`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
-        model,
+        model: provider.model,
         state: buildJevState(input),
         questions: { tier: TIER_QUESTION },
       }),
@@ -213,10 +293,10 @@ export async function decideTierWithJev(
       if (response.status === 401 || response.status === 402 || response.status === 403) {
         authFailureUntil = now() + AUTH_FAILURE_COOLDOWN_MS;
         console.error(
-          `❌ [jevDecision] TypeSafe returned ${response.status}; disabling Jev for ${AUTH_FAILURE_COOLDOWN_MS / 60000} min`,
+          `❌ [jevDecision] ${label} returned ${response.status}; disabling Jev for ${AUTH_FAILURE_COOLDOWN_MS / 60000} min`,
         );
       } else {
-        console.warn(`⚠️ [jevDecision] TypeSafe returned ${response.status}; falling back to heuristics`);
+        console.warn(`⚠️ [jevDecision] ${label} returned ${response.status}; falling back to heuristics`);
       }
       return null;
     }
@@ -239,7 +319,9 @@ export async function decideTierWithJev(
       confidence: answer.confidence,
       probabilities: answer.probabilities ?? {},
       latencyMs,
-      model: body.model ?? model,
+      model: body.model ?? provider.model,
+      provider: provider.name,
+      costUsd: typeof body.usage?.cost === "number" ? body.usage.cost : undefined,
     };
   } catch (err) {
     const aborted = err instanceof Error && err.name === "AbortError";

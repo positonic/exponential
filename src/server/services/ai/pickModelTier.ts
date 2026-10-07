@@ -24,10 +24,11 @@ import { decideTierWithJev, type TierDecider } from "./jevDecision";
  *      Haiku turn errored, escalate to Sonnet for this turn.
  *   4. Explicit opt-in (`@think`, `@zoe-think`) forces Sonnet. The user
  *      asked; no classifier overrides that.
- *   5. Jev (ADR-0065): when `TYPESAFE_API_KEY` is set, ask TypeSafe's Jev
- *      whether the turn is `fast` or `deep`. It answers in ~70-500 ms with a
- *      calibrated confidence. Acted on at confidence ≥ 0.5; otherwise, or
- *      on any timeout/error, fall through to the regexes below.
+ *   5. Jev (ADR-0065): when a Jev provider is configured (`OPENROUTER_API_KEY`
+ *      via OpenRouter's System One endpoint, or `TYPESAFE_API_KEY` direct),
+ *      ask Jev whether the turn is `fast` or `deep`. It answers in ~70-500 ms
+ *      with a calibrated confidence. Acted on at confidence ≥ 0.5; otherwise,
+ *      or on any timeout/error, fall through to the regexes below.
  *   6. Regex heuristics on the latest user message:
  *        - Force Sonnet on long messages that contain hard-thinking verbs
  *          (plan/design/analyze/...).
@@ -79,7 +80,13 @@ export interface PickModelTierResult {
   agentId: string;
   reason: string;
   /** Present when Jev made the call; for the route's log line and evals. */
-  decision?: { confidence: number; latencyMs: number; model: string };
+  decision?: {
+    confidence: number;
+    latencyMs: number;
+    model: string;
+    provider: "openrouter" | "typesafe";
+    costUsd?: number;
+  };
 }
 
 const FORCE_SONNET_OPT_IN = /@(zoe-)?think\b/i;
@@ -164,6 +171,8 @@ export async function pickModelTier(
           confidence: decision.confidence,
           latencyMs: decision.latencyMs,
           model: decision.model,
+          provider: decision.provider,
+          costUsd: decision.costUsd,
         },
       };
     }

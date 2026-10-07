@@ -29,8 +29,11 @@ Three facts shaped the answer:
 3. TypeSafe's Jev is a "System One" model: typed Choice/Score questions in, calibrated
    probabilities and a confidence out, 70-500 ms, $0.042 per million input tokens, no free
    text. It is the right shape for "which tier does this turn need", and the wrong shape for
-   answering the turn. It is reached directly at `api.typesafe.ai`; the OpenRouter listing
-   `typesafe/jev-router` is a different product (an opaque chat router) and is not used.
+   answering the turn. OpenRouter serves it at `POST /api/v1/systemone` (and
+   `/api/alpha/decisions`) with the same request shape as TypeSafe's own API, billed to the
+   OpenRouter account; TypeSafe's direct endpoint at `api.typesafe.ai` is the alternative. The
+   OpenRouter *chat* listing `typesafe/jev-router` is a different product (an opaque chat
+   router) and is not used.
 
 ## Decision
 
@@ -39,8 +42,11 @@ Three facts shaped the answer:
    route sends Mastra only the latest turn; thread memory holds the rest), after stickiness and the explicit
    `@think` opt-in, and before the regexes. It acts on confidence ≥ 0.5 (TypeSafe's documented
    floor). On no key, low confidence, timeout (800 ms ceiling), malformed response or any error,
-   the regexes decide exactly as before. A 401/402/403 from TypeSafe disables Jev for ten
-   minutes so a dead key costs one failed round-trip per cooldown.
+   the regexes decide exactly as before. A 401/402/403 from the provider disables Jev for ten
+   minutes so a dead key costs one failed round-trip per cooldown. The provider is chosen from
+   the environment: OpenRouter when `OPENROUTER_API_KEY` is set (preferred: one account, one
+   bill, the same key the Mastra-side OpenRouter work uses), else TypeSafe direct via
+   `TYPESAFE_API_KEY`; `JEV_PROVIDER` forces one.
 2. **Provider errors are classified, not masked uniformly.** The stream route classifies the
    agent error into billing, auth, rate-limit, overloaded or unknown. Billing and auth skip the
    Sonnet retry, show a "provider unavailable, try again in a little while" line instead of
