@@ -18,7 +18,9 @@ import { dropStrandedMeetingFeatureLinks } from "./meetingFeatures";
  * an Action from a Meeting never sits in a different Workspace than its Meeting
  * (see CONTEXT.md). This module is the canonical home of that invariant —
  * `assignProject`, `bulkAssignProject`, and the detail page's placement write
- * all delegate here so there is exactly one placement path.
+ * all delegate here so there is exactly one placement path. The create paths
+ * derive their workspace through `resolveMeetingWorkspace`, and a Project
+ * changing Workspace re-homes its Meetings through `rehomeProjectMeetings`.
  *
  * Deep module: pure server logic, no tRPC procedure types and no React in the
  * interface. Errors surface as `TRPCError` to preserve the existing FORBIDDEN /
@@ -50,6 +52,75 @@ export interface AssignMeetingPlacementResult {
   workspaceId: string | null;
 }
 
+/**
+ * The one rule for which Workspace a Meeting lands in, shared by every path
+ * that writes a Meeting's `workspaceId`: the device recorder's `startSession`,
+ * the manual form, `updateDetails`, and the placement move below.
+ *
+ * - With a Project, the Project's Workspace is authoritative. A caller-supplied
+ *   `workspaceId` that disagrees is a coherence bug, so it is rejected rather
+ *   than silently overridden.
+ * - Without a Project, the caller's `workspaceId` stands (a workspace-level
+ *   meeting such as a retro), or null for Personal.
+ *
+ * `noDirectMeetingWorkspaceWrites.test.ts` keeps new writers on this path.
+ */
+export async function resolveMeetingWorkspace(
+  db: PrismaClient,
+  input: { projectId: string | null | undefined; workspaceId: string | null | undefined },
+): Promise<string | null> {
+  if (!input.projectId) return input.workspaceId ?? null;
+
+  const project = await db.project.findUnique({
+    where: { id: input.projectId },
+    select: { workspaceId: true },
+  });
+  if (!project) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Target project not found" });
+  }
+  if (input.workspaceId && project.workspaceId && input.workspaceId !== project.workspaceId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "workspaceId does not match the project's workspace; a project-linked meeting inherits its project's workspace.",
+    });
+  }
+  return project.workspaceId ?? null;
+}
+
+/**
+ * A Project moved to another Workspace takes its Meetings with it. Same
+ * invariant as `assignMeetingPlacement` from the other side: the Meetings keep
+ * their `projectId`, their `workspaceId` follows the Project, their extracted
+ * Actions follow them, and feature links stranded in the old Workspace are
+ * dropped. `project.update` calls this whenever the workspace changes.
+ */
+export async function rehomeProjectMeetings(
+  db: PrismaClient,
+  input: { projectId: string; workspaceId: string | null },
+): Promise<{ meetings: number; actions: number }> {
+  const meetings = await db.transcriptionSession.findMany({
+    where: { projectId: input.projectId },
+    select: { id: true },
+  });
+  const meetingIds = meetings.map((m) => m.id);
+  if (meetingIds.length === 0) return { meetings: 0, actions: 0 };
+
+  const [sessionResult, actionResult] = await db.$transaction([
+    db.transcriptionSession.updateMany({
+      where: { id: { in: meetingIds } },
+      data: { workspaceId: input.workspaceId, updatedAt: new Date() },
+    }),
+    db.action.updateMany({
+      where: { transcriptionSessionId: { in: meetingIds } },
+      data: { workspaceId: input.workspaceId },
+    }),
+    dropStrandedMeetingFeatureLinks(db, { meetingIds, workspaceId: input.workspaceId }),
+  ]);
+
+  return { meetings: sessionResult.count, actions: actionResult.count };
+}
+
 export async function assignMeetingPlacement(
   db: PrismaClient,
   userId: string,
@@ -63,7 +134,6 @@ export async function assignMeetingPlacement(
 
   // 1. Resolve the target Workspace from the Project (project-authoritative).
   //    Placing onto a Project requires edit access to that Project.
-  let workspaceId: string | null = null;
   if (projectId) {
     const projectAccess = await getProjectAccess(db, userId, projectId);
     if (!canEditProject(projectAccess)) {
@@ -72,18 +142,8 @@ export async function assignMeetingPlacement(
         message: "You do not have edit access to the target project",
       });
     }
-    const project = await db.project.findUnique({
-      where: { id: projectId },
-      select: { workspaceId: true },
-    });
-    if (!project) {
-      throw new TRPCError({
-        code: "NOT_FOUND",
-        message: "Target project not found",
-      });
-    }
-    workspaceId = project.workspaceId ?? null;
   }
+  const workspaceId = await resolveMeetingWorkspace(db, { projectId, workspaceId: null });
 
   // 2. Determine which of the requested Meetings the caller may place.
   let placeableIds: string[];

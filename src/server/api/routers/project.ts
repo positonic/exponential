@@ -16,6 +16,7 @@ import {
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
+import { rehomeProjectMeetings } from "~/server/services/meetings/assignMeetingPlacement";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -469,7 +470,7 @@ export const projectRouter = createTRPCRouter({
       // already-completed project).
       const priorProject = await ctx.db.project.findUnique({
         where: { id },
-        select: { status: true },
+        select: { status: true, workspaceId: true },
       });
 
       // A product can only be linked to a project in the same workspace.
@@ -537,6 +538,16 @@ export const projectRouter = createTRPCRouter({
           ...(enableBounties !== undefined ? { enableBounties } : {}),
         },
       });
+
+      // A project moved to another workspace takes its meetings, and the
+      // actions extracted from them, with it: a meeting's workspace is always
+      // its project's (CONTEXT.md → Meeting↔Workspace).
+      if (workspaceId !== undefined && updated.workspaceId !== (priorProject?.workspaceId ?? null)) {
+        await rehomeProjectMeetings(ctx.db, {
+          projectId: id,
+          workspaceId: updated.workspaceId ?? null,
+        });
+      }
 
       // Record a milestone activity event when a project is newly completed.
       // Fire-and-forget: recordActivity never throws, and a null workspaceId is
