@@ -165,3 +165,45 @@ describe("screenshot pairing survives a failed create mid-list", () => {
     });
   });
 });
+
+describe("generateDraftActions after a partial publish", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    // The extraction mocks are module-level and carry calls over from the
+    // pairing tests above; clear them so "not called" means this test.
+    vi.mocked(ActionExtractionService.extractFromNotes).mockClear();
+    vi.mocked(ActionExtractionService.extractFromTranscript).mockClear();
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      id: TRANSCRIPTION_ID,
+      userId: USER_ID,
+      projectId: null,
+      project: null,
+      user: { id: USER_ID },
+      title: "Test meeting",
+      summary: null,
+      notes: "- a curated notes action",
+      transcription: "some transcript text",
+    } as never);
+    db.screenshot.findMany.mockResolvedValue([] as never);
+  });
+
+  it("reports the leftover drafts alongside alreadyPublished so the card can be reopened", async () => {
+    // First count call is the ACTIVE check, second is the DRAFT check.
+    db.action.count.mockResolvedValueOnce(3).mockResolvedValueOnce(2);
+
+    const result = await TranscriptionProcessingService.generateDraftActions(
+      TRANSCRIPTION_ID,
+      USER_ID,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.alreadyPublished).toBe(true);
+    expect(result.draftCount).toBe(2);
+    // No new extraction runs against an already-reviewed meeting.
+    expect(ActionExtractionService.extractFromNotes).not.toHaveBeenCalled();
+    expect(db.action.create).not.toHaveBeenCalled();
+  });
+});
