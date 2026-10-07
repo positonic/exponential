@@ -965,7 +965,9 @@ export const projectRouter = createTRPCRouter({
       return ctx.db.project.findUnique({
         where: { id: projectExists.id },
         include: {
-          goals: { select: { id: true, title: true } },
+          // Dates feed the header's days-left fallback, which must be the
+          // same for every member — so every linked goal, not the viewer's.
+          goals: { select: { id: true, title: true, dueDate: true, period: true, status: true } },
           lifeDomains: { select: { id: true, title: true } },
           keyResults: {
             select: {

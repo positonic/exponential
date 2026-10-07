@@ -119,6 +119,16 @@
   overflow: hidden;
   flex-shrink: 0;
 }
+.daysLeft {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  padding-left: 8px;
+  border-left: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+  cursor: default;
+}
+.daysLeftOverdue { color: var(--accent-due); }
 .progressBarFill {
   height: 100%;
   background: linear-gradient(90deg, var(--brand-400), var(--accent-okr));
