@@ -118,7 +118,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     api.transcription.generateDraftActions.useMutation({
       onSuccess: (result) => {
         if (!session) return;
-        if (result.alreadyPublished) {
+        // Leftover drafts from an earlier partial "Create selected" still need
+        // a way back to the card, so only stop here when none remain.
+        if (result.alreadyPublished && result.draftCount === 0) {
           notifications.show({
             title: "Actions already created",
             message: "This meeting already has actions.",
@@ -146,8 +148,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           const cardMessage: ChatMessage = {
             type: "ai",
             agentName: "Zoe",
-            content:
-              "I found some actions in this meeting — review and create the ones you want below.",
+            content: result.alreadyPublished
+              ? `This meeting already has actions, but ${result.draftCount} draft${result.draftCount === 1 ? " is" : "s are"} still waiting for review — create or discard ${result.draftCount === 1 ? "it" : "them"} below.`
+              : "I found some actions in this meeting — review and create the ones you want below.",
             card: { kind: "draft-actions", transcriptionId },
           };
           return [...prev, cardMessage];

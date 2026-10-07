@@ -2366,6 +2366,72 @@ export const transcriptionRouter = createTRPCRouter({
       return { publishedCount: result.count };
     }),
 
+  // Discard draft Actions the reviewer decided against. Drafts are never
+  // surfaced outside the review card (every list query filters `DRAFT`), so a
+  // hard delete is the honest outcome — there is nothing to soft-delete into
+  // and no project activity to log for an Action that never existed. Scoped
+  // to the transcription, the DRAFT status and the caller, like the publish
+  // mutations above, so an id from another meeting (or a published Action)
+  // can't be removed through this meeting's card. Omitting `actionIds`
+  // discards every remaining draft.
+  discardDraftActions: protectedProcedure
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        actionIds: z.array(z.string()).min(1).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const transcription = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.transcriptionId },
+      });
+
+      if (!transcription) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Transcription not found",
+        });
+      }
+
+      if (transcription.userId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to update this transcription",
+        });
+      }
+
+      const result = await ctx.db.action.deleteMany({
+        where: {
+          ...(input.actionIds ? { id: { in: input.actionIds } } : {}),
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+      });
+
+      // Same bookkeeping as publishSelectedDraftActions: once the review is
+      // over, however it ended, the meeting counts as processed.
+      const remainingDrafts = await ctx.db.action.count({
+        where: {
+          transcriptionSessionId: input.transcriptionId,
+          status: "DRAFT",
+          createdById: ctx.session.user.id,
+        },
+      });
+
+      if (remainingDrafts === 0) {
+        await ctx.db.transcriptionSession.update({
+          where: { id: input.transcriptionId },
+          data: {
+            processedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return { discardedCount: result.count, remainingDrafts };
+    }),
+
   // ────────────────────────────────────────────────────────────────
   // Feature ideation (meeting → product features & backlog tickets).
   //

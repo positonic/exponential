@@ -119,19 +119,24 @@ export class TranscriptionProcessingService {
         },
       });
 
-      if (existingActiveCount > 0) {
-        console.log(`[generateDraftActions] Already has ${existingActiveCount} active actions, returning alreadyPublished`);
-        result.alreadyPublished = true;
-        result.success = true;
-        return result;
-      }
-
       const existingDraftCount = await db.action.count({
         where: {
           transcriptionSessionId: transcriptionId,
           status: "DRAFT",
         },
       });
+
+      if (existingActiveCount > 0) {
+        // Report any drafts left over from a partial "Create selected" too:
+        // without the count the caller can only say "already created" and the
+        // leftovers become unreachable once the review card has left the
+        // drawer thread.
+        console.log(`[generateDraftActions] Already has ${existingActiveCount} active actions (${existingDraftCount} drafts remaining), returning alreadyPublished`);
+        result.alreadyPublished = true;
+        result.success = true;
+        result.draftCount = existingDraftCount;
+        return result;
+      }
 
       if (existingDraftCount > 0) {
         console.log(`[generateDraftActions] Already has ${existingDraftCount} drafts, returning existing`);
