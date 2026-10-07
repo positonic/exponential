@@ -59,6 +59,9 @@ interface PagesListContentProps {
    * pages are listed, "New page" creates inside it, and the now-redundant
    * project filter + per-row project label are dropped. */
   projectId?: string;
+  /** Hide the write controls (New page, Duplicate, Delete) — for a project
+   * tab the viewer can't edit, where they would only produce errors. */
+  readOnly?: boolean;
 }
 
 type PageRow = RouterOutputs['page']['tree'][number];
@@ -99,7 +102,12 @@ function initialOf(name: string | null | undefined) {
   return trimmed ? trimmed.charAt(0).toUpperCase() : '?';
 }
 
-export function PagesListContent({ workspaceId, workspaceSlug, projectId }: PagesListContentProps) {
+export function PagesListContent({
+  workspaceId,
+  workspaceSlug,
+  projectId,
+  readOnly = false,
+}: PagesListContentProps) {
   const router = useRouter();
   const utils = api.useUtils();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -364,15 +372,17 @@ export function PagesListContent({ workspaceId, workspaceSlug, projectId }: Page
             Filters
           </button>
 
-          <button
-            className={styles.newBtn}
-            type="button"
-            onClick={() => createPage.mutate({ workspaceId, projectId })}
-            disabled={createPage.isPending}
-          >
-            <IconPlus size={13} stroke={2.5} />
-            New page
-          </button>
+          {!readOnly && (
+            <button
+              className={styles.newBtn}
+              type="button"
+              onClick={() => createPage.mutate({ workspaceId, projectId })}
+              disabled={createPage.isPending}
+            >
+              <IconPlus size={13} stroke={2.5} />
+              New page
+            </button>
+          )}
         </div>
       </div>
 
@@ -505,30 +515,34 @@ export function PagesListContent({ workspaceId, workspaceSlug, projectId }: Page
                       >
                         Open in new tab
                       </Menu.Item>
-                      <Menu.Item
-                        leftSection={<IconCopy size={14} />}
-                        disabled={duplicatePage.isPending}
-                        onClick={() => duplicatePage.mutate({ id: page.id })}
-                      >
-                        Duplicate
-                      </Menu.Item>
-                      {page.hasChildren ? (
-                        <Menu.Item
-                          leftSection={<IconCopy size={14} />}
-                          disabled={duplicatePage.isPending}
-                          onClick={() => duplicatePage.mutate({ id: page.id, withSubpages: true })}
-                        >
-                          Duplicate with sub-pages
-                        </Menu.Item>
-                      ) : null}
-                      <Menu.Divider />
-                      <Menu.Item
-                        color="red"
-                        leftSection={<IconTrash size={14} />}
-                        onClick={() => setPendingDelete(page)}
-                      >
-                        Delete
-                      </Menu.Item>
+                      {!readOnly && (
+                        <>
+                          <Menu.Item
+                            leftSection={<IconCopy size={14} />}
+                            disabled={duplicatePage.isPending}
+                            onClick={() => duplicatePage.mutate({ id: page.id })}
+                          >
+                            Duplicate
+                          </Menu.Item>
+                          {page.hasChildren ? (
+                            <Menu.Item
+                              leftSection={<IconCopy size={14} />}
+                              disabled={duplicatePage.isPending}
+                              onClick={() => duplicatePage.mutate({ id: page.id, withSubpages: true })}
+                            >
+                              Duplicate with sub-pages
+                            </Menu.Item>
+                          ) : null}
+                          <Menu.Divider />
+                          <Menu.Item
+                            color="red"
+                            leftSection={<IconTrash size={14} />}
+                            onClick={() => setPendingDelete(page)}
+                          >
+                            Delete
+                          </Menu.Item>
+                        </>
+                      )}
                     </Menu.Dropdown>
                   </Menu>
                 </div>

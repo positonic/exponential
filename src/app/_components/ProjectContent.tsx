@@ -218,6 +218,11 @@ export function ProjectContent({
     { workspaceId: workspaceId ?? "", projectId: resolvedProjectId },
     { enabled: dependentQueriesEnabled && !!workspaceId },
   );
+  // Same key as the Access tab — gates the Pages tab's write controls.
+  const { data: myAccess } = api.project.getMyAccess.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: dependentQueriesEnabled },
+  );
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
     { projectId: resolvedProjectId },
     { enabled: dependentQueriesEnabled },
@@ -622,6 +627,7 @@ export function ProjectContent({
                   workspaceId={workspaceId}
                   workspaceSlug={workspace.slug}
                   projectId={resolvedProjectId}
+                  readOnly={!myAccess?.canEdit}
                 />
               )}
             </Tabs.Panel>
