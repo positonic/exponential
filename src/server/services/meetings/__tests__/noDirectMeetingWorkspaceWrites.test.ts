@@ -82,17 +82,44 @@ function sessionWriteDataBlocks(source: string): string[] {
     for (const data of call.matchAll(/\bdata:\s*\{/g)) {
       blocks.push(balanced(call, data.index! + data[0].length - 1));
     }
-    for (const data of call.matchAll(/\bdata:\s*([A-Za-z_]\w*)\b/g)) {
-      // The expression up to its first call paren: `await resolveMeetingWorkspace`
-      // rather than the resolver's own argument list, which names the input.
-      const assignments = source.matchAll(new RegExp(`\\b${data[1]}\\.workspaceId\\s*=\\s*([^;(]*)`, "g"));
-      for (const assignment of assignments) blocks.push(`workspaceId: ${assignment[1].trim()}`);
+    // `data: someVariable`, or the shorthand `data` on its own.
+    for (const data of call.matchAll(/\bdata\s*(?::\s*([A-Za-z_]\w*))?\s*(?=[,}])/g)) {
+      const ident = data[1] ?? "data";
+      // The variable's initializer, `const ident = { ... }` (with or without a
+      // type annotation), is a data block like any other.
+      for (const init of source.matchAll(new RegExp(`\\b(?:const|let|var)\\s+${ident}\\b[^=;]*=\\s*\\{`, "g"))) {
+        blocks.push(balanced(source, init.index! + init[0].length - 1));
+      }
+      // Later `ident.workspaceId = <expr>` assignments, each cut at its first
+      // call paren: `await resolveMeetingWorkspace` rather than the resolver's
+      // own argument list, which names the input.
+      const assignments = source.matchAll(new RegExp(`\\b${ident}\\.workspaceId\\s*=\\s*([^;(]*)`, "g"));
+      for (const assignment of assignments) blocks.push(`workspaceId: ${assignment[1]!.trim()}`);
     }
   }
   return blocks;
 }
 
 const WRITES_WORKSPACE = /\bworkspaceId\b\s*[:,}]/;
+
+describe("the detector itself", () => {
+  it("sees workspaceId in a literal data block, a data variable's initializer, and a later assignment", () => {
+    const literal = `await db.transcriptionSession.create({ data: { title, workspaceId: input.workspaceId } });`;
+    const initializer = `const data = { title, workspaceId: input.workspaceId };\nawait db.transcriptionSession.update({ where, data });`;
+    const assignment = `const data: Row = { title };\ndata.workspaceId = await resolveMeetingWorkspace(db, { projectId, workspaceId: input.workspaceId });\nawait db.transcriptionSession.update({ where, data: data });`;
+    const none = `const data = { title };\nawait db.transcriptionSession.update({ where, data });`;
+
+    expect(sessionWriteDataBlocks(literal).some((b) => WRITES_WORKSPACE.test(b))).toBe(true);
+    expect(sessionWriteDataBlocks(initializer).some((b) => WRITES_WORKSPACE.test(b))).toBe(true);
+    // The typed initializer (no workspaceId) and the later assignment, cut at
+    // the resolver call so its argument list is not mistaken for the write.
+    expect(sessionWriteDataBlocks(assignment)).toEqual([
+      "{ title }",
+      "workspaceId: await resolveMeetingWorkspace",
+    ]);
+    expect(sessionWriteDataBlocks(none).some((b) => WRITES_WORKSPACE.test(b))).toBe(false);
+  });
+});
 
 describe("Meeting workspaceId is written only through the placement module", () => {
   it("no file outside the allow-list writes workspaceId into a TranscriptionSession row", () => {
