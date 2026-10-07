@@ -78,7 +78,9 @@ export async function resolveMeetingWorkspace(
   if (!project) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Target project not found" });
   }
-  if (input.workspaceId && project.workspaceId && input.workspaceId !== project.workspaceId) {
+  // Including a Personal project (null workspace): a supplied workspace that
+  // disagrees is a conflicting request, not one to quietly place in Personal.
+  if (input.workspaceId && input.workspaceId !== project.workspaceId) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message:

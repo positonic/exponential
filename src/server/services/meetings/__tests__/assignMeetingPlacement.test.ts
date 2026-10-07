@@ -307,6 +307,15 @@ describe("resolveMeetingWorkspace", () => {
       resolveMeetingWorkspace(db, { projectId: "proj-personal", workspaceId: undefined }),
     ).resolves.toBeNull();
   });
+
+  it("rejects a caller workspace on a personal project rather than placing it in Personal", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: null });
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "proj-personal", workspaceId: "ws-A" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
 });
 
 describe("rehomeProjectMeetings", () => {
