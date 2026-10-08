@@ -58,6 +58,7 @@ function meetingRow(overrides: Record<string, unknown> = {}) {
     workspaceId: "ws-1",
     project: { id: "proj-1", name: "Apollo" },
     actions: [{ id: "a1" }, { id: "a2" }],
+    decisions: [],
     ...overrides,
   };
 }
@@ -138,6 +139,31 @@ describe("postMeetingSummaryToMatrix", () => {
     // Absolute, because most readers are in a Matrix client, not in the app.
     expect(payload.text).toMatch(/https?:\/\/[^\s]+\/recording\/meeting-1/);
     expect(payload.html).toContain("<a href=");
+  });
+
+  it("loads only confirmed decisions and leads the message with them", async () => {
+    db.transcriptionSession.findUnique.mockResolvedValue(
+      meetingRow({
+        decisions: [{ number: 7, statement: "Ship on Friday.", status: "ACCEPTED" }],
+      }) as never,
+    );
+    const client = stubClient();
+
+    await postMeetingSummaryToMatrix(db, {
+      meetingId: MEETING_ID,
+      actorUserId: ACTOR,
+      client,
+    });
+
+    const query = db.transcriptionSession.findUnique.mock.calls[0]![0] as {
+      include: { decisions: { where: unknown } };
+    };
+    // Drafts are unreviewed; a room cannot un-see them.
+    expect(query.include.decisions.where).toEqual({ reviewState: "CONFIRMED" });
+
+    const [, payload] = client.send.mock.calls[0]! as [string, SendArgs];
+    expect(payload.text).toContain("D-0007 Ship on Friday.");
+    expect(payload.text).toMatch(/\/recording\/meeting-1\?tab=decisions/);
   });
 
   it("blocks and says so when the project's binding is Off", async () => {

@@ -17,6 +17,8 @@
  * rooms see the markup literally.
  */
 
+import { formatDecisionLabel } from "~/lib/decision-label";
+import { withMeetingTab } from "~/lib/meeting-tabs";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export interface MeetingForSummary {
@@ -28,7 +30,20 @@ export interface MeetingForSummary {
   workspaceId: string | null;
   project: { id: string; name: string } | null;
   actions: { id: string }[];
+  /** Confirmed decisions logged from this meeting — never drafts, which are
+   *  invisible outside the meeting's own review surfaces (ADR-0060). */
+  decisions: MeetingDecisionForSummary[];
 }
+
+export interface MeetingDecisionForSummary {
+  number: number;
+  statement: string;
+  /** `OPEN` is an open question; every other status is an answered decision. */
+  status: string;
+}
+
+/** Past this, the list stops and the link to the Decisions tab carries the rest. */
+export const MAX_LISTED_DECISIONS = 10;
 
 export interface RenderedSummary {
   text: string;
@@ -287,6 +302,57 @@ export function meetingUrl(meeting: MeetingForSummary): string {
   return `${origin.replace(/\/+$/, "")}/recording/${meeting.id}`;
 }
 
+/** The meeting page opened on its Decisions tab. */
+export function meetingDecisionsUrl(meeting: MeetingForSummary): string {
+  return withMeetingTab(meetingUrl(meeting), "decisions").toString();
+}
+
+interface DecisionsBlock {
+  text: string[];
+  html: string;
+}
+
+/**
+ * What was decided leads the message, straight under the title: it is the part of a
+ * meeting people who were not there most need, and the part a long summary buries.
+ * The link opens the Decisions tab directly rather than the Summary. Omitted entirely
+ * when nothing was decided — a link to an empty tab is noise.
+ */
+function renderDecisionsBlock(meeting: MeetingForSummary): DecisionsBlock | null {
+  const decided = meeting.decisions.filter((d) => d.status !== "OPEN");
+  const openCount = meeting.decisions.length - decided.length;
+  if (decided.length === 0 && openCount === 0) return null;
+
+  const listed = decided.slice(0, MAX_LISTED_DECISIONS);
+  const hidden = decided.length - listed.length;
+  const url = meetingDecisionsUrl(meeting);
+  const openLine =
+    openCount > 0 ? `${openCount} open question${openCount === 1 ? "" : "s"}` : null;
+  const heading = decided.length > 0 ? `⚖️ Decisions (${decided.length})` : "❓ Open questions";
+
+  const text = [
+    heading,
+    ...listed.map((d) => `• ${formatDecisionLabel(d.number)} ${d.statement.trim()}`),
+    ...(hidden > 0 ? [`• …and ${hidden} more`] : []),
+    ...(openLine ? [`❓ ${openLine}`] : []),
+    `View decisions: ${url}`,
+  ];
+
+  const items = listed
+    .map(
+      (d) =>
+        `<li><strong>${escapeHtml(formatDecisionLabel(d.number))}</strong> ${escapeHtml(d.statement.trim())}</li>`,
+    )
+    .join("");
+  const html = [
+    `<h5>${escapeHtml(heading)}</h5>`,
+    items ? `<ul>${items}${hidden > 0 ? `<li>…and ${hidden} more</li>` : ""}</ul>` : "",
+    `<p>${openLine ? `❓ ${escapeHtml(openLine)} · ` : ""}<a href="${escapeHtml(url)}">View decisions in Exponential</a></p>`,
+  ].join("");
+
+  return { text, html };
+}
+
 function formatMeetingDate(meeting: MeetingForSummary): string {
   const date = meeting.meetingDate ?? meeting.createdAt;
   return date.toISOString().slice(0, 10);
@@ -300,6 +366,7 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
   const actionLine = `${actionCount} action item${actionCount === 1 ? "" : "s"}`;
   const url = meetingUrl(meeting);
   const project = meeting.project?.name;
+  const decisions = renderDecisionsBlock(meeting);
 
   const textBody = sections
     .map((s) =>
@@ -313,6 +380,7 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
   const textParts = [
     `📋 ${title}`,
     project ? `${date} · ${project}` : date,
+    ...(decisions ? ["", ...decisions.text] : []),
     ...(textBody ? ["", textBody] : []),
     "",
     actionLine,
@@ -328,6 +396,7 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
   const html = [
     `<h4>📋 ${escapeHtml(title)}</h4>`,
     `<p><em>${escapeHtml(project ? `${date} · ${project}` : date)}</em></p>`,
+    decisions?.html ?? "",
     htmlBody,
     `<p>${escapeHtml(actionLine)} — <a href="${escapeHtml(url)}">open in Exponential</a></p>`,
   ].join("");

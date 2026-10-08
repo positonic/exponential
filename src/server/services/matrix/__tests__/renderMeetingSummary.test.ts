@@ -11,7 +11,9 @@ import {
   extractSummarySections,
   markdownToMatrixHtml,
   markdownToPlainText,
+  MAX_LISTED_DECISIONS,
   renderMeetingSummary,
+  type MeetingDecisionForSummary,
   type MeetingForSummary,
 } from "~/server/services/matrix/renderMeetingSummary";
 
@@ -26,7 +28,10 @@ const BREAKDOWN = [
   "  - Including the delivery playbook.",
 ].join("\n");
 
-function meeting(summary: string | null): MeetingForSummary {
+function meeting(
+  summary: string | null,
+  decisions: MeetingDecisionForSummary[] = [],
+): MeetingForSummary {
   return {
     id: "meeting-1",
     title: "Weekly sync",
@@ -36,6 +41,7 @@ function meeting(summary: string | null): MeetingForSummary {
     workspaceId: "ws-1",
     project: { id: "proj-1", name: "Apollo" },
     actions: [],
+    decisions,
   };
 }
 
@@ -181,5 +187,63 @@ describe("renderMeetingSummary", () => {
   it("emits no stray blank block when the meeting has no summary", () => {
     const { text } = renderMeetingSummary(meeting(null));
     expect(text).not.toContain("\n\n\n");
+  });
+
+  describe("decisions", () => {
+    const decisions: MeetingDecisionForSummary[] = [
+      { number: 42, statement: "Keep backups for one month.", status: "ACCEPTED" },
+      { number: 43, statement: "Should DataMiner get a severity layer?", status: "OPEN" },
+    ];
+    const summary = JSON.stringify({ overview: "Short.", detailed_breakdown: BREAKDOWN });
+
+    it("leads with the decisions, above the summary sections", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary, decisions));
+      expect(text.indexOf("⚖️ Decisions (1)")).toBeLessThan(text.indexOf("Overview"));
+      expect(html.indexOf("<h5>⚖️ Decisions (1)</h5>")).toBeLessThan(
+        html.indexOf("<h5>Overview</h5>"),
+      );
+      expect(text).toContain("• D-0042 Keep backups for one month.");
+      expect(html).toContain("<li><strong>D-0042</strong> Keep backups for one month.</li>");
+    });
+
+    it("links to the meeting's Decisions tab and counts open questions", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary, decisions));
+      expect(text).toMatch(/View decisions: \S+\/recording\/meeting-1\?tab=decisions/);
+      expect(html).toMatch(/<a href="[^"]+\/recording\/meeting-1\?tab=decisions">/);
+      expect(text).toContain("❓ 1 open question");
+      // Open questions are counted, not listed as decisions.
+      expect(text).not.toContain("D-0043");
+    });
+
+    it("links even when the meeting only raised open questions", () => {
+      const { text } = renderMeetingSummary(meeting(summary, [decisions[1]!]));
+      expect(text).toContain("❓ Open questions");
+      expect(text).toContain("?tab=decisions");
+    });
+
+    it("caps the list and leaves the rest to the link", () => {
+      const many = Array.from({ length: MAX_LISTED_DECISIONS + 3 }, (_, i) => ({
+        number: i + 1,
+        statement: `Decision ${i + 1}`,
+        status: "ACCEPTED",
+      }));
+      const { text } = renderMeetingSummary(meeting(summary, many));
+      expect(text).toContain(`⚖️ Decisions (${MAX_LISTED_DECISIONS + 3})`);
+      expect(text).toContain("• …and 3 more");
+      expect(text).not.toContain(`Decision ${MAX_LISTED_DECISIONS + 1}`);
+    });
+
+    it("escapes decision statements in the HTML body", () => {
+      const { html } = renderMeetingSummary(
+        meeting(summary, [{ number: 1, statement: "<b>bold</b>", status: "ACCEPTED" }]),
+      );
+      expect(html).toContain("&lt;b&gt;bold&lt;/b&gt;");
+    });
+
+    it("omits the block when nothing was decided", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary));
+      expect(text).not.toContain("tab=decisions");
+      expect(html).not.toContain("Decisions (");
+    });
   });
 });
