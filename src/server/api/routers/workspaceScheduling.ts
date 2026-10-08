@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
@@ -13,6 +13,7 @@ import { buildInviteIcs } from "~/server/services/calendar/inviteIcs";
 import { sendMeetingInviteEmail } from "~/server/services/EmailService";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access/resolvers/projectResolver";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { personSchema, resolvePerson, type Person } from "~/server/services/meetings/resolvePerson";
 import { formatOccurrenceLabel } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import {
@@ -69,6 +70,49 @@ function memberAttendeeEmail(user: { id: string; email: string | null }): string
 
 function isDeliverableEmail(email: string): boolean {
   return email.includes("@");
+}
+
+const MAX_ATTENDEES = 50;
+
+/**
+ * Resolve the booking's people into attendee rows through the shared person
+ * service: the organizer always (as a member), then each requested person.
+ * The invite is the only write to anyone's calendar, so a person who
+ * resolves to no email is refused — unlike a recorded Meeting's
+ * Participants, where a name-only row is fine. One row per email; the first
+ * mention wins, so the organizer and members keep their user link.
+ */
+async function resolveAttendees(
+  tx: Prisma.TransactionClient,
+  args: {
+    workspaceId: string;
+    organizer: { id: string; name: string | null; email: string | null };
+    people: Person[];
+    memberIds: ReadonlySet<string>;
+  },
+): Promise<Array<{ userId: string | null; contactId: string | null; email: string; name: string | null }>> {
+  const rows = new Map<string, { userId: string | null; contactId: string | null; email: string; name: string | null }>();
+  const organizerEmail = memberAttendeeEmail(args.organizer);
+  rows.set(organizerEmail, { userId: args.organizer.id, contactId: null, email: organizerEmail, name: args.organizer.name });
+
+  for (const person of args.people) {
+    if (person.userId === args.organizer.id) continue;
+    const resolved = await resolvePerson(tx, {
+      workspaceId: args.workspaceId,
+      actorId: args.organizer.id,
+      person,
+      memberIds: args.memberIds,
+    });
+    if (!resolved.email) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `${resolved.name ?? person.name ?? "An attendee"} has no email address, so they can't be sent an invite`,
+      });
+    }
+    const email = resolved.email.trim().toLowerCase();
+    if (!rows.has(email)) rows.set(email, { ...resolved, email });
+  }
+  return [...rows.values()];
 }
 
 /** The attendee universe: direct members + members via a linked team. */
@@ -333,7 +377,13 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         projectId: z.string().optional(),
         startsAt: z.date(),
         endsAt: z.date(),
-        attendeeUserIds: z.array(z.string()).min(1).max(50),
+        /**
+         * Members, CRM contacts, or new people by name + email (CONTEXT.md →
+         * Attendee). Externals are invited; only members have availability.
+         */
+        attendees: z.array(personSchema).max(MAX_ATTENDEES).optional(),
+        /** Alias kept for existing callers: each id is a member attendee. */
+        attendeeUserIds: z.array(z.string()).max(MAX_ATTENDEES).optional(),
         /** What the meeting is for; the one-off's `purpose` and the invite's first line. */
         purpose: z.string().trim().max(2000).optional(),
         /** The one-off agenda's sections; recurring-only sections are refused. */
@@ -352,8 +402,20 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Meeting must end after it starts" });
       }
 
+      const people: Person[] = [
+        ...(input.attendees ?? []),
+        ...(input.attendeeUserIds ?? []).map((userId) => ({ userId })),
+      ];
+      if (people.length === 0 || people.length > MAX_ATTENDEES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Invite between 1 and ${MAX_ATTENDEES} attendees`,
+        });
+      }
+
+      // Member attendees must be workspace members; contacts and emails need not be.
       const memberIds = await listWorkspaceMemberIds(db, input.workspaceId);
-      if (input.attendeeUserIds.some((id) => !memberIds.has(id))) {
+      if (people.some((p) => p.userId && !memberIds.has(p.userId))) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Attendees must be members of the workspace",
@@ -371,17 +433,11 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         }
       }
 
-      // The organizer is always an attendee — their calendar gets the invite too.
-      const attendeeIds = [...new Set([...input.attendeeUserIds, organizerId])];
-      const users = await db.user.findMany({
-        where: { id: { in: attendeeIds } },
+      const organizerUser = await db.user.findUnique({
+        where: { id: organizerId },
         select: { id: true, name: true, email: true, timezone: true },
       });
-      const attendeeRows = users.map((user) => ({
-        userId: user.id,
-        email: memberAttendeeEmail(user),
-        name: user.name,
-      }));
+      if (!organizerUser) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
 
       const purpose = input.purpose && input.purpose.length > 0 ? input.purpose : undefined;
       const meetingInclude = {
@@ -391,6 +447,14 @@ export const workspaceSchedulingRouter = createTRPCRouter({
       } as const;
 
       const { meeting, oneOff } = await db.$transaction(async (tx) => {
+        // Resolution may create a CRM contact for a new email, so it runs
+        // inside the booking: a refused attendee leaves nothing behind.
+        const attendeeRows = await resolveAttendees(tx, {
+          workspaceId: input.workspaceId,
+          organizer: organizerUser,
+          people,
+          memberIds,
+        });
         const meeting = await tx.meeting.create({
           data: {
             workspaceId: input.workspaceId,
@@ -423,8 +487,9 @@ export const workspaceSchedulingRouter = createTRPCRouter({
             sectionTypes: input.agendaSectionTypes,
             presetKey: input.purposePreset,
           }),
-          memberUserIds: attendeeIds,
-          timezone: users.find((u) => u.id === organizerId)?.timezone ?? "UTC",
+          // External attendees live on the meeting only.
+          memberUserIds: attendeeRows.flatMap((a) => (a.userId ? [a.userId] : [])),
+          timezone: organizerUser.timezone ?? "UTC",
           startsAt: input.startsAt,
           endsAt: input.endsAt,
         });
