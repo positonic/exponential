@@ -168,7 +168,7 @@ describe("postMeetingSummaryToMatrix", () => {
 
     const [, payload] = client.send.mock.calls[0]! as [string, SendArgs];
     expect(payload.text).toContain("D-0007 Ship on Friday.");
-    expect(payload.text).toMatch(/\/recording\/meeting-1\?tab=decisions/);
+    expect(payload.text).toMatch(/\/recording\/meeting-1\?tab=outputs/);
   });
 
   it("blocks and says so when the project's binding is Off", async () => {

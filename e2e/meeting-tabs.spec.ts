@@ -28,9 +28,9 @@ test("tab clicks write the URL, and Back/Forward walk the tabs", async ({ page }
   await expect(tab(page, /^Transcript/)).toHaveAttribute("aria-selected", "true");
   await expect(page).toHaveURL(/\?tab=transcript$/);
 
-  await tab(page, /^Decisions/).click();
-  await expect(tab(page, /^Decisions/)).toHaveAttribute("aria-selected", "true");
-  await expect(page).toHaveURL(/\?tab=decisions$/);
+  await tab(page, /^Outputs/).click();
+  await expect(tab(page, /^Outputs/)).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/\?tab=outputs$/);
 
   // Back steps to the previous tab: the panel follows the URL, not the last click.
   await page.goBack();
@@ -49,9 +49,16 @@ test("tab clicks write the URL, and Back/Forward walk the tabs", async ({ page }
 });
 
 test("a shared tab link opens on that tab", async ({ page }) => {
-  await page.goto(`${fixture.meetingUrl}?tab=decisions`);
-  await expect(tab(page, /^Decisions/)).toHaveAttribute("aria-selected", "true", {
+  await page.goto(`${fixture.meetingUrl}?tab=outputs`);
+  await expect(tab(page, /^Outputs/)).toHaveAttribute("aria-selected", "true", {
     timeout: FIRST_PAINT_TIMEOUT,
   });
   await expect(tab(page, /^Summary/)).toHaveAttribute("aria-selected", "false");
+});
+
+test("a link to the former Decisions tab opens Outputs", async ({ page }) => {
+  await page.goto(`${fixture.meetingUrl}?tab=decisions`);
+  await expect(tab(page, /^Outputs/)).toHaveAttribute("aria-selected", "true", {
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
 });

@@ -308,9 +308,9 @@ export function meetingUrl(meeting: MeetingForSummary): string {
   return `${origin.replace(/\/+$/, "")}/recording/${meeting.id}`;
 }
 
-/** The meeting page opened on its Decisions tab. */
+/** The meeting page opened on its Outputs tab, where its decisions are listed. */
 export function meetingDecisionsUrl(meeting: MeetingForSummary): string {
-  return withMeetingTab(meetingUrl(meeting), "decisions").toString();
+  return withMeetingTab(meetingUrl(meeting), "outputs").toString();
 }
 
 /**

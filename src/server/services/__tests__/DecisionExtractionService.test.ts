@@ -228,11 +228,64 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
     expect(run.chunksSkipped).toBe(total - MAX_TRANSCRIPT_CHUNKS);
   });
 
+  it("returns action items apart from decisions, each backed by a real turn", async () => {
+    modelReturns({
+      decisions: [
+        {
+          statement: "Prioritisation debates are parked for the prioritisation ceremony",
+          deciderNames: [],
+          evidenceTurnIndices: [4],
+        },
+      ],
+      actionItems: [
+        { text: "Review the accordion PR", assigneeName: "Pat Reviewer", dueDateText: "today", evidenceTurnIndices: [5, 1] },
+        // Restated, invented and blank items never reach review.
+        { text: "review the accordion PR.", evidenceTurnIndices: [5] },
+        { text: "Book the offsite", evidenceTurnIndices: [42] },
+        { text: "Ping design", assigneeName: "  ", evidenceTurnIndices: [2] },
+      ],
+    });
+
+    const run = await DecisionExtractionService.extractFromTranscript(TURNS);
+
+    expect(run.candidates.map((c) => c.statement)).toEqual([
+      "Prioritisation debates are parked for the prioritisation ceremony",
+    ]);
+    expect(run.actionItems.map((a) => a.text)).toEqual(["Review the accordion PR", "Ping design"]);
+    const [review, ping] = run.actionItems;
+    expect(review!.assigneeName).toBe("Pat Reviewer");
+    expect(review!.dueDateText).toBe("today");
+    expect(review!.evidence.map((e) => e.turnIndex)).toEqual([1, 5]);
+    expect(ping!.assigneeName).toBeUndefined();
+  });
+
+  it("keeps reading action items after the decision budget is spent", async () => {
+    modelReturns({
+      decisions: [{ statement: "Decision one", deciderNames: [], evidenceTurnIndices: [4] }],
+      actionItems: [{ text: "Review the accordion PR", evidenceTurnIndices: [5] }],
+    });
+
+    const run = await DecisionExtractionService.extractFromTranscript(TURNS, { maxDecisions: 0 });
+
+    expect(run.candidates).toEqual([]);
+    expect(run.actionItems.map((a) => a.text)).toEqual(["Review the accordion PR"]);
+  });
+
   it("counts failed chunks so a total outage is not reported as an empty meeting", async () => {
     invokeMock.mockRejectedValue(new Error("429 rate limited"));
     const run = await DecisionExtractionService.extractFromTranscript(TURNS);
     expect(run.candidates).toEqual([]);
     expect(run.chunksFailed).toBeGreaterThan(0);
+  });
+});
+
+describe("buildDecisionSystemPrompt action items", () => {
+  it("asks for action items and tells them apart from decisions", () => {
+    const prompt = buildDecisionSystemPrompt();
+    expect(prompt).toContain('"actionItems"');
+    expect(prompt).toContain("exactly ONE of decisions, openQuestions or actionItems");
+    expect(prompt).toContain("If it is clear what the action is");
+    expect(prompt).toMatch(/An action item's evidenceTurnIndices MUST/);
   });
 });
 

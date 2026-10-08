@@ -199,6 +199,20 @@ describe("generateDraftDecisions", () => {
     expect(emitNotificationMock).not.toHaveBeenCalled();
   });
 
+  it("hands over action items only from a complete transcript reading", async () => {
+    const item = { text: "Review the accordion PR", evidence: [] };
+    extractFromTranscript.mockResolvedValue({ ...transcriptRun([]), actionItems: [item] });
+    expect((await generateDraftDecisions(db, "m1", "u-dev")).actionItems).toEqual([item]);
+
+    // Sections past the cap were never read: the caller must run the full
+    // action pass rather than miss every task stated after them.
+    extractFromTranscript.mockResolvedValue({ ...transcriptRun([], { chunksTotal: 8, chunksSkipped: 2 }), actionItems: [item] });
+    expect((await generateDraftDecisions(db, "m1", "u-dev")).actionItems).toBeUndefined();
+
+    extractFromTranscript.mockResolvedValue({ ...transcriptRun([], { chunksFailed: 1 }), actionItems: [] });
+    expect((await generateDraftDecisions(db, "m1", "u-dev")).actionItems).toBeUndefined();
+  });
+
   it("passes the transcript turns and the workspace's confirmed statements and open decisions to the extractor", async () => {
     db.decision.findMany
       .mockResolvedValueOnce([] as never) // the meeting's own rows
