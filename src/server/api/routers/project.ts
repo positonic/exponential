@@ -406,6 +406,31 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Slim mutation for the header icon picker (same format as goal icons).
+  updateIcon: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        icon: z.string().max(100).nullable(),
+        iconColor: z.string().max(32).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
+      return ctx.db.project.update({
+        where: { id: input.id },
+        data: { icon: input.icon, iconColor: input.iconColor },
+        select: { id: true, icon: true, iconColor: true },
+      });
+    }),
+
   update: protectedProcedure
     .input(
       z.object({

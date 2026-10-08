@@ -1190,6 +1190,9 @@ model Project {
   createdById           String
   slug                  String                     @unique
   description           String?
+  // Display icon: "emoji:🚀" or "tabler:IconRocket" (same format as Goal.icon)
+  icon                  String?
+  iconColor             String? // Color key: "purple", "blue", "teal", etc.
   // Per-scope AI guidance ("Instructions" in the UI). Layered on top of the
   // workspace's aiInstructions as DEMOTED <user_data> context in the chat
   // route (project wins on conflict), never an authoritative system prompt

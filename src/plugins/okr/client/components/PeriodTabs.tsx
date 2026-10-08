@@ -94,7 +94,7 @@ export function PeriodTabs({
       radius="md"
       styles={{
         list: { borderBottom: "1px solid var(--color-border-primary)", gap: 8 },
-        tab: { color: "var(--color-text-secondary)", padding: "10px 14px" },
+        tab: { padding: "10px 14px" },
       }}
     >
       <Tabs.List>

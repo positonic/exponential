@@ -82,7 +82,13 @@ vi.mock("~/server/db", () => {
 
 import { createMockCaller } from "~/test/trpc-helpers";
 
-const { cancelScheduledMeetingMock } = vi.hoisted(() => ({ cancelScheduledMeetingMock: vi.fn() }));
+const { cancelScheduledMeetingMock, previewOneOffAgendaMock } = vi.hoisted(() => ({
+  cancelScheduledMeetingMock: vi.fn(),
+  previewOneOffAgendaMock: vi.fn(),
+}));
+vi.mock("~/server/services/ceremonies/agenda/previewOneOff", () => ({
+  previewOneOffAgenda: previewOneOffAgendaMock,
+}));
 vi.mock("~/server/services/calendar/cancelScheduledMeeting", () => ({
   cancelScheduledMeeting: cancelScheduledMeetingMock,
 }));
@@ -468,6 +474,73 @@ describe("ceremony router", () => {
       expect(res.rows[0]).toMatchObject({ meetingId: "m-1", occurrenceId: "occ-1", ceremonyName: "Daily Standup" });
       expect(res.rows[0]!.reason).toContain("anchored on title date or import date");
       expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("previewOneOffAgenda", () => {
+    const input = {
+      workspaceId: WORKSPACE_ID,
+      projectId: "p-1",
+      scheduledStart: new Date("2026-10-20T09:00:00Z"),
+      sectionTypes: ["project_state" as const, "free_text" as const],
+    };
+
+    function withProjectAccess() {
+      db.project.findUnique.mockResolvedValue({
+        id: "p-1",
+        createdById: USER_ID,
+        workspaceId: WORKSPACE_ID,
+        teamId: null,
+        isPublic: false,
+        isRestricted: false,
+      } as never);
+    }
+
+    it("denies a user with no access to the project", async () => {
+      db.project.findUnique.mockResolvedValue(null);
+      await expect(caller(db).ceremony.previewOneOffAgenda(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(previewOneOffAgendaMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a project outside the given workspace", async () => {
+      withProjectAccess();
+      db.project.findFirst.mockResolvedValue(null);
+      await expect(caller(db).ceremony.previewOneOffAgenda(input)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
+
+    it("refuses a recurring-only section", async () => {
+      withProjectAccess();
+      await expect(
+        caller(db).ceremony.previewOneOffAgenda({ ...input, sectionTypes: ["carried_over" as never] }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("previews for the caller in their timezone and returns the rows", async () => {
+      withProjectAccess();
+      db.project.findFirst.mockResolvedValue({ workspace: { slug: "acme" } } as never);
+      db.user.findUnique.mockResolvedValue({ timezone: "Europe/Berlin" } as never);
+      previewOneOffAgendaMock.mockResolvedValue([{ key: "project_state", type: "project_state", title: "Project state", count: 2, sample: ["a", "b"] }]);
+
+      db.workspaceUser.findMany.mockResolvedValue([{ userId: "u-member" }] as never);
+      db.teamUser.findMany.mockResolvedValue([{ userId: "u-team" }] as never);
+
+      const rows = await caller(db).ceremony.previewOneOffAgenda({
+        ...input,
+        purposePreset: "review",
+        attendeeUserIds: ["u-member", "u-team", "u-outsider"],
+      });
+
+      expect(rows).toHaveLength(1);
+      expect(previewOneOffAgendaMock).toHaveBeenCalledWith(db, expect.objectContaining({
+        workspaceSlug: "acme",
+        projectId: "p-1",
+        callerUserId: USER_ID,
+        sectionTypes: ["project_state", "free_text"],
+        presetKey: "review",
+        timezone: "Europe/Berlin",
+        // A user outside the workspace is dropped, never previewed.
+        attendeeUserIds: ["u-member", "u-team"],
+      }));
     });
   });
 

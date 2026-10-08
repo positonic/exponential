@@ -786,6 +786,16 @@ describe("runOutboundTicketPush — archived ticket never trashes the page", () 
     expect(adapter.updates.flatMap((u) => Object.keys(u.props))).not.toContain(
       "Status",
     );
+    // The unpushed status stays pinned to the REMOTE value, so it remains a
+    // pending outbound change. Pinning it to ARCHIVED would make the next pull
+    // read Notion's "In Progress" as a remote edit and reopen the ticket.
+    expect(db.ticketSync.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          snapshot: expect.objectContaining({ status: "IN_PROGRESS" }),
+        }),
+      }),
+    );
     expect(db.ticketSync.update).not.toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ tombstonedAt: expect.anything() }),

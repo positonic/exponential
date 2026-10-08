@@ -72,7 +72,6 @@ export function ViewSwitcher({
       }}
       variant="pills"
       radius="md"
-      styles={{}}
     >
       <Tabs.List>
         <Tabs.Tab value={DEFAULT_VIEW_CONFIG.id}>

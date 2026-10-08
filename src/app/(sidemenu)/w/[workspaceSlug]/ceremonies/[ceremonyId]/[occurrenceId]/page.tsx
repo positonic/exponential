@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge, Button, Container, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { IconArrowLeft, IconBrandMatrix, IconSend, IconSparkles } from "@tabler/icons-react";
+import { IconArrowLeft, IconBrandMatrix, IconCalendarX, IconSend, IconSparkles } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
+import { modals } from "@mantine/modals";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { AgendaView } from "~/app/_components/ceremonies/AgendaView";
@@ -12,6 +14,8 @@ import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUp
 import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceAsyncSummary";
 import { OccurrenceSkipBanner } from "~/app/_components/ceremonies/OccurrenceSkipBanner";
 import { OccurrenceNotes } from "~/app/_components/ceremonies/OccurrenceNotes";
+import { useRegisterTopbarCrumbs } from "~/app/_components/layout/TopbarCrumbs";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 /**
  * Occurrence page (ADR-0059): the generated agenda for one ceremony
@@ -19,6 +23,11 @@ import { OccurrenceNotes } from "~/app/_components/ceremonies/OccurrenceNotes";
  * demand by the ceremony owner — plus the participant's own async-first
  * update (V3), the empty-agenda skip proposal and the recordings that
  * captured it.
+ *
+ * A one-off (a meeting booked from a project, ADR-0059 amendment 2026-10-07)
+ * reads as a meeting: its purpose under the title, its attendees, Cancel for
+ * the organizer, and "Meeting" — never "Ceremony" — in the crumb. The route
+ * stays under /ceremonies.
  */
 
 const whenFmt: Intl.DateTimeFormatOptions = {
@@ -71,6 +80,40 @@ export default function OccurrencePage() {
     },
     onError: (e) => notifications.show({ title: "Couldn't post to Matrix", message: e.message, color: "red" }),
   });
+  const { data: session } = useSession();
+  const isOneOff = occurrence?.isOneOff ?? false;
+  useRegisterTopbarCrumbs(isOneOff && occurrence ? [{ label: occurrence.ceremony.name }] : null, {
+    level: 1,
+    section: { label: "Meetings", href: `/w/${params.workspaceSlug}/meetings` },
+  });
+
+  const cancelMeeting = api.workspaceScheduling.cancelMeeting.useMutation({
+    onSuccess: async (res) => {
+      notifications.show({
+        title: "Meeting cancelled",
+        message: `${res.invitesSent} cancellation${res.invitesSent === 1 ? "" : "s"} sent to attendees' calendars.`,
+        color: "blue",
+      });
+      await Promise.all([invalidate(), utils.workspaceScheduling.listMeetings.invalidate()]);
+    },
+    onError: (e) => notifications.show({ title: "Couldn't cancel", message: e.message, color: "red" }),
+  });
+  const confirmCancel = (meetingId: string, title: string) => {
+    if (!workspaceId) return;
+    modals.openConfirmModal({
+      title: "Cancel meeting?",
+      children: (
+        <Text size="sm">
+          Attendees will receive a cancellation that removes “{title}” from their calendars. The agenda and
+          notes stay here. Rescheduling means booking a new meeting.
+        </Text>
+      ),
+      labels: { confirm: "Cancel meeting", cancel: "Keep meeting" },
+      confirmProps: { color: "red" },
+      onConfirm: () => cancelMeeting.mutate({ workspaceId, meetingId }),
+    });
+  };
+
   const resolveItem = api.ceremony.resolveAgendaItem.useMutation({
     onSuccess: async () => {
       await utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
@@ -95,28 +138,45 @@ export default function OccurrencePage() {
   }
 
   const when = new Date(occurrence.scheduledStart).toLocaleString(undefined, whenFmt);
+  const booking = occurrence.scheduledMeeting;
+  const canCancel =
+    isOneOff && booking?.status === "confirmed" && booking.organizerId === session?.user?.id;
+  const attendeeNames = (booking?.attendees ?? []).map((a) => a.name).filter((n): n is string => !!n);
   return (
     <Container size="lg" py="xl">
       <Stack gap="lg">
         <Group justify="space-between" align="flex-start">
           <div>
-            <Button
-              component={Link}
-              href={`/w/${workspace.slug}/ceremonies/${occurrence.ceremony.id}`}
-              variant="subtle"
-              size="compact-sm"
-              leftSection={<IconArrowLeft size={14} />}
-              px={0}
-            >
-              {occurrence.ceremony.name}
-            </Button>
-            <Title order={2} mt={6}>
+            {/* A one-off has no series to go back to; the topbar crumb leads to Meetings. */}
+            {!isOneOff && (
+              <Button
+                component={Link}
+                href={`/w/${workspace.slug}/ceremonies/${occurrence.ceremony.id}`}
+                variant="subtle"
+                size="compact-sm"
+                leftSection={<IconArrowLeft size={14} />}
+                px={0}
+                mb={6}
+              >
+                {occurrence.ceremony.name}
+              </Button>
+            )}
+            <Title order={2}>
               {occurrence.ceremony.name} · {when}
             </Title>
+            {isOneOff && occurrence.purpose && (
+              <div className="mt-1 text-text-secondary" data-testid="meeting-purpose">
+                <MarkdownRenderer content={occurrence.purpose} variant="compact" />
+              </div>
+            )}
             <Group gap="xs" mt={6}>
-              <Badge variant="light">{occurrence.status.replace(/_/g, " ").toLowerCase()}</Badge>
+              <Badge variant="light">
+                {isOneOff && booking?.status === "cancelled" ? "cancelled" : occurrence.status.replace(/_/g, " ").toLowerCase()}
+              </Badge>
               <Text size="sm" className="text-text-muted">
-                {occurrence.ceremony.durationMinutes} min · owner {occurrence.ceremony.owner.name ?? occurrence.ceremony.owner.email ?? "—"}
+                {occurrence.ceremony.durationMinutes} min · {isOneOff ? "organizer" : "owner"}{" "}
+                {occurrence.ceremony.owner.name ?? occurrence.ceremony.owner.email ?? "—"}
+                {isOneOff && attendeeNames.length > 0 ? ` · with ${attendeeNames.join(", ")}` : ""}
               </Text>
               {occurrence.agendaGeneratedAt && (
                 <Text size="xs" className="text-text-muted">
@@ -128,6 +188,18 @@ export default function OccurrencePage() {
           </div>
           {occurrence.canGenerate && occurrence.status !== "SKIPPED" && (
             <Group gap="xs">
+              {canCancel && booking && (
+                <Button
+                  variant="default"
+                  color="red"
+                  leftSection={<IconCalendarX size={14} />}
+                  loading={cancelMeeting.isPending}
+                  onClick={() => confirmCancel(booking.id, occurrence.ceremony.name)}
+                  data-testid="cancel-meeting"
+                >
+                  Cancel meeting
+                </Button>
+              )}
               <Button
                 variant="default"
                 leftSection={<IconSparkles size={14} />}
@@ -154,7 +226,9 @@ export default function OccurrencePage() {
                 onClick={() => generate.mutate({ workspaceId, occurrenceId: occurrence.id, circulate: true })}
                 data-testid="circulate-agenda"
               >
-                {occurrence.agendaCirculatedAt ? "Regenerate & resend" : "Generate & send to participants"}
+                {occurrence.agendaCirculatedAt
+                  ? "Regenerate & resend"
+                  : `Generate & send to ${isOneOff ? "attendees" : "participants"}`}
               </Button>
             </Group>
           )}
@@ -168,6 +242,7 @@ export default function OccurrencePage() {
           proposed={occurrence.skipProposal.proposed}
           canManage={occurrence.canGenerate}
           onChanged={invalidate}
+          cancelledMeeting={isOneOff && booking?.status === "cancelled"}
         />
 
         <OccurrenceUpdatePanel workspaceId={workspaceId} occurrenceId={occurrence.id} />

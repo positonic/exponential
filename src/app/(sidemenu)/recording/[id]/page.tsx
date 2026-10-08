@@ -108,7 +108,20 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
     summaryAttemptedRef.current.add(session.id);
-    generateSummary({ transcriptionId: session.id });
+    // Say so when it fails — otherwise the summary just never appears and
+    // there's no hint why (e.g. the LLM provider is out of credit).
+    generateSummary(
+      { transcriptionId: session.id },
+      {
+        onError: (error) => {
+          notifications.show({
+            title: "Couldn't generate the AI summary",
+            message: error.message,
+            color: "red",
+          });
+        },
+      },
+    );
   }, [session, generateSummary]);
 
   // Deterministic extraction: Create Actions runs generateDraftActions (not the
