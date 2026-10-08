@@ -363,7 +363,11 @@ export async function generateDraftDecisions(
           maxDecisions: remainingBudget,
         });
         transcriptCandidates = filterNearDuplicateCandidates(run.candidates, alreadyCaptured);
-        if (run.chunksFailed < run.chunksTotal - run.chunksSkipped) {
+        // Hand the action items over only from a full reading. This pass is
+        // capped at MAX_TRANSCRIPT_CHUNKS sections and the dedicated action
+        // pass is not, so a truncated run would silently drop every task
+        // stated after the cap; the caller falls back to that pass instead.
+        if (run.chunksSkipped === 0 && run.chunksFailed < run.chunksTotal) {
           result.actionItems = run.actionItems;
         }
         if (run.chunksSkipped > 0) {
