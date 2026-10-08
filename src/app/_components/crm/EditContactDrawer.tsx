@@ -368,11 +368,12 @@ export function EditContactDrawer({
       onClose={onClose}
       position="right"
       size={wide ? 720 : 540}
-      // The compound Drawer.Root API does not inherit theme.components.Drawer
-      // defaultProps, so without these the shell falls back to Mantine's
-      // neutral-gray dark surface while the inputs use the app's navy tokens.
-      // Mirror the theme's Drawer styles here; they reach every sub-component
-      // via context (styles on Drawer.Content only cover the content selector).
+      // The compound Drawer.Root API does not inherit
+      // theme.components.Drawer.defaultProps (DrawerRoot calls
+      // useProps('DrawerRoot', ...)), which is why these were mirrored by hand.
+      // It does read theme.components.Drawer.styles, so since that moved to the
+      // component root these are no longer load-bearing - kept as an explicit
+      // record of what this drawer expects.
       styles={{
         header: {
           backgroundColor: 'var(--color-bg-elevated)',
