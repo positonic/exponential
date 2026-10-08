@@ -84,4 +84,9 @@ describe("previewOneOffAgenda", () => {
     expect(db.ceremonyOccurrence.create).not.toHaveBeenCalled();
     expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
   });
+
+  it("counts the member attendees' blockers too, as booking does", async () => {
+    await preview({ attendeeUserIds: ["u-2", "u-1", "u-3"] });
+    expect(runs[0]!.ctx.participantUserIds).toEqual(["u-1", "u-2", "u-3"]);
+  });
 });

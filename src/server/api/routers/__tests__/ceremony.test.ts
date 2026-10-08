@@ -521,7 +521,14 @@ describe("ceremony router", () => {
       db.user.findUnique.mockResolvedValue({ timezone: "Europe/Berlin" } as never);
       previewOneOffAgendaMock.mockResolvedValue([{ key: "project_state", type: "project_state", title: "Project state", count: 2, sample: ["a", "b"] }]);
 
-      const rows = await caller(db).ceremony.previewOneOffAgenda({ ...input, purposePreset: "review" });
+      db.workspaceUser.findMany.mockResolvedValue([{ userId: "u-member" }] as never);
+      db.teamUser.findMany.mockResolvedValue([{ userId: "u-team" }] as never);
+
+      const rows = await caller(db).ceremony.previewOneOffAgenda({
+        ...input,
+        purposePreset: "review",
+        attendeeUserIds: ["u-member", "u-team", "u-outsider"],
+      });
 
       expect(rows).toHaveLength(1);
       expect(previewOneOffAgendaMock).toHaveBeenCalledWith(db, expect.objectContaining({
@@ -531,6 +538,8 @@ describe("ceremony router", () => {
         sectionTypes: ["project_state", "free_text"],
         presetKey: "review",
         timezone: "Europe/Berlin",
+        // A user outside the workspace is dropped, never previewed.
+        attendeeUserIds: ["u-member", "u-team"],
       }));
     });
   });

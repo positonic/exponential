@@ -683,6 +683,7 @@ export function ScheduleMeetingModal({
                 onPresetChange={setPresetKey}
                 sectionTypes={sectionTypes}
                 onSectionTypesChange={setSectionTypes}
+                memberAttendeeIds={attendees.flatMap((a) => ("userId" in a.payload ? [a.payload.userId] : []))}
               />
             ) : (
               <div>

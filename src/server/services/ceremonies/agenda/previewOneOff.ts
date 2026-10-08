@@ -7,7 +7,8 @@
  * path as `generateAgenda` (a no-op here: a one-off has `includeProjects`
  * off, so it carries only what was ticked), against an in-memory ceremony and occurrence that
  * are never persisted (placeholder ids). Nothing is written and no LLM is
- * called. For the six one-off section types the modules read only the
+ * called. Participants are the caller and the member attendees, as booking
+ * makes them. For the six one-off section types the modules read only the
  * ceremony's product and timezone, the occurrence's start, the previous
  * occurrence (none) and the project ids, so the stand-ins are enough.
  */
@@ -35,6 +36,8 @@ export async function previewOneOffAgenda(
     workspaceSlug: string;
     projectId: string;
     callerUserId: string;
+    /** Member attendees, already checked to be workspace members; the caller is always added. */
+    attendeeUserIds?: string[];
     scheduledStart: Date;
     durationMinutes?: number;
     sectionTypes: OneOffSectionType[];
@@ -109,7 +112,9 @@ export async function previewOneOffAgenda(
     ceremony,
     occurrence,
     previousOccurrence: null,
-    participantUserIds: [input.callerUserId],
+    // The booking's participants: the organizer plus every member attendee,
+    // so a teammate's blockers show in the preview as they will on the day.
+    participantUserIds: Array.from(new Set([input.callerUserId, ...(input.attendeeUserIds ?? [])])),
     projectIds: [input.projectId],
     now,
     workspacePath: `/w/${input.workspaceSlug}`,

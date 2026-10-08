@@ -237,6 +237,8 @@ export const ceremonyRouter = createTRPCRouter({
         sectionTypes: z.array(z.enum(ONE_OFF_SECTION_TYPES)).max(ONE_OFF_SECTION_TYPES.length),
         purposePreset: z.string().max(40).optional(),
         purpose: z.string().max(2000).optional(),
+        /** Member attendees picked so far; their blockers count, as they will at booking. */
+        attendeeUserIds: z.array(z.string()).max(50).optional(),
       }),
     )
     .use(requireProjectAccess("view"))
@@ -248,11 +250,22 @@ export const ceremonyRouter = createTRPCRouter({
       });
       if (!project?.workspace) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found in this workspace" });
       const user = await ctx.db.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+      // Only real members of this workspace (directly or through a team) —
+      // anyone else is dropped rather than previewed.
+      const requested = Array.from(new Set(input.attendeeUserIds ?? []));
+      const [direct, viaTeam] = requested.length
+        ? await Promise.all([
+            ctx.db.workspaceUser.findMany({ where: { workspaceId: input.workspaceId, userId: { in: requested } }, select: { userId: true } }),
+            ctx.db.teamUser.findMany({ where: { team: { workspaceId: input.workspaceId }, userId: { in: requested } }, select: { userId: true } }),
+          ])
+        : [[], []];
+      const memberIds = new Set([...direct, ...viaTeam].map((m) => m.userId));
       return previewOneOffAgenda(ctx.db, {
         workspaceId: input.workspaceId,
         workspaceSlug: project.workspace.slug,
         projectId: input.projectId,
         callerUserId: userId,
+        attendeeUserIds: requested.filter((id) => memberIds.has(id)),
         scheduledStart: input.scheduledStart,
         durationMinutes: input.durationMinutes,
         sectionTypes: input.sectionTypes,

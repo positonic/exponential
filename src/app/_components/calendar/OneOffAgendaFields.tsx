@@ -34,9 +34,12 @@ export function OneOffAgendaFields({
   onPresetChange,
   sectionTypes,
   onSectionTypesChange,
+  memberAttendeeIds,
 }: {
   workspaceId: string;
   projectId: string;
+  /** Teammates picked as attendees; their blockers are previewed too. */
+  memberAttendeeIds: string[];
   scheduledStart: Date;
   durationMinutes: number;
   purpose: string;
@@ -57,6 +60,8 @@ export function OneOffAgendaFields({
       durationMinutes,
       sectionTypes: [...ONE_OFF_SECTION_TYPES],
       purposePreset: presetKey,
+      // Sorted so reordering the attendee chips doesn't refetch.
+      attendeeUserIds: [...memberAttendeeIds].sort(),
     },
     { placeholderData: (previous) => previous, staleTime: 60_000, retry: false },
   );
