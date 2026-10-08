@@ -31,6 +31,13 @@ const agenda: AgendaSnapshot = {
   narrative: "The meeting needs to get through one key result at risk.\n\n## Blockers\nNothing to raise.\n\n## Key results at risk\n- Linked work renders (never checked in)",
 };
 
+/** A deep Prisma mock whose interactive `$transaction` runs on the same mock. */
+function mockDb() {
+  const db = mockDeep<PrismaClient>();
+  db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => unknown) => fn(db)) as never);
+  return db;
+}
+
 const occurrence = { id: "occ-1", workspaceId: "ws-1", scheduledStart: new Date("2026-09-08T07:00:00.000Z") };
 const ceremony = { name: "Daily Standup", timezone: "Europe/Berlin", ownerId: "u-owner", projects: [] };
 
@@ -84,7 +91,7 @@ describe("seedNotesPageIfUntouched", () => {
   const seed = buildNotesSeed(agenda);
 
   it("seeds an empty page with a compare-and-set on docVersion 0", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 0, body: null, bodyDoc: null } as never);
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
     expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(true);
@@ -96,7 +103,7 @@ describe("seedNotesPageIfUntouched", () => {
   });
 
   it("treats the editor's empty doc as untouched, but never touches a saved or written page", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
     db.knowledgePage.findUnique.mockResolvedValueOnce({ docVersion: 0, body: "", bodyDoc: { type: "doc", content: [{ type: "paragraph" }] } } as never);
     expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(true);
@@ -111,7 +118,7 @@ describe("seedNotesPageIfUntouched", () => {
   });
 
   it("yields to a save that lands between the read and the write", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 0, body: null, bodyDoc: null } as never);
     db.knowledgePage.updateMany.mockResolvedValue({ count: 0 });
     expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(false);
@@ -121,7 +128,7 @@ describe("seedNotesPageIfUntouched", () => {
 
 describe("ensureSeededOccurrenceNotesPage", () => {
   it("creates the page with the seed on first generation and indexes it", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: null } as never);
     db.knowledgePage.create.mockResolvedValue({ id: "page-1" } as never);
     db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
@@ -135,7 +142,7 @@ describe("ensureSeededOccurrenceNotesPage", () => {
   });
 
   it("on regeneration leaves an edited page alone (seed once only)", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: "page-1" } as never);
     db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 4, body: "Edited by hand", bodyDoc: markdownToDoc("Edited by hand") } as never);
     const res = await ensureSeededOccurrenceNotesPage(db, occurrence, ceremony, { ...agenda, narrative: "Regenerated pre-read" });
@@ -166,7 +173,7 @@ describe("appendMeetingSummaryToNotes", () => {
   const existing = markdownToDoc("## Blockers\n\nWe talked.");
 
   it("appends a Meeting summary section with a compare-and-set on the version read, and keeps body = doc", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: "page-1" } as never);
     db.knowledgePage.findUnique.mockResolvedValue({ bodyDoc: existing, body: "## Blockers\n\nWe talked.", docVersion: 2 } as never);
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
@@ -188,7 +195,7 @@ describe("appendMeetingSummaryToNotes", () => {
   });
 
   it("retries once against a fresh read on a version conflict, then reports the conflict", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: "page-1" } as never);
     db.knowledgePage.findUnique
       .mockResolvedValueOnce({ bodyDoc: existing, body: "", docVersion: 2 } as never)
@@ -209,7 +216,7 @@ describe("appendMeetingSummaryToNotes", () => {
   });
 
   it("derives the doc from Markdown when the page has never been opened, and drops the blank paragraph of an empty page", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: "page-1" } as never);
     db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
     db.knowledgePage.findUnique.mockResolvedValueOnce({ bodyDoc: null, body: "## Blockers\n\nText", docVersion: 0 } as never);
@@ -225,7 +232,7 @@ describe("appendMeetingSummaryToNotes", () => {
   });
 
   it("is a no-op without a page, without a summary, or when the section is already there", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     expect(await appendMeetingSummaryToNotes(db, "occ-1", "  ")).toEqual({ appended: false, reason: "empty-summary" });
     db.ceremonyOccurrence.findUnique.mockResolvedValueOnce({ notesPageId: null } as never);
     expect(await appendMeetingSummaryToNotes(db, "occ-1", "Summary")).toEqual({ appended: false, reason: "no-page" });

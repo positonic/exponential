@@ -59,6 +59,8 @@ function stubShipped() {
 
 beforeEach(() => {
   mockReset(db);
+  // Page body writes run in an interactive transaction (with their PageLink sync).
+  db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => unknown) => fn(db)) as never);
   // Sources this suite doesn't exercise ship nothing.
   db.workspaceActivityEvent.findMany.mockResolvedValue([]);
   db.list.findMany.mockResolvedValue([]);

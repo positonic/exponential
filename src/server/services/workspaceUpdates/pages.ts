@@ -15,6 +15,7 @@ import type { JSONContent } from "@tiptap/core";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { collectPageLinkIds } from "~/lib/pages/public-doc";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
+import { syncPageLinks, writePageBodyIfVersion } from "~/server/services/pages/page-links";
 import { docToMarkdownServer, markdownToDocServer } from "~/server/services/prd/markdown-doc";
 
 export const UPDATES_INDEX_TITLE = "Updates";
@@ -33,17 +34,21 @@ export async function createDraftPage(
   input: { workspaceId: string; createdById: string; title: string; markdown: string },
 ): Promise<string> {
   const { bodyDoc, body } = docAndBody(input.markdown);
-  const page = await db.knowledgePage.create({
-    data: {
-      workspaceId: input.workspaceId,
-      projectId: null,
-      title: input.title,
-      bodyDoc: bodyDoc as Prisma.InputJsonValue,
-      body,
-      createdById: input.createdById,
-      includeInSearch: true,
-    },
-    select: { id: true },
+  const page = await db.$transaction(async (tx) => {
+    const created = await tx.knowledgePage.create({
+      data: {
+        workspaceId: input.workspaceId,
+        projectId: null,
+        title: input.title,
+        bodyDoc: bodyDoc as Prisma.InputJsonValue,
+        body,
+        createdById: input.createdById,
+        includeInSearch: true,
+      },
+      select: { id: true },
+    });
+    await syncPageLinks(tx, created.id, bodyDoc);
+    return created;
   });
   if (body.trim()) getEmbeddingTriggerService(db).triggerPageEmbedding(page.id);
   return page.id;
@@ -117,15 +122,13 @@ export async function syncUpdatesIndex(
       type: "doc",
       content: [...content.slice(0, introLength), ...missing, ...content.slice(introLength)],
     };
-    const { count } = await db.knowledgePage.updateMany({
-      where: { id: input.indexPageId, docVersion: page.docVersion },
-      data: {
-        bodyDoc: nextDoc as Prisma.InputJsonValue,
-        body: docToMarkdownServer(nextDoc),
-        docVersion: { increment: 1 },
-      },
+    const written = await writePageBodyIfVersion(db, {
+      pageId: input.indexPageId,
+      expectedVersion: page.docVersion,
+      doc: nextDoc,
+      data: { body: docToMarkdownServer(nextDoc) },
     });
-    if (count === 1) return true;
+    if (written) return true;
   }
   return false;
 }
@@ -141,16 +144,13 @@ export async function replacePageContent(
   input: { pageId: string; title: string; markdown: string; expectedDocVersion: number },
 ): Promise<"replaced" | "conflict"> {
   const { bodyDoc, body } = docAndBody(input.markdown);
-  const { count } = await db.knowledgePage.updateMany({
-    where: { id: input.pageId, docVersion: input.expectedDocVersion },
-    data: {
-      title: input.title,
-      bodyDoc: bodyDoc as Prisma.InputJsonValue,
-      body,
-      docVersion: { increment: 1 },
-    },
+  const written = await writePageBodyIfVersion(db, {
+    pageId: input.pageId,
+    expectedVersion: input.expectedDocVersion,
+    doc: bodyDoc,
+    data: { title: input.title, body },
   });
-  if (count !== 1) return "conflict";
+  if (!written) return "conflict";
   getEmbeddingTriggerService(db).triggerPageEmbedding(input.pageId);
   return "replaced";
 }
