@@ -1721,75 +1721,188 @@ describe("action router (mocked)", () => {
 
     beforeEach(() => {
       dbMock.action.updateMany.mockResolvedValue({ count: 3 });
+      // Array form: the updateMany calls are recorded as the array is built.
+      dbMock.$transaction.mockImplementation(
+        ((ops: Promise<unknown>[]) => Promise.all(ops)) as never,
+      );
     });
 
-    it("moves scheduledStart as well as dueDate", async () => {
-      // scheduledStart is what partitionActions buckets on when it is set, so
-      // writing dueDate alone would leave the action in the overdue pile —
-      // "Reschedule all overdue" would move nothing.
-      const dueDate = new Date(2026, 7, 5, 0, 0, 0);
+    interface Row {
+      id: string;
+      scheduledStart: Date | null;
+      dueDate: Date | null;
+    }
+
+    // Mocked Prisma can't evaluate a `where`, so replay the recorded
+    // updateMany calls over fixture rows. Only the shapes bulkReschedule
+    // emits are understood: `id in`, plus an optional `dueDate < x` inside
+    // AND. Like Postgres, `lt` never matches a null dueDate.
+    function replay(rows: Row[]): Row[] {
+      const out = rows.map((r) => ({ ...r }));
+      for (const [args] of dbMock.action.updateMany.mock.calls) {
+        const where = args!.where as {
+          id?: { in: string[] };
+          AND?: [{ id: { in: string[] } }, { dueDate: { lt: Date } }];
+        };
+        const ids = where.AND ? where.AND[0].id.in : where.id!.in;
+        const lt = where.AND?.[1].dueDate.lt;
+        for (const row of out) {
+          if (!ids.includes(row.id)) continue;
+          if (lt && !(row.dueDate && row.dueDate < lt)) continue;
+          Object.assign(row, args!.data);
+        }
+      }
+      return out;
+    }
+
+    const tomorrow = new Date(2026, 9, 9, 0, 0, 0);
+    const friday = new Date(2026, 9, 16, 0, 0, 0);
+    const lastWeek = new Date(2026, 9, 1, 0, 0, 0);
+
+    it("keeps a deadline that falls after the new do-date", async () => {
+      // The bug: an agent moving the do-date to tomorrow overwrote a real
+      // Friday deadline with tomorrow.
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
-      await caller.action.bulkReschedule({ actionIds, dueDate });
+      await caller.action.bulkReschedule({ actionIds: ["a1"], date: tomorrow });
+
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: friday }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
+    });
+
+    it("pushes forward a deadline that would fall before the new do-date", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds: ["a1"], date: friday });
+
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: tomorrow }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: friday, dueDate: friday });
+    });
+
+    it("does not invent a deadline for an action that had none", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds: ["a1"], date: tomorrow });
+
+      const [row] = replay([{ id: "a1", scheduledStart: null, dueDate: null }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: null });
+    });
+
+    it("handles a mixed selection row by row", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: tomorrow });
+
+      expect(
+        replay([
+          { id: "a1", scheduledStart: lastWeek, dueDate: lastWeek },
+          { id: "a2", scheduledStart: lastWeek, dueDate: friday },
+          { id: "a3", scheduledStart: null, dueDate: null },
+          { id: "other", scheduledStart: lastWeek, dueDate: lastWeek },
+        ]),
+      ).toEqual([
+        { id: "a1", scheduledStart: tomorrow, dueDate: tomorrow },
+        { id: "a2", scheduledStart: tomorrow, dueDate: friday },
+        { id: "a3", scheduledStart: tomorrow, dueDate: null },
+        { id: "other", scheduledStart: lastWeek, dueDate: lastWeek },
+      ]);
+    });
+
+    it("writes scheduledStart to every row and dueDate only below the new date, atomically", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: tomorrow });
+
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(dbMock.action.updateMany).toHaveBeenCalledTimes(2);
+      const [move, push] = dbMock.action.updateMany.mock.calls.map((c) => c[0]!);
+      expect(move.data).toEqual({ scheduledStart: tomorrow });
+      expect(push.data).toEqual({ dueDate: tomorrow });
+      expect(push.where).toMatchObject({
+        AND: [{ id: { in: actionIds } }, { dueDate: { lt: tomorrow } }],
+      });
+      // No fabricated block geometry.
+      for (const { data } of [move, push]) {
+        expect(data).not.toHaveProperty("scheduledEnd");
+        expect(data).not.toHaveProperty("duration");
+      }
+    });
+
+    it("clears both dates when date is null", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: null });
 
       expect(dbMock.action.updateMany).toHaveBeenCalledTimes(1);
-      const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
-      expect(data).toEqual({ scheduledStart: dueDate, dueDate });
-      // Still no fabricated block geometry.
-      expect(data).not.toHaveProperty("scheduledEnd");
-      expect(data).not.toHaveProperty("duration");
-    });
-
-    it("clears both dates when dueDate is null", async () => {
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-
-      await caller.action.bulkReschedule({ actionIds, dueDate: null });
-
       const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
       // Leaving a stale scheduledStart behind would keep the row overdue.
       expect(data).toEqual({ scheduledStart: null, dueDate: null });
     });
 
-    it("scopes the update to actions the caller may touch", async () => {
+    it("still accepts the deprecated dueDate field with the same semantics", async () => {
+      // The Mastra reschedule-actions tool and the published SDK send
+      // `dueDate`; they must get push-forward, not an overwrite.
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
-      await caller.action.bulkReschedule({ actionIds, dueDate: new Date() });
+      await caller.action.bulkReschedule({ actionIds: ["a1"], dueDate: tomorrow });
 
-      const { where } = dbMock.action.updateMany.mock.calls[0]![0]!;
-      expect(where).toMatchObject({ id: { in: actionIds } });
-      // buildActionAccessWhere contributes the permission clause.
-      expect(Object.keys(where!).length).toBeGreaterThan(1);
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: friday }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
+    });
+
+    it("treats a deprecated null dueDate as clearing both dates", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, dueDate: null });
+
+      const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
+      expect(data).toEqual({ scheduledStart: null, dueDate: null });
+    });
+
+    it("rejects a call that passes neither or both of date and dueDate", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(caller.action.bulkReschedule({ actionIds })).rejects.toThrow();
+      await expect(
+        caller.action.bulkReschedule({ actionIds, date: tomorrow, dueDate: friday }),
+      ).rejects.toThrow();
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("scopes every update to actions the caller may touch", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: tomorrow });
+      await caller.action.bulkReschedule({ actionIds, date: null });
+
+      for (const [args] of dbMock.action.updateMany.mock.calls) {
+        const where = args!.where as { AND?: object[] };
+        const scope = where.AND ? where.AND[0]! : where;
+        expect(scope).toMatchObject({ id: { in: actionIds } });
+        // buildActionAccessWhere contributes the permission clause.
+        expect(Object.keys(scope).length).toBeGreaterThan(1);
+      }
     });
 
     it("rescheduling the same pile repeatedly is idempotent", async () => {
-      // The pile-up this ticket fixes: "Reschedule all overdue → Today" clicked
-      // in quick succession used to stamp a fresh wall-clock scheduledStart
-      // every time, each drawn as its own hour-long rail block. Callers now
-      // send local midnight, so repeats collapse onto one instant. The server
-      // writes what it is given — this asserts the shape it writes.
-      const midnight = new Date(2026, 7, 5, 0, 0, 0);
+      // "Reschedule all overdue → Today" clicked in quick succession used to
+      // stamp a fresh wall-clock scheduledStart every time, each drawn as its
+      // own hour-long rail block. Callers now send local midnight, so repeats
+      // collapse onto one instant. The server writes what it is given.
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       for (let i = 0; i < 3; i++) {
-        await caller.action.bulkReschedule({ actionIds, dueDate: midnight });
+        await caller.action.bulkReschedule({ actionIds, date: tomorrow });
       }
 
-      const stamps = new Set<number>();
-      for (const call of dbMock.action.updateMany.mock.calls) {
-        const data = call[0]!.data! as { scheduledStart: Date; dueDate: Date };
-        expect(Object.keys(data).sort()).toEqual(["dueDate", "scheduledStart"]);
-        stamps.add(data.scheduledStart.getTime());
-      }
-      expect(stamps.size).toBe(1);
+      const rows = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: lastWeek }]);
+      expect(rows).toEqual([{ id: "a1", scheduledStart: tomorrow, dueDate: tomorrow }]);
     });
 
     it("still reports the actions it was given", async () => {
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
-      const result = await caller.action.bulkReschedule({
-        actionIds,
-        dueDate: new Date(),
-      });
+      const result = await caller.action.bulkReschedule({ actionIds, date: tomorrow });
 
       expect(result).toEqual({ count: 3, actionIds });
     });
