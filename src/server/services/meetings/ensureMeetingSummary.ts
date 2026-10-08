@@ -52,6 +52,8 @@ export type EnsureMeetingSummaryStatus =
   | "no-transcript"
   /** Summarization isn't configured (missing OPENAI_API_KEY). */
   | "not-configured"
+  /** The model call failed (billing, rate limit, timeout, bad output). */
+  | "failed"
   /** The meeting row could not be found. */
   | "not-found";
 
@@ -61,6 +63,8 @@ export interface EnsureMeetingSummaryResult {
   summary?: string;
   /** True when a `meeting`/`summarized` activity event was written. */
   eventEmitted: boolean;
+  /** Why the model call failed, present when status is `failed`. */
+  error?: string;
 }
 
 export interface SummarizeMeetingOptions {
@@ -85,8 +89,9 @@ export interface SummarizeMeetingOptions {
 
 /**
  * Summarize an already-fetched meeting row and persist the result. Never throws
- * for per-meeting failures (transcript empty, LLM error) — those resolve to a
- * status the caller can act on — so a single bad transcript can't sink a batch.
+ * for per-meeting failures (transcript empty → `no-transcript`, LLM error →
+ * `failed`) — those resolve to a status the caller can act on — so a single bad
+ * transcript can't sink a batch.
  *
  * Access control is the CALLER's responsibility: this is a trusted server-side
  * primitive (the cron sweep has no user to authorize against).
@@ -119,12 +124,13 @@ export async function summarizeMeetingRow(
     if (error instanceof SummarizationNotConfiguredError) {
       return { status: "not-configured", eventEmitted: false };
     }
+    const message = error instanceof Error ? error.message : String(error);
     console.error(
       "[ensureMeetingSummary] failed to summarize meeting",
       meeting.id,
-      error instanceof Error ? error.message : String(error),
+      message,
     );
-    return { status: "no-transcript", eventEmitted: false };
+    return { status: "failed", eventEmitted: false, error: message };
   }
 
   // Conditional persist guards against a concurrent writer having filled

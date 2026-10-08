@@ -80,6 +80,11 @@ interface ParticipantPickerProps {
   onAdd: (participant: PendingParticipant) => void;
   /** Disables interaction while the parent persists an add. */
   busy?: boolean;
+  /**
+   * What the picked person is called: a recorded meeting's "participant"
+   * (default) or a Scheduled meeting's "attendee" (CONTEXT.md).
+   */
+  noun?: "participant" | "attendee";
 }
 
 type Capture =
@@ -93,6 +98,7 @@ export function ParticipantPicker({
   existing,
   onAdd,
   busy = false,
+  noun = "participant",
 }: ParticipantPickerProps) {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -275,7 +281,7 @@ export function ParticipantPicker({
     <Modal
       opened={opened}
       onClose={resetAndClose}
-      title="Add participant"
+      title={`Add ${noun}`}
       centered
       size="md"
     >
@@ -291,7 +297,7 @@ export function ParticipantPicker({
             <Text fw={600} size="sm">
               {capture.kind === "contact"
                 ? `Add an email for ${capture.name}`
-                : "Add a new participant"}
+                : `Add a new ${noun}`}
             </Text>
           </Group>
 
@@ -340,7 +346,7 @@ export function ParticipantPicker({
               disabled={!captureValid || busy}
               leftSection={<IconPlus size={14} />}
             >
-              Add participant
+              Add {noun}
             </Button>
           </Group>
         </Stack>
@@ -458,7 +464,7 @@ export function ParticipantPicker({
                     <Text size="xs" c="dimmed">
                       {isEmail
                         ? "New contact — added to the CRM"
-                        : "New participant — add their email next"}
+                        : `New ${noun} — add their email next`}
                     </Text>
                   </div>
                   <IconPlus size={14} />
@@ -469,7 +475,7 @@ export function ParticipantPicker({
                 <Text size="sm" c="dimmed" ta="center" py="md">
                   {workspaceId
                     ? "No people found. Type a name or email to add someone."
-                    : "This meeting has no workspace, so participants can't be managed."}
+                    : `This meeting has no workspace, so ${noun}s can't be managed.`}
                 </Text>
               )}
             </Stack>

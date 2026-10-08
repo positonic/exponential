@@ -211,8 +211,8 @@ describe("renderMeetingSummary", () => {
     it("links to the meeting's Decisions tab", () => {
       const { text, html } = renderMeetingSummary(meeting(summary, decisions));
       // The link sits on a line of its own, with nothing else beside it.
-      expect(text).toMatch(/\nhttps?:\/\/\S+\/recording\/meeting-1\?tab=decisions\n/);
-      expect(html).toMatch(/<a href="[^"]+\/recording\/meeting-1\?tab=decisions">/);
+      expect(text).toMatch(/\nhttps?:\/\/\S+\/recording\/meeting-1\?tab=outputs\n/);
+      expect(html).toMatch(/<a href="[^"]+\/recording\/meeting-1\?tab=outputs">/);
     });
 
     it("lists open questions under their own heading, after the decisions", () => {
@@ -234,7 +234,7 @@ describe("renderMeetingSummary", () => {
       const { text } = renderMeetingSummary(meeting(summary, [decisions[1]!]));
       expect(text).not.toContain("⚖️ Decisions");
       expect(text).toContain("❓ Open questions (1)");
-      expect(text).toContain("?tab=decisions");
+      expect(text).toContain("?tab=outputs");
     });
 
     it("caps the list and leaves the rest to the link", () => {
@@ -273,7 +273,7 @@ describe("renderMeetingSummary", () => {
 
     it("omits the block when nothing was decided", () => {
       const { text, html } = renderMeetingSummary(meeting(summary));
-      expect(text).not.toContain("tab=decisions");
+      expect(text).not.toContain("tab=outputs");
       expect(html).not.toContain("Decisions (");
     });
   });

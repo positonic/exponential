@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { assertWorkspaceMember } from "./product";
+import { assertWorkspaceAccess, type WorkspaceAccessLevel } from "./product";
 import type { PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
@@ -9,6 +9,7 @@ async function loadRetroWithAccess(
   db: PrismaClient,
   userId: string,
   retroId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const retro = await db.retrospective.findUnique({
     where: { id: retroId },
@@ -20,7 +21,7 @@ async function loadRetroWithAccess(
       message: "Retrospective not found",
     });
   }
-  await assertWorkspaceMember(db, userId, retro.workspaceId);
+  await assertWorkspaceAccess(db, userId, retro.workspaceId, level);
   return retro;
 }
 
@@ -34,10 +35,11 @@ export const retrospectiveRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       return ctx.db.retrospective.findMany({
@@ -79,10 +81,11 @@ export const retrospectiveRouter = createTRPCRouter({
           message: "Retrospective not found",
         });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         retro.workspaceId,
+        "view",
       );
       return retro;
     }),
@@ -105,10 +108,11 @@ export const retrospectiveRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
 
       // Validate product belongs to workspace if provided
@@ -180,7 +184,7 @@ export const retrospectiveRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const retro = await loadRetroWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const retro = await loadRetroWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       if (input.productId) {
         const product = await ctx.db.product.findUnique({
@@ -215,7 +219,7 @@ export const retrospectiveRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadRetroWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadRetroWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.retrospective.delete({ where: { id: input.id } });
       return { success: true };
     }),

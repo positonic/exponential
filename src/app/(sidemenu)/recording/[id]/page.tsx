@@ -108,140 +108,110 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
     summaryAttemptedRef.current.add(session.id);
-    generateSummary({ transcriptionId: session.id });
+    // Say so when it fails — otherwise the summary just never appears and
+    // there's no hint why (e.g. the LLM provider is out of credit).
+    generateSummary(
+      { transcriptionId: session.id },
+      {
+        onError: (error) => {
+          notifications.show({
+            title: "Couldn't generate the AI summary",
+            message: error.message,
+            color: "red",
+          });
+        },
+      },
+    );
   }, [session, generateSummary]);
 
-  // Deterministic extraction: Create Actions runs generateDraftActions (not the
-  // LLM), then appends an interactive review card to the active drawer thread
-  // (ADR-0007).
-  const generateDraftsMutation =
-    api.transcription.generateDraftActions.useMutation({
-      onSuccess: (result) => {
-        if (!session) return;
-        // Leftover drafts from an earlier partial "Create selected" still need
-        // a way back to the card, so only stop here when none remain.
-        if (result.alreadyPublished && result.draftCount === 0) {
-          notifications.show({
-            title: "Actions already created",
-            message: "This meeting already has actions.",
-            color: "orange",
-          });
-          return;
-        }
-        if (result.actionsCreated === 0 && result.draftCount === 0) {
-          notifications.show({
-            title: "No actions found",
-            message: "No action items were detected in this meeting.",
-            color: "gray",
-          });
-          return;
-        }
-        void utils.transcription.getDetail.invalidate({ id });
-        const transcriptionId = session.id;
-        setMessages((prev) => {
-          const alreadyHasCard = prev.some(
-            (m) =>
-              m.card?.kind === "draft-actions" &&
-              m.card.transcriptionId === transcriptionId,
-          );
-          if (alreadyHasCard) return prev;
-          const cardMessage: ChatMessage = {
-            type: "ai",
-            agentName: "Zoe",
-            content: result.alreadyPublished
-              ? `This meeting already has actions, but ${result.draftCount} draft${result.draftCount === 1 ? " is" : "s are"} still waiting for review — create or discard ${result.draftCount === 1 ? "it" : "them"} below.`
-              : "I found some actions in this meeting — review and create the ones you want below.",
-            card: { kind: "draft-actions", transcriptionId },
-          };
-          return [...prev, cardMessage];
-        });
-        openModal();
-      },
-      onError: (error) => {
+  // "Extract outputs" (one button on every tab): one reading of the meeting
+  // drafts its actions, decisions and open questions, so each item lands in
+  // exactly one bucket. Nothing is created or logged until it is reviewed on
+  // the Outputs tab (ADR-0007, ADR-0060), which MeetingDetail opens on success.
+  const extractOutputsMutation = api.transcription.extractOutputs.useMutation();
+
+  async function handleExtractOutputs(): Promise<boolean> {
+    if (!session) return false;
+    const transcriptionId = session.id;
+    const result = await extractOutputsMutation
+      .mutateAsync({ transcriptionId })
+      .catch((error: unknown) => {
         notifications.show({
-          title: "Error",
-          message: error.message || "Failed to generate draft actions",
+          title: "Couldn't extract outputs",
+          message: error instanceof Error && error.message.length > 0 ? error.message : "Extraction failed",
           color: "red",
         });
-      },
-    });
+        return null;
+      });
+    if (!result) return false;
+    const { actions, decisions } = result;
+    await Promise.all([
+      utils.action.getDraftByTranscription.invalidate({ transcriptionId }),
+      utils.action.getByTranscription.invalidate({ transcriptionId }),
+      utils.decision.listForMeeting.invalidate({ transcriptionSessionId: transcriptionId }),
+      utils.transcription.getDetail.invalidate({ id }),
+    ]);
 
-  function handleCreateActions() {
-    if (!session) return;
-    generateDraftsMutation.mutate({ transcriptionId: session.id });
-  }
-
-  // Decisions (ADR-0060): the same deterministic-then-review shape. Drafts
-  // land in the summary tab's Decisions block, where they are confirmed or
-  // rejected; nothing reaches the Decision Log until then.
-  const extractDecisionsMutation = api.decision.extractDrafts.useMutation({
-    onSuccess: (result) => {
-      if (!session) return;
-      void utils.decision.listForMeeting.invalidate({ transcriptionSessionId: session.id });
-      // Partial transcript coverage is a caveat on a successful run, not a
-      // failure — say so plainly rather than leaving the count unexplained.
-      for (const warning of result.warnings ?? []) {
+    // Partial transcript coverage is a caveat on a successful run, not a
+    // failure — say so plainly rather than leaving the count unexplained.
+    for (const warning of decisions.warnings ?? []) {
+      notifications.show({
+        title: "Part of the transcript was not read",
+        message: warning,
+        color: "yellow",
+        autoClose: 10_000,
+      });
+    }
+    // One half can fail while the other succeeds (a meeting outside a
+    // workspace has no decision log, but can still get actions).
+    for (const [label, half] of [
+      ["Actions", actions],
+      ["Decisions", decisions],
+    ] as const) {
+      if (!half.success && half.errors.length > 0) {
         notifications.show({
-          title: "Part of the transcript was not read",
-          message: warning,
-          color: "yellow",
-          autoClose: 10_000,
-        });
-      }
-      if (result.alreadyPublished) {
-        notifications.show({
-          title: "Decisions already logged",
-          message: "This meeting already has confirmed decisions.",
+          title: `${label} not extracted`,
+          message: half.errors.join(", "),
           color: "orange",
         });
-        return;
       }
-      if (result.draftCount === 0) {
-        notifications.show({
-          title: "No decisions found",
-          message:
-            result.discardedWithoutEvidence > 0
-              ? "Candidates were found but none could be backed by a transcript turn."
-              : "No decisions were detected in this meeting.",
-          color: "gray",
-        });
-        return;
-      }
-      // Review card in the Zoe drawer, same as draft Actions: self-contained
-      // by meeting id, so it survives a reload and mirrors the summary tab.
-      const transcriptionId = session.id;
-      setMessages((prev) => {
-        const alreadyHasCard = prev.some(
-          (m) => m.card?.kind === "draft-decisions" && m.card.transcriptionId === transcriptionId,
-        );
-        if (alreadyHasCard) return prev;
-        const cardMessage: ChatMessage = {
-          type: "ai",
-          agentName: "Zoe",
-          content: result.alreadyDrafted
-            ? "Here are the draft decisions from this meeting — confirm the ones that were really made."
-            : `I found ${result.draftCount} draft ${result.draftCount === 1 ? "decision" : "decisions"} in this meeting — each quotes the transcript. Confirm the ones that were really made.`,
-          card: { kind: "draft-decisions", transcriptionId },
-        };
-        return [...prev, cardMessage];
-      });
-      openModal();
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Error",
-        message: error.message.length > 0 ? error.message : "Failed to extract decisions",
-        color: "red",
-      });
-    },
-  });
+    }
 
-  function handleExtractDecisions() {
-    if (!session) return;
-    extractDecisionsMutation.mutate({ transcriptionSessionId: session.id });
+    const parts: string[] = [];
+    if (actions.draftCount > 0) {
+      parts.push(`${actions.draftCount} draft ${actions.draftCount === 1 ? "action" : "actions"}`);
+    }
+    if (decisions.draftCount > 0) {
+      parts.push(
+        `${decisions.draftCount} draft ${decisions.draftCount === 1 ? "decision or question" : "decisions & questions"}`,
+      );
+    }
+    if (parts.length > 0) {
+      notifications.show({
+        title: "Ready to review",
+        message: `${parts.join(" and ")} on the Outputs tab.`,
+        color: "green",
+      });
+    } else if (actions.alreadyPublished || decisions.alreadyPublished) {
+      notifications.show({
+        title: "Already extracted",
+        message: "This meeting's outputs have already been reviewed.",
+        color: "gray",
+      });
+    } else if (actions.success || decisions.success) {
+      notifications.show({
+        title: "Nothing found",
+        message:
+          decisions.discardedWithoutEvidence > 0
+            ? "Candidates were found but none could be backed by a transcript turn."
+            : "No actions, decisions or open questions were detected in this meeting.",
+        color: "gray",
+      });
+    }
+    return true;
   }
 
-  // Same deterministic-then-review shape as Create Actions, one level up the
+  // Same deterministic-then-review shape as Extract outputs, one level up the
   // altitude ladder: an Action is a task, a Feature is a product capability.
   // Nothing is written to the feature registry until the card's accept step.
   const ideateFeaturesMutation =
@@ -399,18 +369,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       session={session}
       actions={transcriptActions}
       isActionsLoading={isActionsLoading}
-      isCreatingActions={generateDraftsMutation.isPending}
       isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
       onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
-      onCreateActions={handleCreateActions}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
-      onExtractDecisions={handleExtractDecisions}
-      isExtractingDecisions={extractDecisionsMutation.isPending}
+      onExtractOutputs={handleExtractOutputs}
+      isExtractingOutputs={extractOutputsMutation.isPending}
       onArchive={handleArchive}
     />
   );

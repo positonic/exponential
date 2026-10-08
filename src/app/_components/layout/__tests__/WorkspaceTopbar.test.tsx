@@ -126,6 +126,26 @@ describe('WorkspaceTopbar', () => {
       );
     });
 
+    it('lets a page replace the URL-derived section crumb', () => {
+      mockUsePathname.mockReturnValue('/w/syntrofi/ceremonies/cer-1/occ-1');
+      function OneOffMeetingPage() {
+        useRegisterTopbarCrumbs([{ label: 'Launch scope review' }], {
+          section: { label: 'Meetings', href: '/w/syntrofi/meetings' },
+        });
+        return null;
+      }
+      render(
+        <TopbarCrumbsProvider>
+          <WorkspaceTopbar />
+          <OneOffMeetingPage />
+        </TopbarCrumbsProvider>,
+      );
+
+      expect(screen.getByRole('link', { name: 'Meetings' })).toHaveAttribute('href', '/w/syntrofi/meetings');
+      expect(screen.queryByText('Ceremonies')).not.toBeInTheDocument();
+      expect(screen.getByText('Launch scope review')).toBeInTheDocument();
+    });
+
     it('renders a crumb without an href as the current page, not a link', () => {
       render(
         <TopbarCrumbsProvider>

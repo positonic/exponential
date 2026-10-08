@@ -97,7 +97,7 @@ const workspaceId = "ws-1";
 const productId = "prod-1";
 const areaTagId = "tag-clear-api";
 
-/** Stub the workspace-membership probe that `assertWorkspaceMember` runs. */
+/** Stub the workspace-membership probe that `assertWorkspaceAccess` runs. */
 function stubMembership(dbMock: DeepMockProxy<PrismaClient>, isMember: boolean) {
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     isMember

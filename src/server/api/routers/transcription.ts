@@ -48,7 +48,6 @@ import {
 import {
   buildTranscriptionAccessWhere,
   canEditTranscription,
-  canEditWorkspaceContent,
   canViewTranscription,
   getProjectAccess,
   getWorkspaceMembership,
@@ -98,30 +97,6 @@ async function ensureTranscriptionAccess(
       permission === "view"
         ? "Not authorized to view this transcription"
         : "Not authorized to update this transcription",
-  });
-}
-
-/**
- * Refuse a workspace write by a read-only member.
- *
- * `assertWorkspaceMember` (and therefore `loadProductWithAccess`) does not
- * distinguish editors from viewers, so product-side writes that route only
- * through it let a workspace *viewer* create Features and Tickets. Accepting a
- * draft feature is exactly such a write, so it carries this explicit check on
- * top. The role predicate itself lives in the access service — this is only the
- * throwing wrapper.
- */
-async function assertWorkspaceEditor(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-): Promise<void> {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (canEditWorkspaceContent(membership?.role ?? null)) return;
-
-  throw new TRPCError({
-    code: "FORBIDDEN",
-    message: "You need edit access to this workspace to create features",
   });
 }
 
@@ -2007,6 +1982,11 @@ export const transcriptionRouter = createTRPCRouter({
             message:
               "Server summarization is not configured (missing OPENAI_API_KEY).",
           });
+        case "failed":
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Summary generation failed: ${outcome.error ?? "unknown error"}`,
+          });
         case "created":
           return { id: session.id, summary: outcome.summary ?? null };
         default:
@@ -2040,6 +2020,29 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
+      return result;
+    }),
+
+  /**
+   * The meeting page's single "Extract outputs" button: draft actions,
+   * decisions and open questions from one reading of the meeting, reviewed
+   * together on the Outputs tab. Each half succeeds or fails on its own;
+   * this throws only when neither produced anything usable.
+   */
+  extractOutputs: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.extractMeetingOutputs(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+      if (!result.actions.success && !result.decisions.success) {
+        const errors = [...result.actions.errors, ...result.decisions.errors];
+        throw new TRPCError({
+          code: errors.some((e) => e.includes("access")) ? "FORBIDDEN" : "BAD_REQUEST",
+          message: errors.length > 0 ? Array.from(new Set(errors)).join(", ") : "Failed to extract meeting outputs",
+        });
+      }
       return result;
     }),
 
@@ -2335,6 +2338,7 @@ export const transcriptionRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.productId,
+        "view",
       );
 
       const drafts = await ctx.db.meetingFeatureDraft.findMany({
@@ -2385,13 +2389,14 @@ export const transcriptionRouter = createTRPCRouter({
       );
       await ensureTranscriptionAccess(ctx.db, userId, session, "edit");
 
+      // "edit" refuses read-only viewers: accepting a draft creates Features
+      // and Tickets in the product's workspace.
       const product = await loadProductWithAccess(
         ctx.db,
         userId,
         input.productId,
+        "edit",
       );
-      // Membership got us this far; writing Features and Tickets needs more.
-      await assertWorkspaceEditor(ctx.db, userId, product.workspaceId);
 
       const drafts = await ctx.db.meetingFeatureDraft.findMany({
         where: {

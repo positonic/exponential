@@ -138,7 +138,7 @@ function stubTicketAccess(
   overrides: Record<string, unknown> = {},
 ) {
   dbMock.ticket.findUnique.mockResolvedValue(accessTicket(overrides));
-  // assertWorkspaceMember's membership probe.
+  // assertWorkspaceAccess's membership probe.
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { role: "member", workspaceId } as any,

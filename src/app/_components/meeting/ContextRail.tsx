@@ -9,6 +9,7 @@ import {
   IconExternalLink,
   IconArchive,
   IconPlus,
+  IconSparkles,
   IconX,
 } from "@tabler/icons-react";
 import { Loader } from "@mantine/core";
@@ -29,6 +30,12 @@ import {
 import type { MeetingOccurrenceRef, MeetingParticipant } from "~/lib/meeting-view-model";
 
 interface ContextRailProps {
+  /**
+   * "Extract outputs": draft actions, decisions and open questions from the
+   * meeting in one run, reviewed on the Outputs tab. Absent → no button.
+   */
+  onExtractOutputs?: () => void;
+  isExtractingOutputs?: boolean;
   participants: MeetingParticipant[];
   project: { name: string } | null;
   projectHref: string | null;
@@ -80,6 +87,8 @@ interface ContextRailProps {
 }
 
 export function ContextRail({
+  onExtractOutputs,
+  isExtractingOutputs,
   participants,
   project,
   projectHref,
@@ -119,6 +128,22 @@ export function ContextRail({
 }: ContextRailProps) {
   return (
     <aside className="mp-rail">
+      {onExtractOutputs && (
+        <div className="mp-rail__section">
+          <button
+            type="button"
+            className="mp-btn mp-btn--primary mp-rail__extract"
+            onClick={onExtractOutputs}
+            disabled={isExtractingOutputs}
+          >
+            {isExtractingOutputs ? <Loader size={13} color="currentColor" /> : <IconSparkles size={13} />}
+            {isExtractingOutputs ? "Extracting…" : "Extract outputs"}
+          </button>
+          <div className="mp-rail__hint">
+            Actions, decisions and open questions from this meeting, to review on the Outputs tab.
+          </div>
+        </div>
+      )}
       {(participants.length > 0 || onAddParticipant) && (
         <div className="mp-rail__section">
           <div className="mp-rail__label">
