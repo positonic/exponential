@@ -210,7 +210,8 @@ describe("renderMeetingSummary", () => {
 
     it("links to the meeting's Decisions tab", () => {
       const { text, html } = renderMeetingSummary(meeting(summary, decisions));
-      expect(text).toMatch(/View decisions: \S+\/recording\/meeting-1\?tab=decisions/);
+      // The link sits on a line of its own, with nothing else beside it.
+      expect(text).toMatch(/\nhttps?:\/\/\S+\/recording\/meeting-1\?tab=decisions\n/);
       expect(html).toMatch(/<a href="[^"]+\/recording\/meeting-1\?tab=decisions">/);
     });
 

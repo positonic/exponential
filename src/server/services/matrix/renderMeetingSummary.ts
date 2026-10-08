@@ -371,7 +371,8 @@ function renderDecisionsBlock(meeting: MeetingForSummary): DecisionsBlock | null
   const url = meetingDecisionsUrl(meeting);
 
   return {
-    text: [...lists.flatMap((l) => [...l.text, ""]), `View decisions: ${url}`],
+    // The URL stands alone on its line so clients linkify it cleanly and it is easy to tap.
+    text: [...lists.flatMap((l) => [...l.text, ""]), "View decisions in Exponential:", url],
     html: [
       ...lists.map((l) => l.html),
       `<p><a href="${escapeHtml(url)}">View decisions in Exponential</a></p>`,
