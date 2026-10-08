@@ -54,6 +54,10 @@ describe("MeetingAttendee migration backfill", () => {
     const db = getTestDb();
     const owner = await createUser(db, { email: "Owner@Example.com", name: "Owner" });
     const noEmail = await db.user.create({ data: { name: "No Mail" } });
+    // Same inbox, different case: both backfill to "ada@example.com".
+    const adaUpper = await createUser(db, { email: "Ada@Example.com", name: "Ada (old account)" });
+    const adaLower = await createUser(db, { email: "ada@example.com", name: "Ada" });
+    const organizerTwin = await createUser(db, { email: "OWNER@example.com", name: "Owner twin" });
     const workspace = await createWorkspace(db, { ownerId: owner.id });
 
     let observed: {
@@ -72,9 +76,14 @@ describe("MeetingAttendee migration backfill", () => {
           owner.id,
         );
         await tx.$executeRawUnsafe(
-          `INSERT INTO "MeetingAttendee" ("id", "meetingId", "userId") VALUES ('a-1', 'm-backfill', $1), ('a-2', 'm-backfill', $2)`,
+          `INSERT INTO "MeetingAttendee" ("id", "meetingId", "userId") VALUES
+             ('a-0', 'm-backfill', $5), ('a-1', 'm-backfill', $1), ('a-2', 'm-backfill', $2),
+             ('a-3', 'm-backfill', $3), ('a-4', 'm-backfill', $4)`,
           owner.id,
           noEmail.id,
+          adaUpper.id,
+          adaLower.id,
+          organizerTwin.id,
         );
 
         for (const sql of attendeeStatements()) await tx.$executeRawUnsafe(sql);
@@ -89,7 +98,7 @@ describe("MeetingAttendee migration backfill", () => {
         await tx.$executeRawUnsafe("SAVEPOINT duplicate_probe");
         try {
           await tx.$executeRawUnsafe(
-            `INSERT INTO "MeetingAttendee" ("id", "meetingId", "email") VALUES ('a-3', 'm-backfill', 'owner@example.com')`,
+            `INSERT INTO "MeetingAttendee" ("id", "meetingId", "email") VALUES ('a-9', 'm-backfill', 'owner@example.com')`,
           );
         } catch {
           duplicateRejected = true;
@@ -104,9 +113,12 @@ describe("MeetingAttendee migration backfill", () => {
       });
 
     expect(observed).not.toBeNull();
+    // Case-twins collapse to one row: the organizer's for their address
+    // (even though the twin's row is older), else the oldest.
     expect(observed!.rows).toEqual([
       { userId: owner.id, email: "owner@example.com", name: "Owner" },
       { userId: noEmail.id, email: `user:${noEmail.id}`, name: "No Mail" },
+      { userId: adaUpper.id, email: "ada@example.com", name: "Ada (old account)" },
     ]);
     expect(observed!.duplicateRejected).toBe(true);
 

@@ -27,6 +27,19 @@ SET "email" = COALESCE(LOWER(TRIM(u."email")), 'user:' || u."id"),
 FROM "User" AS u
 WHERE u."id" = ma."userId";
 
+-- Two users whose emails differ only by case backfill to the same address, so
+-- the new (meetingId, email) unique would fail. They share an inbox and get one
+-- invite either way: keep one row per address — the organizer's, else the
+-- oldest — and drop the rest.
+DELETE FROM "MeetingAttendee" AS ma
+USING "MeetingAttendee" AS other, "Meeting" AS m
+WHERE m."id" = ma."meetingId"
+  AND other."meetingId" = ma."meetingId"
+  AND other."email" = ma."email"
+  AND other."id" <> ma."id"
+  AND ma."userId" IS DISTINCT FROM m."organizerId"
+  AND (other."userId" = m."organizerId" OR other."id" < ma."id");
+
 ALTER TABLE "MeetingAttendee" ALTER COLUMN "email" SET NOT NULL;
 
 -- CreateIndex
