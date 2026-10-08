@@ -119,6 +119,13 @@ const DEFAULT_SUMMARIZE_TIMEOUT_MS = Number(
   process.env.SUMMARIZE_TIMEOUT_MS ?? 60_000,
 );
 
+/**
+ * Least time worth handing the OpenAI fallback. Claude and OpenAI share one
+ * deadline (the caller's `timeoutMs`), so when a slow Claude failure leaves
+ * less than this, rethrow rather than start an attempt that can't finish.
+ */
+const MIN_FALLBACK_MS = 10_000;
+
 interface SummarizeOptions {
   modelName?: string;
   timeoutMs?: number;
@@ -386,9 +393,19 @@ export class TranscriptSummarizerService {
     // the caller. The OpenAI fallback keeps its original deterministic
     // temperature (0) — the richer output comes from the prompt, not
     // temperature, and JSON stays reliable.
-    const viaOpenAI = async () =>
+    //
+    // Both attempts share ONE deadline: the fallback gets only the time Claude
+    // left over, so the pair never outlives the caller's budget (the tRPC
+    // route's 60s maxDuration).
+    const deadline =
+      Date.now() + (options.timeoutMs ?? DEFAULT_SUMMARIZE_TIMEOUT_MS);
+    const viaOpenAI = async (timeoutMs?: number) =>
       parseFirefliesSummaryOutput(
-        await this.invokeChat(system, userPrompt, { temperature: 0, ...options }),
+        await this.invokeChat(system, userPrompt, {
+          temperature: 0,
+          ...options,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        }),
       );
 
     let parsed: z.infer<typeof firefliesSummaryJsonSchema>;
@@ -398,9 +415,11 @@ export class TranscriptSummarizerService {
           await this.invokeAnthropic(system, userPrompt, options),
         );
       } catch (error) {
+        const remainingMs = deadline - Date.now();
         if (
           error instanceof SummarizationTimeoutError ||
-          !process.env.OPENAI_API_KEY
+          !process.env.OPENAI_API_KEY ||
+          remainingMs < MIN_FALLBACK_MS
         ) {
           throw error;
         }
@@ -408,7 +427,7 @@ export class TranscriptSummarizerService {
           "[TranscriptSummarizerService] Claude summary failed, falling back to OpenAI:",
           error instanceof Error ? error.message : String(error),
         );
-        parsed = await viaOpenAI();
+        parsed = await viaOpenAI(remainingMs);
       }
     } else {
       parsed = await viaOpenAI();

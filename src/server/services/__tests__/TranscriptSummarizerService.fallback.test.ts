@@ -6,9 +6,10 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { anthropicCreateMock, openAIInvokeMock } = vi.hoisted(() => ({
+const { anthropicCreateMock, openAIInvokeMock, openAIConstructorMock } = vi.hoisted(() => ({
   anthropicCreateMock: vi.fn(),
   openAIInvokeMock: vi.fn(),
+  openAIConstructorMock: vi.fn(),
 }));
 
 vi.mock("@anthropic-ai/sdk", () => ({
@@ -19,6 +20,9 @@ vi.mock("@anthropic-ai/sdk", () => ({
 vi.mock("@langchain/openai", () => ({
   ChatOpenAI: class {
     invoke = openAIInvokeMock;
+    constructor(fields: unknown) {
+      openAIConstructorMock(fields);
+    }
   },
 }));
 
@@ -38,6 +42,7 @@ describe("TranscriptSummarizerService.summarizeToFirefliesSummary — provider f
   beforeEach(() => {
     anthropicCreateMock.mockReset();
     openAIInvokeMock.mockReset();
+    openAIConstructorMock.mockReset();
     process.env.ANTHROPIC_API_KEY = "test-anthropic";
     process.env.OPENAI_API_KEY = "test-openai";
     openAIInvokeMock.mockResolvedValue({ content: SUMMARY_JSON });
@@ -66,12 +71,51 @@ describe("TranscriptSummarizerService.summarizeToFirefliesSummary — provider f
     expect(openAIInvokeMock).toHaveBeenCalledOnce();
   });
 
-  it("does not fall back after a timeout", async () => {
-    anthropicCreateMock.mockRejectedValue(new SummarizationTimeoutError(60_000));
+  it("does not fall back when the Claude call hits its deadline", async () => {
+    // A real abort: the SDK rejects once the service's deadline signal fires.
+    anthropicCreateMock.mockImplementation(
+      (_body: unknown, { signal }: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("Request was aborted.")));
+        }),
+    );
     await expect(
-      TranscriptSummarizerService.summarizeToFirefliesSummary("A: hi"),
+      TranscriptSummarizerService.summarizeToFirefliesSummary("A: hi", { timeoutMs: 20 }),
     ).rejects.toBeInstanceOf(SummarizationTimeoutError);
     expect(openAIInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it("hands the fallback only the time Claude left over", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      anthropicCreateMock.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 15_000);
+        throw new Error("529 overloaded");
+      });
+      await TranscriptSummarizerService.summarizeToFirefliesSummary("A: hi", { timeoutMs: 60_000 });
+      expect(openAIInvokeMock).toHaveBeenCalledOnce();
+      expect(openAIConstructorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ timeout: 45_000 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not fall back when too little of the shared deadline is left", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      anthropicCreateMock.mockImplementation(async () => {
+        vi.setSystemTime(Date.now() + 55_000);
+        throw new Error("The model returned an invalid summary.");
+      });
+      await expect(
+        TranscriptSummarizerService.summarizeToFirefliesSummary("A: hi", { timeoutMs: 60_000 }),
+      ).rejects.toThrow("invalid summary");
+      expect(openAIInvokeMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rethrows the Claude error when no OpenAI key is configured", async () => {
