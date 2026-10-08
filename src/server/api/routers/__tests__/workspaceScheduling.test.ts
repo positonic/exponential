@@ -88,12 +88,12 @@ vi.mock("~/server/services/EmailService", async (importOriginal) => {
   return { ...original, sendMeetingInviteEmail: sendMeetingInviteEmailMock };
 });
 
-const { generateAgendaMock, projectAccessMock, skipOccurrenceMock } = vi.hoisted(() => ({
+const { generateAgendaMock, projectAccessMock, recordOccurrenceSkippedMock } = vi.hoisted(() => ({
   generateAgendaMock: vi.fn(),
   projectAccessMock: vi.fn(),
-  skipOccurrenceMock: vi.fn(),
+  recordOccurrenceSkippedMock: vi.fn(),
 }));
-vi.mock("~/server/services/ceremonies/skip", () => ({ skipOccurrence: skipOccurrenceMock }));
+vi.mock("~/server/services/ceremonies/skip", () => ({ recordOccurrenceSkipped: recordOccurrenceSkippedMock }));
 vi.mock("~/server/services/ceremonies/agenda/generateAgenda", () => ({
   generateAgenda: generateAgendaMock,
 }));
@@ -126,7 +126,7 @@ describe("workspaceScheduling router (mocked)", () => {
     sendMeetingInviteEmailMock.mockReset().mockResolvedValue(undefined);
     generateAgendaMock.mockReset().mockResolvedValue({ occurrenceId: "occ-1", agenda: {}, itemCount: 0 });
     projectAccessMock.mockReset().mockResolvedValue({ isWorkspaceMember: true });
-    skipOccurrenceMock.mockReset().mockResolvedValue({ id: "occ-1", status: "SKIPPED" });
+    recordOccurrenceSkippedMock.mockReset().mockResolvedValue(undefined);
     dbMock.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(dbMock)) as never);
   });
 
@@ -609,8 +609,20 @@ describe("workspaceScheduling router (mocked)", () => {
       status: "confirmed",
       organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
       attendees: [{ userId: "user-a", name: "A", email: "a@example.com" }],
-      occurrence: null as null | { id: string; status: string; ceremony: { id: string; isOneOff: boolean } },
+      occurrence: null as null | {
+        id: string;
+        status: string;
+        scheduledStart: Date;
+        ceremony: { id: string; isOneOff: boolean; name: string; timezone: string };
+      },
     };
+
+    const oneOffOccurrence = (status: string) => ({
+      id: "occ-1",
+      status,
+      scheduledStart: new Date("2026-08-18T09:00:00Z"),
+      ceremony: { id: "cer-1", isOneOff: true, name: "Design sync", timezone: "UTC" },
+    });
 
     beforeEach(() => {
       dbMock.workspaceUser.findFirst.mockResolvedValue({ role: "member" } as never);
@@ -690,47 +702,59 @@ describe("workspaceScheduling router (mocked)", () => {
     it("on a one-off, skips the occurrence with \"Meeting cancelled\" and deactivates the ceremony", async () => {
       dbMock.meeting.findFirst.mockResolvedValue({
         ...storedMeeting,
-        occurrence: { id: "occ-1", status: "AGENDA_CIRCULATED", ceremony: { id: "cer-1", isOneOff: true } },
+        occurrence: oneOffOccurrence("AGENDA_CIRCULATED"),
       } as never);
       dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
 
-      expect(skipOccurrenceMock).toHaveBeenCalledWith(dbMock, {
-        occurrenceId: "occ-1",
-        workspaceId: WORKSPACE_ID,
-        reason: "Meeting cancelled",
-        actorUserId: ORGANIZER_ID,
+      // One transaction: cancel, skip and deactivate commit together.
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(dbMock.ceremonyOccurrence.update).toHaveBeenCalledWith({
+        where: { id: "occ-1" },
+        data: { status: "SKIPPED", skipReason: "Meeting cancelled" },
       });
       expect(dbMock.ceremony.update).toHaveBeenCalledWith({ where: { id: "cer-1" }, data: { isActive: false } });
+      expect(recordOccurrenceSkippedMock).toHaveBeenCalledOnce();
     });
 
     it("on a one-off already skipped (the skip cancelled it), only deactivates the ceremony", async () => {
       dbMock.meeting.findFirst.mockResolvedValue({
         ...storedMeeting,
-        occurrence: { id: "occ-1", status: "SKIPPED", ceremony: { id: "cer-1", isOneOff: true } },
+        occurrence: oneOffOccurrence("SKIPPED"),
       } as never);
       dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
 
-      expect(skipOccurrenceMock).not.toHaveBeenCalled();
+      expect(dbMock.ceremonyOccurrence.update).not.toHaveBeenCalled();
       expect(dbMock.ceremony.update).toHaveBeenCalledWith({ where: { id: "cer-1" }, data: { isActive: false } });
+    });
+
+    it("a failed write sends no cancellation and leaves everything as it was", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({ ...storedMeeting, occurrence: oneOffOccurrence("PLANNED") } as never);
+      dbMock.$transaction.mockRejectedValue(new Error("deadlock"));
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" }),
+      ).rejects.toThrow();
+      expect(sendMeetingInviteEmailMock).not.toHaveBeenCalled();
     });
 
     it("on a recurring ceremony's booking, neither skips nor deactivates", async () => {
       dbMock.meeting.findFirst.mockResolvedValue({
         ...storedMeeting,
-        occurrence: { id: "occ-1", status: "PLANNED", ceremony: { id: "cer-1", isOneOff: false } },
+        occurrence: { ...oneOffOccurrence("PLANNED"), ceremony: { ...oneOffOccurrence("PLANNED").ceremony, isOneOff: false } },
       } as never);
       dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
 
-      expect(skipOccurrenceMock).not.toHaveBeenCalled();
+      expect(dbMock.ceremonyOccurrence.update).not.toHaveBeenCalled();
       expect(dbMock.ceremony.update).not.toHaveBeenCalled();
     });
   });

@@ -514,6 +514,7 @@ export const ceremonyRouter = createTRPCRouter({
         where: { id: input.occurrenceId, workspaceId: input.workspaceId },
         select: {
           id: true,
+          status: true,
           ceremony: { select: { ownerId: true, isOneOff: true } },
           scheduledMeeting: { select: { id: true, status: true } },
         },
@@ -522,23 +523,32 @@ export const ceremonyRouter = createTRPCRouter({
       if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can skip an occurrence" });
       }
+      // A one-off is its booking: skipping it cancels the Scheduled meeting
+      // (METHOD:CANCEL to every attendee) so no calendar keeps a phantom. The
+      // cancel service writes the skip in the same transaction as the
+      // cancellation, and the attendees' cancel email is the notice — no skip
+      // notice follows.
+      if (occurrence.ceremony.isOneOff && occurrence.scheduledMeeting?.status === "confirmed") {
+        if (occurrence.status === "CAPTURED" || occurrence.status === "FOLLOWED_THROUGH") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence already happened" });
+        }
+        if (occurrence.status === "SKIPPED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence is already skipped" });
+        }
+        await cancelScheduledMeeting(ctx.db, {
+          workspaceId: input.workspaceId,
+          meetingId: occurrence.scheduledMeeting.id,
+          actorUserId: userId,
+          skipReason: input.reason,
+        });
+        return { id: occurrence.id, status: "SKIPPED" as const, skipReason: input.reason };
+      }
       const skipped = await skipOccurrence(ctx.db, {
         occurrenceId: occurrence.id,
         workspaceId: input.workspaceId,
         reason: input.reason,
         actorUserId: userId,
       });
-      // A one-off is its booking: skipping it cancels the Scheduled meeting
-      // (METHOD:CANCEL to every attendee) so no calendar keeps a phantom.
-      // The attendees' cancel email is the notice; no skip notice follows.
-      if (occurrence.ceremony.isOneOff && occurrence.scheduledMeeting?.status === "confirmed") {
-        await cancelScheduledMeeting(ctx.db, {
-          workspaceId: input.workspaceId,
-          meetingId: occurrence.scheduledMeeting.id,
-          actorUserId: userId,
-        });
-        return skipped;
-      }
       // Telling people it is off is the whole point of skipping it; a failed
       // notification must not leave the occurrence half-skipped.
       await emitNotification({

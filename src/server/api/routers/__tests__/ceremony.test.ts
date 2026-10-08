@@ -517,29 +517,40 @@ describe("ceremony router", () => {
       cancelScheduledMeetingMock.mockReset().mockResolvedValue({ id: "meeting-1", status: "cancelled", invitesSent: 2 });
     });
 
-    it("skipping a one-off with a confirmed booking cancels the booking through the cancel service", async () => {
+    it("skipping a one-off with a confirmed booking goes through the cancel service, carrying the reason", async () => {
       withWorkspaceRole(db, "member");
-      db.ceremonyOccurrence.findFirst
-        .mockResolvedValueOnce({
-          id: "occ-1",
-          ceremony: { ownerId: USER_ID, isOneOff: true },
-          scheduledMeeting: { id: "meeting-1", status: "confirmed" },
-        } as never) // gate
-        .mockResolvedValueOnce({
-          id: "occ-1",
-          status: "PLANNED",
-          scheduledStart: new Date("2026-10-10T09:00:00Z"),
-          ceremony: { id: "cer-1", name: "Launch scope", timezone: "UTC" },
-        } as never); // skip service
-      db.ceremonyOccurrence.update.mockResolvedValue({ id: "occ-1", status: "SKIPPED", skipReason: "Moved" } as never);
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({
+        id: "occ-1",
+        status: "PLANNED",
+        ceremony: { ownerId: USER_ID, isOneOff: true },
+        scheduledMeeting: { id: "meeting-1", status: "confirmed" },
+      } as never);
 
-      await caller(db).ceremony.skipOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1", reason: "Moved" });
+      const res = await caller(db).ceremony.skipOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1", reason: "Moved" });
 
       expect(cancelScheduledMeetingMock).toHaveBeenCalledWith(db, {
         workspaceId: WORKSPACE_ID,
         meetingId: "meeting-1",
         actorUserId: USER_ID,
+        skipReason: "Moved",
       });
+      // The cancel service writes the skip in its own transaction; nothing here writes it first.
+      expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+      expect(res).toEqual({ id: "occ-1", status: "SKIPPED", skipReason: "Moved" });
+    });
+
+    it("refuses to skip a one-off that already happened", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({
+        id: "occ-1",
+        status: "CAPTURED",
+        ceremony: { ownerId: USER_ID, isOneOff: true },
+        scheduledMeeting: { id: "meeting-1", status: "confirmed" },
+      } as never);
+      await expect(
+        caller(db).ceremony.skipOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1", reason: "x" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(cancelScheduledMeetingMock).not.toHaveBeenCalled();
     });
 
     it("skipping a recurring occurrence leaves its booking alone", async () => {
@@ -547,6 +558,7 @@ describe("ceremony router", () => {
       db.ceremonyOccurrence.findFirst
         .mockResolvedValueOnce({
           id: "occ-1",
+          status: "PLANNED",
           ceremony: { ownerId: USER_ID, isOneOff: false },
           scheduledMeeting: { id: "meeting-1", status: "confirmed" },
         } as never)
