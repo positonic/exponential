@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import type { db as dbInstance } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
@@ -7,6 +7,7 @@ import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   assertWorkspaceMembership,
   assertWorkspaceWriteRole,
+  getWorkspaceMembership,
 } from "~/server/services/access";
 import {
   sprintAnalyticsService,
@@ -20,22 +21,32 @@ import {
 import { githubActivityService } from "~/server/services/GitHubActivityService";
 
 /**
- * Load the workspace a sprint/list belongs to, for the agent-facing procedures
- * that take a bare `listId`. NOT_FOUND (not FORBIDDEN) when the list doesn't
- * exist, so the error never confirms an id from another workspace.
+ * Gate the agent-facing procedures that take a bare `listId`.
+ *
+ * A missing list and a list in a workspace the caller doesn't belong to both
+ * return the same NOT_FOUND, so the error never confirms that an id exists in
+ * another workspace. A member who lacks the role for a write (a viewer on
+ * `captureDailySnapshot`) gets FORBIDDEN: they can already see the list.
  */
-async function getListWorkspaceId(
-  db: Prisma.TransactionClient | typeof dbInstance,
+async function assertListAccess(
+  db: PrismaClient,
+  userId: string,
   listId: string,
-): Promise<string> {
+  level: "view" | "edit",
+): Promise<void> {
   const list = await db.list.findUnique({
     where: { id: listId },
     select: { workspaceId: true },
   });
-  if (!list) {
+  const membership = list
+    ? await getWorkspaceMembership(db, userId, list.workspaceId)
+    : null;
+  if (!list || !membership) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Sprint not found" });
   }
-  return list.workspaceId;
+  if (level === "edit") {
+    await assertWorkspaceWriteRole(db, userId, list.workspaceId);
+  }
 }
 
 /**
@@ -254,8 +265,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
   getMetrics: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const workspaceId = await getListWorkspaceId(ctx.db, input.listId);
-      await assertWorkspaceMembership(ctx.db, ctx.userId, workspaceId);
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "view");
       return sprintAnalyticsService.getSprintMetrics(input.listId);
     }),
 
@@ -265,8 +275,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
   getBurndown: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const workspaceId = await getListWorkspaceId(ctx.db, input.listId);
-      await assertWorkspaceMembership(ctx.db, ctx.userId, workspaceId);
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "view");
       return sprintAnalyticsService.getBurndownData(input.listId);
     }),
 
@@ -276,8 +285,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
   getRiskSignals: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const workspaceId = await getListWorkspaceId(ctx.db, input.listId);
-      await assertWorkspaceMembership(ctx.db, ctx.userId, workspaceId);
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "view");
       return sprintAnalyticsService.detectRiskSignals(input.listId);
     }),
 
@@ -324,8 +332,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
   captureDailySnapshot: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const workspaceId = await getListWorkspaceId(ctx.db, input.listId);
-      await assertWorkspaceWriteRole(ctx.db, ctx.userId, workspaceId);
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "edit");
       return sprintAnalyticsService.captureDailySnapshot(input.listId);
     }),
 });

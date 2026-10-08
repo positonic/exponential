@@ -120,37 +120,45 @@ type Caller = ReturnType<typeof createMockCaller>;
 /** Every agent-facing read, with the service method it must not reach. */
 const READS: {
   name: string;
+  /** Code a non-member gets: list-id procedures hide the list's existence. */
+  denied: "FORBIDDEN" | "NOT_FOUND";
   call: (c: Caller) => Promise<unknown>;
   service: () => { mock: { calls: unknown[] } };
 }[] = [
   {
     name: "getActiveSprint",
+    denied: "FORBIDDEN",
     call: (c) => c.sprintAnalytics.getActiveSprint({ workspaceId: WORKSPACE_ID }),
     service: () => serviceMock.getActiveSprint,
   },
   {
     name: "getMetrics",
+    denied: "NOT_FOUND",
     call: (c) => c.sprintAnalytics.getMetrics({ listId: LIST_ID }),
     service: () => serviceMock.getSprintMetrics,
   },
   {
     name: "getBurndown",
+    denied: "NOT_FOUND",
     call: (c) => c.sprintAnalytics.getBurndown({ listId: LIST_ID }),
     service: () => serviceMock.getBurndownData,
   },
   {
     name: "getRiskSignals",
+    denied: "NOT_FOUND",
     call: (c) => c.sprintAnalytics.getRiskSignals({ listId: LIST_ID }),
     service: () => serviceMock.detectRiskSignals,
   },
   {
     name: "getVelocityHistory",
+    denied: "FORBIDDEN",
     call: (c) =>
       c.sprintAnalytics.getVelocityHistory({ workspaceId: WORKSPACE_ID }),
     service: () => serviceMock.getVelocityHistory,
   },
   {
     name: "getGitHubActivity",
+    denied: "FORBIDDEN",
     call: (c) =>
       c.sprintAnalytics.getGitHubActivity({
         workspaceId: WORKSPACE_ID,
@@ -171,11 +179,11 @@ describe("sprintAnalytics router access gating (mocked)", () => {
     stubList();
   });
 
-  describe.each(READS)("$name", ({ call, service }) => {
+  describe.each(READS)("$name", ({ call, service, denied }) => {
     it("refuses a non-member of the target workspace", async () => {
       stubRole(null);
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
-      await expect(call(caller)).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(call(caller)).rejects.toMatchObject({ code: denied });
       expect(service().mock.calls).toHaveLength(0);
     });
 
@@ -203,8 +211,22 @@ describe("sprintAnalytics router access gating (mocked)", () => {
     const caller = createMockCaller({ userId: USER_ID, db: dbMock });
     await expect(
       caller.sprintAnalytics.getMetrics({ listId: LIST_ID }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(serviceMock.getSprintMetrics).not.toHaveBeenCalled();
+  });
+
+  it("gives a foreign list and a missing list the same error", async () => {
+    stubRole(null);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    const foreign = await caller.sprintAnalytics
+      .getBurndown({ listId: LIST_ID })
+      .catch((e: unknown) => e);
+    dbMock.list.findUnique.mockResolvedValue(null as never);
+    const missing = await caller.sprintAnalytics
+      .getBurndown({ listId: "nope" })
+      .catch((e: unknown) => e);
+    expect(foreign).toMatchObject({ code: "NOT_FOUND", message: "Sprint not found" });
+    expect(missing).toMatchObject({ code: "NOT_FOUND", message: "Sprint not found" });
   });
 
   it("returns NOT_FOUND for an unknown list", async () => {
@@ -226,12 +248,12 @@ describe("sprintAnalytics router access gating (mocked)", () => {
       expect(serviceMock.captureDailySnapshot).not.toHaveBeenCalled();
     });
 
-    it("refuses a non-member", async () => {
+    it("refuses a non-member without confirming the list exists", async () => {
       stubRole(null);
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
       await expect(
         caller.sprintAnalytics.captureDailySnapshot({ listId: LIST_ID }),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(serviceMock.captureDailySnapshot).not.toHaveBeenCalled();
     });
 
