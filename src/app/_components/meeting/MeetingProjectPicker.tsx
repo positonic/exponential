@@ -26,6 +26,9 @@ interface MeetingProjectPickerProps {
   children: (args: { toggle: () => void }) => ReactNode;
   /** Label for the clear-placement option. */
   noneLabel?: string;
+  /** Offer the clear-placement option. Off when the caller knows clearing
+   * would be rejected (e.g. detaching a page needs workspace membership). */
+  allowNone?: boolean;
   dropdownWidth?: number | "target";
   /** True while the candidate list is still loading. */
   loading?: boolean;
@@ -46,6 +49,7 @@ export function MeetingProjectPicker({
   onChange,
   children,
   noneLabel = "Personal / no project",
+  allowNone = true,
   dropdownWidth = 260,
   loading = false,
   onOpen,
@@ -101,11 +105,13 @@ export function MeetingProjectPicker({
           size="xs"
         />
         <Combobox.Options mah={280} style={{ overflowY: "auto" }}>
-          <Combobox.Option value={NONE_VALUE} active={value === null}>
-            <Text size="xs" className="text-text-muted">
-              {noneLabel}
-            </Text>
-          </Combobox.Option>
+          {allowNone && (
+            <Combobox.Option value={NONE_VALUE} active={value === null}>
+              <Text size="xs" className="text-text-muted">
+                {noneLabel}
+              </Text>
+            </Combobox.Option>
+          )}
           {groups.map(([groupName, items]) => (
             <Combobox.Group key={groupName} label={groupName}>
               {items.map((p) => (
