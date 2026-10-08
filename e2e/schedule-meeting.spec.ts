@@ -25,6 +25,10 @@ const TITLE = "Launch scope review";
 const PURPOSE = "Agree the launch scope and who owns each part";
 
 test("schedules a meeting with an agenda from a project's Meetings tab", async ({ page }) => {
+  test.skip(
+    !fixture.canScheduleWithContact,
+    "DATABASE_ENCRYPTION_KEY isn't set, so the fixture contact has no email and an external can't be invited",
+  );
   await page.goto(fixture.projectMeetingsUrl);
   const scheduleButton = page.getByRole("button", { name: "Schedule meeting" });
   await expect(scheduleButton).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });

@@ -125,6 +125,12 @@ export interface SeededFixture {
   colleagueName: string;
   /** A CRM contact in the workspace, invitable as an external attendee. */
   contactName: string;
+  /**
+   * False when DATABASE_ENCRYPTION_KEY was missing at seed time: the contact
+   * has no email and booking with an external can't store one, so the
+   * schedule-meeting spec skips.
+   */
+  canScheduleWithContact: boolean;
 }
 
 interface TicketSpec {
@@ -355,20 +361,44 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "member" },
     create: { userId: colleague.id, workspaceId: workspace.id, role: "member" },
   });
-  const contactEmailHash = createHash("sha256").update(FIXTURE.contactEmail).digest("hex");
-  await db.crmContact.upsert({
-    where: { workspaceId_emailHash: { workspaceId: workspace.id, emailHash: contactEmailHash } },
-    update: { firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
-    create: {
-      workspaceId: workspace.id,
-      createdById: user.id,
-      firstName: FIXTURE.contactFirstName,
-      lastName: FIXTURE.contactLastName,
-      email: encryptString(FIXTURE.contactEmail),
-      emailHash: contactEmailHash,
-      importSource: "MANUAL",
-    },
-  });
+  // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
+  // in development; without it the contact is seeded email-less (the app
+  // couldn't store one either) and the scheduling spec skips itself, rather
+  // than failing the seed every other spec depends on.
+  const canEncrypt = !!process.env.DATABASE_ENCRYPTION_KEY;
+  if (canEncrypt) {
+    const contactEmailHash = createHash("sha256").update(FIXTURE.contactEmail).digest("hex");
+    await db.crmContact.upsert({
+      where: { workspaceId_emailHash: { workspaceId: workspace.id, emailHash: contactEmailHash } },
+      update: { firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
+      create: {
+        workspaceId: workspace.id,
+        createdById: user.id,
+        firstName: FIXTURE.contactFirstName,
+        lastName: FIXTURE.contactLastName,
+        email: encryptString(FIXTURE.contactEmail),
+        emailHash: contactEmailHash,
+        importSource: "MANUAL",
+      },
+    });
+  } else {
+    console.warn("[dev-fixture] DATABASE_ENCRYPTION_KEY not set: seeding the CRM contact without an email; the schedule-meeting spec will skip.");
+    const existing = await db.crmContact.findFirst({
+      where: { workspaceId: workspace.id, firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
+      select: { id: true },
+    });
+    if (!existing) {
+      await db.crmContact.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          firstName: FIXTURE.contactFirstName,
+          lastName: FIXTURE.contactLastName,
+          importSource: "MANUAL",
+        },
+      });
+    }
+  }
 
   const project = await db.project.upsert({
     where: { slug: FIXTURE.projectSlug },
@@ -863,6 +893,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     projectMeetingsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=transcriptions`,
     colleagueName: FIXTURE.colleagueName,
     contactName: `${FIXTURE.contactFirstName} ${FIXTURE.contactLastName}`,
+    canScheduleWithContact: canEncrypt,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,
