@@ -80,8 +80,10 @@ const MAX_ATTENDEES = 50;
  * service: the organizer always (as a member), then each requested person.
  * The invite is the only write to anyone's calendar, so a person who
  * resolves to no email is refused — unlike a recorded Meeting's
- * Participants, where a name-only row is fine. One row per email; the first
- * mention wins, so the organizer and members keep their user link.
+ * Participants, where a name-only row is fine. One row per email; a member
+ * row beats a contact or free-text row for the same address whatever the
+ * input order, so the person keeps their member link (their in-app calendar,
+ * and a place among a one-off's participants).
  */
 async function resolveAttendees(
   tx: Prisma.TransactionClient,
@@ -111,7 +113,8 @@ async function resolveAttendees(
       });
     }
     const email = resolved.email.trim().toLowerCase();
-    if (!rows.has(email)) rows.set(email, { ...resolved, email });
+    const existing = rows.get(email);
+    if (!existing || (!existing.userId && resolved.userId)) rows.set(email, { ...resolved, email });
   }
   return [...rows.values()];
 }

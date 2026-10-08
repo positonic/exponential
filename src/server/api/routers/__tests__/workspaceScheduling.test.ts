@@ -412,9 +412,12 @@ describe("workspaceScheduling router (mocked)", () => {
       await expect(book([])).rejects.toMatchObject({ code: "BAD_REQUEST" });
     });
 
-    it("dedupes by email, keeping the member row", async () => {
+    it.each([
+      ["member first", [{ userId: "user-a" }, { email: "A@example.com" }]],
+      ["email first", [{ email: "A@example.com" }, { userId: "user-a" }]],
+    ])("dedupes by email, keeping the member row (%s)", async (_order, attendees) => {
       dbMock.crmContact.findUnique.mockResolvedValue({ id: "contact-a", firstName: "A", lastName: null } as never);
-      await book([{ userId: "user-a" }, { email: "A@example.com" }], { attendeeUserIds: ["user-a"] });
+      await book(attendees);
       const createArg = dbMock.meeting.create.mock.calls[0]![0] as {
         data: { attendees: { create: Array<{ email: string; userId: string | null }> } };
       };
