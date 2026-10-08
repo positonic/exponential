@@ -341,7 +341,8 @@ export function readToolsetAnswers(
   const probabilities: Partial<Record<ToolsetId, number>> = {};
   for (const id of TOOLSET_IDS) {
     const p = answers?.[`toolset_${id}`]?.noul;
-    if (typeof p !== "number" || !Number.isFinite(p)) return undefined;
+    // A probability outside [0, 1] is a malformed answer, not a strong one.
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) return undefined;
     probabilities[id] = p;
   }
   const toolsets = TOOLSET_IDS.filter((id) => (probabilities[id] ?? 0) >= TOOLSET_SELECT_THRESHOLD);

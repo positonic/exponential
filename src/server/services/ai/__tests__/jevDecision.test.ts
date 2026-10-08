@@ -418,6 +418,16 @@ describe("readToolsetAnswers", () => {
     expect(readToolsetAnswers(full({ toolset_crm: { type: "noul", noul: Number.NaN } }))).toBeUndefined();
   });
 
+  it("rejects probabilities outside [0, 1] instead of selecting or dropping on them", () => {
+    expect(readToolsetAnswers(full({ toolset_crm: { type: "noul", noul: 2 } }))).toBeUndefined();
+    expect(readToolsetAnswers(full({ toolset_crm: { type: "noul", noul: -1 } }))).toBeUndefined();
+  });
+
+  it("accepts the boundary probabilities 0 and 1", () => {
+    const r = readToolsetAnswers(full({ toolset_crm: { type: "noul", noul: 1 }, toolset_web: { type: "noul", noul: 0 } }));
+    expect(r?.toolsets).toEqual(["crm"]);
+  });
+
   it("returns ids in declaration order", () => {
     const r = readToolsetAnswers(full({ toolset_web: { type: "noul", noul: 0.9 }, toolset_planning: { type: "noul", noul: 0.9 } }));
     expect(r?.toolsets).toEqual(["planning", "web"]);
