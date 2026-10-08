@@ -15,6 +15,7 @@ import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceA
 import { OccurrenceSkipBanner } from "~/app/_components/ceremonies/OccurrenceSkipBanner";
 import { OccurrenceNotes } from "~/app/_components/ceremonies/OccurrenceNotes";
 import { useRegisterTopbarCrumbs } from "~/app/_components/layout/TopbarCrumbs";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
 /**
  * Occurrence page (ADR-0059): the generated agenda for one ceremony
@@ -164,9 +165,9 @@ export default function OccurrencePage() {
               {occurrence.ceremony.name} · {when}
             </Title>
             {isOneOff && occurrence.purpose && (
-              <Text size="md" mt={4} className="text-text-secondary" data-testid="meeting-purpose">
-                {occurrence.purpose}
-              </Text>
+              <div className="mt-1 text-text-secondary" data-testid="meeting-purpose">
+                <MarkdownRenderer content={occurrence.purpose} variant="compact" />
+              </div>
             )}
             <Group gap="xs" mt={6}>
               <Badge variant="light">

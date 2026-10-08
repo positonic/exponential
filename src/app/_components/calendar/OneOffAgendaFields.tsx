@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { Checkbox, Chip, Group, Stack, Text, TextInput } from "@mantine/core";
+import { Checkbox, Chip, Group, Input, Stack, Text } from "@mantine/core";
 import { api } from "~/trpc/react";
+import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import {
   ONE_OFF_PRESETS,
   ONE_OFF_SECTION_TYPES,
@@ -78,14 +79,21 @@ export function OneOffAgendaFields({
 
   return (
     <Stack gap="sm">
-      <TextInput
+      <Input.Wrapper
         label="Purpose"
         description="What should this meeting decide or produce? It heads the agenda and the invite."
-        placeholder="e.g. Agree the launch scope and who owns each part"
-        value={purpose}
-        maxLength={2000}
-        onChange={(e) => onPurposeChange(e.currentTarget.value)}
-      />
+      >
+        <div className="mt-1">
+          <MarkdownInput
+            value={purpose}
+            // The server caps a purpose at 2000 characters.
+            onChange={(value) => onPurposeChange(value.slice(0, 2000))}
+            placeholder="e.g. Agree the launch scope and who owns each part"
+            minRows={2}
+            maxRows={6}
+          />
+        </div>
+      </Input.Wrapper>
 
       <div>
         <Text size="sm" fw={500} mb={6}>
