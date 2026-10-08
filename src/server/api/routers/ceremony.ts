@@ -31,6 +31,8 @@ import { emitNotification } from "~/server/services/notifications/emit/emitNotif
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
+import { ONE_OFF_SECTION_TYPES } from "~/server/services/ceremonies/oneOffPresets";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -216,6 +218,47 @@ export const ceremonyRouter = createTRPCRouter({
           },
         },
         orderBy: { name: "asc" },
+      });
+    }),
+
+  /**
+   * Dry run of a one-off meeting's agenda for the schedule-meeting modal:
+   * per ticked section, how many items it would hold and the first three.
+   * Never writes and never calls an LLM. Gated on project access, like the
+   * project's own pages.
+   */
+  previewOneOffAgenda: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string(),
+        scheduledStart: z.coerce.date(),
+        durationMinutes: z.number().int().min(5).max(24 * 60).optional(),
+        sectionTypes: z.array(z.enum(ONE_OFF_SECTION_TYPES)).max(ONE_OFF_SECTION_TYPES.length),
+        purposePreset: z.string().max(40).optional(),
+        purpose: z.string().max(2000).optional(),
+      }),
+    )
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const project = await ctx.db.project.findFirst({
+        where: { id: input.projectId, workspaceId: input.workspaceId },
+        select: { workspace: { select: { slug: true } } },
+      });
+      if (!project?.workspace) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found in this workspace" });
+      const user = await ctx.db.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+      return previewOneOffAgenda(ctx.db, {
+        workspaceId: input.workspaceId,
+        workspaceSlug: project.workspace.slug,
+        projectId: input.projectId,
+        callerUserId: userId,
+        scheduledStart: input.scheduledStart,
+        durationMinutes: input.durationMinutes,
+        sectionTypes: input.sectionTypes,
+        presetKey: input.purposePreset,
+        purpose: input.purpose,
+        timezone: user?.timezone ?? undefined,
       });
     }),
 
