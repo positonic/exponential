@@ -24,9 +24,10 @@ export interface ViewPrefsKey {
 /**
  * Every view-prefs save made through this hook goes into one queue: React
  * Query runs mutations that share a scope one at a time, in order. The server
- * merges each save into one settings row per user with a read-then-write, so
- * overlapping saves could drop each other; and the reconcile below relies on
- * every save still pending when one succeeds having been made after it.
+ * merges each save atomically, but two saves in flight at once could commit
+ * in either order, so a field changed twice could keep the older value; and
+ * the reconcile below relies on every save still pending when one succeeds
+ * having been made after it.
  */
 const SAVE_SCOPE = { id: "product.product.saveViewPrefs" };
 

@@ -4,7 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { buildProjectAccessWhere } from "~/server/services/access";
 import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
-import type { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient, PluginConfig } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
@@ -55,6 +56,11 @@ async function loadProductWithAccess(
 
 // Exported so other routers (feature, ticket, research, retrospective) can reuse
 export { assertWorkspaceMember, loadProductWithAccess };
+
+/** `expr` if it is a JSON object, else `{}`: a missing or malformed stored value merges as empty. */
+function jsonbObjectOrEmpty(expr: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`CASE WHEN jsonb_typeof(${expr}) = 'object' THEN ${expr} ELSE '{}'::jsonb END`;
+}
 
 export const productRouter = createTRPCRouter({
   list: protectedProcedure
@@ -812,45 +818,51 @@ export const productRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
-      const existing = await ctx.db.pluginConfig.findUnique({
-        where: {
-          pluginId_workspaceId_userId: {
-            pluginId: "product",
-            workspaceId: input.workspaceId,
-            userId: ctx.session.user.id,
-          },
-        },
-        select: { settings: true },
-      });
 
-      const currentSettings = (existing?.settings as Record<string, unknown>) ?? {};
-      const currentViewPrefs = (currentSettings.viewPrefs as Record<string, unknown>) ?? {};
-      const currentProductPrefs = (currentViewPrefs[input.productSlug] as Record<string, unknown>) ?? {};
+      // One settings row holds every prefs key for this user and workspace
+      // (Backlog, Insights, Features...), and saves for any of them can
+      // overlap: other tabs, other devices, two pages. A read-then-write here
+      // would let the later write drop the earlier one's change, so the merge
+      // happens inside a single UPDATE instead: Postgres locks the row and,
+      // if another save committed first, re-evaluates the merge on that newer
+      // version.
 
-      const merged = { ...currentProductPrefs, ...input.prefs };
-      const newSettings = {
-        ...currentSettings,
-        viewPrefs: { ...currentViewPrefs, [input.productSlug]: merged },
-      };
-
-      return ctx.db.pluginConfig.upsert({
-        where: {
-          pluginId_workspaceId_userId: {
-            pluginId: "product",
-            workspaceId: input.workspaceId,
-            userId: ctx.session.user.id,
-          },
-        },
-        create: {
+      // Create the row if there is none yet (a no-op when there is), so the
+      // UPDATE always has one. Two first saves racing here both succeed.
+      await ctx.db.pluginConfig.createMany({
+        data: [{
           pluginId: "product",
           workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
           enabled: true,
-          settings: newSettings as Prisma.InputJsonValue,
-        },
-        update: {
-          settings: newSettings as Prisma.InputJsonValue,
-        },
+        }],
+        skipDuplicates: true,
       });
+
+      // settings.viewPrefs[productSlug] = { ...stored, ...input.prefs }: each
+      // saved pref replaces its old value; every other key is left as stored.
+      const settings = Prisma.sql`"settings"`;
+      const viewPrefs = Prisma.sql`"settings"->'viewPrefs'`;
+      const slugPrefs = Prisma.sql`"settings"->'viewPrefs'->${input.productSlug}::text`;
+      const [saved] = await ctx.db.$queryRaw<PluginConfig[]>`
+        UPDATE "PluginConfig"
+        SET "settings" = ${jsonbObjectOrEmpty(settings)} || jsonb_build_object(
+              'viewPrefs',
+              ${jsonbObjectOrEmpty(viewPrefs)} || jsonb_build_object(
+                ${input.productSlug}::text,
+                ${jsonbObjectOrEmpty(slugPrefs)} || ${JSON.stringify(input.prefs)}::jsonb
+              )
+            ),
+            "updatedAt" = now() AT TIME ZONE 'UTC'
+        WHERE "pluginId" = 'product'
+          AND "workspaceId" = ${input.workspaceId}
+          AND "userId" = ${ctx.session.user.id}
+        RETURNING "id", "pluginId", "workspaceId", "userId", "enabled", "settings", "createdAt", "updatedAt"
+      `;
+      // Only if the row was deleted in between (its workspace or user went).
+      if (!saved) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "View preferences not found" });
+      }
+      return saved;
     }),
 });
