@@ -30,8 +30,7 @@ vi.hoisted(() => {
 
 vi.mock("openai", () => ({
   default: class MockOpenAI {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(_opts?: any) {
+    constructor(_opts?: unknown) {
       // intentionally empty
     }
   },
@@ -141,10 +140,12 @@ function roleGateCases(opts: {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.$transaction.mockImplementation(async (cb: any) =>
-      typeof cb === "function" ? cb(dbMock) : Promise.all(cb),
-    );
+    // Interactive transactions get the mock as their client; array-form
+    // transactions just settle their queries.
+    dbMock.$transaction.mockImplementation((async (arg: unknown) =>
+      typeof arg === "function"
+        ? (arg as (tx: PrismaClient) => unknown)(dbMock)
+        : Promise.all(arg as Promise<unknown>[])) as never);
     opts.arrange(dbMock);
   });
 
@@ -299,5 +300,34 @@ describe("retrospective.update role gate (mocked)", () => {
     act: (c) =>
       c.product.retrospective.update({ id: "retro-1", title: "Renamed" }),
     write: (db) => db.retrospective.update,
+  });
+});
+
+describe("cycle.list lazy generation (mocked)", () => {
+  // Listing is a read, so viewers get through - but by default the query also
+  // lazily creates upcoming cycles as the caller. That creation is a write.
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.list.updateMany.mockResolvedValue({ count: 0 } as never);
+    dbMock.list.findMany.mockResolvedValue([] as never);
+    dbMock.list.findUnique.mockResolvedValue(null as never);
+    dbMock.list.create.mockResolvedValue({ id: "cycle-new" } as never);
+  });
+
+  it("lets a viewer list cycles without creating any", async () => {
+    stubRole(dbMock, "viewer");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.cycle.list({ workspaceId, productId });
+    expect(dbMock.list.create).not.toHaveBeenCalled();
+  });
+
+  it("still auto-creates upcoming cycles for a member", async () => {
+    stubRole(dbMock, "member");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.cycle.list({ workspaceId, productId });
+    expect(dbMock.list.create).toHaveBeenCalled();
   });
 });
