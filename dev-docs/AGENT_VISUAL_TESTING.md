@@ -58,6 +58,13 @@ Playwright global-setup):
 A minted cookie only works against a server sharing the local `AUTH_SECRET`;
 it is inert against production.
 
+**No real email.** The app has no email stub: a `next dev` with `.env.local`
+sends through the live Postmark key, so booking a meeting emails real calendar
+invites. The Playwright `webServer` therefore runs with `AUTH_POSTMARK_KEY` and
+`POSTMARK_SERVER_TOKEN` blanked (every send fails, which the app treats as
+non-fatal). Do the same for ad-hoc browsing that books or cancels meetings:
+start the dev server with those two variables set to empty strings.
+
 ## Writing specs
 
 - Prefer functional assertions (roles, links, badge text) over pixel diffs —

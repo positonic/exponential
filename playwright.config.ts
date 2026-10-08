@@ -41,5 +41,9 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // Never deliver real email from a spec: booking a meeting sends calendar
+    // invites through Postmark, and `.env.local` carries a live key. With the
+    // keys blank every send fails, which the app treats as non-fatal.
+    env: { AUTH_POSTMARK_KEY: "", POSTMARK_SERVER_TOKEN: "" },
   },
 });
