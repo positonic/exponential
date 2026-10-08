@@ -594,7 +594,7 @@ export const pageRouter = createTRPCRouter({
         workspaceId: z.string(),
         projectId: z.string().nullish(),
         title: boundedText("Title", TEXT_LIMITS.LABEL).optional(),
-        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        body: boundedText("Body", TEXT_LIMITS.HUGE).optional(),
         bodyDoc: prosemirrorDoc.optional(),
         includeInSearch: z.boolean().optional(),
       }),
@@ -641,7 +641,7 @@ export const pageRouter = createTRPCRouter({
         projectId: z.string().nullish(),
         includeInSearch: z.boolean().optional(),
         bodyDoc: prosemirrorDoc.optional(),
-        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        body: boundedText("Body", TEXT_LIMITS.HUGE).optional(),
         baseVersion: z.number().int().min(0).optional(),
       }),
     )
