@@ -556,7 +556,7 @@ export function ProjectSyncConfiguration({
                     {/* Source of truth toggle - only for Notion */}
                     {project.taskManagementTool === 'notion' && (
                       <Tooltip label={exponentialIsSourceOfTruth ?
-                        `${PRODUCT_NAME} is the source of truth. Push will overwrite Notion completely.` :
+                        `${PRODUCT_NAME} is the source of truth. Push overwrites linked Notion tasks; it never trashes pages.` :
                         "Notion is the source of truth. Push will only add/update tasks."}>
                         <Switch
                           size="sm"

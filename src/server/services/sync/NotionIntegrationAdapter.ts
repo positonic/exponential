@@ -152,10 +152,6 @@ export class NotionIntegrationAdapter implements IIntegrationService {
     };
   }
 
-  async archiveItem(itemId: string): Promise<void> {
-    await this.notionService.archivePage(itemId);
-  }
-
   parseToAction(item: ExternalItem, _mappings: PropertyMappings): ParsedAction {
     // The item already has parsed data from convertPageToExternalItem
     // Status is the raw Notion value - SyncEngine maps it to kanbanStatus

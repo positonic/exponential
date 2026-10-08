@@ -53,7 +53,7 @@ export interface FakePage {
 }
 
 export interface NotionWrite {
-  method: "updatePage" | "createPage" | "archivePage";
+  method: "updatePage" | "createPage";
   externalId: string | null;
   properties?: Record<string, unknown>;
 }
@@ -329,15 +329,6 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     page.lastEditedAt = this.clock.advance();
     page.lastEditedBy = "bot";
     return Promise.resolve({ externalId: page.externalId, url: page.url });
-  }
-
-  archivePage(externalId: string): Promise<void> {
-    const page = this.mustGet(externalId);
-    this.writes.push({ method: "archivePage", externalId });
-    page.archived = true;
-    page.lastEditedAt = this.clock.advance();
-    page.lastEditedBy = "bot";
-    return Promise.resolve();
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
