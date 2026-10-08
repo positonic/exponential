@@ -548,8 +548,15 @@ export async function runInboundTicketSync(
           // Adopt: an unseen row that links to an existing ticket belongs
           // to that ticket. Link it and fall through to the merge below
           // (null snapshot → last-write-wins, like the links-JSON adoption).
+          //
+          // Not on a dry run: reading links costs a page fetch per row, and
+          // the first-sync preview scans the whole database, where that would
+          // make it slow enough to time out. The preview may therefore count
+          // an adoptable page as "would create" — it over-reports, never under.
           // ----------------------------------------------------------
-          const linked = await resolveLinkedTicket(db, adapter, config, row.externalId);
+          const linked: LinkedTicket = dryRun
+            ? { kind: "none" }
+            : await resolveLinkedTicket(db, adapter, config, row.externalId);
           if (linked.kind === "skip") {
             counts.skipped++;
             items.push({
@@ -562,16 +569,6 @@ export async function runInboundTicketSync(
             continue;
           }
           if (linked.kind === "adopt") {
-            if (dryRun) {
-              items.push({
-                externalId: row.externalId,
-                ticketId: linked.ticketId,
-                title: row.title,
-                action: "adopted",
-                reason: `would link to ticket #${linked.number} (the page links to it)`,
-              });
-              continue;
-            }
             record = await db.ticketSync.create({
               data: {
                 configId: config.id,

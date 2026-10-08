@@ -93,20 +93,15 @@ describe("inbound: a hand-written page that links to an existing ticket", () => 
     expect(page.rawStatus).toBe(STATUS_TO_RAW.ARCHIVED);
   });
 
-  it("dry run reports the adoption without linking", async () => {
+  it("dry run skips the link check, so the preview costs no page fetches", async () => {
     const w = createRoundTripWorld();
     const ticket = w.db.seedTicket({});
-    const page = w.notion.seedPage({ links: [ticketUrl(ticket.number)] });
+    w.notion.seedPage({ links: [ticketUrl(ticket.number)] });
+    const getPageLinks = vi.spyOn(w.notion, "getPageLinks");
 
-    const pull = await w.pull({ dryRun: true });
+    await w.pull({ dryRun: true });
 
-    expect(pull.items).toContainEqual(
-      expect.objectContaining({
-        externalId: page.externalId,
-        action: "adopted",
-        reason: expect.stringContaining("would link") as unknown,
-      }),
-    );
+    expect(getPageLinks).not.toHaveBeenCalled();
     expect(w.db.syncs.size).toBe(0);
   });
 

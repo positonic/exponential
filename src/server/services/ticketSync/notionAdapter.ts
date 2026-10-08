@@ -104,6 +104,16 @@ export class NotionTicketSyncAdapter
     Promise<{ properties: Record<string, unknown> }>
   >();
 
+  /**
+   * The last page fetched with its blocks. Inbound reads an unlinked page's
+   * links and then, if it imports it, its body — the same page, back to back.
+   * Remembering one page makes that a single fetch.
+   */
+  private lastPageFetch: {
+    externalId: string;
+    result: Promise<{ page: unknown; blocks: unknown[] }>;
+  } | null = null;
+
   constructor(
     private readonly notion: NotionService,
     private readonly propertyNames: PropertyNames,
@@ -238,10 +248,22 @@ export class NotionTicketSyncAdapter
     };
   }
 
+  private getPageWithBlocks(
+    externalId: string,
+  ): Promise<{ page: unknown; blocks: unknown[] }> {
+    if (this.lastPageFetch?.externalId !== externalId) {
+      this.lastPageFetch = {
+        externalId,
+        result: this.notion.getPageWithBlocks(externalId),
+      };
+    }
+    return this.lastPageFetch.result;
+  }
+
   /** Flatten the page's blocks into plain-text-with-markdown-accents. */
   async getPageBody(externalId: string): Promise<string | null> {
     try {
-      const { blocks } = await this.notion.getPageWithBlocks(externalId);
+      const { blocks } = await this.getPageWithBlocks(externalId);
       const lines: string[] = [];
       for (const block of blocks as Array<Record<string, unknown>>) {
         const line = renderBlock(block);
@@ -263,7 +285,7 @@ export class NotionTicketSyncAdapter
    */
   async getPageLinks(externalId: string): Promise<string[]> {
     try {
-      const { page, blocks } = await this.notion.getPageWithBlocks(externalId);
+      const { page, blocks } = await this.getPageWithBlocks(externalId);
       const urls: string[] = [];
       const properties = ((page as { properties?: Record<string, unknown> })
         .properties ?? {}) as Record<string, Record<string, unknown>>;

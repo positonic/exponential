@@ -57,6 +57,19 @@ describe("NotionTicketSyncAdapter.getPageLinks", () => {
     ]);
   });
 
+  it("reading links then the body of the same page fetches it once", async () => {
+    const notion = {
+      getPageWithBlocks: vi.fn(() => Promise.resolve({ page: { properties: {} }, blocks: [] })),
+    };
+    const adapter = new NotionTicketSyncAdapter(notion as unknown as NotionService, {} as never, null);
+
+    await adapter.getPageLinks("page-1");
+    await adapter.getPageBody("page-1");
+    await adapter.getPageLinks("page-2");
+
+    expect(notion.getPageWithBlocks.mock.calls).toEqual([["page-1"], ["page-2"]]);
+  });
+
   it("returns no links when the page can't be read, so the row imports as before", async () => {
     const adapter = adapterFor(new Error("403"));
     await expect(adapter.getPageLinks("page-1")).resolves.toEqual([]);
