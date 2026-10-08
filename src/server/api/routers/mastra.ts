@@ -424,10 +424,15 @@ export const mastraRouter = createTRPCRouter({
       // Generate JWT token for agent authentication
       const agentJWT = generateAgentJWT(ctx.session.user, 30);
 
-      // If an assistantId is provided, fetch the custom personality and inject it
+      // If an assistantId is provided, fetch the custom personality and inject it.
+      // `assistantId` is client-supplied, and the row's personality/instructions/
+      // userContext are injected verbatim into the system prompt below — so scope
+      // the lookup to the caller's own assistants (mirrors the streaming route,
+      // see "scope assistants to their owner", PR 536). An id belonging to anyone
+      // else simply doesn't resolve, and the request falls through to `agentId`.
       if (input.assistantId) {
-        const assistant = await ctx.db.assistant.findUnique({
-          where: { id: input.assistantId },
+        const assistant = await ctx.db.assistant.findFirst({
+          where: { id: input.assistantId, createdById: ctx.session.user.id },
         });
 
         if (assistant) {
