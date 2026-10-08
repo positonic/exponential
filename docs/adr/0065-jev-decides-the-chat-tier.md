@@ -58,6 +58,19 @@ Three facts shaped the answer:
    the Haiku tier, later as the home for open-weight candidates once tool loading no longer
    depends on Anthropic's deferral (a prerequisite, tracked separately).
 
+4. **Jev also picks the turn's toolsets** (2026-10-08, ticket 674). The same request carries one
+   Noul question per toolset (`planning`, `tickets`, `pages`, `notion`, `calendar`, `crm`,
+   `email`, `whatsapp`, `goals`, `slack`, `meetings`, `decisions`, `web`); toolsets at
+   probability ≥ 0.3 are selected, a deliberately low bar because a missing toolset fails the
+   turn while an extra one only costs schema tokens. The route sends them to Mastra as the
+   `toolsets` RequestContext entry. Mastra groups Zoe's and the Assistant's tools into a small
+   CORE plus these toolsets (`src/mastra/agents/toolsets.ts` in the mastra repo, the other half
+   of the id contract). Anthropic-backed agents use the `anthropic` profile and keep every tool
+   (deferral already makes that cheap, and a fixed list keeps the prompt cache and replayed
+   history stable); `generic`-profile agents, the OpenRouter ones from ticket 675, load CORE
+   plus the selection. Sticky turns skip Jev and so carry no selection; a generic agent then
+   gets CORE only, which ticket 675 must revisit before such an agent takes real traffic.
+
 ## Consequences
 
 - Tier decisions gain a confidence and a latency we can log and evaluate; misroutes become a

@@ -378,6 +378,54 @@ describe("pickModelTier — Jev decision layer", () => {
     expect(result.decision).toBeUndefined();
   });
 
+  it("carries Jev's toolset selection on a confident decision", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("what did we decide in yesterday's standup?")],
+      db: makeDb(null),
+      decideTier: async () => ({ ...(await decideFast()), toolsets: ["meetings" as const, "decisions" as const] }),
+    });
+    expect(result.reason).toBe("jev-fast");
+    expect(result.toolsets).toEqual(["meetings", "decisions"]);
+  });
+
+  it("lets the regexes pick the tier but keeps toolsets when Jev is unsure of the tier", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("hi")],
+      db: makeDb(null),
+      decideTier: async () => ({ ...(await decideFast()), tier: null, toolsets: [] }),
+    });
+    expect(result.reason).toBe("haiku-greeting");
+    expect(result.decision).toBeUndefined();
+    expect(result.toolsets).toEqual([]);
+  });
+
+  it("sets no toolsets when Jev is unavailable", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("hi")],
+      db: makeDb(null),
+      decideTier: decideUnsure,
+    });
+    expect(result.toolsets).toBeUndefined();
+  });
+
+  it("sets no toolsets on a sticky turn (Jev is not consulted)", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("hi")],
+      db: makeDb({ agentId: "zoeAgentHaiku", hadError: false }),
+      decideTier: async () => ({ ...(await decideFast()), toolsets: ["slack" as const] }),
+    });
+    expect(result.reason).toBe("sticky-haiku");
+    expect(result.toolsets).toBeUndefined();
+  });
+
   it("does not consult Jev when the user opted in with @think", async () => {
     const decideTier = vi.fn(decideFast);
     const result = await pickModelTier({
