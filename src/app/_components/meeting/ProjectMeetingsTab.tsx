@@ -1,9 +1,13 @@
 "use client";
 
-import { Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
+import { useMemo, useState } from "react";
+import { Button, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconMicrophone } from "@tabler/icons-react";
+import { IconCalendarPlus, IconMicrophone } from "@tabler/icons-react";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
+import { ScheduleMeetingModal } from "../calendar/ScheduleMeetingModal";
+import type { PendingParticipant } from "./ParticipantPicker";
 import { CreateTranscriptionModal } from "../CreateTranscriptionModal";
 import { ProjectFirefliesSyncPanel } from "../ProjectFirefliesSyncPanel";
 import { MeetingCardList } from "./MeetingCardList";
@@ -14,6 +18,8 @@ interface ProjectMeetingsTabProps {
   projectName: string;
   workspaceId: string | null;
   hasFirefliesWorkflow: boolean;
+  /** The project's DRI, preselected (with the project's members) when scheduling. */
+  dri?: { id: string; name: string | null; email: string | null } | null;
 }
 
 /**
@@ -28,8 +34,11 @@ export function ProjectMeetingsTab({
   projectName,
   workspaceId,
   hasFirefliesWorkflow,
+  dri,
 }: ProjectMeetingsTabProps) {
   const utils = api.useUtils();
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const { data: session } = useSession();
   // workspaceId rides along so the create modal's workspace-keyed
   // invalidation also refreshes this list.
   const { data: meetings, isLoading } = api.transcription.getMeetingCards.useQuery({
@@ -38,6 +47,36 @@ export function ProjectMeetingsTab({
   });
   const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
   const { data: occurrences = [] } = api.ceremony.listOccurrencesForProject.useQuery({ projectId });
+
+  // Scheduling is for non-viewer workspace members; the roster query refuses
+  // anyone else, which is also what hides the button from them.
+  const { data: schedulableMembers, isSuccess: canSchedule } =
+    api.workspaceScheduling.listSchedulableMembers.useQuery(
+      { workspaceId: workspaceId ?? "" },
+      { enabled: !!workspaceId, retry: false },
+    );
+  const { data: projectMembers } = api.project.listMembers.useQuery({ projectId });
+
+  // The DRI and the project's members, as attendees — only those who are
+  // workspace members with an email (an invite needs one, and booking
+  // refuses a member attendee from outside the workspace). The organizer is
+  // always invited, so they aren't listed.
+  const defaultAttendees = useMemo<PendingParticipant[]>(() => {
+    const schedulable = new Set((schedulableMembers ?? []).map((m) => m.id));
+    const people = [dri, ...(projectMembers ?? []).map((m) => m.user)];
+    const byId = new Map<string, PendingParticipant>();
+    for (const person of people) {
+      if (!person?.email || !schedulable.has(person.id) || person.id === session?.user?.id) continue;
+      byId.set(person.id, {
+        key: `user:${person.id}`,
+        name: person.name ?? person.email,
+        email: person.email,
+        kind: "member",
+        payload: { userId: person.id },
+      });
+    }
+    return [...byId.values()];
+  }, [dri, projectMembers, schedulableMembers, session?.user?.id]);
 
   const refresh = () => {
     void utils.transcription.getMeetingCards.invalidate();
@@ -136,6 +175,15 @@ export function ProjectMeetingsTab({
             projectName={projectName}
             workspaceId={workspaceId ?? undefined}
           />
+          {workspaceId && canSchedule && (
+            <Button
+              variant="light"
+              leftSection={<IconCalendarPlus size={16} />}
+              onClick={() => setScheduleOpen(true)}
+            >
+              Schedule meeting
+            </Button>
+          )}
         </Group>
         <Group gap="md">
           {hasFirefliesWorkflow && (
@@ -146,6 +194,17 @@ export function ProjectMeetingsTab({
           </Text>
         </Group>
       </Group>
+
+      {workspaceId && (
+        <ScheduleMeetingModal
+          opened={scheduleOpen}
+          onClose={() => setScheduleOpen(false)}
+          defaultWorkspaceId={workspaceId}
+          projectId={projectId}
+          defaultAttendees={defaultAttendees}
+          onCreated={() => void utils.ceremony.listOccurrencesForProject.invalidate({ projectId })}
+        />
+      )}
 
       <ProjectOccurrenceRows rows={occurrences} />
 

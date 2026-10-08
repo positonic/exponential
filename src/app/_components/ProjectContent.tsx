@@ -661,6 +661,7 @@ export function ProjectContent({
                 projectName={project.name}
                 workspaceId={project.workspaceId}
                 hasFirefliesWorkflow={hasFirefliesWorkflow}
+                dri={project.dri}
               />
             </Tabs.Panel>
 
