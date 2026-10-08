@@ -14,16 +14,39 @@
  *
  * See the comment block at the top of src/styles/mantineTheme.ts.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 const TICKETS = "/w/dev-fixture/products/fixture/tickets";
 const INSIGHTS = "/w/dev-fixture/products/fixture/insights";
 const FIRST_PAINT = 60_000;
 
-const NAVY_ELEVATED = "rgb(15, 23, 40)"; // --color-bg-elevated
-const BORDER_PRIMARY = "rgb(26, 38, 62)"; // --color-border-primary
-const BRAND = "rgb(31, 93, 224)"; // --color-brand-primary
-const MODAL = "rgb(13, 20, 36)"; // --color-bg-modal
+/**
+ * Resolves a CSS colour value - usually a design token such as
+ * `var(--color-brand-primary)` - to the computed form `toHaveCSS` compares
+ * against. Read from the live page, so the expectations follow the tokens
+ * instead of duplicating their values here.
+ */
+async function resolveColor(page: Page, value: string): Promise<string> {
+  return page.evaluate((cssValue) => {
+    const probe = document.createElement("div");
+    probe.style.color = cssValue;
+    document.body.appendChild(probe);
+    const computed = getComputedStyle(probe).color;
+    probe.remove();
+    return computed;
+  }, value);
+}
+
+async function token(page: Page, name: string): Promise<string> {
+  // An undefined token would make the probe inherit body's colour and turn the
+  // assertion into a comparison against the wrong thing, so fail loudly.
+  const defined = await page.evaluate(
+    (prop) => getComputedStyle(document.body).getPropertyValue(prop).trim() !== "",
+    name,
+  );
+  expect(defined, `${name} is not defined on this page`).toBe(true);
+  return resolveColor(page, `var(${name})`);
+}
 
 test("a Modal that overrides one style key keeps the themed surface", async ({
   page,
@@ -35,14 +58,14 @@ test("a Modal that overrides one style key keeps the themed surface", async ({
 
   // This modal passes only `styles={{ header: { paddingTop: 24 } }}`. Before
   // the fix that one key discarded every themed token and the modal rendered
-  // Mantine's stock rgb(36, 36, 36).
+  // Mantine's stock dark grey.
   await expect(page.locator(".mantine-Modal-content")).toHaveCSS(
     "background-color",
-    NAVY_ELEVATED,
+    await token(page, "--color-bg-elevated"),
   );
   await expect(page.locator(".mantine-Modal-header")).toHaveCSS(
     "border-bottom-color",
-    BORDER_PRIMARY,
+    await token(page, "--color-border-primary"),
   );
 });
 
@@ -55,10 +78,13 @@ test("CommandPalette keeps its own darker content surface", async ({ page }) => 
 
   // The theme deliberately carries no `body` background: body sits inside
   // content, so painting it would cover this --color-bg-modal surface.
-  await expect(content).toHaveCSS("background-color", MODAL);
+  await expect(content).toHaveCSS(
+    "background-color",
+    await token(page, "--color-bg-modal"),
+  );
   await expect(page.locator(".mantine-Modal-body")).toHaveCSS(
     "background-color",
-    "rgba(0, 0, 0, 0)",
+    await resolveColor(page, "transparent"),
   );
 });
 
@@ -70,16 +96,16 @@ test("SegmentedControl keeps a themed indicator and an emphasised active label",
   await seg.waitFor({ timeout: FIRST_PAINT });
 
   // The list/board toggle overrides `root` only; the indicator used to fall
-  // back to Mantine's rgb(59, 59, 59).
+  // back to Mantine's stock grey.
   await expect(seg.locator(".mantine-SegmentedControl-indicator")).toHaveCSS(
     "background-color",
-    BORDER_PRIMARY,
+    await token(page, "--color-border-primary"),
   );
   // ...while the active label must stay --color-text-primary, which only works
   // because the base colour is a stylesheet rule rather than an inline style.
   await expect(
     page.locator(".mantine-SegmentedControl-label[data-active]").first(),
-  ).toHaveCSS("color", "rgb(255, 255, 255)");
+  ).toHaveCSS("color", await token(page, "--color-text-primary"));
 });
 
 test("the active tab is brand-coloured and inactive tabs are not", async ({
@@ -91,10 +117,10 @@ test("the active tab is brand-coloured and inactive tabs are not", async ({
 
   await expect(
     page.locator(".mantine-Tabs-tab[data-active]").first(),
-  ).toHaveCSS("color", BRAND);
+  ).toHaveCSS("color", await token(page, "--color-brand-primary"));
   await expect(
     page.locator(".mantine-Tabs-tab:not([data-active])").first(),
-  ).toHaveCSS("color", "rgb(193, 194, 197)"); // --color-text-secondary
+  ).toHaveCSS("color", await token(page, "--color-text-secondary"));
 });
 
 test("the pills-variant active tab keeps its inverse-on-brand label", async ({
@@ -107,5 +133,12 @@ test("the pills-variant active tab keeps its inverse-on-brand label", async ({
   await page.goto("/w/dev-fixture/actions");
   const active = page.locator('.mantine-Tabs-tab[data-variant="pills"][data-active]');
   await active.first().waitFor({ timeout: FIRST_PAINT });
-  await expect(active.first()).toHaveCSS("background-color", BRAND);
+  await expect(active.first()).toHaveCSS(
+    "background-color",
+    await token(page, "--color-brand-primary"),
+  );
+  await expect(active.first()).toHaveCSS(
+    "color",
+    await token(page, "--color-text-inverse"),
+  );
 });
