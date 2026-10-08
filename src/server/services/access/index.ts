@@ -92,6 +92,8 @@ export {
   canEditAction,
   checkActionPermission,
   buildActionAccessWhere,
+  buildActionEditWhere,
+  buildActionDeleteWhere,
 } from "./resolvers/actionResolver";
 export {
   getTranscriptionAccess,
