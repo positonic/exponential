@@ -1230,41 +1230,71 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions: moves the do-date (`scheduledStart`) and the
-  // deadline (`dueDate`) together onto the chosen day.
+  // Bulk reschedule actions: moves the do-date (`scheduledStart`) onto the
+  // chosen day, and pushes the deadline (`dueDate`) forward only where it would
+  // otherwise fall before it. A real deadline later than the new do-date — due
+  // Friday, moved to tomorrow — is left alone. This is the contract the Mastra
+  // `reschedule-actions` tool, the SDK, the MCP server and the CLI all document
+  // to agents; overwriting the deadline here silently clobbered it.
   //
   // `scheduledStart` is the field that decides the bucket. `partitionActions`
   // treats an action as overdue when its `scheduledStart` is before today and
   // only consults `dueDate` when there is no `scheduledStart` at all — schedule
-  // wins. Writing the deadline alone therefore leaves a past `scheduledStart`
-  // untouched and the action stays in the overdue pile, which turns "Reschedule
-  // all overdue" into a no-op against exactly the rows it was aimed at.
+  // wins. So moving `scheduledStart` alone is enough to take a row off the
+  // overdue pile (or out of the inbox); the deadline never needs to follow it.
+  // An action with no deadline keeps having none.
   //
-  // What genuinely was broken is the *value*: this used to stamp the caller's
-  // wall-clock instant, so a bulk reschedule drew every action as an hour-long
-  // block seconds apart on the agenda rail. Callers now send local midnight
-  // (see `resolveQuickReschedule`) — normalised client-side, because the day
-  // boundary belongs to the viewer's timezone, not the server's.
+  // The *value* matters too: stamping the caller's wall-clock instant draws
+  // every action as an hour-long block seconds apart on the agenda rail.
+  // Callers send local midnight (see `resolveQuickReschedule`) — normalised
+  // client-side, because the day boundary belongs to the viewer's timezone,
+  // not the server's.
   //
   // A null date clears both fields, so "No date" empties the pile rather than
   // leaving a stale time-block behind. `bulkDefer` remains the intent-carrying
   // path for amnesty — it also writes activity rows.
+  //
+  // `date` is the input; `dueDate` is its deprecated former name, still
+  // accepted because the Mastra tool and published SDK send it. Both coerce:
+  // the Mastra tool posts raw `{ json, meta: {} }`, so its date arrives as an
+  // ISO string rather than a superjson-revived Date, and a strict `z.date()`
+  // rejected every call it made.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
-      dueDate: z.date().nullable(),
-    }))
+      date: z.coerce.date().nullable().optional(),
+      /** @deprecated Use `date`. It sets the do-date, not the deadline. */
+      dueDate: z.coerce.date().nullable().optional(),
+    }).refine(
+      (i) => (i.date === undefined) !== (i.dueDate === undefined),
+      { message: "Pass exactly one of `date` or the deprecated `dueDate`" },
+    ))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.action.updateMany({
-        where: {
-          id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
-        },
-        data: {
-          scheduledStart: input.dueDate,
-          dueDate: input.dueDate,
-        },
-      });
+      // Not `input.date ?? input.dueDate`: an explicit null `date` is
+      // meaningful ("No date") and must not fall through to the alias.
+      const date = input.date !== undefined ? input.date : (input.dueDate ?? null);
+      const where: Prisma.ActionWhereInput = {
+        id: { in: input.actionIds },
+        ...buildActionAccessWhere(ctx.session.user.id),
+      };
+
+      if (date === null) {
+        await ctx.db.action.updateMany({
+          where,
+          data: { scheduledStart: null, dueDate: null },
+        });
+      } else {
+        await ctx.db.$transaction([
+          ctx.db.action.updateMany({
+            where,
+            data: { scheduledStart: date },
+          }),
+          ctx.db.action.updateMany({
+            where: { AND: [where, { dueDate: { lt: date } }] },
+            data: { dueDate: date },
+          }),
+        ]);
+      }
 
       return {
         count: input.actionIds.length,
@@ -1274,7 +1304,7 @@ export const actionRouter = createTRPCRouter({
 
   // Amnesty: un-date actions back to their project backlog.
   //
-  // Lands on the same columns as `bulkReschedule({ dueDate: null })`, but keep
+  // Lands on the same columns as `bulkReschedule({ date: null })`, but keep
   // both: this one records activity rows for what was cleared, and the name is
   // what callers (and agents doing tool discovery) match on. The difference is
   // intent, and intent is what they need to express:
