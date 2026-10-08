@@ -28,6 +28,7 @@ import {
 import { getOccurrenceSummary } from "~/server/services/ceremonies/updates/summary";
 import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server/services/ceremonies/skip";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
@@ -184,6 +185,9 @@ export const ceremonyRouter = createTRPCRouter({
       return ctx.db.ceremony.findMany({
         where: {
           workspaceId: input.workspaceId,
+          // One-offs are meetings booked from a project, not part of the
+          // operating rhythm (ADR-0059 amendment, 2026-10-07).
+          isOneOff: false,
           ...(input.includeInactive ? {} : { isActive: true }),
         },
         select: ceremonySummarySelect,
@@ -201,7 +205,7 @@ export const ceremonyRouter = createTRPCRouter({
     .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.ceremony.findMany({
-        where: { projects: { some: { projectId: input.projectId } }, isActive: true },
+        where: { projects: { some: { projectId: input.projectId } }, isActive: true, isOneOff: false },
         select: {
           ...ceremonySummarySelect,
           occurrences: {
@@ -345,10 +349,21 @@ export const ceremonyRouter = createTRPCRouter({
               ownerId: true,
               matrixRoomId: true,
               agendaTemplate: true,
+              isOneOff: true,
+              purpose: true,
               owner: { select: { id: true, name: true, email: true } },
             },
           },
           recordedMeetings: { select: { id: true } },
+          // The booking, so a one-off's page can offer Cancel.
+          scheduledMeeting: {
+            select: {
+              id: true,
+              status: true,
+              organizerId: true,
+              attendees: { select: { name: true, userId: true } },
+            },
+          },
         },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
@@ -362,8 +377,20 @@ export const ceremonyRouter = createTRPCRouter({
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
+      const { scheduledMeeting } = occurrence;
       return {
         ...occurrence,
+        isOneOff: occurrence.ceremony.isOneOff,
+        purpose: occurrence.ceremony.purpose,
+        // Attendee names only — external attendees' addresses stay off the page.
+        scheduledMeeting: scheduledMeeting
+          ? {
+              id: scheduledMeeting.id,
+              status: scheduledMeeting.status,
+              organizerId: scheduledMeeting.organizerId,
+              attendees: scheduledMeeting.attendees.map((a) => ({ userId: a.userId, name: a.name })),
+            }
+          : null,
         agenda: readAgendaSnapshot(occurrence.agenda),
         canGenerate,
         skipProposal,
@@ -485,11 +512,36 @@ export const ceremonyRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
         where: { id: input.occurrenceId, workspaceId: input.workspaceId },
-        select: { id: true, ceremony: { select: { ownerId: true } } },
+        select: {
+          id: true,
+          status: true,
+          ceremony: { select: { ownerId: true, isOneOff: true } },
+          scheduledMeeting: { select: { id: true, status: true } },
+        },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can skip an occurrence" });
+      }
+      // A one-off is its booking: skipping it cancels the Scheduled meeting
+      // (METHOD:CANCEL to every attendee) so no calendar keeps a phantom. The
+      // cancel service writes the skip in the same transaction as the
+      // cancellation, and the attendees' cancel email is the notice — no skip
+      // notice follows.
+      if (occurrence.ceremony.isOneOff && occurrence.scheduledMeeting?.status === "confirmed") {
+        if (occurrence.status === "CAPTURED" || occurrence.status === "FOLLOWED_THROUGH") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence already happened" });
+        }
+        if (occurrence.status === "SKIPPED") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "This occurrence is already skipped" });
+        }
+        await cancelScheduledMeeting(ctx.db, {
+          workspaceId: input.workspaceId,
+          meetingId: occurrence.scheduledMeeting.id,
+          actorUserId: userId,
+          skipReason: input.reason,
+        });
+        return { id: occurrence.id, status: "SKIPPED" as const, skipReason: input.reason };
       }
       const skipped = await skipOccurrence(ctx.db, {
         occurrenceId: occurrence.id,
@@ -518,11 +570,19 @@ export const ceremonyRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
         where: { id: input.occurrenceId, workspaceId: input.workspaceId },
-        select: { id: true, ceremony: { select: { ownerId: true } } },
+        select: {
+          id: true,
+          ceremony: { select: { ownerId: true, isOneOff: true } },
+          scheduledMeeting: { select: { status: true } },
+        },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can unskip an occurrence" });
+      }
+      // Its invites are already withdrawn; a cancelled one-off is rebooked, not revived.
+      if (occurrence.ceremony.isOneOff && occurrence.scheduledMeeting?.status === "cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This meeting was cancelled — schedule it again instead" });
       }
       return unskipOccurrence(ctx.db, { occurrenceId: occurrence.id, workspaceId: input.workspaceId, actorUserId: userId });
     }),
@@ -641,11 +701,16 @@ export const ceremonyRouter = createTRPCRouter({
       const { workspaceId, id, participantUserIds, agendaTemplate, projectIds, slug: rawSlug, ...fields } = input;
       const existing = await ctx.db.ceremony.findFirst({ where: { id, workspaceId } });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
+      // A one-off is one booked meeting; giving it a cadence would start
+      // generating occurrences nobody booked.
+      if (existing.isOneOff && fields.cadenceRule !== undefined) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A one-off meeting can't be given a cadence" });
+      }
       const projects = projectIds ? await assertProjectsInWorkspace(ctx.db, workspaceId, projectIds) : null;
 
       const cadenceRule = fields.cadenceRule ?? existing.cadenceRule;
       const timezone = fields.timezone ?? existing.timezone;
-      assertValidCadence(cadenceRule, timezone);
+      if (cadenceRule) assertValidCadence(cadenceRule, timezone);
 
       const slug = rawSlug ? slugify(rawSlug) : undefined;
       if (slug && slug !== existing.slug) {

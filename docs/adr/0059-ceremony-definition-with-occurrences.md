@@ -85,3 +85,35 @@ app can represent "what this recording is an instance of", let alone run before 
   computable from occurrences and their outputs; it is a separate feature.
 - Both this feature and Decisions (ADR-0060) add migrations; their schema tickets stack on one
   branch rather than forking independently off main.
+
+## Amendment: a Ceremony may be one-off (2026-10-07)
+
+Decision 1 called a Ceremony a *recurring* definition. An ad hoc meeting scheduled from a project
+("Schedule meeting" on the project Meetings tab, or the calendar-page modal with a project linked)
+needs everything an occurrence already has — a generated agenda, the notes page, hand-added items,
+Matrix posting, the capture lifecycle, auto-attach of the recording by iCal UID — but has no
+cadence.
+
+A one-off Ceremony has no cadence rule, exactly one Occurrence, its Scheduled meeting linked through
+the occurrence's existing `scheduledMeetingId` (never populated before this), the organizer as
+owner, the meeting title as its name, the meeting's **purpose** as `purpose`, and the member
+attendees as participants (external attendees live on the Scheduled meeting only). It never appears
+at Settings → Ceremonies or in a project's Ceremonies list, and the word "ceremony" is never shown
+for it. Cancelling its Scheduled meeting skips the occurrence ("Meeting cancelled") and deactivates
+the ceremony; rebooking creates a fresh one-off.
+
+The agenda is generated at booking so the organizer sees a draft, and left *planned* so the
+lead-time sweep regenerates and circulates it with fresh data; hand-added items survive the merge
+as they do today. Its template is built from the sections that make sense without a previous
+occurrence — project state, blockers, open decisions, key results, linked projects, free text — chosen
+through purpose presets over a checklist that previews what each section would produce.
+
+**Considered alternative:** keeping Ceremony strictly recurring and letting an Occurrence stand
+alone on its definition snapshot. Rejected: `ceremonyId` is the occurrence's identity, every section
+module reads `ctx.ceremony`, and the agenda, notes and attach paths would each need a second host.
+Relaxing "recurring" costs one nullable column and a flag.
+
+**Consequence:** Scheduled-meeting attendees are no longer members only; an **Attendee** may be an
+external person known by email with an optional CRM contact, mirroring **Participant** on the
+recorded Meeting so the two match on email when a recording attaches. Availability still comes from
+members only.

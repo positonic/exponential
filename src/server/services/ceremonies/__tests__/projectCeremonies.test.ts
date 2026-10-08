@@ -28,7 +28,7 @@ describe("syncProjectCeremonies", () => {
     });
     // Only this project's rows are touched: the filter carries the projectId.
     expect(db.ceremonyProject.deleteMany).toHaveBeenCalledWith({
-      where: { projectId: "p-1", ceremonyId: { notIn: ["c-1", "c-2"] } },
+      where: { projectId: "p-1", ceremony: { isOneOff: false }, ceremonyId: { notIn: ["c-1", "c-2"] } },
     });
     expect(db.ceremonyProject.createMany).toHaveBeenCalledWith({
       data: [
@@ -39,7 +39,7 @@ describe("syncProjectCeremonies", () => {
     });
   });
 
-  it("an empty list unlinks everything and links nothing", async () => {
+  it("an empty list unlinks every recurring ceremony — never a one-off meeting the form doesn't list — and links nothing", async () => {
     db.ceremonyProject.deleteMany.mockResolvedValue({ count: 3 });
 
     const result = await syncProjectCeremonies(db as unknown as PrismaClient, {
@@ -50,7 +50,7 @@ describe("syncProjectCeremonies", () => {
 
     expect(result).toEqual({ linked: 0, unlinked: 3 });
     expect(db.ceremony.count).not.toHaveBeenCalled();
-    expect(db.ceremonyProject.deleteMany).toHaveBeenCalledWith({ where: { projectId: "p-1" } });
+    expect(db.ceremonyProject.deleteMany).toHaveBeenCalledWith({ where: { projectId: "p-1", ceremony: { isOneOff: false } } });
     expect(db.ceremonyProject.createMany).not.toHaveBeenCalled();
   });
 

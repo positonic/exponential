@@ -88,6 +88,22 @@ vi.mock("~/server/services/EmailService", async (importOriginal) => {
   return { ...original, sendMeetingInviteEmail: sendMeetingInviteEmailMock };
 });
 
+const { generateAgendaMock, projectAccessMock, recordOccurrenceSkippedMock } = vi.hoisted(() => ({
+  generateAgendaMock: vi.fn(),
+  projectAccessMock: vi.fn(),
+  recordOccurrenceSkippedMock: vi.fn(),
+}));
+vi.mock("~/server/services/ceremonies/skip", () => ({ recordOccurrenceSkipped: recordOccurrenceSkippedMock }));
+vi.mock("~/server/services/ceremonies/agenda/generateAgenda", () => ({
+  generateAgenda: generateAgendaMock,
+}));
+vi.mock("~/server/services/access/resolvers/projectResolver", async (importOriginal) => {
+  const original = await importOriginal<
+    typeof import("~/server/services/access/resolvers/projectResolver")
+  >();
+  return { ...original, getProjectAccess: projectAccessMock };
+});
+
 import { createMockCaller } from "~/test/trpc-helpers";
 
 const WORKSPACE_ID = "ws-1";
@@ -108,7 +124,17 @@ describe("workspaceScheduling router (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     sendMeetingInviteEmailMock.mockReset().mockResolvedValue(undefined);
+    generateAgendaMock.mockReset().mockResolvedValue({ occurrenceId: "occ-1", agenda: {}, itemCount: 0 });
+    projectAccessMock.mockReset().mockResolvedValue({ isWorkspaceMember: true });
+    recordOccurrenceSkippedMock.mockReset().mockResolvedValue(undefined);
+    dbMock.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(dbMock)) as never);
   });
+
+  /** Users by id, for the organizer lookup and member resolution. */
+  function attendeeUsers(users: Array<{ id: string; name: string | null; email: string | null }>) {
+    dbMock.user.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(users.find((u) => u.id === args.where.id) ? { ...users.find((u) => u.id === args.where.id), timezone: null } : null)) as never);
+  }
 
   function memberRoster(userIds: string[]) {
     dbMock.workspaceUser.findMany.mockResolvedValue(
@@ -222,11 +248,16 @@ describe("workspaceScheduling router (mocked)", () => {
         sequence: 0,
         status: "confirmed",
         organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+        workspace: { slug: "acme" },
         attendees: [
-          { user: { id: "user-a", name: "A", email: "a@example.com" } },
-          { user: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" } },
+          { userId: "user-a", name: "A", email: "a@example.com" },
+          { userId: ORGANIZER_ID, name: "Org", email: "org@example.com" },
         ],
       } as never);
+      attendeeUsers([
+        { id: "user-a", name: "A", email: "A@Example.com" },
+        { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+      ]);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       const result = await caller.workspaceScheduling.createMeeting({
@@ -249,13 +280,21 @@ describe("workspaceScheduling router (mocked)", () => {
       expect(call.icsContent).toContain("UID:uid-1@exponential.im");
       expect(call.icsContent).toContain("SEQUENCE:0");
 
-      // The organizer rides along as an attendee.
+      // The organizer rides along as an attendee; rows carry a lowercased email and name.
       const createArg = dbMock.meeting.create.mock.calls[0]![0] as {
-        data: { attendees: { create: { userId: string }[] } };
+        data: { attendees: { create: { userId: string; email: string; name: string | null }[] } };
       };
-      expect(createArg.data.attendees.create.map((a) => a.userId)).toEqual(
-        expect.arrayContaining(["user-a", ORGANIZER_ID]),
+      expect(createArg.data.attendees.create).toEqual(
+        expect.arrayContaining([
+          { userId: "user-a", contactId: null, email: "a@example.com", name: "A" },
+          { userId: ORGANIZER_ID, contactId: null, email: "org@example.com", name: "Org" },
+        ]),
       );
+      // No project, no ceremony: exactly a calendar booking.
+      expect(dbMock.ceremony.create).not.toHaveBeenCalled();
+      expect(dbMock.ceremonyOccurrence.create).not.toHaveBeenCalled();
+      expect(generateAgendaMock).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ ceremonyId: null, occurrenceId: null });
     });
 
     it("a failed invite send does not roll back the meeting", async () => {
@@ -272,8 +311,13 @@ describe("workspaceScheduling router (mocked)", () => {
         sequence: 0,
         status: "confirmed",
         organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
-        attendees: [{ user: { id: "user-a", name: "A", email: "a@example.com" } }],
+        workspace: { slug: "acme" },
+        attendees: [{ userId: "user-a", name: "A", email: "a@example.com" }],
       } as never);
+      attendeeUsers([
+        { id: "user-a", name: "A", email: "a@example.com" },
+        { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+      ]);
 
       const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
       const result = await caller.workspaceScheduling.createMeeting({
@@ -286,6 +330,267 @@ describe("workspaceScheduling router (mocked)", () => {
 
       expect(result.id).toBe("meeting-1");
       expect(result.invitesSent).toBe(0);
+    });
+  });
+
+  describe("createMeeting attendees of three kinds", () => {
+    beforeEach(() => {
+      dbMock.workspaceUser.findFirst.mockResolvedValue({ role: "member" } as never);
+      memberRoster([ORGANIZER_ID, "user-a"]);
+      attendeeUsers([
+        { id: "user-a", name: "A", email: "a@example.com" },
+        { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+        { id: "user-noemail", name: "No Mail", email: null },
+      ]);
+      dbMock.meeting.create.mockImplementation(((args: { data: { attendees: { create: unknown[] } } }) =>
+        Promise.resolve({
+          id: "meeting-1",
+          title: "Partner sync",
+          description: null,
+          location: null,
+          startsAt: at(9),
+          endsAt: at(10),
+          icalUid: "uid-1@exponential.im",
+          sequence: 0,
+          status: "confirmed",
+          organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+          workspace: { slug: "acme" },
+          attendees: args.data.attendees.create,
+        })) as never);
+    });
+
+    function book(attendees: Array<Record<string, string>>, extra: Record<string, unknown> = {}) {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      return caller.workspaceScheduling.createMeeting({
+        workspaceId: WORKSPACE_ID,
+        title: "Partner sync",
+        startsAt: at(9),
+        endsAt: at(10),
+        attendees,
+        ...extra,
+      });
+    }
+
+    it("writes a member, a CRM contact and a new email as attendee rows, and invites all of them", async () => {
+      dbMock.crmContact.findUnique.mockImplementation(((args: { where: { id?: string } }) =>
+        Promise.resolve(
+          args.where.id === "contact-1"
+            ? { id: "contact-1", workspaceId: WORKSPACE_ID, firstName: "Zineb", lastName: null, email: null }
+            : null,
+        )) as never);
+      dbMock.crmContact.create.mockResolvedValue({ id: "contact-new", firstName: "Ada", lastName: null } as never);
+
+      const result = await book([
+        { userId: "user-a" },
+        { contactId: "contact-1", email: "Zineb@Partner.com" },
+        { name: "Ada", email: "ada@partner.com" },
+      ]);
+
+      const createArg = dbMock.meeting.create.mock.calls[0]![0] as {
+        data: { attendees: { create: unknown[] } };
+      };
+      expect(createArg.data.attendees.create).toEqual([
+        { userId: ORGANIZER_ID, contactId: null, email: "org@example.com", name: "Org" },
+        { userId: "user-a", contactId: null, email: "a@example.com", name: "A" },
+        { userId: null, contactId: "contact-1", email: "zineb@partner.com", name: "Zineb" },
+        { userId: null, contactId: "contact-new", email: "ada@partner.com", name: "Ada" },
+      ]);
+      expect(result.invitesSent).toBe(4);
+      const ics = (sendMeetingInviteEmailMock.mock.calls[0]![0] as { icsContent: string }).icsContent.replace(/\r\n /g, "");
+      expect(ics).toContain("mailto:ada@partner.com");
+      expect(ics).toContain("mailto:zineb@partner.com");
+    });
+
+    it("refuses a person who resolves to no email (BAD_REQUEST) and books nothing", async () => {
+      await expect(book([{ name: "Nameless" }])).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      memberRoster([ORGANIZER_ID, "user-noemail"]);
+      await expect(book([{ userId: "user-noemail" }])).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.meeting.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses an empty attendee list", async () => {
+      await expect(book([])).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it.each([
+      ["member first", [{ userId: "user-a" }, { email: "A@example.com" }]],
+      ["email first", [{ email: "A@example.com" }, { userId: "user-a" }]],
+    ])("dedupes by email, keeping the member row (%s)", async (_order, attendees) => {
+      dbMock.crmContact.findUnique.mockResolvedValue({ id: "contact-a", firstName: "A", lastName: null } as never);
+      await book(attendees);
+      const createArg = dbMock.meeting.create.mock.calls[0]![0] as {
+        data: { attendees: { create: Array<{ email: string; userId: string | null }> } };
+      };
+      expect(createArg.data.attendees.create.filter((a) => a.email === "a@example.com")).toEqual([
+        expect.objectContaining({ userId: "user-a" }),
+      ]);
+    });
+
+    it("with a project, only member attendees become ceremony participants", async () => {
+      dbMock.project.findFirst.mockResolvedValue({ id: "project-1" } as never);
+      dbMock.ceremony.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "cer-1", ...args.data })) as never);
+      dbMock.ceremonyOccurrence.create.mockResolvedValue({ id: "occ-1" } as never);
+      dbMock.crmContact.findUnique.mockResolvedValue(null as never);
+      dbMock.crmContact.create.mockResolvedValue({ id: "contact-new", firstName: "Ada", lastName: null } as never);
+
+      await book([{ userId: "user-a" }, { name: "Ada", email: "ada@partner.com" }], { projectId: "project-1" });
+
+      const ceremonyArg = dbMock.ceremony.create.mock.calls[0]![0] as {
+        data: { participants: { create: { userId: string }[] } };
+      };
+      expect(ceremonyArg.data.participants.create.map((p) => p.userId).sort()).toEqual([ORGANIZER_ID, "user-a"].sort());
+    });
+  });
+
+  describe("createMeeting with a project (one-off ceremony)", () => {
+    const PROJECT_ID = "project-1";
+    const booked = {
+      id: "meeting-1",
+      title: "Launch scope",
+      description: null,
+      location: null,
+      startsAt: at(9),
+      endsAt: at(9, 45),
+      icalUid: "uid-1@exponential.im",
+      sequence: 0,
+      status: "confirmed",
+      organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+      workspace: { slug: "acme" },
+      attendees: [
+        { userId: "user-a", name: "A", email: "a@example.com" },
+        { userId: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+      ],
+    };
+
+    beforeEach(() => {
+      dbMock.workspaceUser.findFirst.mockResolvedValue({ role: "member" } as never);
+      memberRoster([ORGANIZER_ID, "user-a"]);
+      attendeeUsers([
+        { id: "user-a", name: "A", email: "a@example.com" },
+        { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
+      ]);
+      dbMock.project.findFirst.mockResolvedValue({ id: PROJECT_ID } as never);
+      dbMock.meeting.create.mockResolvedValue(booked as never);
+      dbMock.ceremony.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "cer-1", ...args.data })) as never);
+      dbMock.ceremonyOccurrence.create.mockResolvedValue({ id: "occ-1" } as never);
+    });
+
+    function book(extra: Record<string, unknown> = {}) {
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      return caller.workspaceScheduling.createMeeting({
+        workspaceId: WORKSPACE_ID,
+        title: "Launch scope",
+        projectId: PROJECT_ID,
+        startsAt: at(9),
+        endsAt: at(9, 45),
+        attendeeUserIds: ["user-a"],
+        purpose: "Agree the Q4 launch scope",
+        ...extra,
+      });
+    }
+
+    it("writes ceremony, participants, project link and occurrence in the booking transaction", async () => {
+      const result = await book();
+
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      const ceremonyArg = dbMock.ceremony.create.mock.calls[0]![0] as {
+        data: Record<string, unknown> & {
+          participants: { create: { userId: string }[] };
+          projects: { create: { projectId: string }[] };
+          agendaTemplate: Array<{ type: string; config?: { items: string[] } }>;
+        };
+      };
+      expect(ceremonyArg.data).toMatchObject({
+        workspaceId: WORKSPACE_ID,
+        name: "Launch scope",
+        aliases: ["Launch scope"],
+        kind: "CUSTOM",
+        purpose: "Agree the Q4 launch scope",
+        cadenceRule: null,
+        isOneOff: true,
+        timezone: "UTC",
+        durationMinutes: 45,
+        ownerId: ORGANIZER_ID,
+        includeProjects: true,
+      });
+      expect(ceremonyArg.data.slug).toMatch(/^launch-scope-[a-z0-9]+$/);
+      expect(ceremonyArg.data.participants.create.map((p) => p.userId).sort()).toEqual(
+        [ORGANIZER_ID, "user-a"].sort(),
+      );
+      expect(ceremonyArg.data.projects.create).toEqual([{ projectId: PROJECT_ID }]);
+      // Review progress by default, purpose as item 1 of the free text section.
+      expect(ceremonyArg.data.agendaTemplate.map((s) => s.type)).toEqual([
+        "project_state",
+        "okr_review",
+        "blockers",
+        "free_text",
+      ]);
+      expect(ceremonyArg.data.agendaTemplate[3]!.config).toEqual({ items: ["Agree the Q4 launch scope"] });
+
+      expect(dbMock.ceremonyOccurrence.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ceremonyId: "cer-1",
+            workspaceId: WORKSPACE_ID,
+            scheduledStart: at(9),
+            scheduledEnd: at(9, 45),
+            scheduledMeetingId: "meeting-1",
+          }) as unknown,
+        }),
+      );
+      expect(generateAgendaMock).toHaveBeenCalledTimes(1);
+      expect(generateAgendaMock).toHaveBeenCalledWith(dbMock, "occ-1");
+      expect(result).toMatchObject({ ceremonyId: "cer-1", occurrenceId: "occ-1" });
+    });
+
+    it("sends an invite whose DESCRIPTION carries the purpose and the occurrence link", async () => {
+      await book();
+
+      const call = sendMeetingInviteEmailMock.mock.calls[0]![0] as {
+        icsContent: string;
+        description: string;
+        url: string;
+      };
+      const unfolded = call.icsContent.replace(/\r\n /g, "");
+      expect(unfolded).toContain("DESCRIPTION:Agree the Q4 launch scope\\n\\n");
+      expect(unfolded).toMatch(/\/w\/acme\/ceremonies\/cer-1\/occ-1/);
+      expect(call.description).toBe("Agree the Q4 launch scope");
+      expect(call.url).toMatch(/\/w\/acme\/ceremonies\/cer-1\/occ-1$/);
+    });
+
+    it("defaults the purpose to the title and honours ticked sections", async () => {
+      await book({ purpose: undefined, agendaSectionTypes: ["blockers"] });
+      const ceremonyArg = dbMock.ceremony.create.mock.calls[0]![0] as {
+        data: { purpose: string; agendaTemplate: Array<{ type: string; config?: unknown }> };
+      };
+      expect(ceremonyArg.data.purpose).toBe("Launch scope");
+      expect(ceremonyArg.data.agendaTemplate.map((s) => s.type)).toEqual(["blockers", "free_text"]);
+    });
+
+    it("refuses recurring-only agenda sections", async () => {
+      await expect(book({ agendaSectionTypes: ["carried_over"] })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+      expect(dbMock.meeting.create).not.toHaveBeenCalled();
+    });
+
+    it("refuses a project outside the workspace or out of the organizer's reach", async () => {
+      dbMock.project.findFirst.mockResolvedValue(null as never);
+      await expect(book()).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      dbMock.project.findFirst.mockResolvedValue({ id: PROJECT_ID } as never);
+      projectAccessMock.mockResolvedValue({ isRestricted: true, isWorkspaceMember: true });
+      await expect(book()).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.meeting.create).not.toHaveBeenCalled();
+    });
+
+    it("a failed agenda generation keeps the booking and still sends invites", async () => {
+      generateAgendaMock.mockRejectedValue(new Error("section query failed"));
+      const result = await book();
+      expect(result.occurrenceId).toBe("occ-1");
+      expect(sendMeetingInviteEmailMock).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -303,8 +608,21 @@ describe("workspaceScheduling router (mocked)", () => {
       sequence: 0,
       status: "confirmed",
       organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
-      attendees: [{ user: { id: "user-a", name: "A", email: "a@example.com" } }],
+      attendees: [{ userId: "user-a", name: "A", email: "a@example.com" }],
+      occurrence: null as null | {
+        id: string;
+        status: string;
+        scheduledStart: Date;
+        ceremony: { id: string; isOneOff: boolean; name: string; timezone: string };
+      },
     };
+
+    const oneOffOccurrence = (status: string) => ({
+      id: "occ-1",
+      status,
+      scheduledStart: new Date("2026-08-18T09:00:00Z"),
+      ceremony: { id: "cer-1", isOneOff: true, name: "Design sync", timezone: "UTC" },
+    });
 
     beforeEach(() => {
       dbMock.workspaceUser.findFirst.mockResolvedValue({ role: "member" } as never);
@@ -365,6 +683,79 @@ describe("workspaceScheduling router (mocked)", () => {
       expect(result.invitesSent).toBe(0);
       expect(dbMock.meeting.update).not.toHaveBeenCalled();
       expect(sendMeetingInviteEmailMock).not.toHaveBeenCalled();
+    });
+
+    it("never emails a member attendee who has no address", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        attendees: [...storedMeeting.attendees, { userId: "user-x", name: "X", email: "user:user-x" }],
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      const result = await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(result.invitesSent).toBe(1);
+      expect(sendMeetingInviteEmailMock).toHaveBeenCalledWith(expect.objectContaining({ to: "a@example.com" }));
+    });
+
+    it("on a one-off, skips the occurrence with \"Meeting cancelled\" and deactivates the ceremony", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        occurrence: oneOffOccurrence("AGENDA_CIRCULATED"),
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      // One transaction: cancel, skip and deactivate commit together.
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(dbMock.ceremonyOccurrence.update).toHaveBeenCalledWith({
+        where: { id: "occ-1" },
+        data: { status: "SKIPPED", skipReason: "Meeting cancelled" },
+      });
+      expect(dbMock.ceremony.update).toHaveBeenCalledWith({ where: { id: "cer-1" }, data: { isActive: false } });
+      expect(recordOccurrenceSkippedMock).toHaveBeenCalledOnce();
+    });
+
+    it("on a one-off already skipped (the skip cancelled it), only deactivates the ceremony", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        occurrence: oneOffOccurrence("SKIPPED"),
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(dbMock.ceremonyOccurrence.update).not.toHaveBeenCalled();
+      expect(dbMock.ceremony.update).toHaveBeenCalledWith({ where: { id: "cer-1" }, data: { isActive: false } });
+    });
+
+    it("a failed write sends no cancellation and leaves everything as it was", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({ ...storedMeeting, occurrence: oneOffOccurrence("PLANNED") } as never);
+      dbMock.$transaction.mockRejectedValue(new Error("deadlock"));
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await expect(
+        caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" }),
+      ).rejects.toThrow();
+      expect(sendMeetingInviteEmailMock).not.toHaveBeenCalled();
+    });
+
+    it("on a recurring ceremony's booking, neither skips nor deactivates", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        occurrence: { ...oneOffOccurrence("PLANNED"), ceremony: { ...oneOffOccurrence("PLANNED").ceremony, isOneOff: false } },
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(dbMock.ceremonyOccurrence.update).not.toHaveBeenCalled();
+      expect(dbMock.ceremony.update).not.toHaveBeenCalled();
     });
   });
 
