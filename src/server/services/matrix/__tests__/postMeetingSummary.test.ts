@@ -57,7 +57,10 @@ function meetingRow(overrides: Record<string, unknown> = {}) {
     projectId: "proj-1",
     workspaceId: "ws-1",
     project: { id: "proj-1", name: "Apollo" },
-    actions: [{ id: "a1" }, { id: "a2" }],
+    actions: [
+      { id: "a1", name: "Ship the release", assignees: [{ user: { name: "Raj" } }] },
+      { id: "a2", name: "Write the changelog", assignees: [] },
+    ],
     decisions: [],
     ...overrides,
   };
@@ -135,7 +138,8 @@ describe("postMeetingSummaryToMatrix", () => {
     expect(payload.text).toContain("Weekly sync");
     expect(payload.text).toContain("2026-08-10");
     expect(payload.text).toContain("We agreed to ship on Friday.");
-    expect(payload.text).toContain("2 action items");
+    expect(payload.text).toContain("✅ Action items (2)");
+    expect(payload.text).toContain("• Ship the release — Raj");
     // Absolute, because most readers are in a Matrix client, not in the app.
     expect(payload.text).toMatch(/https?:\/\/[^\s]+\/recording\/meeting-1/);
     expect(payload.html).toContain("<a href=");
@@ -156,10 +160,11 @@ describe("postMeetingSummaryToMatrix", () => {
     });
 
     const query = db.transcriptionSession.findUnique.mock.calls[0]![0] as {
-      include: { decisions: { where: unknown } };
+      include: { decisions: { where: unknown }; actions: { where: unknown } };
     };
     // Drafts are unreviewed; a room cannot un-see them.
     expect(query.include.decisions.where).toEqual({ reviewState: "CONFIRMED" });
+    expect(query.include.actions.where).toEqual({ status: { not: "DELETED" } });
 
     const [, payload] = client.send.mock.calls[0]! as [string, SendArgs];
     expect(payload.text).toContain("D-0007 Ship on Friday.");

@@ -82,7 +82,15 @@ export async function postMeetingSummaryToMatrix(
     where: { id: meetingId },
     include: {
       project: { select: { id: true, name: true } },
-      actions: { select: { id: true } },
+      actions: {
+        where: { status: { not: "DELETED" } },
+        select: {
+          id: true,
+          name: true,
+          assignees: { select: { user: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
       // Drafts stay out: they are unreviewed, and a room has no way to un-see them.
       decisions: {
         where: { reviewState: "CONFIRMED" },
