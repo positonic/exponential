@@ -1537,6 +1537,47 @@ describe("action router (mocked)", () => {
         expect(dbMock.action.update).toHaveBeenCalled();
         expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
       });
+
+      // Mastra's update-action-item posts `{ json, meta: {} }`, so its due
+      // date is never revived into a Date by superjson. A strict z.date()
+      // rejected every agent update that set one.
+      it("accepts the ISO-string due date Mastra's update-action-item sends", async () => {
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1" } as any);
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.action.update({
+          id: "a1",
+          dueDate: "2026-10-12T00:00:00.000Z" as unknown as Date,
+          lastUpdatedBy: "AGENT",
+        });
+
+        const { data } = dbMock.action.update.mock.calls[0]![0]!;
+        expect(data.dueDate).toEqual(new Date("2026-10-12T00:00:00.000Z"));
+      });
+
+      it("still clears the due date on an explicit null", async () => {
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1" } as any);
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.action.update({ id: "a1", dueDate: null });
+
+        const { data } = dbMock.action.update.mock.calls[0]![0]!;
+        expect(data.dueDate).toBeNull();
+      });
+
+      it("rejects an unparseable date string without writing", async () => {
+        stubOwnedAction();
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.update({ id: "a1", dueDate: "next friday-ish" as unknown as Date }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
     });
 
     describe("ensureDailyPlanPromptAction", () => {

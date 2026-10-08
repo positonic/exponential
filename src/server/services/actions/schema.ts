@@ -152,9 +152,12 @@ export const actionUpdatePatchSchema = actionWriteSchema
   /** A project to move to, or `null` to leave the current one. */
   projectId: z.string().nullable().optional(),
   workspaceId: z.string().nullable().optional(),
-  dueDate: z.date().nullable().optional(),
-  scheduledStart: z.date().nullable().optional(),
-  scheduledEnd: z.date().nullable().optional(),
+  // Dates coerce: Mastra's tools post raw `{ json, meta: {} }`, so an ISO
+  // string is never revived into a Date, and a strict `z.date()` rejected
+  // every agent update that set one. Callers passing a Date are unaffected.
+  dueDate: z.coerce.date().nullable().optional(),
+  scheduledStart: z.coerce.date().nullable().optional(),
+  scheduledEnd: z.coerce.date().nullable().optional(),
   duration: z.number().min(1).nullable().optional(),
   kanbanStatus: z.enum(KANBAN_STATUS_VALUES).optional(),
   kanbanOrder: z.number().int().nullable().optional(),
@@ -169,7 +172,7 @@ export const actionUpdatePatchSchema = actionWriteSchema
     .nullable()
     .optional(),
   bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).nullable().optional(),
-  bountyDeadline: z.date().nullable().optional(),
+  bountyDeadline: z.coerce.date().nullable().optional(),
   bountyExternalUrl: z.string().url().nullable().optional(),
   /** Source attribution set by agents and integrations: which channel last touched the action. */
   lastUpdatedBy: z.enum(["AGENT", "USER_EMAIL", "USER_WHATSAPP", "USER_UI"]).optional(),
