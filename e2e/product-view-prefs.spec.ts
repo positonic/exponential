@@ -7,11 +7,17 @@
  * page against the still-cached, pre-save prefs - silently undid the change
  * until a hard reload. The save now patches the query cache as well.
  *
+ * A read still in flight when a pref changes - easiest before the prefs have
+ * loaded - lands after that patch carrying the pre-save value. The pages lay
+ * their pending changes back over whatever a read brings; the two "chosen
+ * before its saved prefs arrive" tests hold that read until the save has
+ * landed, so its response is stale by construction.
+ *
  * Prefs are per user and every spec shares the fixture user, so this file
  * runs serially, starts each test from empty prefs, and puts back whatever
  * was saved before the run.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { loadDevEnvOrThrow } from "../scripts/dev-fixture/env";
 import { loadFixture } from "./fixture-data";
@@ -207,4 +213,100 @@ test("Insights keeps a just-saved view across a tab switch", async ({ page }) =>
 
   await expect(listRadio).toBeChecked();
   await attachScreenshot(page, "insights-view-after-tab-switch");
+});
+
+/**
+ * Holds the page's prefs read for `key` until the returned function is
+ * called. The server answers at once - so the response carries what was
+ * saved before it, as a read in flight during a save does - but the page
+ * only hears back on release. Release resolves once the page has had the
+ * response and a moment to act on it, so what a test checks next is the page
+ * after the stale read, not before. Reads after the release pass straight
+ * through (the route stays, as a pass-through: removing it mid-hold would
+ * hand the request on instead).
+ */
+async function holdPrefsRead(page: Page, key: string): Promise<() => Promise<void>> {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let held = false;
+  let onDelivered!: () => void;
+  const delivered = new Promise<void>((resolve) => {
+    onDelivered = resolve;
+  });
+  const isPrefsRead = (url: URL) =>
+    url.pathname.includes("product.product.getViewPrefs") &&
+    decodeURIComponent(url.search).includes(`"productSlug":"${key}"`);
+  const hold = async (route: Route) => {
+    held = true;
+    const response = await route.fetch();
+    await released;
+    await route.fulfill({ response });
+    onDelivered();
+  };
+  await page.route(isPrefsRead, hold);
+  return async () => {
+    expect(held, "the prefs read should have been held").toBe(true);
+    const received = page.waitForResponse((response) => isPrefsRead(new URL(response.url())));
+    release();
+    await delivered;
+    await (await received).finished();
+    // React Query hands the response on in a later task, then React renders
+    // and runs the page's restore effect. Nothing on the page marks that
+    // moment, so allow it a beat: without this, a check that the control
+    // kept its value could pass before the stale read had a chance to undo it.
+    await page.waitForTimeout(PAGE_SETTLE_MS);
+  };
+}
+
+/** Time for the page to act on a response it has received (see holdPrefsRead). */
+const PAGE_SETTLE_MS = 750;
+
+const viewTab = (page: Page, name: string) =>
+  page.getByRole("navigation", { name: "View" }).getByRole("button", { name, exact: true });
+
+test("Backlog keeps a view chosen before its saved prefs arrive", async ({ page }) => {
+  // The saved view is the table, so the held read carries a value that would
+  // put the table back.
+  await writeSavedPrefs({ [BACKLOG_PREFS_KEY]: { view: "table" } });
+  const releasePrefsRead = await holdPrefsRead(page, BACKLOG_PREFS_KEY);
+  await page.goto(`${productUrl}/tickets`);
+
+  const boardTab = viewTab(page, "Board");
+  await expect(boardTab).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await boardTab.click();
+  await expectSaved(BACKLOG_PREFS_KEY, (prefs) => prefs.view, "board");
+
+  // The stale read lands only now, after the save.
+  await releasePrefsRead();
+  await expect(backlogTicket(page).first()).toBeVisible({ timeout: 15_000 });
+  await expect(boardTab).toHaveAttribute("aria-pressed", "true");
+
+  await switchTabAndBack(page, BACKLOG);
+
+  await expect(boardTab).toHaveAttribute("aria-pressed", "true");
+  await expect(backlogTicket(page).first()).toBeVisible({ timeout: 15_000 });
+  await attachScreenshot(page, "backlog-view-chosen-before-prefs");
+});
+
+test("Insights keeps a view chosen before its saved prefs arrive", async ({ page }) => {
+  await writeSavedPrefs({ [INSIGHTS_PREFS_KEY]: { view: "list" } });
+  const releasePrefsRead = await holdPrefsRead(page, INSIGHTS_PREFS_KEY);
+  const boardRadio = page.locator('input[type="radio"][value="board"]');
+  const boardLabel = page.locator('input[type="radio"][value="board"] + label');
+  await page.goto(`${productUrl}/insights`);
+
+  await expect(boardLabel).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await boardLabel.click();
+  await expectSaved(INSIGHTS_PREFS_KEY, (prefs) => prefs.view, "board");
+
+  // The stale read lands only now; the restore it triggers must keep board.
+  await releasePrefsRead();
+  await expect(boardRadio).toBeChecked();
+
+  await switchTabAndBack(page, { tab: "Insights", path: "/insights" });
+
+  await expect(boardRadio).toBeChecked();
+  await attachScreenshot(page, "insights-view-chosen-before-prefs");
 });
