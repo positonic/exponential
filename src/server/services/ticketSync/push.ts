@@ -120,8 +120,6 @@ export interface TicketPushAdapter {
     properties: Record<string, unknown>;
     children: unknown[];
   }): Promise<{ externalId: string; url: string | null }>;
-  /** Trash (archive) a page — the outbound half of archive ↔ archive. */
-  archivePage(externalId: string): Promise<void>;
 }
 
 export type PushAction =
@@ -353,8 +351,8 @@ export async function runOutboundTicketPush(
     return { ...base, action: "skipped", reason: "link tombstoned by revert" };
   }
   if (sync.tombstonedAt) {
-    // Archive-mirror tombstone: the ticket is archived and the page trashed;
-    // there is nothing to push.
+    // Legacy archive-mirror tombstone: an older push trashed this page when
+    // the ticket was archived (ADR-0066 retired that); there is nothing to push.
     return { ...base, action: "skipped", reason: "link archived — nothing to push" };
   }
 
@@ -377,11 +375,9 @@ export async function runOutboundTicketPush(
     });
   }
 
-  // ── Outbound archive: a synced ticket set to ARCHIVED trashes its Notion
-  //    page and tombstones the link (never a hard-delete). Mirror of inbound.
-  if (sync.ticket.status === "ARCHIVED") {
-    return runOutboundArchive(db, adapter, { sync, dryRun });
-  }
+  // ── ARCHIVED pushes like any other status. The push NEVER trashes a Notion
+  //    page (ADR-0066): an archived duplicate can be the ticket linked to the
+  //    only Notion copy of the work, and trashing it destroyed that page.
 
   const row = await adapter.getRow(sync.externalId);
   if (!row) {
@@ -842,53 +838,5 @@ async function runOutboundCreate(
     externalId,
     action: "created",
     reason: warnings.length > 0 ? warnings.join("; ") : undefined,
-  };
-}
-
-/**
- * Outbound archive: trash the Notion page and tombstone the link (never a hard
- * delete). Snapshot status is advanced to ARCHIVED, mirroring the inbound
- * archive path so a later restore lets the remote status win.
- */
-async function runOutboundArchive(
-  db: PrismaClient,
-  adapter: TicketPushAdapter,
-  args: { sync: LoadedSync & { config: PushConfig }; dryRun: boolean },
-): Promise<OutboundPushItem> {
-  const { sync, dryRun } = args;
-  const base = {
-    syncId: sync.id,
-    externalId: sync.externalId,
-    ticketId: sync.ticketId,
-    title: sync.ticket.title,
-  };
-
-  if (dryRun) {
-    return {
-      ...base,
-      action: "archived",
-      reason: "would archive the Notion page (ticket is ARCHIVED)",
-    };
-  }
-
-  await adapter.archivePage(sync.externalId);
-
-  const priorSnapshot = (sync.snapshot as Partial<SyncedFields> | null) ?? {};
-  await db.ticketSync.update({
-    where: { id: sync.id },
-    data: {
-      tombstonedAt: new Date(),
-      snapshot: {
-        ...priorSnapshot,
-        status: "ARCHIVED",
-      } as unknown as Prisma.InputJsonValue,
-      lastSyncedAt: new Date(),
-    },
-  });
-
-  return {
-    ...base,
-    action: "archived",
-    reason: "archived the Notion page (ticket ARCHIVED)",
   };
 }

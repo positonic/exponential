@@ -453,11 +453,6 @@ export class NotionTicketSyncAdapter
     });
     return { externalId: id, url };
   }
-
-  /** Trash (archive) a page — the outbound half of archive ↔ archive. */
-  async archivePage(externalId: string): Promise<void> {
-    await this.notion.archivePage(externalId);
-  }
 }
 
 /** A Notion API "object not found" error (a deleted/moved page). */

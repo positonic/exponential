@@ -109,11 +109,6 @@ export class SyncEngine {
       const actions = await this.getActionsToSync(config);
       result.itemsProcessed = actions.length;
 
-      // Handle overwrite mode - archive external items not in local
-      if (config.overwriteMode) {
-        await this.handleOverwriteDeletions(config, actions, result);
-      }
-
       // Push each action to external service
       for (const action of actions) {
         try {
@@ -772,50 +767,6 @@ export class SyncEngine {
       });
 
       result.itemsCreated++;
-    }
-  }
-
-  /**
-   * Handle overwrite mode deletions - archive external items not in local
-   */
-  private async handleOverwriteDeletions(
-    config: PushConfig,
-    localActions: ActionWithSyncAndProject[],
-    result: SyncResult
-  ): Promise<void> {
-    // Build filter for fetching external items
-    const filter: ItemFilter = {};
-    if (config.notionProjectId && config.projectColumn) {
-      filter.projectId = config.notionProjectId;
-      filter.projectColumn = config.projectColumn;
-    }
-
-    const externalItems = await this.service.getItems(config.databaseId, filter);
-
-    // Get set of external IDs that have corresponding local actions
-    const localExternalIds = new Set<string>();
-    for (const action of localActions) {
-      const sync = action.syncs.find(s => s.provider === this.provider);
-      if (sync) {
-        localExternalIds.add(sync.externalId);
-      }
-    }
-
-    // Archive external items not in local
-    for (const item of externalItems) {
-      if (!localExternalIds.has(item.id)) {
-        try {
-          await this.service.archiveItem(item.id);
-          result.itemsDeleted++;
-        } catch (error) {
-          result.errors.push({
-            externalId: item.id,
-            operation: 'delete',
-            message: error instanceof Error ? error.message : 'Failed to archive',
-            details: error,
-          });
-        }
-      }
     }
   }
 

@@ -66,7 +66,7 @@ export interface SyncConfig {
   // Sync behavior
   conflictResolution: ConflictResolution;
   deletionBehavior: DeletionBehavior;
-  overwriteMode?: boolean; // For push: archive items not in local
+  overwriteMode?: boolean; // For push: overwrite linked items; never archives unlinked ones
 }
 
 export interface PullConfig extends SyncConfig {
@@ -215,7 +215,6 @@ export interface IIntegrationService {
   getItems(databaseId: string, filter?: ItemFilter): Promise<ExternalItem[]>;
   createItem(databaseId: string, data: ItemData, options?: CreateItemOptions): Promise<ExternalItem>;
   updateItem(itemId: string, data: Partial<ItemData>): Promise<ExternalItem>;
-  archiveItem(itemId: string): Promise<void>;
 
   // Data Transformation
   parseToAction(item: ExternalItem, mappings: PropertyMappings): ParsedAction;

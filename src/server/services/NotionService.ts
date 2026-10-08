@@ -310,18 +310,6 @@ export class NotionService {
     return html.replace(/<[^>]*>/g, '').trim();
   }
 
-  async archivePage(pageId: string): Promise<void> {
-    try {
-      await this.client.pages.update({
-        page_id: pageId,
-        archived: true,
-      });
-    } catch (error) {
-      console.error('❌ Failed to archive Notion page:', error);
-      throw new Error('Failed to archive page in Notion');
-    }
-  }
-
   async updatePage(params: { pageId: string; properties: Record<string, any> }): Promise<void> {
     try {
       await this.client.pages.update({
