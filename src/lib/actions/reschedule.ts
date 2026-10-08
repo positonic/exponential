@@ -41,27 +41,33 @@ export function resolveQuickReschedule(id: string, now: Date): RescheduleChoice 
 }
 
 /**
- * The fields a reschedule writes — the do-date *and* the deadline.
+ * The fields a single-action reschedule writes. Mirrors `action.bulkReschedule`
+ * so the per-row popover and the bulk paths cannot drift.
  *
- * `scheduledStart` has to move. `partitionActions` buckets an action by its
+ * `scheduledStart` always moves. `partitionActions` buckets an action by its
  * `scheduledStart` whenever one is set and only falls back to `dueDate` when it
  * is null, so writing the deadline alone leaves a past `scheduledStart` in
- * place and the action sits in the overdue pile exactly where it was. That
- * makes "Reschedule all overdue" a no-op against the very rows it targets.
+ * place and the action sits in the overdue pile exactly where it was.
  *
- * The original complaint behind this function was real, but it was about the
- * *value*, not the field: stamping the click's wall-clock instant drew phantom
- * hour-long blocks seconds apart on the agenda rail. `resolveQuickReschedule`
- * normalises to local midnight, which fixes that without breaking the move.
+ * `dueDate` is a real deadline, not a second copy of the do-date. It is pushed
+ * forward only when it would otherwise fall before the new do-date, and left
+ * alone otherwise — a Friday deadline survives a move to "Tomorrow", and an
+ * action with no deadline is not given one. When it is left alone the field is
+ * omitted rather than echoed back, so a stale cached value can't overwrite it.
  *
- * Both Today surfaces route their reschedule handlers through here so the two
- * cannot drift.
+ * "No date" (`choice.date === null`) clears both.
+ *
+ * The value is local midnight (see `resolveQuickReschedule`): a wall-clock
+ * instant here drew phantom hour-long blocks seconds apart on the agenda rail.
  */
 export function rescheduleUpdateFields(
   choice: RescheduleChoice,
-): { scheduledStart: Date | null; dueDate: Date | null } {
-  return {
-    scheduledStart: choice.date ?? null,
-    dueDate: choice.date ?? null,
-  };
+  currentDueDate: Date | null | undefined,
+): { scheduledStart: Date | null; dueDate?: Date | null } {
+  const date = choice.date;
+  if (date === null) return { scheduledStart: null, dueDate: null };
+  if (currentDueDate && currentDueDate < date) {
+    return { scheduledStart: date, dueDate: date };
+  }
+  return { scheduledStart: date };
 }
