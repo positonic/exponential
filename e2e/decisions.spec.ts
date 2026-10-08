@@ -143,8 +143,9 @@ test("Review extracted draft decisions: confirm publishes to the log, reject kee
   // questions. The extraction entry point is the rail's single button.
   const outputs = page.getByTestId("outputs-tab");
   await expect(outputs).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
-  for (const column of ["Actions", "Decisions", "Open questions"]) {
-    await expect(outputs.locator(".mp-card__label", { hasText: column }).first()).toBeVisible();
+  // Exact labels: "Draft actions" in the review area must not stand in for the column.
+  for (const column of [/^\s*Actions\s*$/, /^\s*Decisions\s*$/, /^\s*Open questions\s*$/]) {
+    await expect(outputs.locator(".mp-card__label", { hasText: column })).toBeVisible();
   }
   const extractButton = page.locator(".mp-rail").getByRole("button", { name: "Extract outputs" });
   await expect(extractButton).toBeVisible();
