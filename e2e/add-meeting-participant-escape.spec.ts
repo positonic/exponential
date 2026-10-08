@@ -18,14 +18,29 @@ test("Escape in the participant picker closes only the picker, not Add Meeting",
   const addMeeting = page.getByRole("dialog", { name: "Add Meeting" });
   await expect(addMeeting).toBeVisible();
 
+  // Build a real draft so the test proves it survives, not just the dialog.
+  await addMeeting.getByLabel("Title").fill("Escape regression draft");
+  await addMeeting.getByLabel("Transcript").fill("Draft transcript that must survive Escape.");
+
   await addMeeting.getByRole("button", { name: "Add participant" }).click();
   const picker = page.getByRole("dialog", { name: "Add participant" });
+  await expect(picker).toBeVisible();
+
+  // Stage a new participant; the picker stays open after adding.
+  await picker.getByPlaceholder("Search teammates and contacts, or type a new email").fill("escape-tester@example.com");
+  await picker.getByRole("button", { name: /Add .escape-tester@example\.com./ }).click();
+  await picker.getByLabel("Name").fill("Escape Tester");
+  await picker.getByRole("button", { name: "Add participant" }).click();
+  await expect(addMeeting.getByText("Escape Tester")).toBeVisible();
   await expect(picker).toBeVisible();
 
   await page.keyboard.press("Escape");
 
   await expect(picker).toBeHidden();
   await expect(addMeeting).toBeVisible();
+  await expect(addMeeting.getByLabel("Title")).toHaveValue("Escape regression draft");
+  await expect(addMeeting.getByLabel("Transcript")).toHaveValue("Draft transcript that must survive Escape.");
+  await expect(addMeeting.getByText("Escape Tester")).toBeVisible();
 
   // With the picker gone, Escape closes Add Meeting as usual.
   await page.keyboard.press("Escape");
