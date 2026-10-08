@@ -55,7 +55,7 @@ export function ProjectMeetingsTab({
       { workspaceId: workspaceId ?? "" },
       { enabled: !!workspaceId, retry: false },
     );
-  const { data: projectMembers } = api.project.listMembers.useQuery({ projectId });
+  const { data: projectMembers, isSuccess: membersLoaded } = api.project.listMembers.useQuery({ projectId });
 
   // The DRI and the project's members, as attendees — only those who are
   // workspace members with an email (an invite needs one, and booking
@@ -175,7 +175,9 @@ export function ProjectMeetingsTab({
             projectName={projectName}
             workspaceId={workspaceId ?? undefined}
           />
-          {workspaceId && canSchedule && (
+          {/* Waits for the member list too: the modal takes its preselected
+              attendees once, when it opens. */}
+          {workspaceId && canSchedule && membersLoaded && (
             <Button
               variant="light"
               leftSection={<IconCalendarPlus size={16} />}
