@@ -27,7 +27,7 @@ import { buildMeetingTranscriptionsWhere } from "~/server/services/meetings/meet
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
-import { loadProductWithAccess, assertWorkspaceMember } from "~/plugins/product/server/routers/product";
+import { loadProductWithAccess, assertWorkspaceAccess } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { matchCycle, wouldCreateCycle } from "~/plugins/product/server/services/ticketDependencies";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
@@ -4418,8 +4418,8 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎫 [tRPC createTicket] RECEIVED: productId=${input.productId}, title="${input.title}", type=${input.type ?? 'FEATURE'}, status=${input.status ?? 'BACKLOG'}, userId=${userId}`);
 
-      // Verifies the product exists and the user is a member of its workspace.
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      // Verifies the product exists and the user can write to its workspace.
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       // Counter increment, shortId, create, and activity-feed write live in the
       // shared service (ADR-0016). Access was already verified above.
@@ -4484,7 +4484,7 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎫 [tRPC bulkCreateTickets] RECEIVED: productId=${input.productId}, count=${input.tickets.length}, userId=${userId}`);
 
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       // Resolve the shared label set once; per-ticket labels resolve lazily
       // through a memo so repeated names don't re-query.
@@ -4664,7 +4664,7 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`📥 [tRPC importNotionCycleTickets] RECEIVED: productId=${input.productId}, cycle="${input.cycleName ?? input.cyclePageId}", dryRun=${input.dryRun ?? false}, userId=${userId}`);
 
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       const result = await importNotionCycleTickets(ctx.db, {
         userId,
@@ -4707,10 +4707,10 @@ export const mastraRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       let workspaceId = input.workspaceId;
       if (input.productId) {
-        const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+        const product = await loadProductWithAccess(ctx.db, userId, input.productId, "view");
         workspaceId = product.workspaceId;
       } else if (workspaceId) {
-        await assertWorkspaceMember(ctx.db, userId, workspaceId);
+        await assertWorkspaceAccess(ctx.db, userId, workspaceId, "view");
       }
 
       const cycles = await ctx.db.list.findMany({
@@ -4769,7 +4769,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "view");
       const limit = input.limit ?? 100;
 
       // Resolve the human cycle reference against the workspace's cycles.
@@ -4885,7 +4885,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await loadProductWithAccess(ctx.db, userId, input.productId);
+      await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       console.log(`🔗 [tRPC addTicketDependencies] RECEIVED: productId=${input.productId}, edges=${input.dependencies.length}, userId=${userId}`);
 
@@ -4955,7 +4955,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await loadProductWithAccess(ctx.db, userId, input.productId);
+      await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       const [ticket, dependsOn] = await Promise.all([
         ctx.db.ticket.findUnique({

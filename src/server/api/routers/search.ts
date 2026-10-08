@@ -231,7 +231,7 @@ async function searchKeyResults({ db, userId, q, workspaceId, limit }: SearchArg
   }));
 }
 
-// Mirrors ticket.list's assertWorkspaceMember gate (direct or team-based
+// Mirrors ticket.list's assertWorkspaceAccess gate (direct or team-based
 // workspace membership via the ticket's product; guests denied).
 async function searchTickets({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
   const tickets = await db.ticket.findMany({
@@ -443,7 +443,7 @@ async function searchOrganizations({ db, userId, q, workspaceId, limit }: Search
   }));
 }
 
-// Mirrors product.list's assertWorkspaceMember gate (direct or team-based).
+// Mirrors product.list's assertWorkspaceAccess gate (direct or team-based).
 async function searchProducts({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
   const products = await db.product.findMany({
     where: {

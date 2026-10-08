@@ -211,6 +211,20 @@ const actions = await ctx.db.action.findMany({
 
 You can also use individual resolvers for specific checks:
 
+For workspace-scoped **writes**, membership alone is not enough — `viewer` is a
+read-only role. Use `assertWorkspaceWriteRole` (owner/admin/member pass; viewer,
+guest and non-member get `FORBIDDEN`) rather than re-checking `role` inline:
+
+```typescript
+import { assertWorkspaceWriteRole } from '~/server/services/access';
+
+await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
+```
+
+The product plugin wraps this as `assertWorkspaceAccess(db, userId, workspaceId, level)`
+with a required `"view" | "edit"` level (and the same on its `load*WithAccess`
+helpers); every mutation there passes `"edit"`.
+
 ```typescript
 import { getProjectAccess, hasProjectAccess, canEditProject } from '~/server/services/access';
 

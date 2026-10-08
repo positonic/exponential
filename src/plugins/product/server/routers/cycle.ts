@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { assertWorkspaceMember } from "./product";
+import { assertWorkspaceAccess, type WorkspaceAccessLevel } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { canEditWorkspaceContent } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 /**
@@ -25,6 +26,7 @@ async function loadCycleWithAccess(
   db: PrismaClient,
   userId: string,
   cycleId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const cycle = await db.list.findUnique({
     where: { id: cycleId },
@@ -39,7 +41,7 @@ async function loadCycleWithAccess(
       message: "List is not a cycle (listType must be SPRINT)",
     });
   }
-  await assertWorkspaceMember(db, userId, cycle.workspaceId);
+  await assertWorkspaceAccess(db, userId, cycle.workspaceId, level);
   return cycle;
 }
 
@@ -304,17 +306,21 @@ export const cycleRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      const membership = await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
-      // Reconcile statuses based on current date (always runs)
+      // Reconcile statuses based on current date (always runs). This is
+      // derived state - the same for every caller - not authored content.
       await reconcileCycleStatuses(ctx.db, input.workspaceId);
 
-      // Lazy-generate upcoming cycles if auto-create is on
-      if (input.autoCreate) {
+      // Lazy-generate upcoming cycles if auto-create is on. Generation
+      // creates shared workspace rows attributed to the caller, so a
+      // read-only viewer lists cycles but never creates them.
+      if (input.autoCreate && canEditWorkspaceContent(membership.role)) {
         await ensureUpcomingCycles(
           ctx.db,
           input.workspaceId,
@@ -375,7 +381,7 @@ export const cycleRouter = createTRPCRouter({
       if (!cycle || cycle.listType !== "SPRINT") {
         throw new TRPCError({ code: "NOT_FOUND", message: "Cycle not found" });
       }
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, cycle.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, cycle.workspaceId, "view");
       return cycle;
     }),
 
@@ -394,10 +400,11 @@ export const cycleRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
 
       if (input.productId) {
@@ -509,7 +516,7 @@ export const cycleRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const cycle = await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const cycle = await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       // If dates are changing, validate no overlap
       if (input.startDate !== undefined || input.endDate !== undefined) {
@@ -562,7 +569,7 @@ export const cycleRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.list.delete({ where: { id: input.id } });
       return { success: true };
     }),

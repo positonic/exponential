@@ -2,7 +2,11 @@ import { z } from "zod";
 import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  loadProductWithAccess,
+  assertWorkspaceAccess,
+  type WorkspaceAccessLevel,
+} from "./product";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   assertWorkspaceScopedRefs,
@@ -64,6 +68,7 @@ async function loadTicketWithAccess(
   db: PrismaClient,
   userId: string,
   ticketId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
@@ -95,10 +100,11 @@ async function loadTicketWithAccess(
   if (!ticket) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     ticket.product.workspaceId,
+    level,
   );
   return ticket;
 }
@@ -307,6 +313,7 @@ async function loadTemplateWithAccess(
   db: PrismaClient,
   userId: string,
   templateId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const template = await db.ticketTemplate.findUnique({
     where: { id: templateId },
@@ -318,7 +325,7 @@ async function loadTemplateWithAccess(
       message: "Ticket template not found",
     });
   }
-  await assertWorkspaceMember(db, userId, template.workspaceId);
+  await assertWorkspaceAccess(db, userId, template.workspaceId, level);
   return template;
 }
 
@@ -332,7 +339,7 @@ export const ticketRouter = createTRPCRouter({
   list: protectedProcedure
     .input(ticketListInput)
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       const tickets = await ctx.db.ticket.findMany({
         where: ticketListWhere(input),
@@ -369,7 +376,7 @@ export const ticketRouter = createTRPCRouter({
   listSummaries: protectedProcedure
     .input(ticketListInput)
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       const tickets = await ctx.db.ticket.findMany({
         where: ticketListWhere(input),
@@ -390,10 +397,11 @@ export const ticketRouter = createTRPCRouter({
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         ticket.product.workspaceId,
+        "view",
       );
       return shapeTicketDetail(ticket);
     }),
@@ -458,7 +466,7 @@ export const ticketRouter = createTRPCRouter({
       z.object({ productId: z.string(), number: z.number().int().positive() }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       const select = { number: true, title: true } as const;
       const [prev, next] = await Promise.all([
@@ -496,10 +504,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       const product = await ctx.db.product.findUnique({
@@ -554,6 +563,7 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.productId,
+        "edit",
       );
 
       // A linked epic/feature/cycle/scope must live in the product's own
@@ -662,6 +672,7 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       // Same-workspace guard as create — `rest` is spread straight into the
@@ -876,7 +887,7 @@ export const ticketRouter = createTRPCRouter({
   initBodyDoc: protectedProcedure
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       // Conditional write, not read-then-write: an editor save or a Markdown
       // API write landing in between must win over this migration.
       const res = await ctx.db.ticket.updateMany({
@@ -931,7 +942,7 @@ export const ticketRouter = createTRPCRouter({
         new Set(tickets.map((t) => t.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
         await assertAssignableUser(ctx.db, workspaceId, input.assigneeId);
       }
 
@@ -1044,7 +1055,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
       if (approxBytes > 5 * 1024 * 1024) {
         throw new TRPCError({
@@ -1063,7 +1074,7 @@ export const ticketRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.ticket.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -1084,7 +1095,7 @@ export const ticketRouter = createTRPCRouter({
         new Set(tickets.map((t) => t.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
       }
       await ctx.db.ticket.deleteMany({ where: { id: { in: uniqueIds } } });
       return { count: uniqueIds.length };
@@ -1100,7 +1111,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const q = (input.query ?? "").trim();
       const limit = input.limit ?? 20;
 
@@ -1162,10 +1173,11 @@ export const ticketRouter = createTRPCRouter({
           message: "Dependencies must be within the same product.",
         });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         ticket.product.workspaceId,
+        "edit",
       );
 
       return ctx.db.$transaction(async (tx) => {
@@ -1206,7 +1218,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
       await ctx.db.ticketDependency.deleteMany({
         where: { ticketId: input.ticketId, dependsOnId: input.dependsOnId },
       });
@@ -1234,6 +1246,7 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.ticketId,
+        "edit",
       );
       const comment = await ctx.db.ticketComment.create({
         data: {
@@ -1324,10 +1337,11 @@ export const ticketRouter = createTRPCRouter({
       if (!comment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         comment.ticket.product.workspaceId,
+        "edit",
       );
       if (comment.authorId !== ctx.session.user.id) {
         throw new TRPCError({
@@ -1370,10 +1384,11 @@ export const ticketRouter = createTRPCRouter({
       if (!comment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         comment.ticket.product.workspaceId,
+        "edit",
       );
       if (comment.authorId !== ctx.session.user.id) {
         throw new TRPCError({
@@ -1402,7 +1417,7 @@ export const ticketRouter = createTRPCRouter({
       if (!parent) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, parent.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, parent.ticketId, "edit");
 
       const comment = await ctx.db.ticketComment.create({
         data: {
@@ -1430,7 +1445,7 @@ export const ticketRouter = createTRPCRouter({
   resolveCommentThread: protectedProcedure
     .input(z.object({ ticketId: z.string(), threadId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
       await ctx.db.ticketComment.updateMany({
         where: { ticketId: input.ticketId, threadId: input.threadId, parentId: null },
         data: { resolvedAt: new Date() },
@@ -1441,7 +1456,7 @@ export const ticketRouter = createTRPCRouter({
   unresolveCommentThread: protectedProcedure
     .input(z.object({ ticketId: z.string(), threadId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
       await ctx.db.ticketComment.updateMany({
         where: { ticketId: input.ticketId, threadId: input.threadId, parentId: null },
         data: { resolvedAt: null },
@@ -1461,6 +1476,7 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "view",
       );
       return listTicketEvents(ctx.db, ticket.product.workspaceId, input.id);
     }),
@@ -1469,7 +1485,7 @@ export const ticketRouter = createTRPCRouter({
   linkAction: protectedProcedure
     .input(z.object({ ticketId: z.string(), actionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
       const action = await ctx.db.action.findFirst({
         where: { id: input.actionId, createdById: ctx.session.user.id },
         select: { id: true },
@@ -1512,10 +1528,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
       return ctx.db.ticketTemplate.findMany({
         where: {
@@ -1543,10 +1560,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
       return ctx.db.ticketTemplate.create({
         data: {
@@ -1570,7 +1588,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const { id, ...data } = input;
       return ctx.db.ticketTemplate.update({ where: { id }, data });
     }),
@@ -1578,7 +1596,7 @@ export const ticketRouter = createTRPCRouter({
   deleteTemplate: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.ticketTemplate.delete({ where: { id: input.id } });
       return { success: true };
     }),
