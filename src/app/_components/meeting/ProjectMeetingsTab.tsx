@@ -7,6 +7,7 @@ import { api } from "~/trpc/react";
 import { CreateTranscriptionModal } from "../CreateTranscriptionModal";
 import { ProjectFirefliesSyncPanel } from "../ProjectFirefliesSyncPanel";
 import { MeetingCardList } from "./MeetingCardList";
+import { ProjectOccurrenceRows } from "./ProjectOccurrenceRows";
 
 interface ProjectMeetingsTabProps {
   projectId: string;
@@ -16,9 +17,11 @@ interface ProjectMeetingsTabProps {
 }
 
 /**
- * A project's Meetings tab: the same day-grouped cards as the workspace
- * Meetings page, narrowed to this project. Each card opens the full
- * `/recording/[id]` detail page.
+ * A project's Meetings tab: one list, newest first within each half — the
+ * meetings scheduled for the project and the ceremonies that review it
+ * (upcoming, not captured, cancelled; each opens its agenda), then the same
+ * day-grouped recording cards as the workspace Meetings page, narrowed to
+ * this project. Each card opens the full `/recording/[id]` detail page.
  */
 export function ProjectMeetingsTab({
   projectId,
@@ -34,6 +37,7 @@ export function ProjectMeetingsTab({
     workspaceId: workspaceId ?? undefined,
   });
   const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
+  const { data: occurrences = [] } = api.ceremony.listOccurrencesForProject.useQuery({ projectId });
 
   const refresh = () => {
     void utils.transcription.getMeetingCards.invalidate();
@@ -143,6 +147,8 @@ export function ProjectMeetingsTab({
         </Group>
       </Group>
 
+      <ProjectOccurrenceRows rows={occurrences} />
+
       {isLoading ? (
         <Stack gap="sm">
           <Skeleton height={72} radius="md" />
@@ -166,7 +172,7 @@ export function ProjectMeetingsTab({
             }
           }}
         />
-      ) : (
+      ) : occurrences.length > 0 ? null : (
         <Paper p="xl" radius="md" className="text-center">
           <Stack gap="md" align="center">
             <IconMicrophone size={40} opacity={0.3} />
