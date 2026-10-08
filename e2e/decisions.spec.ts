@@ -1,6 +1,7 @@
 /**
  * Decisions V1 (ADR-0060, ticket royal.ram): "Log a decision" on the fixture
- * meeting and the Source facet on the Decision Log. Runs authenticated via
+ * meeting, draft review on the meeting's Outputs tab, and the Source facet on
+ * the Decision Log. Runs authenticated via
  * the storageState minted in global-setup, against the seeded dev-fixture
  * data: a Daily Standup recording with one confirmed decision (D-0001 on a
  * fresh workspace) already logged against it.
@@ -24,18 +25,24 @@ async function attachScreenshot(page: Page, name: string) {
 /** First hit on a `next dev` route pays compile + fetch; anchor once, generously. */
 const FIRST_PAINT_TIMEOUT = 60_000;
 
+/** The meeting page opened on its Outputs tab, where decisions are listed and triaged. */
+function outputsUrl(): string {
+  return `${fixture.meetingUrl}?tab=outputs`;
+}
+
 /** The Mantine modal titled "Log a decision" (the Zoe drawer is also a dialog). */
 function logDecisionModal(page: Page) {
   return page.getByRole("dialog").filter({ has: page.getByText("Log a decision", { exact: true }) });
 }
 
 test("Log a decision from the fixture meeting, with a transcript turn as evidence", async ({ page }) => {
-  await page.goto(fixture.meetingUrl);
+  await page.goto(outputsUrl());
   await expect(page.getByRole("heading", { name: "Daily Standup" }).first()).toBeVisible({
     timeout: FIRST_PAINT_TIMEOUT,
   });
 
-  // The summary tab's Decisions block lists the seeded decision by label.
+  // The Outputs tab's Decisions column lists the seeded decision by label.
+  await expect(page.getByRole("tab", { name: /^Outputs/ })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".mp-dec__item", { hasText: fixture.decisionLabel })).toBeVisible({
     timeout: FIRST_PAINT_TIMEOUT,
   });
@@ -58,15 +65,14 @@ test("Log a decision from the fixture meeting, with a transcript turn as evidenc
   await modal.getByLabel("Decision").fill(statement);
   await modal.getByRole("button", { name: "Log decision" }).click();
 
-  // Success toast carries the new label; the summary tab now lists the decision.
+  // Success toast carries the new label; the Outputs tab now lists the decision.
   await expect(page.getByText(/D-\d{4} logged/)).toBeVisible();
-  await page.getByRole("tab", { name: /^Summary/ }).click();
-  // Summary is the default tab, so its link is the bare meeting URL.
-  await expect(page).not.toHaveURL(/[?&]tab=/);
+  await page.getByRole("tab", { name: /^Outputs/ }).click();
+  await expect(page).toHaveURL(/\?tab=outputs$/);
   const newItem = page.locator(".mp-dec__item", { hasText: statement });
   await expect(newItem).toBeVisible();
   await expect(newItem).toContainText("1 transcript turn quoted");
-  await attachScreenshot(page, "meeting-summary-decisions");
+  await attachScreenshot(page, "meeting-outputs-decisions");
 
   // The detail page deep-links the evidence quote back to its transcript turn.
   await newItem.getByRole("link").click();
@@ -127,21 +133,32 @@ test("Decision Log: Source facet separates meeting decisions from manual ones", 
 
 test("Review extracted draft decisions: confirm publishes to the log, reject keeps it out", async ({ page }) => {
   const { confirm, reject, resolve } = fixture.draftDecisionStatements;
-  await page.goto(fixture.meetingUrl);
+  await page.goto(outputsUrl());
   await expect(page.getByRole("heading", { name: "Daily Standup" }).first()).toBeVisible({
     timeout: FIRST_PAINT_TIMEOUT,
   });
 
-  // Both seeded drafts sit in the review block; neither is a logged decision yet.
-  // The summary tab's block, not the drawer card (which may hold a card from
-  // an earlier run of the persisted Zoe thread).
-  const drafts = page.getByTestId("summary-draft-decisions");
+  // The Outputs tab is the one place extracted outputs are triaged: drafts
+  // under "To review", then a column each for actions, decisions and open
+  // questions. The extraction entry point is the rail's single button.
+  const outputs = page.getByTestId("outputs-tab");
+  await expect(outputs).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  for (const column of ["Actions", "Decisions", "Open questions"]) {
+    await expect(outputs.locator(".mp-card__label", { hasText: column }).first()).toBeVisible();
+  }
+  const extractButton = page.locator(".mp-rail").getByRole("button", { name: "Extract outputs" });
+  await expect(extractButton).toBeVisible();
+
+  // All three seeded drafts sit in the review panel; none is a logged decision yet.
+  const drafts = page.getByTestId("decisions-draft-panel");
   await expect(drafts).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(page.getByTestId("outputs-review")).toContainText("To review");
   const cardWith = (text: string) =>
     drafts.getByTestId("draft-decision").filter({ has: page.getByText(text, { exact: true }) });
   const confirmCard = cardWith(confirm);
   const rejectCard = cardWith(reject);
   const resolveCard = cardWith(resolve);
+  await expect(drafts.getByTestId("draft-decision")).toHaveCount(3);
   await expect(confirmCard).toBeVisible();
   await expect(rejectCard).toBeVisible();
   await expect(resolveCard).toBeVisible();
@@ -151,32 +168,16 @@ test("Review extracted draft decisions: confirm publishes to the log, reject kee
   await expect(openItem).toBeVisible();
   await expect(openItem.locator(".mp-dec__dot")).toHaveAttribute("data-status", "OPEN");
   await expect(resolveCard).toContainText("Resolves");
-  await attachScreenshot(page, "meeting-draft-decisions");
+  await attachScreenshot(page, "meeting-outputs-draft-decisions");
 
-  // With drafts pending, the chip opens the same drafts as a review card in
-  // the Zoe drawer (no model call: extraction short-circuits on existing drafts).
-  await page.getByRole("button", { name: "Review drafts with Zoe" }).click();
-  const drawerCard = page.getByTestId("draft-decisions-card");
-  await expect(drawerCard).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
-  await expect(drawerCard.getByTestId("draft-decision")).toHaveCount(3);
-  await attachScreenshot(page, "zoe-drawer-draft-decisions");
-
-  // Edit from the card: the new statement shows in the drawer and the tab.
+  // Edit in place: the new statement replaces the old one in the panel.
   const edited = `${confirm} (edited ${Date.now()})`;
-  await drawerCard
-    .getByTestId("draft-decision")
-    .filter({ has: page.getByText(confirm, { exact: true }) })
-    .getByRole("button", { name: "Edit" })
-    .click();
+  await confirmCard.getByRole("button", { name: "Edit" }).click();
   const editModal = page.getByRole("dialog").filter({ has: page.getByText("Edit draft decision", { exact: true }) });
   await expect(editModal).toBeVisible();
   await editModal.getByLabel("Decision").fill(edited);
   await editModal.getByRole("button", { name: "Save draft" }).click();
   await expect(editModal).toHaveCount(0);
-  await expect(drawerCard.getByTestId("draft-decision").filter({ hasText: edited })).toBeVisible();
-  // The summary tab's own block reflects the edit too (shared query). Close
-  // the drawer first: it overlays the tab and would intercept the clicks.
-  await page.getByRole("dialog", { name: "Zoe assistant" }).getByRole("button", { name: "Close", exact: true }).click();
   await expect(cardWith(edited)).toBeVisible();
 
   // Reject: the card goes, nothing is logged.
@@ -201,9 +202,14 @@ test("Review extracted draft decisions: confirm publishes to the log, reject kee
   await expect(drafts).toHaveCount(0);
   await expect(openItem.locator(".mp-dec__dot")).toHaveAttribute("data-status", "ACCEPTED");
   await expect(openItem.locator(".mp-dec__label")).toHaveText(openLabel);
-  await expect(page.locator(".mp-dec__item", { hasText: resolve })).toHaveCount(0);
-  // Drafts reviewed: the chip is an extraction entry point again.
-  await expect(page.getByRole("button", { name: "Extract decisions" })).toBeVisible();
+  // The answer is recorded on the resolved decision's body, not as a row of its own.
+  await expect(openItem).toContainText(resolve);
+  await expect(
+    page.locator(".mp-dec__item", { hasText: resolve }).filter({ hasNotText: fixture.openQuestionStatement }),
+  ).toHaveCount(0);
+  // Drafts reviewed: the rail button is still the way to extract again.
+  await expect(extractButton).toBeVisible();
+  await expect(extractButton).toBeEnabled();
 
   // It now lists in the Decision Log under Source = Meeting.
   await page.goto(fixture.decisionsUrl);
