@@ -645,7 +645,7 @@ export const ceremonyRouter = createTRPCRouter({
 
       const cadenceRule = fields.cadenceRule ?? existing.cadenceRule;
       const timezone = fields.timezone ?? existing.timezone;
-      assertValidCadence(cadenceRule, timezone);
+      if (cadenceRule) assertValidCadence(cadenceRule, timezone);
 
       const slug = rawSlug ? slugify(rawSlug) : undefined;
       if (slug && slug !== existing.slug) {

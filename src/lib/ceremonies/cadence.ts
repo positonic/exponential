@@ -146,7 +146,9 @@ function weekdayLabel(w: Weekday): string {
 }
 
 /** Human description of a rule: "Every weekday at 09:00", or the raw rule when custom. */
-export function describeCadence(rule: string): string {
+export function describeCadence(rule: string | null): string {
+  // A one-off ceremony (ADR-0059 amendment) has no cadence.
+  if (!rule) return "One-off";
   const cfg = parseCadenceRule(rule);
   if (!cfg) return rule.replace(/^RRULE:/i, "");
   switch (cfg.preset) {

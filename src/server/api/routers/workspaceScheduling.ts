@@ -11,6 +11,16 @@ import {
 } from "~/server/services/calendar/slotEngine";
 import { buildInviteIcs } from "~/server/services/calendar/inviteIcs";
 import { sendMeetingInviteEmail } from "~/server/services/EmailService";
+import { getProjectAccess, hasProjectAccess } from "~/server/services/access/resolvers/projectResolver";
+import { recordActivity } from "~/server/services/activity/recordActivity";
+import { formatOccurrenceLabel } from "~/server/services/ceremonies/activity";
+import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
+import {
+  ONE_OFF_SECTION_TYPES,
+  buildOccurrenceUrl,
+  buildOneOffAgendaTemplate,
+  createOneOffCeremony,
+} from "~/server/services/ceremonies/oneOff";
 
 /**
  * Workspace meeting scheduling (V3 of calendar sync).
@@ -46,6 +56,19 @@ async function assertNotViewer(db: PrismaClient, userId: string, workspaceId: st
       message: "Workspace viewers cannot schedule meetings",
     });
   }
+}
+
+/**
+ * The attendee row's email for a member: their address, lowercased, or the
+ * `user:<id>` sentinel (shared with the migration backfill) when they have
+ * none — the row stays unique per meeting and is never emailed.
+ */
+function memberAttendeeEmail(user: { id: string; email: string | null }): string {
+  return user.email ? user.email.trim().toLowerCase() : `user:${user.id}`;
+}
+
+function isDeliverableEmail(email: string): boolean {
+  return email.includes("@");
 }
 
 /** The attendee universe: direct members + members via a linked team. */
@@ -292,6 +315,14 @@ export const workspaceSchedulingRouter = createTRPCRouter({
       };
     }),
 
+  /**
+   * Book a Scheduled meeting. With a project linked, the booking is also a
+   * one-off Ceremony (ADR-0059 amendment, 2026-10-07): ceremony, occurrence
+   * and meeting are written in one transaction, the agenda is generated
+   * inline so the organizer sees a draft, and the invite carries the purpose
+   * and the occurrence link. Without a project it is exactly a calendar
+   * booking. Either way the only write to real calendars is the invite email.
+   */
   createMeeting: protectedProcedure
     .input(
       z.object({
@@ -303,6 +334,12 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         startsAt: z.date(),
         endsAt: z.date(),
         attendeeUserIds: z.array(z.string()).min(1).max(50),
+        /** What the meeting is for; the one-off's `purpose` and the invite's first line. */
+        purpose: z.string().trim().max(2000).optional(),
+        /** The one-off agenda's sections; recurring-only sections are refused. */
+        agendaSectionTypes: z.array(z.enum(ONE_OFF_SECTION_TYPES)).max(ONE_OFF_SECTION_TYPES.length).optional(),
+        /** Which preset the organizer started from; titles the sections, and is kept on the activity event. */
+        purposePreset: z.string().max(40).optional(),
       }),
     )
     .use(requireWorkspaceMembership("view"))
@@ -323,29 +360,110 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         });
       }
 
+      // A one-off reviews the project, so the organizer must be able to see it.
+      if (input.projectId) {
+        const project = await db.project.findFirst({
+          where: { id: input.projectId, workspaceId: input.workspaceId },
+          select: { id: true },
+        });
+        if (!project || !hasProjectAccess(await getProjectAccess(db, organizerId, input.projectId))) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Project not found in this workspace" });
+        }
+      }
+
       // The organizer is always an attendee — their calendar gets the invite too.
       const attendeeIds = [...new Set([...input.attendeeUserIds, organizerId])];
+      const users = await db.user.findMany({
+        where: { id: { in: attendeeIds } },
+        select: { id: true, name: true, email: true, timezone: true },
+      });
+      const attendeeRows = users.map((user) => ({
+        userId: user.id,
+        email: memberAttendeeEmail(user),
+        name: user.name,
+      }));
 
-      const meeting = await db.meeting.create({
-        data: {
+      const purpose = input.purpose && input.purpose.length > 0 ? input.purpose : undefined;
+      const meetingInclude = {
+        attendees: true,
+        organizer: { select: { id: true, name: true, email: true } },
+        workspace: { select: { slug: true } },
+      } as const;
+
+      const { meeting, oneOff } = await db.$transaction(async (tx) => {
+        const meeting = await tx.meeting.create({
+          data: {
+            workspaceId: input.workspaceId,
+            organizerId,
+            projectId: input.projectId,
+            title: input.title,
+            description: input.description,
+            location: input.location,
+            startsAt: input.startsAt,
+            endsAt: input.endsAt,
+            // Stable for the meeting's lifetime; the domain suffix keeps UIDs
+            // globally unique across calendar systems.
+            icalUid: `${crypto.randomUUID()}@exponential.im`,
+            attendees: { create: attendeeRows },
+          },
+          include: meetingInclude,
+        });
+        if (!input.projectId) return { meeting, oneOff: null };
+
+        const oneOffPurpose = purpose ?? input.title;
+        const oneOff = await createOneOffCeremony(tx, {
           workspaceId: input.workspaceId,
-          organizerId,
           projectId: input.projectId,
+          organizerId,
+          meetingId: meeting.id,
           title: input.title,
-          description: input.description,
-          location: input.location,
+          purpose: oneOffPurpose,
+          agendaTemplate: buildOneOffAgendaTemplate({
+            purpose: oneOffPurpose,
+            sectionTypes: input.agendaSectionTypes,
+            presetKey: input.purposePreset,
+          }),
+          memberUserIds: attendeeIds,
+          timezone: users.find((u) => u.id === organizerId)?.timezone ?? "UTC",
           startsAt: input.startsAt,
           endsAt: input.endsAt,
-          // Stable for the meeting's lifetime; the domain suffix keeps UIDs
-          // globally unique across calendar systems.
-          icalUid: `${crypto.randomUUID()}@exponential.im`,
-          attendees: { create: attendeeIds.map((userId) => ({ userId })) },
-        },
-        include: {
-          attendees: { include: { user: { select: { id: true, name: true, email: true } } } },
-          organizer: { select: { id: true, name: true, email: true } },
-        },
+        });
+        return { meeting, oneOff };
       });
+
+      let occurrenceUrl: string | null = null;
+      if (oneOff) {
+        occurrenceUrl = buildOccurrenceUrl(meeting.workspace.slug, oneOff.ceremony.id, oneOff.occurrenceId);
+        await recordActivity(db, {
+          workspaceId: input.workspaceId,
+          userId: organizerId,
+          entityType: "ceremony_occurrence",
+          entityId: oneOff.occurrenceId,
+          action: "created",
+          metadata: {
+            name: formatOccurrenceLabel(oneOff.ceremony.name, input.startsAt, oneOff.ceremony.timezone),
+            ceremonyId: oneOff.ceremony.id,
+            meetingId: meeting.id,
+            oneOff: true,
+            purposePreset: input.purposePreset ?? null,
+          },
+        });
+        // Inline, never fire-and-forget: the organizer lands on a draft. The
+        // occurrence stays PLANNED, so the lead-time sweep regenerates and
+        // circulates it with fresh data. A failure here must not undo a
+        // booking that is already durable — the sweep retries.
+        try {
+          await generateAgenda(db, oneOff.occurrenceId);
+        } catch (error) {
+          const { reportHandledErrorServer } = await import(
+            "~/server/utils/reportHandledErrorServer"
+          );
+          reportHandledErrorServer(error, {
+            area: "workspaceScheduling.createMeeting.agenda",
+            context: { meetingId: meeting.id, occurrenceId: oneOff.occurrenceId },
+          });
+        }
+      }
 
       // Email every attendee with a real address. Send failures must not
       // roll back the meeting — the record is the source of truth and a
@@ -354,17 +472,18 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         name: meeting.organizer.name,
         email: meeting.organizer.email ?? "noreply@exponential.im",
       };
-      const recipients = meeting.attendees
-        .map((a) => a.user)
-        .filter((u): u is typeof u & { email: string } => !!u.email);
+      const recipients = meeting.attendees.filter((a) => isDeliverableEmail(a.email));
+      const inviteDescription = [purpose, meeting.description, occurrenceUrl]
+        .filter((part): part is string => !!part)
+        .join("\n\n");
       const ics = buildInviteIcs({
         method: "REQUEST",
         uid: meeting.icalUid,
         sequence: meeting.sequence,
         organizer,
-        attendees: recipients.map((u) => ({ name: u.name, email: u.email })),
+        attendees: recipients.map((a) => ({ name: a.name, email: a.email })),
         title: meeting.title,
-        description: meeting.description,
+        description: inviteDescription || null,
         location: meeting.location,
         startsAt: meeting.startsAt,
         endsAt: meeting.endsAt,
@@ -381,6 +500,8 @@ export const workspaceSchedulingRouter = createTRPCRouter({
             startsAt: meeting.startsAt,
             endsAt: meeting.endsAt,
             location: meeting.location,
+            description: purpose,
+            url: occurrenceUrl,
             icsContent: ics,
             workspaceId: input.workspaceId,
           });
@@ -404,6 +525,8 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         status: meeting.status,
         attendeeCount: meeting.attendees.length,
         invitesSent: invitesSent.length,
+        ceremonyId: oneOff?.ceremony.id ?? null,
+        occurrenceId: oneOff?.occurrenceId ?? null,
       };
     }),
 
@@ -424,7 +547,7 @@ export const workspaceSchedulingRouter = createTRPCRouter({
       const meeting = await db.meeting.findFirst({
         where: { id: input.meetingId, workspaceId: input.workspaceId },
         include: {
-          attendees: { include: { user: { select: { id: true, name: true, email: true } } } },
+          attendees: true,
           organizer: { select: { id: true, name: true, email: true } },
         },
       });
@@ -451,15 +574,13 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         name: meeting.organizer.name,
         email: meeting.organizer.email ?? "noreply@exponential.im",
       };
-      const recipients = meeting.attendees
-        .map((a) => a.user)
-        .filter((u): u is typeof u & { email: string } => !!u.email);
+      const recipients = meeting.attendees.filter((a) => isDeliverableEmail(a.email));
       const ics = buildInviteIcs({
         method: "CANCEL",
         uid: meeting.icalUid,
         sequence: cancelled.sequence,
         organizer,
-        attendees: recipients.map((u) => ({ name: u.name, email: u.email })),
+        attendees: recipients.map((a) => ({ name: a.name, email: a.email })),
         title: meeting.title,
         description: meeting.description,
         location: meeting.location,
@@ -523,7 +644,7 @@ export const workspaceSchedulingRouter = createTRPCRouter({
           endsAt: true,
           status: true,
           organizer: { select: { id: true, name: true } },
-          attendees: { select: { user: { select: { id: true, name: true } } } },
+          attendees: { select: { email: true, name: true, user: { select: { id: true, name: true } } } },
         },
         orderBy: { startsAt: "asc" },
       });

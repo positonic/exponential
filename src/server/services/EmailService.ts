@@ -1668,10 +1668,14 @@ export async function sendMeetingInviteEmail(params: {
   startsAt: Date;
   endsAt: Date;
   location?: string | null;
+  /** What the meeting is for (plain text), printed under When/Where. */
+  description?: string | null;
+  /** Absolute link to the meeting's page in Exponential (its agenda and notes). */
+  url?: string | null;
   icsContent: string;
   workspaceId?: string;
 }): Promise<void> {
-  const { to, method, meetingTitle, organizerName, startsAt, endsAt, location, icsContent, workspaceId } = params;
+  const { to, method, meetingTitle, organizerName, startsAt, endsAt, location, description, url, icsContent, workspaceId } = params;
 
   const cancelled = method === "CANCEL";
   const subject = cancelled
@@ -1686,6 +1690,8 @@ export async function sendMeetingInviteEmail(params: {
     ``,
     `When: ${when}`,
     ...(location ? [`Where: ${location}`] : []),
+    ...(description ? [``, description] : []),
+    ...(url ? [``, `Agenda and notes: ${url}`] : []),
     ``,
     cancelled
       ? `The attached calendar file removes the event from your calendar.`
@@ -1695,9 +1701,11 @@ export async function sendMeetingInviteEmail(params: {
   const htmlBody = `
     <div style="font-family: sans-serif; max-width: 560px;">
       <h2 style="color: ${EMAIL_BRAND_COLOR};">${cancelled ? "Meeting cancelled" : "Meeting invitation"}</h2>
-      <p>${organizerName} ${cancelled ? "cancelled" : "invited you to"} <strong>${meetingTitle}</strong>.</p>
+      <p>${escapeHtml(organizerName)} ${cancelled ? "cancelled" : "invited you to"} <strong>${escapeHtml(meetingTitle)}</strong>.</p>
       <p><strong>When:</strong> ${when}</p>
-      ${location ? `<p><strong>Where:</strong> ${location}</p>` : ""}
+      ${location ? `<p><strong>Where:</strong> ${escapeHtml(location)}</p>` : ""}
+      ${description ? `<p style="white-space: pre-line;">${escapeHtml(description)}</p>` : ""}
+      ${url ? `<p><a href="${escapeHtml(url)}">Agenda and notes</a></p>` : ""}
       <p style="color: #4b5563;">${
         cancelled
           ? "The attached calendar file removes the event from your calendar."
