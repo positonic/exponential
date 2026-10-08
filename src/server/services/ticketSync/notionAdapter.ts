@@ -255,6 +255,41 @@ export class NotionTicketSyncAdapter
     }
   }
 
+  /**
+   * Every absolute URL on the page: url-typed property values, linked text in
+   * any property, and linked text, bookmarks and link previews in the
+   * top-level body blocks. Used to recognise a hand-written page that links to
+   * an existing ticket. An unreadable page yields no links (create as before).
+   */
+  async getPageLinks(externalId: string): Promise<string[]> {
+    try {
+      const { page, blocks } = await this.notion.getPageWithBlocks(externalId);
+      const urls: string[] = [];
+      const properties = ((page as { properties?: Record<string, unknown> })
+        .properties ?? {}) as Record<string, Record<string, unknown>>;
+      for (const prop of Object.values(properties)) {
+        if (prop.type === "url" && typeof prop.url === "string") urls.push(prop.url);
+        if (prop.type === "rich_text") urls.push(...richTextLinks(prop.rich_text));
+        if (prop.type === "title") urls.push(...richTextLinks(prop.title));
+      }
+      for (const block of blocks as Array<Record<string, unknown>>) {
+        const type = block.type as string | undefined;
+        if (!type) continue;
+        const payload = block[type] as { rich_text?: unknown; url?: unknown } | undefined;
+        urls.push(...richTextLinks(payload?.rich_text));
+        if (
+          (type === "bookmark" || type === "link_preview") &&
+          typeof payload?.url === "string"
+        ) {
+          urls.push(payload.url);
+        }
+      }
+      return urls;
+    } catch {
+      return [];
+    }
+  }
+
   // ── Outbound (TicketPushAdapter) ────────────────────────────────────────
 
   /** Current remote state of one page; null when it 404s (page deleted). */
@@ -467,6 +502,15 @@ function isNotFound(error: unknown): boolean {
 
 interface RichTextItem {
   plain_text?: string;
+  /** Link target of linked text or a mention; null for plain text. */
+  href?: string | null;
+}
+
+function richTextLinks(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return (value as RichTextItem[]).flatMap((t) =>
+    typeof t.href === "string" ? [t.href] : [],
+  );
 }
 
 function richText(value: unknown): string {
