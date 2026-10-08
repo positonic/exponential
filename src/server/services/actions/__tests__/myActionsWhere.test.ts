@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Prisma } from "@prisma/client";
 import {
+  myActionsDueTodayWhere,
   myActionsOwnershipWhere,
   myActionsTodayWhere,
+  serverLocalDay,
   myInboxActionsWhere,
   myOverdueActionsWhere,
   isInboxAction,
@@ -43,17 +45,34 @@ describe("myActionsWhere", () => {
     expect(bucket.map((a) => a.id)).toEqual(["unsorted"]);
   });
 
-  it("today is scheduled today, or unscheduled and due today, from the caller's midnight", () => {
-    const startOfToday = new Date(2026, 8, 16);
-    const today = { gte: startOfToday, lt: new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000) };
+  it("the server's local day spans midnight to the next midnight", () => {
+    const now = new Date(2026, 8, 16, 15, 42, 7);
+    expect(serverLocalDay(now)).toEqual({ start: new Date(2026, 8, 16), end: new Date(2026, 8, 17) });
+    // The caller's clock is not mutated.
+    expect(now.getHours()).toBe(15);
+  });
 
-    expect(myActionsTodayWhere("u1", startOfToday)).toEqual({
+  it("due today is my active actions with a deadline in the day, scoped by project workspace", () => {
+    const day = serverLocalDay(new Date(2026, 8, 16, 9));
+    expect(myActionsDueTodayWhere("u1", day)).toEqual({
+      ...myActionsOwnershipWhere("u1"),
+      dueDate: { gte: day.start, lt: day.end },
+      status: "ACTIVE",
+    });
+    expect(myActionsDueTodayWhere("u1", day, "w1")).toMatchObject({ project: { workspaceId: "w1" } });
+  });
+
+  it("today is scheduled in the day, or unscheduled and due in it", () => {
+    const day = serverLocalDay(new Date(2026, 8, 16));
+    const inDay = { gte: day.start, lt: day.end };
+
+    expect(myActionsTodayWhere("u1", day)).toEqual({
       AND: [
         myActionsOwnershipWhere("u1"),
         {
           OR: [
-            { scheduledStart: today },
-            { scheduledStart: null, dueDate: today },
+            { scheduledStart: inDay },
+            { scheduledStart: null, dueDate: inDay },
           ],
         },
       ],
@@ -62,18 +81,48 @@ describe("myActionsWhere", () => {
   });
 
   it("today scopes by the action's own workspace or its project's, only when one is given", () => {
-    const startOfToday = new Date(2026, 8, 16);
-    expect(myActionsTodayWhere("u1", startOfToday, "w1").AND).toContainEqual({
+    const day = serverLocalDay(new Date(2026, 8, 16));
+    expect(myActionsTodayWhere("u1", day, "w1").AND).toContainEqual({
       OR: [{ workspaceId: "w1" }, { project: { workspaceId: "w1" } }],
     });
-    expect(myActionsTodayWhere("u1", startOfToday).AND).toHaveLength(2);
+    expect(myActionsTodayWhere("u1", day).AND).toHaveLength(2);
   });
 
+  type Row = {
+    id: string;
+    status: string;
+    projectId: string | null;
+    dueDate: Date | null;
+    scheduledStart: Date | null;
+  };
+  type Range = { gte: Date; lt: Date };
+
+  /** Evaluates the date clause of `myActionsTodayWhere` against a row. */
+  function matchesToday(where: Prisma.ActionWhereInput, a: Row): boolean {
+    const inRange = (v: Date | null, r: Range) => v !== null && v >= r.gte && v < r.lt;
+    const branches = (where.AND as Prisma.ActionWhereInput[])[1]!.OR as Array<{
+      scheduledStart: Range | null;
+      dueDate?: Range;
+    }>;
+    return branches.some((branch) =>
+      branch.scheduledStart === null
+        ? a.scheduledStart === null && inRange(a.dueDate, branch.dueDate!)
+        : inRange(a.scheduledStart, branch.scheduledStart),
+    );
+  }
+
+  function expectParity(rows: Row[], dayOf: Date) {
+    const day = serverLocalDay(dayOf);
+    const bucket = partitionActions(rows, { today: day.start }).todays.map((a) => a.id).sort();
+    const where = myActionsTodayWhere("u1", day);
+    expect(rows.filter((a) => matchesToday(where, a)).map((a) => a.id).sort()).toEqual(bucket);
+    return bucket;
+  }
+
   it("today selects exactly the /today partition's todays bucket", () => {
-    const startOfToday = new Date(2026, 8, 16);
     const at = (day: number, hour = 9) => new Date(2026, 8, day, hour);
     const base = { status: "ACTIVE", projectId: "p1", dueDate: null, scheduledStart: null };
-    const actions = [
+    const rows: Row[] = [
       // The #838 shape: rescheduled to today, no deadline.
       { ...base, id: "scheduled-today", scheduledStart: at(16) },
       { ...base, id: "scheduled-late-tonight", scheduledStart: at(16, 23) },
@@ -88,25 +137,37 @@ describe("myActionsWhere", () => {
       { ...base, id: "undated" },
     ];
 
-    // The date clause of the WHERE, evaluated against each row.
-    const dateClause = myActionsTodayWhere("u1", startOfToday).AND as Prisma.ActionWhereInput[];
-    const inRange = (v: Date | null, r: { gte: Date; lt: Date }) =>
-      v !== null && v >= r.gte && v < r.lt;
-    const matches = (a: (typeof actions)[number]) =>
-      (dateClause[1]!.OR as Array<{ scheduledStart: unknown; dueDate?: { gte: Date; lt: Date } }>).some((branch) =>
-        branch.scheduledStart === null
-          ? a.scheduledStart === null && inRange(a.dueDate, branch.dueDate!)
-          : inRange(a.scheduledStart, branch.scheduledStart as { gte: Date; lt: Date }),
-      );
-
-    const bucket = partitionActions(actions, { today: startOfToday }).todays.map((a) => a.id).sort();
-    expect(actions.filter(matches).map((a) => a.id).sort()).toEqual(bucket);
-    expect(bucket).toEqual([
+    expect(expectParity(rows, at(16))).toEqual([
       "due-today",
       "past-due-scheduled-today",
       "scheduled-late-tonight",
       "scheduled-today",
     ]);
+  });
+
+  it("today agrees with the partition across a DST change", () => {
+    // A zone with DST, so the change days are really 25 and 23 hours long
+    // (CI runs in UTC, where they aren't). Node re-reads TZ on change.
+    const previousTz = process.env.TZ;
+    process.env.TZ = "Europe/Berlin";
+    try {
+      // Clocks go back on 2026-10-25 and forward on 2026-03-29. A flat 24h
+      // window would drop the late action on the first and take in the
+      // next day's early one on the second.
+      const base = { status: "ACTIVE", projectId: "p1", dueDate: null };
+      for (const [y, m, d] of [[2026, 9, 25], [2026, 2, 29]] as const) {
+        const rows: Row[] = [
+          { ...base, id: "late", scheduledStart: new Date(y, m, d, 23, 30) },
+          { ...base, id: "next-day-early", scheduledStart: new Date(y, m, d + 1, 0, 30) },
+        ];
+        expect(serverLocalDay(new Date(y, m, d, 12)).end.getTime()
+          - serverLocalDay(new Date(y, m, d, 12)).start.getTime()).not.toBe(24 * 60 * 60 * 1000);
+        expect(expectParity(rows, new Date(y, m, d, 12))).toEqual(["late"]);
+      }
+    } finally {
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
   });
 
   it("overdue mirrors the /today partition: schedule before today, else due before today", () => {

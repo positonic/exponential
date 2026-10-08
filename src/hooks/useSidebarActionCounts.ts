@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
+import { keepPreviousData } from '@tanstack/react-query';
 import { getQueryKey } from '@trpc/react-query';
 import { api } from '~/trpc/react';
-import { useDayRollover } from '~/hooks/useDayRollover';
+import { useLocalDay } from '~/hooks/useDayRollover';
 import { useRefetchAfterMutations } from '~/hooks/useRefetchAfterMutations';
 import { partitionActions } from '~/lib/actions/partition';
 import { isInboxAction } from '~/server/services/actions/myActionsWhere';
@@ -36,8 +37,11 @@ export function useSidebarActionCounts(): {
   todayCount: number | undefined;
   isError: boolean;
 } {
-  const startOfToday = useDayRollover();
-  const counts = api.action.getSidebarCounts.useQuery({ startOfToday }, {
+  const day = useLocalDay();
+  const counts = api.action.getSidebarCounts.useQuery({ day }, {
+    // At midnight the key changes; keep yesterday's counts until today's land
+    // rather than blanking the badges for a round trip.
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: false,
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
@@ -53,9 +57,9 @@ export function useSidebarActionCounts(): {
     if (!listIsFresh || !allActions.data) return undefined;
     return {
       inboxCount: allActions.data.filter(isInboxAction).length,
-      todayCount: partitionActions(allActions.data, { today: startOfToday }).todays.length,
+      todayCount: partitionActions(allActions.data, { today: day.start }).todays.length,
     };
-  }, [listIsFresh, allActions.data, startOfToday]);
+  }, [listIsFresh, allActions.data, day.start]);
 
   return {
     inboxCount: fromList?.inboxCount ?? counts.data?.inboxCount,
