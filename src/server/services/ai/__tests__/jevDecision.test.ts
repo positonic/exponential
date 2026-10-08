@@ -6,7 +6,10 @@ import {
   readTimeoutMsFromEnv,
   resetJevCircuitBreaker,
   resolveJevProvider,
+  readToolsetAnswers,
   JEV_MIN_CONFIDENCE,
+  TOOLSET_IDS,
+  TOOLSET_SELECT_THRESHOLD,
   type JevProvider,
 } from "../jevDecision";
 
@@ -122,11 +125,13 @@ describe("decideTierWithJev — fallback to null", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("returns null below the confidence floor", async () => {
+  it("returns a decision with tier null below the confidence floor", async () => {
     const fetchImpl = vi.fn<FetchImpl>(async () =>
       jsonResponse(choiceBody("deep", JEV_MIN_CONFIDENCE - 0.01)),
     );
-    expect(await decideTierWithJev(input, { ...base, fetchImpl })).toBeNull();
+    const result = await decideTierWithJev(input, { ...base, fetchImpl });
+    expect(result).not.toBeNull();
+    expect(result?.tier).toBeNull();
   });
 
   it("acts exactly at the confidence floor", async () => {
@@ -334,5 +339,87 @@ describe("decideTierWithJev — OpenRouter provider", () => {
     expect(headers.Authorization).toBe("Bearer sk-or-test");
     expect(headers["X-Title"]).toBe("Exponential");
     expect((JSON.parse(init?.body as string) as { model: string }).model).toBe("jev-latest");
+  });
+});
+
+// ── Toolset selection (ticket 674) ────────────────────────────────────
+
+function withToolsets(body: ReturnType<typeof choiceBody>, probs: Partial<Record<string, number>>) {
+  const answers: Record<string, unknown> = { ...body.answers };
+  for (const id of TOOLSET_IDS) answers[`toolset_${id}`] = { type: "noul", noul: probs[id] ?? 0.02 };
+  return { ...body, answers };
+}
+
+describe("decideTierWithJev — toolset questions", () => {
+  it("asks one Noul per toolset alongside the tier Choice, in the same request", async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => jsonResponse(withToolsets(choiceBody("fast", 0.9), {})));
+    await decideTierWithJev(input, { ...base, fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]?.body as string) as {
+      questions: Record<string, { type: string; instructions: string; criteria?: Record<string, string> }>;
+    };
+    const ids = Object.keys(body.questions);
+    expect(ids).toEqual(["tier", ...TOOLSET_IDS.map((id) => `toolset_${id}`)]);
+    for (const id of TOOLSET_IDS) {
+      const q = body.questions[`toolset_${id}`]!;
+      expect(q.type).toBe("noul");
+      expect(q.instructions).toContain("LATEST user message");
+      expect(Object.keys(q.criteria ?? {})).toEqual(["true", "false"]);
+    }
+  });
+
+  it("selects toolsets at or above the threshold and keeps the raw probabilities", async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      jsonResponse(withToolsets(choiceBody("deep", 0.8), { slack: 0.91, crm: TOOLSET_SELECT_THRESHOLD, email: TOOLSET_SELECT_THRESHOLD - 0.01 })),
+    );
+    const result = await decideTierWithJev(input, { ...base, fetchImpl });
+    expect(result?.toolsets).toEqual(["crm", "slack"]);
+    expect(result?.toolsetProbabilities?.email).toBeCloseTo(TOOLSET_SELECT_THRESHOLD - 0.01);
+  });
+
+  it("returns an empty selection (CORE only) for a greeting where nothing scores", async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => jsonResponse(withToolsets(choiceBody("fast", 0.97), {})));
+    const result = await decideTierWithJev({ message: "hi", priorTurns: [] }, { ...base, fetchImpl });
+    expect(result?.toolsets).toEqual([]);
+  });
+
+  it("keeps the toolset selection when the tier answer is too unsure to route on", async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () =>
+      jsonResponse(withToolsets(choiceBody("deep", 0.2), { meetings: 0.8 })),
+    );
+    const result = await decideTierWithJev(input, { ...base, fetchImpl });
+    expect(result?.tier).toBeNull();
+    expect(result?.toolsets).toEqual(["meetings"]);
+  });
+
+  it("leaves toolsets undefined when the response has no toolset answers", async () => {
+    const fetchImpl = vi.fn<FetchImpl>(async () => jsonResponse(choiceBody("fast", 0.9)));
+    const result = await decideTierWithJev(input, { ...base, fetchImpl });
+    expect(result?.tier).toBe("fast");
+    expect(result?.toolsets).toBeUndefined();
+  });
+});
+
+describe("readToolsetAnswers", () => {
+  const full = (overrides: Record<string, unknown> = {}) => {
+    const answers: Record<string, { type: string; noul?: unknown }> = {};
+    for (const id of TOOLSET_IDS) answers[`toolset_${id}`] = { type: "noul", noul: 0.1 };
+    return { ...answers, ...overrides } as Parameters<typeof readToolsetAnswers>[0];
+  };
+
+  it("rejects a partial set rather than trusting it", () => {
+    const answers = full();
+    delete (answers as Record<string, unknown>).toolset_web;
+    expect(readToolsetAnswers(answers)).toBeUndefined();
+  });
+
+  it("rejects a non-numeric or non-finite probability", () => {
+    expect(readToolsetAnswers(full({ toolset_crm: { type: "noul", noul: "high" } }))).toBeUndefined();
+    expect(readToolsetAnswers(full({ toolset_crm: { type: "noul", noul: Number.NaN } }))).toBeUndefined();
+  });
+
+  it("returns ids in declaration order", () => {
+    const r = readToolsetAnswers(full({ toolset_web: { type: "noul", noul: 0.9 }, toolset_planning: { type: "noul", noul: 0.9 } }));
+    expect(r?.toolsets).toEqual(["planning", "web"]);
   });
 });

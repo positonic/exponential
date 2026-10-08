@@ -571,6 +571,16 @@ export async function POST(req: Request) {
         tierPick.decision ?? "",
       );
     }
+    // Per-turn toolset selection (ticket 674). Comma-separated because
+    // RequestContext entries travel to Mastra as strings; an empty string
+    // means "CORE only" and is distinct from leaving the key unset ("no
+    // selection made"). Anthropic-backed agents ignore it (deferred tool
+    // loading already keeps their prompts small); generic-profile agents
+    // load CORE plus these.
+    if (tierPick.toolsets) {
+      requestContext.set("toolsets", tierPick.toolsets.join(","));
+      console.log(`🧰 [chat/stream] Toolsets: ${tierPick.toolsets.join(",") || "(core only)"}`);
+    }
     const startTime = Date.now();
     const threadId = conversationId ?? `session-${session.user.id}-${Date.now()}`;
     let activeAgentId = resolvedAgentId;
