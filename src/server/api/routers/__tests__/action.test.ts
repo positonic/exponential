@@ -146,6 +146,8 @@ import { createMockCaller } from "~/test/trpc-helpers";
 import { createCaller } from "~/server/api/root";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { buildActionAccessWhere } from "~/server/services/access";
+import { myActionsTodayWhere } from "~/server/services/actions/myActionsWhere";
+import { startOfDay } from "date-fns";
 
 describe("action router (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -2310,15 +2312,16 @@ describe("action router (mocked)", () => {
   // getSidebarCounts
   // ────────────────────────────────────────────────────────────────────
   describe("getSidebarCounts", () => {
-    it("counts inbox and due-today actions without loading any rows", async () => {
+    it("counts inbox and today's actions without loading any rows", async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       dbMock.action.count.mockImplementation((args: any) =>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         Promise.resolve(args?.where?.projectId === null ? 3 : 5) as any,
       );
 
+      const startOfToday = new Date("2026-10-08T22:00:00.000Z"); // a UTC+2 viewer's midnight
       const caller = createMockCaller({ userId: "caller-1", db: dbMock });
-      const counts = await caller.action.getSidebarCounts();
+      const counts = await caller.action.getSidebarCounts({ startOfToday });
 
       expect(counts).toEqual({ inboxCount: 3, todayCount: 5 });
       expect(dbMock.action.findMany).not.toHaveBeenCalled();
@@ -2326,8 +2329,35 @@ describe("action router (mocked)", () => {
       expect(wheres).toContainEqual(
         expect.objectContaining({ projectId: null, dueDate: null, scheduledStart: null, status: "ACTIVE" }),
       );
-      expect(wheres).toContainEqual(
-        expect.objectContaining({ status: "ACTIVE", dueDate: expect.objectContaining({ gte: expect.any(Date) }) }),
+      // The Today badge is the /today bucket on the viewer's day, so a
+      // scheduled-only action (bulk "Reschedule all overdue → Today") counts.
+      expect(wheres).toContainEqual(myActionsTodayWhere("caller-1", startOfToday));
+    });
+
+    it("falls back to the server's day when the viewer's isn't given", async () => {
+      dbMock.action.count.mockResolvedValue(0);
+
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getSidebarCounts();
+
+      const wheres = dbMock.action.count.mock.calls.map((call) => call[0]?.where);
+      expect(wheres).toContainEqual(myActionsTodayWhere("caller-1", startOfDay(new Date())));
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // getToday
+  // ────────────────────────────────────────────────────────────────────
+  describe("getToday", () => {
+    it("lists the /today bucket on the viewer's day, scoped to the workspace", async () => {
+      dbMock.action.findMany.mockResolvedValue([]);
+
+      const startOfToday = new Date("2026-10-08T22:00:00.000Z");
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getToday({ workspaceId: "ws-1", startOfToday });
+
+      expect(dbMock.action.findMany.mock.calls[0]?.[0]?.where).toEqual(
+        myActionsTodayWhere("caller-1", startOfToday, "ws-1"),
       );
     });
   });

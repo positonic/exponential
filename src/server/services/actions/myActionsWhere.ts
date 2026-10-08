@@ -18,28 +18,48 @@ export function myActionsOwnershipWhere(userId: string): Prisma.ActionWhereInput
 }
 
 /**
- * Active actions of mine due today, by the server's local day — the set
- * `action.getToday` returns.
+ * My actions for today — the `/today` page's `todays` bucket as a WHERE
+ * clause. Mirrors `partitionActions()` exactly (ADR-0034): scheduled today, or
+ * unscheduled and due today (schedule wins, so a past-due action rescheduled
+ * for today counts, and one due today but scheduled for another day does not).
+ * The set `action.getToday` returns and the sidebar's Today badge counts.
+ *
+ * `startOfToday` is the caller's local midnight, passed in so the day is the
+ * viewer's, not the server's. The day ends 24h later, so on a DST-change day
+ * the window is an hour off at one end.
+ *
+ * `workspaceId` scopes like `action.getAll`: the action's own workspace or its
+ * project's, so project-less actions (calendar blocks, quick adds) still count.
  */
-export function myActionsDueTodayWhere(
+export function myActionsTodayWhere(
   userId: string,
-  now: Date,
+  startOfToday: Date,
   workspaceId?: string,
 ): Prisma.ActionWhereInput {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+  const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+  const today = { gte: startOfToday, lt: startOfTomorrow };
 
   return {
-    ...myActionsOwnershipWhere(userId),
-    dueDate: {
-      gte: today,
-      lt: tomorrow,
-    },
+    AND: [
+      myActionsOwnershipWhere(userId),
+      {
+        OR: [
+          { scheduledStart: today },
+          { scheduledStart: null, dueDate: today },
+        ],
+      },
+      ...(workspaceId
+        ? [
+            {
+              OR: [
+                { workspaceId },
+                { project: { workspaceId } },
+              ],
+            },
+          ]
+        : []),
+    ],
     status: "ACTIVE",
-    // Filter by workspace via the action's project
-    ...(workspaceId ? { project: { workspaceId } } : {}),
   };
 }
 

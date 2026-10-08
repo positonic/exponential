@@ -25,6 +25,7 @@ import { useState } from "react";
 import { isSameDay, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import type { FocusPeriod, DateRange } from "~/types/focus";
 import { getFocusSectionTitle } from "~/lib/dateUtils";
+import { useDayRollover } from "~/hooks/useDayRollover";
 
 interface TodayOverviewProps {
   focus?: FocusPeriod;
@@ -51,8 +52,9 @@ export function TodayOverview({ focus = "today", dateRange, workspaceId }: Today
     { enabled: focus !== "today" }
   );
 
+  const startOfToday = useDayRollover();
   const { data: actionsToday = [] } = api.action.getToday.useQuery(
-    { workspaceId },
+    { workspaceId, startOfToday },
     { enabled: focus === "today" }
   );
 

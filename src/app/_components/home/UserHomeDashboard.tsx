@@ -23,6 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useDayRollover } from "~/hooks/useDayRollover";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { stripHtml } from "~/lib/utils";
 import { calculateProjectHealth } from "./ProjectHealth";
@@ -83,8 +84,10 @@ export function UserHomeDashboard() {
     },
   });
 
+  const startOfToday = useDayRollover();
   const { data: todayActions } = api.action.getToday.useQuery({
     workspaceId: workspaceId ?? undefined,
+    startOfToday,
   });
 
   const schedulerStatus = api.pmScheduler.getStatus.useQuery(undefined, {

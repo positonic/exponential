@@ -40,8 +40,8 @@ import {
 import { partitionActions } from "~/lib/actions/partition";
 import { deriveActionBlocked, withBlockedState } from "~/lib/actions/blocked";
 import {
-  myActionsDueTodayWhere,
   myActionsOwnershipWhere,
+  myActionsTodayWhere,
   myInboxActionsWhere,
 } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
@@ -652,15 +652,23 @@ export const actionRouter = createTRPCRouter({
       return action;
     }),
 
- getToday: protectedProcedure
+  // The `/today` page's today bucket (ADR-0034): scheduled today, or
+  // unscheduled and due today. `startOfToday` is the viewer's local midnight;
+  // without it the day is the server's.
+  getToday: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().optional(),
+        startOfToday: z.date().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
       return ctx.db.action.findMany({
-        where: myActionsDueTodayWhere(ctx.session.user.id, new Date(), input?.workspaceId),
+        where: myActionsTodayWhere(
+          ctx.session.user.id,
+          input?.startOfToday ?? startOfDay(new Date()),
+          input?.workspaceId,
+        ),
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
@@ -680,16 +688,21 @@ export const actionRouter = createTRPCRouter({
 
   // The inbox's unsorted-actions count and the sidebar's Today badge. Counts
   // only: the badges used to download every action (action.getAll, ~2 MB for
-  // a busy user) on every page just to count them. Same sets as filtering
-  // getAll() with `isInboxAction` and as getToday().length.
-  getSidebarCounts: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.session.user.id;
-    const [inboxCount, todayCount] = await Promise.all([
-      ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
-      ctx.db.action.count({ where: myActionsDueTodayWhere(userId, new Date()) }),
-    ]);
-    return { inboxCount, todayCount };
-  }),
+  // a busy user) on every page just to count them. Same sets as the `/today`
+  // partition of getAll(): its `inbox` bucket and its `todays` bucket.
+  // `startOfToday` is the viewer's local midnight; without it the day is the
+  // server's.
+  getSidebarCounts: protectedProcedure
+    .input(z.object({ startOfToday: z.date() }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const startOfToday = input?.startOfToday ?? startOfDay(new Date());
+      const [inboxCount, todayCount] = await Promise.all([
+        ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
+        ctx.db.action.count({ where: myActionsTodayWhere(userId, startOfToday) }),
+      ]);
+      return { inboxCount, todayCount };
+    }),
 
   // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
   // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the
