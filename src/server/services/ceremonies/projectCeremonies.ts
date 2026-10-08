@@ -47,8 +47,14 @@ export async function syncProjectCeremonies(
     }
   }
 
+  // One-off meetings booked from the project are never listed on the form, so
+  // they are never in `wanted` — and must never be unlinked by its save.
   const { count: unlinked } = await db.ceremonyProject.deleteMany({
-    where: { projectId, ...(wanted.length ? { ceremonyId: { notIn: wanted } } : {}) },
+    where: {
+      projectId,
+      ceremony: { isOneOff: false },
+      ...(wanted.length ? { ceremonyId: { notIn: wanted } } : {}),
+    },
   });
 
   // `skipDuplicates` keeps an already-linked pair; re-linking is a no-op.

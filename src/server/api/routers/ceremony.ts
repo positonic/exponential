@@ -185,6 +185,9 @@ export const ceremonyRouter = createTRPCRouter({
       return ctx.db.ceremony.findMany({
         where: {
           workspaceId: input.workspaceId,
+          // One-offs are meetings booked from a project, not part of the
+          // operating rhythm (ADR-0059 amendment, 2026-10-07).
+          isOneOff: false,
           ...(input.includeInactive ? {} : { isActive: true }),
         },
         select: ceremonySummarySelect,
@@ -202,7 +205,7 @@ export const ceremonyRouter = createTRPCRouter({
     .use(requireProjectAccess("view"))
     .query(async ({ ctx, input }) => {
       return ctx.db.ceremony.findMany({
-        where: { projects: { some: { projectId: input.projectId } }, isActive: true },
+        where: { projects: { some: { projectId: input.projectId } }, isActive: true, isOneOff: false },
         select: {
           ...ceremonySummarySelect,
           occurrences: {
@@ -346,10 +349,21 @@ export const ceremonyRouter = createTRPCRouter({
               ownerId: true,
               matrixRoomId: true,
               agendaTemplate: true,
+              isOneOff: true,
+              purpose: true,
               owner: { select: { id: true, name: true, email: true } },
             },
           },
           recordedMeetings: { select: { id: true } },
+          // The booking, so a one-off's page can offer Cancel.
+          scheduledMeeting: {
+            select: {
+              id: true,
+              status: true,
+              organizerId: true,
+              attendees: { select: { name: true, userId: true } },
+            },
+          },
         },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
@@ -363,8 +377,20 @@ export const ceremonyRouter = createTRPCRouter({
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
+      const { scheduledMeeting } = occurrence;
       return {
         ...occurrence,
+        isOneOff: occurrence.ceremony.isOneOff,
+        purpose: occurrence.ceremony.purpose,
+        // Attendee names only — external attendees' addresses stay off the page.
+        scheduledMeeting: scheduledMeeting
+          ? {
+              id: scheduledMeeting.id,
+              status: scheduledMeeting.status,
+              organizerId: scheduledMeeting.organizerId,
+              attendees: scheduledMeeting.attendees.map((a) => ({ userId: a.userId, name: a.name })),
+            }
+          : null,
         agenda: readAgendaSnapshot(occurrence.agenda),
         canGenerate,
         skipProposal,

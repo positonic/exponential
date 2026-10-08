@@ -88,7 +88,8 @@ export interface OccurrenceSweepResult {
  * its error is reported in the summary.
  */
 export async function expandActiveCeremonies(db: Db, now = new Date()): Promise<OccurrenceSweepResult> {
-  const ceremonies = await db.ceremony.findMany({ where: { isActive: true } });
+  // A one-off has nothing to expand: its single occurrence is written at booking.
+  const ceremonies = await db.ceremony.findMany({ where: { isActive: true, cadenceRule: { not: null } } });
   const result: OccurrenceSweepResult = { ceremonies: ceremonies.length, created: 0, errors: [] };
   for (const ceremony of ceremonies) {
     try {

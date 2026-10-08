@@ -151,7 +151,7 @@ describe("ceremony router", () => {
       const rows = await caller(db).ceremony.list({ workspaceId: WORKSPACE_ID });
       expect(rows).toHaveLength(1);
       expect(db.ceremony.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { workspaceId: WORKSPACE_ID, isActive: true } }),
+        expect.objectContaining({ where: { workspaceId: WORKSPACE_ID, isOneOff: false, isActive: true } }),
       );
     });
   });
@@ -185,7 +185,7 @@ describe("ceremony router", () => {
       expect(rows).toHaveLength(1);
       expect(db.ceremony.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { projects: { some: { projectId: "p-1" } }, isActive: true },
+          where: { projects: { some: { projectId: "p-1" } }, isActive: true, isOneOff: false },
           select: expect.objectContaining({
             occurrences: expect.objectContaining({ take: 1 }),
           }),
@@ -468,6 +468,47 @@ describe("ceremony router", () => {
       expect(res.rows[0]).toMatchObject({ meetingId: "m-1", occurrenceId: "occ-1", ceremonyName: "Daily Standup" });
       expect(res.rows[0]!.reason).toContain("anchored on title date or import date");
       expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getOccurrence on a one-off", () => {
+    it("returns isOneOff, the purpose and the booking with attendee names only", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({
+        id: "occ-1",
+        status: "PLANNED",
+        agenda: null,
+        ceremony: { id: "cer-1", name: "Launch scope", kind: "CUSTOM", ownerId: USER_ID, isOneOff: true, purpose: "Agree the scope" },
+        recordedMeetings: [],
+        scheduledMeeting: {
+          id: "meeting-1",
+          status: "confirmed",
+          organizerId: USER_ID,
+          attendees: [
+            { userId: USER_ID, name: "Org" },
+            { userId: null, name: "Ada" },
+          ],
+        },
+      } as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({ status: "PLANNED", agenda: null, ceremony: { kind: "CUSTOM" } } as never);
+
+      const res = await caller(db).ceremony.getOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      expect(res.isOneOff).toBe(true);
+      expect(res.purpose).toBe("Agree the scope");
+      expect(res.scheduledMeeting).toEqual({
+        id: "meeting-1",
+        status: "confirmed",
+        organizerId: USER_ID,
+        attendees: [
+          { userId: USER_ID, name: "Org" },
+          { userId: null, name: "Ada" },
+        ],
+      });
+      const select = db.ceremonyOccurrence.findFirst.mock.calls[0]![0]!.include!.scheduledMeeting as {
+        select: { attendees: { select: Record<string, boolean> } };
+      };
+      expect(select.select.attendees.select).not.toHaveProperty("email");
     });
   });
 
