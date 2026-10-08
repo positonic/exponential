@@ -2007,6 +2007,11 @@ export const transcriptionRouter = createTRPCRouter({
             message:
               "Server summarization is not configured (missing OPENAI_API_KEY).",
           });
+        case "failed":
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Summary generation failed: ${outcome.error ?? "unknown error"}`,
+          });
         case "created":
           return { id: session.id, summary: outcome.summary ?? null };
         default:
