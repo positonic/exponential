@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { assertWorkspaceAccess, type WorkspaceAccessLevel } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { canEditWorkspaceContent } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 /**
@@ -305,18 +306,21 @@ export const cycleRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceAccess(
+      const membership = await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
         "view",
       );
 
-      // Reconcile statuses based on current date (always runs)
+      // Reconcile statuses based on current date (always runs). This is
+      // derived state - the same for every caller - not authored content.
       await reconcileCycleStatuses(ctx.db, input.workspaceId);
 
-      // Lazy-generate upcoming cycles if auto-create is on
-      if (input.autoCreate) {
+      // Lazy-generate upcoming cycles if auto-create is on. Generation
+      // creates shared workspace rows attributed to the caller, so a
+      // read-only viewer lists cycles but never creates them.
+      if (input.autoCreate && canEditWorkspaceContent(membership.role)) {
         await ensureUpcomingCycles(
           ctx.db,
           input.workspaceId,
