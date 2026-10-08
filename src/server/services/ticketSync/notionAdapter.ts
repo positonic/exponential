@@ -279,9 +279,14 @@ export class NotionTicketSyncAdapter
 
   /**
    * Every absolute URL on the page: url-typed property values, linked text in
-   * any property, and linked text, bookmarks and link previews in the
-   * top-level body blocks. Used to recognise a hand-written page that links to
-   * an existing ticket. An unreadable page yields no links (create as before).
+   * any property, and linked text, bookmarks and link previews anywhere in the
+   * body — including inside toggles, columns and nested lists. Used to
+   * recognise a hand-written page that links to an existing ticket.
+   *
+   * Returns no links when the page can't be read OR can't be read completely
+   * (nesting too deep or too wide to scan cheaply). Missing a second ticket
+   * link could adopt the page into the wrong ticket, while no links just
+   * imports it as before — the safe failure.
    */
   async getPageLinks(externalId: string): Promise<string[]> {
     try {
@@ -294,16 +299,26 @@ export class NotionTicketSyncAdapter
         if (prop.type === "rich_text") urls.push(...richTextLinks(prop.rich_text));
         if (prop.type === "title") urls.push(...richTextLinks(prop.title));
       }
-      for (const block of blocks as Array<Record<string, unknown>>) {
-        const type = block.type as string | undefined;
-        if (!type) continue;
-        const payload = block[type] as { rich_text?: unknown; url?: unknown } | undefined;
-        urls.push(...richTextLinks(payload?.rich_text));
-        if (
-          (type === "bookmark" || type === "link_preview") &&
-          typeof payload?.url === "string"
-        ) {
-          urls.push(payload.url);
+
+      const pending = [
+        { blocks: blocks as Array<Record<string, unknown>>, depth: 0 },
+      ];
+      let childFetches = 0;
+      for (let level = pending.shift(); level; level = pending.shift()) {
+        for (const block of level.blocks) {
+          urls.push(...blockLinks(block));
+          if (block.has_children !== true || !descendsInto(block)) continue;
+          if (
+            level.depth >= LINK_SCAN_MAX_DEPTH ||
+            childFetches >= LINK_SCAN_MAX_CHILD_FETCHES
+          ) {
+            return []; // incomplete scan — see the doc comment
+          }
+          childFetches++;
+          pending.push({
+            blocks: await this.notion.listBlockChildren(block.id as string),
+            depth: level.depth + 1,
+          });
         }
       }
       return urls;
@@ -526,6 +541,31 @@ interface RichTextItem {
   plain_text?: string;
   /** Link target of linked text or a mention; null for plain text. */
   href?: string | null;
+}
+
+/** Body nesting the link scan follows before giving up (toggle in a column in a list…). */
+const LINK_SCAN_MAX_DEPTH = 4;
+/** Child-block fetches one page's link scan may spend (~3 req/s API). */
+const LINK_SCAN_MAX_CHILD_FETCHES = 25;
+
+/** Links on one block: linked text, plus a bookmark / link preview target. */
+function blockLinks(block: Record<string, unknown>): string[] {
+  const type = block.type as string | undefined;
+  if (!type) return [];
+  const payload = block[type] as { rich_text?: unknown; url?: unknown } | undefined;
+  const urls = richTextLinks(payload?.rich_text);
+  if (
+    (type === "bookmark" || type === "link_preview") &&
+    typeof payload?.url === "string"
+  ) {
+    urls.push(payload.url);
+  }
+  return urls;
+}
+
+/** Sub-pages and inline databases are other pages, not this page's content. */
+function descendsInto(block: Record<string, unknown>): boolean {
+  return block.type !== "child_page" && block.type !== "child_database";
 }
 
 function richTextLinks(value: unknown): string[] {

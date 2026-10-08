@@ -233,4 +233,17 @@ describe("linkedTicketNumbers", () => {
       ),
     ).toEqual([]);
   });
+
+  it("skips malformed encodings and numbers too big to be a ticket, without throwing", () => {
+    expect(
+      linkedTicketNumbers(
+        [
+          "https://example.com/w/%zz/products/clear/tickets/612",
+          "https://example.com/w/ws/products/clear/tickets/99999999999999999999",
+          "https://example.com/w/ws/products/clear/tickets/7",
+        ],
+        product,
+      ),
+    ).toEqual([7]);
+  });
 });

@@ -70,6 +70,59 @@ describe("NotionTicketSyncAdapter.getPageLinks", () => {
     expect(notion.getPageWithBlocks.mock.calls).toEqual([["page-1"], ["page-2"]]);
   });
 
+  it("finds links nested in toggles and columns, but not in sub-pages", async () => {
+    const children: Record<string, unknown[]> = {
+      toggle: [
+        { id: "inner", type: "paragraph", has_children: false,
+          paragraph: { rich_text: [linkedText("Open in Exponential", "https://app/t/nested")] } },
+      ],
+      cols: [{ id: "col", type: "column", has_children: true, column: {} }],
+      col: [{ id: "bm", type: "bookmark", has_children: false, bookmark: { url: "https://app/t/in-column" } }],
+    };
+    const notion = {
+      getPageWithBlocks: vi.fn(() =>
+        Promise.resolve({
+          page: { properties: {} },
+          blocks: [
+            { id: "toggle", type: "toggle", has_children: true, toggle: { rich_text: [linkedText("Details", null)] } },
+            { id: "cols", type: "column_list", has_children: true, column_list: {} },
+            { id: "sub", type: "child_page", has_children: true, child_page: { title: "Notes" } },
+          ],
+        }),
+      ),
+      listBlockChildren: vi.fn((id: string) => Promise.resolve(children[id] ?? [])),
+    };
+    const adapter = new NotionTicketSyncAdapter(notion as unknown as NotionService, {} as never, null);
+
+    await expect(adapter.getPageLinks("page-1")).resolves.toEqual([
+      "https://app/t/nested",
+      "https://app/t/in-column",
+    ]);
+    expect(notion.listBlockChildren).not.toHaveBeenCalledWith("sub");
+  });
+
+  it("returns no links when the body is too nested to scan completely", async () => {
+    // A ticket link at the top, then a chain of toggles deeper than the scan
+    // follows: a second link could be hiding, so adoption must not happen.
+    const toggle = (id: string) => ({ id, type: "toggle", has_children: true, toggle: { rich_text: [] } });
+    const notion = {
+      getPageWithBlocks: vi.fn(() =>
+        Promise.resolve({
+          page: { properties: {} },
+          blocks: [
+            { id: "p", type: "paragraph", has_children: false,
+              paragraph: { rich_text: [linkedText("ticket", "https://app/t/1")] } },
+            toggle("d0"),
+          ],
+        }),
+      ),
+      listBlockChildren: vi.fn((id: string) => Promise.resolve([toggle(`${id}+`)])),
+    };
+    const adapter = new NotionTicketSyncAdapter(notion as unknown as NotionService, {} as never, null);
+
+    await expect(adapter.getPageLinks("page-1")).resolves.toEqual([]);
+  });
+
   it("returns no links when the page can't be read, so the row imports as before", async () => {
     const adapter = adapterFor(new Error("403"));
     await expect(adapter.getPageLinks("page-1")).resolves.toEqual([]);
