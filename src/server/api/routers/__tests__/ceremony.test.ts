@@ -511,34 +511,53 @@ describe("ceremony router", () => {
       expect(db.ceremonyOccurrence.findMany).not.toHaveBeenCalled();
     });
 
-    it("asks for the project's occurrences in the window that no recording captured, skipped ones included", async () => {
+    it("asks for the project's occurrences in the window that no recording on this project captured, skipped ones included", async () => {
       withProjectAccess();
+      db.ceremony.findMany.mockResolvedValue([{ id: "cer-std", isOneOff: false }] as never);
       db.ceremonyOccurrence.findMany.mockResolvedValue([]);
       await caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1" });
 
+      expect(db.ceremony.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { projects: { some: { projectId: "p-1" } } } }),
+      );
       const where = db.ceremonyOccurrence.findMany.mock.calls[0]![0]!.where!;
-      expect(where).toMatchObject({
-        ceremony: { projects: { some: { projectId: "p-1" } } },
-        recordedMeetings: { none: {} },
-      });
+      // A recording filed under another project the ceremony also reviews
+      // doesn't hide the row here, where that recording isn't listed.
+      expect(where).toMatchObject({ ceremonyId: "cer-std", recordedMeetings: { none: { projectId: "p-1" } } });
       expect(where).not.toHaveProperty("status");
       const range = where.scheduledStart as { gte: Date; lte: Date };
       const days = (range.lte.getTime() - range.gte.getTime()) / 86_400_000;
       expect(Math.round(days)).toBe(21);
     });
 
-    it("caps each recurring ceremony, never a one-off, and shapes the rows", async () => {
+    it("caps each recurring ceremony in its own query, never one-offs, and shapes the rows newest first", async () => {
       withProjectAccess();
-      db.ceremonyOccurrence.findMany.mockResolvedValue([
-        occ("one-off", "cer-oo", true, "2026-10-12T09:00:00Z"),
-        ...Array.from({ length: 7 }, (_, i) => occ(`s-${i}`, "cer-std", false, `2026-10-${String(11 - i).padStart(2, "0")}T08:00:00Z`)),
-        occ("skipped", "cer-std2", false, "2026-10-03T08:00:00Z", { status: "SKIPPED" }),
+      db.ceremony.findMany.mockResolvedValue([
+        { id: "cer-oo", isOneOff: true },
+        { id: "cer-std", isOneOff: false },
+        { id: "cer-std2", isOneOff: false },
       ] as never);
+      db.ceremonyOccurrence.findMany.mockImplementation(((args: { where: { ceremonyId: unknown }; take?: number }) => {
+        const id = args.where.ceremonyId;
+        if (typeof id === "object") return Promise.resolve([occ("one-off", "cer-oo", true, "2026-10-12T09:00:00Z")]);
+        if (id === "cer-std") {
+          return Promise.resolve(
+            Array.from({ length: args.take ?? 99 }, (_, i) => occ(`s-${i}`, "cer-std", false, `2026-10-${String(11 - i).padStart(2, "0")}T08:00:00Z`)),
+          );
+        }
+        return Promise.resolve([occ("skipped", "cer-std2", false, "2026-10-03T08:00:00Z", { status: "SKIPPED" })]);
+      }) as never);
 
       const rows = await caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1", perCeremony: 5 });
 
+      const calls = db.ceremonyOccurrence.findMany.mock.calls.map((c) => c[0]!);
+      expect(calls.find((c) => c.where!.ceremonyId === "cer-std")).toMatchObject({ take: 5 });
+      expect(calls.find((c) => typeof c.where!.ceremonyId === "object")).not.toHaveProperty("take");
       expect(rows.filter((r) => r.ceremonyId === "cer-std")).toHaveLength(5);
       expect(rows.map((r) => r.occurrenceId)).toContain("skipped");
+      expect(rows.map((r) => r.scheduledStart.getTime())).toEqual(
+        [...rows.map((r) => r.scheduledStart.getTime())].sort((a, b) => b - a),
+      );
       expect(rows[0]).toEqual({
         occurrenceId: "one-off",
         ceremonyId: "cer-oo",
