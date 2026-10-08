@@ -513,7 +513,7 @@ describe("workspaceScheduling router (mocked)", () => {
         timezone: "UTC",
         durationMinutes: 45,
         ownerId: ORGANIZER_ID,
-        includeProjects: true,
+        includeProjects: false,
       });
       expect(ceremonyArg.data.slug).toMatch(/^launch-scope-[a-z0-9]+$/);
       expect(ceremonyArg.data.participants.create.map((p) => p.userId).sort()).toEqual(

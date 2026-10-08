@@ -28,12 +28,18 @@ import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { ActionIcon, Tooltip } from "@mantine/core";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { AvailabilityGrid, type GridSlot } from "./AvailabilityGrid";
 import {
   ParticipantPicker,
   type PendingParticipant,
 } from "~/app/_components/meeting/ParticipantPicker";
+import { OneOffAgendaFields, presetSectionTypes } from "./OneOffAgendaFields";
+import {
+  DEFAULT_ONE_OFF_PRESET,
+  type OneOffSectionType,
+} from "~/server/services/ceremonies/oneOffPresets";
 import {
   SCHEDULING_WINDOW_START_MINUTES,
   SCHEDULING_WINDOW_END_MINUTES,
@@ -47,6 +53,10 @@ import {
  * LettuceMeet-style availability grid, over a pageable rolling week.
  * Confirming creates the Scheduled meeting and emails every attendee a
  * METHOD:REQUEST invite their mail client renders natively.
+ *
+ * Linked to a project, the meeting gets an agenda (a one-off, ADR-0059
+ * amendment 2026-10-07): the description gives way to a purpose, a preset and
+ * a previewed section checklist, and booking lands on the meeting's page.
  *
  * Suggestions never leave the scheduling window (07:00–20:00 on each
  * attendee's wall clock) — the outside-hours checkbox relaxes work hours to
@@ -94,6 +104,7 @@ export function ScheduleMeetingModal({
   onCreated?: (meeting: ScheduledMeetingResult) => void;
 }) {
   const utils = api.useUtils();
+  const router = useRouter();
 
   const { data: workspaces } = api.workspace.list.useQuery(undefined, {
     enabled: opened,
@@ -113,6 +124,11 @@ export function ScheduleMeetingModal({
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [presetKey, setPresetKey] = useState(DEFAULT_ONE_OFF_PRESET);
+  const [sectionTypes, setSectionTypes] = useState<OneOffSectionType[]>(() =>
+    presetSectionTypes(DEFAULT_ONE_OFF_PRESET),
+  );
   const [pickedProjectId, setProjectId] = useState<string | null>(null);
   const projectId = lockedProjectId ?? pickedProjectId;
   const [selectedSlot, setSelectedSlot] = useState<GridSlot | null>(null);
@@ -270,7 +286,14 @@ export function ScheduleMeetingModal({
         color: "blue",
       });
       onCreated?.(meeting);
+      // A meeting with a project has an agenda: land on it.
+      const slug = workspaces?.find((w) => w.id === workspaceId)?.slug;
+      const occurrenceHref =
+        slug && meeting.ceremonyId && meeting.occurrenceId
+          ? `/w/${slug}/ceremonies/${meeting.ceremonyId}/${meeting.occurrenceId}`
+          : null;
       handleClose();
+      if (occurrenceHref) router.push(occurrenceHref);
     },
     onError: (error) => {
       notifications.show({ title: "Couldn't schedule", message: error.message, color: "red" });
@@ -283,6 +306,9 @@ export function ScheduleMeetingModal({
     setTitle("");
     setLocation("");
     setDescription("");
+    setPurpose("");
+    setPresetKey(DEFAULT_ONE_OFF_PRESET);
+    setSectionTypes(presetSectionTypes(DEFAULT_ONE_OFF_PRESET));
     setProjectId(null);
     setSelectedSlot(null);
     setSearching(false);
@@ -645,17 +671,32 @@ export function ScheduleMeetingModal({
               clearable={!lockedProjectId}
               disabled={!!lockedProjectId}
             />
-            <div>
-              <Text size="sm" fw={500} mb={4}>
-                Description
-              </Text>
-              <MarkdownInput
-                value={description}
-                onChange={setDescription}
-                placeholder="Agenda, links, context… (Markdown)"
-                minRows={3}
+            {projectId && workspaceId ? (
+              <OneOffAgendaFields
+                workspaceId={workspaceId}
+                projectId={projectId}
+                scheduledStart={selectedSlot.startsAt}
+                durationMinutes={Number(durationMinutes)}
+                purpose={purpose}
+                onPurposeChange={setPurpose}
+                presetKey={presetKey}
+                onPresetChange={setPresetKey}
+                sectionTypes={sectionTypes}
+                onSectionTypesChange={setSectionTypes}
               />
-            </div>
+            ) : (
+              <div>
+                <Text size="sm" fw={500} mb={4}>
+                  Description
+                </Text>
+                <MarkdownInput
+                  value={description}
+                  onChange={setDescription}
+                  placeholder="Agenda, links, context… (Markdown)"
+                  minRows={3}
+                />
+              </div>
+            )}
           </>
         )}
 
@@ -674,7 +715,15 @@ export function ScheduleMeetingModal({
                 workspaceId,
                 title: title.trim(),
                 location: location.trim() || undefined,
-                description: description.trim() || undefined,
+                // With a project, the purpose and agenda stand in for a description.
+                description: projectId ? undefined : description.trim() || undefined,
+                ...(projectId
+                  ? {
+                      purpose: purpose.trim() || undefined,
+                      purposePreset: presetKey,
+                      agendaSectionTypes: sectionTypes,
+                    }
+                  : {}),
                 projectId: projectId ?? undefined,
                 startsAt: selectedSlot.startsAt,
                 endsAt: selectedSlot.endsAt,

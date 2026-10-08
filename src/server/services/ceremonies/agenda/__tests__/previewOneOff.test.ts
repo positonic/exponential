@@ -51,10 +51,15 @@ describe("previewOneOffAgenda", () => {
     ]);
   });
 
-  it("drops the appended projects section when it found nothing, as generation does", async () => {
+  it("never appends a projects section that wasn't ticked, as booking doesn't", async () => {
     const rows = await preview();
-    expect(runs.map((r) => r.type)).toContain("linked_projects");
+    expect(runs.map((r) => r.type)).not.toContain("linked_projects");
     expect(rows.map((r) => r.type)).not.toContain("linked_projects");
+  });
+
+  it("previews a ticked projects section like any other", async () => {
+    const rows = await preview({ sectionTypes: ["linked_projects"] });
+    expect(rows.map((r) => r.type)).toEqual(["linked_projects", "free_text"]);
   });
 
   it("an empty purpose previews no free-text item", async () => {

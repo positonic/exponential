@@ -84,7 +84,9 @@ export async function createOneOffCeremony(
       ownerId: input.organizerId,
       createdById: input.organizerId,
       agendaTemplate: input.agendaTemplate as unknown as Prisma.InputJsonValue,
-      includeProjects: true,
+      // Only the sections the organizer ticked: a linked-projects section is
+      // one of the checkboxes, never appended behind their back.
+      includeProjects: false,
       participants: { create: Array.from(new Set(input.memberUserIds)).map((userId) => ({ userId })) },
       projects: { create: [{ projectId: input.projectId }] },
     },

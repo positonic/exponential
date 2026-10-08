@@ -4,7 +4,8 @@
  * schedule-meeting modal can show a count and a sample beside each checkbox.
  *
  * Runs the same registry modules through the same `withAutoProjectsSection`
- * path as `generateAgenda`, against an in-memory ceremony and occurrence that
+ * path as `generateAgenda` (a no-op here: a one-off has `includeProjects`
+ * off, so it carries only what was ticked), against an in-memory ceremony and occurrence that
  * are never persisted (placeholder ids). Nothing is written and no LLM is
  * called. For the six one-off section types the modules read only the
  * ceremony's product and timezone, the occurrence's start, the previous
@@ -75,7 +76,8 @@ export async function previewOneOffAgenda(
     leadTimeHours: 24,
     ownerId: input.callerUserId,
     agendaTemplate: [],
-    includeProjects: true,
+    // Matches the booking: a one-off carries only its ticked sections.
+    includeProjects: false,
     matrixRoomId: null,
     isActive: true,
     isOneOff: true,
