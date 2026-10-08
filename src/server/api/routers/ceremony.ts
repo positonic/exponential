@@ -31,6 +31,8 @@ import { emitNotification } from "~/server/services/notifications/emit/emitNotif
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
+import { ONE_OFF_SECTION_TYPES } from "~/server/services/ceremonies/oneOffPresets";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -216,6 +218,60 @@ export const ceremonyRouter = createTRPCRouter({
           },
         },
         orderBy: { name: "asc" },
+      });
+    }),
+
+  /**
+   * Dry run of a one-off meeting's agenda for the schedule-meeting modal:
+   * per ticked section, how many items it would hold and the first three.
+   * Never writes and never calls an LLM. Gated on project access, like the
+   * project's own pages.
+   */
+  previewOneOffAgenda: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        projectId: z.string(),
+        scheduledStart: z.coerce.date(),
+        durationMinutes: z.number().int().min(5).max(24 * 60).optional(),
+        sectionTypes: z.array(z.enum(ONE_OFF_SECTION_TYPES)).max(ONE_OFF_SECTION_TYPES.length),
+        purposePreset: z.string().max(40).optional(),
+        purpose: z.string().max(2000).optional(),
+        /** Member attendees picked so far; their blockers count, as they will at booking. */
+        attendeeUserIds: z.array(z.string()).max(50).optional(),
+      }),
+    )
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const project = await ctx.db.project.findFirst({
+        where: { id: input.projectId, workspaceId: input.workspaceId },
+        select: { workspace: { select: { slug: true } } },
+      });
+      if (!project?.workspace) throw new TRPCError({ code: "NOT_FOUND", message: "Project not found in this workspace" });
+      const user = await ctx.db.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+      // Only real members of this workspace (directly or through a team) —
+      // anyone else is dropped rather than previewed.
+      const requested = Array.from(new Set(input.attendeeUserIds ?? []));
+      const [direct, viaTeam] = requested.length
+        ? await Promise.all([
+            ctx.db.workspaceUser.findMany({ where: { workspaceId: input.workspaceId, userId: { in: requested } }, select: { userId: true } }),
+            ctx.db.teamUser.findMany({ where: { team: { workspaceId: input.workspaceId }, userId: { in: requested } }, select: { userId: true } }),
+          ])
+        : [[], []];
+      const memberIds = new Set([...direct, ...viaTeam].map((m) => m.userId));
+      return previewOneOffAgenda(ctx.db, {
+        workspaceId: input.workspaceId,
+        workspaceSlug: project.workspace.slug,
+        projectId: input.projectId,
+        callerUserId: userId,
+        attendeeUserIds: requested.filter((id) => memberIds.has(id)),
+        scheduledStart: input.scheduledStart,
+        durationMinutes: input.durationMinutes,
+        sectionTypes: input.sectionTypes,
+        presetKey: input.purposePreset,
+        purpose: input.purpose,
+        timezone: user?.timezone ?? undefined,
       });
     }),
 

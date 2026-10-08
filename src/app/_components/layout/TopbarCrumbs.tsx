@@ -17,15 +17,17 @@ export interface TopbarCrumb {
 interface Registration {
   level: number;
   crumbs: TopbarCrumb[];
+  section?: TopbarCrumb;
 }
 
 const NO_CRUMBS: TopbarCrumb[] = [];
 
 const TopbarCrumbsContext = createContext<{
   crumbs: TopbarCrumb[];
+  section: TopbarCrumb | null;
   register: (id: string, registration: Registration) => void;
   unregister: (id: string) => void;
-}>({ crumbs: NO_CRUMBS, register: () => undefined, unregister: () => undefined });
+}>({ crumbs: NO_CRUMBS, section: null, register: () => undefined, unregister: () => undefined });
 
 /**
  * Each registrant owns its own entry, keyed by a stable id, and removes only
@@ -52,14 +54,17 @@ export function TopbarCrumbsProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
-  const crumbs = useMemo(() => {
-    if (registrations.size === 0) return NO_CRUMBS;
-    return [...registrations.values()]
-      .sort((a, b) => a.level - b.level)
-      .flatMap((r) => r.crumbs);
+  const { crumbs, section } = useMemo(() => {
+    if (registrations.size === 0) return { crumbs: NO_CRUMBS, section: null };
+    const ordered = [...registrations.values()].sort((a, b) => a.level - b.level);
+    return {
+      crumbs: ordered.flatMap((r) => r.crumbs),
+      // The deepest registrant that names a section wins.
+      section: ordered.reduce<TopbarCrumb | null>((found, r) => r.section ?? found, null),
+    };
   }, [registrations]);
 
-  const value = useMemo(() => ({ crumbs, register, unregister }), [crumbs, register, unregister]);
+  const value = useMemo(() => ({ crumbs, section, register, unregister }), [crumbs, section, register, unregister]);
   return <TopbarCrumbsContext.Provider value={value}>{children}</TopbarCrumbsContext.Provider>;
 }
 
@@ -68,25 +73,35 @@ export function useTopbarCrumbs(): TopbarCrumb[] {
   return useContext(TopbarCrumbsContext).crumbs;
 }
 
+/** A page's replacement for the URL-derived section crumb, if one is mounted. */
+export function useTopbarSectionOverride(): TopbarCrumb | null {
+  return useContext(TopbarCrumbsContext).section;
+}
+
 /**
  * Adds this component's crumbs to the topbar while it is mounted. Pass `null`
  * while the entity is loading. `level` orders nested registrants — a layout
  * registers at 0, a detail page under it at 1 — since effect order can't
  * (parents' effects run after their children's).
+ *
+ * `section` replaces the section crumb the topbar derives from the URL, for a
+ * page whose path doesn't say what it is to the reader — a one-off meeting
+ * lives under `/ceremonies/…` but is never called a ceremony.
  */
 export function useRegisterTopbarCrumbs(
   crumbs: TopbarCrumb[] | null,
-  options?: { level?: number },
+  options?: { level?: number; section?: TopbarCrumb },
 ) {
   const { register, unregister } = useContext(TopbarCrumbsContext);
   const id = useId();
   const level = options?.level ?? 0;
-  // Keyed on content, not identity, so callers can pass a fresh array literal.
-  const key = crumbs ? JSON.stringify(crumbs) : null;
+  // Keyed on content, not identity, so callers can pass fresh literals.
+  const key = crumbs ? JSON.stringify({ crumbs, section: options?.section }) : null;
 
   useEffect(() => {
     if (key === null) return;
-    register(id, { level, crumbs: JSON.parse(key) as TopbarCrumb[] });
+    const parsed = JSON.parse(key) as { crumbs: TopbarCrumb[]; section?: TopbarCrumb };
+    register(id, { level, crumbs: parsed.crumbs, section: parsed.section });
     return () => unregister(id);
   }, [id, key, level, register, unregister]);
 }
