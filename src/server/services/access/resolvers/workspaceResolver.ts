@@ -235,6 +235,28 @@ export async function assertWorkspaceRole(
 }
 
 /**
+ * Assert that the user is a member of the workspace (any role, directly or via
+ * a team), throwing `FORBIDDEN` otherwise. Returns the membership.
+ *
+ * This is the READ gate: it admits `viewer`. Never use it alone in front of a
+ * write — use `assertWorkspaceWriteRole` there.
+ */
+export async function assertWorkspaceMembership(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<WorkspaceMembership> {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace.",
+    });
+  }
+  return membership;
+}
+
+/**
  * Assert that the user may create or modify content in the workspace, i.e.
  * holds `owner`, `admin` or `member`. Viewers and guests (and non-members)
  * are refused with `FORBIDDEN`. Returns the membership so callers can branch.
