@@ -19,6 +19,7 @@ import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAg
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony } from "~/server/services/ceremonies/access";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   draftMyUpdate,
   getMyUpdate,
@@ -273,6 +274,102 @@ export const ceremonyRouter = createTRPCRouter({
         purpose: input.purpose,
         timezone: user?.timezone ?? undefined,
       });
+    }),
+
+  /**
+   * A project's Meetings tab timeline: occurrences of the ceremonies that
+   * review the project (one-offs included), from two weeks back to one week
+   * ahead. Occurrences a recording already captured are left out — that
+   * recording is the row. Skipped ones stay (shown as cancelled), and a
+   * recurring ceremony contributes at most `perCeremony` rows so a daily
+   * standup can't bury everything else; one-offs are never capped. Newest
+   * first.
+   */
+  listOccurrencesForProject: protectedProcedure
+    .input(
+      z.object({
+        projectId: z.string(),
+        from: z.coerce.date().optional(),
+        to: z.coerce.date().optional(),
+        perCeremony: z.number().int().min(1).max(20).default(5),
+      }),
+    )
+    .use(requireProjectAccess("view"))
+    .query(async ({ ctx, input }) => {
+      const now = Date.now();
+      const from = input.from ?? new Date(now - 14 * 86_400_000);
+      const to = input.to ?? new Date(now + 7 * 86_400_000);
+      const ceremonies = await ctx.db.ceremony.findMany({
+        where: { projects: { some: { projectId: input.projectId } } },
+        select: { id: true, isOneOff: true },
+      });
+      const select = {
+        id: true,
+        scheduledStart: true,
+        scheduledEnd: true,
+        status: true,
+        ceremony: {
+          select: {
+            id: true,
+            name: true,
+            isOneOff: true,
+            purpose: true,
+            workspace: { select: { slug: true } },
+            _count: { select: { participants: true } },
+          },
+        },
+        scheduledMeeting: { select: { status: true, _count: { select: { attendees: true } } } },
+      } satisfies Prisma.CeremonyOccurrenceSelect;
+      const where = (ceremonyId: { in: string[] } | string): Prisma.CeremonyOccurrenceWhereInput => ({
+        ceremonyId,
+        scheduledStart: { gte: from, lte: to },
+        // Hidden only when a recording on THIS project captured it — that
+        // recording is then the row. A ceremony reviewing several projects
+        // may be recorded under another one, which this list wouldn't show.
+        recordedMeetings: { none: { projectId: input.projectId } },
+      });
+      // The per-ceremony cap is applied in the query, so a frequent ceremony
+      // can never crowd one-offs or other ceremonies out of a shared limit.
+      const oneOffIds = ceremonies.filter((c) => c.isOneOff).map((c) => c.id);
+      const [oneOffRows, ...recurringRows] = await Promise.all([
+        oneOffIds.length
+          ? ctx.db.ceremonyOccurrence.findMany({ where: where({ in: oneOffIds }), select })
+          : Promise.resolve([]),
+        ...ceremonies
+          .filter((c) => !c.isOneOff)
+          .map((c) =>
+            ctx.db.ceremonyOccurrence.findMany({
+              where: where(c.id),
+              orderBy: { scheduledStart: "desc" },
+              take: input.perCeremony,
+              select,
+            }),
+          ),
+      ]);
+      const rows = [...oneOffRows, ...recurringRows.flat()].sort(
+        (a, b) => b.scheduledStart.getTime() - a.scheduledStart.getTime(),
+      );
+
+      // The agenda page is gated on workspace membership; a project-only
+      // guest sees the rows but gets no link they can't open.
+      const project = await ctx.db.project.findUnique({ where: { id: input.projectId }, select: { workspaceId: true } });
+      const canOpen = project?.workspaceId
+        ? !!(await getWorkspaceMembership(ctx.db, ctx.session.user.id, project.workspaceId))
+        : false;
+
+      return rows.map((row) => ({
+        occurrenceId: row.id,
+        ceremonyId: row.ceremony.id,
+        ceremonyName: row.ceremony.name,
+        isOneOff: row.ceremony.isOneOff,
+        // Only a one-off's purpose is about this meeting; a ceremony's is its standing remit.
+        purpose: row.ceremony.isOneOff ? row.ceremony.purpose : null,
+        scheduledStart: row.scheduledStart,
+        scheduledEnd: row.scheduledEnd,
+        status: row.status,
+        attendeeCount: row.scheduledMeeting?._count.attendees ?? row.ceremony._count.participants,
+        href: canOpen ? `/w/${row.ceremony.workspace.slug}/ceremonies/${row.ceremony.id}/${row.id}` : null,
+      }));
     }),
 
   /** One ceremony with participants and its recent + upcoming occurrences. */
