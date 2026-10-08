@@ -59,6 +59,22 @@ interface GraphCreatedEvent extends GraphCalendarViewEvent {
   };
 }
 
+/**
+ * Graph returns start/end as offset-less strings ("2026-10-05T14:00:00.0000000")
+ * in the zone named by the sibling `timeZone` — UTC unless a
+ * `Prefer: outlook.timezone` header asks otherwise, and we send none.
+ * Consumers parse `CalendarEvent.start.dateTime` with parseISO / `new Date`,
+ * which read an offset-less string as LOCAL time, so a UTC-declared value is
+ * emitted as an explicit instant (fractional seconds trimmed to the three
+ * digits every ISO 8601 parser accepts). A time declared in any other zone is
+ * left as Graph sent it: stamping Z on it would claim the wrong instant.
+ */
+function graphDateTimeToIso(point: { dateTime: string; timeZone: string }): string {
+  const hasOffset = /(?:Z|[+-]\d\d:?\d\d)$/i.test(point.dateTime);
+  if (hasOffset || point.timeZone !== "UTC") return point.dateTime;
+  return `${point.dateTime.replace(/(\.\d{3})\d+$/, "$1")}Z`;
+}
+
 export class MicrosoftCalendarService implements CalendarProvider {
   private generateCacheKey(
     userId: string,
@@ -231,7 +247,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
   private mapGraphEventToCalendarEvent(
     event: GraphCalendarViewEvent,
   ): CalendarEvent {
-    // Microsoft Graph returns dateTime as local time string without offset
+    // Timed events become explicit instants (see graphDateTimeToIso).
     // For all-day events, use the date field instead
     const isAllDay = event.isAllDay ?? false;
 
@@ -240,12 +256,12 @@ export class MicrosoftCalendarService implements CalendarProvider {
       summary: event.subject ?? "No title",
       description: event.bodyPreview ?? undefined,
       start: {
-        dateTime: isAllDay ? undefined : event.start.dateTime,
+        dateTime: isAllDay ? undefined : graphDateTimeToIso(event.start),
         date: isAllDay ? event.start.dateTime.split("T")[0] : undefined,
         timeZone: event.start.timeZone ?? undefined,
       },
       end: {
-        dateTime: isAllDay ? undefined : event.end.dateTime,
+        dateTime: isAllDay ? undefined : graphDateTimeToIso(event.end),
         date: isAllDay ? event.end.dateTime.split("T")[0] : undefined,
         timeZone: event.end.timeZone ?? undefined,
       },
@@ -501,11 +517,11 @@ export class MicrosoftCalendarService implements CalendarProvider {
       summary: created.subject ?? "No title",
       description: created.bodyPreview ?? undefined,
       start: {
-        dateTime: created.start.dateTime,
+        dateTime: graphDateTimeToIso(created.start),
         timeZone: created.start.timeZone ?? undefined,
       },
       end: {
-        dateTime: created.end.dateTime,
+        dateTime: graphDateTimeToIso(created.end),
         timeZone: created.end.timeZone ?? undefined,
       },
       location: created.location?.displayName ?? undefined,
