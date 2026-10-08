@@ -1255,13 +1255,16 @@ export const actionRouter = createTRPCRouter({
   // path for amnesty — it also writes activity rows.
   //
   // `date` is the input; `dueDate` is its deprecated former name, still
-  // accepted because the Mastra tool and published SDK send it.
+  // accepted because the Mastra tool and published SDK send it. Both coerce:
+  // the Mastra tool posts raw `{ json, meta: {} }`, so its date arrives as an
+  // ISO string rather than a superjson-revived Date, and a strict `z.date()`
+  // rejected every call it made.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
-      date: z.date().nullable().optional(),
+      date: z.coerce.date().nullable().optional(),
       /** @deprecated Use `date`. It sets the do-date, not the deadline. */
-      dueDate: z.date().nullable().optional(),
+      dueDate: z.coerce.date().nullable().optional(),
     }).refine(
       (i) => (i.date === undefined) !== (i.dueDate === undefined),
       { message: "Pass exactly one of `date` or the deprecated `dueDate`" },

@@ -1850,6 +1850,33 @@ describe("action router (mocked)", () => {
       expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
     });
 
+    it("accepts the ISO string the Mastra tool actually sends", async () => {
+      // Mastra posts `{ json: { dueDate: "<iso>" }, meta: {} }`; with no
+      // superjson annotation the date is never revived into a Date. A strict
+      // z.date() rejected every reschedule-actions call.
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({
+        actionIds: ["a1"],
+        dueDate: tomorrow.toISOString() as unknown as Date,
+      });
+
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: friday }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
+    });
+
+    it("rejects an unparseable date string without writing", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.action.bulkReschedule({
+          actionIds,
+          date: "next tuesday-ish" as unknown as Date,
+        }),
+      ).rejects.toThrow();
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
     it("treats a deprecated null dueDate as clearing both dates", async () => {
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
