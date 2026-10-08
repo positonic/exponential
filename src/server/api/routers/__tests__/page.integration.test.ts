@@ -65,6 +65,13 @@ async function saveDoc(
   });
 }
 
+async function storedRows(db: ReturnType<typeof getTestDb>, fromPageId: string) {
+  return db.pageLink.findMany({
+    where: { fromPageId },
+    orderBy: { position: "asc" },
+  });
+}
+
 async function storedLinks(db: ReturnType<typeof getTestDb>, fromPageId: string) {
   const rows = await db.pageLink.findMany({
     where: { fromPageId },
@@ -596,14 +603,25 @@ describe("page router", () => {
       const backfill = migration.slice(migration.indexOf('INSERT INTO "PageLink"'));
       await db.pageLink.deleteMany({});
       await db.$executeRawUnsafe(backfill);
-      const fromBackfill = { src: await storedLinks(db, src.id), a: await storedLinks(db, a.id) };
+      const fromBackfill = { src: await storedRows(db, src.id), a: await storedRows(db, a.id) };
 
       await db.pageLink.deleteMany({});
       await syncPageLinks(db, src.id, doc);
       await syncPageLinks(db, a.id, linkDoc(b.id));
-      const fromSync = { src: await storedLinks(db, src.id), a: await storedLinks(db, a.id) };
+      const fromSync = { src: await storedRows(db, src.id), a: await storedRows(db, a.id) };
 
-      expect(fromSync).toEqual({ src: [c.id, a.id, b.id], a: [b.id] });
+      const row = (fromPageId: string, toPageId: string, position: number) => ({
+        fromPageId,
+        toPageId,
+        position,
+        workspaceId: ws.id,
+      });
+      // Dense positions after dropping the repeat, self, foreign and dead links.
+      expect(fromSync).toEqual({
+        src: [row(src.id, c.id, 0), row(src.id, a.id, 1), row(src.id, b.id, 2)],
+        a: [row(a.id, b.id, 0)],
+      });
+      // Row-for-row identical, positions included.
       expect(fromBackfill).toEqual(fromSync);
     });
   });

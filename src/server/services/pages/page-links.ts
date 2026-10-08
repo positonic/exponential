@@ -18,8 +18,9 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 /**
  * Replace a Page's outgoing `PageLink` rows with the links in `doc` (its newly
- * stored `bodyDoc`; null for a page with no doc). Rows keep document order and
- * the first position of a repeated target; self-links are dropped, and only
+ * stored `bodyDoc`; null for a page with no doc). Rows keep document order as a
+ * dense 0-based `position` (a repeated target counts once, at its first
+ * occurrence — same numbering as the migration's backfill); self-links are dropped, and only
  * targets that exist in the source page's workspace are kept — `/page` only
  * creates same-workspace links, and a pasted foreign or dead id must not reach
  * another workspace through the graph.
@@ -37,7 +38,7 @@ export async function syncPageLinks(
   if (targetIds.length === 0) return;
   await db.$executeRaw`
     INSERT INTO "PageLink" ("fromPageId", "toPageId", "position", "workspaceId")
-    SELECT src."id", tgt."id", (link.ord - 1)::int, src."workspaceId"
+    SELECT src."id", tgt."id", (ROW_NUMBER() OVER (ORDER BY link.ord) - 1)::int, src."workspaceId"
     FROM "KnowledgePage" src
     CROSS JOIN unnest(${targetIds}::text[]) WITH ORDINALITY AS link(page_id, ord)
     JOIN "KnowledgePage" tgt
