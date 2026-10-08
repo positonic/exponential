@@ -233,6 +233,21 @@ describe("renderMeetingSummary", () => {
       expect(text).not.toContain(`Decision ${MAX_LISTED_DECISIONS + 1}`);
     });
 
+    it("marks every decision that is not accepted with its status", () => {
+      const { text, html } = renderMeetingSummary(
+        meeting(summary, [
+          { number: 1, statement: "Use GPT for severity.", status: "PROPOSED" },
+          { number: 2, statement: "Rename to dev-app.", status: "SUPERSEDED" },
+          { number: 3, statement: "Keep backups.", status: "ACCEPTED" },
+        ]),
+      );
+      expect(text).toContain("• D-0001 Use GPT for severity. (proposed)");
+      expect(text).toContain("• D-0002 Rename to dev-app. (superseded)");
+      expect(text).toContain("• D-0003 Keep backups.\n");
+      expect(html).toContain("Use GPT for severity. <em>(proposed)</em></li>");
+      expect(html).toContain("Keep backups.</li>");
+    });
+
     it("escapes decision statements in the HTML body", () => {
       const { html } = renderMeetingSummary(
         meeting(summary, [{ number: 1, statement: "<b>bold</b>", status: "ACCEPTED" }]),

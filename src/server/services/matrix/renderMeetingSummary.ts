@@ -307,6 +307,15 @@ export function meetingDecisionsUrl(meeting: MeetingForSummary): string {
   return withMeetingTab(meetingUrl(meeting), "decisions").toString();
 }
 
+/**
+ * Confirmed is not accepted: a confirmed decision can still be a proposal, or have been
+ * superseded or deprecated since. Anything short of accepted says so, or a room would
+ * read a proposal as a settled choice and act on it.
+ */
+function statusSuffix(status: string): string {
+  return status === "ACCEPTED" ? "" : ` (${status.toLowerCase()})`;
+}
+
 interface DecisionsBlock {
   text: string[];
   html: string;
@@ -332,7 +341,9 @@ function renderDecisionsBlock(meeting: MeetingForSummary): DecisionsBlock | null
 
   const text = [
     heading,
-    ...listed.map((d) => `• ${formatDecisionLabel(d.number)} ${d.statement.trim()}`),
+    ...listed.map(
+      (d) => `• ${formatDecisionLabel(d.number)} ${d.statement.trim()}${statusSuffix(d.status)}`,
+    ),
     ...(hidden > 0 ? [`• …and ${hidden} more`] : []),
     ...(openLine ? [`❓ ${openLine}`] : []),
     `View decisions: ${url}`,
@@ -341,7 +352,7 @@ function renderDecisionsBlock(meeting: MeetingForSummary): DecisionsBlock | null
   const items = listed
     .map(
       (d) =>
-        `<li><strong>${escapeHtml(formatDecisionLabel(d.number))}</strong> ${escapeHtml(d.statement.trim())}</li>`,
+        `<li><strong>${escapeHtml(formatDecisionLabel(d.number))}</strong> ${escapeHtml(d.statement.trim())}${d.status === "ACCEPTED" ? "" : ` <em>${escapeHtml(statusSuffix(d.status).trim())}</em>`}</li>`,
     )
     .join("");
   const html = [
