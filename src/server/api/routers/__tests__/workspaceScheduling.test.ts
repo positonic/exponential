@@ -88,10 +88,12 @@ vi.mock("~/server/services/EmailService", async (importOriginal) => {
   return { ...original, sendMeetingInviteEmail: sendMeetingInviteEmailMock };
 });
 
-const { generateAgendaMock, projectAccessMock } = vi.hoisted(() => ({
+const { generateAgendaMock, projectAccessMock, skipOccurrenceMock } = vi.hoisted(() => ({
   generateAgendaMock: vi.fn(),
   projectAccessMock: vi.fn(),
+  skipOccurrenceMock: vi.fn(),
 }));
+vi.mock("~/server/services/ceremonies/skip", () => ({ skipOccurrence: skipOccurrenceMock }));
 vi.mock("~/server/services/ceremonies/agenda/generateAgenda", () => ({
   generateAgenda: generateAgendaMock,
 }));
@@ -124,6 +126,7 @@ describe("workspaceScheduling router (mocked)", () => {
     sendMeetingInviteEmailMock.mockReset().mockResolvedValue(undefined);
     generateAgendaMock.mockReset().mockResolvedValue({ occurrenceId: "occ-1", agenda: {}, itemCount: 0 });
     projectAccessMock.mockReset().mockResolvedValue({ isWorkspaceMember: true });
+    skipOccurrenceMock.mockReset().mockResolvedValue({ id: "occ-1", status: "SKIPPED" });
     dbMock.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(dbMock)) as never);
   });
 
@@ -603,6 +606,7 @@ describe("workspaceScheduling router (mocked)", () => {
       status: "confirmed",
       organizer: { id: ORGANIZER_ID, name: "Org", email: "org@example.com" },
       attendees: [{ userId: "user-a", name: "A", email: "a@example.com" }],
+      occurrence: null as null | { id: string; status: string; ceremony: { id: string; isOneOff: boolean } },
     };
 
     beforeEach(() => {
@@ -664,6 +668,67 @@ describe("workspaceScheduling router (mocked)", () => {
       expect(result.invitesSent).toBe(0);
       expect(dbMock.meeting.update).not.toHaveBeenCalled();
       expect(sendMeetingInviteEmailMock).not.toHaveBeenCalled();
+    });
+
+    it("never emails a member attendee who has no address", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        attendees: [...storedMeeting.attendees, { userId: "user-x", name: "X", email: "user:user-x" }],
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      const result = await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(result.invitesSent).toBe(1);
+      expect(sendMeetingInviteEmailMock).toHaveBeenCalledWith(expect.objectContaining({ to: "a@example.com" }));
+    });
+
+    it("on a one-off, skips the occurrence with \"Meeting cancelled\" and deactivates the ceremony", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        occurrence: { id: "occ-1", status: "AGENDA_CIRCULATED", ceremony: { id: "cer-1", isOneOff: true } },
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(skipOccurrenceMock).toHaveBeenCalledWith(dbMock, {
+        occurrenceId: "occ-1",
+        workspaceId: WORKSPACE_ID,
+        reason: "Meeting cancelled",
+        actorUserId: ORGANIZER_ID,
+      });
+      expect(dbMock.ceremony.update).toHaveBeenCalledWith({ where: { id: "cer-1" }, data: { isActive: false } });
+    });
+
+    it("on a one-off already skipped (the skip cancelled it), only deactivates the ceremony", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        occurrence: { id: "occ-1", status: "SKIPPED", ceremony: { id: "cer-1", isOneOff: true } },
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(skipOccurrenceMock).not.toHaveBeenCalled();
+      expect(dbMock.ceremony.update).toHaveBeenCalledWith({ where: { id: "cer-1" }, data: { isActive: false } });
+    });
+
+    it("on a recurring ceremony's booking, neither skips nor deactivates", async () => {
+      dbMock.meeting.findFirst.mockResolvedValue({
+        ...storedMeeting,
+        occurrence: { id: "occ-1", status: "PLANNED", ceremony: { id: "cer-1", isOneOff: false } },
+      } as never);
+      dbMock.meeting.update.mockResolvedValue({ sequence: 1 } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      await caller.workspaceScheduling.cancelMeeting({ workspaceId: WORKSPACE_ID, meetingId: "meeting-1" });
+
+      expect(skipOccurrenceMock).not.toHaveBeenCalled();
+      expect(dbMock.ceremony.update).not.toHaveBeenCalled();
     });
   });
 

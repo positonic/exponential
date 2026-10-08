@@ -10,6 +10,7 @@ import {
   type AttendeeWorkSettings,
 } from "~/server/services/calendar/slotEngine";
 import { buildInviteIcs } from "~/server/services/calendar/inviteIcs";
+import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { sendMeetingInviteEmail } from "~/server/services/EmailService";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access/resolvers/projectResolver";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -599,7 +600,8 @@ export const workspaceSchedulingRouter = createTRPCRouter({
    * Cancel = the only mutation after create (reschedule is cancel + rebook,
    * a V3 non-goal). Bumps SEQUENCE and emails METHOD:CANCEL against the
    * original UID, which is what removes the event from attendees' real
-   * calendars. Organizer-only.
+   * calendars. Organizer-only. Cancelling a one-off ceremony's booking also
+   * skips its occurrence and deactivates the ceremony (see the service).
    */
   cancelMeeting: protectedProcedure
     .input(z.object({ workspaceId: z.string(), meetingId: z.string() }))
@@ -611,10 +613,7 @@ export const workspaceSchedulingRouter = createTRPCRouter({
 
       const meeting = await db.meeting.findFirst({
         where: { id: input.meetingId, workspaceId: input.workspaceId },
-        include: {
-          attendees: true,
-          organizer: { select: { id: true, name: true, email: true } },
-        },
+        select: { id: true, organizerId: true },
       });
       if (!meeting) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Meeting not found" });
@@ -625,61 +624,11 @@ export const workspaceSchedulingRouter = createTRPCRouter({
           message: "Only the organizer can cancel a meeting",
         });
       }
-      if (meeting.status === "cancelled") {
-        return { id: meeting.id, status: meeting.status, invitesSent: 0 };
-      }
-
-      const cancelled = await db.meeting.update({
-        where: { id: meeting.id },
-        data: { status: "cancelled", sequence: { increment: 1 } },
-        select: { sequence: true },
+      return cancelScheduledMeeting(db, {
+        workspaceId: input.workspaceId,
+        meetingId: meeting.id,
+        actorUserId: userId,
       });
-
-      const organizer = {
-        name: meeting.organizer.name,
-        email: meeting.organizer.email ?? "noreply@exponential.im",
-      };
-      const recipients = meeting.attendees.filter((a) => isDeliverableEmail(a.email));
-      const ics = buildInviteIcs({
-        method: "CANCEL",
-        uid: meeting.icalUid,
-        sequence: cancelled.sequence,
-        organizer,
-        attendees: recipients.map((a) => ({ name: a.name, email: a.email })),
-        title: meeting.title,
-        description: meeting.description,
-        location: meeting.location,
-        startsAt: meeting.startsAt,
-        endsAt: meeting.endsAt,
-      });
-
-      let invitesSent = 0;
-      for (const recipient of recipients) {
-        try {
-          await sendMeetingInviteEmail({
-            to: recipient.email,
-            method: "CANCEL",
-            meetingTitle: meeting.title,
-            organizerName: organizer.name ?? organizer.email,
-            startsAt: meeting.startsAt,
-            endsAt: meeting.endsAt,
-            location: meeting.location,
-            icsContent: ics,
-            workspaceId: input.workspaceId,
-          });
-          invitesSent += 1;
-        } catch (error) {
-          const { reportHandledErrorServer } = await import(
-            "~/server/utils/reportHandledErrorServer"
-          );
-          reportHandledErrorServer(error, {
-            area: "workspaceScheduling.cancelMeeting.invite",
-            context: { meetingId: meeting.id },
-          });
-        }
-      }
-
-      return { id: meeting.id, status: "cancelled", invitesSent };
     }),
 
   listMeetings: protectedProcedure

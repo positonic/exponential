@@ -28,6 +28,7 @@ import {
 import { getOccurrenceSummary } from "~/server/services/ceremonies/updates/summary";
 import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server/services/ceremonies/skip";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
@@ -485,7 +486,11 @@ export const ceremonyRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
         where: { id: input.occurrenceId, workspaceId: input.workspaceId },
-        select: { id: true, ceremony: { select: { ownerId: true } } },
+        select: {
+          id: true,
+          ceremony: { select: { ownerId: true, isOneOff: true } },
+          scheduledMeeting: { select: { id: true, status: true } },
+        },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
@@ -497,6 +502,17 @@ export const ceremonyRouter = createTRPCRouter({
         reason: input.reason,
         actorUserId: userId,
       });
+      // A one-off is its booking: skipping it cancels the Scheduled meeting
+      // (METHOD:CANCEL to every attendee) so no calendar keeps a phantom.
+      // The attendees' cancel email is the notice; no skip notice follows.
+      if (occurrence.ceremony.isOneOff && occurrence.scheduledMeeting?.status === "confirmed") {
+        await cancelScheduledMeeting(ctx.db, {
+          workspaceId: input.workspaceId,
+          meetingId: occurrence.scheduledMeeting.id,
+          actorUserId: userId,
+        });
+        return skipped;
+      }
       // Telling people it is off is the whole point of skipping it; a failed
       // notification must not leave the occurrence half-skipped.
       await emitNotification({
@@ -518,11 +534,19 @@ export const ceremonyRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
         where: { id: input.occurrenceId, workspaceId: input.workspaceId },
-        select: { id: true, ceremony: { select: { ownerId: true } } },
+        select: {
+          id: true,
+          ceremony: { select: { ownerId: true, isOneOff: true } },
+          scheduledMeeting: { select: { status: true } },
+        },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can unskip an occurrence" });
+      }
+      // Its invites are already withdrawn; a cancelled one-off is rebooked, not revived.
+      if (occurrence.ceremony.isOneOff && occurrence.scheduledMeeting?.status === "cancelled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "This meeting was cancelled — schedule it again instead" });
       }
       return unskipOccurrence(ctx.db, { occurrenceId: occurrence.id, workspaceId: input.workspaceId, actorUserId: userId });
     }),
