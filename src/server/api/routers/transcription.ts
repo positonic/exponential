@@ -2195,6 +2195,29 @@ export const transcriptionRouter = createTRPCRouter({
       return result;
     }),
 
+  /**
+   * The meeting page's single "Extract outputs" button: draft actions,
+   * decisions and open questions from one reading of the meeting, reviewed
+   * together on the Outputs tab. Each half succeeds or fails on its own;
+   * this throws only when neither produced anything usable.
+   */
+  extractOutputs: protectedProcedure
+    .input(z.object({ transcriptionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const result = await TranscriptionProcessingService.extractMeetingOutputs(
+        input.transcriptionId,
+        ctx.session.user.id,
+      );
+      if (!result.actions.success && !result.decisions.success) {
+        const errors = [...result.actions.errors, ...result.decisions.errors];
+        throw new TRPCError({
+          code: errors.some((e) => e.includes("access")) ? "FORBIDDEN" : "BAD_REQUEST",
+          message: errors.length > 0 ? Array.from(new Set(errors)).join(", ") : "Failed to extract meeting outputs",
+        });
+      }
+      return result;
+    }),
+
   publishDraftActions: protectedProcedure
     .input(z.object({ transcriptionId: z.string() }))
     .mutation(async ({ ctx, input }) => {

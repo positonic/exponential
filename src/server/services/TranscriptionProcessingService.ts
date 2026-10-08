@@ -16,6 +16,7 @@ import {
   type DraftDecisionsResult,
   type GenerateDraftDecisionsOptions,
 } from './decisions/generateDraftDecisions';
+import type { ActionCandidate } from './DecisionExtractionService';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -30,6 +31,43 @@ export interface DraftTranscriptionActionsResult {
   alreadyPublished: boolean;
   draftCount: number;
   errors: string[];
+}
+
+export interface GenerateDraftActionsOptions {
+  /**
+   * Action items already told apart from the decisions by the decision
+   * extractor's transcript pass. When given, they stand in for the separate
+   * transcript action pass, so one model reading decides whether each item
+   * is a decision or an action. Undefined means that pass did not run.
+   */
+  transcriptActionItems?: ActionCandidate[];
+}
+
+/** The meeting page's single "Extract outputs" run: actions and decisions. */
+export interface ExtractMeetingOutputsResult {
+  actions: DraftTranscriptionActionsResult;
+  decisions: Omit<DraftDecisionsResult, "actionItems">;
+}
+
+/**
+ * Map the decision extractor's action items onto the action pipeline's
+ * shape. The quoted turn becomes the draft's description, so the reviewer
+ * sees what was said, as the separate action pass did.
+ */
+export function actionCandidatesToParsedItems(candidates: ActionCandidate[]): ParsedActionItem[] {
+  return candidates.map((candidate) => {
+    const quote = candidate.evidence
+      .map((turn) => (turn.speaker ? `${turn.speaker}: ${turn.text}` : turn.text))
+      .join(" / ");
+    return {
+      text: candidate.text,
+      assignee: candidate.assigneeName ?? FirefliesService.parseAssigneeFromText(candidate.text),
+      dueDate:
+        (candidate.dueDateText ? FirefliesService.parseDate(candidate.dueDateText) : undefined) ??
+        FirefliesService.extractDueDateFromText(candidate.text),
+      context: quote ? `From transcript: "${quote}"` : `From transcript: "${candidate.text}"`,
+    };
+  });
 }
 
 export class TranscriptionProcessingService {
@@ -61,7 +99,8 @@ export class TranscriptionProcessingService {
    */
   static async generateDraftActions(
     transcriptionId: string,
-    userId: string
+    userId: string,
+    options: GenerateDraftActionsOptions = {}
   ): Promise<DraftTranscriptionActionsResult> {
     const result: DraftTranscriptionActionsResult = {
       success: false,
@@ -183,7 +222,13 @@ export class TranscriptionProcessingService {
         }
       }
 
-      if (transcriptItems.length === 0 && transcriptText) {
+      // Screen recordings keep the dedicated pass: it reads the transcript's
+      // [SCREENSHOT-N] markers to attach captures to actions, and the
+      // decision extractor's turn-numbered input has those markers stripped.
+      if (transcriptItems.length === 0 && options.transcriptActionItems && screenshots.length === 0) {
+        transcriptItems = actionCandidatesToParsedItems(options.transcriptActionItems);
+        console.log(`[generateDraftActions] Using ${transcriptItems.length} action item(s) from the combined decision pass`);
+      } else if (transcriptItems.length === 0 && transcriptText) {
         console.log(`[generateDraftActions] No Fireflies actions, using AI extraction on transcript (${transcriptText.length} chars)`);
         const { numberedText } = numberScreenshotMarkers(transcriptText);
         // A transcript-extraction failure must degrade to notes-only drafts,
@@ -293,6 +338,26 @@ export class TranscriptionProcessingService {
       );
       return result;
     }
+  }
+
+  /**
+   * The meeting page's single "Extract outputs" run. Decisions first: their
+   * transcript pass also sorts out the action items, so one model reading
+   * decides whether an item is a decision, an open question or an action.
+   * The action drafts are then written from those items (plus the notes'
+   * action list). Each half reports on its own — a meeting outside a
+   * workspace can still get actions, and actions already created do not
+   * stop decisions.
+   */
+  static async extractMeetingOutputs(
+    transcriptionId: string,
+    userId: string
+  ): Promise<ExtractMeetingOutputsResult> {
+    const { actionItems, ...decisions } = await this.generateDraftDecisions(transcriptionId, userId);
+    const actions = await this.generateDraftActions(transcriptionId, userId, {
+      transcriptActionItems: actionItems,
+    });
+    return { actions, decisions };
   }
 
   /**
