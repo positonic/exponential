@@ -47,7 +47,17 @@ interface RenderedDigest {
 /** Options for the scheduled run: the digest builders' seams plus recap narration. */
 export type ScheduledSummaryOptions = BuildDailySummaryOptions & {
   narrate?: NarrateRecapOptions;
+  /** Wall-clock budget for building Shutdown recaps in one tick (tests set it). */
+  recapBudgetMs?: number;
 };
+
+/**
+ * A recap makes an LLM call (up to ~40s against a degraded provider), and the
+ * cron that builds it runs every two minutes and must still reach its retry
+ * backstop. Recaps not started inside this budget wait for the next tick —
+ * the fire window is an hour, so they are late by minutes, not missed.
+ */
+const RECAP_BUDGET_MS = 45_000;
 
 /** True when `now` is within the fire window after today's local `timeStr` in `tz`. */
 function isWithinFireWindow(now: Date, tz: string, timeStr: string): boolean {
@@ -198,7 +208,10 @@ export async function generateScheduledSummaries(
   db: PrismaClient,
   now: Date = new Date(),
   options: ScheduledSummaryOptions = {},
-): Promise<{ emitted: number }> {
+): Promise<{ emitted: number; recapsDeferred: number }> {
+  const startedAt = Date.now();
+  const recapBudgetMs = options.recapBudgetMs ?? RECAP_BUDGET_MS;
+  let recapsDeferred = 0;
   const prefs = await db.notificationPreference.findMany({
     where: {
       enabled: true,
@@ -262,6 +275,10 @@ export async function generateScheduledSummaries(
     const recapTime = pref.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME;
     if (pref.shutdownRecap && isLocalWeekday(now, tz) && isWithinFireWindow(now, tz, recapTime)) {
       await attempt("shutdown", async () => {
+        if (Date.now() - startedAt >= recapBudgetMs) {
+          recapsDeferred++;
+          return;
+        }
         const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
         // The cron ticks every two minutes and dedup only stops a second
         // *delivery*: without this check every tick in the hour-long window
@@ -280,5 +297,5 @@ export async function generateScheduledSummaries(
     }
   }
 
-  return { emitted };
+  return { emitted, recapsDeferred };
 }

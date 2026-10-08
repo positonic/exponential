@@ -30,8 +30,16 @@ export interface NarrateRecapOptions {
   invoke?: (system: string, human: string) => Promise<string>;
 }
 
+/**
+ * Titles are user-written. Angle brackets are escaped so none can close the
+ * <day> fence and speak as the prompt.
+ */
+function fact(text: string): string {
+  return text.replace(/</g, "‹").replace(/>/g, "›");
+}
+
 export function buildRecapNarrationInput(recap: ShutdownRecap): string {
-  const lines: string[] = ["<day>", `Name: ${recap.firstName}`, `Day: ${recap.dayLabel}`, ""];
+  const lines: string[] = ["<day>", `Name: ${fact(recap.firstName)}`, `Day: ${recap.dayLabel}`, ""];
   lines.push(`Finished today (${recap.done.length}):`);
   for (const d of recap.done) {
     const rollsUp = [
@@ -39,12 +47,12 @@ export function buildRecapNarrationInput(recap: ShutdownRecap): string {
       d.goalTitle ? `goal: ${d.goalTitle}` : null,
       d.keyResultTitle ? `key result: ${d.keyResultTitle}` : null,
     ].filter(Boolean);
-    lines.push(`- ${d.title}${rollsUp.length ? ` [${rollsUp.join("; ")}]` : ""}`);
+    lines.push(`- ${fact(d.title)}${rollsUp.length ? ` [${fact(rollsUp.join("; "))}]` : ""}`);
   }
-  lines.push("", `Other things they moved today (${recap.moved.length}):`);
-  for (const m of recap.moved.slice(0, 10)) lines.push(`- ${m}`);
+  lines.push("", `Other things they moved today (${recap.moved.length + recap.moreMoved}):`);
+  for (const m of recap.moved.slice(0, 10)) lines.push(`- ${fact(m)}`);
   lines.push("", "Time:");
-  for (const t of recap.time) lines.push(`- ${t}`);
+  for (const t of recap.time) lines.push(`- ${fact(t)}`);
   if (recap.time.length === 0) lines.push("- none recorded");
   const overdueShown = recap.leftUndone.filter((a) => a.detail?.startsWith("overdue")).length;
   lines.push(
@@ -52,8 +60,8 @@ export function buildRecapNarrationInput(recap: ShutdownRecap): string {
     `Still open from today: ${recap.leftUndone.length - overdueShown}; overdue: ${overdueShown + recap.moreOverdue}`,
   );
   lines.push("", "Tomorrow:");
-  for (const m of recap.tomorrowMeetings.slice(0, 3)) lines.push(`- meeting: ${m}`);
-  for (const a of recap.tomorrowActions.slice(0, 3)) lines.push(`- action: ${a.title}`);
+  for (const m of recap.tomorrowMeetings.slice(0, 3)) lines.push(`- meeting: ${fact(m)}`);
+  for (const a of recap.tomorrowActions.slice(0, 3)) lines.push(`- action: ${fact(a.title)}`);
   if (recap.tomorrowMeetings.length === 0 && recap.tomorrowActions.length === 0) lines.push("- nothing yet");
   lines.push("</day>");
   return lines.join("\n");
@@ -68,10 +76,12 @@ export function fallbackRecapOpening(recap: ShutdownRecap): string {
   return `Nice work today, ${recap.firstName}: you finished ${first}${more}. Here's the rest of the day.`;
 }
 
+/** The prompt forbids links; the opening is rendered as Markdown, so enforce it. */
 function stripLinks(text: string): string {
   return text
     .replace(/\[([^\]]*)\]\((?:[^)\s]*)\)/g, "$1")
-    .replace(/<(https?:\/\/[^>\s]+)>/g, "$1");
+    .replace(/<?https?:\/\/[^\s>]+>?/g, "")
+    .replace(/[ \t]{2,}/g, " ");
 }
 
 /** The recap's opening paragraph. Never throws: a failed call falls back. */

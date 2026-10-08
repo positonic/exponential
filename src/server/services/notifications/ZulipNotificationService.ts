@@ -23,6 +23,14 @@ interface ZulipApiResponse {
   [key: string]: any;
 }
 
+
+/**
+ * Metadata that is payload for other channels, never a footer: the summary's
+ * markdown rendering (the body here is `message`), and the Shutdown recap's
+ * Matrix-only reply hint and number → action-id map.
+ */
+const INTERNAL_METADATA_KEYS = new Set(["markdown", "replyHint", "agentContext"]);
+
 export class ZulipNotificationService extends NotificationService {
   name = "Zulip";
   type = "zulip";
@@ -246,7 +254,7 @@ export class ZulipNotificationService extends NotificationService {
 
     if (payload.metadata) {
       const entries = Object.entries(payload.metadata)
-        .filter(([_, value]) => value !== null && value !== undefined)
+        .filter(([key, value]) => value !== null && value !== undefined && !INTERNAL_METADATA_KEYS.has(key))
         .map(([key, value]) => `**${key}:** ${String(value)}`);
 
       if (entries.length > 0) {

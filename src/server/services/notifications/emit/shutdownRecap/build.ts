@@ -27,6 +27,20 @@ function absolute(baseUrl: string, href: string | null | undefined): string | nu
   return /^https?:\/\//.test(href) ? href : `${baseUrl}${href}`;
 }
 
+/**
+ * The sections end a capped list with a text item titled "N more" ("N more
+ * overdue"); its id ends in `:more` / `:more-overdue`. The recap folds those
+ * into its own counts rather than printing them as items.
+ */
+function isMoreLine(item: AgendaItem): boolean {
+  return item.refType === "text" && item.id.endsWith(":more");
+}
+
+/** The N of an "N more" line. A NaN parse (`||`, not `??`) counts as none. */
+function countOf(item: AgendaItem): number {
+  return Number.parseInt(item.title, 10) || 0;
+}
+
 function line(item: AgendaItem): string {
   return item.detail ? `${item.title} (${item.detail})` : item.title;
 }
@@ -151,7 +165,7 @@ export async function buildShutdownRecap(
   const todays = undoneActions.filter((i) => !i.detail?.startsWith("overdue"));
   const overdue = undoneActions.filter((i) => i.detail?.startsWith("overdue"));
   const moreLine = undoneItems.find((i) => i.refType === "text" && i.id.endsWith(":more-overdue"));
-  const moreOverdue = Math.max(0, overdue.length - OVERDUE_SHOWN) + (moreLine ? Number.parseInt(moreLine.title, 10) || 0 : 0);
+  const moreOverdue = Math.max(0, overdue.length - OVERDUE_SHOWN) + (moreLine ? countOf(moreLine) : 0);
   const leftUndone = [...todays, ...overdue.slice(0, OVERDUE_SHOWN)].map(numbered);
 
   const shown = new Set(leftUndone.map((a) => a.actionId));
@@ -165,7 +179,8 @@ export async function buildShutdownRecap(
     dayKey: formatInTimeZone(now, tz, "yyyy-MM-dd"),
     timezone: tz,
     done: await enrichDone(db, doneItems, baseUrl),
-    moved: movedItems.map(line),
+    moved: movedItems.filter((i) => !isMoreLine(i)).map(line),
+    moreMoved: movedItems.filter(isMoreLine).reduce((sum, i) => sum + countOf(i), 0),
     time: timeItems.map(line),
     leftUndone,
     moreOverdue,

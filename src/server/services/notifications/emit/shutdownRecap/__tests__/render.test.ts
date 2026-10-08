@@ -16,6 +16,7 @@ function recap(overrides: Partial<ShutdownRecap> = {}): ShutdownRecap {
       { actionId: "d1", title: "Ship V4a", url: "https://app.test/a/d1", projectName: "Ceremonies", goalTitle: null, keyResultTitle: "5 ceremonies live" },
     ],
     moved: ["Commented on ticket: Recap", "Moved action: A", "Moved action: B", "Moved action: C", "Moved action: D", "Moved action: E"],
+    moreMoved: 0,
     time: ["5h 10m of attention"],
     leftUndone: [
       { n: 1, actionId: "a1", title: "Write [the] brief", url: "https://app.test/a/a1", detail: null },
@@ -47,6 +48,11 @@ describe("renderShutdownRecapMarkdown", () => {
     expect(md).toContain("- Moved action: D");
     expect(md).not.toContain("Moved action: E");
     expect(md).toContain("- and 1 more");
+  });
+
+  it("adds the section's own overflow to the moved count", () => {
+    const md = renderShutdownRecapMarkdown(recap({ moreMoved: 9 }), "x");
+    expect(md).toContain("- and 10 more");
   });
 
   it("says so plainly when the day is empty instead of dropping the sections", () => {

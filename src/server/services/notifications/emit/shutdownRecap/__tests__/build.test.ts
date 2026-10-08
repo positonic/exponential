@@ -92,6 +92,18 @@ describe("buildShutdownRecap", () => {
     expect(recap!.leftUndone[0]!.url).toBe("https://app.test/w/me/actions/a1");
   });
 
+  it("folds the activity section's \"N more\" line into a count instead of listing it", async () => {
+    sectionItems.activity_today = [
+      text("activity_today", "activity_today:text:u1:action:a1:commented", "Commented on action: A"),
+      text("activity_today", "activity_today:text:u1:more", "10 more"),
+    ];
+
+    const recap = await buildShutdownRecap(db, "u1", NOW, "Europe/Berlin");
+
+    expect(recap!.moved).toEqual(["Commented on action: A"]);
+    expect(recap!.moreMoved).toBe(10);
+  });
+
   it("names what each finished action rolls up to", async () => {
     sectionItems.completed_today = [action("completed_today", "d1", "Ship V4a", "done 15:20")];
     db.action.findMany.mockResolvedValue([

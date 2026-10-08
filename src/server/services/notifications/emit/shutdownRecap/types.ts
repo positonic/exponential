@@ -39,6 +39,8 @@ export interface ShutdownRecap {
   done: RecapDoneItem[];
   /** "Commented on ticket: …" lines, grouped and capped by the section. */
   moved: string[];
+  /** Grouped activity past the section's cap, shown as a count. */
+  moreMoved: number;
   /** "5h 10m of attention · plus 1h of agent runs", product lines, nudges. */
   time: string[];
   leftUndone: RecapNumberedAction[];

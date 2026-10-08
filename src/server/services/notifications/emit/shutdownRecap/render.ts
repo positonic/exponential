@@ -60,7 +60,7 @@ function render(recap: ShutdownRecap, opening: string, mode: Mode): string {
   if (recap.moved.length > 0) {
     out.push(...sectionGap(mode), heading(mode, SHUTDOWN_RECAP_HEADINGS.moved));
     for (const m of recap.moved.slice(0, MOVED_SHOWN)) out.push(`${bullet}${m}`);
-    const hidden = recap.moved.length - MOVED_SHOWN;
+    const hidden = Math.max(0, recap.moved.length - MOVED_SHOWN) + recap.moreMoved;
     if (hidden > 0) out.push(`${bullet}and ${hidden} more`);
   }
 

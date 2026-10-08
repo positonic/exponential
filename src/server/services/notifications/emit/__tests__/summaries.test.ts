@@ -635,6 +635,7 @@ describe("generateScheduledSummaries — shutdown recap", () => {
     timezone: "Europe/Berlin",
     done: [],
     moved: [],
+    moreMoved: 0,
     time: [],
     leftUndone: [{ n: 1, actionId: "a1", title: "Write the brief", url: null, detail: null }],
     moreOverdue: 0,
@@ -715,6 +716,16 @@ describe("generateScheduledSummaries — shutdown recap", () => {
     expect(subject.kind).toBe("shutdown");
     expect(subject).not.toHaveProperty("replyHint");
     expect(subject).not.toHaveProperty("agentContext");
+  });
+
+  it("leaves recaps for the next tick once the tick's budget is spent", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+
+    const result = await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"), { recapBudgetMs: 0 });
+
+    expect(result.recapsDeferred).toBe(1);
+    expect(recapMocks.buildShutdownRecap).not.toHaveBeenCalled();
+    expect(emitNotification).not.toHaveBeenCalled();
   });
 
   it("is not sent when the recap is switched off", async () => {
