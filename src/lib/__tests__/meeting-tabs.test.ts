@@ -18,6 +18,8 @@ describe("meetingTabFromParam", () => {
     expect(meetingTabFromParam(null)).toBe("summary");
     expect(meetingTabFromParam(undefined)).toBe("summary");
     expect(meetingTabFromParam("notes")).toBe("summary");
+    expect(meetingTabFromParam("__proto__")).toBe("summary");
+    expect(meetingTabFromParam("toString")).toBe("summary");
   });
 });
 

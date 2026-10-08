@@ -28,7 +28,10 @@ const LEGACY_MEETING_TABS: Record<string, MeetingTab> = { decisions: "outputs" }
 /** The tab a `?tab=` value names, or the default for a missing or unknown one. */
 export function meetingTabFromParam(value: string | null | undefined): MeetingTab {
   if (isMeetingTab(value)) return value;
-  return (value ? LEGACY_MEETING_TABS[value] : undefined) ?? DEFAULT_MEETING_TAB;
+  // Own keys only: `?tab=__proto__` must not resolve to Object.prototype.
+  return value && Object.hasOwn(LEGACY_MEETING_TABS, value)
+    ? LEGACY_MEETING_TABS[value]!
+    : DEFAULT_MEETING_TAB;
 }
 
 /**
