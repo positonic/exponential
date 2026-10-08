@@ -68,6 +68,7 @@ export {
 export {
   getWorkspaceMembership,
   assertWorkspaceRole,
+  assertWorkspaceWriteRole,
   canEditWorkspaceContent,
   isWorkspaceOwner,
   isWorkspaceGuest,

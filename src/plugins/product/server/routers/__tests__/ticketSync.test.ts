@@ -99,7 +99,7 @@ const callerId = "user-1";
 const workspaceId = "ws-1";
 const productId = "prod-1";
 
-/** Stub the workspace-membership probe that `assertWorkspaceMember` runs. */
+/** Stub the workspace-membership probe that `assertWorkspaceAccess` runs. */
 function stubMembership(dbMock: DeepMockProxy<PrismaClient>) {
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

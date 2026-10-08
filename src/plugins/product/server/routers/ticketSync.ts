@@ -32,7 +32,7 @@ export const ticketSyncRouter = createTRPCRouter({
   getConfig: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
@@ -79,7 +79,7 @@ export const ticketSyncRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       // The integration must be the caller's own Notion connection — same
       // ownership rule as integration.getNotionDatabases.
@@ -128,7 +128,7 @@ export const ticketSyncRouter = createTRPCRouter({
   setEnabled: protectedProcedure
     .input(z.object({ productId: z.string(), enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       return ctx.db.ticketSyncConfig.update({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
@@ -147,7 +147,7 @@ export const ticketSyncRouter = createTRPCRouter({
   setPushEnabled: protectedProcedure
     .input(z.object({ productId: z.string(), pushEnabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       if (input.pushEnabled) {
         const config = await ctx.db.ticketSyncConfig.findUnique({
@@ -184,7 +184,7 @@ export const ticketSyncRouter = createTRPCRouter({
   disconnect: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       // Soft disconnect (ADR-0042): null the integration link, never delete
       // the row. TicketSync links and TicketSyncRun history survive so a
       // wrong-database accident stays auditable and revertible; saveConfig
@@ -207,7 +207,7 @@ export const ticketSyncRouter = createTRPCRouter({
   backfillPreview: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
@@ -257,7 +257,7 @@ export const ticketSyncRouter = createTRPCRouter({
   runBackfill: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
@@ -308,7 +308,7 @@ export const ticketSyncRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
@@ -345,7 +345,7 @@ export const ticketSyncRouter = createTRPCRouter({
   syncNow: protectedProcedure
     .input(z.object({ productId: z.string(), dryRun: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
@@ -410,7 +410,7 @@ export const ticketSyncRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
@@ -445,7 +445,7 @@ export const ticketSyncRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },
@@ -477,7 +477,7 @@ export const ticketSyncRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       const config = await ctx.db.ticketSyncConfig.findUnique({
         where: {
           productId_provider: { productId: input.productId, provider: "notion" },

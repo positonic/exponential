@@ -1234,7 +1234,7 @@ export const keyResultRouter = createTRPCRouter({
         });
       }
 
-      // Parity with feature.update's assertWorkspaceMember guard: the caller
+      // Parity with feature.update's assertWorkspaceAccess guard: the caller
       // must be a member of the feature's workspace (a KR owner who isn't a
       // member of the workspace may not link its features).
       if (!membership) {

@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { buildProjectAccessWhere } from "~/server/services/access";
+import {
+  getWorkspaceMembership,
+  assertWorkspaceWriteRole,
+  buildProjectAccessWhere,
+} from "~/server/services/access";
 import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
@@ -17,13 +20,33 @@ import {
 } from "../overviewSummaryService";
 
 /**
- * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
+ * How much workspace access a product-plugin procedure needs.
+ *
+ * - `"view"`: any membership (owner/admin/member/viewer). Team-based access
+ *   counts. Project-only guests have no `WorkspaceUser` row and are refused.
+ * - `"edit"`: owner/admin/member only. A read-only `viewer` is refused.
+ *
+ * Every mutation must ask for `"edit"`; queries ask for `"view"`. The level
+ * is a required argument precisely so a new write can't silently inherit the
+ * weaker check.
  */
-async function assertWorkspaceMember(
+export type WorkspaceAccessLevel = "view" | "edit";
+
+/**
+ * Gate on the caller's workspace role. Throws FORBIDDEN when the caller is not
+ * a member, or is a viewer asking for `"edit"`. The role logic itself lives in
+ * the access service (`assertWorkspaceWriteRole`) — this only adds the
+ * read-side membership branch and the plugin's error wording.
+ */
+async function assertWorkspaceAccess(
   db: PrismaClient,
   userId: string,
   workspaceId: string,
+  level: WorkspaceAccessLevel,
 ) {
+  if (level === "edit") {
+    return assertWorkspaceWriteRole(db, userId, workspaceId);
+  }
   const membership = await getWorkspaceMembership(db, userId, workspaceId);
   if (!membership) {
     throw new TRPCError({
@@ -35,12 +58,13 @@ async function assertWorkspaceMember(
 }
 
 /**
- * Load a product and verify workspace membership in one step.
+ * Load a product and verify workspace access in one step.
  */
 async function loadProductWithAccess(
   db: PrismaClient,
   userId: string,
   productId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const product = await db.product.findUnique({
     where: { id: productId },
@@ -49,21 +73,22 @@ async function loadProductWithAccess(
   if (!product) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
   }
-  await assertWorkspaceMember(db, userId, product.workspaceId);
+  await assertWorkspaceAccess(db, userId, product.workspaceId, level);
   return product;
 }
 
 // Exported so other routers (feature, ticket, research, retrospective) can reuse
-export { assertWorkspaceMember, loadProductWithAccess };
+export { assertWorkspaceAccess, loadProductWithAccess };
 
 export const productRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       return ctx.db.product.findMany({
@@ -86,10 +111,11 @@ export const productRouter = createTRPCRouter({
   listWithProjects: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       const projectInclude = {
@@ -143,10 +169,11 @@ export const productRouter = createTRPCRouter({
       if (!product) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         product.workspaceId,
+        "view",
       );
       return product;
     }),
@@ -159,10 +186,11 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
       const product = await ctx.db.product.findUnique({
         where: {
@@ -207,6 +235,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         userId,
         input.productId,
+        "view",
       );
       const now = new Date();
 
@@ -408,7 +437,7 @@ export const productRouter = createTRPCRouter({
   getManagerOverview: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const product = await ctx.db.product.findUniqueOrThrow({
         where: { id: input.productId },
         select: { id: true, name: true, workspaceId: true, funTicketIds: true },
@@ -425,7 +454,7 @@ export const productRouter = createTRPCRouter({
   getOverviewSummary: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       // Too recent to regenerate: skip loading the overview data, which is
       // only needed to hash the facts.
       const recent = await getRecentOverviewSummary(ctx.db, input.productId);
@@ -458,10 +487,11 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
 
       return ctx.db.product.create({
@@ -499,6 +529,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       const { id, ...data } = input;
@@ -543,6 +574,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       // Cache-bust by including a timestamp so the new URL replaces the old one in CDN/clients
@@ -582,6 +614,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       const previous = await ctx.db.product.findUnique({
@@ -608,7 +641,7 @@ export const productRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.product.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -634,7 +667,7 @@ export const productRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
 
       // Membership of the SOURCE workspace (also loads the product).
-      const product = await loadProductWithAccess(ctx.db, userId, input.id);
+      const product = await loadProductWithAccess(ctx.db, userId, input.id, "edit");
 
       if (product.workspaceId === input.targetWorkspaceId) {
         throw new TRPCError({
@@ -644,7 +677,7 @@ export const productRouter = createTRPCRouter({
       }
 
       // Membership of the TARGET workspace (re-enforced server-side).
-      await assertWorkspaceMember(ctx.db, userId, input.targetWorkspaceId);
+      await assertWorkspaceAccess(ctx.db, userId, input.targetWorkspaceId, "edit");
 
       const targetWorkspace = await ctx.db.workspace.findUnique({
         where: { id: input.targetWorkspaceId },
@@ -751,7 +784,7 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       return buildGraph(ctx.db, {
         productId: input.productId,
         includeCompleted: input.includeCompleted,
@@ -764,7 +797,7 @@ export const productRouter = createTRPCRouter({
   getViewPrefs: protectedProcedure
     .input(z.object({ productSlug: z.string(), workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, input.workspaceId, "view");
       const config = await ctx.db.pluginConfig.findUnique({
         where: {
           pluginId_workspaceId_userId: {
@@ -811,7 +844,9 @@ export const productRouter = createTRPCRouter({
       }),
     }))
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      // View prefs are the caller's own per-user UI state (keyed by userId),
+      // not workspace content, so a read-only viewer may save them too.
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, input.workspaceId, "view");
       const existing = await ctx.db.pluginConfig.findUnique({
         where: {
           pluginId_workspaceId_userId: {
