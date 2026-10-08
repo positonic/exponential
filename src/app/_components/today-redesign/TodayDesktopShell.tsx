@@ -230,10 +230,11 @@ export function TodayDesktopShell({
     });
   };
 
-  // Moves the do-date and the deadline together, at day granularity — see
-  // `rescheduleUpdateFields` for why scheduledStart has to move too.
+  // Moves the do-date, and the deadline only if it would fall before it — see
+  // `rescheduleUpdateFields`.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    updateAction({ id, ...rescheduleUpdateFields(choice) });
+    const a = actionsById.get(id);
+    updateAction({ id, ...rescheduleUpdateFields(choice, a?.dueDate) });
   };
 
   const handleAcceptSuggestion = (s: {
