@@ -19,6 +19,7 @@ import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAg
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony } from "~/server/services/ceremonies/access";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   draftMyUpdate,
   getMyUpdate,
@@ -349,6 +350,13 @@ export const ceremonyRouter = createTRPCRouter({
         (a, b) => b.scheduledStart.getTime() - a.scheduledStart.getTime(),
       );
 
+      // The agenda page is gated on workspace membership; a project-only
+      // guest sees the rows but gets no link they can't open.
+      const project = await ctx.db.project.findUnique({ where: { id: input.projectId }, select: { workspaceId: true } });
+      const canOpen = project?.workspaceId
+        ? !!(await getWorkspaceMembership(ctx.db, ctx.session.user.id, project.workspaceId))
+        : false;
+
       return rows.map((row) => ({
         occurrenceId: row.id,
         ceremonyId: row.ceremony.id,
@@ -360,7 +368,7 @@ export const ceremonyRouter = createTRPCRouter({
         scheduledEnd: row.scheduledEnd,
         status: row.status,
         attendeeCount: row.scheduledMeeting?._count.attendees ?? row.ceremony._count.participants,
-        href: `/w/${row.ceremony.workspace.slug}/ceremonies/${row.ceremony.id}/${row.id}`,
+        href: canOpen ? `/w/${row.ceremony.workspace.slug}/ceremonies/${row.ceremony.id}/${row.id}` : null,
       }));
     }),
 

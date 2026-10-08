@@ -532,6 +532,7 @@ describe("ceremony router", () => {
 
     it("caps each recurring ceremony in its own query, never one-offs, and shapes the rows newest first", async () => {
       withProjectAccess();
+      withWorkspaceRole(db, "member");
       db.ceremony.findMany.mockResolvedValue([
         { id: "cer-oo", isOneOff: true },
         { id: "cer-std", isOneOff: false },
@@ -572,6 +573,20 @@ describe("ceremony router", () => {
       });
       // A recurring ceremony's purpose is its standing remit, not this meeting's.
       expect(rows.find((r) => r.occurrenceId === "s-0")).toMatchObject({ purpose: null, attendeeCount: 4 });
+    });
+
+    it("gives a project-only guest the rows but no links, since the agenda page needs workspace membership", async () => {
+      withProjectAccess();
+      db.projectMember.findFirst.mockResolvedValue({ role: "viewer" } as never);
+      db.workspaceUser.findUnique.mockResolvedValue(null);
+      db.teamUser.findFirst.mockResolvedValue(null);
+      db.ceremony.findMany.mockResolvedValue([{ id: "cer-oo", isOneOff: true }] as never);
+      db.ceremonyOccurrence.findMany.mockResolvedValue([occ("one-off", "cer-oo", true, "2026-10-12T09:00:00Z")] as never);
+
+      const rows = await caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1" });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.href).toBeNull();
     });
   });
 

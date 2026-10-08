@@ -11,7 +11,8 @@ type OccurrenceRow = RouterOutputs["ceremony"]["listOccurrencesForProject"][numb
 /**
  * The scheduled half of a project's Meetings tab (ADR-0059 amendment,
  * 2026-10-07): the meetings booked for the project and the ceremonies that
- * review it, newest first, above the recordings. Each opens its agenda.
+ * review it, newest first, above the recordings. Each opens its agenda
+ * (for workspace members — a project-only guest sees the row without a link).
  * Occurrences a recording captured are not here — the recording is the row.
  */
 function rowState(row: OccurrenceRow, now: number): { label: string; color: string } {
@@ -35,40 +36,46 @@ export function ProjectOccurrenceRows({ rows }: { rows: OccurrenceRow[] }) {
     <Stack gap="xs" data-testid="project-occurrences">
       {rows.map((row) => {
         const state = rowState(row, now);
-        return (
-          <UnstyledButton key={row.occurrenceId} component={Link} href={row.href} className="block">
-            <Paper withBorder radius="md" p="sm" className="hover:bg-surface-hover">
-              <Group justify="space-between" wrap="nowrap" align="flex-start">
-                <Group gap="sm" wrap="nowrap" align="flex-start" className="min-w-0">
-                  <IconCalendarEvent size={18} className="mt-0.5 shrink-0 text-text-muted" />
-                  <div className="min-w-0">
-                    <Text size="sm" fw={500} className="truncate">
-                      {row.ceremonyName}
+        const card = (
+          <Paper withBorder radius="md" p="sm" className={row.href ? "hover:bg-surface-hover" : undefined}>
+            <Group justify="space-between" wrap="nowrap" align="flex-start">
+              <Group gap="sm" wrap="nowrap" align="flex-start" className="min-w-0">
+                <IconCalendarEvent size={18} className="mt-0.5 shrink-0 text-text-muted" />
+                <div className="min-w-0">
+                  <Text size="sm" fw={500} className="truncate">
+                    {row.ceremonyName}
+                  </Text>
+                  {row.purpose && (
+                    <div className="truncate text-sm text-text-secondary">
+                      <MarkdownRenderer content={row.purpose} variant="inline" />
+                    </div>
+                  )}
+                  <Group gap={6} mt={2}>
+                    <Text size="xs" className="text-text-muted">
+                      {new Date(row.scheduledStart).toLocaleString(undefined, whenFmt)}
                     </Text>
-                    {row.purpose && (
-                      <div className="truncate text-sm text-text-secondary">
-                        <MarkdownRenderer content={row.purpose} variant="inline" />
-                      </div>
-                    )}
-                    <Group gap={6} mt={2}>
+                    <Group gap={2}>
+                      <IconUsers size={12} className="text-text-muted" />
                       <Text size="xs" className="text-text-muted">
-                        {new Date(row.scheduledStart).toLocaleString(undefined, whenFmt)}
+                        {row.attendeeCount}
                       </Text>
-                      <Group gap={2}>
-                        <IconUsers size={12} className="text-text-muted" />
-                        <Text size="xs" className="text-text-muted">
-                          {row.attendeeCount}
-                        </Text>
-                      </Group>
                     </Group>
-                  </div>
-                </Group>
-                <Badge variant="light" color={state.color} size="sm" className="shrink-0">
-                  {state.label}
-                </Badge>
+                  </Group>
+                </div>
               </Group>
-            </Paper>
+              <Badge variant="light" color={state.color} size="sm" className="shrink-0">
+                {state.label}
+              </Badge>
+            </Group>
+          </Paper>
+        );
+        // No link for someone who can't open the agenda (a project-only guest).
+        return row.href ? (
+          <UnstyledButton key={row.occurrenceId} component={Link} href={row.href} className="block">
+            {card}
           </UnstyledButton>
+        ) : (
+          <div key={row.occurrenceId}>{card}</div>
         );
       })}
     </Stack>
