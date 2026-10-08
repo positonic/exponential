@@ -471,6 +471,17 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("update on a one-off", () => {
+    it("refuses a cadence rule", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremony.findFirst.mockResolvedValue({ id: "cer-1", workspaceId: WORKSPACE_ID, isOneOff: true, cadenceRule: null } as never);
+      await expect(
+        caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", cadenceRule: "FREQ=WEEKLY;BYDAY=MO" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(db.ceremony.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe("getOccurrence on a one-off", () => {
     it("returns isOneOff, the purpose and the booking with attendee names only", async () => {
       withWorkspaceRole(db, "member");

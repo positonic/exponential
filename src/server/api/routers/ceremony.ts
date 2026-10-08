@@ -701,6 +701,11 @@ export const ceremonyRouter = createTRPCRouter({
       const { workspaceId, id, participantUserIds, agendaTemplate, projectIds, slug: rawSlug, ...fields } = input;
       const existing = await ctx.db.ceremony.findFirst({ where: { id, workspaceId } });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
+      // A one-off is one booked meeting; giving it a cadence would start
+      // generating occurrences nobody booked.
+      if (existing.isOneOff && fields.cadenceRule !== undefined) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A one-off meeting can't be given a cadence" });
+      }
       const projects = projectIds ? await assertProjectsInWorkspace(ctx.db, workspaceId, projectIds) : null;
 
       const cadenceRule = fields.cadenceRule ?? existing.cadenceRule;

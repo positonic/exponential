@@ -47,8 +47,9 @@ export async function ensureOccurrences(
   ceremony: Ceremony,
   opts: { now?: Date; windowStart?: Date; windowEnd?: Date } = {},
 ): Promise<number> {
-  // A one-off has no rule: its single occurrence is written at booking.
-  if (!ceremony.cadenceRule) return 0;
+  // A one-off has exactly one occurrence, written at booking — never expanded,
+  // even if a rule somehow got onto it.
+  if (ceremony.isOneOff || !ceremony.cadenceRule) return 0;
   const cadence = { ...ceremony, cadenceRule: ceremony.cadenceRule };
   const now = opts.now ?? new Date();
   const window = occurrenceWindow(now);
@@ -89,7 +90,7 @@ export interface OccurrenceSweepResult {
  */
 export async function expandActiveCeremonies(db: Db, now = new Date()): Promise<OccurrenceSweepResult> {
   // A one-off has nothing to expand: its single occurrence is written at booking.
-  const ceremonies = await db.ceremony.findMany({ where: { isActive: true, cadenceRule: { not: null } } });
+  const ceremonies = await db.ceremony.findMany({ where: { isActive: true, isOneOff: false, cadenceRule: { not: null } } });
   const result: OccurrenceSweepResult = { ceremonies: ceremonies.length, created: 0, errors: [] };
   for (const ceremony of ceremonies) {
     try {
