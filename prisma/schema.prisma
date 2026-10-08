@@ -2140,6 +2140,9 @@ model NotificationPreference {
   timezone              String       @default("UTC")
   dailySummaryTime      String?      @default("09:00")
   weeklyDayOfWeek       Int?         @default(1)
+  /// Weekday end-of-day recap (Shutdown recap), off until the user turns it on.
+  shutdownRecap         Boolean      @default(false)
+  shutdownRecapTime     String?      @default("18:00")
   reminderMinutesBefore Int[]        @default([15, 60, 1440])
   quietHoursEnabled     Boolean      @default(false)
   quietHoursStart       String?
