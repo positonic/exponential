@@ -11,7 +11,10 @@ import {
   extractSummarySections,
   markdownToMatrixHtml,
   markdownToPlainText,
+  MAX_LISTED_ITEMS,
   renderMeetingSummary,
+  type MeetingActionForSummary,
+  type MeetingDecisionForSummary,
   type MeetingForSummary,
 } from "~/server/services/matrix/renderMeetingSummary";
 
@@ -26,7 +29,11 @@ const BREAKDOWN = [
   "  - Including the delivery playbook.",
 ].join("\n");
 
-function meeting(summary: string | null): MeetingForSummary {
+function meeting(
+  summary: string | null,
+  decisions: MeetingDecisionForSummary[] = [],
+  actions: MeetingActionForSummary[] = [],
+): MeetingForSummary {
   return {
     id: "meeting-1",
     title: "Weekly sync",
@@ -35,7 +42,8 @@ function meeting(summary: string | null): MeetingForSummary {
     createdAt: new Date("2026-08-10T10:00:00Z"),
     workspaceId: "ws-1",
     project: { id: "proj-1", name: "Apollo" },
-    actions: [],
+    actions,
+    decisions,
   };
 }
 
@@ -181,5 +189,143 @@ describe("renderMeetingSummary", () => {
   it("emits no stray blank block when the meeting has no summary", () => {
     const { text } = renderMeetingSummary(meeting(null));
     expect(text).not.toContain("\n\n\n");
+  });
+
+  describe("decisions", () => {
+    const decisions: MeetingDecisionForSummary[] = [
+      { number: 42, statement: "Keep backups for one month.", status: "ACCEPTED" },
+      { number: 43, statement: "Should DataMiner get a severity layer?", status: "OPEN" },
+    ];
+    const summary = JSON.stringify({ overview: "Short.", detailed_breakdown: BREAKDOWN });
+
+    it("leads with the decisions, above the summary sections", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary, decisions));
+      expect(text.indexOf("⚖️ Decisions (1)")).toBeLessThan(text.indexOf("Overview"));
+      expect(html.indexOf("<h5>⚖️ Decisions (1)</h5>")).toBeLessThan(
+        html.indexOf("<h5>Overview</h5>"),
+      );
+      expect(text).toContain("• D-0042 Keep backups for one month.");
+      expect(html).toContain("<li><strong>D-0042</strong> Keep backups for one month.</li>");
+    });
+
+    it("links to the meeting's Decisions tab", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary, decisions));
+      // The link sits on a line of its own, with nothing else beside it.
+      expect(text).toMatch(/\nhttps?:\/\/\S+\/recording\/meeting-1\?tab=decisions\n/);
+      expect(html).toMatch(/<a href="[^"]+\/recording\/meeting-1\?tab=decisions">/);
+    });
+
+    it("lists open questions under their own heading, after the decisions", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary, decisions));
+      expect(text).toContain(
+        "❓ Open questions (1)\n• D-0043 Should DataMiner get a severity layer?",
+      );
+      expect(text.indexOf("⚖️ Decisions")).toBeLessThan(text.indexOf("❓ Open questions"));
+      expect(text.indexOf("❓ Open questions")).toBeLessThan(text.indexOf("Overview"));
+      expect(html).toContain(
+        "<h5>❓ Open questions (1)</h5><ul><li><strong>D-0043</strong> Should DataMiner get a severity layer?</li></ul>",
+      );
+      // An open question is not listed as a decision, nor tagged "(open)".
+      expect(text).toContain("⚖️ Decisions (1)");
+      expect(text).not.toContain("(open)");
+    });
+
+    it("links even when the meeting only raised open questions", () => {
+      const { text } = renderMeetingSummary(meeting(summary, [decisions[1]!]));
+      expect(text).not.toContain("⚖️ Decisions");
+      expect(text).toContain("❓ Open questions (1)");
+      expect(text).toContain("?tab=decisions");
+    });
+
+    it("caps the list and leaves the rest to the link", () => {
+      const many = Array.from({ length: MAX_LISTED_ITEMS + 3 }, (_, i) => ({
+        number: i + 1,
+        statement: `Decision ${i + 1}`,
+        status: "ACCEPTED",
+      }));
+      const { text } = renderMeetingSummary(meeting(summary, many));
+      expect(text).toContain(`⚖️ Decisions (${MAX_LISTED_ITEMS + 3})`);
+      expect(text).toContain("• …and 3 more");
+      expect(text).not.toContain(`Decision ${MAX_LISTED_ITEMS + 1}`);
+    });
+
+    it("marks every decision that is not accepted with its status", () => {
+      const { text, html } = renderMeetingSummary(
+        meeting(summary, [
+          { number: 1, statement: "Use GPT for severity.", status: "PROPOSED" },
+          { number: 2, statement: "Rename to dev-app.", status: "SUPERSEDED" },
+          { number: 3, statement: "Keep backups.", status: "ACCEPTED" },
+        ]),
+      );
+      expect(text).toContain("• D-0001 Use GPT for severity. (proposed)");
+      expect(text).toContain("• D-0002 Rename to dev-app. (superseded)");
+      expect(text).toContain("• D-0003 Keep backups.\n");
+      expect(html).toContain("Use GPT for severity. <em>(proposed)</em></li>");
+      expect(html).toContain("Keep backups.</li>");
+    });
+
+    it("escapes decision statements in the HTML body", () => {
+      const { html } = renderMeetingSummary(
+        meeting(summary, [{ number: 1, statement: "<b>bold</b>", status: "ACCEPTED" }]),
+      );
+      expect(html).toContain("&lt;b&gt;bold&lt;/b&gt;");
+    });
+
+    it("omits the block when nothing was decided", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary));
+      expect(text).not.toContain("tab=decisions");
+      expect(html).not.toContain("Decisions (");
+    });
+  });
+
+  describe("action items", () => {
+    const summary = JSON.stringify({ overview: "Short." });
+    const actions: MeetingActionForSummary[] = [
+      {
+        id: "a1",
+        name: "Set up pipeline monitoring",
+        assignees: [{ user: { name: "Raj" } }, { user: { name: "James" } }],
+      },
+      { id: "a2", name: "Schedule severity meeting", assignees: [] },
+    ];
+
+    it("lists each action with its owners, after decisions and before the summary", () => {
+      const decisions: MeetingDecisionForSummary[] = [
+        { number: 1, statement: "Keep backups.", status: "ACCEPTED" },
+      ];
+      const { text, html } = renderMeetingSummary(meeting(summary, decisions, actions));
+      expect(text).toContain(
+        "✅ Action items (2)\n• Set up pipeline monitoring — Raj, James\n• Schedule severity meeting\n",
+      );
+      expect(text.indexOf("⚖️ Decisions")).toBeLessThan(text.indexOf("✅ Action items"));
+      expect(text.indexOf("✅ Action items")).toBeLessThan(text.indexOf("Overview"));
+      expect(html).toContain(
+        "<h5>✅ Action items (2)</h5><ul><li>Set up pipeline monitoring — <em>Raj, James</em></li><li>Schedule severity meeting</li></ul>",
+      );
+    });
+
+    it("caps the list", () => {
+      const many = Array.from({ length: MAX_LISTED_ITEMS + 2 }, (_, i) => ({
+        id: `a${i}`,
+        name: `Action ${i + 1}`,
+        assignees: [],
+      }));
+      const { text } = renderMeetingSummary(meeting(summary, [], many));
+      expect(text).toContain("• …and 2 more");
+      expect(text).not.toContain(`Action ${MAX_LISTED_ITEMS + 1}`);
+    });
+
+    it("escapes action names in the HTML body", () => {
+      const { html } = renderMeetingSummary(
+        meeting(summary, [], [{ id: "a", name: "<img src=x>", assignees: [] }]),
+      );
+      expect(html).toContain("&lt;img src=x&gt;");
+    });
+
+    it("omits the block when the meeting produced no actions", () => {
+      const { text, html } = renderMeetingSummary(meeting(summary));
+      expect(text).not.toContain("Action items");
+      expect(html).not.toContain("Action items");
+    });
   });
 });

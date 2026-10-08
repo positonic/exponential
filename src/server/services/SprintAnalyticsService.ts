@@ -1,6 +1,7 @@
 import { type PrismaClient, type ActionStatus } from "@prisma/client";
 import { isOpenBlocker } from "~/lib/actions/blocked";
 import { db } from "~/server/db";
+import { resolveGithubLogins } from "~/server/services/github/memberLogins";
 
 export interface SprintMetricsResult {
   sprintId: string;
@@ -147,11 +148,51 @@ export interface AllCyclesMetricsResult {
   cycles: CycleMetricsPoint[];
 }
 
+/**
+ * Narrows the Metrics page to some workspace members. A Ticket counts toward
+ * the member it's **assigned** to; a PR/commit toward the member whose GitHub
+ * login authored it (see `resolveGithubLogins`); a time entry toward the
+ * member who logged it. Absent or empty `memberIds` means the whole workspace.
+ */
+export interface MetricsMemberFilter {
+  memberIds?: string[];
+}
+
+/** One person's contribution over the chosen cycle(s). */
+export interface ContributorRow {
+  /** Null for the "Unassigned" row (tickets with no assignee). */
+  userId: string | null;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  /** False for an assignee/time-logger who is no longer a workspace member. */
+  isMember: boolean;
+  /** Whether a GitHub login is known — without one, PRs/commits read as 0. */
+  githubLinked: boolean;
+  assignedTickets: number;
+  completedTickets: number;
+  completedPoints: number;
+  totalPoints: number;
+  /** PRs merged inside the cycle window(s), deduped by repo + PR number. */
+  mergedPrs: number;
+  /** Commits pushed inside the cycle window(s), deduped by SHA. */
+  commits: number;
+  /** CONFIRMED time logged inside the cycle window(s), in minutes. */
+  minutesLogged: number;
+}
+
+export interface ContributionsResult {
+  /** Sorted by completed tickets, then points, then name; Unassigned last. */
+  rows: ContributorRow[];
+}
+
 /** A merged PR with its opened→merged duration, when measurable. */
 interface MergedPrDuration {
   /** `${repoFullName}#${prNumber}` — the dedup key. */
   key: string;
   mergedAt: Date;
+  /** Lowercased GitHub login of the PR author, when recorded. */
+  author: string | null;
   /** Null when no `opened` event was captured for the PR. */
   hours: number | null;
 }
@@ -203,8 +244,65 @@ function summarizePrDurations(prs: MergedPrDuration[]): PrTurnaroundResult {
   return { mergedPrCount: prs.length, avgHours, medianHours };
 }
 
+/** The filter's member ids, or null when the filter is off (absent/empty). */
+function filterMemberIds(filter?: MetricsMemberFilter): string[] | null {
+  return filter?.memberIds?.length ? filter.memberIds : null;
+}
+
+interface TimeWindow {
+  start: Date;
+  end: Date;
+}
+
+/** The dated cycles' windows. Undated cycles have no window to fall in. */
+function cycleWindows(
+  cycles: { startDate: Date | null; endDate: Date | null }[],
+): TimeWindow[] {
+  return cycles.flatMap((c) =>
+    c.startDate && c.endDate ? [{ start: c.startDate, end: c.endDate }] : [],
+  );
+}
+
+/** The single span covering every window, or null when there are none. */
+function unionOf(windows: TimeWindow[]): TimeWindow | null {
+  if (windows.length === 0) return null;
+  return {
+    start: new Date(Math.min(...windows.map((w) => w.start.getTime()))),
+    end: new Date(Math.max(...windows.map((w) => w.end.getTime()))),
+  };
+}
+
+/**
+ * Whether `at` falls in any window. PR merges use an inclusive end (as
+ * `getPrTurnaround`); time entries an exclusive one (as untracked work).
+ */
+function inAnyWindow(
+  at: Date,
+  windows: TimeWindow[],
+  opts?: { endExclusive?: boolean },
+): boolean {
+  return windows.some(
+    (w) => at >= w.start && (opts?.endExclusive ? at < w.end : at <= w.end),
+  );
+}
+
 export class SprintAnalyticsService {
   constructor(private prisma: PrismaClient) {}
+
+  /**
+   * Lowercased GitHub logins of the filtered members, or null when the filter
+   * is off. A filtered member with no linked GitHub contributes no login, so
+   * their PRs are (honestly) not counted rather than guessed.
+   */
+  private async filterLogins(
+    workspaceId: string,
+    filter?: MetricsMemberFilter,
+  ): Promise<Set<string> | null> {
+    const memberIds = filterMemberIds(filter);
+    if (!memberIds) return null;
+    const logins = await resolveGithubLogins(this.prisma, workspaceId, memberIds);
+    return new Set([...logins.values()].map((l) => l.toLowerCase()));
+  }
 
   /**
    * Get metrics for an active sprint (List with type=SPRINT).
@@ -449,26 +547,39 @@ export class SprintAnalyticsService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Get GitHub activity for today
+    // Commits pushed today (one push row per commit)
     const githubActivity = await this.prisma.gitHubActivity.count({
       where: {
+        eventType: "push",
         eventTimestamp: { gte: today },
       },
     });
 
-    const prActivity = await this.prisma.gitHubActivity.groupBy({
-      by: ["eventAction"],
+    const prActivity = await this.prisma.gitHubActivity.findMany({
       where: {
         eventType: "pull_request",
+        eventAction: { in: ["opened", "closed"] },
         eventTimestamp: { gte: today },
       },
-      _count: true,
+      select: {
+        eventAction: true,
+        prMergedAt: true,
+        prNumber: true,
+        repoFullName: true,
+      },
     });
 
-    const prsOpened = prActivity.find((p) => p.eventAction === "opened")?._count ?? 0;
-    const prsMerged = prActivity.find(
-      (p) => p.eventAction === "closed",
-    )?._count ?? 0; // merged PRs come as "closed" with merged_at set
+    // Counted per PR, not per row: a PR can be closed more than once (closed,
+    // reopened, then merged), and each close is its own row. Merged PRs come
+    // as "closed" with merged_at set; a close without it is not a merge.
+    const distinctPrs = (rows: typeof prActivity) =>
+      new Set(rows.map((p) => `${p.repoFullName}#${p.prNumber}`)).size;
+    const prsOpened = distinctPrs(
+      prActivity.filter((p) => p.eventAction === "opened"),
+    );
+    const prsMerged = distinctPrs(
+      prActivity.filter((p) => p.eventAction === "closed" && p.prMergedAt),
+    );
 
     const reviewCount = await this.prisma.gitHubActivity.count({
       where: {
@@ -605,7 +716,10 @@ export class SprintAnalyticsService {
    * Returns zeros/nulls gracefully when the cycle has no window or no merged
    * PRs (no NaN from an empty average).
    */
-  async getPrTurnaround(listId: string): Promise<PrTurnaroundResult> {
+  async getPrTurnaround(
+    listId: string,
+    filter?: MetricsMemberFilter,
+  ): Promise<PrTurnaroundResult> {
     const empty: PrTurnaroundResult = {
       mergedPrCount: 0,
       avgHours: null,
@@ -619,12 +733,17 @@ export class SprintAnalyticsService {
 
     if (!list.startDate || !list.endDate || !list.workspaceId) return empty;
 
-    const prs = await this.getMergedPrDurations(list.workspaceId, {
-      start: list.startDate,
-      end: list.endDate,
-    });
+    const [prs, logins] = await Promise.all([
+      this.getMergedPrDurations(list.workspaceId, {
+        start: list.startDate,
+        end: list.endDate,
+      }),
+      this.filterLogins(list.workspaceId, filter),
+    ]);
 
-    return summarizePrDurations(prs);
+    return summarizePrDurations(
+      logins ? prs.filter((pr) => pr.author && logins.has(pr.author)) : prs,
+    );
   }
 
   /**
@@ -648,13 +767,23 @@ export class SprintAnalyticsService {
           ? { gte: window.start, lte: window.end }
           : { not: null },
       },
-      select: { prNumber: true, repoFullName: true, prMergedAt: true },
+      select: {
+        prNumber: true,
+        repoFullName: true,
+        prMergedAt: true,
+        prAuthor: true,
+      },
     });
 
     // Dedup to one merged timestamp per (repo, PR number).
     const mergedByPr = new Map<
       string,
-      { prNumber: number; repoFullName: string; mergedAt: Date }
+      {
+        prNumber: number;
+        repoFullName: string;
+        mergedAt: Date;
+        author: string | null;
+      }
     >();
     for (const row of mergedRows) {
       if (row.prNumber == null || !row.prMergedAt) continue;
@@ -665,6 +794,7 @@ export class SprintAnalyticsService {
           prNumber: row.prNumber,
           repoFullName: row.repoFullName,
           mergedAt: row.prMergedAt,
+          author: row.prAuthor?.toLowerCase() ?? null,
         });
       }
     }
@@ -697,7 +827,7 @@ export class SprintAnalyticsService {
       }
     }
 
-    return [...mergedByPr.entries()].map(([key, { mergedAt }]) => {
+    return [...mergedByPr.entries()].map(([key, { mergedAt, author }]) => {
       const openedAt = openedByPr.get(key);
       // No opened event captured (or a clock-skewed negative) → not measurable,
       // but the PR still counts toward mergedPrCount.
@@ -705,6 +835,7 @@ export class SprintAnalyticsService {
       return {
         key,
         mergedAt,
+        author,
         hours: ms != null && ms >= 0 ? ms / (1000 * 60 * 60) : null,
       };
     });
@@ -719,9 +850,13 @@ export class SprintAnalyticsService {
    * pass over the workspace's merged PRs — not 3N queries. Cycles holding no
    * tickets are dropped from the series so an auto-generated empty future cycle
    * doesn't flatten the chart.
+   *
+   * With a member `filter`, every number narrows to those members (see
+   * {@link MetricsMemberFilter}) but the series keeps the same cycles.
    */
   async getAllCyclesMetrics(
     workspaceId: string,
+    filter?: MetricsMemberFilter,
   ): Promise<AllCyclesMetricsResult> {
     const empty: AllCyclesMetricsResult = {
       cycleCount: 0,
@@ -792,10 +927,15 @@ export class SprintAnalyticsService {
 
     if (cycles.length === 0) return empty;
 
+    // Fetched unfiltered: whether a cycle has tickets AT ALL decides if it's
+    // on the chart, so filtering to a member keeps the same x-axis (with zeros
+    // where they had nothing) instead of silently dropping cycles.
     const tickets = await this.prisma.ticket.findMany({
       where: { cycleId: { in: cycles.map((c) => c.id) } },
-      select: { cycleId: true, status: true, points: true },
+      select: { cycleId: true, status: true, points: true, assigneeId: true },
     });
+    const memberIds = filterMemberIds(filter);
+    const memberSet = memberIds ? new Set(memberIds) : null;
 
     const ticketsByCycle = new Map<
       string,
@@ -809,6 +949,10 @@ export class SprintAnalyticsService {
         completedPoints: 0,
         totalPoints: 0,
       };
+      ticketsByCycle.set(ticket.cycleId, bucket);
+      if (memberSet && !(ticket.assigneeId && memberSet.has(ticket.assigneeId))) {
+        continue;
+      }
       const points = ticket.points ?? 0;
       bucket.total += 1;
       bucket.totalPoints += points;
@@ -816,7 +960,6 @@ export class SprintAnalyticsService {
         bucket.completed += 1;
         bucket.completedPoints += points;
       }
-      ticketsByCycle.set(ticket.cycleId, bucket);
     }
 
     // Bound the PR scan to the union of every cycle window. A PR merged
@@ -825,19 +968,17 @@ export class SprintAnalyticsService {
     // list it builds) proportional to the cycles' span rather than to the
     // workspace's entire GitHubActivity history. No dated cycle → no window to
     // fall in, so skip the two queries entirely.
-    const dated = cycles.filter((c) => c.startDate && c.endDate);
-    const unionWindow = dated.length
-      ? {
-          start: new Date(
-            Math.min(...dated.map((c) => c.startDate!.getTime())),
-          ),
-          end: new Date(Math.max(...dated.map((c) => c.endDate!.getTime()))),
-        }
-      : null;
+    const unionWindow = unionOf(cycleWindows(cycles));
 
-    const allPrs = unionWindow
-      ? await this.getMergedPrDurations(workspaceId, unionWindow)
-      : [];
+    const [mergedPrs, logins] = await Promise.all([
+      unionWindow
+        ? this.getMergedPrDurations(workspaceId, unionWindow)
+        : Promise.resolve([]),
+      this.filterLogins(workspaceId, filter),
+    ]);
+    const allPrs = logins
+      ? mergedPrs.filter((pr) => pr.author && logins.has(pr.author))
+      : mergedPrs;
 
     const points: CycleMetricsPoint[] = [];
     // PRs counted in at least one cycle window, so overlapping windows don't
@@ -909,6 +1050,207 @@ export class SprintAnalyticsService {
   }
 
   /**
+   * Per-person contributions for the Metrics page: one row per workspace
+   * member (plus anyone else with activity in scope, and an "Unassigned" row
+   * for tickets nobody owns).
+   *
+   * Scope is one cycle (`cycleId`) or, when omitted, every cycle holding a
+   * ticket — the same set the all-cycles roll-up sums. Tickets attribute by
+   * assignee; PRs merged and commits pushed by GitHub login (members without a
+   * linked login get 0 and `githubLinked: false`); time by who logged it.
+   * PRs/commits/time count only inside the cycle window(s). Computed live,
+   * batched, nothing persisted (ADR-0047). Returns every row — the page
+   * filters to selected members client-side so one fetch serves any filter.
+   */
+  async getContributions(
+    workspaceId: string,
+    cycleId?: string,
+  ): Promise<ContributionsResult> {
+    const cyclesInWorkspace = await this.prisma.list.findMany({
+      where: {
+        workspaceId,
+        listType: "SPRINT",
+        ...(cycleId ? { id: cycleId } : {}),
+      },
+      select: { id: true, startDate: true, endDate: true },
+    });
+
+    const [tickets, directMembers, teamMembers] = await Promise.all([
+      this.prisma.ticket.findMany({
+        where: { cycleId: { in: cyclesInWorkspace.map((c) => c.id) } },
+        select: { cycleId: true, status: true, points: true, assigneeId: true },
+      }),
+      this.prisma.workspaceUser.findMany({
+        where: { workspaceId },
+        select: { userId: true },
+      }),
+      this.prisma.teamUser.findMany({
+        where: { team: { workspaceId } },
+        select: { userId: true },
+      }),
+    ]);
+
+    // All-cycles scope mirrors the roll-up: only cycles holding tickets. A
+    // single picked cycle keeps its window even when it has no tickets.
+    const cyclesWithTickets = new Set(tickets.map((t) => t.cycleId));
+    const scopedCycles = cycleId
+      ? cyclesInWorkspace
+      : cyclesInWorkspace.filter((c) => cyclesWithTickets.has(c.id));
+    const scopedCycleIds = new Set(scopedCycles.map((c) => c.id));
+    const windows = cycleWindows(scopedCycles);
+    const span = unionOf(windows);
+
+    const memberIds = new Set([
+      ...directMembers.map((m) => m.userId),
+      ...teamMembers.map((m) => m.userId),
+    ]);
+    const assigneeIds = tickets
+      .map((t) => t.assigneeId)
+      .filter((id): id is string => id != null);
+
+    const [prs, pushes, timeEntries] = await Promise.all([
+      span ? this.getMergedPrDurations(workspaceId, span) : Promise.resolve([]),
+      span
+        ? this.prisma.gitHubActivity.findMany({
+            where: {
+              workspaceId,
+              eventType: "push",
+              commitAuthor: { not: null },
+              eventTimestamp: { gte: span.start, lte: span.end },
+            },
+            // externalId is the full commit SHA; commitSha is only 7 chars.
+            select: { externalId: true, commitAuthor: true, eventTimestamp: true },
+          })
+        : Promise.resolve([]),
+      span
+        ? this.prisma.timeEntry.findMany({
+            where: {
+              workspaceId,
+              status: "CONFIRMED",
+              // Exclusive end, matching the cycle's untracked-work metric.
+              startedAt: { gte: span.start, lt: span.end },
+              endedAt: { not: null },
+            },
+            select: { userId: true, startedAt: true, endedAt: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    // Everyone who can get a row: members, assignees and anyone who logged
+    // time (a former member may appear through time alone) — so every row's
+    // GitHub link is resolved, not just members' and assignees'.
+    const logins = await resolveGithubLogins(this.prisma, workspaceId, [
+      ...new Set([
+        ...memberIds,
+        ...assigneeIds,
+        ...timeEntries.map((e) => e.userId),
+      ]),
+    ]);
+
+    const userByLogin = new Map(
+      [...logins.entries()].map(([userId, login]) => [login.toLowerCase(), userId]),
+    );
+
+    type Tally = Omit<
+      ContributorRow,
+      "name" | "email" | "image" | "isMember" | "githubLinked"
+    >;
+    const UNASSIGNED = "";
+    const rows = new Map<string, Tally>();
+    const rowFor = (userId: string | null) => {
+      const key = userId ?? UNASSIGNED;
+      let row = rows.get(key);
+      if (!row) {
+        row = {
+          userId,
+          assignedTickets: 0,
+          completedTickets: 0,
+          completedPoints: 0,
+          totalPoints: 0,
+          mergedPrs: 0,
+          commits: 0,
+          minutesLogged: 0,
+        };
+        rows.set(key, row);
+      }
+      return row;
+    };
+    for (const id of memberIds) rowFor(id);
+
+    for (const ticket of tickets) {
+      if (!ticket.cycleId || !scopedCycleIds.has(ticket.cycleId)) continue;
+      const row = rowFor(ticket.assigneeId);
+      const points = ticket.points ?? 0;
+      row.assignedTickets += 1;
+      row.totalPoints += points;
+      if (COMPLETED_TICKET_STATUSES.has(ticket.status)) {
+        row.completedTickets += 1;
+        row.completedPoints += points;
+      }
+    }
+
+    for (const pr of prs) {
+      if (!pr.author || !inAnyWindow(pr.mergedAt, windows)) continue;
+      const userId = userByLogin.get(pr.author);
+      if (userId) rowFor(userId).mergedPrs += 1;
+    }
+
+    const seenCommits = new Set<string>();
+    for (const push of pushes) {
+      if (!push.commitAuthor || !inAnyWindow(push.eventTimestamp, windows)) continue;
+      if (seenCommits.has(push.externalId)) continue;
+      seenCommits.add(push.externalId);
+      const userId = userByLogin.get(push.commitAuthor.toLowerCase());
+      if (userId) rowFor(userId).commits += 1;
+    }
+
+    for (const entry of timeEntries) {
+      if (!entry.endedAt || !inAnyWindow(entry.startedAt, windows, { endExclusive: true })) {
+        continue;
+      }
+      rowFor(entry.userId).minutesLogged += Math.max(
+        0,
+        Math.round((entry.endedAt.getTime() - entry.startedAt.getTime()) / 60_000),
+      );
+    }
+
+    const userIds = [...rows.keys()].filter((key) => key !== UNASSIGNED);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, email: true, image: true },
+    });
+    const userById = new Map(users.map((u) => [u.id, u]));
+
+    const result: ContributorRow[] = [...rows.values()].map((row) => {
+      const user = row.userId ? userById.get(row.userId) : undefined;
+      return {
+        ...row,
+        name: user?.name ?? null,
+        email: user?.email ?? null,
+        image: user?.image ?? null,
+        isMember: row.userId != null && memberIds.has(row.userId),
+        githubLinked: row.userId != null && logins.has(row.userId),
+      };
+    });
+
+    const label = (r: ContributorRow) => r.name ?? r.email ?? "";
+    result.sort((a, b) => {
+      if (a.userId == null) return 1;
+      if (b.userId == null) return -1;
+      return (
+        b.completedTickets - a.completedTickets ||
+        b.completedPoints - a.completedPoints ||
+        label(a).localeCompare(label(b))
+      );
+    });
+
+    // An "Unassigned" row with nothing in it is noise.
+    return {
+      rows: result.filter((r) => r.userId != null || r.assignedTickets > 0),
+    };
+  }
+
+  /**
    * List a workspace's cycles (SPRINT lists) for the Metrics page selector.
    * Ordered most-recent-first by start date (undated cycles last, by recency).
    */
@@ -946,14 +1288,20 @@ export class SprintAnalyticsService {
    */
   async getCycleTicketMetrics(
     listId: string,
+    filter?: MetricsMemberFilter,
   ): Promise<CycleTicketMetricsResult> {
     const list = await this.prisma.list.findUniqueOrThrow({
       where: { id: listId },
       select: { id: true, name: true, startDate: true, endDate: true, workspaceId: true },
     });
 
+    const memberIds = filterMemberIds(filter);
+
     const tickets = await this.prisma.ticket.findMany({
-      where: { cycleId: listId },
+      where: {
+        cycleId: listId,
+        ...(memberIds ? { assigneeId: { in: memberIds } } : {}),
+      },
       select: { status: true, points: true },
     });
 
@@ -969,6 +1317,7 @@ export class SprintAnalyticsService {
           startedAt: { gte: list.startDate, lt: list.endDate },
           endedAt: { not: null },
           action: { ticketId: null },
+          ...(memberIds ? { userId: { in: memberIds } } : {}),
         },
         select: { startedAt: true, endedAt: true },
       });

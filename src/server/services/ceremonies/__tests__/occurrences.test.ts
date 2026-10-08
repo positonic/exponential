@@ -80,6 +80,22 @@ describe("ensureOccurrences", () => {
     expect(created).toBe(0);
     expect(db.ceremonyOccurrence.createMany).not.toHaveBeenCalled();
   });
+
+  it("writes nothing for a one-off even if it carries a rule", async () => {
+    const db = mockDeep<PrismaClient>();
+    const inserted = await ensureOccurrences(db, ceremony({ isOneOff: true }));
+    expect(inserted).toBe(0);
+    expect(db.ceremonyOccurrence.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("ensureOccurrences on a one-off", () => {
+  it("writes nothing for a ceremony with no cadence rule", async () => {
+    const db = mockDeep<PrismaClient>();
+    const inserted = await ensureOccurrences(db, ceremony({ cadenceRule: null, isOneOff: true }));
+    expect(inserted).toBe(0);
+    expect(db.ceremonyOccurrence.createMany).not.toHaveBeenCalled();
+  });
 });
 
 describe("expandActiveCeremonies", () => {
@@ -93,7 +109,8 @@ describe("expandActiveCeremonies", () => {
 
     const result = await expandActiveCeremonies(db, new Date("2026-09-09T12:00:00.000Z"));
 
-    expect(db.ceremony.findMany).toHaveBeenCalledWith({ where: { isActive: true } });
+    // A one-off (null cadence) has nothing to expand.
+    expect(db.ceremony.findMany).toHaveBeenCalledWith({ where: { isActive: true, isOneOff: false, cadenceRule: { not: null } } });
     expect(result.ceremonies).toBe(2);
     expect(result.created).toBe(2);
     expect(result.errors).toHaveLength(1);

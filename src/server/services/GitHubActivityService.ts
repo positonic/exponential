@@ -34,6 +34,8 @@ interface PullRequestEventData {
     html_url: string;
     created_at: string;
     merged_at: string | null;
+    closed_at?: string | null;
+    updated_at?: string | null;
     user: {
       login: string;
     };
@@ -75,6 +77,53 @@ interface PullRequestReviewEventData {
     full_name: string;
     html_url: string;
   };
+}
+
+/**
+ * PR actions that can happen more than once in a PR's life and that readers
+ * fold into its state: opened → closed → reopened → closed (merged). Each
+ * delivery of these is its own row.
+ */
+const REPEATABLE_PR_ACTIONS = new Set(["closed", "reopened"]);
+
+/**
+ * Dedup key for a pull_request activity row. Repeatable lifecycle actions
+ * include the delivery GUID, so a second close is stored while a redelivery
+ * (same GUID) still collapses. Every other action keeps one row per PR and
+ * action, as before, so a push-heavy PR doesn't write a `synchronize` row per
+ * push.
+ */
+export function pullRequestActivityKey(
+  nodeId: string,
+  action: string,
+  deliveryId: string,
+): string {
+  return REPEATABLE_PR_ACTIONS.has(action)
+    ? `${nodeId}:${action}:${deliveryId}`
+    : `${nodeId}:${action}`;
+}
+
+/**
+ * When a pull_request event happened, by GitHub's clock. Readers fold PR state
+ * oldest-first, and GitHub doesn't guarantee delivery order, so webhook-receipt
+ * time would let a late-delivered close sort after the reopen that followed it.
+ * Receipt time is only the fallback for actions with no timestamp of their own.
+ */
+export function pullRequestEventTimestamp(
+  action: string,
+  pr: PullRequestEventData["pull_request"],
+  receivedAt: Date = new Date(),
+): Date {
+  const at =
+    action === "opened"
+      ? pr.created_at
+      : pr.merged_at ??
+        (action === "closed"
+          ? pr.closed_at
+          : action === "reopened"
+            ? pr.updated_at
+            : null);
+  return at ? new Date(at) : receivedAt;
 }
 
 /**
@@ -320,18 +369,34 @@ export class GitHubActivityService {
     // on every action so an opened PR is linked well before it merges.
     await linkPrToTickets(this.prisma, ctx.workspaceId, pr);
 
-    // Use PR node_id + action as unique key
-    const externalId = `${pr.node_id}:${data.action}`;
+    const externalId = pullRequestActivityKey(pr.node_id, data.action, deliveryId);
+    const legacyExternalId = `${pr.node_id}:${data.action}`;
 
-    const existing = await this.prisma.gitHubActivity.findUnique({
+    // A redelivery reuses its X-GitHub-Delivery GUID, so it lands on the same
+    // key. Rows written before the per-delivery key carry the legacy
+    // `node_id:action` key instead: one of those with this delivery's GUID is
+    // a redelivery too, while one with a different GUID was an earlier close
+    // or reopen and must not swallow this one. A PR merges only once, so a
+    // legacy merged close (including a backfilled one, which has no delivery
+    // GUID) already records this merge.
+    const isMerge = data.action === "closed" && !!pr.merged_at;
+    const existing = await this.prisma.gitHubActivity.findMany({
       where: {
-        externalId_eventType: {
-          externalId,
-          eventType: "pull_request",
-        },
+        externalId: { in: [...new Set([externalId, legacyExternalId])] },
+        eventType: "pull_request",
       },
+      select: { externalId: true, deliveryId: true, prMergedAt: true },
     });
-    if (existing) return;
+    if (
+      existing.some(
+        (row) =>
+          row.externalId === externalId ||
+          row.deliveryId === deliveryId ||
+          (isMerge && row.prMergedAt != null),
+      )
+    ) {
+      return;
+    }
 
     const branchName = pr.head.ref;
     const mapping = await this.resolveActionMapping(
@@ -361,12 +426,7 @@ export class GitHubActivityService {
         // Use the PR's real timestamps, not webhook-receipt time, so
         // opened→merged turnaround (getPrTurnaround) is measured accurately
         // even if a webhook is delivered late or replayed.
-        eventTimestamp:
-          data.action === "opened" && pr.created_at
-            ? new Date(pr.created_at)
-            : pr.merged_at
-              ? new Date(pr.merged_at)
-              : new Date(),
+        eventTimestamp: pullRequestEventTimestamp(data.action, pr),
         actionId: mapping?.actionId ?? null,
         mappingMethod: mapping?.method ?? null,
         mappingConfidence: mapping?.confidence ?? null,
@@ -508,6 +568,8 @@ export class GitHubActivityService {
         eventType: true,
         eventAction: true,
         prState: true,
+        prNumber: true,
+        repoFullName: true,
         actionId: true,
       },
     });
@@ -516,9 +578,13 @@ export class GitHubActivityService {
     const totalPRsOpened = activities.filter(
       (a) => a.eventType === "pull_request" && a.eventAction === "opened",
     ).length;
-    const totalPRsMerged = activities.filter(
-      (a) => a.eventType === "pull_request" && a.prState === "merged",
-    ).length;
+    // Once per PR: any action after the merge (a label, an edit) also carries
+    // prState "merged".
+    const totalPRsMerged = new Set(
+      activities
+        .filter((a) => a.eventType === "pull_request" && a.prState === "merged")
+        .map((a) => `${a.repoFullName}#${a.prNumber}`),
+    ).size;
     const totalReviews = activities.filter(
       (a) => a.eventType === "pull_request_review",
     ).length;

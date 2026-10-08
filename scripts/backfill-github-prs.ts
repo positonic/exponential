@@ -13,10 +13,12 @@
  *   - an "opened" row (eventTimestamp = PR created_at) — feeds turnaround
  *   - a "closed" row (prState "merged", prMergedAt set)  — feeds the count
  *
- * Same externalId scheme as GitHubActivityService.processPullRequestEvent
- * (`${node_id}:${action}` + eventType unique), so it is idempotent AND a
- * webhook replay of the same PR still dedups against these rows. Ticket
- * linking / action mapping are deliberately skipped — this feeds metrics only.
+ * Rows use the legacy `${node_id}:${action}` externalId (+ eventType unique),
+ * so the script is idempotent. The webhook keys a close by delivery
+ * (`${node_id}:closed:<guid>`), so the merge row is also skipped whenever the
+ * PR already has a merged close under any key — and the webhook skips a merge
+ * the backfill already wrote. Ticket linking / action mapping are deliberately
+ * skipped — this feeds metrics only.
  *
  * Auth: set GITHUB_TOKEN (e.g. `GITHUB_TOKEN=$(gh auth token)`) with read
  * access to the repos.
@@ -169,12 +171,28 @@ async function main() {
       select: { externalId: true },
     });
     const existingIds = new Set(existing.map((e) => e.externalId));
-    const newRows = rows.filter((r) => !existingIds.has(r.externalId));
+    // A merge the webhook stored under its per-delivery key.
+    const alreadyMerged = await db.gitHubActivity.findMany({
+      where: {
+        eventType: 'pull_request',
+        eventAction: 'closed',
+        prMergedAt: { not: null },
+        repoFullName: repo.fullName,
+        prNumber: { in: prs.map((pr) => pr.number) },
+      },
+      select: { prNumber: true },
+    });
+    const mergedNumbers = new Set(alreadyMerged.map((m) => m.prNumber));
+    const newRows = rows.filter(
+      (r) =>
+        !existingIds.has(r.externalId) &&
+        !(r.eventAction === 'closed' && mergedNumbers.has(r.prNumber)),
+    );
 
     totalNew += newRows.length;
-    totalExisting += existingIds.size;
+    totalExisting += rows.length - newRows.length;
     console.log(
-      `${repo.fullName}: ${prs.length} merged PRs -> ${newRows.length} new rows (${existingIds.size} already present)`,
+      `${repo.fullName}: ${prs.length} merged PRs -> ${newRows.length} new rows (${rows.length - newRows.length} already present)`,
     );
 
     if (APPLY && newRows.length > 0) {

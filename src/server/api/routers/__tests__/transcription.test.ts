@@ -1047,3 +1047,84 @@ describe("transcription router (mocked) — getDetail / getTranscript", () => {
     });
   });
 });
+
+describe("transcription router (mocked) — discardDraftActions", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+  const draftScope = {
+    transcriptionSessionId: "m1",
+    status: "DRAFT",
+    createdById: callerId,
+  };
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.action.deleteMany.mockResolvedValue({ count: 2 });
+  });
+
+  it("deletes only the chosen ids, scoped to this meeting's own drafts", async () => {
+    meeting(callerId);
+    dbMock.action.count.mockResolvedValue(1);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.discardDraftActions({
+      transcriptionId: "m1",
+      actionIds: ["a1", "a2"],
+    });
+
+    expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["a1", "a2"] }, ...draftScope },
+    });
+    expect(result).toEqual({ discardedCount: 2, remainingDrafts: 1 });
+    // Drafts remain, so the meeting is not yet processed.
+    expect(dbMock.transcriptionSession.update).not.toHaveBeenCalled();
+  });
+
+  it("discards every remaining draft when no ids are given, then marks the meeting processed", async () => {
+    meeting(callerId);
+    dbMock.action.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.discardDraftActions({ transcriptionId: "m1" });
+
+    expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
+      where: draftScope,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ processedAt: expect.any(Date) }),
+      }),
+    );
+  });
+
+  it("refuses a caller who does not own the meeting", async () => {
+    meeting("someone-else");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.discardDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.discardDraftActions({ transcriptionId: "nope" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});

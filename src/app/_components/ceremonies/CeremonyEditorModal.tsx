@@ -158,7 +158,7 @@ function fromCeremony(c: CeremonyDetail): FormState {
     notFor: c.notFor ?? "",
     inputs: c.inputs ?? "",
     outputs: c.outputs ?? "",
-    cadenceRule: c.cadenceRule,
+    cadenceRule: c.cadenceRule ?? "",
     timezone: c.timezone,
     startsOn: new Date(c.startsOn),
     durationMinutes: c.durationMinutes,

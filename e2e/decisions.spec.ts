@@ -42,6 +42,7 @@ test("Log a decision from the fixture meeting, with a transcript turn as evidenc
 
   // Mark one transcript turn as evidence: the per-turn action is hover-revealed.
   await page.getByRole("tab", { name: /^Transcript/ }).click();
+  await expect(page).toHaveURL(/\?tab=transcript$/);
   const firstTurn = page.locator(".mp-turn").first();
   await expect(firstTurn).toBeVisible();
   await firstTurn.hover();
@@ -60,6 +61,8 @@ test("Log a decision from the fixture meeting, with a transcript turn as evidenc
   // Success toast carries the new label; the summary tab now lists the decision.
   await expect(page.getByText(/D-\d{4} logged/)).toBeVisible();
   await page.getByRole("tab", { name: /^Summary/ }).click();
+  // Summary is the default tab, so its link is the bare meeting URL.
+  await expect(page).not.toHaveURL(/[?&]tab=/);
   const newItem = page.locator(".mp-dec__item", { hasText: statement });
   await expect(newItem).toBeVisible();
   await expect(newItem).toContainText("1 transcript turn quoted");

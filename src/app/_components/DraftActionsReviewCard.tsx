@@ -113,14 +113,35 @@ export function DraftActionsReviewCard({
       },
     });
 
-  const deleteDraftMutation = api.action.bulkDelete.useMutation({
-    onSuccess: async () => {
+  // Discard goes through the transcription-scoped mutation rather than the
+  // generic action.bulkDelete: it can't reach Actions outside this meeting's
+  // draft set, and it doesn't write "deleted" project activity for Actions
+  // that were never published.
+  const discardMutation = api.transcription.discardDraftActions.useMutation({
+    onSuccess: async (result, variables) => {
+      if (result.discardedCount > 0) {
+        notifications.show({
+          title: "Drafts discarded",
+          message: `Discarded ${result.discardedCount} draft${result.discardedCount === 1 ? "" : "s"}.`,
+          color: "gray",
+        });
+      }
+      // Drop only what was discarded from the selection: a per-row trash
+      // click must not deselect the drafts the reviewer still means to
+      // create. No ids means "discard all", so nothing is left to select.
+      const discarded = variables.actionIds;
+      setSelectedIds((prev) => {
+        if (!discarded) return new Set();
+        const next = new Set(prev);
+        for (const id of discarded) next.delete(id);
+        return next;
+      });
       await invalidateQueries();
     },
     onError: (error) => {
       notifications.show({
         title: "Error",
-        message: error.message ?? "Failed to delete draft action",
+        message: error.message ?? "Failed to discard draft actions",
         color: "red",
       });
     },
@@ -147,12 +168,20 @@ export function DraftActionsReviewCard({
   };
 
   const handleDelete = (actionId: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(actionId);
-      return next;
-    });
-    deleteDraftMutation.mutate({ actionIds: [actionId] });
+    discardMutation.mutate({ transcriptionId, actionIds: [actionId] });
+  };
+
+  // With a selection, discard just that; with none, discard every remaining
+  // draft — the "I've created the ones I wanted, clear the rest" case.
+  const handleDiscard = () => {
+    if (selectedIds.size > 0) {
+      discardMutation.mutate({
+        transcriptionId,
+        actionIds: Array.from(selectedIds),
+      });
+    } else {
+      discardMutation.mutate({ transcriptionId });
+    }
   };
 
   const allSelected =
@@ -160,6 +189,7 @@ export function DraftActionsReviewCard({
   const someSelected = selectedIds.size > 0 && !allSelected;
   const isPublishing =
     publishDraftsMutation.isPending || publishSelectedMutation.isPending;
+  const isBusy = isPublishing || discardMutation.isPending;
 
   if (isLoading) {
     return (
@@ -238,7 +268,8 @@ export function DraftActionsReviewCard({
                     color="red"
                     aria-label="Delete draft action"
                     onClick={() => handleDelete(action.id)}
-                    loading={deleteDraftMutation.isPending}
+                    loading={discardMutation.isPending}
+                    disabled={isBusy}
                   >
                     <IconTrash size={14} />
                   </ActionIcon>
@@ -253,6 +284,18 @@ export function DraftActionsReviewCard({
             <Group gap="xs">
               <Button
                 size="xs"
+                variant="subtle"
+                color="red"
+                onClick={handleDiscard}
+                loading={discardMutation.isPending}
+                disabled={isBusy}
+              >
+                {selectedIds.size > 0
+                  ? `Discard (${selectedIds.size})`
+                  : `Discard all (${draftActions.length})`}
+              </Button>
+              <Button
+                size="xs"
                 variant="light"
                 onClick={() =>
                   publishSelectedMutation.mutate({
@@ -261,7 +304,7 @@ export function DraftActionsReviewCard({
                   })
                 }
                 loading={publishSelectedMutation.isPending}
-                disabled={selectedIds.size === 0 || isPublishing}
+                disabled={selectedIds.size === 0 || isBusy}
               >
                 Create selected ({selectedIds.size})
               </Button>
@@ -271,7 +314,7 @@ export function DraftActionsReviewCard({
                   publishDraftsMutation.mutate({ transcriptionId })
                 }
                 loading={publishDraftsMutation.isPending}
-                disabled={draftActions.length === 0 || isPublishing}
+                disabled={draftActions.length === 0 || isBusy}
               >
                 Create all
               </Button>

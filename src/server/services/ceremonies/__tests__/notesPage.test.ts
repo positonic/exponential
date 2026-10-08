@@ -7,6 +7,13 @@ import {
   resolveNotesPageProjectId,
 } from "../notesPage";
 
+/** A deep Prisma mock whose interactive `$transaction` runs on the same mock. */
+function mockDb() {
+  const db = mockDeep<PrismaClient>();
+  db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => unknown) => fn(db)) as never);
+  return db;
+}
+
 const occurrence = {
   id: "occ-1",
   workspaceId: "ws-1",
@@ -21,7 +28,7 @@ const ceremony = {
 
 describe("ensureOccurrenceNotesPage", () => {
   it("creates the page in the ceremony's project, owned by the ceremony owner, and links it", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: null } as never);
     db.knowledgePage.create.mockResolvedValue({ id: "page-1" } as never);
     db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
@@ -47,7 +54,7 @@ describe("ensureOccurrenceNotesPage", () => {
   });
 
   it("is idempotent: an occurrence that already has a page keeps it and nothing is written", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: "page-existing" } as never);
     const res = await ensureOccurrenceNotesPage(db, occurrence, ceremony);
     expect(res).toEqual({ pageId: "page-existing", created: false });
@@ -56,7 +63,7 @@ describe("ensureOccurrenceNotesPage", () => {
   });
 
   it("on a concurrent create, drops its orphan page and adopts the winner's", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique
       .mockResolvedValueOnce({ notesPageId: null } as never) // our read: no page yet
       .mockResolvedValueOnce({ notesPageId: "page-winner" } as never); // after losing the CAS
@@ -71,7 +78,7 @@ describe("ensureOccurrenceNotesPage", () => {
   });
 
   it("passes seed content through to the created page", async () => {
-    const db = mockDeep<PrismaClient>();
+    const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: null } as never);
     db.knowledgePage.create.mockResolvedValue({ id: "page-1" } as never);
     db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });

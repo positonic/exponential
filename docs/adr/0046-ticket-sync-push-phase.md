@@ -64,8 +64,10 @@ existing design that constrain it:
   **non-terminal** tickets (excluding DONE, DEPLOYED, ARCHIVED) to Notion, and the real backfill
   cannot run without a dry-run preview having been generated first — the same "preview before first
   real run" shape as inbound's first-sync gate (ADR-0042), applied to the outbound direction.
-- **Archive ↔ archive, never hard-delete**, same contract as inbound: setting a synced ticket to
-  ARCHIVED trashes its Notion page and tombstones the sync record.
+- ~~**Archive ↔ archive, never hard-delete**, same contract as inbound: setting a synced ticket to
+  ARCHIVED trashes its Notion page and tombstones the sync record.~~ **Superseded by
+  [ADR-0066](0066-sync-never-trashes-notion-pages.md)**: ARCHIVED now pushes as an ordinary status;
+  the push never trashes a page.
 - **Cycles and assignees resolve conservatively outbound.** A ticket's cycle is written to Notion
   only when a matching Notion cycle page already exists; creating a cycle page from an
   Exponential-born cycle is explicitly deferred. Assignee matches by email; no match leaves the

@@ -100,6 +100,27 @@ export async function skipOccurrence(db: PrismaClient, input: SkipOccurrenceInpu
     select: { id: true, status: true, skipReason: true },
   });
 
+  await recordOccurrenceSkipped(db, {
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    occurrence,
+    reason: input.reason,
+  });
+
+  return updated;
+}
+
+/** The `updated` activity event for a skip; shared with a one-off's cancellation. */
+export async function recordOccurrenceSkipped(
+  db: PrismaClient,
+  input: {
+    workspaceId: string;
+    actorUserId: string;
+    occurrence: { id: string; scheduledStart: Date; ceremony: { id: string; name: string; timezone: string } };
+    reason: string;
+  },
+): Promise<void> {
+  const { occurrence } = input;
   await recordActivity(db, {
     workspaceId: input.workspaceId,
     userId: input.actorUserId,
@@ -115,8 +136,6 @@ export async function skipOccurrence(db: PrismaClient, input: SkipOccurrenceInpu
   }).catch(() => {
     /* instrumentation failure is non-fatal */
   });
-
-  return updated;
 }
 
 /** Restore a skipped occurrence to the agenda flow. */

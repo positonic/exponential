@@ -100,13 +100,9 @@ const FIELDS: ScalarField[] = ["title", "status", "priority", "type", "points"];
 type FieldValue = string | number | null;
 
 // Value pools — restricted to what the harness raw tables support.
-// ARCHIVED is deliberately excluded: it triggers the archive/tombstone flow
-// (page trashed, link tombstoned), a different regime from plain scalar
-// convergence, and would break the "identical scalar values" invariant by
-// design. All other statuses round-trip cleanly through STATUS_TO_RAW.
-const STATUSES = (Object.keys(STATUS_TO_RAW) as TicketStatus[]).filter(
-  (s) => s !== "ARCHIVED",
-);
+// ARCHIVED is included: since ADR-0066 it is an ordinary status in both
+// directions (no page trash, no link tombstone), so it must converge like the rest.
+const STATUSES = Object.keys(STATUS_TO_RAW) as TicketStatus[];
 const TYPES = Object.keys(TYPE_TO_RAW) as TicketType[];
 const PRIORITIES: (number | null)[] = [0, 1, 2, 3, 4, null];
 const POINTS: (number | null)[] = [1, 3, 5, 8, null];

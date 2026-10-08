@@ -16,6 +16,7 @@ import {
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
+import { rehomeProjectMeetings } from "~/server/services/meetings/assignMeetingPlacement";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -494,7 +495,7 @@ export const projectRouter = createTRPCRouter({
       // already-completed project).
       const priorProject = await ctx.db.project.findUnique({
         where: { id },
-        select: { status: true },
+        select: { status: true, workspaceId: true },
       });
 
       // A product can only be linked to a project in the same workspace.
@@ -523,44 +524,57 @@ export const projectRouter = createTRPCRouter({
         }
       }
 
-      const updated = await ctx.db.project.update({
-        where: { id },
-        data: {
-          ...updateData,
-          slug,
-          goals: goalIds?.length ? {
-            set: goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          lifeDomains: lifeDomainIds !== undefined ? {
-            set: lifeDomainIds.map(id => ({ id })),
-          } : undefined,
-          // Handle workspace: null means disconnect, string means connect
-          workspace: workspaceId === null
-            ? { disconnect: true }
-            : workspaceId !== undefined
-              ? { connect: { id: workspaceId } }
-              : undefined,
-          // Handle DRI: null means disconnect, string means connect
-          dri: driId === null
-            ? { disconnect: true }
-            : driId !== undefined
-              ? { connect: { id: driId } }
-              : undefined,
-          // Handle Product: null means disconnect, string means connect
-          product: productId === null
-            ? { disconnect: true }
-            : productId !== undefined
-              ? { connect: { id: productId } }
-              : undefined,
-          // Handle public visibility toggle
-          ...(isPublic !== undefined ? { isPublic } : {}),
-          // Handle restriction toggle (gated above by canManageProjectMembers)
-          ...(isRestricted !== undefined ? { isRestricted } : {}),
-          // Handle detailed actions override (null = inherit from workspace)
-          ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
-          // Handle bounties override (null = inherit from workspace)
-          ...(enableBounties !== undefined ? { enableBounties } : {}),
-        },
+      // A project moved to another workspace takes its meetings, and the
+      // actions under it, with it: a meeting's workspace is always its
+      // project's (CONTEXT.md → Meeting↔Workspace). One transaction, so the
+      // project row and its meetings move together or not at all.
+      const movesWorkspace =
+        workspaceId !== undefined && workspaceId !== (priorProject?.workspaceId ?? null);
+      const updated = await ctx.db.$transaction(async (tx) => {
+        const row = await tx.project.update({
+          where: { id },
+          data: {
+            ...updateData,
+            slug,
+            goals: goalIds?.length ? {
+              set: goalIds.map(id => ({ id: parseInt(id) })),
+            } : undefined,
+            lifeDomains: lifeDomainIds !== undefined ? {
+              set: lifeDomainIds.map(id => ({ id })),
+            } : undefined,
+            // Handle workspace: null means disconnect, string means connect
+            workspace: workspaceId === null
+              ? { disconnect: true }
+              : workspaceId !== undefined
+                ? { connect: { id: workspaceId } }
+                : undefined,
+            // Handle DRI: null means disconnect, string means connect
+            dri: driId === null
+              ? { disconnect: true }
+              : driId !== undefined
+                ? { connect: { id: driId } }
+                : undefined,
+            // Handle Product: null means disconnect, string means connect
+            product: productId === null
+              ? { disconnect: true }
+              : productId !== undefined
+                ? { connect: { id: productId } }
+                : undefined,
+            // Handle public visibility toggle
+            ...(isPublic !== undefined ? { isPublic } : {}),
+            // Handle restriction toggle (gated above by canManageProjectMembers)
+            ...(isRestricted !== undefined ? { isRestricted } : {}),
+            // Handle detailed actions override (null = inherit from workspace)
+            ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
+            // Handle bounties override (null = inherit from workspace)
+            ...(enableBounties !== undefined ? { enableBounties } : {}),
+          },
+        });
+
+        if (movesWorkspace) {
+          await rehomeProjectMeetings(tx, { projectId: id, workspaceId: row.workspaceId ?? null });
+        }
+        return row;
       });
 
       // Record a milestone activity event when a project is newly completed.
@@ -990,7 +1004,9 @@ export const projectRouter = createTRPCRouter({
       return ctx.db.project.findUnique({
         where: { id: projectExists.id },
         include: {
-          goals: { select: { id: true, title: true } },
+          // Dates feed the header's days-left fallback, which must be the
+          // same for every member — so every linked goal, not the viewer's.
+          goals: { select: { id: true, title: true, dueDate: true, period: true, status: true } },
           lifeDomains: { select: { id: true, title: true } },
           keyResults: {
             select: {

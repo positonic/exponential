@@ -110,4 +110,20 @@ describe("buildInviteIcs", () => {
     const unfolded = ics.replace(/\r\n /g, "");
     expect(unfolded).toContain("ü".repeat(200));
   });
+  it("carries a one-off's purpose and occurrence link as a folded DESCRIPTION", () => {
+    const url = "https://www.exponential.im/w/acme/ceremonies/cer_0123456789abcdef/occ_0123456789abcdef";
+    const ics = buildInviteIcs({
+      ...baseInput,
+      method: "REQUEST",
+      description: `Agree the Q4 launch scope, then confirm owners.\n\n${url}`,
+    });
+
+    const descriptionLines = ics.split("\r\n").filter((line, i, all) => {
+      const start = all.findIndex((l) => l.startsWith("DESCRIPTION:"));
+      return i >= start && (i === start || line.startsWith(" "));
+    });
+    expect(descriptionLines.length).toBeGreaterThan(1);
+    const unfolded = ics.replace(/\r\n /g, "");
+    expect(unfolded).toContain(`DESCRIPTION:Agree the Q4 launch scope\\, then confirm owners.\\n\\n${url}`);
+  });
 });

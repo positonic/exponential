@@ -45,8 +45,10 @@ import {
   IconShieldLock,
   IconLock,
   IconWorld,
+  IconStopwatch,
+  IconFileText,
 } from "@tabler/icons-react";
-import { format, isBefore, startOfDay } from "date-fns";
+import { addDays, format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
 import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
@@ -62,6 +64,9 @@ import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
 import { GoalIcon } from "./GoalIcon";
 import { IconPicker } from "./IconPicker";
+import { ProjectTimeTab } from "./ProjectTimeTab";
+import { PagesListContent } from "~/app/_components/pages/PagesListContent";
+import { daysLeftLabel, daysUntil, resolveProjectTargetDate } from "~/lib/projectTargetDate";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { notifications } from "@mantine/notifications";
@@ -73,6 +78,8 @@ type TabValue =
   | "tasks"
   | "goals"
   | "timeline"
+  | "time"
+  | "pages"
   | "transcriptions"
   | "integrations"
   | "workflows"
@@ -85,6 +92,8 @@ const VALID_TABS: TabValue[] = [
   "tasks",
   "goals",
   "timeline",
+  "time",
+  "pages",
   "transcriptions",
   "integrations",
   "workflows",
@@ -121,6 +130,14 @@ export function ProjectContent({
 
   const pathname = usePathname();
   const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
+  // The days-left label is per calendar day: re-render at local midnight so a
+  // page left open overnight doesn't keep yesterday's count.
+  const [today, setToday] = useState(() => new Date());
+  useEffect(() => {
+    const msToMidnight = addDays(startOfDay(today), 1).getTime() - Date.now();
+    const timer = setTimeout(() => setToday(new Date()), Math.max(msToMidnight, 0) + 1000);
+    return () => clearTimeout(timer);
+  }, [today]);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
   const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
@@ -195,6 +212,16 @@ export function ProjectContent({
     { enabled: dependentQueriesEnabled },
   );
   const goalsQuery = api.goal.getProjectGoals.useQuery(
+    { projectId: resolvedProjectId },
+    { enabled: dependentQueriesEnabled },
+  );
+  // Same key as the Overview's Docs section, so the tab count rides its cache.
+  const { data: projectPages } = api.page.list.useQuery(
+    { workspaceId: workspaceId ?? "", projectId: resolvedProjectId },
+    { enabled: dependentQueriesEnabled && !!workspaceId },
+  );
+  // Same key as the Access tab — gates the Pages tab's write controls.
+  const { data: myAccess } = api.project.getMyAccess.useQuery(
     { projectId: resolvedProjectId },
     { enabled: dependentQueriesEnabled },
   );
@@ -329,6 +356,15 @@ export function ProjectContent({
   const dueLabel = dueDate ? format(dueDate, "MMM d") : null;
   const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
 
+  // Days left counts down to the project's end date, else the linked goal's.
+  const targetDate = resolveProjectTargetDate(project.endDate, project.goals);
+  const daysLeft = targetDate ? daysUntil(targetDate.date, today) : null;
+  const daysLeftTooltip = targetDate
+    ? targetDate.source === "project"
+      ? `Project due ${format(targetDate.date, "MMM d, yyyy")}`
+      : `From goal "${targetDate.goalTitle}" · ${format(targetDate.date, "MMM d, yyyy")}`
+    : null;
+
   const ownerUser = project.dri ?? project.createdBy;
   const ownerName = ownerUser?.name ?? null;
   const ownerFirstName = ownerName ? ownerName.split(" ")[0] : null;
@@ -382,6 +418,17 @@ export function ProjectContent({
                   />
                 </div>
                 {progressPct}%
+                {daysLeft !== null && (
+                  <Tooltip label={daysLeftTooltip}>
+                    <span
+                      className={`${overviewStyles.daysLeft} ${
+                        daysLeft < 0 ? overviewStyles.daysLeftOverdue : ""
+                      }`}
+                    >
+                      {daysLeftLabel(daysLeft)}
+                    </span>
+                  </Tooltip>
+                )}
               </div>
             </div>
             <div className={overviewStyles.stat}>
@@ -499,6 +546,28 @@ export function ProjectContent({
               <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
+              <Tabs.Tab value="time" leftSection={<IconStopwatch size={14} />}>
+                Time
+              </Tabs.Tab>
+              {workspaceId && workspace?.slug && (
+                <Tabs.Tab
+                  value="pages"
+                  leftSection={<IconFileText size={14} />}
+                  rightSection={
+                    projectPages && projectPages.length > 0 ? (
+                      <span
+                        className={`${overviewStyles.tabCount} ${
+                          activeTab === "pages" ? overviewStyles.tabCountActive : ""
+                        }`}
+                      >
+                        {projectPages.length}
+                      </span>
+                    ) : null
+                  }
+                >
+                  Pages
+                </Tabs.Tab>
+              )}
               {/* Team Weekly Planning Tabs - Only show for team projects */}
               {project.teamId && (
                 <>
@@ -587,6 +656,23 @@ export function ProjectContent({
               >
                 <ProjectTimeline projectId={resolvedProjectId} />
               </Paper>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="time">
+              <ProjectTimeTab projectId={resolvedProjectId} />
+            </Tabs.Panel>
+
+            <Tabs.Panel value="pages">
+              {/* Mounted only while active: the list owns a ⌘F binding and a
+                  tree query that the other tabs don't need. */}
+              {activeTab === "pages" && workspaceId && workspace?.slug && (
+                <PagesListContent
+                  workspaceId={workspaceId}
+                  workspaceSlug={workspace.slug}
+                  projectId={resolvedProjectId}
+                  readOnly={!myAccess?.canEdit}
+                />
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="workflows">

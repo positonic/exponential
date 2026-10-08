@@ -5,8 +5,9 @@ import {
   Button,
   Checkbox,
   Group,
+  Input,
   Modal,
-  MultiSelect,
+  Pill,
   SegmentedControl,
   Select,
   Stack,
@@ -19,14 +20,26 @@ import {
   IconCalendarX,
   IconChevronLeft,
   IconChevronRight,
+  IconUserPlus,
+  IconUsers,
 } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { ActionIcon, Tooltip } from "@mantine/core";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { AvailabilityGrid, type GridSlot } from "./AvailabilityGrid";
+import {
+  ParticipantPicker,
+  type PendingParticipant,
+} from "~/app/_components/meeting/ParticipantPicker";
+import { OneOffAgendaFields, presetSectionTypes } from "./OneOffAgendaFields";
+import {
+  DEFAULT_ONE_OFF_PRESET,
+  type OneOffSectionType,
+} from "~/server/services/ceremonies/oneOffPresets";
 import {
   SCHEDULING_WINDOW_START_MINUTES,
   SCHEDULING_WINDOW_END_MINUTES,
@@ -34,11 +47,16 @@ import {
 
 /**
  * "Schedule meeting" (V3 workspace scheduling): pick a workspace, attendees
- * (members only — availability-unknown ones are labelled but invitable),
- * duration → pick a time from either a day-grouped suggestion list or the
+ * (members, CRM contacts, or new people by name and email — only members
+ * have availability, so only they constrain the suggestions; members with no
+ * calendar are labelled but invitable), duration → pick a time from either a day-grouped suggestion list or the
  * LettuceMeet-style availability grid, over a pageable rolling week.
  * Confirming creates the Scheduled meeting and emails every attendee a
  * METHOD:REQUEST invite their mail client renders natively.
+ *
+ * Linked to a project, the meeting gets an agenda (a one-off, ADR-0059
+ * amendment 2026-10-07): the description gives way to a purpose, a preset and
+ * a previewed section checklist, and booking lands on the meeting's page.
  *
  * Suggestions never leave the scheduling window (07:00–20:00 on each
  * attendee's wall clock) — the outside-hours checkbox relaxes work hours to
@@ -53,17 +71,40 @@ const minutesAsHhMm = (minutes: number) =>
   `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 /** e.g. "07:00–20:00" — derived from the engine's constants, never retyped. */
 const WINDOW_LABEL = `${minutesAsHhMm(SCHEDULING_WINDOW_START_MINUTES)}–${minutesAsHhMm(SCHEDULING_WINDOW_END_MINUTES)}`;
+export interface ScheduledMeetingResult {
+  id: string;
+  title: string;
+  invitesSent: number;
+  /** Set when the meeting was booked with a project: the one-off's ids. */
+  ceremonyId: string | null;
+  occurrenceId: string | null;
+}
+
 export function ScheduleMeetingModal({
   opened,
   onClose,
   defaultWorkspaceId,
+  projectId: lockedProjectId,
+  defaultAttendees,
+  onCreated,
 }: {
   opened: boolean;
   onClose: () => void;
   /** Preselects the workspace — the workspace-page entry point sets this. */
   defaultWorkspaceId?: string;
+  /**
+   * Opened from a project: the meeting is linked to it (and so becomes a
+   * one-off with an agenda), and neither the project nor the workspace can
+   * be changed. Pass the project's workspace as `defaultWorkspaceId`.
+   */
+  projectId?: string;
+  /** Attendees preselected on open, e.g. the project's DRI. */
+  defaultAttendees?: PendingParticipant[];
+  /** Called after a successful booking, before the modal closes. */
+  onCreated?: (meeting: ScheduledMeetingResult) => void;
 }) {
   const utils = api.useUtils();
+  const router = useRouter();
 
   const { data: workspaces } = api.workspace.list.useQuery(undefined, {
     enabled: opened,
@@ -72,12 +113,24 @@ export function ScheduleMeetingModal({
   useEffect(() => {
     if (opened && defaultWorkspaceId) setWorkspaceId(defaultWorkspaceId);
   }, [opened, defaultWorkspaceId]);
-  const [attendeeIds, setAttendeeIds] = useState<string[]>([]);
+  const [attendees, setAttendees] = useState<PendingParticipant[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  useEffect(() => {
+    if (opened && defaultAttendees?.length) setAttendees(defaultAttendees);
+    // Seed once per open; later edits to the default list don't clobber picks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened]);
   const [durationMinutes, setDurationMinutes] = useState("30");
   const [title, setTitle] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [purpose, setPurpose] = useState("");
+  const [presetKey, setPresetKey] = useState(DEFAULT_ONE_OFF_PRESET);
+  const [sectionTypes, setSectionTypes] = useState<OneOffSectionType[]>(() =>
+    presetSectionTypes(DEFAULT_ONE_OFF_PRESET),
+  );
+  const [pickedProjectId, setProjectId] = useState<string | null>(null);
+  const projectId = lockedProjectId ?? pickedProjectId;
   const [selectedSlot, setSelectedSlot] = useState<GridSlot | null>(null);
   const [searching, setSearching] = useState(false);
   const [includeOutsideWorkHours, setIncludeOutsideWorkHours] = useState(false);
@@ -95,6 +148,32 @@ export function ScheduleMeetingModal({
   );
 
   const { data: session } = useSession();
+  const organizerId = session?.user?.id;
+
+  // Only members have availability. The organizer always constrains the
+  // suggestions (the server adds them), so an externals-only meeting still
+  // searches against the organizer's calendar.
+  const attendeeIds = useMemo(() => {
+    const ids = attendees.flatMap((a) => ("userId" in a.payload ? [a.payload.userId] : []));
+    return ids.length > 0 ? ids : organizerId ? [organizerId] : [];
+  }, [attendees, organizerId]);
+
+  const existingAttendeeKeys = useMemo(() => {
+    const keys = new Set<string>();
+    // The organizer is always invited; offering them again would only confuse.
+    if (organizerId) keys.add(`user:${organizerId}`);
+    if (session?.user?.email) keys.add(`email:${session.user.email.toLowerCase()}`);
+    for (const a of attendees) {
+      keys.add(a.key);
+      if (a.email) keys.add(`email:${a.email.toLowerCase()}`);
+    }
+    return keys;
+  }, [attendees, organizerId, session?.user?.email]);
+
+  const resetSearch = () => {
+    setSearching(false);
+    setSelectedSlot(null);
+  };
   const { data: upcomingMeetings } = api.workspaceScheduling.listMeetings.useQuery(
     { workspaceId: workspaceId!, from: new Date() },
     { enabled: opened && !!workspaceId },
@@ -154,7 +233,7 @@ export function ScheduleMeetingModal({
       ...range,
     },
     {
-      enabled: searching && viewMode === "list" && !!workspaceId && attendeeIds.length > 0,
+      enabled: searching && viewMode === "list" && !!workspaceId && attendees.length > 0 && attendeeIds.length > 0,
       retry: false,
     },
   );
@@ -167,7 +246,7 @@ export function ScheduleMeetingModal({
       ...range,
     },
     {
-      enabled: opened && viewMode === "grid" && !!workspaceId && attendeeIds.length > 0,
+      enabled: opened && viewMode === "grid" && !!workspaceId && attendees.length > 0 && attendeeIds.length > 0,
       retry: false,
     },
   );
@@ -206,7 +285,15 @@ export function ScheduleMeetingModal({
         message: `${meeting.title} — ${meeting.invitesSent} invite${meeting.invitesSent === 1 ? "" : "s"} sent.`,
         color: "blue",
       });
+      onCreated?.(meeting);
+      // A meeting with a project has an agenda: land on it.
+      const slug = workspaces?.find((w) => w.id === workspaceId)?.slug;
+      const occurrenceHref =
+        slug && meeting.ceremonyId && meeting.occurrenceId
+          ? `/w/${slug}/ceremonies/${meeting.ceremonyId}/${meeting.occurrenceId}`
+          : null;
       handleClose();
+      if (occurrenceHref) router.push(occurrenceHref);
     },
     onError: (error) => {
       notifications.show({ title: "Couldn't schedule", message: error.message, color: "red" });
@@ -214,10 +301,14 @@ export function ScheduleMeetingModal({
   });
 
   const handleClose = () => {
-    setAttendeeIds([]);
+    setAttendees([]);
+    setPickerOpen(false);
     setTitle("");
     setLocation("");
     setDescription("");
+    setPurpose("");
+    setPresetKey(DEFAULT_ONE_OFF_PRESET);
+    setSectionTypes(presetSectionTypes(DEFAULT_ONE_OFF_PRESET));
     setProjectId(null);
     setSelectedSlot(null);
     setSearching(false);
@@ -226,15 +317,13 @@ export function ScheduleMeetingModal({
     onClose();
   };
 
-  const memberOptions = (members ?? []).map((member) => ({
-    value: member.id,
-    label:
-      (member.name ?? member.email ?? "Unknown") +
-      (member.availabilityKnown ? "" : " (no availability data)"),
-  }));
+  const availabilityUnknownIds = useMemo(
+    () => new Set((members ?? []).filter((m) => !m.availabilityKnown).map((m) => m.id)),
+    [members],
+  );
 
-  const unknownCount = (members ?? []).filter(
-    (m) => attendeeIds.includes(m.id) && !m.availabilityKnown,
+  const unknownCount = attendees.filter(
+    (a) => "userId" in a.payload && availabilityUnknownIds.has(a.payload.userId),
   ).length;
 
   const slotLabel = (slot: { startsAt: Date; endsAt: Date }) =>
@@ -272,10 +361,14 @@ export function ScheduleMeetingModal({
   })} – ${range.rangeEnd.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
 
   return (
+    <>
     <Modal
       opened={opened}
       onClose={handleClose}
       title="Schedule meeting"
+      // Escape in the stacked attendee picker must close only the picker,
+      // not this modal and the draft with it.
+      closeOnEscape={!pickerOpen}
       centered
       size={viewMode === "grid" ? "90%" : "lg"}
     >
@@ -286,11 +379,11 @@ export function ScheduleMeetingModal({
           value={workspaceId}
           onChange={(value) => {
             setWorkspaceId(value);
-            setAttendeeIds([]);
-            setSearching(false);
-            setSelectedSlot(null);
+            setAttendees([]);
+            resetSearch();
           }}
           searchable
+          disabled={!!lockedProjectId}
           placeholder="Pick a workspace"
         />
 
@@ -336,19 +429,52 @@ export function ScheduleMeetingModal({
           </Stack>
         )}
 
-        <MultiSelect
+        <Input.Wrapper
           label="Attendees"
-          data={memberOptions}
-          value={attendeeIds}
-          onChange={(value) => {
-            setAttendeeIds(value);
-            setSearching(false);
-            setSelectedSlot(null);
-          }}
-          searchable
-          disabled={!workspaceId}
-          placeholder={workspaceId ? "Pick workspace members" : "Pick a workspace first"}
-        />
+          description="Teammates, CRM contacts, or new people by name and email. Only teammates' calendars shape the suggested times."
+        >
+          <Stack gap="xs" mt={4}>
+            {attendees.length > 0 && (
+              <Pill.Group>
+                {attendees.map((a) => (
+                  <Pill
+                    key={a.key}
+                    withRemoveButton
+                    onRemove={() => {
+                      setAttendees((prev) => prev.filter((p) => p.key !== a.key));
+                      resetSearch();
+                    }}
+                    title={
+                      a.kind === "member"
+                        ? `${a.email} · team member${"userId" in a.payload && availabilityUnknownIds.has(a.payload.userId) ? " · no availability data" : ""}`
+                        : `${a.email} · invited by email`
+                    }
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {a.kind === "member" && <IconUsers size={11} />}
+                      {a.name}
+                    </span>
+                  </Pill>
+                ))}
+              </Pill.Group>
+            )}
+            <Button
+              variant="light"
+              size="xs"
+              leftSection={<IconUserPlus size={14} />}
+              onClick={() => setPickerOpen(true)}
+              disabled={!workspaceId}
+              style={{ alignSelf: "flex-start" }}
+            >
+              Add attendee
+            </Button>
+            {!workspaceId && (
+              <Text size="xs" c="dimmed">
+                Pick a workspace first.
+              </Text>
+            )}
+          </Stack>
+        </Input.Wrapper>
 
         <Group grow>
           <Select
@@ -370,7 +496,7 @@ export function ScheduleMeetingModal({
             mt="xl"
             variant="light"
             onClick={() => setSearching(true)}
-            disabled={!workspaceId || attendeeIds.length === 0}
+            disabled={!workspaceId || attendees.length === 0}
             loading={searching && slotsQuery.isLoading}
           >
             Find times
@@ -387,7 +513,7 @@ export function ScheduleMeetingModal({
           }}
         />
 
-        {workspaceId && attendeeIds.length > 0 && (
+        {workspaceId && attendees.length > 0 && (
           <Group justify="space-between" wrap="nowrap">
             <SegmentedControl
               size="xs"
@@ -542,19 +668,36 @@ export function ScheduleMeetingModal({
               value={projectId}
               onChange={setProjectId}
               searchable
-              clearable
+              clearable={!lockedProjectId}
+              disabled={!!lockedProjectId}
             />
-            <div>
-              <Text size="sm" fw={500} mb={4}>
-                Description
-              </Text>
-              <MarkdownInput
-                value={description}
-                onChange={setDescription}
-                placeholder="Agenda, links, context… (Markdown)"
-                minRows={3}
+            {projectId && workspaceId ? (
+              <OneOffAgendaFields
+                workspaceId={workspaceId}
+                projectId={projectId}
+                scheduledStart={selectedSlot.startsAt}
+                durationMinutes={Number(durationMinutes)}
+                purpose={purpose}
+                onPurposeChange={setPurpose}
+                presetKey={presetKey}
+                onPresetChange={setPresetKey}
+                sectionTypes={sectionTypes}
+                onSectionTypesChange={setSectionTypes}
+                memberAttendeeIds={attendees.flatMap((a) => ("userId" in a.payload ? [a.payload.userId] : []))}
               />
-            </div>
+            ) : (
+              <div>
+                <Text size="sm" fw={500} mb={4}>
+                  Description
+                </Text>
+                <MarkdownInput
+                  value={description}
+                  onChange={setDescription}
+                  placeholder="Agenda, links, context… (Markdown)"
+                  minRows={3}
+                />
+              </div>
+            )}
           </>
         )}
 
@@ -573,11 +716,19 @@ export function ScheduleMeetingModal({
                 workspaceId,
                 title: title.trim(),
                 location: location.trim() || undefined,
-                description: description.trim() || undefined,
+                // With a project, the purpose and agenda stand in for a description.
+                description: projectId ? undefined : description.trim() || undefined,
+                ...(projectId
+                  ? {
+                      purpose: purpose.trim() || undefined,
+                      purposePreset: presetKey,
+                      agendaSectionTypes: sectionTypes,
+                    }
+                  : {}),
                 projectId: projectId ?? undefined,
                 startsAt: selectedSlot.startsAt,
                 endsAt: selectedSlot.endsAt,
-                attendeeUserIds: attendeeIds,
+                attendees: attendees.map((a) => a.payload),
               })
             }
           >
@@ -586,5 +737,18 @@ export function ScheduleMeetingModal({
         </Group>
       </Stack>
     </Modal>
+
+    <ParticipantPicker
+      opened={pickerOpen}
+      onClose={() => setPickerOpen(false)}
+      workspaceId={workspaceId}
+      existing={existingAttendeeKeys}
+      noun="attendee"
+      onAdd={(person) => {
+        setAttendees((prev) => (prev.some((p) => p.key === person.key) ? prev : [...prev, person]));
+        resetSearch();
+      }}
+    />
+    </>
   );
 }

@@ -154,7 +154,6 @@ export const ROUTES: RouteSpec[] = [
   // ---- top-level: everything else ----
   { pattern: "/activity", group: "top-other" },
   { pattern: "/agent", group: "top-other" },
-  { pattern: "/ai-automation", group: "top-other" },
   { pattern: "/ai-history", group: "top-other" },
   { pattern: "/ai-sales-blog", group: "top-other" },
   { pattern: "/ai-sales-demo", group: "top-other" },

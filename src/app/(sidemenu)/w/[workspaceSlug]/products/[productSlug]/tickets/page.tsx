@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -17,14 +17,12 @@ import {
   Stack,
   Text,
   Tooltip,
-  UnstyledButton,
 } from "@mantine/core";
 import {
   IconAdjustments,
   IconChevronDown,
   IconChevronRight,
   IconDots,
-  IconFilter,
   IconLayoutKanban,
   IconList,
   IconPencil,
@@ -54,7 +52,7 @@ import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
-import { useCoalescedSave } from "./useCoalescedSave";
+import { useViewPrefs } from "~/hooks/useViewPrefs";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import {
   PRIORITY_PILL_OPTIONS,
@@ -75,6 +73,7 @@ import {
   ListPageButton,
   ListPagePrimaryButton,
   ListPageFilterPills,
+  ListPageFilterPopover,
   PillSelect,
 } from "~/app/_components/listPage";
 import type { ListPageFilterPill } from "~/app/_components/listPage";
@@ -220,81 +219,6 @@ function SortHeader({ label, field, sortField, sortDir, onSort, width }: {
 }
 
 // ---------------------------------------------------------------------------
-// Filter popover
-// ---------------------------------------------------------------------------
-
-function FilterPopover({ facetOptions, filters, activeCount, onToggle, onClear }: {
-  facetOptions: FacetOptions;
-  filters: TicketFilters;
-  activeCount: number;
-  onToggle: (key: FilterKey, value: string) => void;
-  onClear: () => void;
-}) {
-  return (
-    <Popover position="bottom-end" withinPortal shadow="md">
-      <Popover.Target>
-        <ListPageButton active={activeCount > 0} count={activeCount} aria-label="Filter tickets">
-          <IconFilter size={13} stroke={1.75} />
-          Filter
-        </ListPageButton>
-      </Popover.Target>
-      <Popover.Dropdown
-        styles={{
-          dropdown: {
-            backgroundColor: "var(--color-bg-elevated)",
-            border: "1px solid var(--color-border-primary)",
-            minWidth: 240,
-            maxWidth: 280,
-            maxHeight: 440,
-            overflowY: "auto",
-          },
-        }}
-      >
-        <div className="flex items-center justify-between mb-2">
-          <Text size="xs" fw={600} className="text-text-primary">Filter</Text>
-          {activeCount > 0 && (
-            <UnstyledButton onClick={onClear} className="text-[10px] text-text-muted hover:text-text-primary">
-              Clear all
-            </UnstyledButton>
-          )}
-        </div>
-        <Stack gap="sm">
-          {FILTER_FACET_META.map((facet) => {
-            const opts = facetOptions[facet.key];
-            if (opts.length === 0) return null;
-            const sel = filters[facet.key];
-            return (
-              <div key={facet.key}>
-                <Text size="xs" className="text-text-muted mb-1.5">{facet.label}</Text>
-                <div className="flex flex-wrap gap-1">
-                  {opts.map((o) => {
-                    const on = sel.includes(o.value);
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        onClick={() => onToggle(facet.key, o.value)}
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                          on
-                            ? "bg-brand-primary text-white"
-                            : "bg-surface-hover text-text-muted hover:text-text-primary"
-                        }`}
-                      >
-                        {o.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </Stack>
-      </Popover.Dropdown>
-    </Popover>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -337,43 +261,43 @@ export default function TicketsBacklogPage() {
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
   // ── Load & save view preferences ──
-  const { data: savedPrefs, isError: prefsFailed } =
-    api.product.product.getViewPrefs.useQuery(
-      { productSlug, workspaceId: workspaceId ?? "" },
-      { enabled: !!workspaceId },
-    );
+  // Every control saves only the key it owns; saves inside one debounce
+  // window are merged so none is dropped (see useCoalescedSave). The hook
+  // keeps the cached prefs, which a remount restores from, in step with the
+  // saves - including ones made while the prefs are still loading.
+  const { prefs: savedPrefs, isError: prefsFailed, save: debouncedSave } =
+    useViewPrefs<Partial<SavedViewPrefs>>({ productSlug, workspaceId }, { debounceMs: 500 });
   // The tickets wait for the saved view (filters, sort, grouping, view). A
   // list that arrives first would otherwise render unfiltered, then re-sort
   // and shrink when the prefs land: a second full render and a page-sized
   // layout shift. A failed prefs read falls back to the defaults.
   const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
-  const savePrefs = api.product.product.saveViewPrefs.useMutation();
-  const saveMutateRef = useRef(savePrefs.mutate);
-  saveMutateRef.current = savePrefs.mutate;
-
-  // Every control saves only the key it owns; the hook merges saves that land
-  // inside one debounce window so none of them is dropped (see its doc).
-  const { push: debouncedSave } = useCoalescedSave<SavedViewPrefs>(
-    useCallback((prefs: Partial<SavedViewPrefs>) => {
-      if (!workspaceId) return;
-      saveMutateRef.current({ productSlug, workspaceId, prefs });
-    }, [workspaceId, productSlug]),
-  );
+  const utils = api.useUtils();
 
   // Restore prefs on load
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {
-      if (savedPrefs.view) setView(savedPrefs.view as string);
-      if (savedPrefs.groupBy) setGroupBy(savedPrefs.groupBy as GroupByField);
+      // Saved prefs are untrusted JSON: take only values of the right shape.
+      const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
+      const savedView = str(savedPrefs.view);
+      if (savedView) setView(savedView);
+      const savedGroupBy = str(savedPrefs.groupBy);
+      if (savedGroupBy) setGroupBy(savedGroupBy as GroupByField);
       // Epic and Cycle are sub-line metadata now, with no header to show or
       // flip that sort; fall back to the default rather than sort invisibly.
-      if (savedPrefs.sortField) {
-        const f = savedPrefs.sortField as SortField;
+      const savedSortField = str(savedPrefs.sortField);
+      if (savedSortField) {
+        const f = savedSortField as SortField;
         setSortField(f === "epic" || f === "cycle" ? "status" : f);
       }
-      if (savedPrefs.sortDir) setSortDir(savedPrefs.sortDir as SortDir);
-      if (savedPrefs.visibleColumns) setVisibleColumns(new Set(savedPrefs.visibleColumns as string[]));
+      const savedSortDir = str(savedPrefs.sortDir);
+      if (savedSortDir) setSortDir(savedSortDir as SortDir);
+      if (Array.isArray(savedPrefs.visibleColumns)) {
+        setVisibleColumns(
+          new Set(savedPrefs.visibleColumns.filter((c): c is string => typeof c === "string")),
+        );
+      }
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
         setEntity(savedPrefs.entity);
       }
@@ -471,8 +395,6 @@ export default function TicketsBacklogPage() {
     { workspaceId: workspaceId ?? "", productId: product?.id },
     { enabled: !!workspaceId && !!product?.id },
   );
-
-  const utils = api.useUtils();
 
   // In-place Status / Priority / Type edits from the table's pill selects.
   // Optimistic so the pill shows the new value at once; rolled back on error.
@@ -1218,9 +1140,11 @@ export default function TicketsBacklogPage() {
             <ListPageSearch ref={searchRef} value={search} onChange={setSearch} />
 
             {entity === "tickets" && (
-              <FilterPopover
-                facetOptions={facetOptions}
-                filters={filters}
+              <ListPageFilterPopover
+                aria-label="Filter tickets"
+                facets={FILTER_FACET_META}
+                options={facetOptions}
+                selected={filters}
                 activeCount={activeFilterCount}
                 onToggle={toggleFilter}
                 onClear={clearFilters}

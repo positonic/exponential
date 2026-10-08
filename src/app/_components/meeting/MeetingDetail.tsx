@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -20,6 +20,7 @@ import {
 import { buildMeetingViewModel } from "~/lib/meeting-view-model";
 import type { MeetingSession } from "~/lib/meeting-view-model";
 import { turnToEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
+import { meetingTabFromParam, withMeetingTab, type MeetingTab } from "~/lib/meeting-tabs";
 import type { TranscriptTurn } from "~/lib/transcript";
 import { LogDecisionModal } from "~/app/_components/decisions/LogDecisionModal";
 import { DraftDecisionReviewList } from "~/app/_components/decisions/DraftDecisionReviewList";
@@ -28,7 +29,6 @@ import type { MeetingFeatureOption } from "./MeetingFeaturePicker";
 import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
-type Tab = "summary" | "transcript" | "decisions" | "screenshots";
 
 interface MeetingDetailProps {
   session: MeetingSession;
@@ -92,11 +92,27 @@ export function MeetingDetail({
   isExtractingDecisions,
   onArchive,
 }: MeetingDetailProps) {
-  // `?tab=transcript` opens straight onto the transcript — decision evidence
-  // deep-links there with a `#turn-<n>` anchor (ADR-0060).
+  // The open tab lives in the URL (`?tab=<name>`, Summary when absent) so each
+  // section is linkable: Share copies the current tab, and decision evidence
+  // deep-links to the transcript with a `#turn-<n>` anchor (ADR-0060). Local
+  // state keeps a click instant; the URL follows it in `selectTab`.
   const searchParams = useSearchParams();
-  const initialTab: Tab = searchParams?.get("tab") === "transcript" ? "transcript" : "summary";
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const urlTab = meetingTabFromParam(searchParams?.get("tab"));
+  const [tab, setTab] = useState<MeetingTab>(urlTab);
+  // Back/Forward and in-app links move the URL without a click: follow them.
+  useEffect(() => {
+    setTab(urlTab);
+  }, [urlTab]);
+
+  function selectTab(next: MeetingTab) {
+    if (next === tab) return;
+    setTab(next);
+    // `history.pushState`, not `router.push`: a pushed search param is a
+    // navigation, and a navigation is an RSC round trip to the async
+    // (sidemenu) layout just to flip a tab. Next syncs pushState into
+    // useSearchParams, and Back still steps through the tabs.
+    window.history.pushState(null, "", withMeetingTab(window.location.href, next));
+  }
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Decisions logged from this meeting (confirmed for viewers, drafts for
@@ -148,7 +164,13 @@ export function MeetingDetail({
   // tab opens rather than with the meeting record.
   const transcriptQuery = api.transcription.getTranscript.useQuery(
     { id: session.id },
-    { enabled: tab === "transcript" && session.hasTranscript },
+    {
+      enabled:
+        session.hasTranscript &&
+        // The screenshot narrative pairs captures with the transcript's
+        // `[SCREENSHOT]` markers, so it needs the body too.
+        (tab === "transcript" || (tab === "screenshots" && session.screenshots.length > 0)),
+    },
   );
 
   // Identity keys already on the meeting so the picker hides existing people.
@@ -398,7 +420,7 @@ export function MeetingDetail({
             role="tab"
             aria-selected={tab === "summary"}
             className={`mp-tab ${tab === "summary" ? "on" : ""}`}
-            onClick={() => setTab("summary")}
+            onClick={() => selectTab("summary")}
           >
             <IconSparkles size={14} /> Summary
           </button>
@@ -406,7 +428,7 @@ export function MeetingDetail({
             role="tab"
             aria-selected={tab === "transcript"}
             className={`mp-tab ${tab === "transcript" ? "on" : ""}`}
-            onClick={() => setTab("transcript")}
+            onClick={() => selectTab("transcript")}
           >
             <IconFileText size={14} /> Transcript
             {vm.transcriptCount > 0 && <span className="mp-tab__count">{vm.transcriptCount}</span>}
@@ -415,7 +437,7 @@ export function MeetingDetail({
             role="tab"
             aria-selected={tab === "decisions"}
             className={`mp-tab ${tab === "decisions" ? "on" : ""}`}
-            onClick={() => setTab("decisions")}
+            onClick={() => selectTab("decisions")}
             data-testid="tab-decisions"
           >
             <IconGavel size={14} /> Decisions
@@ -427,7 +449,7 @@ export function MeetingDetail({
             role="tab"
             aria-selected={tab === "screenshots"}
             className={`mp-tab ${tab === "screenshots" ? "on" : ""}`}
-            onClick={() => setTab("screenshots")}
+            onClick={() => selectTab("screenshots")}
           >
             <IconPhoto size={14} /> Screenshots
             {vm.captureCount > 0 && <span className="mp-tab__count">{vm.captureCount}</span>}
@@ -520,8 +542,13 @@ export function MeetingDetail({
                   id: s.id,
                   url: s.url,
                   timestamp: s.timestamp,
+                  createdAt: s.createdAt,
                 }))}
                 videoUrl={session.videoUrl}
+                hasTranscript={session.hasTranscript}
+                transcription={transcriptQuery.data?.transcription}
+                isTranscriptLoading={session.hasTranscript && transcriptQuery.isLoading}
+                isTranscriptError={transcriptQuery.isError}
               />
             )}
           </main>

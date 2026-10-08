@@ -7,6 +7,7 @@ import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
   sprintAnalyticsService,
   type AllCyclesMetricsResult,
+  type ContributionsResult,
   type CycleSummary,
   type CycleTicketMetricsResult,
   type CycleVelocityPoint,
@@ -68,6 +69,13 @@ async function resolveCycleId(
 }
 
 /**
+ * Optional member filter for the Metrics page (assignee / GitHub author / time
+ * logger — see `MetricsMemberFilter`). Ids that aren't in the workspace simply
+ * match nothing; every query stays scoped to `workspaceId` regardless.
+ */
+const memberIdsInput = z.array(z.string().min(1)).max(100).optional();
+
+/**
  * Sprint analytics tRPC router.
  *
  * Exposes SprintAnalyticsService + GitHubActivityService as API endpoints.
@@ -100,10 +108,43 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    * table. See ADR-0047.
    */
   getAllCyclesMetrics: protectedProcedure
-    .input(z.object({ workspaceId: z.string().min(1) }))
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        memberIds: memberIdsInput,
+      }),
+    )
     .query(async ({ ctx, input }): Promise<AllCyclesMetricsResult> => {
       await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
-      return sprintAnalyticsService.getAllCyclesMetrics(input.workspaceId);
+      return sprintAnalyticsService.getAllCyclesMetrics(input.workspaceId, {
+        memberIds: input.memberIds,
+      });
+    }),
+
+  /**
+   * Metrics page (UI): per-person contributions — tickets (by assignee),
+   * merged PRs and commits (by linked GitHub login) and confirmed time logged —
+   * over one cycle (`cycleId`, workspace-verified) or every cycle with tickets.
+   * Returns every row; the page narrows to selected members client-side.
+   */
+  getContributions: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        cycleId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }): Promise<ContributionsResult> => {
+      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+
+      const cycleId = input.cycleId
+        ? await resolveCycleId(ctx.db, input.workspaceId, input.cycleId)
+        : undefined;
+
+      return sprintAnalyticsService.getContributions(
+        input.workspaceId,
+        cycleId ?? undefined,
+      );
     }),
 
   /**
@@ -121,6 +162,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string().min(1),
         cycleId: z.string().optional(),
+        memberIds: memberIdsInput,
       }),
     )
     .query(async ({ ctx, input }): Promise<CycleTicketMetricsResult | null> => {
@@ -133,7 +175,9 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       );
       if (!cycleId) return null;
 
-      return sprintAnalyticsService.getCycleTicketMetrics(cycleId);
+      return sprintAnalyticsService.getCycleTicketMetrics(cycleId, {
+        memberIds: input.memberIds,
+      });
     }),
 
   /**
@@ -174,6 +218,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string().min(1),
         cycleId: z.string().optional(),
+        memberIds: memberIdsInput,
       }),
     )
     .query(async ({ ctx, input }): Promise<PrTurnaroundResult | null> => {
@@ -186,7 +231,9 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       );
       if (!cycleId) return null;
 
-      return sprintAnalyticsService.getPrTurnaround(cycleId);
+      return sprintAnalyticsService.getPrTurnaround(cycleId, {
+        memberIds: input.memberIds,
+      });
     }),
 
   /**

@@ -1335,6 +1335,11 @@
   background: var(--color-surface-hover);
 }
 
+/* A row that only displays — no link, no handler — shouldn't invite a click. */
+.wsa-item--static:hover {
+  background: transparent;
+}
+
 .wsa-item__icon {
   display: grid;
   place-items: center;

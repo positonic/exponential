@@ -108,7 +108,20 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
     summaryAttemptedRef.current.add(session.id);
-    generateSummary({ transcriptionId: session.id });
+    // Say so when it fails — otherwise the summary just never appears and
+    // there's no hint why (e.g. the LLM provider is out of credit).
+    generateSummary(
+      { transcriptionId: session.id },
+      {
+        onError: (error) => {
+          notifications.show({
+            title: "Couldn't generate the AI summary",
+            message: error.message,
+            color: "red",
+          });
+        },
+      },
+    );
   }, [session, generateSummary]);
 
   // Deterministic extraction: Create Actions runs generateDraftActions (not the
@@ -118,7 +131,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     api.transcription.generateDraftActions.useMutation({
       onSuccess: (result) => {
         if (!session) return;
-        if (result.alreadyPublished) {
+        // Leftover drafts from an earlier partial "Create selected" still need
+        // a way back to the card, so only stop here when none remain.
+        if (result.alreadyPublished && result.draftCount === 0) {
           notifications.show({
             title: "Actions already created",
             message: "This meeting already has actions.",
@@ -146,8 +161,9 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
           const cardMessage: ChatMessage = {
             type: "ai",
             agentName: "Zoe",
-            content:
-              "I found some actions in this meeting — review and create the ones you want below.",
+            content: result.alreadyPublished
+              ? `This meeting already has actions, but ${result.draftCount} draft${result.draftCount === 1 ? " is" : "s are"} still waiting for review — create or discard ${result.draftCount === 1 ? "it" : "them"} below.`
+              : "I found some actions in this meeting — review and create the ones you want below.",
             card: { kind: "draft-actions", transcriptionId },
           };
           return [...prev, cardMessage];

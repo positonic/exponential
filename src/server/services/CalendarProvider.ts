@@ -42,6 +42,48 @@ export interface CalendarEventWithSource extends CalendarEvent {
   calendarName?: string;
   calendarColor?: string;
   provider?: "google" | "microsoft" | "ics" | "meeting";
+  // Set by the multi-calendar merge (calendar.getEventsMultiCalendar) only.
+  /**
+   * The source the event was read through: a ConnectedAccount id when
+   * `provider` is google or microsoft, otherwise a feed or workspace-meetings
+   * key that is not an account.
+   */
+  accountId?: string;
+  accountEmail?: string | null;
+  /**
+   * Whether the user can delete the event at its provider. False means its
+   * calendar is known to be read-only; undefined means this producer doesn't say.
+   */
+  canDelete?: boolean;
+}
+
+export interface DeleteEventInput {
+  eventId: string;
+  // Both required, unlike the read paths: a delete aimed at a defaulted
+  // calendar or account misses, and a miss is reported as "already gone".
+  calendarId: string;
+  accountId: string;
+  /**
+   * Tell the event's guests it was cancelled. Google honours either value;
+   * Microsoft always notifies when an organizer deletes a meeting.
+   */
+  notifyAttendees?: boolean;
+}
+
+export interface DeleteEventResult {
+  /**
+   * The provider no longer had the event on that calendar — deleted or moved
+   * since we last read it — so this call deleted nothing.
+   */
+  alreadyGone: boolean;
+}
+
+/** The provider refused a write: a view-only calendar, or an event the user may not change. */
+export class CalendarEventPermissionError extends Error {
+  constructor(message = "You don't have permission to delete this event.") {
+    super(message);
+    this.name = "CalendarEventPermissionError";
+  }
 }
 
 export interface CreateEventInput {
@@ -118,6 +160,13 @@ export interface CalendarProvider {
     userId: string,
     input: CreateEventInput,
   ): Promise<CreatedCalendarEvent>;
+
+  /**
+   * Delete an event at the provider. Resolves `alreadyGone` rather than
+   * failing when the provider no longer has it there; throws
+   * CalendarEventPermissionError when the provider refuses.
+   */
+  deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult>;
 
   /** Fetch the account's email from the provider and persist it. Used to backfill providerEmail. */
   fetchAndUpdateProviderEmail(
