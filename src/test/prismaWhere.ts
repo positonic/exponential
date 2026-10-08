@@ -49,10 +49,14 @@ function matchScalar(value: unknown, filter: unknown): boolean {
         return scalarEquals(value, arg);
       case "in":
         return (arg as unknown[]).some((x) => scalarEquals(value, x));
+      // SQL three-valued logic: `NULL NOT IN (…)` and `NULL <> x` are never
+      // true, so a NULL column fails both — only `not: null` (IS NOT NULL)
+      // is decided by the null itself.
       case "notIn":
-        return !(arg as unknown[]).some((x) => scalarEquals(value, x));
+        return value != null && !(arg as unknown[]).some((x) => scalarEquals(value, x));
       case "not":
-        return !matchScalar(value, arg);
+        if (arg === null) return value != null;
+        return value != null && !matchScalar(value, arg);
       case "lt":
         return value != null && compare(value, arg) < 0;
       case "lte":
