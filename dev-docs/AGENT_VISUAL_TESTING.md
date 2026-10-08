@@ -58,12 +58,15 @@ Playwright global-setup):
 A minted cookie only works against a server sharing the local `AUTH_SECRET`;
 it is inert against production.
 
-**No real email.** The app has no email stub: a `next dev` with `.env.local`
-sends through the live Postmark key, so booking a meeting emails real calendar
-invites. The Playwright `webServer` therefore runs with `AUTH_POSTMARK_KEY` and
-`POSTMARK_SERVER_TOKEN` blanked (every send fails, which the app treats as
-non-fatal). Do the same for ad-hoc browsing that books or cancels meetings:
-start the dev server with those two variables set to empty strings.
+**No real email.** A `next dev` with `.env.local` sends through the live
+Postmark key, so booking a meeting emails real calendar invites. Set
+`EMAIL_DELIVERY_DISABLED=1` and `sendEmail` refuses every send, whatever the
+key source (env or a workspace's Postmark integration); callers treat the
+failure as non-fatal. The Playwright `webServer` sets it. **A reused server
+(one already listening on the e2e port) does not get it** — start that one
+with `EMAIL_DELIVERY_DISABLED=1 npx next dev -p 3100`; the schedule-meeting
+spec asserts "0 invites sent" and fails if delivery was on. Use the same
+switch for ad-hoc browsing that books or cancels meetings.
 
 ## Writing specs
 

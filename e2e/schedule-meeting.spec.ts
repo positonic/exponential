@@ -9,7 +9,8 @@
  * section → back on the tab, the meeting is listed above the recordings.
  *
  * The seed clears meetings booked from the project by earlier runs, and the
- * e2e server runs with Postmark keys blanked, so no invite is ever sent.
+ * e2e server runs with EMAIL_DELIVERY_DISABLED, so no invite is ever sent
+ * (the spec asserts "0 invites sent").
  * Runs authenticated via the storageState minted in global-setup. See
  * dev-docs/AGENT_VISUAL_TESTING.md.
  */
@@ -61,6 +62,9 @@ test("schedules a meeting with an agenda from a project's Meetings tab", async (
   await expect(modal.getByText(/1 item · Fixture Linked Project/).first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
 
   await modal.getByRole("button", { name: "Schedule & send invites" }).click();
+  // Delivery is switched off on the e2e server. A reused dev server started
+  // without EMAIL_DELIVERY_DISABLED would have sent real invites: fail loudly.
+  await expect(page.getByText(/0 invites sent/)).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
 
   // Lands on the meeting's agenda.
   await page.waitForURL(/\/ceremonies\/[^/]+\/[^/]+$/, { timeout: FIRST_PAINT_TIMEOUT });

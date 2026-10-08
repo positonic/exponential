@@ -42,8 +42,10 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     // Never deliver real email from a spec: booking a meeting sends calendar
-    // invites through Postmark, and `.env.local` carries a live key. With the
-    // keys blank every send fails, which the app treats as non-fatal.
-    env: { AUTH_POSTMARK_KEY: "", POSTMARK_SERVER_TOKEN: "" },
+    // invites, and `.env.local` carries a live Postmark key. The switch blocks
+    // every send whatever the key source (env or a workspace integration).
+    // It only reaches a server Playwright starts — a reused one must be
+    // started with EMAIL_DELIVERY_DISABLED=1 (AGENT_VISUAL_TESTING.md).
+    env: { EMAIL_DELIVERY_DISABLED: "1" },
   },
 });

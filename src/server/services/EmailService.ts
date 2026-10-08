@@ -120,7 +120,22 @@ interface SendEmailParams {
   attachments?: EmailAttachment[];
 }
 
+/**
+ * Test-only kill switch: with `EMAIL_DELIVERY_DISABLED` set, nothing is ever
+ * delivered — whatever key the environment carries and whatever Postmark
+ * integration a workspace has. The e2e server runs with it, so a spec that
+ * books a meeting can never email real calendar invites. Sends fail, which
+ * every caller already treats as non-fatal.
+ */
+export function isEmailDeliveryDisabled(): boolean {
+  const flag = process.env.EMAIL_DELIVERY_DISABLED;
+  return flag === "1" || flag === "true";
+}
+
 async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachments }: SendEmailParams): Promise<void> {
+  if (isEmailDeliveryDisabled()) {
+    throw new Error("Email delivery is disabled (EMAIL_DELIVERY_DISABLED)");
+  }
   const { apiKey, from } = await resolvePostmark(workspaceId);
 
   if (!apiKey) {
