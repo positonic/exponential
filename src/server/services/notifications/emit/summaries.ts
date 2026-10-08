@@ -12,7 +12,17 @@ import {
   renderDailySummaryMarkdown,
   renderDailySummaryPlainText,
 } from "./dailySummary";
-import { DEFAULT_SUMMARY_TIME, resolveSummaryTimezone } from "./summarySchedule";
+import {
+  SHUTDOWN_RECAP_REPLY_HINT,
+  SHUTDOWN_RECAP_TITLE,
+  buildShutdownRecap,
+  narrateRecapOpening,
+  renderShutdownRecapAgentContext,
+  renderShutdownRecapMarkdown,
+  renderShutdownRecapPlainText,
+  type NarrateRecapOptions,
+} from "./shutdownRecap";
+import { DEFAULT_SHUTDOWN_RECAP_TIME, DEFAULT_SUMMARY_TIME, resolveSummaryTimezone } from "./summarySchedule";
 
 /**
  * A summary fires at the first cron tick at/after its configured local time,
@@ -29,7 +39,15 @@ interface RenderedDigest {
   message: string;
   /** Markdown rendering for channels that render it (Matrix) — see ADR-0059. */
   markdown?: string;
+  /** Shutdown recap: Matrix-only reply line and the gateway's reply context. */
+  replyHint?: string;
+  agentContext?: string;
 }
+
+/** Options for the scheduled run: the digest builders' seams plus recap narration. */
+export type ScheduledSummaryOptions = BuildDailySummaryOptions & {
+  narrate?: NarrateRecapOptions;
+};
 
 /** True when `now` is within the fire window after today's local `timeStr` in `tz`. */
 function isWithinFireWindow(now: Date, tz: string, timeStr: string): boolean {
@@ -65,6 +83,36 @@ async function buildDailyDigest(
     message: renderDailySummaryPlainText(digest),
     markdown: renderDailySummaryMarkdown(digest),
   };
+}
+
+/**
+ * Build and render a user's Shutdown recap: the shutdown routine's sections,
+ * an LLM-written opening, and the numbers → action ids context the Matrix
+ * gateway keeps so a reply can act on them. Null if the user is gone.
+ */
+async function buildShutdownDigest(
+  db: PrismaClient,
+  userId: string,
+  now: Date,
+  tz: string,
+  options: ScheduledSummaryOptions,
+): Promise<RenderedDigest | null> {
+  const recap = await buildShutdownRecap(db, userId, now, tz, options);
+  if (!recap) return null;
+  const opening = await narrateRecapOpening(recap, options.narrate);
+  const agentContext = renderShutdownRecapAgentContext(recap);
+  return {
+    title: SHUTDOWN_RECAP_TITLE,
+    message: renderShutdownRecapPlainText(recap, opening),
+    markdown: renderShutdownRecapMarkdown(recap, opening),
+    ...(agentContext ? { replyHint: SHUTDOWN_RECAP_REPLY_HINT, agentContext } : {}),
+  };
+}
+
+/** Monday to Friday in the user's zone: the recap closes working days only. */
+function isLocalWeekday(now: Date, tz: string): boolean {
+  const day = getDay(toZonedTime(now, tz));
+  return day >= 1 && day <= 5;
 }
 
 /** True when today (local) is the user's weekly day and we're in the fire window. */
@@ -115,7 +163,7 @@ async function buildWeeklyDigest(
 async function emitSummary(
   db: PrismaClient,
   userId: string,
-  kind: "daily" | "weekly",
+  kind: "daily" | "weekly" | "shutdown",
   digest: RenderedDigest,
   periodKey: string,
 ): Promise<void> {
@@ -128,6 +176,8 @@ async function emitSummary(
       title: digest.title,
       message: digest.message,
       ...(digest.markdown ? { markdown: digest.markdown } : {}),
+      ...(digest.replyHint ? { replyHint: digest.replyHint } : {}),
+      ...(digest.agentContext ? { agentContext: digest.agentContext } : {}),
       periodKey,
     },
     db,
@@ -147,12 +197,12 @@ async function emitSummary(
 export async function generateScheduledSummaries(
   db: PrismaClient,
   now: Date = new Date(),
-  options: BuildDailySummaryOptions = {},
+  options: ScheduledSummaryOptions = {},
 ): Promise<{ emitted: number }> {
   const prefs = await db.notificationPreference.findMany({
     where: {
       enabled: true,
-      OR: [{ dailySummary: true }, { weeklySummary: true }],
+      OR: [{ dailySummary: true }, { weeklySummary: true }, { shutdownRecap: true }],
     },
     select: {
       userId: true,
@@ -161,6 +211,8 @@ export async function generateScheduledSummaries(
       dailySummary: true,
       weeklySummary: true,
       weeklyDayOfWeek: true,
+      shutdownRecap: true,
+      shutdownRecapTime: true,
       user: { select: { timezone: true } },
     },
   });
@@ -174,7 +226,7 @@ export async function generateScheduledSummaries(
     // One user's failing build must not cost every later user their digest:
     // report it and move on. Dedup means the user simply gets it on the next
     // tick inside the fire window if the cause was transient.
-    const attempt = async (kind: "daily" | "weekly", run: () => Promise<void>) => {
+    const attempt = async (kind: "daily" | "weekly" | "shutdown", run: () => Promise<void>) => {
       try {
         await run();
       } catch (error) {
@@ -202,6 +254,26 @@ export async function generateScheduledSummaries(
         const digest = await buildWeeklyDigest(db, pref.userId);
         if (digest) {
           await emitSummary(db, pref.userId, "weekly", digest, periodKey);
+          emitted++;
+        }
+      });
+    }
+
+    const recapTime = pref.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME;
+    if (pref.shutdownRecap && isLocalWeekday(now, tz) && isWithinFireWindow(now, tz, recapTime)) {
+      await attempt("shutdown", async () => {
+        const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
+        // The cron ticks every two minutes and dedup only stops a second
+        // *delivery*: without this check every tick in the hour-long window
+        // would rebuild the recap and pay for another LLM call.
+        const sent = await db.notification.findFirst({
+          where: { userId: pref.userId, dedupeKey: `summary:shutdown:${periodKey}` },
+          select: { id: true },
+        });
+        if (sent) return;
+        const digest = await buildShutdownDigest(db, pref.userId, now, tz, options);
+        if (digest) {
+          await emitSummary(db, pref.userId, "shutdown", digest, periodKey);
           emitted++;
         }
       });

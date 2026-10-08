@@ -7,6 +7,9 @@
 /** Local time a daily digest fires when the user has never picked one. */
 export const DEFAULT_SUMMARY_TIME = "09:00";
 
+/** Local time the weekday Shutdown recap fires when the user has never picked one. */
+export const DEFAULT_SHUTDOWN_RECAP_TIME = "18:00";
+
 /**
  * The zone a user's summary times are read in. `User.timezone` (Settings →
  * Profile, also set by the calendar timezone checkpoint) is the one place a

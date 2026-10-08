@@ -35,10 +35,15 @@ interface Draft {
   dailySummaryTime: string;
   weeklySummary: boolean;
   weeklyDayOfWeek: string;
+  shutdownRecap: boolean;
+  shutdownRecapTime: string;
 }
 
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 /**
- * Settings → Notifications: when the Daily and Weekly summaries fire. Sits
+ * Settings → Notifications: when the Daily and Weekly summaries and the
+ * weekday Shutdown recap fire. Sits
  * under the delivery matrix, whose "Summaries" checkbox decides *where* they
  * go; this card decides *when*. Times are read in the profile timezone
  * (Settings → Profile) — there is deliberately no second timezone picker here.
@@ -55,6 +60,8 @@ export function SummaryScheduleCard() {
         dailySummaryTime: data.dailySummaryTime,
         weeklySummary: data.weeklySummary,
         weeklyDayOfWeek: String(data.weeklyDayOfWeek),
+        shutdownRecap: data.shutdownRecap,
+        shutdownRecapTime: data.shutdownRecapTime,
       });
     }
   }, [data, draft]);
@@ -100,8 +107,11 @@ export function SummaryScheduleCard() {
     draft.dailySummary !== data.dailySummary ||
     draft.dailySummaryTime !== data.dailySummaryTime ||
     draft.weeklySummary !== data.weeklySummary ||
-    draft.weeklyDayOfWeek !== String(data.weeklyDayOfWeek);
-  const isValidTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(draft.dailySummaryTime);
+    draft.weeklyDayOfWeek !== String(data.weeklyDayOfWeek) ||
+    draft.shutdownRecap !== data.shutdownRecap ||
+    draft.shutdownRecapTime !== data.shutdownRecapTime;
+  const isValidTime = TIME_PATTERN.test(draft.dailySummaryTime);
+  const isValidRecapTime = TIME_PATTERN.test(draft.shutdownRecapTime);
 
   return (
     <Card className="bg-surface-secondary border-border-primary" withBorder>
@@ -113,8 +123,11 @@ export function SummaryScheduleCard() {
           </Title>
           <Text size="sm" className="text-text-muted" maw={520}>
             When your Daily and Weekly summaries are sent. The weekly summary
-            goes out at the same time on the day you pick. Which channels
-            receive them is the &quot;Summaries&quot; option above.
+            goes out at the same time on the day you pick. The Shutdown recap
+            closes each weekday: what you got done, what is left, and
+            tomorrow. In Matrix you can reply to it to reschedule or drop the
+            numbered actions. Which channels receive them is the
+            &quot;Summaries&quot; option above.
           </Text>
         </div>
       </Group>
@@ -161,6 +174,27 @@ export function SummaryScheduleCard() {
           />
         </Group>
 
+        <Group align="flex-end" gap="md" wrap="wrap">
+          <Switch
+            label="Shutdown recap (weekdays)"
+            checked={draft.shutdownRecap}
+            onChange={(e) =>
+              setDraft({ ...draft, shutdownRecap: e.currentTarget.checked })
+            }
+            mb={6}
+          />
+          <TimeInput
+            label="Send at"
+            value={draft.shutdownRecapTime}
+            onChange={(e) =>
+              setDraft({ ...draft, shutdownRecapTime: e.currentTarget.value })
+            }
+            error={isValidRecapTime ? undefined : 'Use a 24-hour time like 18:00'}
+            disabled={!draft.shutdownRecap}
+            w={140}
+          />
+        </Group>
+
         {data.profileTimezone ? (
           <Text size="xs" className="text-text-muted">
             Times are in {data.profileTimezone}, your profile timezone.{' '}
@@ -190,7 +224,7 @@ export function SummaryScheduleCard() {
         <Group justify="flex-end">
           <Button
             size="sm"
-            disabled={!isDirty || !isValidTime}
+            disabled={!isDirty || !isValidTime || !isValidRecapTime}
             loading={save.isPending}
             onClick={() =>
               save.mutate({
@@ -198,6 +232,8 @@ export function SummaryScheduleCard() {
                 dailySummaryTime: draft.dailySummaryTime,
                 weeklySummary: draft.weeklySummary,
                 weeklyDayOfWeek: Number(draft.weeklyDayOfWeek),
+                shutdownRecap: draft.shutdownRecap,
+                shutdownRecapTime: draft.shutdownRecapTime,
               })
             }
           >

@@ -10,6 +10,17 @@ import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServe
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
   emitNotification: vi.fn().mockResolvedValue(undefined),
 }));
+// The recap's data and narration are tested in shutdownRecap/__tests__; here
+// they are canned so the scheduling is what is under test. Renderers stay real.
+const recapMocks = vi.hoisted(() => ({
+  buildShutdownRecap: vi.fn(),
+  narrateRecapOpening: vi.fn(),
+}));
+vi.mock("~/server/services/notifications/emit/shutdownRecap", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/server/services/notifications/emit/shutdownRecap")>()),
+  buildShutdownRecap: recapMocks.buildShutdownRecap,
+  narrateRecapOpening: recapMocks.narrateRecapOpening,
+}));
 // The server error reporter pulls in the Prisma singleton at module load.
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({
   reportHandledErrorServer: vi.fn(),
@@ -613,5 +624,104 @@ describe("generateScheduledSummaries — daily summary digest", () => {
       expect(db.ticket.findMany).not.toHaveBeenCalled();
       expect(subject.message).toContain("🔄 Current cycle\nNo active cycle\n");
     });
+  });
+});
+
+describe("generateScheduledSummaries — shutdown recap", () => {
+  const recap = {
+    firstName: "Ada",
+    dayLabel: "Thursday 8 October",
+    dayKey: "2026-10-08",
+    timezone: "Europe/Berlin",
+    done: [],
+    moved: [],
+    time: [],
+    leftUndone: [{ n: 1, actionId: "a1", title: "Write the brief", url: null, detail: null }],
+    moreOverdue: 0,
+    tomorrowMeetings: [],
+    tomorrowActions: [],
+    todayUrl: "https://app.test/today",
+  };
+
+  function recapPref(overrides: Record<string, unknown> = {}) {
+    return pref({
+      dailySummary: false,
+      shutdownRecap: true,
+      shutdownRecapTime: "18:00",
+      user: { timezone: "Europe/Berlin" },
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    recapMocks.buildShutdownRecap.mockResolvedValue(recap);
+    recapMocks.narrateRecapOpening.mockResolvedValue("A good day, Ada.");
+    db.notification.findFirst.mockResolvedValue(null);
+  });
+
+  it("emits the recap at the chosen local time on a weekday, with the reply context for Matrix", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+
+    // Thursday 18:04 in Berlin.
+    const result = await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"));
+
+    expect(result.emitted).toBe(1);
+    expect(emitNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "summary",
+        subject: expect.objectContaining({
+          userId: "u1",
+          kind: "shutdown",
+          title: "🌙 Shutdown recap",
+          periodKey: "2026-10-08",
+          markdown: expect.stringContaining("A good day, Ada."),
+          replyHint: expect.stringContaining("Reply"),
+          agentContext: expect.stringContaining('1 = action a1 "Write the brief"'),
+        }),
+      }),
+    );
+  });
+
+  it("stays quiet at the weekend", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+
+    // Saturday 18:04 in Berlin.
+    await generateScheduledSummaries(db, new Date("2026-10-10T16:04:00.000Z"));
+
+    expect(recapMocks.buildShutdownRecap).not.toHaveBeenCalled();
+    expect(emitNotification).not.toHaveBeenCalled();
+  });
+
+  it("does not rebuild (or re-narrate) a recap already sent today", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+    db.notification.findFirst.mockResolvedValue({ id: "n1" } as never);
+
+    await generateScheduledSummaries(db, new Date("2026-10-08T16:20:00.000Z"));
+
+    expect(db.notification.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: "u1", dedupeKey: "summary:shutdown:2026-10-08" } }),
+    );
+    expect(recapMocks.buildShutdownRecap).not.toHaveBeenCalled();
+    expect(recapMocks.narrateRecapOpening).not.toHaveBeenCalled();
+  });
+
+  it("leaves the reply hint and context off when nothing is numbered", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+    recapMocks.buildShutdownRecap.mockResolvedValue({ ...recap, leftUndone: [] });
+
+    await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"));
+
+    const subject = vi.mocked(emitNotification).mock.calls[0]![0].subject as Record<string, unknown>;
+    expect(subject.kind).toBe("shutdown");
+    expect(subject).not.toHaveProperty("replyHint");
+    expect(subject).not.toHaveProperty("agentContext");
+  });
+
+  it("is not sent when the recap is switched off", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref({ shutdownRecap: false })] as never);
+
+    await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"));
+
+    expect(emitNotification).not.toHaveBeenCalled();
   });
 });
