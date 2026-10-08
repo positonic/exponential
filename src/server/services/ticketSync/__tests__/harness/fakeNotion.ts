@@ -50,6 +50,8 @@ export interface FakePage {
   extra: Record<string, unknown>;
   /** Body blocks passed to createPage, kept for assertions. */
   children: unknown[];
+  /** Absolute URLs on the page (link properties, linked text, body links). */
+  links?: string[];
 }
 
 export interface NotionWrite {
@@ -241,6 +243,10 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
   getPageBody(externalId: string): Promise<string | null> {
     const page = this.pages.get(externalId);
     return Promise.resolve(page ? `Body of ${page.title}` : null);
+  }
+
+  getPageLinks(externalId: string): Promise<string[]> {
+    return Promise.resolve(this.pages.get(externalId)?.links ?? []);
   }
 
   // ── TicketPushAdapter (outbound / push) ───────────────────────────────────

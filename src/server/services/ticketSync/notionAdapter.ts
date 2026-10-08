@@ -104,6 +104,16 @@ export class NotionTicketSyncAdapter
     Promise<{ properties: Record<string, unknown> }>
   >();
 
+  /**
+   * The last page fetched with its blocks. Inbound reads an unlinked page's
+   * links and then, if it imports it, its body — the same page, back to back.
+   * Remembering one page makes that a single fetch.
+   */
+  private lastPageFetch: {
+    externalId: string;
+    result: Promise<{ page: unknown; blocks: unknown[] }>;
+  } | null = null;
+
   constructor(
     private readonly notion: NotionService,
     private readonly propertyNames: PropertyNames,
@@ -238,10 +248,22 @@ export class NotionTicketSyncAdapter
     };
   }
 
+  private getPageWithBlocks(
+    externalId: string,
+  ): Promise<{ page: unknown; blocks: unknown[] }> {
+    if (this.lastPageFetch?.externalId !== externalId) {
+      this.lastPageFetch = {
+        externalId,
+        result: this.notion.getPageWithBlocks(externalId),
+      };
+    }
+    return this.lastPageFetch.result;
+  }
+
   /** Flatten the page's blocks into plain-text-with-markdown-accents. */
   async getPageBody(externalId: string): Promise<string | null> {
     try {
-      const { blocks } = await this.notion.getPageWithBlocks(externalId);
+      const { blocks } = await this.getPageWithBlocks(externalId);
       const lines: string[] = [];
       for (const block of blocks as Array<Record<string, unknown>>) {
         const line = renderBlock(block);
@@ -252,6 +274,41 @@ export class NotionTicketSyncAdapter
     } catch {
       // Body is copy-on-create nicety, never worth failing the row over.
       return null;
+    }
+  }
+
+  /**
+   * Every absolute URL on the page: url-typed property values, linked text in
+   * any property, and linked text, bookmarks and link previews in the
+   * top-level body blocks. Used to recognise a hand-written page that links to
+   * an existing ticket. An unreadable page yields no links (create as before).
+   */
+  async getPageLinks(externalId: string): Promise<string[]> {
+    try {
+      const { page, blocks } = await this.getPageWithBlocks(externalId);
+      const urls: string[] = [];
+      const properties = ((page as { properties?: Record<string, unknown> })
+        .properties ?? {}) as Record<string, Record<string, unknown>>;
+      for (const prop of Object.values(properties)) {
+        if (prop.type === "url" && typeof prop.url === "string") urls.push(prop.url);
+        if (prop.type === "rich_text") urls.push(...richTextLinks(prop.rich_text));
+        if (prop.type === "title") urls.push(...richTextLinks(prop.title));
+      }
+      for (const block of blocks as Array<Record<string, unknown>>) {
+        const type = block.type as string | undefined;
+        if (!type) continue;
+        const payload = block[type] as { rich_text?: unknown; url?: unknown } | undefined;
+        urls.push(...richTextLinks(payload?.rich_text));
+        if (
+          (type === "bookmark" || type === "link_preview") &&
+          typeof payload?.url === "string"
+        ) {
+          urls.push(payload.url);
+        }
+      }
+      return urls;
+    } catch {
+      return [];
     }
   }
 
@@ -467,6 +524,15 @@ function isNotFound(error: unknown): boolean {
 
 interface RichTextItem {
   plain_text?: string;
+  /** Link target of linked text or a mention; null for plain text. */
+  href?: string | null;
+}
+
+function richTextLinks(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return (value as RichTextItem[]).flatMap((t) =>
+    typeof t.href === "string" ? [t.href] : [],
+  );
 }
 
 function richText(value: unknown): string {
