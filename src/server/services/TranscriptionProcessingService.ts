@@ -222,10 +222,13 @@ export class TranscriptionProcessingService {
         }
       }
 
-      // Screen recordings keep the dedicated pass: it reads the transcript's
+      // The combined decision pass, when it ran, wins over the stored
+      // summary's action list: it read the transcript itself, sorted each
+      // item into decision or action, and quotes its evidence. Screen
+      // recordings keep the dedicated pass: it reads the transcript's
       // [SCREENSHOT-N] markers to attach captures to actions, and the
       // decision extractor's turn-numbered input has those markers stripped.
-      if (transcriptItems.length === 0 && options.transcriptActionItems && screenshots.length === 0) {
+      if (options.transcriptActionItems && screenshots.length === 0) {
         transcriptItems = actionCandidatesToParsedItems(options.transcriptActionItems);
         console.log(`[generateDraftActions] Using ${transcriptItems.length} action item(s) from the combined decision pass`);
       } else if (transcriptItems.length === 0 && transcriptText) {

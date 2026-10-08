@@ -71,6 +71,7 @@ vi.mock("../meetings/assignMeetingPlacement", () => ({
 import { TranscriptionProcessingService } from "../TranscriptionProcessingService";
 import { InternalActionProcessor } from "../processors/InternalActionProcessor";
 import { ActionExtractionService } from "../ActionExtractionService";
+import { FirefliesService } from "../FirefliesService";
 
 const USER_ID = "user-1";
 const TRANSCRIPTION_ID = "session-1";
@@ -258,6 +259,29 @@ describe("generateDraftActions with action items from the combined decision pass
     expect(created.data.name).toBe("Review the accordion PR");
     // The quoted turn is what the reviewer sees on the draft.
     expect(created.data.description).toContain("I'll take the accordion review today.");
+  });
+
+  it("prefers the combined pass's items over a stored summary's action list", async () => {
+    db.screenshot.findMany.mockResolvedValue([] as never);
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      id: TRANSCRIPTION_ID,
+      userId: USER_ID,
+      projectId: null,
+      project: null,
+      user: { id: USER_ID },
+      title: "Test meeting",
+      summary: JSON.stringify({ action_items: "- Summary-only task" }),
+      notes: null,
+      transcription: "Pat Reviewer: I'll take the accordion review today.",
+    } as never);
+    vi.mocked(FirefliesService.parseActionItems).mockReturnValueOnce([{ text: "Summary-only task" }]);
+
+    await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+      transcriptActionItems: combinedItems,
+    });
+
+    const names = db.action.create.mock.calls.map((c) => (c[0] as { data: { name: string } }).data.name);
+    expect(names).toEqual(["Review the accordion PR"]);
   });
 
   it("keeps the dedicated pass for screen recordings, which pairs screenshots", async () => {
