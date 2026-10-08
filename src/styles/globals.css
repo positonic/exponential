@@ -508,7 +508,11 @@ body {
 .mantine-DateTimePicker-input:not([data-variant="unstyled"]),
 .mantine-DatePickerInput-input:not([data-variant="unstyled"]),
 .mantine-TimeInput-input:not([data-variant="unstyled"]),
-.mantine-MultiSelect-input:not([data-variant="unstyled"]) {
+.mantine-MultiSelect-input:not([data-variant="unstyled"]),
+/* Combobox's built-in search field carries `mantine-Input-input` but not any
+   per-component input class, so it matched none of the above and kept
+   Mantine's stock dark input surface inside our navy dropdowns. */
+.mantine-Combobox-search:not([data-variant="unstyled"]) {
   background-color: var(--color-bg-secondary);
   border-color: var(--color-border-primary);
 }
@@ -553,7 +557,14 @@ body {
   background-color: var(--color-surface-hover);
 }
 
-/* --- SegmentedControl active label --- */
+/* --- SegmentedControl labels ---
+   Base colour lives here, not in mantineTheme.ts: as an inline
+   `SegmentedControl.styles.label.color` it beat both rules below, so the active
+   segment rendered --color-text-secondary instead of --color-text-primary. The
+   :not([data-active]) qualifier also lifts it past Mantine's own label rule. */
+.mantine-SegmentedControl-label:not([data-active]) {
+  color: var(--color-text-secondary);
+}
 .mantine-SegmentedControl-label[data-active] {
   color: var(--color-text-primary);
 }
@@ -796,6 +807,13 @@ body {
     flex-wrap: nowrap;
     min-width: max-content;
   }
+}
+/* Base tab colour. This lives here rather than in mantineTheme.ts because an
+   inline style beats a stylesheet rule: as `Tabs.styles.tab.color` in the theme
+   it overrode the `[data-active]` rule below, so active tabs rendered
+   --color-text-secondary and never picked up the brand colour. */
+.mantine-Tabs-tab:not([data-active]) {
+  color: var(--color-text-secondary);
 }
 .mantine-Tabs-tab[data-active] {
   border-color: var(--color-brand-primary);

@@ -47,14 +47,18 @@ export async function ensureOccurrences(
   ceremony: Ceremony,
   opts: { now?: Date; windowStart?: Date; windowEnd?: Date } = {},
 ): Promise<number> {
+  // A one-off has exactly one occurrence, written at booking — never expanded,
+  // even if a rule somehow got onto it.
+  if (ceremony.isOneOff || !ceremony.cadenceRule) return 0;
+  const cadence = { ...ceremony, cadenceRule: ceremony.cadenceRule };
   const now = opts.now ?? new Date();
   const window = occurrenceWindow(now);
   const start = opts.windowStart ?? ceremony.startsOn;
   const end = opts.windowEnd ?? window.end;
 
-  let slots = expandOccurrences(ceremony, start, end);
+  let slots = expandOccurrences(cadence, start, end);
   if (slots.length === 0) {
-    const next = nextOccurrence(ceremony, now);
+    const next = nextOccurrence(cadence, now);
     if (next) slots = [next];
   }
   if (slots.length === 0) return 0;
@@ -85,7 +89,8 @@ export interface OccurrenceSweepResult {
  * its error is reported in the summary.
  */
 export async function expandActiveCeremonies(db: Db, now = new Date()): Promise<OccurrenceSweepResult> {
-  const ceremonies = await db.ceremony.findMany({ where: { isActive: true } });
+  // A one-off has nothing to expand: its single occurrence is written at booking.
+  const ceremonies = await db.ceremony.findMany({ where: { isActive: true, isOneOff: false, cadenceRule: { not: null } } });
   const result: OccurrenceSweepResult = { ceremonies: ceremonies.length, created: 0, errors: [] };
   for (const ceremony of ceremonies) {
     try {

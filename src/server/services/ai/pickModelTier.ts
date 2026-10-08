@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { decideTierWithJev, type TierDecider } from "./jevDecision";
 
 /**
  * Tiered model routing — picks the actual Mastra agent ID to invoke for a
@@ -21,16 +22,23 @@ import type { PrismaClient } from "@prisma/client";
  *      so far. Anthropic prompt caches are model-scoped, so flipping tiers
  *      mid-conversation forces a cold cache and undoes the win. If the prior
  *      Haiku turn errored, escalate to Sonnet for this turn.
- *   4. Heuristics on the latest user message:
- *        - Force Sonnet on explicit opt-in (`@think`, `@zoe-think`) or long
- *          messages that contain hard-thinking verbs (plan/design/analyze/...).
+ *   4. Explicit opt-in (`@think`, `@zoe-think`) forces Sonnet. The user
+ *      asked; no classifier overrides that.
+ *   5. Jev (ADR-0065): when a Jev provider is configured (`OPENROUTER_API_KEY`
+ *      via OpenRouter's System One endpoint, or `TYPESAFE_API_KEY` direct),
+ *      ask Jev whether the turn is `fast` or `deep`. It answers in ~70-500 ms
+ *      with a calibrated confidence. Acted on at confidence ≥ 0.5; otherwise,
+ *      or on any timeout/error, fall through to the regexes below.
+ *   6. Regex heuristics on the latest user message:
+ *        - Force Sonnet on long messages that contain hard-thinking verbs
+ *          (plan/design/analyze/...).
  *        - Fast-path to Haiku for greetings, short messages without
  *          @mentions, and obvious single-tool lookups.
- *   5. Fallback: Haiku (cheaper + faster). Stickiness will escalate if the
+ *   7. Fallback: Haiku (cheaper + faster). Stickiness will escalate if the
  *      next turn shows the model couldn't handle the work.
  *
  * Pure-ish: only DB read is the stickiness lookup against
- * aiInteractionHistory.
+ * aiInteractionHistory; the only network call is Jev, and it is optional.
  */
 
 const HAIKU_VARIANT: Record<string, string> = {
@@ -50,12 +58,35 @@ export interface PickModelTierInput {
   conversationId: string | undefined;
   userId: string;
   finalMessages: MessageLike[];
+  /**
+   * Prior turns of the conversation, oldest first, for the decision layer.
+   * The route sends Mastra only the latest user message (thread memory holds
+   * the rest), so `finalMessages` carries no history — the caller must pass
+   * the client-supplied transcript here or Jev decides "do the second one"
+   * blind. Defaults to whatever precedes the last user message in
+   * `finalMessages`.
+   */
+  priorTurns?: MessageLike[];
   db: PrismaClient;
+  /**
+   * Decision-layer override. Defaults to Jev (`decideTierWithJev`), which
+   * is a no-op without `TYPESAFE_API_KEY`. Pass `null` to disable, or a
+   * stub in tests.
+   */
+  decideTier?: TierDecider | null;
 }
 
 export interface PickModelTierResult {
   agentId: string;
   reason: string;
+  /** Present when Jev made the call; for the route's log line and evals. */
+  decision?: {
+    confidence: number;
+    latencyMs: number;
+    model: string;
+    provider: "openrouter" | "typesafe";
+    costUsd?: number;
+  };
 }
 
 const FORCE_SONNET_OPT_IN = /@(zoe-)?think\b/i;
@@ -81,6 +112,8 @@ export async function pickModelTier(
   input: PickModelTierInput,
 ): Promise<PickModelTierResult> {
   const { agentId, conversationId, userId, finalMessages, db } = input;
+  const decideTier =
+    input.decideTier === undefined ? decideTierWithJev : input.decideTier;
 
   // Agents without a Haiku variant pass through unchanged.
   const haikuId = HAIKU_VARIANT[agentId];
@@ -117,6 +150,32 @@ export async function pickModelTier(
   // Force Sonnet for explicit opt-in.
   if (FORCE_SONNET_OPT_IN.test(trimmed)) {
     return { agentId: sonnetId, reason: "force-sonnet-opt-in" };
+  }
+
+  // Jev decision layer. Null means "not configured / unsure / unavailable"
+  // and hands the decision to the regexes below.
+  if (decideTier) {
+    const lastUserIndex = finalMessages.lastIndexOf(
+      [...finalMessages].reverse().find((m) => m.role === "user")!,
+    );
+    const decision = await decideTier({
+      message: trimmed,
+      priorTurns:
+        input.priorTurns ?? finalMessages.slice(0, Math.max(0, lastUserIndex)),
+    });
+    if (decision) {
+      return {
+        agentId: decision.tier === "deep" ? sonnetId : haikuId,
+        reason: decision.tier === "deep" ? "jev-deep" : "jev-fast",
+        decision: {
+          confidence: decision.confidence,
+          latencyMs: decision.latencyMs,
+          model: decision.model,
+          provider: decision.provider,
+          costUsd: decision.costUsd,
+        },
+      };
+    }
   }
 
   // Force Sonnet for long messages that contain hard-thinking verbs.

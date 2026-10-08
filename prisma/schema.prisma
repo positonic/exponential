@@ -2338,15 +2338,27 @@ model Meeting {
   @@index([workspaceId, startsAt])
 }
 
+/// A person invited to a Scheduled meeting (CONTEXT.md → Attendee): a
+/// workspace member, or an external person known by email with an optional
+/// CRM contact (ADR-0059 amendment, 2026-10-07). Mirrors
+/// `TranscriptionSessionParticipant`, so the two match on email when a
+/// recording attaches. Only members have availability.
 model MeetingAttendee {
-  id        String  @id @default(cuid())
+  id        String      @id @default(cuid())
   meetingId String
-  userId    String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String?
+  contactId String?
+  /// Lowercased. The invite goes here; a member without an email on file
+  /// carries the `user:<id>` sentinel and is never emailed.
+  email     String
+  name      String?
+  meeting   Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
-  @@unique([meetingId, userId])
+  @@unique([meetingId, email])
   @@index([userId])
+  @@index([contactId])
 }
 
 // ---------------------------------------------------------------------------
@@ -2399,8 +2411,8 @@ model Ceremony {
   inputs          String?      @db.Text
   /// Markdown (ADR-0017). Expected outputs.
   outputs         String?      @db.Text
-  /// RFC 5545 RRULE string, evaluated in `timezone`.
-  cadenceRule     String
+  /// RFC 5545 RRULE string, evaluated in `timezone`. Null only on a one-off.
+  cadenceRule     String?
   /// IANA zone the cadence rule is evaluated in.
   timezone        String
   /// Date the cadence rule is anchored to; past occurrences expand from here
@@ -2419,6 +2431,10 @@ model Ceremony {
   /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
   matrixRoomId    String?
   isActive        Boolean      @default(true)
+  /// An ad hoc meeting scheduled from a project (ADR-0059 amendment,
+  /// 2026-10-07): no cadence rule, exactly one occurrence, never listed with
+  /// the recurring ceremonies, and never called a "ceremony" in the UI.
+  isOneOff        Boolean      @default(false)
   createdById     String
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -2436,6 +2452,7 @@ model Ceremony {
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, isActive])
+  @@index([workspaceId, isOneOff])
   @@index([productId])
   @@index([teamId])
   @@index([ownerId])
@@ -3319,10 +3336,37 @@ model KnowledgePage {
   ceremonyOccurrence CeremonyOccurrence?
   /// Set when this page is a Workspace update's draft / published body.
   workspaceUpdate    WorkspaceUpdate?
+  /// `pageLink` nodes in this page's `bodyDoc` (ADR-0039 nesting).
+  linksFrom          PageLink[] @relation("PageLinkFrom")
+  /// Pages whose `bodyDoc` links to this one.
+  linksTo            PageLink[] @relation("PageLinkTo")
 
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+}
+
+/// One `pageLink` node in a Page's `bodyDoc` (ADR-0039: the page hierarchy is
+/// the link graph). A derived index of the doc, not a second source of truth:
+/// rewritten from the stored doc in the same transaction as every body write
+/// (`syncPageLinks`), so the tree, breadcrumb and sub-tree walks read these
+/// rows instead of parsing every doc in the workspace. Only same-workspace,
+/// existing targets are stored; self-links are dropped; a doc linking one page
+/// twice keeps its first position.
+model PageLink {
+  fromPageId  String
+  toPageId    String
+  /// Order of the link within the source doc (document order, 0-based).
+  position    Int
+  /// The source page's workspace (always also the target's).
+  workspaceId String
+
+  from KnowledgePage @relation("PageLinkFrom", fields: [fromPageId], references: [id], onDelete: Cascade)
+  to   KnowledgePage @relation("PageLinkTo", fields: [toPageId], references: [id], onDelete: Cascade)
+
+  @@id([fromPageId, toPageId])
+  @@index([toPageId])
+  @@index([workspaceId])
 }
 
 /// Comment on a Knowledge Page. Two flavours share the table, same shape as
@@ -3411,6 +3455,7 @@ model CrmContact {
   communications              CrmCommunication[]
   deals                       Deal[]
   transcriptionParticipations TranscriptionSessionParticipant[]
+  meetingAttendances          MeetingAttendee[]
   screenshots                 CrmContactScreenshot[]
   enrichments                 CrmContactEnrichment[]
 

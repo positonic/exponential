@@ -59,8 +59,8 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
-import { createHash, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
+import { personSchema, resolvePerson, type Person } from "~/server/services/meetings/resolvePerson";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -281,174 +281,22 @@ async function syncParticipantCount(
   });
 }
 
-// Shared shape for "a person to attach to a meeting": a workspace member
-// (userId), an existing CRM contact (contactId), or a free-text name/email.
-// Used by both addParticipant (one at a time) and createManualTranscription
-// (a batch attached at create time).
-const participantPersonSchema = z
-  .object({
-    userId: z.string().optional(),
-    contactId: z.string().optional(),
-    email: z.string().email().optional(),
-    name: z.string().trim().min(1).optional(),
-  })
-  .refine((v) => v.userId ?? v.contactId ?? v.email ?? v.name, {
-    message: "Provide a member, a contact, or a name/email",
-  });
-
-type ParticipantPerson = z.infer<typeof participantPersonSchema>;
-
 // Resolve one person into a meeting participant row and upsert it inside the
-// caller's transaction. Single source of truth for "turn a member / contact /
-// free-text person into a participant" — used by both addParticipant (detail
-// page, one at a time) and createManualTranscription (a batch on manual
-// create). Resolution covers workspace-member lookup, existing-contact linking
-// with email write-back for no-email contacts, and free-text emailHash
-// find-or-create (workspace-boundary safe). Does NOT recount participantCount —
-// the caller runs syncParticipantCount once after all participants resolve.
+// caller's transaction. The resolution rules (member / contact / free text)
+// live in `resolvePerson`, shared with Scheduled-meeting attendees. Does NOT
+// recount participantCount — the caller runs syncParticipantCount once after
+// all participants resolve.
 async function upsertMeetingParticipant(
   tx: Prisma.TransactionClient,
   args: {
     transcriptionSessionId: string;
     workspaceId: string;
     actorId: string;
-    person: ParticipantPerson;
+    person: Person;
   },
 ) {
   const { transcriptionSessionId, workspaceId, actorId, person } = args;
-
-  // Denormalized fields stored on the participant row.
-  let userId: string | null = null;
-  let contactId: string | null = null;
-  let email: string | null = null;
-  let name: string | null = null;
-
-  if (person.userId) {
-    // Workspace member: verify membership in this Meeting's workspace.
-    const membership = await tx.workspaceUser.findFirst({
-      where: { userId: person.userId, workspaceId },
-    });
-    if (!membership) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "User is not a member of this workspace",
-      });
-    }
-    const user = await tx.user.findUnique({
-      where: { id: person.userId },
-      select: { id: true, name: true, email: true },
-    });
-    if (!user) {
-      throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-    }
-    userId = user.id;
-    email = user.email ?? null;
-    name = user.name ?? null;
-  } else if (person.contactId) {
-    // Existing CRM contact in this workspace.
-    const contact = await tx.crmContact.findUnique({
-      where: { id: person.contactId },
-      select: {
-        id: true,
-        workspaceId: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-      },
-    });
-    if (!contact || contact.workspaceId !== workspaceId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "Contact must belong to this workspace",
-      });
-    }
-    contactId = contact.id;
-    name =
-      [contact.firstName, contact.lastName].filter(Boolean).join(" ") || null;
-
-    const existingEmail = decryptBufferSafe(contact.email);
-    if (existingEmail) {
-      email = existingEmail;
-    } else if (person.email) {
-      // The contact has no email on file: capture the one supplied at link
-      // time and write it back onto the CrmContact, so the contact record
-      // improves everywhere — not just this participant row.
-      const emailHash = createHash("sha256")
-        .update(person.email.toLowerCase().trim())
-        .digest("hex");
-      // emailHash uniqueness is workspace-scoped. If another contact in this
-      // workspace already owns this email, don't collide on update — surface a
-      // clear error. Contacts in other workspaces with the same email are fine.
-      const owner = await tx.crmContact.findUnique({
-        where: {
-          workspaceId_emailHash: { workspaceId, emailHash },
-        },
-        select: { id: true },
-      });
-      if (owner && owner.id !== contact.id) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "That email already belongs to another contact",
-        });
-      }
-      await tx.crmContact.update({
-        where: { id: contact.id },
-        data: { email: encryptString(person.email), emailHash },
-      });
-      email = person.email;
-    }
-  } else {
-    // Free-text. If we have an email, link (or create) a CRM contact so the
-    // person lands in the CRM.
-    name = person.name ?? null;
-    email = person.email ?? null;
-
-    if (person.email) {
-      const emailHash = createHash("sha256")
-        .update(person.email.toLowerCase().trim())
-        .digest("hex");
-      // emailHash uniqueness is workspace-scoped, so look up within this
-      // Meeting's workspace. The same email may exist as a contact in other
-      // workspaces; that's allowed and irrelevant here.
-      let contact = await tx.crmContact.findUnique({
-        where: {
-          workspaceId_emailHash: { workspaceId, emailHash },
-        },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-        },
-      });
-      if (!contact) {
-        const [firstName, ...rest] = (person.name ?? "").trim().split(/\s+/);
-        contact = await tx.crmContact.create({
-          data: {
-            workspaceId,
-            createdById: actorId,
-            firstName: firstName || null,
-            lastName: rest.length > 0 ? rest.join(" ") : null,
-            email: encryptString(person.email),
-            emailHash,
-            importSource: "MANUAL",
-          },
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        });
-      }
-      // The lookup/insert above is workspace-scoped, so the returned contact
-      // necessarily belongs to this Meeting's workspace.
-      contactId = contact.id;
-      if (!name) {
-        name =
-          [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
-          null;
-      }
-    }
-  }
+  const { userId, contactId, email, name } = await resolvePerson(tx, { workspaceId, actorId, person });
 
   // The unique key is [transcriptionSessionId, email]. Real people have an
   // email; name-only entries fall back to a stable `name:<lowercased>` sentinel
@@ -1078,7 +926,7 @@ export const transcriptionRouter = createTRPCRouter({
         // Participants to attach atomically with the meeting (linked CRM
         // contacts and/or new name+email people). Resolved via the same
         // helper as addParticipant.
-        participants: z.array(participantPersonSchema).optional(),
+        participants: z.array(personSchema).optional(),
         // The ceremony occurrence this meeting captured (ADR-0059), picked by
         // hand. When absent, title/date auto-attach runs instead.
         occurrenceId: z.string().optional(),
@@ -2158,6 +2006,11 @@ export const transcriptionRouter = createTRPCRouter({
             code: "PRECONDITION_FAILED",
             message:
               "Server summarization is not configured (missing OPENAI_API_KEY).",
+          });
+        case "failed":
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Summary generation failed: ${outcome.error ?? "unknown error"}`,
           });
         case "created":
           return { id: session.id, summary: outcome.summary ?? null };

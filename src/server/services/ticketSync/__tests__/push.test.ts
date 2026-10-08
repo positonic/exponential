@@ -150,7 +150,6 @@ interface FakeAdapter extends TicketPushAdapter {
     properties: Record<string, unknown>;
     children: unknown[];
   }>;
-  archives: string[];
 }
 
 function fakeAdapter(
@@ -168,11 +167,9 @@ function fakeAdapter(
 ): FakeAdapter {
   const updates: FakeAdapter["updates"] = [];
   const creates: FakeAdapter["creates"] = [];
-  const archives: string[] = [];
   return {
     updates,
     creates,
-    archives,
     getRow: () => Promise.resolve(row),
     getWriteSchema: () => Promise.resolve(opts.schema ?? SCHEMA),
     updatePage: (id, props) => {
@@ -188,10 +185,6 @@ function fakeAdapter(
     createPage: (params) => {
       creates.push(params);
       return Promise.resolve({ externalId: "new-page-id", url: "https://notion.so/new" });
-    },
-    archivePage: (id) => {
-      archives.push(id);
-      return Promise.resolve();
     },
   };
 }
@@ -743,8 +736,45 @@ describe("runOutboundTicketPush — orphan probe (back-link)", () => {
   });
 });
 
-describe("runOutboundTicketPush — outbound archive", () => {
-  it("trashes the Notion page and tombstones the link", async () => {
+// ADR-0066: archiving a ticket must never trash its Notion page. The incident
+// this pins: CLEAR-616 was an inbound duplicate of CLEAR-612 linked to the only
+// Notion copy of the work; archiving the duplicate trashed that page. The push
+// adapter no longer has a trash method at all — these pin the remaining
+// behaviour: ARCHIVED is an ordinary status push, and the link stays live.
+describe("runOutboundTicketPush — archived ticket never trashes the page", () => {
+  it("pushes ARCHIVED to a Notion status option that maps to it", async () => {
+    db.ticketSync.findUnique.mockResolvedValue(
+      syncRecord({ ticket: { status: "ARCHIVED" } }) as never,
+    );
+    const adapter = fakeAdapter(remoteRow(), {
+      schema: {
+        ...SCHEMA,
+        Status: {
+          type: "status",
+          options: ["Backlog", "In Progress", "QA", "Done", "Archived"],
+        },
+      },
+    });
+
+    const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
+
+    expect(item.action).toBe("pushed");
+    expect(adapter.updates).toEqual([
+      {
+        id: "page-1",
+        props: expect.objectContaining({
+          Status: { status: { name: "Archived" } },
+        }) as unknown,
+      },
+    ]);
+    expect(db.ticketSync.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tombstonedAt: expect.anything() }),
+      }),
+    );
+  });
+
+  it("leaves the page untouched when no Notion status maps to ARCHIVED", async () => {
     db.ticketSync.findUnique.mockResolvedValue(
       syncRecord({ ticket: { status: "ARCHIVED" } }) as never,
     );
@@ -752,33 +782,25 @@ describe("runOutboundTicketPush — outbound archive", () => {
 
     const item = await runOutboundTicketPush(db, adapter, { syncId: "s1" });
 
-    expect(item.action).toBe("archived");
-    expect(adapter.archives).toEqual(["page-1"]);
-    expect(adapter.updates).toHaveLength(0); // no property push
+    expect(item.reason).toContain('no Notion status option maps to "ARCHIVED"');
+    expect(adapter.updates.flatMap((u) => Object.keys(u.props))).not.toContain(
+      "Status",
+    );
+    // The unpushed status stays pinned to the REMOTE value, so it remains a
+    // pending outbound change. Pinning it to ARCHIVED would make the next pull
+    // read Notion's "In Progress" as a remote edit and reopen the ticket.
     expect(db.ticketSync.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          tombstonedAt: expect.any(Date),
-          snapshot: expect.objectContaining({ status: "ARCHIVED" }),
+          snapshot: expect.objectContaining({ status: "IN_PROGRESS" }),
         }),
       }),
     );
-  });
-
-  it("dry run reports the would-be archive without trashing", async () => {
-    db.ticketSync.findUnique.mockResolvedValue(
-      syncRecord({ ticket: { status: "ARCHIVED" } }) as never,
+    expect(db.ticketSync.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ tombstonedAt: expect.anything() }),
+      }),
     );
-    const adapter = fakeAdapter(remoteRow());
-
-    const item = await runOutboundTicketPush(db, adapter, {
-      syncId: "s1",
-      dryRun: true,
-    });
-
-    expect(item.action).toBe("archived");
-    expect(adapter.archives).toHaveLength(0);
-    expect(db.ticketSync.update).not.toHaveBeenCalled();
   });
 });
 

@@ -56,9 +56,13 @@ const DEFAULT_BRAND: BrandConfig = {
 // Use the root-level form for anything that paints a surface. Only genuine prop
 // defaults (sizes, variants, `popoverProps`, ...) go in `defaultProps`.
 //
-// The input family below has been converted. The overlay family (Modal, Drawer,
-// Popover, Menu, Tooltip) and Tabs/SegmentedControl/Title are still nested and
-// carry the same latent bug - convert them behind a visual pass, not blind.
+// Everything that paints below now uses the root-level form. Only `Paper`,
+// `Card` and `Table` still sit under `defaultProps`, and those pass `style`
+// (singular) rather than `styles`, which is a plain DOM prop and not subject to
+// the merge above. The one deliberate exception is the date pickers'
+// `popoverProps`, which can only be reached through `defaultProps`; see
+// `datePopoverProps` below for why call sites must not pass their own.
+
 // Shared paint for the calendar surface of every @mantine/dates component.
 // Containers are transparent so the calendar sits on whatever surface hosts
 // it (a Popover dropdown, a modal, a card) instead of drawing its own
@@ -144,69 +148,72 @@ const componentStyles = {
     },
   },
 
-  // Modal specific styles
+  // Modal specific styles.
+  // `body` deliberately has no background: it is a child of `content`, which
+  // already paints the surface, so a background here is redundant everywhere
+  // except where it does harm - now that these styles survive a call site's
+  // `styles` prop, it would paint over a deliberately different `content`
+  // colour (CommandPalette's `--color-bg-modal`, TranscriptionDetailsModal's
+  // `--color-bg-secondary`).
   Modal: {
-    defaultProps: {
-      styles: {
-        content: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        header: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          borderBottom: '1px solid var(--color-border-primary)',
-        },
-        body: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        title: {
-          color: 'var(--color-text-primary)',
-        },
-        close: {
-          color: 'var(--color-text-secondary)',
-        },
-        overlay: {
-          backgroundColor: 'var(--color-bg-overlay)',
-        },
+    styles: {
+      content: {
+        backgroundColor: 'var(--color-bg-elevated)',
+      },
+      header: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        borderBottom: '1px solid var(--color-border-primary)',
+      },
+      title: {
+        color: 'var(--color-text-primary)',
+      },
+      close: {
+        color: 'var(--color-text-secondary)',
+      },
+      overlay: {
+        backgroundColor: 'var(--color-bg-overlay)',
       },
     },
   },
 
-  // Drawer specific styles
+  // Drawer specific styles. `body` is omitted for the same reason as Modal's -
+  // it sits inside `content`, and OkrDetailDrawer paints `content` with
+  // `--color-bg-primary` on purpose.
+  //
+  // Root-level `styles` also reaches the compound `Drawer.Root` API, which
+  // `defaultProps` could not: DrawerRoot calls `useProps('DrawerRoot', ...)`
+  // but `useStyles({ name: 'Drawer' })`, so it reads this object while
+  // ignoring `theme.components.Drawer.defaultProps`. EditContactDrawer still
+  // mirrors these tokens by hand; that is now belt-and-braces rather than
+  // load-bearing.
   Drawer: {
-    defaultProps: {
-      styles: {
-        content: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        header: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderBottom: '1px solid var(--color-border-primary)',
-        },
-        title: {
-          color: 'var(--color-text-primary)',
-        },
-        close: {
-          color: 'var(--color-text-secondary)',
-        },
-        body: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        overlay: {
-          backgroundColor: 'var(--color-bg-overlay)',
-        },
+    styles: {
+      content: {
+        backgroundColor: 'var(--color-bg-elevated)',
+      },
+      header: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderBottom: '1px solid var(--color-border-primary)',
+      },
+      title: {
+        color: 'var(--color-text-primary)',
+      },
+      close: {
+        color: 'var(--color-text-secondary)',
+      },
+      overlay: {
+        backgroundColor: 'var(--color-bg-overlay)',
       },
     },
   },
 
   // Popover styles
   Popover: {
-    defaultProps: {
-      styles: {
-        dropdown: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-        },
+    styles: {
+      dropdown: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderColor: 'var(--color-border-primary)',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
       },
     },
   },
@@ -218,26 +225,22 @@ const componentStyles = {
   // a gray-in-dev / navy-in-prod mismatch. Setting it here (inline styles) makes
   // the dropdown surface deterministic across both bundlers.
   Menu: {
-    defaultProps: {
-      styles: {
-        dropdown: {
-          backgroundColor: 'var(--color-surface-secondary)',
-          borderColor: 'var(--color-border-primary)',
-        },
+    styles: {
+      dropdown: {
+        backgroundColor: 'var(--color-surface-secondary)',
+        borderColor: 'var(--color-border-primary)',
       },
     },
   },
 
   // Tooltip styles
   Tooltip: {
-    defaultProps: {
-      styles: {
-        tooltip: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          color: 'var(--color-text-primary)',
-          border: '1px solid var(--color-border-primary)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        },
+    styles: {
+      tooltip: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        color: 'var(--color-text-primary)',
+        border: '1px solid var(--color-border-primary)',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
       },
     },
   },
@@ -403,38 +406,29 @@ const componentStyles = {
     },
   },
 
-  // Tabs component
-  Tabs: {
-    defaultProps: {
-      styles: {
-        list: {
-          scrollbarWidth: 'none',
-        },
-        tab: {
-          color: 'var(--color-text-secondary)',
-        },
-      },
-    },
-  },
+  // Tabs: no entry. Both tokens it used to carry belong in globals.css and are
+  // already there. `list.scrollbarWidth` duplicated `.mantine-Tabs-list`, and
+  // `tab.color` had to become a selector: as an inline style it beat
+  // `.mantine-Tabs-tab[data-active]`, so the active tab rendered
+  // `--color-text-secondary` instead of `--color-brand-primary` on every Tabs
+  // in the app that did not pass its own `styles`. Hoisting it to the component
+  // root would have spread that to the two that did. See the "Tabs" block in
+  // globals.css.
 
   // SegmentedControl component
+  // `label` / `innerLabel` colours are NOT here: they have to differ between the
+  // active and inactive segments, and an inline style beats the `[data-active]`
+  // and `:hover` rules that draw that distinction. They live in globals.css -
+  // see the "SegmentedControl labels" block.
   SegmentedControl: {
-    defaultProps: {
-      styles: {
-        root: {
-          backgroundColor: 'var(--color-surface-primary)',
-          border: '1px solid var(--color-border-primary)',
-        },
-        indicator: {
-          backgroundColor: 'var(--color-surface-tertiary)',
-          border: '1px solid var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-secondary)',
-        },
-        innerLabel: {
-          color: 'var(--color-text-secondary)',
-        },
+    styles: {
+      root: {
+        backgroundColor: 'var(--color-surface-primary)',
+        border: '1px solid var(--color-border-primary)',
+      },
+      indicator: {
+        backgroundColor: 'var(--color-surface-tertiary)',
+        border: '1px solid var(--color-border-primary)',
       },
     },
   },
@@ -462,11 +456,9 @@ const componentStyles = {
 
   // Title component
   Title: {
-    defaultProps: {
-      styles: {
-        root: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      root: {
+        color: 'var(--color-text-primary)',
       },
     },
   },

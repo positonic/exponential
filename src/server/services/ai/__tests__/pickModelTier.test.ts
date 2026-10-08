@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 
 import { pickModelTier } from "../pickModelTier";
@@ -310,5 +310,160 @@ describe("pickModelTier — resilience", () => {
       db: makeDb(null),
     });
     expect(result.agentId).toBe("zoeAgentHaiku");
+  });
+});
+
+// ── Jev decision layer (ADR-0065) ─────────────────────────────────────
+
+describe("pickModelTier — Jev decision layer", () => {
+  const decideFast = async () => ({
+    tier: "fast" as const,
+    confidence: 0.91,
+    probabilities: { fast: 0.95, deep: 0.05 },
+    latencyMs: 120,
+    model: "jev-1.13.0",
+    provider: "openrouter" as const,
+    costUsd: 0.00002,
+  });
+  const decideDeep = async () => ({ ...(await decideFast()), tier: "deep" as const });
+  const decideUnsure = async () => null;
+
+  it("routes to Haiku on a confident fast decision, even for a long hard-looking prompt", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [
+        userMsg(
+          "Please plan a detailed launch strategy for the new mobile app, " +
+            "including milestones, owners, and risk mitigations across the " +
+            "next two quarters with quantitative targets.",
+        ),
+      ],
+      db: makeDb(null),
+      decideTier: decideFast,
+    });
+    expect(result.agentId).toBe("zoeAgentHaiku");
+    expect(result.reason).toBe("jev-fast");
+    expect(result.decision).toEqual({
+      confidence: 0.91,
+      latencyMs: 120,
+      model: "jev-1.13.0",
+      provider: "openrouter",
+      costUsd: 0.00002,
+    });
+  });
+
+  it("routes to Sonnet on a confident deep decision, even for a greeting-shaped prompt", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("hi")],
+      db: makeDb(null),
+      decideTier: decideDeep,
+    });
+    expect(result.agentId).toBe("zoeAgent");
+    expect(result.reason).toBe("jev-deep");
+  });
+
+  it("falls through to the regexes when Jev is unsure or unavailable", async () => {
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("hi")],
+      db: makeDb(null),
+      decideTier: decideUnsure,
+    });
+    expect(result.agentId).toBe("zoeAgentHaiku");
+    expect(result.reason).toBe("haiku-greeting");
+    expect(result.decision).toBeUndefined();
+  });
+
+  it("does not consult Jev when the user opted in with @think", async () => {
+    const decideTier = vi.fn(decideFast);
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("@think hi")],
+      db: makeDb(null),
+      decideTier,
+    });
+    expect(result.reason).toBe("force-sonnet-opt-in");
+    expect(decideTier).not.toHaveBeenCalled();
+  });
+
+  it("does not consult Jev when stickiness already decided", async () => {
+    const decideTier = vi.fn(decideDeep);
+    const result = await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [userMsg("hi")],
+      db: makeDb({ agentId: "zoeAgentHaiku", hadError: false }),
+      decideTier,
+    });
+    expect(result.reason).toBe("sticky-haiku");
+    expect(decideTier).not.toHaveBeenCalled();
+  });
+
+  it("does not consult Jev for agents without a Haiku variant", async () => {
+    const decideTier = vi.fn(decideDeep);
+    await pickModelTier({
+      ...baseInput,
+      agentId: "projectManagerAgent",
+      db: makeDb(null),
+      decideTier,
+    });
+    expect(decideTier).not.toHaveBeenCalled();
+  });
+
+  it("hands Jev the caller's priorTurns, not finalMessages (which carries no history)", async () => {
+    // The route's finalMessages is [latest user message] plus server-injected
+    // system context — Mastra thread memory holds the transcript. Jev must
+    // get the client transcript explicitly or it decides follow-ups blind.
+    const decideTier = vi.fn(decideFast);
+    await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [
+        { role: "system" as const, content: "server-injected context" },
+        userMsg("do the second one"),
+      ],
+      priorTurns: [
+        userMsg("list my projects"),
+        { role: "assistant" as const, content: "1. Alpha\n2. Beta" },
+      ],
+      db: makeDb(null),
+      decideTier,
+    });
+    expect(decideTier).toHaveBeenCalledWith({
+      message: "do the second one",
+      priorTurns: [
+        { role: "user", content: "list my projects" },
+        { role: "assistant", content: "1. Alpha\n2. Beta" },
+      ],
+    });
+  });
+
+  it("derives prior turns from finalMessages when priorTurns is not supplied", async () => {
+    const decideTier = vi.fn(decideFast);
+    await pickModelTier({
+      ...baseInput,
+      agentId: "zoeAgent",
+      finalMessages: [
+        { role: "system" as const, content: "soul" },
+        userMsg("first"),
+        { role: "assistant" as const, content: "reply" },
+        userMsg("second"),
+      ],
+      db: makeDb(null),
+      decideTier,
+    });
+    expect(decideTier).toHaveBeenCalledWith({
+      message: "second",
+      priorTurns: [
+        { role: "system", content: "soul" },
+        { role: "user", content: "first" },
+        { role: "assistant", content: "reply" },
+      ],
+    });
   });
 });

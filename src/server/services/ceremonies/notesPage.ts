@@ -7,6 +7,8 @@
  * module only owns creation and placement.
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
+import type { JSONContent } from "@tiptap/core";
+import { syncPageLinks } from "~/server/services/pages/page-links";
 
 export interface NotesPageOccurrence {
   id: string;
@@ -81,16 +83,20 @@ export async function ensureOccurrenceNotesPage(
   });
   if (current?.notesPageId) return { pageId: current.notesPageId, created: false };
 
-  const page = await db.knowledgePage.create({
-    data: {
-      workspaceId: occurrence.workspaceId,
-      projectId: resolveNotesPageProjectId(ceremony.projects),
-      title: formatNotesPageTitle(ceremony.name, occurrence.scheduledStart, ceremony.timezone),
-      createdById: ceremony.ownerId,
-      includeInSearch: true,
-      ...(opts.seed ? { bodyDoc: opts.seed.bodyDoc, body: opts.seed.body } : {}),
-    },
-    select: { id: true },
+  const page = await db.$transaction(async (tx) => {
+    const created = await tx.knowledgePage.create({
+      data: {
+        workspaceId: occurrence.workspaceId,
+        projectId: resolveNotesPageProjectId(ceremony.projects),
+        title: formatNotesPageTitle(ceremony.name, occurrence.scheduledStart, ceremony.timezone),
+        createdById: ceremony.ownerId,
+        includeInSearch: true,
+        ...(opts.seed ? { bodyDoc: opts.seed.bodyDoc, body: opts.seed.body } : {}),
+      },
+      select: { id: true },
+    });
+    if (opts.seed) await syncPageLinks(tx, created.id, opts.seed.bodyDoc as JSONContent);
+    return created;
   });
 
   const { count } = await db.ceremonyOccurrence.updateMany({

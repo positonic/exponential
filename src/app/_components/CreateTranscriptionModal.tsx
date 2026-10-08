@@ -424,6 +424,8 @@ export function CreateTranscriptionModal({
         radius="md"
         padding="lg"
         title="Add Meeting"
+        // The stacked ParticipantPicker would otherwise share one Escape and close both, losing the draft
+        closeOnEscape={!pickerOpen}
         {...fileDrop.handlers}
       >
         <form

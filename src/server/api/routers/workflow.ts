@@ -449,53 +449,13 @@ async function runNotionPushSync(ctx: any, workflow: any, runId: string, overwri
   let itemsSkipped = 0;
   let itemsAlreadySynced = 0;
   let itemsFailedToSync = 0;
-  let itemsDeleted = 0;
+  const itemsDeleted = 0;
   let itemsUpdated = 0;
   const skippedReasons: string[] = [];
 
-  // In overwrite mode, delete all Notion tasks that don't exist in our local actions
-  if (overwriteMode) {
-    
-    // Get all pages from Notion for this project
-    const allNotionPages = await notionService.getAllPagesFromDatabase(
-      config.databaseId,
-      projectId ? (await ctx.db.project.findUnique({
-        where: { id: projectId },
-        select: { notionProjectId: true }
-      }))?.notionProjectId : undefined,
-      config.projectColumn
-    );
-    
-    const localActionNotionIds = new Set(
-      await ctx.db.actionSync.findMany({
-        where: {
-          provider: 'notion',
-          action: {
-            createdById: ctx.session.user.id,
-            projectId: projectId || { in: projectIds },
-            status: { not: 'DELETED' },
-          },
-        },
-        select: { externalId: true },
-      }).then((syncs: any) => syncs.map((s: any) => s.externalId))
-    );
-    
-    // Delete Notion pages that don't have corresponding local actions
-    for (const notionPage of allNotionPages) {
-      if (!localActionNotionIds.has(notionPage.id)) {
-        try {
-          // Archive the page in Notion (safer than hard delete)
-          await notionService.archivePage(notionPage.id);
-          itemsDeleted++;
-        } catch (error) {
-          console.error(`Failed to delete Notion page ${notionPage.id}:`, error);
-        }
-      }
-    }
-    
-    if (itemsDeleted > 0) {
-    }
-  }
+  // Overwrite mode only forces local values onto pages this push already
+  // links to. It never trashes unmatched pages (ADR-0066): "not linked to one
+  // of my actions" also matches every page someone else wrote in that database.
 
   for (const action of actions) {
     try {

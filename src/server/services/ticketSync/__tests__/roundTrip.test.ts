@@ -31,6 +31,7 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
   recordActivity: recordActivityMock,
 }));
 
+import { DEFAULT_FAKE_SCHEMA, STATUS_TO_RAW } from "./harness/fakeNotion";
 import { createRoundTripWorld } from "./harness/world";
 
 recordActivityMock.mockResolvedValue(true);
@@ -211,5 +212,66 @@ describe("round-trip quiescence", () => {
     expect(cycle2.pushes.map((p) => p.action)).toEqual(["skipped"]);
     expect(w.ticketWrites()).toHaveLength(0);
     expect(w.notionWrites()).toHaveLength(0);
+  });
+});
+
+// ADR-0066: archiving a ticket is an ordinary status change in both directions.
+// The page is never trashed, the link stays live, and the ticket stays
+// ARCHIVED across later cycles, including after people keep editing in Notion.
+describe("round-trip: archiving a ticket", () => {
+  it("pushes the mapped Archived status, keeps the page, then goes quiet", async () => {
+    const w = createRoundTripWorld();
+    const { ticket, page, sync } = w.seedSyncedTicket({});
+
+    w.db.editTicketLocally(ticket.id, { status: "ARCHIVED" });
+
+    const pushes = await w.pushAll();
+    expect(pushes.map((p) => p.action)).toEqual(["pushed"]);
+    expect(pushes[0]?.wrote).toEqual(["status"]);
+    expect(page.rawStatus).toBe(STATUS_TO_RAW.ARCHIVED);
+    expect(page.archived).toBe(false);
+    expect(sync.tombstonedAt).toBeNull();
+
+    w.clearWrites();
+    const cycle2 = await w.cycle();
+    expect(cycle2.pull.archived).toBe(0);
+    expect(w.ticketWrites()).toHaveLength(0);
+    expect(w.notionWrites()).toHaveLength(0);
+    expect(ticket.status).toBe("ARCHIVED");
+  });
+
+  it("with no Archived option: leaves the page alone and never reopens the ticket", async () => {
+    const w = createRoundTripWorld();
+    w.notion.setSchema({
+      ...DEFAULT_FAKE_SCHEMA,
+      Status: {
+        type: "status",
+        options: Object.values(STATUS_TO_RAW).filter(
+          (raw) => raw !== STATUS_TO_RAW.ARCHIVED,
+        ),
+      },
+    });
+    const { ticket, page, sync } = w.seedSyncedTicket({});
+    const statusBefore = page.rawStatus;
+
+    w.db.editTicketLocally(ticket.id, { status: "ARCHIVED" });
+
+    const pushes = await w.pushAll();
+    expect(pushes[0]?.reason).toContain('no Notion status option maps to "ARCHIVED"');
+    expect(w.notionWrites()).toHaveLength(0);
+    expect(page.rawStatus).toBe(statusBefore);
+    expect(page.archived).toBe(false);
+
+    // Someone keeps working on the page in Notion. The pull must apply the
+    // title but read the unchanged status as unchanged, not as a reopen.
+    w.notion.editAsHuman(page.externalId, { title: "Edited in Notion" });
+    w.clearWrites();
+    const pull = await w.pull();
+
+    expect(pull.failed).toBe(0);
+    expect(ticket.title).toBe("Edited in Notion");
+    expect(ticket.status).toBe("ARCHIVED");
+    expect(sync.tombstonedAt).toBeNull();
+    expect(page.archived).toBe(false);
   });
 });

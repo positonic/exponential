@@ -1,11 +1,11 @@
 import { z } from "zod";
 import type { JSONContent } from "@tiptap/core";
-import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadPageForAccess, ensurePageAccess } from "./page";
 import { sendPageMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
 import {
   getKnowledgePageAccess,
   canEditKnowledgePage,
@@ -110,16 +110,12 @@ export const pageCommentRouter = createTRPCRouter({
                   docVersion: row.docVersion,
                 };
               },
-              write: async (doc, expectedVersion) => {
-                const res = await ctx.db.knowledgePage.updateMany({
-                  where: { id: input.pageId, docVersion: expectedVersion },
-                  data: {
-                    bodyDoc: doc as Prisma.InputJsonValue,
-                    docVersion: { increment: 1 },
-                  },
-                });
-                return res.count === 1;
-              },
+              write: (doc, expectedVersion) =>
+                writePageBodyIfVersion(ctx.db, {
+                  pageId: input.pageId,
+                  expectedVersion,
+                  doc,
+                }),
             })
           : NOT_ANCHORED;
 

@@ -3,7 +3,7 @@
 import { Suspense } from 'react';
 import { Skeleton, Text } from '@mantine/core';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
-import { PagesListContent } from './_components/PagesListContent';
+import { PagesListContent } from '~/app/_components/pages/PagesListContent';
 
 function WorkspacePagesContent() {
   const { workspace, workspaceId, workspaceSlug, isLoading } = useWorkspace();

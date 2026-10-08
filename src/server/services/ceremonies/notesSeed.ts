@@ -15,6 +15,7 @@ import type { JSONContent } from "@tiptap/core";
 import { z } from "zod";
 import { docToMarkdownServer, markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
+import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
 import type { AgendaSnapshot } from "./agenda/types";
 import { ensureOccurrenceNotesPage, type NotesPageCeremony, type NotesPageOccurrence } from "./notesPage";
 
@@ -73,11 +74,13 @@ export async function seedNotesPageIfUntouched(db: PrismaClient, pageId: string,
   if (!page || page.docVersion > 0) return false;
   if (page.body?.trim()) return false;
   if (!isDocBlank(page.bodyDoc as JSONContent | null)) return false;
-  const { count } = await db.knowledgePage.updateMany({
-    where: { id: pageId, docVersion: 0 },
-    data: { bodyDoc: seed.bodyDoc as Prisma.InputJsonValue, body: seed.body, docVersion: { increment: 1 } },
+  const written = await writePageBodyIfVersion(db, {
+    pageId,
+    expectedVersion: 0,
+    doc: seed.bodyDoc,
+    data: { body: seed.body },
   });
-  if (count === 0) return false;
+  if (!written) return false;
   getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);
   return true;
 }
@@ -187,11 +190,13 @@ export async function appendMeetingSummaryToNotes(
     );
     const nextDoc: JSONContent = { ...baseDoc, type: "doc", content: [...baseContent, ...fragment] };
     const nextBody = docToMarkdownServer(nextDoc);
-    const { count } = await db.knowledgePage.updateMany({
-      where: { id: pageId, docVersion: page.docVersion },
-      data: { bodyDoc: nextDoc as Prisma.InputJsonValue, body: nextBody, docVersion: { increment: 1 } },
+    const written = await writePageBodyIfVersion(db, {
+      pageId,
+      expectedVersion: page.docVersion,
+      doc: nextDoc,
+      data: { body: nextBody },
     });
-    if (count === 1) {
+    if (written) {
       getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);
       return { appended: true, pageId, docVersion: page.docVersion + 1 };
     }
