@@ -211,6 +211,10 @@ const actions = await ctx.db.action.findMany({
 
 You can also use individual resolvers for specific checks:
 
+For workspace-scoped **reads**, `assertWorkspaceMembership(db, userId, workspaceId)`
+throws `FORBIDDEN` for non-members and admits every role, `viewer` included. Never
+put it alone in front of a write.
+
 For workspace-scoped **writes**, membership alone is not enough — `viewer` is a
 read-only role. Use `assertWorkspaceWriteRole` (owner/admin/member pass; viewer,
 guest and non-member get `FORBIDDEN`) rather than re-checking `role` inline:
@@ -294,3 +298,7 @@ The centralized service is in place. Routers are being incrementally migrated:
 - [ ] `view.ts` / `list.ts` — still uses inline workspace membership checks
 - [ ] `crmContact.ts` — still uses inline workspace membership checks
 - [ ] `okrCheckin.ts` — still uses inline team membership checks
+- [x] `epic.ts` — reads use `assertWorkspaceMembership`; writes use `assertWorkspaceWriteRole` (delete also needs admin+ or epic owner)
+- [x] `document.ts` — reads use `assertWorkspaceMembership`; create/ingest/delete use `assertWorkspaceWriteRole`
+- [x] `sprintAnalytics.ts` — every procedure, including the API-key ones, checks the caller's membership of the target workspace (a list's own workspace for `listId` inputs); `captureDailySnapshot` uses `assertWorkspaceWriteRole`
+- [x] product plugin (`src/plugins/product/server/routers/`) — `assertWorkspaceAccess(..., "view" | "edit")`; every mutation passes `"edit"`

@@ -10,7 +10,10 @@ import { TRPCError } from "@trpc/server";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { assertWorkspaceWriteRole } from "../resolvers/workspaceResolver";
+import {
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
+} from "../resolvers/workspaceResolver";
 
 const userId = "user-1";
 const workspaceId = "ws-1";
@@ -72,5 +75,34 @@ describe("assertWorkspaceWriteRole", () => {
     await expect(
       assertWorkspaceWriteRole(db, userId, workspaceId),
     ).resolves.toEqual({ role: "member", workspaceId });
+  });
+});
+
+describe("assertWorkspaceMembership (the read gate)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = mockDeep<PrismaClient>();
+    mockReset(db);
+    db.teamUser.findFirst.mockResolvedValue(null as never);
+  });
+
+  it.each(["owner", "admin", "member", "viewer"])(
+    "admits a direct %s",
+    async (role) => {
+      db.workspaceUser.findUnique.mockResolvedValue(
+        { role, workspaceId } as never,
+      );
+      await expect(
+        assertWorkspaceMembership(db, userId, workspaceId),
+      ).resolves.toEqual({ role, workspaceId });
+    },
+  );
+
+  it("refuses a non-member with FORBIDDEN", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue(null as never);
+    expect(
+      await forbiddenCode(assertWorkspaceMembership(db, userId, workspaceId)),
+    ).toBe("FORBIDDEN");
   });
 });
