@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
@@ -22,6 +22,10 @@ import { deleteFromBlob } from "~/lib/blob";
  *    filter by `createdById`, so co-members never see or clobber each other's
  *    assistant. This matches how the Telegram and Matrix gateways resolve the
  *    default assistant (`{ createdById, isDefault }`).
+ *
+ * Mutations are `humanOnlyProcedure`: an Assistant owns an External agent
+ * principal (ADR-0067), so creating, renaming or deleting one is agent
+ * management, which ADR-0049 keeps out of reach of agent principals.
  *
  * `personality`, `instructions`, and `userContext` are free-text private
  * content injected verbatim into the system prompt by /api/chat/stream, so
@@ -50,7 +54,7 @@ async function getOwnedAssistantOrThrow(
 
 export const assistantRouter = createTRPCRouter({
   /** Create a new assistant owned by the calling user */
-  create: protectedProcedure
+  create: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -99,7 +103,7 @@ export const assistantRouter = createTRPCRouter({
     }),
 
   /** Update an assistant owned by the calling user */
-  update: protectedProcedure
+  update: humanOnlyProcedure
     .input(
       z.object({
         id: z.string(),
@@ -195,7 +199,7 @@ export const assistantRouter = createTRPCRouter({
    * Assistant row itself goes with the External agent (FK cascade); the shadow
    * user is kept when it authored content, so attribution survives (ADR-0067).
    */
-  delete: protectedProcedure
+  delete: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
@@ -214,7 +218,7 @@ export const assistantRouter = createTRPCRouter({
     }),
 
   /** Set one of the calling user's assistants as their workspace default */
-  setDefault: protectedProcedure
+  setDefault: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const userId = ctx.session.user.id;

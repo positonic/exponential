@@ -132,6 +132,8 @@ describe("assistant router — ownership (cross-tenant IDOR)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // Mutations are humanOnly: the caller is a human (not an agent principal).
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     stubOwnershipScopedLookup(dbMock);
     dbMock.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) =>
       cb(dbMock)) as never);
@@ -195,6 +197,8 @@ describe("assistant router — per-user default scoping", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // Mutations are humanOnly: the caller is a human (not an agent principal).
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     // Direct workspace membership, as `getWorkspaceMembership` reads it.
     dbMock.workspaceUser.findUnique.mockResolvedValue({
       role: "owner",

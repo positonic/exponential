@@ -82,6 +82,8 @@ describe("assistant.create — the Assistant is a principal (ADR-0067)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // Mutations are humanOnly: the caller is a human (not an agent principal).
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     writes = [];
 
     // Owner is a non-viewer member — the delegation-invariant precondition.
@@ -178,6 +180,8 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // Mutations are humanOnly: the caller is a human (not an agent principal).
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     writes = [];
     dbMock.assistant.findFirst.mockResolvedValue(owned as never);
     dbMock.assistant.updateMany.mockResolvedValue({ count: 0 } as never);
@@ -240,5 +244,21 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     expect(dbMock.user.delete).toHaveBeenCalledWith({ where: { id: SHADOW_USER_ID } });
     // The Assistant row goes with the agent (FK cascade) — no direct delete.
     expect(dbMock.assistant.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistant mutations are human-only (ADR-0049 denylist)", () => {
+  it("refuses assistant.create from an agent principal, writing nothing", async () => {
+    const dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    const caller = createMockCaller({ userId: "shadow-of-some-agent", db: dbMock });
+
+    await expect(
+      caller.assistant.create({ workspaceId: WORKSPACE_ID, name: "Aria", personality: "x" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.$transaction).not.toHaveBeenCalled();
+    expect(dbMock.externalAgent.create).not.toHaveBeenCalled();
   });
 });
