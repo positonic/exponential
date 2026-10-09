@@ -204,6 +204,8 @@ model User {
   actionComments                 ActionComment[]                 @relation("ActionCommentAuthor")
   featureComments                FeatureComment[]                @relation("FeatureCommentAuthor")
   knowledgePageComments          KnowledgePageComment[]          @relation("KnowledgePageCommentAuthor")
+  knowledgePageMemberships       KnowledgePageMember[]           @relation("KnowledgePageMemberUser")
+  knowledgePageInvitesSent       KnowledgePageMember[]           @relation("KnowledgePageMemberInviter")
   // Blog Discussion relations
   blogComments                   BlogComment[]                   @relation("BlogCommentAuthor")
   // Daily Planning relations
@@ -3333,6 +3335,10 @@ model KnowledgePage {
   publicSlug       String?
   publicSeoIndexed Boolean   @default(false)
   publishedAt      DateTime?
+  // Invite-only (ADR-0067): visible to the owner and `members` only — project
+  // placement and workspace membership grant nothing, and there is no
+  // workspace-admin escape hatch. Only the owner changes this or the invitees.
+  isInviteOnly     Boolean   @default(false)
   workspaceId      String
   projectId        String?
   createdById      String
@@ -3344,6 +3350,8 @@ model KnowledgePage {
   createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
   comments  KnowledgePageComment[]
+  /// People invited to an invite-only page (ADR-0067). Ignored unless `isInviteOnly`.
+  members   KnowledgePageMember[]
   /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
   ceremonyOccurrence CeremonyOccurrence?
   /// Set when this page is a Workspace update's draft / published body.
@@ -3356,6 +3364,25 @@ model KnowledgePage {
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+}
+
+/// A workspace member invited to an invite-only Page (ADR-0067). `role` is
+/// "viewer" | "editor". Access also requires the invitee to still belong to the
+/// page's workspace, so leaving the workspace revokes it without touching rows.
+model KnowledgePageMember {
+  id          String   @id @default(cuid())
+  pageId      String
+  userId      String
+  role        String   @default("viewer")
+  invitedById String?
+  createdAt   DateTime @default(now())
+
+  page      KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user      User          @relation("KnowledgePageMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?         @relation("KnowledgePageMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@unique([pageId, userId])
+  @@index([userId])
 }
 
 /// One `pageLink` node in a Page's `bodyDoc` (ADR-0039: the page hierarchy is

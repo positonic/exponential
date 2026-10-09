@@ -25,6 +25,15 @@ export interface MeetingParticipantAddedSubject {
 }
 
 /**
+ * Page shared (ADR-0067): an invite-only Page and the workspace members just
+ * invited to it. The access gate re-checks each still can view the page.
+ */
+export interface PageSharedSubject {
+  pageId: string;
+  invitedUserIds: string[];
+}
+
+/**
  * Meeting notes ready: a meeting (TranscriptionSession) whose summary just
  * landed (null → value). Recipients are the meeting's team-member (userId)
  * participants, resolved from the participant rows by the resolver.
@@ -172,6 +181,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.UPDATE_REVIEW;
       subject: UpdateReviewSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.PAGE_SHARED;
+      subject: PageSharedSubject;
     }
 );
 
