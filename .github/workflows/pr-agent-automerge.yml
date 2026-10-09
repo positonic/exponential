@@ -50,6 +50,8 @@ name: PR-Agent auto-merge
 #      `pr-agent-automerge` environment;
 #   2. restrict that environment to the main branch, so workflows on other branches can't
 #      read the key.
+#   3. accept that open PRs keep their last dry-run verdict: it was posted by github-actions
+#      and the App can't edit it, so the live gate posts its own comment beside it.
 # Merges must use the App's token, not GITHUB_TOKEN: a merge made with GITHUB_TOKEN doesn't
 # trigger other workflows, so exponential-promote.yml would never move Tickets to DONE.
 #
@@ -151,7 +153,9 @@ jobs:
                 core.info(`#${pr.number}: new commit pushed; removed \`${ACK}\`.`);
               }
             } else {
-              numbers = [Number(context.payload.inputs.pr)];
+              const pr = Number(String(context.payload.inputs.pr).replace(/^#/, ''));
+              if (!Number.isInteger(pr) || pr <= 0) return core.setFailed(`"${context.payload.inputs.pr}" isn't a PR number.`);
+              numbers = [pr];
             }
             for (const number of numbers) await evaluate(number);
 
@@ -283,6 +287,9 @@ jobs:
               if (block) {
                 let state;
                 try { state = JSON.parse(block); } catch { return null; }
+                // A state block always names its commit; without one, don't fall back to dating
+                // the comment, which would accept an incomplete review.
+                if (!state.last_run?.head_sha) return null;
                 // Anything not RESOLVED counts as open (ACTIVE today) — the safe direction if
                 // PR-Agent adds a state.
                 const findings = (state.findings ?? []).filter(f => f.state !== 'RESOLVED').map(f =>
