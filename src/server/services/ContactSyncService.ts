@@ -1,5 +1,11 @@
+import { Prisma } from "@prisma/client";
+
 import { db } from "~/server/db";
-import { GoogleContactsService, type ContactInfo } from "./GoogleContactsService";
+import {
+  GoogleContactsService,
+  type ContactInfo,
+  type GoogleCalendarEvent,
+} from "./GoogleContactsService";
 import { ConnectionStrengthCalculator } from "./ConnectionStrengthCalculator";
 import { encryptString } from "~/server/utils/encryption";
 import crypto from "crypto";
@@ -9,300 +15,472 @@ export interface ImportOptions {
     start: Date;
     end: Date;
   };
-  userEmail?: string;
 }
 
 export type ImportSource = "GMAIL" | "CALENDAR" | "BOTH";
 
+/**
+ * Contacts fetched (and upserted) per GMAIL step — one People API page.
+ * Each contact is ~2 queries, so a step stays a few seconds.
+ */
+const GMAIL_PAGE_SIZE = 200;
+
+/** Calendar events fetched per CALENDAR page. */
+const CALENDAR_EVENTS_PER_PAGE = 100;
+
+/**
+ * Cap on contact×event pairs handled per CALENDAR step. Interactions are
+ * created per pair (~3 queries each), and a single recurring all-hands can
+ * put thousands of pairs in one events page — the budget splits such pages
+ * across steps via `contactOffset` instead of blowing the request.
+ */
+const CALENDAR_STEP_PAIR_BUDGET = 300;
+
+/** How many errors we keep verbatim on the batch for the user to inspect. */
+const MAX_RECORDED_ERRORS = 20;
+
+/**
+ * A violation of the batch contract (unknown batch, finished import, raced
+ * step) — the router surfaces these as BAD_REQUEST; anything else thrown by
+ * a step is an upstream failure and is reported as a server error.
+ */
+export class ImportBatchError extends Error {}
+
+/**
+ * Where the next step picks up. Persisted in the batch's metadata between
+ * requests; absent once the import has finished.
+ */
+interface ImportCursor {
+  phase: "GMAIL" | "CALENDAR";
+  /** Google page token for the phase's current page (first page when unset). */
+  pageToken?: string;
+  /**
+   * CALENDAR only: email hash of the last contact processed on the current
+   * page, for pages too heavy for one step. A hash (never the email), and
+   * resolved to a position on the re-fetched page — the calendar is live,
+   * so a positional index could silently skip contacts if the page shifted
+   * between steps.
+   */
+  lastContactHash?: string;
+}
+
+export interface ImportStepResult {
+  batchId: string;
+  status: string;
+  /** Phase the NEXT step will run, or null when the import is finished. */
+  phase: "GMAIL" | "CALENDAR" | null;
+  totalContacts: number;
+  processedContacts: number;
+  newContacts: number;
+  updatedContacts: number;
+  errorCount: number;
+  /** Recorded error lines (capped at MAX_RECORDED_ERRORS across the batch). */
+  errors: string[];
+  completed: boolean;
+}
+
+interface StepCounters {
+  processed: number;
+  created: number;
+  updated: number;
+  errorCount: number;
+  newErrors: string[];
+  nextCursor: ImportCursor | null;
+}
+
+/**
+ * Google Contacts/Calendar → CrmContact import, driven by the client in
+ * steps. The original shape (one mutation, fire-and-forget processing,
+ * status polling) does not survive serverless: Vercel freezes the function
+ * once the mutation response is sent, so large imports stalled mid-batch.
+ *
+ * Unlike the CSV import (where the client holds the rows and streams them
+ * up in chunks), the data here lives at Google — so each step fetches one
+ * bounded slice server-side and the resume point is a Google page token,
+ * kept in the batch's metadata. The client calls `crmContact.importContacts`
+ * repeatedly with the batchId until `completed`; every step runs
+ * synchronously inside its own request, and a retried step is safe because
+ * contacts dedupe on email hash and interactions on Google event id.
+ */
 export class ContactSyncService {
   /**
-   * Main import orchestration
+   * Create the batch a stepped import will roll its counts into. The date
+   * range is resolved and stored here so every CALENDAR step queries the
+   * same window.
    */
-  static async importContacts(
+  static async createImportBatch(
     workspaceId: string,
     userId: string,
     source: ImportSource,
     options: ImportOptions = {}
   ): Promise<string> {
-    // Create import batch record
+    const cursor: ImportCursor =
+      source === "CALENDAR" ? { phase: "CALENDAR" } : { phase: "GMAIL" };
+
+    const metadata: Prisma.JsonObject = { cursor: { ...cursor } };
+
+    if (source === "CALENDAR" || source === "BOTH") {
+      // tRPC may hand us serialized dates; normalize before storing.
+      const dateRange = options.dateRange
+        ? {
+            start: new Date(options.dateRange.start),
+            end: new Date(options.dateRange.end),
+          }
+        : {
+            start: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000), // 1 year ago
+            end: new Date(),
+          };
+      metadata.dateRange = {
+        start: dateRange.start.toISOString(),
+        end: dateRange.end.toISOString(),
+      };
+    }
+
     const batch = await db.contactImportBatch.create({
       data: {
         workspaceId,
         createdById: userId,
         source,
-        status: "PENDING",
+        status: "IN_PROGRESS",
+        metadata,
       },
     });
-
-    // Start async import (in real production, use a job queue like BullMQ)
-    // For now, we'll run it immediately but this should be a background job
-    this.processImportBatch(batch.id, userId, workspaceId, source, options)
-      .catch((error) => {
-        console.error("Import batch failed:", error);
-        // Update batch status to FAILED
-        db.contactImportBatch
-          .update({
-            where: { id: batch.id },
-            data: {
-              status: "FAILED",
-              metadata: {
-                error: error instanceof Error ? error.message : "Unknown error",
-              },
-              completedAt: new Date(),
-            },
-          })
-          .catch(console.error);
-      });
 
     return batch.id;
   }
 
   /**
-   * Process import batch (this would be a background job in production)
+   * Run one bounded slice of the import synchronously and roll its counts
+   * into the batch. Steps arrive sequentially from one client, so plain
+   * read-modify-write on the batch row is safe. Throws (for the router to
+   * translate) when the batch doesn't exist, belongs elsewhere, or is
+   * already finished; a thrown step leaves the batch IN_PROGRESS with its
+   * cursor intact, so the client's retry resumes where it stopped.
    */
-  private static async processImportBatch(
+  static async processImportStep(
     batchId: string,
     userId: string,
     workspaceId: string,
-    source: ImportSource,
-    options: ImportOptions
-  ): Promise<void> {
-    try {
-      // Update status to IN_PROGRESS
-      await db.contactImportBatch.update({
-        where: { id: batchId },
-        data: { status: "IN_PROGRESS" },
-      });
+    userEmail?: string
+  ): Promise<ImportStepResult> {
+    const batch = await db.contactImportBatch.findUnique({
+      where: { id: batchId },
+    });
+    if (
+      !batch ||
+      batch.workspaceId !== workspaceId ||
+      batch.createdById !== userId ||
+      !["GMAIL", "CALENDAR", "BOTH"].includes(batch.source)
+    ) {
+      throw new ImportBatchError("Import batch not found");
+    }
+    // A client that lost the response to the final step retries into a
+    // finished batch — report its final state instead of stranding the
+    // dialog on an error (same resend posture as the CSV import).
+    if (batch.status === "COMPLETED" || batch.status === "PARTIAL_SUCCESS") {
+      return {
+        batchId: batch.id,
+        status: batch.status,
+        phase: null,
+        totalContacts: batch.totalContacts,
+        processedContacts: batch.processedContacts,
+        newContacts: batch.newContacts,
+        updatedContacts: batch.updatedContacts,
+        errorCount: batch.errorCount,
+        errors: recordedErrorsOf(batch.metadata),
+        completed: true,
+      };
+    }
+    if (batch.status !== "IN_PROGRESS") {
+      throw new ImportBatchError("This import has already finished");
+    }
 
-      let totalContacts = 0;
-      let newContacts = 0;
-      let updatedContacts = 0;
-      let errorCount = 0;
+    const cursor = cursorOf(batch.metadata);
+    if (!cursor) {
+      throw new ImportBatchError(
+        "This import has no resume point — start a new import"
+      );
+    }
 
-      // Process Gmail contacts
-      if (source === "GMAIL" || source === "BOTH") {
-        const result = await this.processGmailContacts(
-          batchId,
-          userId,
-          workspaceId
-        );
-        totalContacts += result.total;
-        newContacts += result.new;
-        updatedContacts += result.updated;
-        errorCount += result.errors;
-      }
+    const priorErrors = recordedErrorsOf(batch.metadata);
+    const source = batch.source as ImportSource;
 
-      // Process Calendar contacts
-      if (source === "CALENDAR" || source === "BOTH") {
-        // Ensure dateRange values are Date objects (tRPC might serialize them as strings)
-        const dateRange = options.dateRange
-          ? {
-              start: new Date(options.dateRange.start),
-              end: new Date(options.dateRange.end),
-            }
-          : {
-              start: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000), // 1 year ago
-              end: new Date(),
-            };
+    const counters =
+      cursor.phase === "GMAIL"
+        ? await this.runGmailStep(cursor, source, userId, workspaceId, priorErrors.length)
+        : await this.runCalendarStep(
+            cursor,
+            batch.metadata,
+            userId,
+            workspaceId,
+            userEmail,
+            priorErrors.length
+          );
 
-        const result = await this.processCalendarContacts(
-          batchId,
-          userId,
-          workspaceId,
-          dateRange,
-          options.userEmail
-        );
-        totalContacts += result.total;
-        newContacts += result.new;
-        updatedContacts += result.updated;
-        errorCount += result.errors;
-      }
+    const allErrors = [...priorErrors, ...counters.newErrors];
+    const completed = counters.nextCursor === null;
+    const errorCount = batch.errorCount + counters.errorCount;
+    const status = completed
+      ? errorCount > 0
+        ? "PARTIAL_SUCCESS"
+        : "COMPLETED"
+      : "IN_PROGRESS";
 
-      // Update batch with final counts
-      await db.contactImportBatch.update({
-        where: { id: batchId },
-        data: {
-          status: errorCount > 0 ? "PARTIAL_SUCCESS" : "COMPLETED",
-          totalContacts,
-          processedContacts: totalContacts,
-          newContacts,
-          updatedContacts,
-          errorCount,
-          completedAt: new Date(),
-        },
-      });
+    const metadata: Prisma.JsonObject = {};
+    const storedDateRange = dateRangeOf(batch.metadata);
+    if (storedDateRange) {
+      metadata.dateRange = {
+        start: storedDateRange.start.toISOString(),
+        end: storedDateRange.end.toISOString(),
+      };
+    }
+    if (allErrors.length > 0) metadata.errors = allErrors;
+    if (counters.nextCursor) metadata.cursor = { ...counters.nextCursor };
 
-      console.log(`✅ Import batch ${batchId} completed:`, {
+    // No fixed denominator exists for a stepped Google import (calendar
+    // contacts are discovered page by page), so total tracks processed.
+    const totalContacts = batch.totalContacts + counters.processed;
+    const processedContacts = batch.processedContacts + counters.processed;
+    const newContacts = batch.newContacts + counters.created;
+    const updatedContacts = batch.updatedContacts + counters.updated;
+
+    // Guarded write: if a second step raced us on this batch (double-fired
+    // client), both computed their counts from the same base and the loser
+    // must not apply them a second time.
+    const written = await db.contactImportBatch.updateMany({
+      where: {
+        id: batch.id,
+        status: "IN_PROGRESS",
+        processedContacts: batch.processedContacts,
+      },
+      data: {
+        status,
         totalContacts,
+        processedContacts,
         newContacts,
         updatedContacts,
         errorCount,
-      });
-    } catch (error) {
-      console.error("Import batch processing error:", error);
-      throw error;
+        metadata,
+        ...(completed ? { completedAt: new Date() } : {}),
+      },
+    });
+    if (written.count === 0) {
+      throw new ImportBatchError(
+        "Another step of this import is already running — retry in a moment"
+      );
     }
+
+    return {
+      batchId: batch.id,
+      status,
+      phase: counters.nextCursor?.phase ?? null,
+      totalContacts,
+      processedContacts,
+      newContacts,
+      updatedContacts,
+      errorCount,
+      errors: allErrors,
+      completed,
+    };
   }
 
   /**
-   * Process Gmail contacts via Google People API
+   * One GMAIL step: one People API page, upserted contact by contact.
    */
-  private static async processGmailContacts(
-    batchId: string,
-    userId: string,
-    workspaceId: string
-  ): Promise<{ total: number; new: number; updated: number; errors: number }> {
-    let total = 0;
-    let newCount = 0;
-    let updated = 0;
-    let errors = 0;
-
-    try {
-      console.log("📧 Fetching Gmail contacts...");
-      const googleContacts = await GoogleContactsService.fetchAllContacts(userId);
-
-      total = googleContacts.length;
-      console.log(`Found ${total} Gmail contacts`);
-
-      // Update batch progress
-      await db.contactImportBatch.update({
-        where: { id: batchId },
-        data: { totalContacts: total },
-      });
-
-      for (const googleContact of googleContacts) {
-        try {
-          const contactInfo = GoogleContactsService.transformContact(googleContact);
-          if (!contactInfo) {
-            errors++;
-            continue;
-          }
-
-          const result = await this.findOrCreateContact(
-            workspaceId,
-            userId,
-            contactInfo,
-            "GMAIL"
-          );
-
-          if (result === "created") {
-            newCount++;
-          } else if (result === "updated") {
-            updated++;
-          }
-
-          // Update progress
-          await db.contactImportBatch.update({
-            where: { id: batchId },
-            data: {
-              processedContacts: newCount + updated + errors,
-              newContacts: newCount,
-              updatedContacts: updated,
-              errorCount: errors,
-            },
-          });
-        } catch (error) {
-          console.error("Error processing Gmail contact:", error);
-          errors++;
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching Gmail contacts:", error);
-      throw error;
-    }
-
-    return { total, new: newCount, updated, errors };
-  }
-
-  /**
-   * Process Calendar contacts and interactions
-   */
-  private static async processCalendarContacts(
-    batchId: string,
+  private static async runGmailStep(
+    cursor: ImportCursor,
+    source: ImportSource,
     userId: string,
     workspaceId: string,
-    dateRange: { start: Date; end: Date },
-    userEmail?: string
-  ): Promise<{ total: number; new: number; updated: number; errors: number }> {
-    let total = 0;
-    let newCount = 0;
+    priorErrorCount: number
+  ): Promise<StepCounters> {
+    const { contacts, nextPageToken } = await GoogleContactsService.fetchContacts(
+      userId,
+      cursor.pageToken,
+      GMAIL_PAGE_SIZE
+    );
+
+    let created = 0;
     let updated = 0;
-    let errors = 0;
+    let errorCount = 0;
+    const newErrors: string[] = [];
 
-    try {
-      console.log("📅 Fetching calendar events...");
-      const events = await GoogleContactsService.fetchCalendarEvents(
-        userId,
-        dateRange.start,
-        dateRange.end
-      );
-
-      console.log(`Found ${events.length} calendar events`);
-
-      // Extract unique contacts from events
-      const contacts = GoogleContactsService.extractContactsFromEvents(
-        events,
-        userEmail ?? ""
-      );
-
-      total = contacts.length;
-      console.log(`Extracted ${total} unique contacts from calendar`);
-
-      // Update batch progress
-      await db.contactImportBatch.update({
-        where: { id: batchId },
-        data: { totalContacts: total },
-      });
-
-      for (const contactInfo of contacts) {
-        try {
-          const result = await this.findOrCreateContact(
-            workspaceId,
-            userId,
-            contactInfo,
-            "CALENDAR"
-          );
-
-          if (result === "created") {
-            newCount++;
-          } else if (result === "updated") {
-            updated++;
-          }
-
-          // Create interactions for this contact
-          const contactEvents = GoogleContactsService.getEventsForContact(
-            events,
-            contactInfo.email
-          );
-
-          await this.createInteractionsForContact(
-            workspaceId,
-            userId,
-            contactInfo.email,
-            contactEvents
-          );
-
-          // Update progress
-          await db.contactImportBatch.update({
-            where: { id: batchId },
-            data: {
-              processedContacts: newCount + updated + errors,
-              newContacts: newCount,
-              updatedContacts: updated,
-              errorCount: errors,
-            },
-          });
-        } catch (error) {
-          console.error("Error processing calendar contact:", error);
-          errors++;
-        }
+    const recordError = (label: string, message: string) => {
+      errorCount++;
+      if (priorErrorCount + newErrors.length < MAX_RECORDED_ERRORS) {
+        newErrors.push(`${label}: ${message}`);
       }
-    } catch (error) {
-      console.error("Error fetching calendar events:", error);
-      throw error;
+    };
+
+    for (const googleContact of contacts) {
+      const label =
+        googleContact.names?.[0]?.displayName ?? "A Google contact";
+      try {
+        const contactInfo = GoogleContactsService.transformContact(googleContact);
+        if (!contactInfo) {
+          recordError(label, "no email address");
+          continue;
+        }
+
+        const result = await this.findOrCreateContact(
+          workspaceId,
+          userId,
+          contactInfo,
+          "GMAIL"
+        );
+
+        if (result === "created") created++;
+        else if (result === "updated") updated++;
+      } catch (error) {
+        console.error("Error processing Gmail contact:", error);
+        recordError(
+          label,
+          error instanceof Error ? error.message : "unexpected error"
+        );
+      }
     }
 
-    return { total, new: newCount, updated, errors };
+    const nextCursor: ImportCursor | null = nextPageToken
+      ? { phase: "GMAIL", pageToken: nextPageToken }
+      : source === "BOTH"
+        ? { phase: "CALENDAR" }
+        : null;
+
+    return {
+      processed: contacts.length,
+      created,
+      updated,
+      errorCount,
+      newErrors,
+      nextCursor,
+    };
+  }
+
+  /**
+   * One CALENDAR step: fetch the cursor's events page, extract its external
+   * attendees, and process contacts after `lastContactHash` until the pair
+   * budget is spent — the remainder of a heavy page carries over to the
+   * next step. Contacts recurring across pages are re-processed cheaply
+   * (dedup makes it a no-op), which slightly inflates the processed count
+   * relative to unique people.
+   */
+  private static async runCalendarStep(
+    cursor: ImportCursor,
+    batchMetadata: Prisma.JsonValue,
+    userId: string,
+    workspaceId: string,
+    userEmail: string | undefined,
+    priorErrorCount: number
+  ): Promise<StepCounters> {
+    const dateRange = dateRangeOf(batchMetadata);
+    if (!dateRange) {
+      throw new ImportBatchError(
+        "This import has no date range — start a new import"
+      );
+    }
+
+    const { events, nextPageToken } =
+      await GoogleContactsService.fetchCalendarEventsPage(
+        userId,
+        dateRange.start,
+        dateRange.end,
+        cursor.pageToken,
+        CALENDAR_EVENTS_PER_PAGE
+      );
+
+    const pageContacts = GoogleContactsService.extractContactsFromEvents(
+      events,
+      userEmail ?? ""
+    );
+
+    // Resolve the resume point on the (re-fetched, possibly shifted) page.
+    // An unknown hash resolves to 0: re-processing is idempotent, skipping
+    // is not.
+    const offset = cursor.lastContactHash
+      ? pageContacts.findIndex(
+          (c) => this.generateEmailHash(c.email) === cursor.lastContactHash
+        ) + 1
+      : 0;
+    let sliceEnd = offset;
+    let pairs = 0;
+    while (
+      sliceEnd < pageContacts.length &&
+      (sliceEnd === offset || pairs < CALENDAR_STEP_PAIR_BUDGET)
+    ) {
+      pairs += Math.max(
+        1,
+        GoogleContactsService.getEventsForContact(
+          events,
+          pageContacts[sliceEnd]!.email
+        ).length
+      );
+      sliceEnd++;
+    }
+
+    let created = 0;
+    let updated = 0;
+    let errorCount = 0;
+    const newErrors: string[] = [];
+
+    for (const contactInfo of pageContacts.slice(offset, sliceEnd)) {
+      try {
+        const result = await this.findOrCreateContact(
+          workspaceId,
+          userId,
+          contactInfo,
+          "CALENDAR"
+        );
+
+        if (result === "created") created++;
+        else if (result === "updated") updated++;
+
+        const contactEvents = GoogleContactsService.getEventsForContact(
+          events,
+          contactInfo.email
+        );
+
+        await this.createInteractionsForContact(
+          workspaceId,
+          userId,
+          contactInfo.email,
+          contactEvents
+        );
+      } catch (error) {
+        console.error("Error processing calendar contact:", error);
+        errorCount++;
+        if (priorErrorCount + newErrors.length < MAX_RECORDED_ERRORS) {
+          const label =
+            [contactInfo.firstName, contactInfo.lastName]
+              .filter(Boolean)
+              .join(" ") || "A calendar contact";
+          newErrors.push(
+            `${label}: ${error instanceof Error ? error.message : "unexpected error"}`
+          );
+        }
+      }
+    }
+
+    const nextCursor: ImportCursor | null =
+      sliceEnd < pageContacts.length
+        ? {
+            phase: "CALENDAR",
+            pageToken: cursor.pageToken,
+            lastContactHash: this.generateEmailHash(
+              pageContacts[sliceEnd - 1]!.email
+            ),
+          }
+        : nextPageToken
+          ? { phase: "CALENDAR", pageToken: nextPageToken }
+          : null;
+
+    return {
+      processed: sliceEnd - offset,
+      created,
+      updated,
+      errorCount,
+      newErrors,
+      nextCursor,
+    };
   }
 
   /**
@@ -374,22 +552,34 @@ export class ContactSyncService {
     }
 
     // Create new contact
-    await db.crmContact.create({
-      data: {
-        workspaceId,
-        createdById: userId,
-        firstName: contactInfo.firstName,
-        lastName: contactInfo.lastName,
-        email: encryptedEmail,
-        phone: encryptedPhone,
-        linkedIn: encryptedLinkedIn,
-        emailHash,
-        importSource: source,
-        googleContactId: contactInfo.googleContactId,
-        lastSyncedAt: new Date(),
-        connectionScore: 0, // Will be calculated later
-      },
-    });
+    try {
+      await db.crmContact.create({
+        data: {
+          workspaceId,
+          createdById: userId,
+          firstName: contactInfo.firstName,
+          lastName: contactInfo.lastName,
+          email: encryptedEmail,
+          phone: encryptedPhone,
+          linkedIn: encryptedLinkedIn,
+          emailHash,
+          importSource: source,
+          googleContactId: contactInfo.googleContactId,
+          lastSyncedAt: new Date(),
+          connectionScore: 0, // Will be calculated later
+        },
+      });
+    } catch (err) {
+      // Concurrent write raced us to (workspaceId, emailHash) — treat the
+      // winner as ours, same as the CSV import.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        return "unchanged";
+      }
+      throw err;
+    }
 
     return "created";
   }
@@ -401,13 +591,7 @@ export class ContactSyncService {
     workspaceId: string,
     userId: string,
     email: string,
-    events: Array<{
-      id: string;
-      summary?: string;
-      description?: string;
-      start?: { dateTime?: string; date?: string };
-      end?: { dateTime?: string; date?: string };
-    }>
+    events: GoogleCalendarEvent[]
   ): Promise<void> {
     // Find contact by email hash
     const emailHash = this.generateEmailHash(email);
@@ -425,10 +609,10 @@ export class ContactSyncService {
 
     // Create interaction records for each event
     for (const event of events) {
-      const startTime = GoogleContactsService.getEventStartTime(event as never);
+      const startTime = GoogleContactsService.getEventStartTime(event);
       if (!startTime) continue;
 
-      const duration = GoogleContactsService.calculateEventDuration(event as never);
+      const duration = GoogleContactsService.calculateEventDuration(event);
 
       try {
         // Check if interaction already exists for this event
@@ -525,4 +709,51 @@ export class ContactSyncService {
 
     console.log("✅ Score recalculation complete");
   }
+}
+
+function metadataObjectOf(
+  metadata: Prisma.JsonValue | null
+): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return null;
+  }
+  return metadata as Record<string, unknown>;
+}
+
+function cursorOf(metadata: Prisma.JsonValue | null): ImportCursor | null {
+  const cursor = metadataObjectOf(metadata)?.cursor;
+  if (!cursor || typeof cursor !== "object" || Array.isArray(cursor)) {
+    return null;
+  }
+  const { phase, pageToken, lastContactHash } = cursor as {
+    phase?: unknown;
+    pageToken?: unknown;
+    lastContactHash?: unknown;
+  };
+  if (phase !== "GMAIL" && phase !== "CALENDAR") return null;
+  return {
+    phase,
+    pageToken: typeof pageToken === "string" ? pageToken : undefined,
+    lastContactHash:
+      typeof lastContactHash === "string" ? lastContactHash : undefined,
+  };
+}
+
+function dateRangeOf(
+  metadata: Prisma.JsonValue | null
+): { start: Date; end: Date } | null {
+  const range = metadataObjectOf(metadata)?.dateRange;
+  if (!range || typeof range !== "object" || Array.isArray(range)) return null;
+  const { start, end } = range as { start?: unknown; end?: unknown };
+  if (typeof start !== "string" || typeof end !== "string") return null;
+  const parsed = { start: new Date(start), end: new Date(end) };
+  if (isNaN(parsed.start.getTime()) || isNaN(parsed.end.getTime())) return null;
+  return parsed;
+}
+
+function recordedErrorsOf(metadata: Prisma.JsonValue | null): string[] {
+  const errors = metadataObjectOf(metadata)?.errors;
+  return Array.isArray(errors)
+    ? errors.filter((e): e is string => typeof e === "string")
+    : [];
 }
