@@ -2,8 +2,8 @@
  * The auto-summarize sweep (ADR-0018) is the only automatic route to
  * post-summary decision extraction (ADR-0060): the cron and the on-view
  * list trigger both run it. These tests pin that the sweep asks
- * `summarizeMeetingRow` for extraction on every eligible meeting and never
- * asks it to overwrite. The summarizer and the ceremony catch-up are
+ * `summarizeMeetingRow` for extraction on every eligible meeting while within
+ * its time budget, and never asks it to overwrite. The summarizer and the ceremony catch-up are
  * stubbed — no DB, no model calls.
  */
 
@@ -69,6 +69,18 @@ describe("runMeetingSummarySweep — decision extraction request", () => {
     expect(summarizeMeetingRowMock).toHaveBeenCalledWith(db, expect.objectContaining({ id: "m1" }), {
       extractDecisions: true,
     });
+  });
+
+  it("stops requesting extraction once the time budget is spent, but keeps summarizing", async () => {
+    db.transcriptionSession.findMany.mockResolvedValue([row("m1"), row("m2")] as never);
+
+    const result = await runMeetingSummarySweep(db, { extractionBudgetMs: 0 });
+
+    expect(result.summarized).toBe(2);
+    expect(summarizeMeetingRowMock).toHaveBeenCalledTimes(2);
+    for (const call of summarizeMeetingRowMock.mock.calls) {
+      expect(call[2]).toEqual({ extractDecisions: false });
+    }
   });
 
   it("stops the batch cleanly when summarization is not configured", async () => {

@@ -2177,7 +2177,13 @@ export const transcriptionRouter = createTRPCRouter({
   // as the cron (limit 10), scoped to the caller, so a page load fires one
   // server-side batch rather than a burst of per-card client mutations.
   ensureMyMeetingSummaries: protectedProcedure.mutation(async ({ ctx }) => {
-    return runMeetingSummarySweep(ctx.db, { userId: ctx.session.user.id });
+    // tRPC runs under a 60s function limit (vs the cron's 300s), so only the
+    // first half of the run requests decision extraction; later meetings are
+    // still summarized, and their drafts stay recoverable from the manual chip.
+    return runMeetingSummarySweep(ctx.db, {
+      userId: ctx.session.user.id,
+      extractionBudgetMs: 30_000,
+    });
   }),
 
   generateDraftActions: protectedProcedure

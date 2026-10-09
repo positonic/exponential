@@ -18,7 +18,8 @@ import { attachUnlinkedMeetings } from "~/server/services/ceremonies/autoAttach"
  *      `generateSummary` mutation,
  *   3. emits one `meeting`/`summarized` activity event per summary that lands,
  *   4. requests post-summary decision extraction (ADR-0060) for workspaces
- *      that have opted in — the only automatic route to draft decisions.
+ *      that have opted in — the only automatic route to draft decisions —
+ *      while the run is within its extraction time budget.
  *
  * Idempotent: it only ever picks up `summary IS NULL` rows, so re-running is
  * safe and never double-emits the `summarized` event for an already-summarised
@@ -29,6 +30,15 @@ import { attachUnlinkedMeetings } from "~/server/services/ceremonies/autoAttach"
 
 /** Default number of meetings summarized per sweep (bounds LLM cost/runtime). */
 const DEFAULT_SWEEP_LIMIT = 10;
+
+/**
+ * How far into a sweep decision extraction is still requested. The cron runs
+ * in a 300s function; past this point the remaining meetings are summarized
+ * without extraction so a timeout can't strand summaries the `summary IS NULL`
+ * selector would never revisit. Drafts skipped this way stay recoverable
+ * from the summary tab's "Extract decisions" chip.
+ */
+const DEFAULT_EXTRACTION_BUDGET_MS = 180_000;
 
 /** The columns the sweep needs from a `TranscriptionSession` row. */
 interface SweepMeeting extends SummarizableMeeting {
@@ -47,6 +57,13 @@ export interface MeetingSummarySweepOptions {
    * current user so a page load only heals that user's own meetings.
    */
   userId?: string;
+  /**
+   * Elapsed-time budget for requesting decision extraction (ADR-0060).
+   * Defaults to {@link DEFAULT_EXTRACTION_BUDGET_MS}; callers running under
+   * a tighter function limit (the on-view tRPC trigger) pass a smaller one.
+   * `0` disables extraction for the run.
+   */
+  extractionBudgetMs?: number;
 }
 
 export interface MeetingSummarySweepResult {
@@ -75,7 +92,9 @@ export async function runMeetingSummarySweep(
   options: MeetingSummarySweepOptions = {},
 ): Promise<MeetingSummarySweepResult> {
   const limit = options.limit ?? DEFAULT_SWEEP_LIMIT;
+  const extractionBudgetMs = options.extractionBudgetMs ?? DEFAULT_EXTRACTION_BUDGET_MS;
   const { userId } = options;
+  const sweepStartedAt = Date.now();
 
   const result: MeetingSummarySweepResult = {
     candidates: 0,
@@ -125,7 +144,11 @@ export async function runMeetingSummarySweep(
     // status rather than throwing, so one bad transcript can't sink the sweep.
     // Decision extraction (ADR-0060) is requested here and gated per workspace
     // inside; it only runs on the first summary landing, never on `already-had`.
-    const outcome = await summarizeMeetingRow(db, meeting, { extractDecisions: true });
+    // Once the run is deep into its function budget, stop requesting it so the
+    // remaining meetings still get summarized before a timeout.
+    const outcome = await summarizeMeetingRow(db, meeting, {
+      extractDecisions: Date.now() - sweepStartedAt < extractionBudgetMs,
+    });
 
     if (outcome.status === "not-configured") {
       // No key configured — abort the whole sweep cleanly; nothing here will
