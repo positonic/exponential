@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { decideTierWithJev, type TierDecider } from "./jevDecision";
+import { decideTierWithJev, type TierDecider, type ToolsetId } from "./jevDecision";
 
 /**
  * Tiered model routing — picks the actual Mastra agent ID to invoke for a
@@ -87,6 +87,14 @@ export interface PickModelTierResult {
     provider: "openrouter" | "typesafe";
     costUsd?: number;
   };
+  /**
+   * Toolsets the turn needs beyond CORE, from the same Jev request (ticket
+   * 674). Set whenever Jev answered, including when its tier answer was
+   * too unsure to route on; undefined when Jev did not run (stickiness,
+   * `@think`, no key, error) or its toolset answers were unusable. The
+   * route forwards it to Mastra as the `toolsets` RequestContext entry.
+   */
+  toolsets?: ToolsetId[];
 }
 
 const FORCE_SONNET_OPT_IN = /@(zoe-)?think\b/i;
@@ -152,8 +160,11 @@ export async function pickModelTier(
     return { agentId: sonnetId, reason: "force-sonnet-opt-in" };
   }
 
-  // Jev decision layer. Null means "not configured / unsure / unavailable"
-  // and hands the decision to the regexes below.
+  // Jev decision layer. Null means "not configured / unavailable" and hands
+  // the decision to the regexes below; a decision with `tier: null` means
+  // "answered, but unsure of the tier" — the regexes pick the tier and the
+  // toolset selection still rides along.
+  let toolsets: ToolsetId[] | undefined;
   if (decideTier) {
     const lastUserIndex = finalMessages.lastIndexOf(
       [...finalMessages].reverse().find((m) => m.role === "user")!,
@@ -163,7 +174,8 @@ export async function pickModelTier(
       priorTurns:
         input.priorTurns ?? finalMessages.slice(0, Math.max(0, lastUserIndex)),
     });
-    if (decision) {
+    toolsets = decision?.toolsets;
+    if (decision?.tier) {
       return {
         agentId: decision.tier === "deep" ? sonnetId : haikuId,
         reason: decision.tier === "deep" ? "jev-deep" : "jev-fast",
@@ -174,10 +186,21 @@ export async function pickModelTier(
           provider: decision.provider,
           costUsd: decision.costUsd,
         },
+        ...(toolsets ? { toolsets } : {}),
       };
     }
   }
 
+  const regexResult = pickTierFromHeuristics(trimmed, sonnetId, haikuId);
+  return toolsets ? { ...regexResult, toolsets } : regexResult;
+}
+
+/** The pre-Jev regex rules, unchanged. Used when Jev is absent or unsure. */
+function pickTierFromHeuristics(
+  trimmed: string,
+  sonnetId: string,
+  haikuId: string,
+): PickModelTierResult {
   // Force Sonnet for long messages that contain hard-thinking verbs.
   if (trimmed.length > LONG_HARD_MSG_CHARS && HARD_VERBS.test(trimmed)) {
     return { agentId: sonnetId, reason: "force-sonnet-hard-prompt" };

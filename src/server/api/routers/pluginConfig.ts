@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { pluginRegistry } from "~/plugins/registry";
 import { initializePlugins } from "~/plugins/loader";
 import { resolvePluginStates } from "~/server/services/plugins/resolvePluginStates";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 
 export const pluginConfigRouter = createTRPCRouter({
   // Get all available plugins with their enabled status
@@ -85,78 +85,37 @@ export const pluginConfigRouter = createTRPCRouter({
       return Array.from(enabledIds);
     }),
 
-  // Toggle plugin enabled state
+  // Toggle plugin enabled state. Only `enabled` is written: the row's
+  // settings (e.g. the product plugin's saved view prefs) are left as stored.
   toggle: protectedProcedure
     .input(
       z.object({
         pluginId: z.string(),
         enabled: z.boolean(),
-        workspaceId: z.string().optional(),
+        // Required: the unique key is (pluginId, workspaceId, userId), and
+        // NULLs never conflict in it, so a workspace-less row could not be
+        // created without racing into duplicates.
+        workspaceId: z.string(),
       })
     )
+    .use(requireWorkspaceMembership("view"))
     .mutation(async ({ ctx, input }) => {
-      // Find existing config
-      const existing = await ctx.db.pluginConfig.findFirst({
-        where: {
-          pluginId: input.pluginId,
-          workspaceId: input.workspaceId ?? null,
-          userId: ctx.session.user.id,
-        },
+      const key = {
+        pluginId: input.pluginId,
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+      };
+
+      // Create the row if there is none yet (a no-op when there is). Unlike a
+      // find-then-create, two first toggles racing here both succeed.
+      await ctx.db.pluginConfig.createMany({
+        data: [{ ...key, enabled: input.enabled }],
+        skipDuplicates: true,
       });
 
-      if (existing) {
-        return ctx.db.pluginConfig.update({
-          where: { id: existing.id },
-          data: { enabled: input.enabled },
-        });
-      }
-
-      return ctx.db.pluginConfig.create({
-        data: {
-          pluginId: input.pluginId,
-          enabled: input.enabled,
-          userId: ctx.session.user.id,
-          workspaceId: input.workspaceId,
-        },
-      });
-    }),
-
-  // Update plugin settings
-  updateSettings: protectedProcedure
-    .input(
-      z.object({
-        pluginId: z.string(),
-        settings: z.record(z.unknown()),
-        workspaceId: z.string().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const settings = input.settings as Prisma.InputJsonValue;
-
-      // Find existing config
-      const existing = await ctx.db.pluginConfig.findFirst({
-        where: {
-          pluginId: input.pluginId,
-          workspaceId: input.workspaceId ?? null,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (existing) {
-        return ctx.db.pluginConfig.update({
-          where: { id: existing.id },
-          data: { settings },
-        });
-      }
-
-      return ctx.db.pluginConfig.create({
-        data: {
-          pluginId: input.pluginId,
-          settings,
-          userId: ctx.session.user.id,
-          workspaceId: input.workspaceId,
-          enabled: true,
-        },
+      return ctx.db.pluginConfig.update({
+        where: { pluginId_workspaceId_userId: key },
+        data: { enabled: input.enabled },
       });
     }),
 });

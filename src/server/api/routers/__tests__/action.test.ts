@@ -151,6 +151,7 @@ import {
   myActionsTodayWhere,
   serverLocalDay,
 } from "~/server/services/actions/myActionsWhere";
+import { matchesWhere } from "~/test/prismaWhere";
 
 describe("action router (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -1280,7 +1281,7 @@ describe("action router (mocked)", () => {
         workspaceId: opts?.workspaceId ?? null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      // Caller passes buildActionAccessWhere (they created it).
+      // Caller passes buildActionEditWhere (they created it).
       dbMock.action.findFirst.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         { id: actionId } as any,
@@ -1541,6 +1542,47 @@ describe("action router (mocked)", () => {
 
         expect(dbMock.action.update).toHaveBeenCalled();
         expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
+      });
+
+      // Mastra's update-action-item posts `{ json, meta: {} }`, so its due
+      // date is never revived into a Date by superjson. A strict z.date()
+      // rejected every agent update that set one.
+      it("accepts the ISO-string due date Mastra's update-action-item sends", async () => {
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1" } as any);
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.action.update({
+          id: "a1",
+          dueDate: "2026-10-12T00:00:00.000Z" as unknown as Date,
+          lastUpdatedBy: "AGENT",
+        });
+
+        const { data } = dbMock.action.update.mock.calls[0]![0]!;
+        expect(data.dueDate).toEqual(new Date("2026-10-12T00:00:00.000Z"));
+      });
+
+      it("still clears the due date on an explicit null", async () => {
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1" } as any);
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.action.update({ id: "a1", dueDate: null });
+
+        const { data } = dbMock.action.update.mock.calls[0]![0]!;
+        expect(data.dueDate).toBeNull();
+      });
+
+      it("rejects an unparseable date string without writing", async () => {
+        stubOwnedAction();
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.update({ id: "a1", dueDate: "next friday-ish" as unknown as Date }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        expect(dbMock.action.update).not.toHaveBeenCalled();
       });
     });
 
@@ -2389,6 +2431,175 @@ describe("action router (mocked)", () => {
       expect(dbMock.action.findMany.mock.calls[0]?.[0]?.where).toEqual(
         myActionsTodayWhere("caller-1", day, "ws-1"),
       );
+    });
+  });
+  // ────────────────────────────────────────────────────────────────────
+  // Bulk writes are scoped by edit rights, not read rights
+  // ────────────────────────────────────────────────────────────────────
+  // The mocked `findMany` / `updateMany` / `deleteMany` below evaluate the
+  // router's real `where` against in-memory rows, so each test asserts which
+  // rows a write actually reaches rather than which helper built the clause.
+  describe("bulk write scoping", () => {
+    const callerId = "caller-1";
+    const ownerId = "owner-1";
+
+    type Row = Record<string, unknown> & { id: string };
+    let rows: Row[];
+
+    function actionRow(id: string, workspace: unknown, opts?: { isPublic?: boolean }): Row {
+      const day = new Date("2026-01-01T00:00:00Z");
+      return {
+        id,
+        createdById: ownerId,
+        assignees: [],
+        dueDate: day,
+        scheduledStart: day,
+        scheduledEnd: null,
+        projectId: "p1",
+        project: {
+          createdById: ownerId,
+          isPublic: opts?.isPublic ?? false,
+          isRestricted: false,
+          projectMembers: [],
+          team: null,
+          workspace,
+        },
+      };
+    }
+
+    /** An action in a public project of a workspace the caller isn't in. */
+    const publicOutsider = () => actionRow("a-public", { members: [], teams: [] }, { isPublic: true });
+    /** An action in an unrestricted project of a workspace where the caller is `role`. */
+    const asRole = (role: string) =>
+      actionRow(`a-${role}`, { members: [{ userId: callerId, role }], teams: [] });
+
+    beforeEach(() => {
+      rows = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const matching = (args: any) => rows.filter((r) => matchesWhere(r, args?.where ?? {}));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockImplementation(((args: any) => Promise.resolve(matching(args))) as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findFirst.mockImplementation(((args: any) => Promise.resolve(matching(args)[0] ?? null)) as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.updateMany.mockImplementation(((args: any) => {
+        const hit = matching(args);
+        for (const r of hit) Object.assign(r, args.data);
+        return Promise.resolve({ count: hit.length });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.deleteMany.mockImplementation(((args: any) => {
+        const hit = new Set(matching(args));
+        rows = rows.filter((r) => !hit.has(r));
+        return Promise.resolve({ count: hit.size });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+    });
+
+    const caller = () => createMockCaller({ userId: callerId, db: dbMock });
+    const target = new Date("2026-03-01T00:00:00Z");
+
+    describe.each([
+      ["public-project outsider", publicOutsider],
+      ["workspace viewer", () => asRole("viewer")],
+    ])("%s", (_label, makeRow) => {
+      it("cannot bulkDelete", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkDelete({ actionIds: [row.id] });
+        expect(result.count).toBe(0);
+        expect(rows).toContain(row);
+      });
+
+      it("cannot bulkReschedule", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkReschedule({ actionIds: [row.id], date: target });
+        expect(result.count).toBe(0);
+        expect(row.scheduledStart).not.toEqual(target);
+        expect(row.dueDate).not.toEqual(target);
+      });
+
+      it("cannot bulkReschedule to no date", async () => {
+        const row = makeRow();
+        rows = [row];
+        await caller().action.bulkReschedule({ actionIds: [row.id], date: null });
+        expect(row.scheduledStart).not.toBeNull();
+      });
+
+      it("cannot bulkDefer", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkDefer({ actionIds: [row.id] });
+        expect(result.count).toBe(0);
+        expect(row.dueDate).not.toBeNull();
+      });
+
+      it("cannot bulkAssignProject", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkAssignProject({ actionIds: [row.id], projectId: null });
+        expect(result.count).toBe(0);
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
+
+      it("cannot assign users", async () => {
+        const row = makeRow();
+        rows = [row];
+        dbMock.action.findUnique.mockResolvedValue(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { id: row.id, projectId: "p1", teamId: null, workspaceId: "w1" } as any,
+        );
+        await expect(
+          caller().action.assign({ actionId: row.id, userIds: [callerId] }),
+        ).rejects.toThrow("You don't have permission to modify this action");
+        expect(dbMock.actionAssignee.createMany).not.toHaveBeenCalled();
+      });
+
+      it("cannot unassign someone else", async () => {
+        const row = makeRow();
+        rows = [row];
+        dbMock.action.findUnique.mockResolvedValue({ id: row.id } as never);
+        await expect(
+          caller().action.unassign({ actionId: row.id, userIds: [ownerId] }),
+        ).rejects.toThrow("You don't have permission to modify this action");
+        expect(dbMock.actionAssignee.deleteMany).not.toHaveBeenCalled();
+      });
+    });
+
+    it("a workspace member can still bulkReschedule and bulkDelete", async () => {
+      const kept = asRole("member");
+      rows = [kept];
+      const rescheduled = await caller().action.bulkReschedule({ actionIds: [kept.id], date: target });
+      expect(rescheduled.count).toBe(1);
+      expect(kept.scheduledStart).toEqual(target);
+
+      const deleted = await caller().action.bulkDelete({ actionIds: [kept.id] });
+      expect(deleted.count).toBe(1);
+      expect(rows).toHaveLength(0);
+    });
+
+    it("an assignee can reschedule but not hard-delete", async () => {
+      const row = { ...publicOutsider(), assignees: [{ userId: callerId }] };
+      rows = [row];
+      expect((await caller().action.bulkReschedule({ actionIds: [row.id], date: target })).count).toBe(1);
+      expect((await caller().action.bulkDelete({ actionIds: [row.id] })).count).toBe(0);
+      expect(rows).toContain(row);
+    });
+
+    it("only the writable rows of a mixed batch are touched", async () => {
+      const viewerRow = asRole("viewer");
+      const memberRow = asRole("member");
+      const publicRow = publicOutsider();
+      rows = [viewerRow, memberRow, publicRow];
+      const result = await caller().action.bulkDefer({
+        actionIds: [viewerRow.id, memberRow.id, publicRow.id],
+      });
+      expect(result.actionIds).toEqual([memberRow.id]);
+      expect(memberRow.dueDate).toBeNull();
+      expect(viewerRow.dueDate).not.toBeNull();
+      expect(publicRow.dueDate).not.toBeNull();
     });
   });
 });

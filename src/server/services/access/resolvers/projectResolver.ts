@@ -23,7 +23,13 @@ import type {
   WorkspaceRole,
 } from "../types";
 import { hasMinimumProjectRole } from "../types";
-import { getWorkspaceMembership } from "./workspaceResolver";
+
+/** Workspace roles that may write workspace content (see `canEditWorkspaceContent`). */
+const WORKSPACE_WRITE_ROLES = ["owner", "admin", "member"] as const;
+import {
+  canEditWorkspaceContent,
+  getWorkspaceMembership,
+} from "./workspaceResolver";
 
 export async function getProjectAccess(
   db: PrismaClient,
@@ -162,10 +168,14 @@ export function canEditProject(access: ProjectAccess): boolean {
     }
     return isWorkspaceEscapeHatch(access);
   }
-  // Unrestricted: any member, team member, or workspace member can edit
+  // Unrestricted: any project member or team member can edit, and so can a
+  // workspace member holding a write role. `viewer` is read-only: workspace
+  // membership at that role grants view, never edit.
   if (access.isMember) return true;
   if (access.isTeamMember) return true;
-  if (access.isWorkspaceMember) return true;
+  if (access.isWorkspaceMember) {
+    return canEditWorkspaceContent(access.workspaceRole ?? null);
+  }
   return false;
 }
 
@@ -227,8 +237,9 @@ export function buildProjectAccessWhere(
 /**
  * Prisma WHERE clause for projects a user can **edit** (the DB-level mirror of
  * {@link canEditProject}). Stricter than {@link buildProjectAccessWhere}:
- * `isPublic` alone grants view but not edit, and a restricted project requires
- * an editor+ project-member role (not mere viewer membership) or the workspace
+ * `isPublic` alone grants view but not edit, a workspace `viewer` gets no edit
+ * through workspace membership, and a restricted project requires an editor+
+ * project-member role (not mere viewer membership) or the workspace
  * owner/admin escape hatch.
  *
  * Use for candidate lists where the next action requires edit rights — e.g.
@@ -240,7 +251,11 @@ export function buildProjectEditWhere(
   return {
     OR: [
       { createdById: userId },
-      // Unrestricted: any project/team/workspace membership grants edit.
+      // Unrestricted: project/team membership grants edit, and so does
+      // workspace membership at a write role (owner/admin/member, never
+      // viewer). Team-via-workspace access resolves to `member`, but only when
+      // the user has no direct WorkspaceUser row — `getWorkspaceMembership`
+      // lets the direct row win, so a direct viewer stays a viewer.
       {
         AND: [
           { isRestricted: false },
@@ -248,10 +263,17 @@ export function buildProjectEditWhere(
             OR: [
               { projectMembers: { some: { userId } } },
               { team: { members: { some: { userId } } } },
-              { workspace: { members: { some: { userId } } } },
+              {
+                workspace: {
+                  members: {
+                    some: { userId, role: { in: [...WORKSPACE_WRITE_ROLES] } },
+                  },
+                },
+              },
               {
                 workspace: {
                   teams: { some: { members: { some: { userId } } } },
+                  members: { none: { userId } },
                 },
               },
             ],

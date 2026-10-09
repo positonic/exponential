@@ -9,6 +9,7 @@ import {
 } from "../notionTicketImport";
 import {
   extractNotionPageId,
+  linkedTicketNumbers,
   mapPoints,
   mapPriority,
   mapStatus,
@@ -77,6 +78,12 @@ export interface TicketSyncRemoteAdapter {
   }): Promise<RemoteTicketRow[]>;
   /** Page content as Markdown-ish text; fetched only when creating a ticket. */
   getPageBody?(externalId: string): Promise<string | null>;
+  /**
+   * Every absolute URL on the page (link properties, linked text, body links).
+   * Fetched only for an unlinked row, to recognise a hand-written page that
+   * links to an existing ticket before creating a duplicate.
+   */
+  getPageLinks?(externalId: string): Promise<string[]>;
 }
 
 export interface SyncRunItem {
@@ -236,6 +243,64 @@ async function relationalPreviewWarnings(
   return warnings;
 }
 
+type LinkedTicket =
+  | { kind: "none" }
+  | { kind: "adopt"; ticketId: string; number: number }
+  | { kind: "skip"; reason: string };
+
+/**
+ * Does this unlinked page belong to a ticket that already exists?
+ *
+ * A page written by hand in Notion for an existing ticket used to be imported
+ * as a second ticket; archiving that duplicate later trashed the only copy of
+ * the page (CLEAR-612/616, see ADR-0066). The page is matched only on an exact
+ * link to the ticket's Exponential URL ({@link linkedTicketNumbers}) — never on
+ * a ticket number mentioned in text.
+ */
+async function resolveLinkedTicket(
+  db: PrismaClient,
+  adapter: TicketSyncRemoteAdapter,
+  config: {
+    productId: string;
+    provider: string;
+    product: { slug: string; workspace: { slug: string } };
+  },
+  externalId: string,
+): Promise<LinkedTicket> {
+  if (!adapter.getPageLinks) return { kind: "none" };
+  const numbers = linkedTicketNumbers(await adapter.getPageLinks(externalId), {
+    workspaceSlug: config.product.workspace.slug,
+    productSlug: config.product.slug,
+  });
+  if (numbers.length === 0) return { kind: "none" };
+  if (numbers.length > 1) {
+    return {
+      kind: "skip",
+      reason: `page links to several tickets (${numbers
+        .map((n) => `#${n}`)
+        .join(", ")}) — not imported; remove the extra links so it links to one`,
+    };
+  }
+
+  const number = numbers[0]!;
+  const ticket = await db.ticket.findFirst({
+    where: { productId: config.productId, number },
+    select: {
+      id: true,
+      syncs: { where: { provider: config.provider }, select: { id: true } },
+    },
+  });
+  // A link to a ticket that no longer exists says nothing about ownership.
+  if (!ticket) return { kind: "none" };
+  if (ticket.syncs.length > 0) {
+    return {
+      kind: "skip",
+      reason: `page links to ticket #${number}, which is already synced to another Notion page — not imported`,
+    };
+  }
+  return { kind: "adopt", ticketId: ticket.id, number };
+}
+
 function hasRevertTombstone(snapshot: Prisma.JsonValue | null): boolean {
   return (
     !!snapshot &&
@@ -267,7 +332,16 @@ export async function runInboundTicketSync(
 
   const config = await db.ticketSyncConfig.findUniqueOrThrow({
     where: { id: params.configId },
-    include: { product: { select: { id: true, workspaceId: true } } },
+    include: {
+      product: {
+        select: {
+          id: true,
+          workspaceId: true,
+          slug: true,
+          workspace: { select: { slug: true } },
+        },
+      },
+    },
   });
 
   const run = await db.ticketSyncRun.create({
@@ -452,7 +526,7 @@ export async function runInboundTicketSync(
           continue;
         }
 
-        const record = recordByExternalId.get(row.externalId);
+        let record = recordByExternalId.get(row.externalId);
 
         // Echo suppression for rows we never linked stays row-level: an unseen
         // bot-edited row can only be our own residue, never a pending human
@@ -467,6 +541,60 @@ export async function runInboundTicketSync(
             reason: "last edit was ours (echo suppression)",
           });
           continue;
+        }
+
+        if (!record) {
+          // ----------------------------------------------------------
+          // Adopt: an unseen row that links to an existing ticket belongs
+          // to that ticket. Link it and fall through to the merge below
+          // (null snapshot → last-write-wins, like the links-JSON adoption).
+          //
+          // Not on a dry run: reading links costs a page fetch per row, and
+          // the first-sync preview scans the whole database, where that would
+          // make it slow enough to time out. The preview may therefore count
+          // an adoptable page as "would create" — it over-reports, never under.
+          // ----------------------------------------------------------
+          const linked: LinkedTicket = dryRun
+            ? { kind: "none" }
+            : await resolveLinkedTicket(db, adapter, config, row.externalId);
+          if (linked.kind === "skip") {
+            counts.skipped++;
+            items.push({
+              externalId: row.externalId,
+              ticketId: null,
+              title: row.title,
+              action: "skipped",
+              reason: linked.reason,
+            });
+            continue;
+          }
+          if (linked.kind === "adopt") {
+            record = await db.ticketSync.create({
+              data: {
+                configId: config.id,
+                ticketId: linked.ticketId,
+                provider: config.provider,
+                externalId: row.externalId,
+                externalUrl: row.url,
+                snapshot: Prisma.DbNull,
+              },
+              select: {
+                id: true,
+                ticketId: true,
+                externalId: true,
+                snapshot: true,
+                tombstonedAt: true,
+              },
+            });
+            recordByExternalId.set(row.externalId, record);
+            items.push({
+              externalId: row.externalId,
+              ticketId: linked.ticketId,
+              title: row.title,
+              action: "adopted",
+              reason: `linked to ticket #${linked.number} (the page links to it)`,
+            });
+          }
         }
 
         if (!record) {

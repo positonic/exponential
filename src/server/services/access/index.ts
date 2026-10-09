@@ -68,6 +68,7 @@ export {
 export {
   getWorkspaceMembership,
   assertWorkspaceRole,
+  assertWorkspaceMembership,
   assertWorkspaceWriteRole,
   canEditWorkspaceContent,
   isWorkspaceOwner,
@@ -91,6 +92,8 @@ export {
   canEditAction,
   checkActionPermission,
   buildActionAccessWhere,
+  buildActionEditWhere,
+  buildActionDeleteWhere,
 } from "./resolvers/actionResolver";
 export {
   getTranscriptionAccess,

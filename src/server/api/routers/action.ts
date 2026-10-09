@@ -10,7 +10,7 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -1216,11 +1216,13 @@ export const actionRouter = createTRPCRouter({
       actionIds: z.array(z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Scoped by the delete rule (creator or project editor), never the read
+      // clause — that one admits public-project outsiders and workspace viewers.
       // Snapshot project links + names BEFORE deleting so we can write activity rows.
       const toDelete = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionDeleteWhere(ctx.session.user.id),
         },
         select: { id: true, name: true, projectId: true },
       });
@@ -1228,7 +1230,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.deleteMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionDeleteWhere(ctx.session.user.id),
         },
       });
 
@@ -1300,16 +1302,19 @@ export const actionRouter = createTRPCRouter({
       const date = input.date !== undefined ? input.date : (input.dueDate ?? null);
       const where: Prisma.ActionWhereInput = {
         id: { in: input.actionIds },
-        ...buildActionAccessWhere(ctx.session.user.id),
+        ...buildActionEditWhere(ctx.session.user.id),
       };
 
+      let count: number;
       if (date === null) {
-        await ctx.db.action.updateMany({
+        ({ count } = await ctx.db.action.updateMany({
           where,
           data: { scheduledStart: null, dueDate: null },
-        });
+        }));
       } else {
-        await ctx.db.$transaction([
+        // The first write touches every row `where` admits; its count is the
+        // number of actions actually rescheduled.
+        [{ count }] = await ctx.db.$transaction([
           ctx.db.action.updateMany({
             where,
             data: { scheduledStart: date },
@@ -1322,7 +1327,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       return {
-        count: input.actionIds.length,
+        count,
         actionIds: input.actionIds,
       };
     }),
@@ -1349,7 +1354,7 @@ export const actionRouter = createTRPCRouter({
       const toDefer = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         select: { id: true, projectId: true, dueDate: true, scheduledStart: true },
       });
@@ -1357,7 +1362,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.updateMany({
         where: {
           id: { in: toDefer.map((a) => a.id) },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         data: {
           scheduledStart: null,
@@ -1415,13 +1420,13 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
-      // Same reader set as before: the actions the caller may touch. Each
-      // then goes through applyActionUpdate, which re-checks the target,
-      // takes its workspace and re-seeds (or clears) the kanban column.
+      // The actions the caller may edit. Each then goes through
+      // applyActionUpdate, which re-checks the target, takes its workspace
+      // and re-seeds (or clears) the kanban column.
       const accessible = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         select: { id: true },
       });
@@ -1465,11 +1470,11 @@ export const actionRouter = createTRPCRouter({
         throw new Error("Action not found");
       }
 
-      // Check if user has permission to modify this action (creator, assignee, project member, or team member)
+      // Check if user has permission to modify this action (creator, assignee, or project editor)
       const hasPermission = await ctx.db.action.findFirst({
         where: {
           id: input.actionId,
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         select: { id: true },
       });
@@ -1562,7 +1567,7 @@ export const actionRouter = createTRPCRouter({
           id: input.actionId,
           // For self-removal, just verify the action exists
           // For unassigning others, verify user has permission
-          ...(isSelfRemoval ? {} : buildActionAccessWhere(ctx.session.user.id)),
+          ...(isSelfRemoval ? {} : buildActionEditWhere(ctx.session.user.id)),
         },
       });
 

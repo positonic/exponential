@@ -31,6 +31,7 @@ import { CalendarDayViewSkeleton, CalendarEventsSkeleton } from "./CalendarSkele
 import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
 import { CreateMeetingModal } from "./CreateMeetingModal";
 import { stripHtml } from "~/lib/utils";
+import { toPlainText } from "~/lib/content/plainText";
 import { Checkbox } from "@mantine/core";
 import type { ScheduledAction } from "./calendar/types";
 
@@ -368,7 +369,8 @@ export function ProjectCalendarCard({ projectId, projectName, selectedDate: prop
                             className={`text-text-primary ${action.status === "COMPLETED" ? "line-through opacity-60" : ""}`}
                             lineClamp={1}
                           >
-                            {action.name}
+                            {/* Single-line label: show the text of a legacy-HTML name. */}
+                            {toPlainText(action.name) || "Untitled"}
                           </Text>
                         </Group>
                         <Badge size="xs" variant="light" color="blue">

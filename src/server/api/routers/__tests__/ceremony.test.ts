@@ -477,6 +477,119 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("listOccurrencesForProject", () => {
+    function withProjectAccess() {
+      db.project.findUnique.mockResolvedValue({
+        id: "p-1",
+        createdById: USER_ID,
+        workspaceId: WORKSPACE_ID,
+        teamId: null,
+        isPublic: false,
+        isRestricted: false,
+      } as never);
+    }
+    const occ = (id: string, ceremonyId: string, isOneOff: boolean, start: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      scheduledStart: new Date(start),
+      scheduledEnd: new Date(new Date(start).getTime() + 30 * 60_000),
+      status: "PLANNED",
+      ceremony: {
+        id: ceremonyId,
+        name: isOneOff ? "Launch scope" : "Daily Standup",
+        isOneOff,
+        purpose: isOneOff ? "Agree the scope" : "Standing remit",
+        workspace: { slug: "acme" },
+        _count: { participants: 4 },
+      },
+      scheduledMeeting: isOneOff ? { status: "confirmed", _count: { attendees: 3 } } : null,
+      ...extra,
+    });
+
+    it("denies a user with no access to the project", async () => {
+      db.project.findUnique.mockResolvedValue(null);
+      await expect(caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremonyOccurrence.findMany).not.toHaveBeenCalled();
+    });
+
+    it("asks for the project's occurrences in the window that no recording on this project captured, skipped ones included", async () => {
+      withProjectAccess();
+      db.ceremony.findMany.mockResolvedValue([{ id: "cer-std", isOneOff: false }] as never);
+      db.ceremonyOccurrence.findMany.mockResolvedValue([]);
+      await caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1" });
+
+      expect(db.ceremony.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { projects: { some: { projectId: "p-1" } } } }),
+      );
+      const where = db.ceremonyOccurrence.findMany.mock.calls[0]![0]!.where!;
+      // A recording filed under another project the ceremony also reviews
+      // doesn't hide the row here, where that recording isn't listed.
+      expect(where).toMatchObject({ ceremonyId: "cer-std", recordedMeetings: { none: { projectId: "p-1" } } });
+      expect(where).not.toHaveProperty("status");
+      const range = where.scheduledStart as { gte: Date; lte: Date };
+      const days = (range.lte.getTime() - range.gte.getTime()) / 86_400_000;
+      expect(Math.round(days)).toBe(21);
+    });
+
+    it("caps each recurring ceremony in its own query, never one-offs, and shapes the rows newest first", async () => {
+      withProjectAccess();
+      withWorkspaceRole(db, "member");
+      db.ceremony.findMany.mockResolvedValue([
+        { id: "cer-oo", isOneOff: true },
+        { id: "cer-std", isOneOff: false },
+        { id: "cer-std2", isOneOff: false },
+      ] as never);
+      db.ceremonyOccurrence.findMany.mockImplementation(((args: { where: { ceremonyId: unknown }; take?: number }) => {
+        const id = args.where.ceremonyId;
+        if (typeof id === "object") return Promise.resolve([occ("one-off", "cer-oo", true, "2026-10-12T09:00:00Z")]);
+        if (id === "cer-std") {
+          return Promise.resolve(
+            Array.from({ length: args.take ?? 99 }, (_, i) => occ(`s-${i}`, "cer-std", false, `2026-10-${String(11 - i).padStart(2, "0")}T08:00:00Z`)),
+          );
+        }
+        return Promise.resolve([occ("skipped", "cer-std2", false, "2026-10-03T08:00:00Z", { status: "SKIPPED" })]);
+      }) as never);
+
+      const rows = await caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1", perCeremony: 5 });
+
+      const calls = db.ceremonyOccurrence.findMany.mock.calls.map((c) => c[0]!);
+      expect(calls.find((c) => c.where!.ceremonyId === "cer-std")).toMatchObject({ take: 5 });
+      expect(calls.find((c) => typeof c.where!.ceremonyId === "object")).not.toHaveProperty("take");
+      expect(rows.filter((r) => r.ceremonyId === "cer-std")).toHaveLength(5);
+      expect(rows.map((r) => r.occurrenceId)).toContain("skipped");
+      expect(rows.map((r) => r.scheduledStart.getTime())).toEqual(
+        [...rows.map((r) => r.scheduledStart.getTime())].sort((a, b) => b - a),
+      );
+      expect(rows[0]).toEqual({
+        occurrenceId: "one-off",
+        ceremonyId: "cer-oo",
+        ceremonyName: "Launch scope",
+        isOneOff: true,
+        purpose: "Agree the scope",
+        scheduledStart: new Date("2026-10-12T09:00:00Z"),
+        scheduledEnd: new Date("2026-10-12T09:30:00Z"),
+        status: "PLANNED",
+        attendeeCount: 3,
+        href: "/w/acme/ceremonies/cer-oo/one-off",
+      });
+      // A recurring ceremony's purpose is its standing remit, not this meeting's.
+      expect(rows.find((r) => r.occurrenceId === "s-0")).toMatchObject({ purpose: null, attendeeCount: 4 });
+    });
+
+    it("gives a project-only guest the rows but no links, since the agenda page needs workspace membership", async () => {
+      withProjectAccess();
+      db.projectMember.findFirst.mockResolvedValue({ role: "viewer" } as never);
+      db.workspaceUser.findUnique.mockResolvedValue(null);
+      db.teamUser.findFirst.mockResolvedValue(null);
+      db.ceremony.findMany.mockResolvedValue([{ id: "cer-oo", isOneOff: true }] as never);
+      db.ceremonyOccurrence.findMany.mockResolvedValue([occ("one-off", "cer-oo", true, "2026-10-12T09:00:00Z")] as never);
+
+      const rows = await caller(db).ceremony.listOccurrencesForProject({ projectId: "p-1" });
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.href).toBeNull();
+    });
+  });
+
   describe("previewOneOffAgenda", () => {
     const input = {
       workspaceId: WORKSPACE_ID,

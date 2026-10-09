@@ -25,7 +25,7 @@ import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidenc
 // Imported from the resolver module rather than the access barrel: the
 // barrel pulls in the Prisma singleton at module load.
 import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
-import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
+import { buildActionEditWhere } from "~/server/services/access/resolvers/actionResolver";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -1098,7 +1098,7 @@ export async function adoptDecisionActionsIntoTicket(
   const actionIds = links.map((l) => l.actionId).filter((id): id is string => !!id);
   if (actionIds.length === 0) return { adopted: 0, ticketId };
   const { count } = await db.action.updateMany({
-    where: { id: { in: actionIds }, ticketId: null, ...buildActionAccessWhere(userId) },
+    where: { id: { in: actionIds }, ticketId: null, ...buildActionEditWhere(userId) },
     data: { ticketId },
   });
   return { adopted: count, ticketId };

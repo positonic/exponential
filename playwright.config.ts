@@ -41,5 +41,11 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // Never deliver real email from a spec: booking a meeting sends calendar
+    // invites, and `.env.local` carries a live Postmark key. The switch blocks
+    // every send whatever the key source (env or a workspace integration).
+    // It only reaches a server Playwright starts — a reused one must be
+    // started with EMAIL_DELIVERY_DISABLED=1 (AGENT_VISUAL_TESTING.md).
+    env: { EMAIL_DELIVERY_DISABLED: "1" },
   },
 });

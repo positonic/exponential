@@ -51,6 +51,7 @@ import { TagSelector } from "./TagSelector";
 import { useImagePaste } from "~/hooks/useImagePaste";
 import { InlineImageRenderer } from "./shared/InlineImageRenderer";
 import { HTMLContent } from "./HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 
 const KANBAN_STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
@@ -630,7 +631,9 @@ export function ActionDetailContent({
                       color={isOpen ? "red" : "gray"}
                       td={isOpen ? undefined : "line-through"}
                     >
-                      {dep.dependsOn.name}
+                      {/* The badge sits inside a Link below, so it shows the
+                          text of a legacy-HTML name, not a nested anchor. */}
+                      {toPlainText(dep.dependsOn.name) || "Untitled"}
                     </Badge>
                   );
                   return workspace?.slug ? (

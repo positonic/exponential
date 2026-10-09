@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { Stack, Text, Tooltip } from "@mantine/core";
 import { format } from "date-fns";
+import { toPlainText } from "~/lib/content/plainText";
 
 import type { CalendarTimeEntry } from "./types";
 
@@ -27,12 +28,20 @@ export function CalendarTimeEntryBlock({
     ? format(new Date(entry.endedAt), "h:mm a")
     : "now";
 
+  // An Action name may still hold the legacy Tiptap HTML that ADR-0017
+  // tolerates on read, and none of the three places this block shows it can
+  // render that as a link: the tooltip line and the aria-label are strings,
+  // and the body is a line-clamped label inside the block's own click target,
+  // where an anchor would swallow the click that opens the entry. All three
+  // show the text a reader would see.
+  const plainName = toPlainText(entry.action.name) || "Untitled";
+
   return (
     <Tooltip
       label={
         <Stack gap={4}>
           <Text size="sm" fw={600}>
-            {entry.action.name}
+            {plainName}
           </Text>
           <Text size="xs">
             {format(new Date(entry.startedAt), "h:mm a")} – {endLabel}
@@ -51,7 +60,7 @@ export function CalendarTimeEntryBlock({
         style={{ ...style, cursor: onClick ? "pointer" : "default" }}
         onClick={() => onClick?.(entry)}
         role="button"
-        aria-label={`Time entry: ${entry.action.name}`}
+        aria-label={`Time entry: ${plainName}`}
       >
         <div className="flex items-center gap-1.5">
           {isRunning && (
@@ -76,7 +85,7 @@ export function CalendarTimeEntryBlock({
               wordBreak: "break-word",
             }}
           >
-            {entry.action.name}
+            {plainName}
           </Text>
         </div>
         {height >= 35 && (

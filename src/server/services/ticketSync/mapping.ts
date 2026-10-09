@@ -18,6 +18,50 @@ export const TICKET_STATUSES = [
 ] as const;
 
 /**
+ * The numbers of this product's tickets that a page links to, from the
+ * absolute URLs found on it (link properties, linked text in properties and
+ * the body).
+ *
+ * Only an exact ticket URL counts — `/w/<workspace>/products/<product>/tickets/<n>`
+ * for THIS product. A bare "CLEAR-612" in text never matches: hand-written
+ * pages routinely name parents and dependencies ("Umbrella: CLEAR-490"), and
+ * guessing which one the page belongs to would link the wrong ticket. The host
+ * is ignored so links from any deployment of the app count.
+ */
+const MAX_TICKET_NUMBER = 2_147_483_647;
+
+export function linkedTicketNumbers(
+  urls: readonly string[],
+  product: { workspaceSlug: string; productSlug: string },
+): number[] {
+  const numbers = new Set<number>();
+  for (const raw of urls) {
+    let path: string;
+    try {
+      path = new URL(raw).pathname;
+    } catch {
+      continue;
+    }
+    const match = /^\/w\/([^/]+)\/products\/([^/]+)\/tickets\/(\d+)\/?$/.exec(path);
+    if (!match) continue;
+    const [, workspaceSlug, productSlug, digits] = match;
+    let sameProduct: boolean;
+    try {
+      sameProduct =
+        decodeURIComponent(workspaceSlug!) === product.workspaceSlug &&
+        decodeURIComponent(productSlug!) === product.productSlug;
+    } catch {
+      continue; // malformed percent-encoding: not a link we made
+    }
+    const number = Number(digits);
+    // Ticket.number is a Postgres int; a larger value can't be a ticket and
+    // would make the lookup throw.
+    if (sameProduct && number <= MAX_TICKET_NUMBER) numbers.add(number);
+  }
+  return [...numbers].sort((a, b) => a - b);
+}
+
+/**
  * The Notion page id a ticket carries in its `links` JSON — the provenance the
  * cycle importer writes for every row it creates.
  *
