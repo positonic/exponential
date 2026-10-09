@@ -132,6 +132,12 @@ export function MeetingDetail({
     [session, meetingDecisions],
   );
   const canLogDecision = meetingDecisions?.canLogDecision ?? false;
+  // Same cache entry as the Outputs tab's review card. Drafts are never posted to
+  // Matrix, so the post button warns while any are waiting.
+  const { data: draftActions = [] } = api.action.getDraftByTranscription.useQuery(
+    { transcriptionId: session.id },
+    { enabled: Boolean(session.id) },
+  );
 
   // Evidence capture: transcript turns marked "Use as evidence" collect here
   // until the modal logs them with the decision.
@@ -417,6 +423,8 @@ export function MeetingDetail({
               meetingId={session.id}
               workspaceId={session.workspaceId ?? null}
               projectId={session.projectId ?? null}
+              draftCounts={{ actions: draftActions.length, decisions: vm.drafts.length }}
+              onReviewDrafts={() => selectTab("outputs")}
             />
           }
         />

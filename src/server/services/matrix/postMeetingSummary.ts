@@ -82,8 +82,9 @@ export async function postMeetingSummaryToMatrix(
     where: { id: meetingId },
     include: {
       project: { select: { id: true, name: true } },
+      // Draft actions stay out for the same reason as draft decisions, below.
       actions: {
-        where: { status: { not: "DELETED" } },
+        where: { status: { notIn: ["DELETED", "DRAFT"] } },
         select: {
           id: true,
           name: true,

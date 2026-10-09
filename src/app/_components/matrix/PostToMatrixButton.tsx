@@ -11,6 +11,23 @@ interface PostToMatrixButtonProps {
   meetingId: string;
   workspaceId: string | null;
   projectId?: string | null;
+  /** Unreviewed outputs, which the post leaves out. Omitted where drafts don't apply. */
+  draftCounts?: { actions: number; decisions: number };
+  /** Takes the user to where drafts are reviewed. */
+  onReviewDrafts?: () => void;
+}
+
+/** "2 actions and 1 decision or question" — only the kinds that have drafts. */
+function describeDrafts(counts: { actions: number; decisions: number }): string {
+  const parts = [
+    ...(counts.actions > 0
+      ? [`${counts.actions} action${counts.actions === 1 ? "" : "s"}`]
+      : []),
+    ...(counts.decisions > 0
+      ? [`${counts.decisions} decision${counts.decisions === 1 ? "" : "s"} or question${counts.decisions === 1 ? "" : "s"}`]
+      : []),
+  ];
+  return parts.join(" and ");
 }
 
 /**
@@ -24,6 +41,8 @@ export function PostToMatrixButton({
   meetingId,
   workspaceId,
   projectId = null,
+  draftCounts,
+  onReviewDrafts,
 }: PostToMatrixButtonProps) {
   const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false);
   // Mantine's Popover is controlled — without `opened` the target click does nothing.
@@ -235,6 +254,34 @@ export function PostToMatrixButton({
             {post.error && (
               <Alert color="red" variant="light">
                 {post.error.message}
+              </Alert>
+            )}
+
+            {draftCounts && draftCounts.actions + draftCounts.decisions > 0 && (
+              // Straight after "Extract outputs" everything is a draft, so without this a
+              // post goes out nearly empty and nothing says why.
+              <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={16} />}>
+                <Text size="sm">
+                  {describeDrafts(draftCounts)}{" "}
+                  {draftCounts.actions + draftCounts.decisions === 1
+                    ? "is still a draft"
+                    : "are still drafts"}{" "}
+                  and won&apos;t be posted.
+                </Text>
+                {onReviewDrafts && (
+                  <Button
+                    size="xs"
+                    mt="xs"
+                    variant="light"
+                    color="yellow"
+                    onClick={() => {
+                      closePopover();
+                      onReviewDrafts();
+                    }}
+                  >
+                    Review drafts first
+                  </Button>
+                )}
               </Alert>
             )}
 
