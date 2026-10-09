@@ -11,11 +11,13 @@ import {
   Paper,
   Skeleton,
   Stack,
+  Switch,
   Table,
   Text,
   Title,
 } from "@mantine/core";
 import { IconArrowLeft, IconSettings } from "@tabler/icons-react";
+import { notifications } from "@mantine/notifications";
 import type { CeremonyOccurrenceStatus } from "@prisma/client";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -70,13 +72,32 @@ function ProseBlock({ title, content }: { title: string; content: string | null 
 }
 
 export default function CeremonyPage() {
-  const { workspace, workspaceId, isLoading } = useWorkspace();
+  const { workspace, workspaceId, isLoading, userRole } = useWorkspace();
   const params = useParams<{ ceremonyId: string; workspaceSlug: string }>();
+  const utils = api.useUtils();
 
   const { data: ceremony, isLoading: ceremonyLoading, error } = api.ceremony.get.useQuery(
     { workspaceId: workspaceId ?? "", id: params.ceremonyId },
     { enabled: !!workspaceId },
   );
+
+  // The one definition setting edited in place here: the rest live in the
+  // editor under Settings → Ceremonies. `ceremony.update` gates at `edit`
+  // (member and up), the same bar as the editor.
+  const canEdit = userRole === "owner" || userRole === "admin" || userRole === "member";
+  const updateAutoExtract = api.ceremony.update.useMutation({
+    onSuccess: async (res) => {
+      await utils.ceremony.get.invalidate();
+      notifications.show({
+        title: res.ceremony.autoExtractOutputs ? "Outputs will be extracted automatically" : "Automatic extraction is off",
+        message: res.ceremony.autoExtractOutputs
+          ? "New recordings of this ceremony get their actions, decisions and open questions drafted within about half an hour."
+          : "Press Extract outputs on a meeting page to draft its outputs.",
+        color: "green",
+      });
+    },
+    onError: (e) => notifications.show({ title: "Couldn't save", message: e.message, color: "red" }),
+  });
 
   if (isLoading || !workspace || (ceremonyLoading && !ceremony)) {
     return (
@@ -223,6 +244,18 @@ export default function CeremonyPage() {
                 </div>
               )}
             </Group>
+            <Divider />
+            <Switch
+              label="Extract outputs automatically"
+              description="Every recording that attaches to one of this ceremony's occurrences gets its actions, decisions and open questions drafted, as if someone had pressed Extract outputs on the meeting page. Drafts still need a person to review them."
+              checked={ceremony.autoExtractOutputs}
+              disabled={!canEdit || updateAutoExtract.isPending}
+              onChange={(e) =>
+                workspaceId &&
+                updateAutoExtract.mutate({ workspaceId, id: ceremony.id, autoExtractOutputs: e.currentTarget.checked })
+              }
+              data-testid="ceremony-auto-extract-outputs"
+            />
             {[ceremony.purpose, ceremony.notFor, ceremony.inputs, ceremony.outputs].some(Boolean) && <Divider />}
             <ProseBlock title="Purpose" content={ceremony.purpose} />
             <ProseBlock title="Not for" content={ceremony.notFor} />

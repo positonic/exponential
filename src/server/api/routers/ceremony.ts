@@ -121,6 +121,8 @@ const ceremonyFieldsSchema = z.object({
   agendaTemplate: z.array(agendaSectionSchema).default([]),
   /** Append the linked-projects section to every generated agenda (see `autoSections`). */
   includeProjects: z.boolean().default(true),
+  /** Run "Extract outputs" on every recording that attaches to an occurrence (see `meetings/autoExtractOutputs`). */
+  autoExtractOutputs: z.boolean().default(false),
   matrixRoomId: z.string().nullish(),
 });
 
@@ -166,6 +168,7 @@ const ceremonySummarySelect = {
   productId: true,
   teamId: true,
   includeProjects: true,
+  autoExtractOutputs: true,
   projects: { select: { projectId: true } },
   owner: { select: { id: true, name: true, email: true, image: true } },
   _count: { select: { occurrences: true, participants: true } },
