@@ -33,7 +33,10 @@ async function requireOwnedAgent(
 ) {
   const agent = await db.externalAgent.findFirst({
     where: { id: agentId, ownerId },
-    include: { shadowUser: { select: { id: true, image: true } } },
+    include: {
+      shadowUser: { select: { id: true, image: true } },
+      assistant: { select: { id: true } },
+    },
   });
   if (!agent) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
@@ -70,6 +73,10 @@ export const externalAgentRouter = createTRPCRouter({
             },
           },
         },
+        // An Assistant's principal (ADR-0067) is managed from Settings →
+        // Assistant; the list labels it rather than hiding it, so the owner can
+        // still see its keys and memberships here.
+        assistant: { select: { id: true } },
       },
     });
 
@@ -79,6 +86,7 @@ export const externalAgentRouter = createTRPCRouter({
       description: agent.description,
       createdAt: agent.createdAt,
       shadowUserId: agent.shadowUserId,
+      assistantId: agent.assistant?.id ?? null,
       avatarUrl: agent.shadowUser.image,
       keys: agent.keys,
       workspaces: agent.shadowUser.workspaceMemberships.map((m) => ({
@@ -161,6 +169,15 @@ export const externalAgentRouter = createTRPCRouter({
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+
+      // An Assistant's principal lives and dies with the Assistant (ADR-0067):
+      // deleting it here would leave an Assistant that cannot be assigned.
+      if (agent.assistant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This agent is your Assistant — delete it from Settings → Assistant instead",
+        });
+      }
 
       // Credentials and memberships always die with the agent.
       await ctx.db.$transaction([
