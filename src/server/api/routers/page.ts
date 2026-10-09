@@ -36,6 +36,7 @@ import {
   canEditProject,
   getWorkspaceMembership,
   hasMinimumWorkspaceRole,
+  listKnowledgePageViewers,
 } from "~/server/services/access";
 
 /**
@@ -44,6 +45,9 @@ import {
  * server only stores it as JSON.
  */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+/** Most people `page.audience` returns; the rest are only counted. */
+const AUDIENCE_PEOPLE_LIMIT = 50;
 
 /** The publishing state the share popover renders (ADR-0038). */
 const PUBLIC_SETTINGS_SELECT = {
@@ -499,6 +503,68 @@ export const pageRouter = createTRPCRouter({
       }
       // The editor needs to know whether to render read-only.
       return { ...page, canEdit: canEditKnowledgePage(access) };
+    }),
+
+  /**
+   * Who can see this page right now — the Share popover's "General access"
+   * line. Resolved by `listKnowledgePageViewers`, the batch inverse of the
+   * page access resolver, so the roster matches who `get` would admit. Any
+   * viewer gets the counts; only workspace members get names and avatars, so
+   * a project-only collaborator can't enumerate the workspace roster through
+   * a page. A page in a public project returns no roster (everyone signed in
+   * can view).
+   */
+  audience: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const page = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.id },
+        select: {
+          createdById: true,
+          projectId: true,
+          workspaceId: true,
+          isPublic: true,
+          workspace: { select: { name: true } },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              isRestricted: true,
+              isPublic: true,
+            },
+          },
+        },
+      });
+      if (!page) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+      }
+      const userId = ctx.session.user.id;
+      await ensurePageAccess(ctx.db, userId, page, "view");
+
+      const [{ isPublicProject, viewers }, membership] = await Promise.all([
+        listKnowledgePageViewers(ctx.db, page),
+        getWorkspaceMembership(ctx.db, userId, page.workspaceId),
+      ]);
+      // Hydrate only what the avatar row shows; `total` carries the rest.
+      const people = membership
+        ? await ctx.db.user.findMany({
+            where: { id: { in: viewers.map((v) => v.userId) } },
+            select: { id: true, name: true, image: true },
+            orderBy: { name: "asc" },
+            take: AUDIENCE_PEOPLE_LIMIT,
+          })
+        : [];
+
+      return {
+        workspaceName: page.workspace.name,
+        project: page.project,
+        isPublishedToWeb: page.isPublic,
+        isPublicProject,
+        total: viewers.length,
+        people,
+        includesAdminEscapeHatch: viewers.some((v) => v.viaAdminEscapeHatch),
+      };
     }),
 
   /**

@@ -5,7 +5,7 @@
  * filtering is exercised by `buildProjectEditWhere`'s own coverage and the
  * router integration tests; here we assert the service's contract: it scopes by
  * the edit where-clause, requests workspace data for grouping, and shapes each
- * row as `{ id, name, workspaceId, workspaceName }` (workspace-less → null).
+ * row as `{ id, name, workspaceId, workspaceName, isRestricted }` (workspace-less → null).
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -31,8 +31,8 @@ describe("getAssignableProjects", () => {
   it("scopes the query to the caller's editable projects and groups by workspace", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (db.project.findMany as any).mockResolvedValue([
-      { id: "p1", name: "Alpha", workspaceId: "ws-1", workspace: { name: "Acme" } },
-      { id: "p2", name: "Beta", workspaceId: "ws-2", workspace: { name: "Beta Co" } },
+      { id: "p1", name: "Alpha", workspaceId: "ws-1", isRestricted: false, workspace: { name: "Acme" } },
+      { id: "p2", name: "Beta", workspaceId: "ws-2", isRestricted: true, workspace: { name: "Beta Co" } },
     ]);
 
     const result = await getAssignableProjects(db, USER);
@@ -45,21 +45,21 @@ describe("getAssignableProjects", () => {
       }),
     );
     expect(result).toEqual([
-      { id: "p1", name: "Alpha", workspaceId: "ws-1", workspaceName: "Acme" },
-      { id: "p2", name: "Beta", workspaceId: "ws-2", workspaceName: "Beta Co" },
+      { id: "p1", name: "Alpha", workspaceId: "ws-1", workspaceName: "Acme", isRestricted: false },
+      { id: "p2", name: "Beta", workspaceId: "ws-2", workspaceName: "Beta Co", isRestricted: true },
     ]);
   });
 
   it("maps a personal (workspace-less) project to null workspace fields", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (db.project.findMany as any).mockResolvedValue([
-      { id: "p3", name: "Personal thing", workspaceId: null, workspace: null },
+      { id: "p3", name: "Personal thing", workspaceId: null, isRestricted: false, workspace: null },
     ]);
 
     const result = await getAssignableProjects(db, USER);
 
     expect(result).toEqual([
-      { id: "p3", name: "Personal thing", workspaceId: null, workspaceName: null },
+      { id: "p3", name: "Personal thing", workspaceId: null, workspaceName: null, isRestricted: false },
     ]);
   });
 
