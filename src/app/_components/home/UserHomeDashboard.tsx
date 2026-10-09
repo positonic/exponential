@@ -23,6 +23,7 @@ import {
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useLocalDay } from "~/hooks/useDayRollover";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { stripHtml } from "~/lib/utils";
 import { calculateProjectHealth } from "./ProjectHealth";
@@ -83,8 +84,11 @@ export function UserHomeDashboard() {
     },
   });
 
+  const day = useLocalDay();
   const { data: todayActions } = api.action.getToday.useQuery({
     workspaceId: workspaceId ?? undefined,
+    basis: "scheduled-or-due",
+    day,
   });
 
   const schedulerStatus = api.pmScheduler.getStatus.useQuery(undefined, {

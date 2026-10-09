@@ -146,6 +146,11 @@ import { createMockCaller } from "~/test/trpc-helpers";
 import { createCaller } from "~/server/api/root";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { buildActionAccessWhere } from "~/server/services/access";
+import {
+  myActionsDueTodayWhere,
+  myActionsTodayWhere,
+  serverLocalDay,
+} from "~/server/services/actions/myActionsWhere";
 import { matchesWhere } from "~/test/prismaWhere";
 
 describe("action router (mocked)", () => {
@@ -2352,7 +2357,13 @@ describe("action router (mocked)", () => {
   // getSidebarCounts
   // ────────────────────────────────────────────────────────────────────
   describe("getSidebarCounts", () => {
-    it("counts inbox and due-today actions without loading any rows", async () => {
+    // A UTC+2 viewer's 2026-10-09.
+    const day = {
+      start: new Date("2026-10-08T22:00:00.000Z"),
+      end: new Date("2026-10-09T22:00:00.000Z"),
+    };
+
+    it("counts inbox and today's actions without loading any rows", async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       dbMock.action.count.mockImplementation((args: any) =>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2360,7 +2371,7 @@ describe("action router (mocked)", () => {
       );
 
       const caller = createMockCaller({ userId: "caller-1", db: dbMock });
-      const counts = await caller.action.getSidebarCounts();
+      const counts = await caller.action.getSidebarCounts({ day });
 
       expect(counts).toEqual({ inboxCount: 3, todayCount: 5 });
       expect(dbMock.action.findMany).not.toHaveBeenCalled();
@@ -2368,8 +2379,57 @@ describe("action router (mocked)", () => {
       expect(wheres).toContainEqual(
         expect.objectContaining({ projectId: null, dueDate: null, scheduledStart: null, status: "ACTIVE" }),
       );
-      expect(wheres).toContainEqual(
-        expect.objectContaining({ status: "ACTIVE", dueDate: expect.objectContaining({ gte: expect.any(Date) }) }),
+      // The Today badge is the /today bucket on the viewer's day, so a
+      // scheduled-only action (bulk "Reschedule all overdue → Today") counts.
+      expect(wheres).toContainEqual(myActionsTodayWhere("caller-1", day));
+    });
+
+    it("falls back to the server's day when the viewer's isn't given", async () => {
+      dbMock.action.count.mockResolvedValue(0);
+
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getSidebarCounts();
+
+      const wheres = dbMock.action.count.mock.calls.map((call) => call[0]?.where);
+      expect(wheres).toContainEqual(myActionsTodayWhere("caller-1", serverLocalDay(new Date())));
+    });
+
+    it("rejects a day that ends before it starts", async () => {
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await expect(
+        caller.action.getSidebarCounts({ day: { start: day.end, end: day.start } }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // getToday
+  // ────────────────────────────────────────────────────────────────────
+  describe("getToday", () => {
+    const day = {
+      start: new Date("2026-10-08T22:00:00.000Z"),
+      end: new Date("2026-10-09T22:00:00.000Z"),
+    };
+
+    beforeEach(() => {
+      dbMock.action.findMany.mockResolvedValue([]);
+    });
+
+    it("defaults to the published due-only slice on the server's day (SDK / CLI --due-only)", async () => {
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getToday({ workspaceId: "ws-1" });
+
+      expect(dbMock.action.findMany.mock.calls[0]?.[0]?.where).toEqual(
+        myActionsDueTodayWhere("caller-1", serverLocalDay(new Date()), "ws-1"),
+      );
+    });
+
+    it("lists the /today bucket on the viewer's day on the scheduled-or-due basis", async () => {
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getToday({ workspaceId: "ws-1", basis: "scheduled-or-due", day });
+
+      expect(dbMock.action.findMany.mock.calls[0]?.[0]?.where).toEqual(
+        myActionsTodayWhere("caller-1", day, "ws-1"),
       );
     });
   });

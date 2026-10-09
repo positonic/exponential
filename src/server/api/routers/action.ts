@@ -42,7 +42,9 @@ import { deriveActionBlocked, withBlockedState } from "~/lib/actions/blocked";
 import {
   myActionsDueTodayWhere,
   myActionsOwnershipWhere,
+  myActionsTodayWhere,
   myInboxActionsWhere,
+  serverLocalDay,
 } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
@@ -72,6 +74,11 @@ function resolveQuickCreateSource(
   if (requested === "ios-shortcut" || ctx.viaApiKey) return "ios";
   return sourceForPrincipal(ctx.tokenType);
 }
+
+/** The viewer's local day, `[start, end)` — both ends, for DST-change days. */
+const localDayInput = z
+  .object({ start: z.date(), end: z.date() })
+  .refine((d) => d.end > d.start, { message: "day.end must be after day.start" });
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
@@ -652,15 +659,29 @@ export const actionRouter = createTRPCRouter({
       return action;
     }),
 
- getToday: protectedProcedure
+  // Today's actions, on one of two bases:
+  // - "due" (the default): deadline today. Published as such — the SDK
+  //   documents getToday as the due-only slice and the CLI's
+  //   `actions today --due-only` is built on it — so the default keeps it.
+  // - "scheduled-or-due": the `/today` page's today bucket (ADR-0034),
+  //   scheduled today or unscheduled and due today. What the app's "today"
+  //   widgets show.
+  // `day` is the viewer's local day; without it the day is the server's.
+  getToday: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().optional(),
+        basis: z.enum(["due", "scheduled-or-due"]).default("due"),
+        day: localDayInput.optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const day = input?.day ?? serverLocalDay(new Date());
       return ctx.db.action.findMany({
-        where: myActionsDueTodayWhere(ctx.session.user.id, new Date(), input?.workspaceId),
+        where: input?.basis === "scheduled-or-due"
+          ? myActionsTodayWhere(userId, day, input.workspaceId)
+          : myActionsDueTodayWhere(userId, day, input?.workspaceId),
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
@@ -680,16 +701,20 @@ export const actionRouter = createTRPCRouter({
 
   // The inbox's unsorted-actions count and the sidebar's Today badge. Counts
   // only: the badges used to download every action (action.getAll, ~2 MB for
-  // a busy user) on every page just to count them. Same sets as filtering
-  // getAll() with `isInboxAction` and as getToday().length.
-  getSidebarCounts: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.session.user.id;
-    const [inboxCount, todayCount] = await Promise.all([
-      ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
-      ctx.db.action.count({ where: myActionsDueTodayWhere(userId, new Date()) }),
-    ]);
-    return { inboxCount, todayCount };
-  }),
+  // a busy user) on every page just to count them. Same sets as the `/today`
+  // partition of getAll(): its `inbox` bucket and its `todays` bucket.
+  // `day` is the viewer's local day; without it the day is the server's.
+  getSidebarCounts: protectedProcedure
+    .input(z.object({ day: localDayInput }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const day = input?.day ?? serverLocalDay(new Date());
+      const [inboxCount, todayCount] = await Promise.all([
+        ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
+        ctx.db.action.count({ where: myActionsTodayWhere(userId, day) }),
+      ]);
+      return { inboxCount, todayCount };
+    }),
 
   // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
   // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the

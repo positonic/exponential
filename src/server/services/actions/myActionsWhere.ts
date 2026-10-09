@@ -17,30 +17,88 @@ export function myActionsOwnershipWhere(userId: string): Prisma.ActionWhereInput
   };
 }
 
+/** A local calendar day as a half-open instant range: `[start, end)`. */
+export interface LocalDay {
+  start: Date;
+  end: Date;
+}
+
 /**
- * Active actions of mine due today, by the server's local day — the set
- * `action.getToday` returns.
+ * Active actions of mine with a deadline today — `action.getToday`'s default
+ * `"due"` basis. Deliberately due-only: the SDK documents `getToday` as that
+ * slice and the CLI's `actions today --due-only` is built on it. For what is
+ * on my plate today, use {@link myActionsTodayWhere}.
  */
 export function myActionsDueTodayWhere(
   userId: string,
-  now: Date,
+  day: LocalDay,
   workspaceId?: string,
 ): Prisma.ActionWhereInput {
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
   return {
     ...myActionsOwnershipWhere(userId),
     dueDate: {
-      gte: today,
-      lt: tomorrow,
+      gte: day.start,
+      lt: day.end,
     },
     status: "ACTIVE",
     // Filter by workspace via the action's project
     ...(workspaceId ? { project: { workspaceId } } : {}),
   };
+}
+
+/**
+ * Today's actions — the `/today` page's `todays` bucket as a WHERE clause.
+ * Mirrors `partitionActions()` exactly (ADR-0034): scheduled today, or
+ * unscheduled and due today (schedule wins, so a past-due action rescheduled
+ * for today counts, and one due today but scheduled for another day does not).
+ * What the sidebar's Today badge counts and `action.getToday` lists on its
+ * `"scheduled-or-due"` basis.
+ *
+ * `day` is the caller's local midnight to their next midnight, passed in so
+ * the day is the viewer's, not the server's — both ends, because a DST-change
+ * day is 23 or 25 hours long.
+ *
+ * `workspaceId` scopes like `action.getAll`: the action's own workspace or its
+ * project's, so project-less actions (calendar blocks, quick adds) still count.
+ */
+export function myActionsTodayWhere(
+  userId: string,
+  day: LocalDay,
+  workspaceId?: string,
+): Prisma.ActionWhereInput {
+  const today = { gte: day.start, lt: day.end };
+
+  return {
+    AND: [
+      myActionsOwnershipWhere(userId),
+      {
+        OR: [
+          { scheduledStart: today },
+          { scheduledStart: null, dueDate: today },
+        ],
+      },
+      ...(workspaceId
+        ? [
+            {
+              OR: [
+                { workspaceId },
+                { project: { workspaceId } },
+              ],
+            },
+          ]
+        : []),
+    ],
+    status: "ACTIVE",
+  };
+}
+
+/** The server's local today, for callers that don't send the viewer's. */
+export function serverLocalDay(now: Date): LocalDay {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
 }
 
 /**
