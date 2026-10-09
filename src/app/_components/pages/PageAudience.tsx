@@ -154,6 +154,11 @@ export function PageAudience({ pageId, workspaceId, canEdit }: PageAudienceProps
             ) : null}
           </Avatar.Group>
         </Tooltip.Group>
+      ) : audience.total > 0 && !audience.isPublicProject ? (
+        // `page.audience` withholds names from viewers outside the workspace.
+        <Text size="xs" className="text-text-muted">
+          Names are visible to workspace members only.
+        </Text>
       ) : null}
 
       {note ? (
