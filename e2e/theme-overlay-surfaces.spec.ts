@@ -21,13 +21,6 @@ const INSIGHTS = "/w/dev-fixture/products/fixture/insights";
 const FIRST_PAINT = 60_000;
 
 /**
- * The computed form of `transparent`. Fixed by CSS rather than by the theme,
- * so it is safe as a literal - the assertion it serves is "nothing painted
- * here", not "this particular token's value".
- */
-const TRANSPARENT = "rgba(0, 0, 0, 0)";
-
-/**
  * Resolves a --color-* design token to the computed form `toHaveCSS` compares
  * against, read from the live page so expectations follow the tokens instead
  * of duplicating their values here.
@@ -114,10 +107,21 @@ test("CommandPalette keeps its own darker content surface", async ({ page }) => 
     "background-color",
     await token(page, "--color-bg-modal"),
   );
-  await expect(page.locator(".mantine-Modal-body")).toHaveCSS(
-    "background-color",
-    TRANSPARENT,
-  );
+  // Asserted as "paints nothing" rather than as a specific colour: the claim
+  // is about absence, and stating it this way keeps a colour literal out of a
+  // repo whose standing rule is that colours come from tokens.
+  const bodyAlpha = await page
+    .locator(".mantine-Modal-body")
+    .evaluate((el) => {
+      const channels = /^rgba?\(([^)]*)\)$/
+        .exec(getComputedStyle(el).backgroundColor)?.[1]
+        ?.split(",")
+        .map((part) => part.trim());
+      if (!channels) return null;
+      const alpha = channels[3];
+      return alpha === undefined ? 1 : Number(alpha);
+    });
+  expect(bodyAlpha, "the modal body must not paint a background").toBe(0);
 });
 
 test("SegmentedControl keeps a themed indicator and an emphasised active label", async ({
