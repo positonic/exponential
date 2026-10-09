@@ -2,6 +2,15 @@ import { type PrismaClient, type ActionStatus } from "@prisma/client";
 import { isOpenBlocker } from "~/lib/actions/blocked";
 import { db } from "~/server/db";
 import { resolveGithubLogins } from "~/server/services/github/memberLogins";
+import {
+  computeDeliveryFlow,
+  flowWindowStart,
+  statusMovesFromEvents,
+  type DeliveryFlowResult,
+  type DeliveryFlowTicket,
+} from "~/server/services/deliveryFlow";
+import { ticketDisplayId, ticketUrlId } from "~/lib/fun-ids";
+import { effortToLabel, type EffortUnit } from "~/types/effort";
 
 export interface SprintMetricsResult {
   sprintId: string;
@@ -1393,6 +1402,82 @@ export class SprintAnalyticsService {
       completedPoints: m.completedPoints,
       completionRate: m.completionRate,
     }));
+  }
+
+  /**
+   * Metrics page (UI): weekly throughput and cycle-time percentiles over the
+   * trailing `weeks` weeks, for every ticket in the workspace — no cycle and no
+   * points needed. Finish and start times come from the activity event log;
+   * the derivation is shared with the product Overview (`deliveryFlow.ts`) so
+   * the two pages report the same median.
+   */
+  async getDeliveryFlow(
+    workspaceId: string,
+    opts?: { weeks?: number } & MetricsMemberFilter,
+  ): Promise<DeliveryFlowResult> {
+    const weeks = opts?.weeks ?? 12;
+    const now = new Date();
+    const memberIds = filterMemberIds(opts);
+
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { effortUnit: true },
+    });
+    const unit: EffortUnit = workspace?.effortUnit ?? "STORY_POINTS";
+
+    // A ticket finished inside the window was saved at or after its finish,
+    // so `updatedAt >= windowStart` is a safe superset of the tickets that
+    // count; computeDeliveryFlow drops the ones whose finish event is older.
+    const rows = await this.prisma.ticket.findMany({
+      where: {
+        product: { workspaceId },
+        status: { in: ["DONE", "DEPLOYED"] },
+        updatedAt: { gte: flowWindowStart(now, weeks) },
+        ...(memberIds ? { assigneeId: { in: memberIds } } : {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        completedAt: true,
+        updatedAt: true,
+        points: true,
+        number: true,
+        shortId: true,
+        title: true,
+        product: { select: { slug: true, name: true, funTicketIds: true } },
+      },
+    });
+    const tickets: DeliveryFlowTicket[] = rows.map((t) => ({
+      id: t.id,
+      status: t.status,
+      completedAt: t.completedAt,
+      updatedAt: t.updatedAt,
+      points: t.points,
+      ref: {
+        id: t.id,
+        urlId: ticketUrlId(t),
+        displayId: ticketDisplayId(t.product, t),
+        title: t.title,
+        productSlug: t.product.slug,
+      },
+    }));
+    const events =
+      tickets.length > 0
+        ? await this.prisma.workspaceActivityEvent.findMany({
+            where: {
+              workspaceId,
+              entityType: "ticket",
+              entityId: { in: tickets.map((t) => t.id) },
+              action: "status_changed",
+            },
+            orderBy: { createdAt: "asc" },
+            select: { entityId: true, metadata: true, createdAt: true },
+          })
+        : [];
+
+    return computeDeliveryFlow(tickets, statusMovesFromEvents(events), now, weeks, {
+      sizeLabel: (points) => effortToLabel(points, unit),
+    });
   }
 }
 

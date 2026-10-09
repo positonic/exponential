@@ -473,6 +473,86 @@ describe("ticket router — assignee containment guard (mocked)", () => {
     );
   });
 
+  describe("completedAt is \"first finished at\", not \"last saved at\"", () => {
+    function stubLoadedTicket(status: string, completedAt: Date | null) {
+      dbMock.ticket.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "ticket-1", productId, status, completedAt, product: { workspaceId } } as any,
+      );
+      dbMock.ticket.update.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "ticket-1", status } as any,
+      );
+    }
+    const updateData = () => dbMock.ticket.update.mock.calls[0]?.[0]?.data as Record<string, unknown>;
+
+    it("stamps completedAt on the move into DONE", async () => {
+      stubLoadedTicket("IN_PROGRESS", null);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.update({ id: "ticket-1", status: "DONE" });
+      expect(updateData().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("leaves completedAt alone when a DONE ticket is saved with status DONE again", async () => {
+      const finished = new Date("2026-07-01T10:00:00Z");
+      stubLoadedTicket("DONE", finished);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.update({ id: "ticket-1", status: "DONE", body: "edited" });
+      expect(updateData()).not.toHaveProperty("completedAt");
+    });
+
+    it("leaves completedAt alone on DONE -> DEPLOYED", async () => {
+      stubLoadedTicket("DONE", new Date("2026-07-01T10:00:00Z"));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.update({ id: "ticket-1", status: "DEPLOYED" });
+      expect(updateData()).not.toHaveProperty("completedAt");
+    });
+
+    it("stamps a completed ticket that has no date yet (legacy rows)", async () => {
+      stubLoadedTicket("DONE", null);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.update({ id: "ticket-1", status: "DONE" });
+      expect(updateData().completedAt).toBeInstanceOf(Date);
+    });
+
+    it("clears completedAt on reopen", async () => {
+      stubLoadedTicket("DONE", new Date("2026-07-01T10:00:00Z"));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.update({ id: "ticket-1", status: "IN_PROGRESS" });
+      expect(updateData().completedAt).toBeNull();
+    });
+
+    it("bulk DONE stamps only the tickets that were not already completed", async () => {
+      dbMock.ticket.findMany.mockResolvedValue([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "already-done", status: "DONE", cycleId: null, productId: "p1", product: { workspaceId } } as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "in-progress", status: "IN_PROGRESS", cycleId: null, productId: "p1", product: { workspaceId } } as any,
+      ]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.bulkUpdate({ ids: ["already-done", "in-progress"], status: "DONE" });
+
+      const writes = dbMock.ticket.updateMany.mock.calls.map((c) => c[0]);
+      expect(writes).toHaveLength(2);
+      const stamped = writes.find((w) => (w.data as Record<string, unknown>).completedAt instanceof Date);
+      const kept = writes.find((w) => !("completedAt" in (w.data as Record<string, unknown>)));
+      expect(stamped?.where).toEqual({ id: { in: ["in-progress"] } });
+      expect(kept?.where).toEqual({ id: { in: ["already-done"] } });
+    });
+
+    it("bulk reopen clears completedAt in a single write", async () => {
+      dbMock.ticket.findMany.mockResolvedValue([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "t1", status: "DONE", cycleId: null, productId: "p1", product: { workspaceId } } as any,
+      ]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.ticket.bulkUpdate({ ids: ["t1"], status: "BACKLOG" });
+      const writes = dbMock.ticket.updateMany.mock.calls.map((c) => c[0]);
+      expect(writes).toHaveLength(1);
+      expect((writes[0]!.data as Record<string, unknown>).completedAt).toBeNull();
+    });
+  });
+
   it("records a bulk cycle move only for tickets not already in that cycle", async () => {
     dbMock.ticket.findMany.mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

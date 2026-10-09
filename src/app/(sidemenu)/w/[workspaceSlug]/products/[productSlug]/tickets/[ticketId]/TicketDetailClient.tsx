@@ -15,7 +15,6 @@ import {
   Combobox,
   Group,
   Menu,
-  NumberInput,
   Select,
   Skeleton,
   Stack,
@@ -47,6 +46,8 @@ import {
 } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortFieldLabel, effortOptions } from "~/types/effort";
 import {
   PropertiesSidebar,
   PropertyRow,
@@ -225,6 +226,7 @@ export function TicketDetailClient() {
   const productSlug = params.productSlug as string;
   const workspaceSlug = params.workspaceSlug as string;
   const { workspace, workspaceId } = useWorkspace();
+  const effortUnit = useWorkspaceEffortUnit();
   const utils = api.useUtils();
   const queryClient = useQueryClient();
 
@@ -614,15 +616,18 @@ export function TicketDetailClient() {
         </PropertyRow>
 
         {/* Points */}
-        <PropertyRow icon={<IconFlame size={14} />} label="Effort">
-          <NumberInput
-            value={ticket.points ?? ""}
-            onChange={(val) => setField("points", val === "" ? null : Number(val))}
+        <PropertyRow icon={<IconFlame size={14} />} label={effortFieldLabel(effortUnit)}>
+          <Select
+            value={ticket.points != null ? String(ticket.points) : null}
+            onChange={(val) => setField("points", val ? Number(val) : null)}
+            data={effortOptions(effortUnit).map((o) => ({ value: String(o.value), label: o.label }))}
             size="xs"
             variant="unstyled"
+            clearable
             placeholder="None"
+            comboboxProps={{ withinPortal: true }}
             classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
-            styles={{ input: { height: 24, minHeight: 24, width: 80 } }}
+            styles={{ input: { height: 24, minHeight: 24 } }}
           />
         </PropertyRow>
 
