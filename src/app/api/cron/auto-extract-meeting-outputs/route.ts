@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { db } from "~/server/db";
@@ -12,6 +13,9 @@ import { runAutoExtractOutputsSweep } from "~/server/services/meetings/autoExtra
  *
  * Call via: GET /api/cron/auto-extract-meeting-outputs
  * Vercel cron (see vercel.json) or external scheduler, protected by CRON_SECRET.
+ * Fails closed: the sweep spends model budget and writes drafts as the
+ * meeting owners, so a missing secret refuses to run rather than opening
+ * the route to anyone.
  */
 
 // Each extraction is a chunked model reading; three of them need headroom.
@@ -23,7 +27,13 @@ export async function GET(_request: NextRequest) {
     const authHeader = headersList.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      console.error("[Cron] auto-extract-meeting-outputs: CRON_SECRET is not configured — refusing to run");
+      return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 503 });
+    }
+    const expected = Buffer.from(`Bearer ${cronSecret}`);
+    const provided = Buffer.from(authHeader ?? "");
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
