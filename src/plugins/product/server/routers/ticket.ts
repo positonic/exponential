@@ -30,6 +30,7 @@ import {
   dispatchTicketPush,
   PUSH_RELEVANT_TICKET_FIELDS,
 } from "~/server/services/ticketSync/pushRunner";
+import { suggestTicketSize, type SizeSuggestion } from "../sizeSuggestion";
 import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
@@ -534,6 +535,40 @@ export const ticketRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
       return ticket;
+    }),
+
+  /**
+   * AI-suggested size for a ticket being written (ticket inner.lotus). Never
+   * persists anything: the form stores the mapped points only when the person
+   * accepts. Returns null when the server has no OpenAI key, so the client can
+   * hide the affordance.
+   */
+  suggestSize: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        title: boundedText("Title", 300, { min: 1 }),
+        body: boundedText("Body", TEXT_LIMITS.LARGE),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<SizeSuggestion | null> => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.productId,
+        "edit",
+      );
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: product.workspaceId },
+        select: { effortUnit: true },
+      });
+      return suggestTicketSize(ctx.db, {
+        product: { id: product.id, workspaceId: product.workspaceId },
+        userId: ctx.session.user.id,
+        title: input.title,
+        body: input.body,
+        unit: workspace?.effortUnit ?? "STORY_POINTS",
+      });
     }),
 
   create: protectedProcedure

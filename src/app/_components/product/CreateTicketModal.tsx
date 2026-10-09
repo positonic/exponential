@@ -32,6 +32,7 @@ import DOMPurify from "dompurify";
 import { api } from "~/trpc/react";
 import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
 import { effortOptions, effortPillLabel } from "~/types/effort";
+import { SizeSuggestionChip } from "~/app/_components/product/SizeSuggestionChip";
 import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import "@mantine/tiptap/styles.css";
 
@@ -133,6 +134,8 @@ export function CreateTicketModal({
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [points, setPoints] = useState<string>("");
   const effortUnit = useWorkspaceEffortUnit();
+  // Points accepted from the AI suggestion, for provenance (links.sizeSource).
+  const [acceptedPoints, setAcceptedPoints] = useState<number | null>(null);
 
   // overflow
   const [epicId, setEpicId] = useState<string | null>(null);
@@ -174,6 +177,7 @@ export function CreateTicketModal({
     setAssigneeId(null);
     setCycleId(null);
     setPoints("");
+    setAcceptedPoints(null);
     setEpicId(null);
     setFeatureId(null);
     setBranchName("");
@@ -199,6 +203,10 @@ export function CreateTicketModal({
       status,
       priority: priority != null ? Number(priority) : undefined,
       points: points ? Number(points) : undefined,
+      links:
+        acceptedPoints != null && points === String(acceptedPoints)
+          ? { sizeSource: "ai" }
+          : undefined,
       assigneeId: assigneeId ?? undefined,
       featureId: featureId ?? undefined,
       epicId: epicId ?? undefined,
@@ -400,6 +408,18 @@ export function CreateTicketModal({
               </>
             )}
           </Pill>
+
+          <SizeSuggestionChip
+            productId={productId}
+            title={title}
+            body={editor?.getText() ?? ""}
+            effortUnit={effortUnit}
+            value={points ? Number(points) : null}
+            onAccept={(p) => {
+              setPoints(String(p));
+              setAcceptedPoints(p);
+            }}
+          />
 
           {/* Conditionally shown extras */}
           {showEpic && (

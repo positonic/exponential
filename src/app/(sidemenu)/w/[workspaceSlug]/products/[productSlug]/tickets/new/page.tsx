@@ -17,6 +17,7 @@ import {
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
 import { effortFieldLabel, effortOptions } from "~/types/effort";
+import { SizeSuggestionChip } from "~/app/_components/product/SizeSuggestionChip";
 import { api } from "~/trpc/react";
 import { ticketUrlId } from "~/lib/fun-ids";
 
@@ -90,6 +91,7 @@ export default function NewTicketPage() {
   const [status, setStatus] = useState<TicketStatus>("BACKLOG");
   const [points, setPoints] = useState<number | "">("");
   const effortUnit = useWorkspaceEffortUnit();
+  const [acceptedPoints, setAcceptedPoints] = useState<number | null>(null);
   const [featureId, setFeatureId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [branchName, setBranchName] = useState("");
@@ -123,6 +125,10 @@ export default function NewTicketPage() {
       type,
       status,
       points: typeof points === "number" ? points : undefined,
+      links:
+        acceptedPoints != null && points === acceptedPoints
+          ? { sizeSource: "ai" }
+          : undefined,
       featureId: featureId ?? undefined,
       cycleId: cycleId ?? undefined,
       branchName: branchName.trim() || undefined,
@@ -182,6 +188,17 @@ export default function NewTicketPage() {
                 clearable
               />
             </Group>
+            <SizeSuggestionChip
+              productId={product.id}
+              title={title}
+              body={body}
+              effortUnit={effortUnit}
+              value={typeof points === "number" ? points : null}
+              onAccept={(p) => {
+                setPoints(p);
+                setAcceptedPoints(p);
+              }}
+            />
             <Group grow>
               <Select
                 label="Feature"
