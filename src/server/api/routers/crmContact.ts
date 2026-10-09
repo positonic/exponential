@@ -1843,10 +1843,9 @@ export const crmContactRouter = createTRPCRouter({
   // (batchId: null), then streams the remaining chunks sequentially with the
   // returned batchId. Each chunk is processed synchronously inside its own
   // request — fire-and-forget background work does not survive serverless
-  // (Vercel freezes the function after the response), which is why this is
-  // not the poll-a-background-batch contract the Google import uses. The
-  // heavy lifting (and the deliberate automation suppression) lives in
-  // CsvContactImportService.
+  // (Vercel freezes the function after the response), the same reason the
+  // Google import above runs in client-driven steps. The heavy lifting (and
+  // the deliberate automation suppression) lives in CsvContactImportService.
   importFromCsv: protectedProcedure
     .input(
       z.object({
