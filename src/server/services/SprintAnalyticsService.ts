@@ -2,6 +2,12 @@ import { type PrismaClient, type ActionStatus } from "@prisma/client";
 import { isOpenBlocker } from "~/lib/actions/blocked";
 import { db } from "~/server/db";
 import { resolveGithubLogins } from "~/server/services/github/memberLogins";
+import {
+  computeDeliveryFlow,
+  flowWindowStart,
+  statusMovesFromEvents,
+  type DeliveryFlowResult,
+} from "~/server/services/deliveryFlow";
 
 export interface SprintMetricsResult {
   sprintId: string;
@@ -1393,6 +1399,50 @@ export class SprintAnalyticsService {
       completedPoints: m.completedPoints,
       completionRate: m.completionRate,
     }));
+  }
+
+  /**
+   * Metrics page (UI): weekly throughput and cycle-time percentiles over the
+   * trailing `weeks` weeks, for every ticket in the workspace — no cycle and no
+   * points needed. Finish and start times come from the activity event log;
+   * the derivation is shared with the product Overview (`deliveryFlow.ts`) so
+   * the two pages report the same median.
+   */
+  async getDeliveryFlow(
+    workspaceId: string,
+    opts?: { weeks?: number } & MetricsMemberFilter,
+  ): Promise<DeliveryFlowResult> {
+    const weeks = opts?.weeks ?? 12;
+    const now = new Date();
+    const memberIds = filterMemberIds(opts);
+
+    // A ticket finished inside the window was saved at or after its finish,
+    // so `updatedAt >= windowStart` is a safe superset of the tickets that
+    // count; computeDeliveryFlow drops the ones whose finish event is older.
+    const tickets = await this.prisma.ticket.findMany({
+      where: {
+        product: { workspaceId },
+        status: { in: ["DONE", "DEPLOYED"] },
+        updatedAt: { gte: flowWindowStart(now, weeks) },
+        ...(memberIds ? { assigneeId: { in: memberIds } } : {}),
+      },
+      select: { id: true, status: true, completedAt: true, updatedAt: true },
+    });
+    const events =
+      tickets.length > 0
+        ? await this.prisma.workspaceActivityEvent.findMany({
+            where: {
+              workspaceId,
+              entityType: "ticket",
+              entityId: { in: tickets.map((t) => t.id) },
+              action: "status_changed",
+            },
+            orderBy: { createdAt: "asc" },
+            select: { entityId: true, metadata: true, createdAt: true },
+          })
+        : [];
+
+    return computeDeliveryFlow(tickets, statusMovesFromEvents(events), now, weeks);
   }
 }
 
