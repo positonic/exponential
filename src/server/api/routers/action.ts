@@ -1768,10 +1768,26 @@ export const actionRouter = createTRPCRouter({
       //    action ids for public projects are published by the unauthenticated
       //    /api/bounties feed. Public visibility grants the project, never the
       //    workspace roster behind it.
-      if (action.project?.workspaceId && access.isProjectInsider) {
+      //
+      //    An action with a workspace but no project (a loose workspace
+      //    action) takes its roster from its own workspace instead — the same
+      //    set `canAssignToUnscopedAction` accepts — gated on the caller's own
+      //    membership there, since view access alone does not prove it.
+      let rosterWorkspaceId: string | null = null;
+      if (action.project?.workspaceId) {
+        if (access.isProjectInsider) rosterWorkspaceId = action.project.workspaceId;
+      } else if (action.workspaceId) {
+        const callerMembership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          action.workspaceId,
+        );
+        if (callerMembership) rosterWorkspaceId = action.workspaceId;
+      }
+      if (rosterWorkspaceId) {
         const workspaceUsers = await ctx.db.workspaceUser.findMany({
           where: {
-            workspaceId: action.project.workspaceId,
+            workspaceId: rosterWorkspaceId,
             ...(isRestrictedProject
               ? { role: { in: ["owner", "admin"] } }
               : {}),

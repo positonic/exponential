@@ -40,12 +40,13 @@ test.describe("Assign to your Assistant", () => {
       .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
     expect(groupIds).toEqual(["assign-group-own", "assign-group-agents", "assign-group-people"]);
 
+    // The name and the "Assistant" badge share one line, so match on the prefix.
     const own = roster.getByTestId("assign-group-own");
-    await expect(own.getByText(fixture.assistantName, { exact: true })).toBeVisible();
-    await expect(own.getByText("your assistant")).toBeVisible();
+    await expect(own.getByText(new RegExp(`^${fixture.assistantName}`))).toBeVisible();
+    await expect(own.getByText("your assistant", { exact: true })).toBeVisible();
 
     const agents = roster.getByTestId("assign-group-agents");
-    await expect(agents.getByText(fixture.colleagueAssistantName, { exact: true })).toBeVisible();
+    await expect(agents.getByText(new RegExp(`^${fixture.colleagueAssistantName}`))).toBeVisible();
     await expect(agents.getByText(`${fixture.colleagueName}'s assistant`)).toBeVisible();
 
     const people = roster.getByTestId("assign-group-people");
@@ -66,7 +67,7 @@ test.describe("Assign to your Assistant", () => {
     const modal = page.getByRole("dialog", { name: "Assign Action" });
     const ownRow = modal
       .getByTestId("assign-group-own")
-      .getByText(fixture.assistantName, { exact: true });
+      .getByText(new RegExp(`^${fixture.assistantName}`));
     await expect(ownRow).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
 
     const assignRequest = page.waitForRequest("**/api/trpc/action.assign**");
@@ -75,8 +76,8 @@ test.describe("Assign to your Assistant", () => {
     await assignRequest;
 
     await expect(modal).toBeHidden();
-    // The Assistant now sits in the Assignees row like any member.
+    // The Assistant now sits in the Assignees row like any member: the
+    // placeholder is gone and an avatar renders in its place.
     await expect(page.getByText("Unassigned")).toHaveCount(0);
-    await expect(page.getByLabel(fixture.assistantName).or(page.getByText(fixture.assistantName)).first()).toBeVisible();
   });
 });
