@@ -1,0 +1,334 @@
+name: PR-Agent auto-merge
+
+# Squash-merges a PR into main once PR-Agent has reviewed the PR's latest commit and left
+# nothing blocking on it, and every required check has passed. Modelled on the Greptile
+# auto-merge in the CLEAR repos, adapted to what PR-Agent actually publishes.
+#
+# ⚠️  DRY RUN (env.DRY_RUN below): it decides and posts its verdict as a PR comment, but
+# never merges. Leave it there until a week of verdicts shows the blocking rule is right.
+#
+# What PR-Agent gives us to read (both are issue comments it edits in place — there are no
+# inline threads, so nothing for a human to "resolve"):
+#   - the review ("PR Reviewer Guide"): findings carry no score, but a hidden
+#     `pr-agent-review-state:v1` JSON block lists each one as ACTIVE or RESOLVED, plus the
+#     commit the review covered. PR-Agent resolves a finding itself when a push fixes it.
+#     When it can't update that comment it posts a "Standalone PR Review" instead: same
+#     table, no state block, no commit sha — so it's dated against the review run, and every
+#     finding in it counts as open.
+#   - the code suggestions ("PR Code Suggestions"): each scored
+#     `Suggestion importance[1-10]: N`, under a `<!-- <short sha> -->` marker.
+#
+# What blocks:
+#   - an unresolved review finding, unless its header is tagged `[minor]`. .pr_agent.toml
+#     asks the reviewer to tag every finding `[blocker]` or `[minor]`; an untagged finding
+#     blocks, so a model that ignores the instruction fails safe.
+#   - a security concern in the review table.
+#   - a code suggestion scored SCORE_THRESHOLD or higher. (Past PRs never scored above 7 —
+#     this is a backstop, the findings are the main gate.)
+#   - a change to prisma/migrations or schema.prisma: migrations go through `develop` and
+#     are merged by a human, never auto-merged into main.
+#   - anything else that leaves the PR for a human: no review on the latest commit, a draft,
+#     a fork, a bot author, a PR into a branch other than main, the `no-automerge` label.
+#
+# Override: the `pr-agent-ack` label merges despite blocking findings or suggestions. It
+# covers only the commit it was applied to — a later push removes it, so a new commit
+# can't merge on an old acknowledgement. It never overrides the schema rule.
+#
+# The merge is pinned to the commit PR-Agent reviewed (`sha` on the merge call), and
+# GitHub's branch rules decide whether the required checks have passed. A later push can
+# never merge on an earlier review: GitHub refuses a pinned merge whose head has moved.
+# That's why this doesn't queue GitHub auto-merge — it retries whenever PR-Agent or Tests
+# finishes instead.
+#
+# Kill switch:                   gh workflow disable pr-agent-automerge.yml
+# Re-evaluate a PR by hand:      gh workflow run pr-agent-automerge.yml -f pr=<number>
+#
+# TO GO LIVE: set DRY_RUN to 'false', and first
+#   1. install a GitHub App with contents + pull-requests write on this repo (the CLEAR
+#      auto-merge app will do) and store its client id as the AUTOMERGE_APP_CLIENT_ID
+#      variable and its key as the AUTOMERGE_APP_PRIVATE_KEY secret of the
+#      `pr-agent-automerge` environment;
+#   2. restrict that environment to the main branch, so workflows on other branches can't
+#      read the key.
+#   3. accept that open PRs keep their last dry-run verdict: it was posted by github-actions
+#      and the App can't edit it, so the live gate posts its own comment beside it.
+# Merges must use the App's token, not GITHUB_TOKEN: a merge made with GITHUB_TOKEN doesn't
+# trigger other workflows, so exponential-promote.yml would never move Tickets to DONE.
+#
+# workflow_run and workflow_dispatch only work from the copy of this file on main, so
+# nothing runs until this is merged. pull_request_target uses the PR's base branch copy.
+# This workflow never checks out or runs PR code.
+
+on:
+  workflow_run:
+    workflows: [PR Agent, Tests]
+    types: [completed]
+  pull_request_target:
+    types: [synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to re-evaluate
+        required: true
+
+concurrency:
+  group: pr-agent-automerge-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch || inputs.pr }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: read
+
+env:
+  # Dry run: decide and post the PR comment, but never merge.
+  DRY_RUN: 'true'
+
+jobs:
+  evaluate:
+    # workflow_run is limited to pull_request runs: a PR-Agent run started by a `/review`
+    # comment reports main's commit as its head, not the PR's.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'pull_request_target' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.actor != 'dependabot[bot]' &&
+        (!contains(fromJSON('["labeled","unlabeled"]'), github.event.action) ||
+          contains(fromJSON('["no-automerge","pr-agent-ack"]'), github.event.label.name))) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: pr-agent-automerge
+      deployment: false
+    steps:
+      - id: app-token
+        if: env.DRY_RUN != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AUTOMERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BOT_LOGIN: ${{ steps.app-token.outputs.app-slug && format('{0}[bot]', steps.app-token.outputs.app-slug) || 'github-actions[bot]' }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token || github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const dryRun = process.env.DRY_RUN === 'true';
+            const botLogin = process.env.BOT_LOGIN;
+            const base = context.payload.repository.default_branch;
+            const MARKER = '<!-- pr-agent-automerge -->';
+            const OPT_OUT = 'no-automerge';
+            const ACK = 'pr-agent-ack';
+            // PR-Agent runs as a workflow in this repo, so it posts as github-actions.
+            const PR_AGENT = 'github-actions[bot]';
+            const CHECK_NAME = 'PR Agent review';
+            const SCORE_THRESHOLD = 8;
+            const SCHEMA = /^prisma\/(migrations\/|schema\.prisma$)/;
+            const RETRY_MS = 15000;
+            const MERGE_ATTEMPTS = 3;
+            const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+            let numbers;
+            if (context.eventName === 'workflow_run') {
+              const { head_sha: sha, head_branch: branch } = context.payload.workflow_run;
+              // Also match on branch: runs share a concurrency slot per branch, and a newer
+              // event for an older commit can replace a pending run for the current one.
+              const open = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 });
+              numbers = open
+                .filter(p => p.head.sha === sha || (branch && p.head.ref === branch && p.head.repo?.full_name === `${owner}/${repo}`))
+                .map(p => p.number);
+              if (!numbers.length) core.info(`No open PR has ${sha} as its latest commit; nothing to do.`);
+            } else if (context.eventName === 'pull_request_target') {
+              const pr = context.payload.pull_request;
+              numbers = [pr.number];
+              // An acknowledgement covers the commit it was given on, not whatever is pushed next.
+              if (context.payload.action === 'synchronize' && pr.labels.some(l => l.name === ACK)) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: ACK })
+                  .catch(e => { if (e.status !== 404) throw e; });
+                core.info(`#${pr.number}: new commit pushed; removed \`${ACK}\`.`);
+              }
+            } else {
+              const pr = Number(String(context.payload.inputs.pr).replace(/^#/, ''));
+              if (!Number.isInteger(pr) || pr <= 0) return core.setFailed(`"${context.payload.inputs.pr}" isn't a PR number.`);
+              numbers = [pr];
+            }
+            for (const number of numbers) await evaluate(number);
+
+            async function evaluate(number) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+              if (pr.state !== 'open') return core.info(`#${number} is ${pr.state}; nothing to do.`);
+              const sha = pr.head.sha;
+              const short = sha.slice(0, 7);
+              const skip = reason => report(number, `PR-Agent auto-merge skipped on \`${short}\`: ${reason}.`);
+
+              if (pr.base.ref !== base) return skip(`the PR targets \`${pr.base.ref}\`; auto-merge only applies to PRs into \`${base}\``);
+              if (pr.head.repo?.full_name !== `${owner}/${repo}`) return skip('the PR comes from a fork');
+              if (pr.user?.type === 'Bot') return skip(`the PR was opened by a bot (@${pr.user.login})`);
+              if (pr.draft) return skip('the PR is a draft');
+              if (pr.labels.some(l => l.name === OPT_OUT)) return skip(`the PR has the \`${OPT_OUT}\` label`);
+
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
+              const schema = files.filter(f => SCHEMA.test(f.filename) || SCHEMA.test(f.previous_filename ?? ''));
+              if (schema.length) {
+                return skip(`it changes the database schema (\`${schema[0].filename}\`${schema.length > 1 ? ` and ${schema.length - 1} more` : ''}); ` +
+                  'migrations go through `develop` and are merged by hand');
+              }
+
+              // The job fails when PR-Agent posted a failure notice instead of a review (see
+              // pr_agent.yml), so success means a review of this commit was actually produced.
+              const { data: { check_runs: runs } } = await github.rest.checks.listForRef({
+                owner, repo, ref: sha, check_name: CHECK_NAME, filter: 'latest',
+              });
+              const run = runs.find(r => r.app?.slug === 'github-actions');
+              if (!run) return skip(`PR-Agent hasn't reviewed \`${short}\``);
+              if (run.status !== 'completed') return skip(`PR-Agent's review of \`${short}\` is still running`);
+              if (run.conclusion !== 'success') return skip(`PR-Agent's review of \`${short}\` ended \`${run.conclusion}\``);
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: number, per_page: 100,
+              });
+              const latest = (...headings) => comments
+                .filter(c => c.user?.login === PR_AGENT && headings.some(h => c.body?.trimStart().startsWith(h)))
+                .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0];
+              // A comment PR-Agent wrote after this commit's review began belongs to that review.
+              const fresh = c => Date.parse(c.updated_at) >= Date.parse(run.started_at);
+
+              // When PR-Agent can't update its persistent review it posts a "Standalone PR
+              // Review" instead — a full review of the new commit that leaves the old one stale.
+              const reviewComment = latest('## PR Reviewer Guide', '## Standalone PR Review');
+              if (!reviewComment) return skip(`PR-Agent's review comment is missing`);
+              const review = readReview(reviewComment.body, reviewComment.html_url);
+              const reviewCurrent = review?.sha ? review.sha === sha && review.complete : review && fresh(reviewComment);
+              if (!reviewCurrent) return skip(`PR-Agent's review comment doesn't show a complete review of \`${short}\``);
+
+              const improveComment = latest('## PR Code Suggestions');
+              const improve = improveComment ? readImprove(improveComment.body) : null;
+              const improveCurrent = improve?.sha ? sha.startsWith(improve.sha) : improve && fresh(improveComment);
+              if (!improveCurrent) return skip(`PR-Agent's code suggestions don't cover \`${short}\``);
+
+              const blocking = [
+                ...review.findings.filter(f => f.tag !== 'minor')
+                  .map(f => `finding${f.tag ? '' : ' (untagged)'}: [${f.title}](${f.url})${f.where ? ` — \`${f.where}\`` : ''}`),
+                ...(review.security ? [`[security concern](${reviewComment.html_url}): ${review.security}`] : []),
+                ...improve.suggestions.filter(s => s.score >= SCORE_THRESHOLD)
+                  .map(s => `suggestion scored ${s.score}: [${s.title}](${improveComment.html_url})`),
+              ];
+              const scores = improve.suggestions.map(s => s.score);
+              const minor = review.findings.length - review.findings.filter(f => f.tag !== 'minor').length;
+              const tally = `${review.findings.length} unresolved finding(s) (${minor} tagged minor), ` +
+                `${scores.length} suggestion(s)${scores.length ? `, top score ${Math.max(...scores)}` : ''}`;
+              const acked = pr.labels.some(l => l.name === ACK);
+              if (blocking.length && !acked) {
+                return report(number, `PR-Agent auto-merge skipped on \`${short}\`: ${blocking.length} blocking item(s) from PR-Agent ` +
+                  `(${tally}). Fix them, or add the \`${ACK}\` label to merge this commit anyway.\n\n` +
+                  blocking.map(b => `- ${b}`).join('\n'));
+              }
+              const verdict = blocking.length
+                ? `PR-Agent: ${blocking.length} blocking item(s) on \`${short}\`, acknowledged with \`${ACK}\` (${tally})`
+                : `PR-Agent: nothing blocking on \`${short}\` (${tally})`;
+
+              if (dryRun) return report(number, `[dry run] ${verdict} — would merge once the required checks pass.`);
+              for (let attempt = 1; ; attempt++) {
+                // People can opt out (label, draft, close, retarget) while this runs, and the
+                // run that event starts queues behind this one. So re-read the PR right before
+                // every merge attempt.
+                const { data: now } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+                if (now.state !== 'open' || now.head.sha !== sha) {
+                  return core.info(`#${number} changed before merging (closed or new head); leaving it to its own run.`);
+                }
+                if (now.base.ref !== base) return skip(`the PR now targets \`${now.base.ref}\``);
+                if (now.draft) return skip('the PR is a draft');
+                if (now.labels.some(l => l.name === OPT_OUT)) return skip(`the PR has the \`${OPT_OUT}\` label`);
+                if (blocking.length && !now.labels.some(l => l.name === ACK)) return skip(`the \`${ACK}\` label was removed`);
+                try {
+                  // Pinned to the reviewed commit: GitHub refuses the merge if the head has moved
+                  // (409) or a required check hasn't passed (405).
+                  await github.rest.pulls.merge({ owner, repo, pull_number: number, sha, merge_method: 'squash' });
+                  return report(number, `${verdict} — required checks passed, merged.`);
+                } catch (e) {
+                  if (e.status === 409) return core.info(`#${number}: head moved past ${short} while merging; the newer commit gets its own run.`);
+                  if (e.status !== 405) {
+                    await report(number, `${verdict}, but the merge failed: ${e.message}`);
+                    throw e;
+                  }
+                  // A pending required check is retried by the next Tests workflow_run.
+                  if (/status check/i.test(e.message)) {
+                    return report(number, `${verdict} — will merge when the required checks pass. GitHub says: ${e.message}`);
+                  }
+                  // Any other 405 (the base moved under a concurrent merge, mergeability still
+                  // being computed) has no later event to retry it, so retry it here.
+                  if (attempt < MERGE_ATTEMPTS) {
+                    core.info(`#${number}: GitHub refused the merge (${e.message}); retrying in ${RETRY_MS / 1000}s.`);
+                    await sleep(RETRY_MS);
+                    continue;
+                  }
+                  return report(number, `${verdict}, but GitHub refused the merge ${MERGE_ATTEMPTS} times (${e.message}). ` +
+                    `If nothing else changes on the PR, re-run with \`gh workflow run pr-agent-automerge.yml -f pr=${number}\`.`);
+                }
+              }
+            }
+
+            // Returns { sha, complete, findings, security }, or null when the comment can't be
+            // read. sha is null when the comment names no commit (a standalone review); the
+            // caller then dates the comment against the review run instead.
+            function readReview(body, url) {
+              const securityRow = body.match(/🔒(?:&nbsp;|\s)*<strong>([^<]*)<\/strong>/)?.[1].trim();
+              const security = securityRow && !/^No security concerns/i.test(securityRow) ? securityRow : null;
+              const finding = (header, link, where) => {
+                const tag = header.match(/^\[(blocker|minor)\]/i)?.[1].toLowerCase() ?? null;
+                return { tag, title: header.replace(/^\[(blocker|minor)\]\s*/i, ''), url: link, where };
+              };
+              const block = body.match(/<!-- pr-agent-review-state:v1\s*([\s\S]*?)\s*-->/)?.[1];
+              if (block) {
+                let state;
+                try { state = JSON.parse(block); } catch { return null; }
+                // A state block always names its commit; without one, don't fall back to dating
+                // the comment, which would accept an incomplete review.
+                if (!state.last_run?.head_sha) return null;
+                // Anything not RESOLVED counts as open (ACTIVE today) — the safe direction if
+                // PR-Agent adds a state.
+                const findings = (state.findings ?? []).filter(f => f.state !== 'RESOLVED').map(f =>
+                  finding(f.body?.match(/^\s*\*\*([\s\S]+?)\*\*/)?.[1].trim() ?? 'Untitled finding', url, `${f.path}:${f.line_start}`));
+                return { sha: state.last_run?.head_sha ?? null, complete: state.last_run?.complete === true, findings, security };
+              }
+              // No state block: every finding listed is from this review (nothing to resolve).
+              if (!/<table>[\s\S]*⏱️/.test(body)) return null;
+              const findings = [...body.matchAll(/<details><summary><a href='([^']*)'><strong>([\s\S]*?)<\/strong><\/a>/g)]
+                .map(m => finding(m[2].trim(), m[1], null));
+              if (!findings.length && !/No major issues detected/i.test(body)) return null;
+              const sha = body.match(/Review updated until commit \S*\/commit\/([0-9a-f]{40})/)?.[1] ?? null;
+              return { sha, complete: true, findings, security };
+            }
+
+            // Returns { sha, suggestions } — sha is null on a "no suggestions" comment, which
+            // carries no commit marker — or null when the comment can't be read.
+            function readImprove(body) {
+              if (/No code suggestions found/i.test(body)) return { sha: null, suggestions: [] };
+              const sha = body.match(/<!--\s*([0-9a-f]{7,40})\s*-->/)?.[1];
+              if (!sha) return null;
+              // Earlier commits' suggestions are kept below this heading; only the latest count.
+              const current = body.split('#### Previous suggestions')[0];
+              const scores = [...current.matchAll(/Suggestion importance\[1-10\]:\s*(\d+)/g)].map(m => Number(m[1]));
+              // A suggestion's title summary is followed by `___`; its importance summary by `__`.
+              const titles = [...current.matchAll(/<details><summary>([\s\S]*?)<\/summary>\s*___\s/g)]
+                .map(m => m[1].replace(/<[^>]+>/g, '').trim());
+              return { sha, suggestions: scores.map((score, i) => ({ score, title: titles.length === scores.length ? titles[i] : `suggestion ${i + 1}` })) };
+            }
+
+            async function report(number, text) {
+              core.info(`#${number}: ${text}`);
+              await core.summary.addRaw(`#${number}: ${text}\n`).write();
+              const body = `${MARKER}\n${text}`;
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: number, per_page: 100,
+              });
+              const mine = comments.find(c => c.user?.login === botLogin && c.body?.includes(MARKER));
+              if (mine?.body === body) return;
+              if (mine) await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+              else await github.rest.issues.createComment({ owner, repo, issue_number: number, body });
+            }
