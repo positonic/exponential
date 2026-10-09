@@ -509,9 +509,10 @@ export const pageRouter = createTRPCRouter({
    * Who can see this page right now — the Share popover's "General access"
    * line. Resolved by `listKnowledgePageViewers`, the batch inverse of the
    * page access resolver, so the roster matches who `get` would admit. Any
-   * viewer may read it: they reached the page through workspace or project
-   * membership, so the roster is people they can already see. A page in a
-   * public project returns no roster (everyone signed in can view).
+   * viewer gets the counts; only workspace members get names and avatars, so
+   * a project-only collaborator can't enumerate the workspace roster through
+   * a page. A page in a public project returns no roster (everyone signed in
+   * can view).
    */
   audience: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -522,6 +523,7 @@ export const pageRouter = createTRPCRouter({
           createdById: true,
           projectId: true,
           workspaceId: true,
+          isPublic: true,
           workspace: { select: { name: true } },
           project: {
             select: {
@@ -537,32 +539,31 @@ export const pageRouter = createTRPCRouter({
       if (!page) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
       }
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      const userId = ctx.session.user.id;
+      await ensurePageAccess(ctx.db, userId, page, "view");
 
-      const { isPublicProject, viewers } = await listKnowledgePageViewers(
-        ctx.db,
-        page,
-      );
-      const users = await ctx.db.user.findMany({
-        where: { id: { in: viewers.map((v) => v.userId) } },
-        select: { id: true, name: true, image: true },
-      });
-      const usersById = new Map(users.map((u) => [u.id, u]));
-      const people = viewers
-        .flatMap((v) => {
-          const user = usersById.get(v.userId);
-          return user ? [{ ...user, viaAdminEscapeHatch: v.viaAdminEscapeHatch }] : [];
-        })
-        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+      const [{ isPublicProject, viewers }, membership] = await Promise.all([
+        listKnowledgePageViewers(ctx.db, page),
+        getWorkspaceMembership(ctx.db, userId, page.workspaceId),
+      ]);
+      // Hydrate only what the avatar row shows; `total` carries the rest.
+      const people = membership
+        ? await ctx.db.user.findMany({
+            where: { id: { in: viewers.map((v) => v.userId) } },
+            select: { id: true, name: true, image: true },
+            orderBy: { name: "asc" },
+            take: AUDIENCE_PEOPLE_LIMIT,
+          })
+        : [];
 
       return {
         workspaceName: page.workspace.name,
         project: page.project,
+        isPublishedToWeb: page.isPublic,
         isPublicProject,
-        total: people.length,
-        // Enough for an avatar row plus a hover list; `total` carries the rest.
-        people: people.slice(0, AUDIENCE_PEOPLE_LIMIT),
-        includesAdminEscapeHatch: people.some((p) => p.viaAdminEscapeHatch),
+        total: viewers.length,
+        people,
+        includesAdminEscapeHatch: viewers.some((v) => v.viaAdminEscapeHatch),
       };
     }),
 
