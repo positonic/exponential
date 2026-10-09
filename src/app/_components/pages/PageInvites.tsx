@@ -102,7 +102,8 @@ export function PageInvites({ pageId, workspaceId }: PageInvitesProps) {
     [sharing],
   );
   const memberOptions = useMemo(() => {
-    const seen = new Set<string>();
+    // The owner always has access; members already invited are listed below.
+    const seen = new Set<string>(sharing ? [sharing.ownerId] : []);
     return members
       .filter((m) => {
         if (seen.has(m.id) || invitedIds.has(m.id)) return false;
@@ -110,7 +111,7 @@ export function PageInvites({ pageId, workspaceId }: PageInvitesProps) {
         return true;
       })
       .map((m) => ({ value: m.id, label: m.name ?? m.email ?? "Unnamed user" }));
-  }, [members, invitedIds]);
+  }, [members, invitedIds, sharing]);
 
   if (!sharing || !canManage) return null;
 
@@ -142,22 +143,25 @@ export function PageInvites({ pageId, workspaceId }: PageInvitesProps) {
 
       {isInviteOnly ? (
         <>
-          <Group gap="xs" wrap="nowrap" align="flex-end">
+          {/* One row, so the people dropdown (which opens below the input)
+              never covers the Invite button. */}
+          <Group gap={6} wrap="nowrap" align="flex-start">
             <MultiSelect
               className="min-w-0 flex-1"
               size="xs"
-              placeholder={picked.length ? undefined : "Add people from the workspace"}
+              placeholder={picked.length ? undefined : "Add people"}
               aria-label="People to invite"
               data={memberOptions}
               value={picked}
               onChange={setPicked}
               searchable
+              hidePickedOptions
               nothingFoundMessage="No other workspace members"
               comboboxProps={{ withinPortal: false }}
             />
             <Select
               size="xs"
-              w={100}
+              w={92}
               aria-label="Role for new invitees"
               data={ROLE_OPTIONS}
               value={role}
@@ -165,16 +169,15 @@ export function PageInvites({ pageId, workspaceId }: PageInvitesProps) {
               allowDeselect={false}
               comboboxProps={{ withinPortal: false }}
             />
-          </Group>
-          {picked.length > 0 ? (
             <Button
               size="xs"
+              disabled={picked.length === 0}
               loading={invite.isPending}
               onClick={() => invite.mutate({ id: pageId, userIds: picked, role })}
             >
-              Invite {picked.length === 1 ? "1 person" : `${picked.length} people`}
+              Invite
             </Button>
-          ) : null}
+          </Group>
 
           {sharing.invitees.length > 0 ? (
             <Stack gap={4}>

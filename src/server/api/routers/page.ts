@@ -1280,6 +1280,7 @@ export const pageRouter = createTRPCRouter({
 
       return {
         isInviteOnly: page.isInviteOnly,
+        ownerId: page.createdById,
         canManage,
         inviteOnlyBlockedReason: blocker,
         subpagesToApply: linked.filter((p) => p.createdById === userId).length,
