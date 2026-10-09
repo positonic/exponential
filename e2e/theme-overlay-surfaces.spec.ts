@@ -38,14 +38,39 @@ async function resolveColor(page: Page, value: string): Promise<string> {
 }
 
 async function token(page: Page, name: string): Promise<string> {
-  // An undefined token would make the probe inherit body's colour and turn the
-  // assertion into a comparison against the wrong thing, so fail loudly.
-  const defined = await page.evaluate(
-    (prop) => getComputedStyle(document.body).getPropertyValue(prop).trim() !== "",
-    name,
-  );
-  expect(defined, `${name} is not defined on this page`).toBe(true);
-  return resolveColor(page, `var(${name})`);
+  // Read, validate and resolve in one evaluation. A token that is undefined -
+  // or defined as something that isn't a colour - leaves the probe's `color`
+  // declaration invalid, so the probe silently inherits body's colour and the
+  // assertion compares against the wrong thing. Checking definedness alone
+  // doesn't catch the second case, and splitting read from resolve lets the
+  // page restyle between the two. Both are closed here.
+  //
+  // Resolving against `document.body` is sound because every --color-* token
+  // is defined on `:root` / `[data-mantine-color-scheme]`, which body
+  // inherits. The two narrower scopes that redefine them, `.auth-surface` and
+  // `.dec-surface`, wrap pages this spec never visits - a test added inside
+  // either must resolve against the element under assertion instead.
+  const { raw, computed } = await page.evaluate((prop) => {
+    const value = getComputedStyle(document.body).getPropertyValue(prop).trim();
+    if (value === "" || !CSS.supports("color", value)) {
+      return { raw: value, computed: null };
+    }
+    const probe = document.createElement("div");
+    probe.style.color = value;
+    document.body.appendChild(probe);
+    const resolved = getComputedStyle(probe).color;
+    probe.remove();
+    return { raw: value, computed: resolved };
+  }, name);
+
+  if (computed === null) {
+    throw new Error(
+      raw === ""
+        ? `${name} is not defined on this page`
+        : `${name} is "${raw}", which is not a colour`,
+    );
+  }
+  return computed;
 }
 
 test("a Modal that overrides one style key keeps the themed surface", async ({
