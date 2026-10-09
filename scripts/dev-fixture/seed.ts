@@ -14,7 +14,9 @@
  *     featureId, same as feature._count.tickets), so the fixture makes that
  *     design decision observable: 6 tickets exist, the accordion shows 5.
  */
+import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
+import { encryptString } from "../../src/server/utils/encryption";
 
 export const FIXTURE = {
   userEmail: "dev-fixture@exponential.test",
@@ -56,6 +58,16 @@ export const FIXTURE = {
   },
   /** An OPEN decision (open question) the `resolve` draft answers. */
   openQuestionStatement: "Should the peek drawer ship before the hover affordances?",
+  /**
+   * Scheduling a meeting from a project (ADR-0059 amendment, V4): a second
+   * workspace member who is the fixture project's DRI (preselected as an
+   * attendee) and a CRM contact to invite as an external.
+   */
+  colleagueEmail: "fixture-colleague@exponential.test",
+  colleagueName: "Fixture Colleague",
+  contactEmail: "pat.partner@partner.example",
+  contactFirstName: "Pat",
+  contactLastName: "Partner",
   /** A workspace tag, so the create-action modals' tag picker has something to pick. */
   tagName: "Fixture label",
   tagSlug: "fixture-label",
@@ -107,6 +119,18 @@ export interface SeededFixture {
   draftDecisionStatements: { confirm: string; reject: string; resolve: string };
   /** The open question the `resolve` draft answers (re-asserted OPEN on every seed). */
   openQuestionStatement: string;
+  /** App-relative URL of the fixture project's Meetings tab. */
+  projectMeetingsUrl: string;
+  /** The project's DRI, a second workspace member — preselected when scheduling. */
+  colleagueName: string;
+  /** A CRM contact in the workspace, invitable as an external attendee. */
+  contactName: string;
+  /**
+   * False when DATABASE_ENCRYPTION_KEY was missing at seed time: the contact
+   * has no email and booking with an external can't store one, so the
+   * schedule-meeting spec skips.
+   */
+  canScheduleWithContact: boolean;
 }
 
 interface TicketSpec {
@@ -325,17 +349,77 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // re-attaches `workspaceId`, so a seed → delete-workspace → seed cycle
   // converges instead of resurrecting a workspace-less fixture the OKR
   // dashboard (which queries by workspaceId) can't see.
+  // A second member and DRI of the fixture project, so scheduling from the
+  // project has someone to preselect; and a CRM contact to invite.
+  const colleague = await db.user.upsert({
+    where: { email: FIXTURE.colleagueEmail },
+    update: {},
+    create: { email: FIXTURE.colleagueEmail, name: FIXTURE.colleagueName, emailVerified: new Date() },
+  });
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: colleague.id, workspaceId: workspace.id } },
+    update: { role: "member" },
+    create: { userId: colleague.id, workspaceId: workspace.id, role: "member" },
+  });
+  // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
+  // in development; without it the contact is seeded email-less (the app
+  // couldn't store one either) and the scheduling spec skips itself, rather
+  // than failing the seed every other spec depends on.
+  const canEncrypt = !!process.env.DATABASE_ENCRYPTION_KEY;
+  if (canEncrypt) {
+    const contactEmailHash = createHash("sha256").update(FIXTURE.contactEmail).digest("hex");
+    await db.crmContact.upsert({
+      where: { workspaceId_emailHash: { workspaceId: workspace.id, emailHash: contactEmailHash } },
+      update: { firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
+      create: {
+        workspaceId: workspace.id,
+        createdById: user.id,
+        firstName: FIXTURE.contactFirstName,
+        lastName: FIXTURE.contactLastName,
+        email: encryptString(FIXTURE.contactEmail),
+        emailHash: contactEmailHash,
+        importSource: "MANUAL",
+      },
+    });
+  } else {
+    console.warn("[dev-fixture] DATABASE_ENCRYPTION_KEY not set: seeding the CRM contact without an email; the schedule-meeting spec will skip.");
+    const existing = await db.crmContact.findFirst({
+      where: { workspaceId: workspace.id, firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
+      select: { id: true },
+    });
+    if (!existing) {
+      await db.crmContact.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          firstName: FIXTURE.contactFirstName,
+          lastName: FIXTURE.contactLastName,
+          importSource: "MANUAL",
+        },
+      });
+    }
+  }
+
   const project = await db.project.upsert({
     where: { slug: FIXTURE.projectSlug },
-    update: { workspaceId: workspace.id },
+    update: { workspaceId: workspace.id, driId: colleague.id },
     create: {
       name: FIXTURE.projectName,
       slug: FIXTURE.projectSlug,
       status: "ACTIVE",
       createdById: user.id,
       workspaceId: workspace.id,
+      driId: colleague.id,
     },
   });
+
+  // Meetings booked from the project by earlier runs of the schedule-meeting
+  // spec: drop them so each run starts from an empty timeline. A one-off's
+  // ceremony cascades to its occurrence; its booking goes separately.
+  await db.ceremony.deleteMany({
+    where: { workspaceId: workspace.id, isOneOff: true, projects: { some: { projectId: project.id } } },
+  });
+  await db.meeting.deleteMany({ where: { workspaceId: workspace.id, projectId: project.id } });
 
   // A second project carrying a goal hierarchy, so the Goals tab's nesting
   // affordance is observable: a parent with a sub-goal under it, plus a
@@ -806,6 +890,10 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
     draftDecisionStatements: FIXTURE.draftDecisionStatements,
     openQuestionStatement: FIXTURE.openQuestionStatement,
+    projectMeetingsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=transcriptions`,
+    colleagueName: FIXTURE.colleagueName,
+    contactName: `${FIXTURE.contactFirstName} ${FIXTURE.contactLastName}`,
+    canScheduleWithContact: canEncrypt,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
     goalIds: {
       parent: parentGoal.id,

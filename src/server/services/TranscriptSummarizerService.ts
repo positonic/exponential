@@ -96,6 +96,18 @@ export class SummarizationNotConfiguredError extends Error {
   }
 }
 
+/**
+ * The LLM call hit its hard deadline. Kept distinct so the summarizer doesn't
+ * fall back to a second provider after a timeout: the tRPC function budget
+ * (60s) equals the default deadline, so a second attempt could never finish.
+ */
+export class SummarizationTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Summarization timed out after ${timeoutMs}ms.`);
+    this.name = "SummarizationTimeoutError";
+  }
+}
+
 /** Default Claude model for meeting summaries; override via `SUMMARY_MODEL`. */
 const DEFAULT_SUMMARY_MODEL = "claude-sonnet-4-6";
 
@@ -106,6 +118,13 @@ const SUMMARY_MAX_TOKENS = 8192;
 const DEFAULT_SUMMARIZE_TIMEOUT_MS = Number(
   process.env.SUMMARIZE_TIMEOUT_MS ?? 60_000,
 );
+
+/**
+ * Least time worth handing the OpenAI fallback. Claude and OpenAI share one
+ * deadline (the caller's `timeoutMs`), so when a slow Claude failure leaves
+ * less than this, rethrow rather than start an attempt that can't finish.
+ */
+const MIN_FALLBACK_MS = 10_000;
 
 interface SummarizeOptions {
   modelName?: string;
@@ -204,6 +223,17 @@ function extractJsonObject(output: string): unknown {
   return JSON.parse(output.slice(start, end + 1));
 }
 
+/** Parse raw model output into the summary schema, or throw a uniform error. */
+function parseFirefliesSummaryOutput(
+  raw: string,
+): z.infer<typeof firefliesSummaryJsonSchema> {
+  try {
+    return firefliesSummaryJsonSchema.parse(extractJsonObject(raw));
+  } catch {
+    throw new Error("The model returned an invalid summary.");
+  }
+}
+
 export class TranscriptSummarizerService {
   /**
    * Single LLM round-trip with a hard timeout/abort, shared by the markdown and
@@ -240,7 +270,7 @@ export class TranscriptSummarizerService {
       );
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(`Summarization timed out after ${timeoutMs}ms.`);
+        throw new SummarizationTimeoutError(timeoutMs);
       }
       throw error;
     } finally {
@@ -300,7 +330,7 @@ export class TranscriptSummarizerService {
         .join("");
     } catch (error) {
       if (controller.signal.aborted) {
-        throw new Error(`Summarization timed out after ${timeoutMs}ms.`);
+        throw new SummarizationTimeoutError(timeoutMs);
       }
       throw error;
     } finally {
@@ -355,20 +385,52 @@ export class TranscriptSummarizerService {
     const userPrompt = buildSummaryUserPrompt(text);
 
     // Prefer Claude (richer themed write-ups); fall back to OpenAI when only
-    // OPENAI_API_KEY is configured. `invokeAnthropic` / `invokeChat` each throw
-    // SummarizationNotConfiguredError when their key is missing, so "neither
-    // key" surfaces as not-configured to the caller. The OpenAI fallback keeps
-    // its original deterministic temperature (0) — the richer output comes from
-    // the prompt, not temperature, and JSON stays reliable.
-    const raw = process.env.ANTHROPIC_API_KEY
-      ? await this.invokeAnthropic(system, userPrompt, options)
-      : await this.invokeChat(system, userPrompt, { temperature: 0, ...options });
+    // OPENAI_API_KEY is configured, or when the Claude attempt fails for any
+    // reason other than a timeout (billing, rate limit, overload, unparseable
+    // output) — a provider outage shouldn't leave meetings unsummarized.
+    // `invokeAnthropic` / `invokeChat` each throw SummarizationNotConfiguredError
+    // when their key is missing, so "neither key" surfaces as not-configured to
+    // the caller. The OpenAI fallback keeps its original deterministic
+    // temperature (0) — the richer output comes from the prompt, not
+    // temperature, and JSON stays reliable.
+    //
+    // Both attempts share ONE deadline: the fallback gets only the time Claude
+    // left over, so the pair never outlives the caller's budget (the tRPC
+    // route's 60s maxDuration).
+    const deadline =
+      Date.now() + (options.timeoutMs ?? DEFAULT_SUMMARIZE_TIMEOUT_MS);
+    const viaOpenAI = async (timeoutMs?: number) =>
+      parseFirefliesSummaryOutput(
+        await this.invokeChat(system, userPrompt, {
+          temperature: 0,
+          ...options,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        }),
+      );
 
     let parsed: z.infer<typeof firefliesSummaryJsonSchema>;
-    try {
-      parsed = firefliesSummaryJsonSchema.parse(extractJsonObject(raw));
-    } catch {
-      throw new Error("The model returned an invalid summary.");
+    if (process.env.ANTHROPIC_API_KEY) {
+      try {
+        parsed = parseFirefliesSummaryOutput(
+          await this.invokeAnthropic(system, userPrompt, options),
+        );
+      } catch (error) {
+        const remainingMs = deadline - Date.now();
+        if (
+          error instanceof SummarizationTimeoutError ||
+          !process.env.OPENAI_API_KEY ||
+          remainingMs < MIN_FALLBACK_MS
+        ) {
+          throw error;
+        }
+        console.warn(
+          "[TranscriptSummarizerService] Claude summary failed, falling back to OpenAI:",
+          error instanceof Error ? error.message : String(error),
+        );
+        parsed = await viaOpenAI(remainingMs);
+      }
+    } else {
+      parsed = await viaOpenAI();
     }
 
     const overview = parsed.overview.trim();

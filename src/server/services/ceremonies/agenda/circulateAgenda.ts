@@ -12,7 +12,6 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { formatOccurrenceLabel } from "../activity";
 import { generateAgenda } from "./generateAgenda";
-import { readAgendaSnapshot } from "./types";
 import { postAgendaToMatrix } from "./postAgendaToMatrix";
 
 export async function circulateAgenda(
@@ -119,6 +118,22 @@ const SWEEP_BATCH = 40;
  * `circulateAgenda` no-ops once `agendaCirculatedAt` is set, so re-driving
  * a half-finished occurrence is safe.
  */
+/**
+ * Whether the sweep should (re)generate before circulating: there is no
+ * snapshot, or the snapshot predates the lead-time window — a one-off's
+ * agenda is drafted at booking, possibly days earlier, and is circulated
+ * fresh. An occurrence generated inside the window (one that generated last
+ * run and died before circulating) just needs the second half. Hand-added
+ * items survive regeneration through `buildAgenda`'s merge.
+ */
+export function needsGeneration(
+  occ: { scheduledStart: Date; agendaGeneratedAt: Date | null },
+  leadTimeHours: number,
+): boolean {
+  if (!occ.agendaGeneratedAt) return true;
+  return occ.agendaGeneratedAt.getTime() < occ.scheduledStart.getTime() - leadTimeHours * 60 * 60_000;
+}
+
 export async function sweepDueAgendas(db: PrismaClient, now = new Date()): Promise<AgendaSweepResult> {
   const startedAt = Date.now();
   const rows = await db.ceremonyOccurrence.findMany({
@@ -131,7 +146,7 @@ export async function sweepDueAgendas(db: PrismaClient, now = new Date()): Promi
       },
       ceremony: { isActive: true },
     },
-    select: { id: true, scheduledStart: true, agenda: true, ceremony: { select: { leadTimeHours: true } } },
+    select: { id: true, scheduledStart: true, agendaGeneratedAt: true, ceremony: { select: { leadTimeHours: true } } },
     orderBy: { scheduledStart: "asc" },
     take: 200,
   });
@@ -147,10 +162,7 @@ export async function sweepDueAgendas(db: PrismaClient, now = new Date()): Promi
     }
     processed += 1;
     try {
-      // Only generate when there is nothing to circulate yet — an occurrence
-      // that generated last run and died before circulating just needs the
-      // second half.
-      if (!readAgendaSnapshot(occ.agenda)) {
+      if (needsGeneration(occ, occ.ceremony.leadTimeHours)) {
         await generateAgenda(db, occ.id, { now });
         result.generated += 1;
       }

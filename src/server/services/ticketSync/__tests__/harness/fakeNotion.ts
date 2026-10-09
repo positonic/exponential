@@ -50,10 +50,12 @@ export interface FakePage {
   extra: Record<string, unknown>;
   /** Body blocks passed to createPage, kept for assertions. */
   children: unknown[];
+  /** Absolute URLs on the page (link properties, linked text, body links). */
+  links?: string[];
 }
 
 export interface NotionWrite {
-  method: "updatePage" | "createPage" | "archivePage";
+  method: "updatePage" | "createPage";
   externalId: string | null;
   properties?: Record<string, unknown>;
 }
@@ -243,6 +245,10 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     return Promise.resolve(page ? `Body of ${page.title}` : null);
   }
 
+  getPageLinks(externalId: string): Promise<string[]> {
+    return Promise.resolve(this.pages.get(externalId)?.links ?? []);
+  }
+
   // ── TicketPushAdapter (outbound / push) ───────────────────────────────────
 
   getRow(externalId: string): Promise<RemoteTicketRow | null> {
@@ -329,15 +335,6 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     page.lastEditedAt = this.clock.advance();
     page.lastEditedBy = "bot";
     return Promise.resolve({ externalId: page.externalId, url: page.url });
-  }
-
-  archivePage(externalId: string): Promise<void> {
-    const page = this.mustGet(externalId);
-    this.writes.push({ method: "archivePage", externalId });
-    page.archived = true;
-    page.lastEditedAt = this.clock.advance();
-    page.lastEditedBy = "bot";
-    return Promise.resolve();
   }
 
   // ── internals ─────────────────────────────────────────────────────────────

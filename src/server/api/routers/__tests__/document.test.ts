@@ -649,4 +649,57 @@ describe("document router (mocked)", () => {
       expect(dbMock.document.delete).not.toHaveBeenCalled();
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────
+  // role gating: membership is not permission to write
+  // ──────────────────────────────────────────────────────────────────
+  describe("viewer role", () => {
+    beforeEach(() => {
+      dbMock.workspaceUser.findUnique.mockResolvedValue({
+        ...membership(callerId, workspaceId),
+        role: "viewer",
+      });
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+    });
+
+    it("can list documents", async () => {
+      dbMock.document.findMany.mockResolvedValue([]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(caller.document.list({ workspaceId })).resolves.toBeDefined();
+    });
+
+    it("cannot create a document", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.document.create({ workspaceId, title: "x", sourceType: "upload" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.document.create).not.toHaveBeenCalled();
+    });
+
+    it("cannot ingest a document (no row, no embedding)", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.document.ingest({
+          source: "text",
+          workspaceId,
+          title: "x",
+          text: "body",
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.document.create).not.toHaveBeenCalled();
+      expect(embedSourceMock).not.toHaveBeenCalled();
+    });
+
+    it("cannot delete a document", async () => {
+      dbMock.document.findUnique.mockResolvedValue(
+        fakeDoc({ id: "doc-1", workspaceId, s3Key: "documents/doc-1/x.txt" }),
+      );
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.document.delete({ workspaceId, id: "doc-1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.document.delete).not.toHaveBeenCalled();
+      expect(s3Mock.deleteObject).not.toHaveBeenCalled();
+    });
+  });
 });

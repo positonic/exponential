@@ -2,7 +2,11 @@ import { z } from "zod";
 import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  loadProductWithAccess,
+  assertWorkspaceAccess,
+  type WorkspaceAccessLevel,
+} from "./product";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -10,37 +14,13 @@ import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
 import { uploadToBlob } from "~/lib/blob";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { hasMinimumWorkspaceRole } from "~/server/services/access";
+import { assertWorkspaceWriteRole } from "~/server/services/access";
 import {
   planFeatureMove,
   type FeatureMoveGraph,
   type FeatureMoveDestination,
 } from "../services/featureMove";
 import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
-
-/**
- * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
- * A cross-workspace Feature move is a lossy cascade, so - per ADR-0027 - the
- * mover must be able to *write* to both the source and destination workspaces,
- * not merely read them. This is stricter than {@link assertWorkspaceMember},
- * which admits viewers.
- */
-async function assertWorkspaceWriteRole(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-) {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!membership || !hasMinimumWorkspaceRole(membership.role, "member")) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        "You need owner, admin, or member access to this workspace to move a feature here",
-    });
-  }
-  return membership;
-}
 
 /**
  * Load everything a Feature move needs, run both-ends access checks, and shape
@@ -55,7 +35,9 @@ async function loadFeatureMoveContext(
   featureId: string,
   destinationProductId: string,
 ) {
-  // Source: feature graph + workspace, require write role.
+  // Source: feature graph + workspace, require write role. A cross-workspace
+  // Feature move is a lossy cascade, so - per ADR-0027 - the mover must be able
+  // to *write* to both the source and destination workspaces.
   const feature = await db.feature.findUnique({
     where: { id: featureId },
     select: {
@@ -222,13 +204,15 @@ const scopeStatusEnum = z.enum([
 ]);
 
 /**
- * Load a feature and verify workspace membership via its product. Shared with
- * the featureComment router so comments reuse the exact same access gate.
+ * Load a feature and verify workspace access via its product. Shared with the
+ * featureComment router so comments reuse the exact same access gate. Pass
+ * `"edit"` from every mutation - `"view"` admits read-only viewers.
  */
 export async function loadFeatureWithAccess(
   db: PrismaClient,
   userId: string,
   featureId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const feature = await db.feature.findUnique({
     where: { id: featureId },
@@ -242,7 +226,7 @@ export async function loadFeatureWithAccess(
   if (!feature) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
   }
-  await assertWorkspaceMember(db, userId, feature.product.workspaceId);
+  await assertWorkspaceAccess(db, userId, feature.product.workspaceId, level);
   return feature;
 }
 
@@ -250,6 +234,7 @@ async function loadScopeWithAccess(
   db: PrismaClient,
   userId: string,
   scopeId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const scope = await db.featureScope.findUnique({
     where: { id: scopeId },
@@ -269,10 +254,11 @@ async function loadScopeWithAccess(
   if (!scope) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Scope not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     scope.feature.product.workspaceId,
+    level,
   );
   return scope;
 }
@@ -281,6 +267,7 @@ async function loadUserStoryWithAccess(
   db: PrismaClient,
   userId: string,
   storyId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const story = await db.userStory.findUnique({
     where: { id: storyId },
@@ -293,10 +280,11 @@ async function loadUserStoryWithAccess(
   if (!story) {
     throw new TRPCError({ code: "NOT_FOUND", message: "User story not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     story.feature.product.workspaceId,
+    level,
   );
   return story;
 }
@@ -311,7 +299,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       return ctx.db.feature.findMany({
         where: {
@@ -349,17 +337,18 @@ export const featureRouter = createTRPCRouter({
    * board needs plus the parent `product` (icon/color/name for the card badge).
    * No descriptions, no ticket graphs - keep the payload small.
    *
-   * Access is gated at the workspace level (`assertWorkspaceMember`); every
+   * Access is gated at the workspace level (`assertWorkspaceAccess`); every
    * Feature returned belongs to a Product in that workspace, so the per-Product
    * access check is unnecessary.
    */
   listForWorkspace: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       return ctx.db.feature.findMany({
@@ -412,7 +401,7 @@ export const featureRouter = createTRPCRouter({
       // a workspace-less (personal) goal can have no aligned Features.
       if (!goal.workspaceId) return [];
 
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, goal.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, goal.workspaceId, "view");
 
       return ctx.db.feature.findMany({
         where: {
@@ -543,10 +532,11 @@ export const featureRouter = createTRPCRouter({
       if (!feature) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         feature.product.workspaceId,
+        "view",
       );
       return feature;
     }),
@@ -566,7 +556,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const product = await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const product = await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       if (input.goalId) {
         const goal = await ctx.db.goal.findFirst({
@@ -643,7 +633,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       if (input.goalId) {
         const goal = await ctx.db.goal.findFirst({
@@ -899,7 +889,7 @@ export const featureRouter = createTRPCRouter({
         new Set(features.map((f) => f.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
       }
 
       if (input.areaId) {
@@ -1004,7 +994,7 @@ export const featureRouter = createTRPCRouter({
   initDescriptionDoc: protectedProcedure
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       const existing = await ctx.db.feature.findUnique({
         where: { id: input.id },
@@ -1037,7 +1027,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       // Same 5MB cap as action.uploadImage (base64 is ~4/3 the byte size).
       const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
@@ -1057,7 +1047,7 @@ export const featureRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.feature.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -1081,7 +1071,7 @@ export const featureRouter = createTRPCRouter({
         new Set(features.map((f) => f.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
       }
       await ctx.db.feature.deleteMany({ where: { id: { in: uniqueIds } } });
       return { count: uniqueIds.length };
@@ -1256,6 +1246,7 @@ export const featureRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.featureId,
+        "view",
       );
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1291,7 +1282,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const parentFeature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const parentFeature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
 
       const maxOrder = await ctx.db.featureScope.findFirst({
         where: { featureId: input.featureId },
@@ -1337,7 +1328,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       const { id, ...data } = input;
       const updated = await ctx.db.featureScope.update({
@@ -1396,7 +1387,7 @@ export const featureRouter = createTRPCRouter({
   deleteScope: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.featureScope.delete({ where: { id: input.id } });
       await applyScopeRollup(ctx.db, scope.featureId);
       return { success: true };
@@ -1427,10 +1418,11 @@ export const featureRouter = createTRPCRouter({
       if (!scope) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Scope not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         scope.feature.product.workspaceId,
+        "view",
       );
       return scope;
     }),
@@ -1443,7 +1435,7 @@ export const featureRouter = createTRPCRouter({
   listAreas: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       return ctx.db.area.findMany({
         where: { productId: input.productId },
         orderBy: { displayOrder: "asc" },
@@ -1460,7 +1452,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       const maxOrder = await ctx.db.area.findFirst({
         where: { productId: input.productId },
         orderBy: { displayOrder: "desc" },
@@ -1503,7 +1495,7 @@ export const featureRouter = createTRPCRouter({
       if (!area) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
       }
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, area.product.workspaceId, "edit");
       const { id, ...data } = input;
       try {
         return await ctx.db.area.update({ where: { id }, data });
@@ -1528,7 +1520,7 @@ export const featureRouter = createTRPCRouter({
       if (!area) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
       }
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, area.product.workspaceId, "edit");
       await ctx.db.area.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -1548,7 +1540,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
           where: { id: input.scopeId },
@@ -1599,10 +1591,11 @@ export const featureRouter = createTRPCRouter({
       if (!requirement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         requirement.feature.product.workspaceId,
+        "edit",
       );
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1634,10 +1627,11 @@ export const featureRouter = createTRPCRouter({
       if (!requirement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         requirement.feature.product.workspaceId,
+        "edit",
       );
       return ctx.db.requirement.update({
         where: { id: input.id },
@@ -1660,10 +1654,11 @@ export const featureRouter = createTRPCRouter({
       if (!requirement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         requirement.feature.product.workspaceId,
+        "edit",
       );
       await ctx.db.requirement.delete({ where: { id: input.id } });
       return { success: true };
@@ -1683,7 +1678,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       const page = await ctx.db.knowledgePage.findUnique({
         where: { id: input.pageId },
         select: { id: true, workspaceId: true },
@@ -1723,7 +1718,7 @@ export const featureRouter = createTRPCRouter({
   unlinkPage: protectedProcedure
     .input(z.object({ featureId: z.string(), pageId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       await ctx.db.featurePage.deleteMany({
         where: { featureId: input.featureId, pageId: input.pageId },
       });
@@ -1743,7 +1738,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
 
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1789,7 +1784,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const story = await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const story = await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1814,7 +1809,7 @@ export const featureRouter = createTRPCRouter({
   deleteUserStory: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.userStory.delete({ where: { id: input.id } });
       return { success: true };
     }),

@@ -23,6 +23,7 @@ import {
   filterNearDuplicateCandidates,
   findSupportingTurns,
   normalizeDecisionStatement,
+  type ActionCandidate,
   type DecisionCandidate,
   type OpenDecisionRef,
 } from "~/server/services/DecisionExtractionService";
@@ -72,6 +73,13 @@ export interface DraftDecisionsResult {
    * success with a caveat, not a failure.
    */
   warnings: string[];
+  /**
+   * Action items the transcript pass told apart from the decisions, for the
+   * caller to draft as Actions (the meeting page's "Extract outputs" run).
+   * Undefined when no transcript pass ran or every section of it failed —
+   * "no reading", which the caller must not mistake for "no actions".
+   */
+  actionItems?: ActionCandidate[];
 }
 
 interface ParticipantRow {
@@ -355,6 +363,13 @@ export async function generateDraftDecisions(
           maxDecisions: remainingBudget,
         });
         transcriptCandidates = filterNearDuplicateCandidates(run.candidates, alreadyCaptured);
+        // Hand the action items over only from a full reading. This pass is
+        // capped at MAX_TRANSCRIPT_CHUNKS sections and the dedicated action
+        // pass is not, so a truncated run would silently drop every task
+        // stated after the cap; the caller falls back to that pass instead.
+        if (run.chunksSkipped === 0 && run.chunksFailed < run.chunksTotal) {
+          result.actionItems = run.actionItems;
+        }
         if (run.chunksSkipped > 0) {
           result.warnings.push(
             `The transcript was longer than one extraction pass covers, so ${run.chunksSkipped} of its ${run.chunksTotal} sections were not read. Decisions made only in those sections will be missing.`,

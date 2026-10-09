@@ -10,6 +10,7 @@ import { CalendarActionBlock } from "./CalendarEventBlock";
 import { CalendarTimeEntryBlock } from "./CalendarTimeEntryBlock";
 import { ResizableBlock } from "./ResizableBlock";
 import { HTMLContent } from "~/app/_components/HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 
 // Constants for drop slot sizing
 export const SLOT_MINUTES = 15;
@@ -175,7 +176,8 @@ export function TimeEntryDragOverlay({ entry }: { entry: CalendarTimeEntry }) {
         className="text-text-inverse"
         style={{ fontSize: "11px" }}
       >
-        {entry.action.name}
+        {/* Single-line truncated label: show the text of a legacy-HTML name. */}
+        {toPlainText(entry.action.name) || "Untitled"}
       </Text>
       <Text size="xs" className="text-text-inverse" style={{ fontSize: "10px", opacity: 0.85 }}>
         {format(new Date(entry.startedAt), "h:mm a")}

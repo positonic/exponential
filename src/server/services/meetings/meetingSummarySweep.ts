@@ -161,7 +161,8 @@ export async function runMeetingSummarySweep(
       result.summarized += 1;
       if (outcome.eventEmitted) result.eventsEmitted += 1;
     } else {
-      // no-transcript / already-had (concurrent writer won the race).
+      // no-transcript / failed (logged; retried next sweep since summary stays
+      // null) / already-had (concurrent writer won the race).
       result.skipped += 1;
     }
   }

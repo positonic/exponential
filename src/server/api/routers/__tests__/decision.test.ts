@@ -18,7 +18,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
-import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
+import { buildActionAccessWhere, buildActionEditWhere } from "~/server/services/access/resolvers/actionResolver";
 
 vi.hoisted(() => {
   process.env.OPENAI_API_KEY ??= "sk-test-dummy";
@@ -1012,7 +1012,7 @@ describe("decision router", () => {
         where: {
           id: { in: ["act-1"] },
           ticketId: null,
-          ...buildActionAccessWhere(USER_ID),
+          ...buildActionEditWhere(USER_ID),
         },
         data: { ticketId: "t-1" },
       });

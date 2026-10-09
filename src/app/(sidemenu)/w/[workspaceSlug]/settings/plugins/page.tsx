@@ -119,14 +119,15 @@ export default function PluginSettingsPage() {
                   </div>
                   <Switch
                     checked={plugin.enabled}
-                    onChange={() =>
+                    onChange={() => {
+                      if (!workspaceId) return;
                       togglePlugin.mutate({
                         pluginId: plugin.id,
                         enabled: !plugin.enabled,
-                        workspaceId: workspaceId ?? undefined,
-                      })
-                    }
-                    disabled={togglePlugin.isPending}
+                        workspaceId,
+                      });
+                    }}
+                    disabled={togglePlugin.isPending || !workspaceId}
                   />
                 </Group>
               </Card>

@@ -450,7 +450,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
 
   // Bulk reschedule mutation - single API call for multiple actions
   const bulkRescheduleMutation = api.action.bulkReschedule.useMutation({
-    onMutate: async ({ actionIds, dueDate }) => {
+    onMutate: async ({ actionIds, date }) => {
       await utils.action.getAll.cancel();
       const previousData = utils.action.getAll.getData();
 
@@ -460,10 +460,11 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
           if (!old) return [];
           return old.map((action) => {
             if (!actionIds.includes(action.id)) return action;
-            const newScheduledStart = dueDate ?? null;
-            // Update dueDate only if it's before the new date or null
-            const newDueDate = dueDate
-              ? (!action.dueDate || action.dueDate < dueDate ? dueDate : action.dueDate)
+            const newScheduledStart = date ?? null;
+            // Mirrors the server: push an earlier deadline forward, leave a
+            // later or absent one alone. A null date clears both.
+            const newDueDate = date
+              ? (action.dueDate && action.dueDate < date ? date : action.dueDate)
               : null;
             return { ...action, scheduledStart: newScheduledStart, dueDate: newDueDate };
           });
@@ -538,7 +539,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     try {
       const result = await bulkRescheduleMutation.mutateAsync({
         actionIds,
-        dueDate: date,
+        date,
       });
 
       const message = date
@@ -686,7 +687,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     try {
       const result = await bulkRescheduleMutation.mutateAsync({
         actionIds,
-        dueDate: date,
+        date,
       });
 
       notifications.update({
@@ -736,7 +737,7 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     try {
       const result = await bulkRescheduleMutation.mutateAsync({
         actionIds,
-        dueDate: date,
+        date,
       });
 
       notifications.update({

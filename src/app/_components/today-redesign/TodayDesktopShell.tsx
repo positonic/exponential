@@ -17,6 +17,7 @@ import {
   formatDayLabel,
   formatRelativeDueAge,
   hourFloat,
+  startOfLocalDay,
 } from "~/lib/actions/dates";
 import {
   groupUpcomingByDay,
@@ -229,10 +230,11 @@ export function TodayDesktopShell({
     });
   };
 
-  // Moves the do-date and the deadline together, at day granularity — see
-  // `rescheduleUpdateFields` for why scheduledStart has to move too.
+  // Moves the do-date, and the deadline only if it would fall before it — see
+  // `rescheduleUpdateFields`.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    updateAction({ id, ...rescheduleUpdateFields(choice) });
+    const a = actionsById.get(id);
+    updateAction({ id, ...rescheduleUpdateFields(choice, a?.dueDate) });
   };
 
   const handleAcceptSuggestion = (s: {
@@ -296,14 +298,14 @@ export function TodayDesktopShell({
   // Completed-today only belongs to the Today tab.
   const completedToday = filter === "today" ? partition.completedToday : [];
 
-  // The current instant rather than the midnight `today` from useDayRollover.
-  // The time-of-day is immaterial now that this only writes `dueDate`, which
-  // every consumer compares at day granularity — and bulkReschedule no longer
-  // stamps it into scheduledStart, so it can't reach the agenda rail.
+  // Local midnight, not the current instant: bulkReschedule writes this into
+  // scheduledStart, and a wall-clock time there draws as a phantom hour-long
+  // block on the agenda rail (see resolveQuickReschedule). Deadlines later
+  // than today are left alone by the server.
   const handleRescheduleAllOverdue = useCallback(() => {
     bulkReschedule({
       actionIds: partition.overdue.map((a) => a.id),
-      dueDate: new Date(),
+      date: startOfLocalDay(new Date()),
       label: "Today",
       fromOverdue: true,
     });
@@ -343,7 +345,7 @@ export function TodayDesktopShell({
         onReschedule: (date, ids) =>
           bulkReschedule({
             actionIds: ids,
-            dueDate: date,
+            date,
             fromOverdue: true,
           }),
       },

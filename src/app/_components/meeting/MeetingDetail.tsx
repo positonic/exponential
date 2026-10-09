@@ -4,12 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconGavel, IconSparkles, IconFileText, IconPhoto } from "@tabler/icons-react";
+import { IconGavel, IconSparkles, IconFileText, IconPhoto, IconListCheck } from "@tabler/icons-react";
 import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
 import { PostToMatrixButton } from "~/app/_components/matrix/PostToMatrixButton";
 import { SummaryTab } from "./SummaryTab";
-import { DecisionsTab } from "./DecisionsTab";
+import { OutputsTab } from "./OutputsTab";
 import { TranscriptView } from "./TranscriptView";
 import { ScreenshotsTab } from "./ScreenshotsTab";
 import { ContextRail } from "./ContextRail";
@@ -34,7 +34,6 @@ interface MeetingDetailProps {
   session: MeetingSession;
   actions: TranscriptAction[];
   isActionsLoading: boolean;
-  isCreatingActions: boolean;
   /** True while feature ideation is running for this meeting. */
   isIdeatingFeatures: boolean;
   /** True while a summary is being auto-generated on view for this meeting. */
@@ -45,14 +44,16 @@ interface MeetingDetailProps {
   onMeetingDateChange: (value: Date | null) => void;
   /** Place the meeting onto a project (null clears placement). */
   onProjectChange: (projectId: string | null) => void;
-  onCreateActions: () => void;
   /** Turn the transcript into reviewable draft product features. */
   onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
   onRegenerateSummary: () => void;
-  /** Extract draft decisions from the notes and transcript (ADR-0060, V2). */
-  onExtractDecisions: () => void;
-  isExtractingDecisions: boolean;
+  /**
+   * "Extract outputs": draft actions, decisions and open questions in one
+   * run. Resolves true when it ran, so the page can open the Outputs tab.
+   */
+  onExtractOutputs: () => Promise<boolean>;
+  isExtractingOutputs: boolean;
   onArchive: () => void;
 }
 
@@ -78,18 +79,16 @@ export function MeetingDetail({
   session,
   actions,
   isActionsLoading,
-  isCreatingActions,
   isIdeatingFeatures,
   isGeneratingSummary,
   onSaveSummary,
   onRenameTitle,
   onMeetingDateChange,
   onProjectChange,
-  onCreateActions,
   onIdeateFeatures,
   onRegenerateSummary,
-  onExtractDecisions,
-  isExtractingDecisions,
+  onExtractOutputs,
+  isExtractingOutputs,
   onArchive,
 }: MeetingDetailProps) {
   // The open tab lives in the URL (`?tab=<name>`, Summary when absent) so each
@@ -114,6 +113,13 @@ export function MeetingDetail({
     window.history.pushState(null, "", withMeetingTab(window.location.href, next));
   }
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Producing drafts takes edit access to the meeting; the server re-checks.
+  const canExtractOutputs = session.canEdit && session.hasTranscript;
+  async function handleExtractOutputs() {
+    // Results are triaged on the Outputs tab, so land there once they exist.
+    if (await onExtractOutputs()) selectTab("outputs");
+  }
 
   // Decisions logged from this meeting (confirmed for viewers, drafts for
   // editors) feed the summary tab's Decisions / Open questions block.
@@ -435,14 +441,16 @@ export function MeetingDetail({
           </button>
           <button
             role="tab"
-            aria-selected={tab === "decisions"}
-            className={`mp-tab ${tab === "decisions" ? "on" : ""}`}
-            onClick={() => selectTab("decisions")}
-            data-testid="tab-decisions"
+            aria-selected={tab === "outputs"}
+            className={`mp-tab ${tab === "outputs" ? "on" : ""}`}
+            onClick={() => selectTab("outputs")}
+            data-testid="tab-outputs"
           >
-            <IconGavel size={14} /> Decisions
-            {vm.decisions.length + vm.questions.length > 0 && (
-              <span className="mp-tab__count">{vm.decisions.length + vm.questions.length}</span>
+            <IconListCheck size={14} /> Outputs
+            {actions.length + vm.decisions.length + vm.questions.length > 0 && (
+              <span className="mp-tab__count">
+                {actions.length + vm.decisions.length + vm.questions.length}
+              </span>
             )}
           </button>
           <button
@@ -466,24 +474,25 @@ export function MeetingDetail({
                 actions={actions}
                 isActionsLoading={isActionsLoading}
                 hasTranscript={session.hasTranscript}
-                isCreatingActions={isCreatingActions}
                 isIdeatingFeatures={isIdeatingFeatures}
                 isGeneratingSummary={isGeneratingSummary}
                 onSaveSummary={onSaveSummary}
-                onCreateActions={onCreateActions}
+                onShowOutputs={() => selectTab("outputs")}
                 onIdeateFeatures={onIdeateFeatures}
                 onRegenerate={onRegenerateSummary}
               />
             )}
-            {tab === "decisions" && (
-              <DecisionsTab
+            {tab === "outputs" && (
+              <OutputsTab
+                transcriptionSessionId={session.id}
                 vm={vm}
-                hasTranscript={session.hasTranscript}
+                actions={actions}
+                isActionsLoading={isActionsLoading}
                 canLogDecision={canLogDecision}
                 onLogDecision={() => setLogDecisionOpen(true)}
-                onExtractDecisions={onExtractDecisions}
-                isExtractingDecisions={isExtractingDecisions}
-                draftsPanel={
+                onExtractOutputs={canExtractOutputs ? () => void handleExtractOutputs() : undefined}
+                isExtractingOutputs={isExtractingOutputs}
+                decisionDraftsPanel={
                   session.workspaceId ? (
                     <DraftDecisionReviewList
                       transcriptionSessionId={session.id}
@@ -554,6 +563,8 @@ export function MeetingDetail({
           </main>
 
           <ContextRail
+            onExtractOutputs={canExtractOutputs ? () => void handleExtractOutputs() : undefined}
+            isExtractingOutputs={isExtractingOutputs}
             participants={vm.participants}
             project={session.project ? { name: session.project.name } : null}
             projectHref={projectHref}

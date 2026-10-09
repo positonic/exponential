@@ -10,9 +10,15 @@
  * and the inline checks scattered across the action router.
  */
 
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type { Permission } from "../types";
-import { getProjectAccess, hasProjectAccess, canEditProject, isProjectInsider } from "./projectResolver";
+import {
+  getProjectAccess,
+  hasProjectAccess,
+  canEditProject,
+  isProjectInsider,
+  buildProjectEditWhere,
+} from "./projectResolver";
 
 interface ActionAccessInfo {
   isCreator: boolean;
@@ -105,7 +111,11 @@ export function checkActionPermission(
 }
 
 /**
- * Build Prisma WHERE clause for actions a user can access.
+ * Build Prisma WHERE clause for actions a user can **view**.
+ *
+ * READ-ONLY: this grants public-project outsiders and workspace viewers, so it
+ * must never scope a write. Use {@link buildActionEditWhere} or
+ * {@link buildActionDeleteWhere} for `updateMany` / `deleteMany`.
  *
  * Replaces the old buildUserActionPermissions() function.
  * Used for bulk queries (getAll, getProjectActions, etc.).
@@ -150,6 +160,38 @@ export function buildActionAccessWhere(userId: string) {
           },
         },
       },
+    ],
+  };
+}
+
+/**
+ * Prisma WHERE clause for actions a user can **edit** — the DB-level mirror of
+ * {@link canEditAction}: creator, assignee, or someone who can edit the
+ * action's project ({@link buildProjectEditWhere}). Public visibility and a
+ * workspace `viewer` role grant nothing here.
+ *
+ * Use to scope bulk writes (`updateMany`) and to pick the rows a write may touch.
+ */
+export function buildActionEditWhere(userId: string): Prisma.ActionWhereInput {
+  return {
+    OR: [
+      { createdById: userId },
+      { assignees: { some: { userId } } },
+      { project: buildProjectEditWhere(userId) },
+    ],
+  };
+}
+
+/**
+ * Prisma WHERE clause for actions a user can **delete** — the DB-level mirror
+ * of `checkActionPermission(access, "delete")`: the creator or a project
+ * editor. Being assigned is not enough to hard-delete.
+ */
+export function buildActionDeleteWhere(userId: string): Prisma.ActionWhereInput {
+  return {
+    OR: [
+      { createdById: userId },
+      { project: buildProjectEditWhere(userId) },
     ],
   };
 }

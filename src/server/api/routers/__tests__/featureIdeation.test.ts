@@ -457,9 +457,9 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
 
   // ── Role gate: membership is not permission to write ──────────────
   //
-  // `assertWorkspaceMember` admits viewers, so without the explicit editor
-  // check a read-only member of the workspace could create Features and
-  // Tickets by accepting a draft.
+  // `loadProductWithAccess` at level "view" admits viewers, so accepting a
+  // draft must ask for "edit" - otherwise a read-only member of the workspace
+  // could create Features and Tickets.
   it("refuses a workspace viewer accepting a draft, and writes nothing", async () => {
     stubOwnedSession(dbMock);
     stubProductAccess(dbMock, "viewer");

@@ -109,7 +109,7 @@ function stubTicketAccess(dbMock: DeepMockProxy<PrismaClient>, isMember = true) 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { id: ticketId, productId: "prod-1", body: null, docVersion: 0, product: { workspaceId } } as any,
   );
-  // assertWorkspaceMember's membership probe.
+  // assertWorkspaceAccess's membership probe.
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     isMember ? ({ role: "member", workspaceId } as any) : null,

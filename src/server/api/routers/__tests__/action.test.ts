@@ -146,6 +146,12 @@ import { createMockCaller } from "~/test/trpc-helpers";
 import { createCaller } from "~/server/api/root";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { buildActionAccessWhere } from "~/server/services/access";
+import {
+  myActionsDueTodayWhere,
+  myActionsTodayWhere,
+  serverLocalDay,
+} from "~/server/services/actions/myActionsWhere";
+import { matchesWhere } from "~/test/prismaWhere";
 
 describe("action router (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
@@ -1275,7 +1281,7 @@ describe("action router (mocked)", () => {
         workspaceId: opts?.workspaceId ?? null,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
-      // Caller passes buildActionAccessWhere (they created it).
+      // Caller passes buildActionEditWhere (they created it).
       dbMock.action.findFirst.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         { id: actionId } as any,
@@ -1537,6 +1543,47 @@ describe("action router (mocked)", () => {
         expect(dbMock.action.update).toHaveBeenCalled();
         expect(dbMock.workspaceUser.findUnique).not.toHaveBeenCalled();
       });
+
+      // Mastra's update-action-item posts `{ json, meta: {} }`, so its due
+      // date is never revived into a Date by superjson. A strict z.date()
+      // rejected every agent update that set one.
+      it("accepts the ISO-string due date Mastra's update-action-item sends", async () => {
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1" } as any);
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.action.update({
+          id: "a1",
+          dueDate: "2026-10-12T00:00:00.000Z" as unknown as Date,
+          lastUpdatedBy: "AGENT",
+        });
+
+        const { data } = dbMock.action.update.mock.calls[0]![0]!;
+        expect(data.dueDate).toEqual(new Date("2026-10-12T00:00:00.000Z"));
+      });
+
+      it("still clears the due date on an explicit null", async () => {
+        stubOwnedAction();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.update.mockResolvedValue({ id: "a1" } as any);
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.action.update({ id: "a1", dueDate: null });
+
+        const { data } = dbMock.action.update.mock.calls[0]![0]!;
+        expect(data.dueDate).toBeNull();
+      });
+
+      it("rejects an unparseable date string without writing", async () => {
+        stubOwnedAction();
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await expect(
+          caller.action.update({ id: "a1", dueDate: "next friday-ish" as unknown as Date }),
+        ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
     });
 
     describe("ensureDailyPlanPromptAction", () => {
@@ -1721,75 +1768,215 @@ describe("action router (mocked)", () => {
 
     beforeEach(() => {
       dbMock.action.updateMany.mockResolvedValue({ count: 3 });
+      // Array form: the updateMany calls are recorded as the array is built.
+      dbMock.$transaction.mockImplementation(
+        ((ops: Promise<unknown>[]) => Promise.all(ops)) as never,
+      );
     });
 
-    it("moves scheduledStart as well as dueDate", async () => {
-      // scheduledStart is what partitionActions buckets on when it is set, so
-      // writing dueDate alone would leave the action in the overdue pile —
-      // "Reschedule all overdue" would move nothing.
-      const dueDate = new Date(2026, 7, 5, 0, 0, 0);
+    interface Row {
+      id: string;
+      scheduledStart: Date | null;
+      dueDate: Date | null;
+    }
+
+    // Mocked Prisma can't evaluate a `where`, so replay the recorded
+    // updateMany calls over fixture rows. Only the shapes bulkReschedule
+    // emits are understood: `id in`, plus an optional `dueDate < x` inside
+    // AND. Like Postgres, `lt` never matches a null dueDate.
+    function replay(rows: Row[]): Row[] {
+      const out = rows.map((r) => ({ ...r }));
+      for (const [args] of dbMock.action.updateMany.mock.calls) {
+        const where = args!.where as {
+          id?: { in: string[] };
+          AND?: [{ id: { in: string[] } }, { dueDate: { lt: Date } }];
+        };
+        const ids = where.AND ? where.AND[0].id.in : where.id!.in;
+        const lt = where.AND?.[1].dueDate.lt;
+        for (const row of out) {
+          if (!ids.includes(row.id)) continue;
+          if (lt && !(row.dueDate && row.dueDate < lt)) continue;
+          Object.assign(row, args!.data);
+        }
+      }
+      return out;
+    }
+
+    const tomorrow = new Date(2026, 9, 9, 0, 0, 0);
+    const friday = new Date(2026, 9, 16, 0, 0, 0);
+    const lastWeek = new Date(2026, 9, 1, 0, 0, 0);
+
+    it("keeps a deadline that falls after the new do-date", async () => {
+      // The bug: an agent moving the do-date to tomorrow overwrote a real
+      // Friday deadline with tomorrow.
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
-      await caller.action.bulkReschedule({ actionIds, dueDate });
+      await caller.action.bulkReschedule({ actionIds: ["a1"], date: tomorrow });
+
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: friday }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
+    });
+
+    it("pushes forward a deadline that would fall before the new do-date", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds: ["a1"], date: friday });
+
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: tomorrow }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: friday, dueDate: friday });
+    });
+
+    it("does not invent a deadline for an action that had none", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds: ["a1"], date: tomorrow });
+
+      const [row] = replay([{ id: "a1", scheduledStart: null, dueDate: null }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: null });
+    });
+
+    it("handles a mixed selection row by row", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: tomorrow });
+
+      expect(
+        replay([
+          { id: "a1", scheduledStart: lastWeek, dueDate: lastWeek },
+          { id: "a2", scheduledStart: lastWeek, dueDate: friday },
+          { id: "a3", scheduledStart: null, dueDate: null },
+          { id: "other", scheduledStart: lastWeek, dueDate: lastWeek },
+        ]),
+      ).toEqual([
+        { id: "a1", scheduledStart: tomorrow, dueDate: tomorrow },
+        { id: "a2", scheduledStart: tomorrow, dueDate: friday },
+        { id: "a3", scheduledStart: tomorrow, dueDate: null },
+        { id: "other", scheduledStart: lastWeek, dueDate: lastWeek },
+      ]);
+    });
+
+    it("writes scheduledStart to every row and dueDate only below the new date, atomically", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: tomorrow });
+
+      expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+      expect(dbMock.action.updateMany).toHaveBeenCalledTimes(2);
+      const [move, push] = dbMock.action.updateMany.mock.calls.map((c) => c[0]!);
+      expect(move.data).toEqual({ scheduledStart: tomorrow });
+      expect(push.data).toEqual({ dueDate: tomorrow });
+      expect(push.where).toMatchObject({
+        AND: [{ id: { in: actionIds } }, { dueDate: { lt: tomorrow } }],
+      });
+      // No fabricated block geometry.
+      for (const { data } of [move, push]) {
+        expect(data).not.toHaveProperty("scheduledEnd");
+        expect(data).not.toHaveProperty("duration");
+      }
+    });
+
+    it("clears both dates when date is null", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: null });
 
       expect(dbMock.action.updateMany).toHaveBeenCalledTimes(1);
-      const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
-      expect(data).toEqual({ scheduledStart: dueDate, dueDate });
-      // Still no fabricated block geometry.
-      expect(data).not.toHaveProperty("scheduledEnd");
-      expect(data).not.toHaveProperty("duration");
-    });
-
-    it("clears both dates when dueDate is null", async () => {
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
-
-      await caller.action.bulkReschedule({ actionIds, dueDate: null });
-
       const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
       // Leaving a stale scheduledStart behind would keep the row overdue.
       expect(data).toEqual({ scheduledStart: null, dueDate: null });
     });
 
-    it("scopes the update to actions the caller may touch", async () => {
+    it("still accepts the deprecated dueDate field with the same semantics", async () => {
+      // The Mastra reschedule-actions tool and the published SDK send
+      // `dueDate`; they must get push-forward, not an overwrite.
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
-      await caller.action.bulkReschedule({ actionIds, dueDate: new Date() });
+      await caller.action.bulkReschedule({ actionIds: ["a1"], dueDate: tomorrow });
 
-      const { where } = dbMock.action.updateMany.mock.calls[0]![0]!;
-      expect(where).toMatchObject({ id: { in: actionIds } });
-      // buildActionAccessWhere contributes the permission clause.
-      expect(Object.keys(where!).length).toBeGreaterThan(1);
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: friday }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
+    });
+
+    it("accepts the ISO string the Mastra tool actually sends", async () => {
+      // Mastra posts `{ json: { dueDate: "<iso>" }, meta: {} }`; with no
+      // superjson annotation the date is never revived into a Date. A strict
+      // z.date() rejected every reschedule-actions call.
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({
+        actionIds: ["a1"],
+        dueDate: tomorrow.toISOString() as unknown as Date,
+      });
+
+      const [row] = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: friday }]);
+      expect(row).toEqual({ id: "a1", scheduledStart: tomorrow, dueDate: friday });
+    });
+
+    it("rejects an unparseable date string without writing", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.action.bulkReschedule({
+          actionIds,
+          date: "next tuesday-ish" as unknown as Date,
+        }),
+      ).rejects.toThrow();
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("treats a deprecated null dueDate as clearing both dates", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, dueDate: null });
+
+      const { data } = dbMock.action.updateMany.mock.calls[0]![0]!;
+      expect(data).toEqual({ scheduledStart: null, dueDate: null });
+    });
+
+    it("rejects a call that passes neither or both of date and dueDate", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(caller.action.bulkReschedule({ actionIds })).rejects.toThrow();
+      await expect(
+        caller.action.bulkReschedule({ actionIds, date: tomorrow, dueDate: friday }),
+      ).rejects.toThrow();
+      expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("scopes every update to actions the caller may touch", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.action.bulkReschedule({ actionIds, date: tomorrow });
+      await caller.action.bulkReschedule({ actionIds, date: null });
+
+      for (const [args] of dbMock.action.updateMany.mock.calls) {
+        const where = args!.where as { AND?: object[] };
+        const scope = where.AND ? where.AND[0]! : where;
+        expect(scope).toMatchObject({ id: { in: actionIds } });
+        // buildActionAccessWhere contributes the permission clause.
+        expect(Object.keys(scope).length).toBeGreaterThan(1);
+      }
     });
 
     it("rescheduling the same pile repeatedly is idempotent", async () => {
-      // The pile-up this ticket fixes: "Reschedule all overdue → Today" clicked
-      // in quick succession used to stamp a fresh wall-clock scheduledStart
-      // every time, each drawn as its own hour-long rail block. Callers now
-      // send local midnight, so repeats collapse onto one instant. The server
-      // writes what it is given — this asserts the shape it writes.
-      const midnight = new Date(2026, 7, 5, 0, 0, 0);
+      // "Reschedule all overdue → Today" clicked in quick succession used to
+      // stamp a fresh wall-clock scheduledStart every time, each drawn as its
+      // own hour-long rail block. Callers now send local midnight, so repeats
+      // collapse onto one instant. The server writes what it is given.
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       for (let i = 0; i < 3; i++) {
-        await caller.action.bulkReschedule({ actionIds, dueDate: midnight });
+        await caller.action.bulkReschedule({ actionIds, date: tomorrow });
       }
 
-      const stamps = new Set<number>();
-      for (const call of dbMock.action.updateMany.mock.calls) {
-        const data = call[0]!.data! as { scheduledStart: Date; dueDate: Date };
-        expect(Object.keys(data).sort()).toEqual(["dueDate", "scheduledStart"]);
-        stamps.add(data.scheduledStart.getTime());
-      }
-      expect(stamps.size).toBe(1);
+      const rows = replay([{ id: "a1", scheduledStart: lastWeek, dueDate: lastWeek }]);
+      expect(rows).toEqual([{ id: "a1", scheduledStart: tomorrow, dueDate: tomorrow }]);
     });
 
     it("still reports the actions it was given", async () => {
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
-      const result = await caller.action.bulkReschedule({
-        actionIds,
-        dueDate: new Date(),
-      });
+      const result = await caller.action.bulkReschedule({ actionIds, date: tomorrow });
 
       expect(result).toEqual({ count: 3, actionIds });
     });
@@ -2170,7 +2357,13 @@ describe("action router (mocked)", () => {
   // getSidebarCounts
   // ────────────────────────────────────────────────────────────────────
   describe("getSidebarCounts", () => {
-    it("counts inbox and due-today actions without loading any rows", async () => {
+    // A UTC+2 viewer's 2026-10-09.
+    const day = {
+      start: new Date("2026-10-08T22:00:00.000Z"),
+      end: new Date("2026-10-09T22:00:00.000Z"),
+    };
+
+    it("counts inbox and today's actions without loading any rows", async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       dbMock.action.count.mockImplementation((args: any) =>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2178,7 +2371,7 @@ describe("action router (mocked)", () => {
       );
 
       const caller = createMockCaller({ userId: "caller-1", db: dbMock });
-      const counts = await caller.action.getSidebarCounts();
+      const counts = await caller.action.getSidebarCounts({ day });
 
       expect(counts).toEqual({ inboxCount: 3, todayCount: 5 });
       expect(dbMock.action.findMany).not.toHaveBeenCalled();
@@ -2186,9 +2379,227 @@ describe("action router (mocked)", () => {
       expect(wheres).toContainEqual(
         expect.objectContaining({ projectId: null, dueDate: null, scheduledStart: null, status: "ACTIVE" }),
       );
-      expect(wheres).toContainEqual(
-        expect.objectContaining({ status: "ACTIVE", dueDate: expect.objectContaining({ gte: expect.any(Date) }) }),
+      // The Today badge is the /today bucket on the viewer's day, so a
+      // scheduled-only action (bulk "Reschedule all overdue → Today") counts.
+      expect(wheres).toContainEqual(myActionsTodayWhere("caller-1", day));
+    });
+
+    it("falls back to the server's day when the viewer's isn't given", async () => {
+      dbMock.action.count.mockResolvedValue(0);
+
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getSidebarCounts();
+
+      const wheres = dbMock.action.count.mock.calls.map((call) => call[0]?.where);
+      expect(wheres).toContainEqual(myActionsTodayWhere("caller-1", serverLocalDay(new Date())));
+    });
+
+    it("rejects a day that ends before it starts", async () => {
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await expect(
+        caller.action.getSidebarCounts({ day: { start: day.end, end: day.start } }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────
+  // getToday
+  // ────────────────────────────────────────────────────────────────────
+  describe("getToday", () => {
+    const day = {
+      start: new Date("2026-10-08T22:00:00.000Z"),
+      end: new Date("2026-10-09T22:00:00.000Z"),
+    };
+
+    beforeEach(() => {
+      dbMock.action.findMany.mockResolvedValue([]);
+    });
+
+    it("defaults to the published due-only slice on the server's day (SDK / CLI --due-only)", async () => {
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getToday({ workspaceId: "ws-1" });
+
+      expect(dbMock.action.findMany.mock.calls[0]?.[0]?.where).toEqual(
+        myActionsDueTodayWhere("caller-1", serverLocalDay(new Date()), "ws-1"),
       );
+    });
+
+    it("lists the /today bucket on the viewer's day on the scheduled-or-due basis", async () => {
+      const caller = createMockCaller({ userId: "caller-1", db: dbMock });
+      await caller.action.getToday({ workspaceId: "ws-1", basis: "scheduled-or-due", day });
+
+      expect(dbMock.action.findMany.mock.calls[0]?.[0]?.where).toEqual(
+        myActionsTodayWhere("caller-1", day, "ws-1"),
+      );
+    });
+  });
+  // ────────────────────────────────────────────────────────────────────
+  // Bulk writes are scoped by edit rights, not read rights
+  // ────────────────────────────────────────────────────────────────────
+  // The mocked `findMany` / `updateMany` / `deleteMany` below evaluate the
+  // router's real `where` against in-memory rows, so each test asserts which
+  // rows a write actually reaches rather than which helper built the clause.
+  describe("bulk write scoping", () => {
+    const callerId = "caller-1";
+    const ownerId = "owner-1";
+
+    type Row = Record<string, unknown> & { id: string };
+    let rows: Row[];
+
+    function actionRow(id: string, workspace: unknown, opts?: { isPublic?: boolean }): Row {
+      const day = new Date("2026-01-01T00:00:00Z");
+      return {
+        id,
+        createdById: ownerId,
+        assignees: [],
+        dueDate: day,
+        scheduledStart: day,
+        scheduledEnd: null,
+        projectId: "p1",
+        project: {
+          createdById: ownerId,
+          isPublic: opts?.isPublic ?? false,
+          isRestricted: false,
+          projectMembers: [],
+          team: null,
+          workspace,
+        },
+      };
+    }
+
+    /** An action in a public project of a workspace the caller isn't in. */
+    const publicOutsider = () => actionRow("a-public", { members: [], teams: [] }, { isPublic: true });
+    /** An action in an unrestricted project of a workspace where the caller is `role`. */
+    const asRole = (role: string) =>
+      actionRow(`a-${role}`, { members: [{ userId: callerId, role }], teams: [] });
+
+    beforeEach(() => {
+      rows = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const matching = (args: any) => rows.filter((r) => matchesWhere(r, args?.where ?? {}));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockImplementation(((args: any) => Promise.resolve(matching(args))) as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findFirst.mockImplementation(((args: any) => Promise.resolve(matching(args)[0] ?? null)) as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.updateMany.mockImplementation(((args: any) => {
+        const hit = matching(args);
+        for (const r of hit) Object.assign(r, args.data);
+        return Promise.resolve({ count: hit.length });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.deleteMany.mockImplementation(((args: any) => {
+        const hit = new Set(matching(args));
+        rows = rows.filter((r) => !hit.has(r));
+        return Promise.resolve({ count: hit.size });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+    });
+
+    const caller = () => createMockCaller({ userId: callerId, db: dbMock });
+    const target = new Date("2026-03-01T00:00:00Z");
+
+    describe.each([
+      ["public-project outsider", publicOutsider],
+      ["workspace viewer", () => asRole("viewer")],
+    ])("%s", (_label, makeRow) => {
+      it("cannot bulkDelete", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkDelete({ actionIds: [row.id] });
+        expect(result.count).toBe(0);
+        expect(rows).toContain(row);
+      });
+
+      it("cannot bulkReschedule", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkReschedule({ actionIds: [row.id], date: target });
+        expect(result.count).toBe(0);
+        expect(row.scheduledStart).not.toEqual(target);
+        expect(row.dueDate).not.toEqual(target);
+      });
+
+      it("cannot bulkReschedule to no date", async () => {
+        const row = makeRow();
+        rows = [row];
+        await caller().action.bulkReschedule({ actionIds: [row.id], date: null });
+        expect(row.scheduledStart).not.toBeNull();
+      });
+
+      it("cannot bulkDefer", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkDefer({ actionIds: [row.id] });
+        expect(result.count).toBe(0);
+        expect(row.dueDate).not.toBeNull();
+      });
+
+      it("cannot bulkAssignProject", async () => {
+        const row = makeRow();
+        rows = [row];
+        const result = await caller().action.bulkAssignProject({ actionIds: [row.id], projectId: null });
+        expect(result.count).toBe(0);
+        expect(dbMock.action.update).not.toHaveBeenCalled();
+      });
+
+      it("cannot assign users", async () => {
+        const row = makeRow();
+        rows = [row];
+        dbMock.action.findUnique.mockResolvedValue(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { id: row.id, projectId: "p1", teamId: null, workspaceId: "w1" } as any,
+        );
+        await expect(
+          caller().action.assign({ actionId: row.id, userIds: [callerId] }),
+        ).rejects.toThrow("You don't have permission to modify this action");
+        expect(dbMock.actionAssignee.createMany).not.toHaveBeenCalled();
+      });
+
+      it("cannot unassign someone else", async () => {
+        const row = makeRow();
+        rows = [row];
+        dbMock.action.findUnique.mockResolvedValue({ id: row.id } as never);
+        await expect(
+          caller().action.unassign({ actionId: row.id, userIds: [ownerId] }),
+        ).rejects.toThrow("You don't have permission to modify this action");
+        expect(dbMock.actionAssignee.deleteMany).not.toHaveBeenCalled();
+      });
+    });
+
+    it("a workspace member can still bulkReschedule and bulkDelete", async () => {
+      const kept = asRole("member");
+      rows = [kept];
+      const rescheduled = await caller().action.bulkReschedule({ actionIds: [kept.id], date: target });
+      expect(rescheduled.count).toBe(1);
+      expect(kept.scheduledStart).toEqual(target);
+
+      const deleted = await caller().action.bulkDelete({ actionIds: [kept.id] });
+      expect(deleted.count).toBe(1);
+      expect(rows).toHaveLength(0);
+    });
+
+    it("an assignee can reschedule but not hard-delete", async () => {
+      const row = { ...publicOutsider(), assignees: [{ userId: callerId }] };
+      rows = [row];
+      expect((await caller().action.bulkReschedule({ actionIds: [row.id], date: target })).count).toBe(1);
+      expect((await caller().action.bulkDelete({ actionIds: [row.id] })).count).toBe(0);
+      expect(rows).toContain(row);
+    });
+
+    it("only the writable rows of a mixed batch are touched", async () => {
+      const viewerRow = asRole("viewer");
+      const memberRow = asRole("member");
+      const publicRow = publicOutsider();
+      rows = [viewerRow, memberRow, publicRow];
+      const result = await caller().action.bulkDefer({
+        actionIds: [viewerRow.id, memberRow.id, publicRow.id],
+      });
+      expect(result.actionIds).toEqual([memberRow.id]);
+      expect(memberRow.dueDate).toBeNull();
+      expect(viewerRow.dueDate).not.toBeNull();
+      expect(publicRow.dueDate).not.toBeNull();
     });
   });
 });

@@ -10,7 +10,7 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -42,7 +42,9 @@ import { deriveActionBlocked, withBlockedState } from "~/lib/actions/blocked";
 import {
   myActionsDueTodayWhere,
   myActionsOwnershipWhere,
+  myActionsTodayWhere,
   myInboxActionsWhere,
+  serverLocalDay,
 } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
@@ -72,6 +74,11 @@ function resolveQuickCreateSource(
   if (requested === "ios-shortcut" || ctx.viaApiKey) return "ios";
   return sourceForPrincipal(ctx.tokenType);
 }
+
+/** The viewer's local day, `[start, end)` — both ends, for DST-change days. */
+const localDayInput = z
+  .object({ start: z.date(), end: z.date() })
+  .refine((d) => d.end > d.start, { message: "day.end must be after day.start" });
 
 export const actionRouter = createTRPCRouter({
   getAll: protectedProcedure
@@ -652,15 +659,29 @@ export const actionRouter = createTRPCRouter({
       return action;
     }),
 
- getToday: protectedProcedure
+  // Today's actions, on one of two bases:
+  // - "due" (the default): deadline today. Published as such — the SDK
+  //   documents getToday as the due-only slice and the CLI's
+  //   `actions today --due-only` is built on it — so the default keeps it.
+  // - "scheduled-or-due": the `/today` page's today bucket (ADR-0034),
+  //   scheduled today or unscheduled and due today. What the app's "today"
+  //   widgets show.
+  // `day` is the viewer's local day; without it the day is the server's.
+  getToday: protectedProcedure
     .input(
       z.object({
         workspaceId: z.string().optional(),
+        basis: z.enum(["due", "scheduled-or-due"]).default("due"),
+        day: localDayInput.optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const day = input?.day ?? serverLocalDay(new Date());
       return ctx.db.action.findMany({
-        where: myActionsDueTodayWhere(ctx.session.user.id, new Date(), input?.workspaceId),
+        where: input?.basis === "scheduled-or-due"
+          ? myActionsTodayWhere(userId, day, input.workspaceId)
+          : myActionsDueTodayWhere(userId, day, input?.workspaceId),
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
@@ -680,16 +701,20 @@ export const actionRouter = createTRPCRouter({
 
   // The inbox's unsorted-actions count and the sidebar's Today badge. Counts
   // only: the badges used to download every action (action.getAll, ~2 MB for
-  // a busy user) on every page just to count them. Same sets as filtering
-  // getAll() with `isInboxAction` and as getToday().length.
-  getSidebarCounts: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.session.user.id;
-    const [inboxCount, todayCount] = await Promise.all([
-      ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
-      ctx.db.action.count({ where: myActionsDueTodayWhere(userId, new Date()) }),
-    ]);
-    return { inboxCount, todayCount };
-  }),
+  // a busy user) on every page just to count them. Same sets as the `/today`
+  // partition of getAll(): its `inbox` bucket and its `todays` bucket.
+  // `day` is the viewer's local day; without it the day is the server's.
+  getSidebarCounts: protectedProcedure
+    .input(z.object({ day: localDayInput }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const day = input?.day ?? serverLocalDay(new Date());
+      const [inboxCount, todayCount] = await Promise.all([
+        ctx.db.action.count({ where: myInboxActionsWhere(userId) }),
+        ctx.db.action.count({ where: myActionsTodayWhere(userId, day) }),
+      ]);
+      return { inboxCount, todayCount };
+    }),
 
   // Today's actions (ADR-0034): the cross-workspace, scheduled-or-due set the
   // /today page renders, exposed for Zoe's `get-todays-actions` tool. Uses the
@@ -1191,11 +1216,13 @@ export const actionRouter = createTRPCRouter({
       actionIds: z.array(z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Scoped by the delete rule (creator or project editor), never the read
+      // clause — that one admits public-project outsiders and workspace viewers.
       // Snapshot project links + names BEFORE deleting so we can write activity rows.
       const toDelete = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionDeleteWhere(ctx.session.user.id),
         },
         select: { id: true, name: true, projectId: true },
       });
@@ -1203,7 +1230,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.deleteMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionDeleteWhere(ctx.session.user.id),
         },
       });
 
@@ -1230,51 +1257,84 @@ export const actionRouter = createTRPCRouter({
       };
     }),
 
-  // Bulk reschedule actions: moves the do-date (`scheduledStart`) and the
-  // deadline (`dueDate`) together onto the chosen day.
+  // Bulk reschedule actions: moves the do-date (`scheduledStart`) onto the
+  // chosen day, and pushes the deadline (`dueDate`) forward only where it would
+  // otherwise fall before it. A real deadline later than the new do-date — due
+  // Friday, moved to tomorrow — is left alone. This is the contract the Mastra
+  // `reschedule-actions` tool, the SDK, the MCP server and the CLI all document
+  // to agents; overwriting the deadline here silently clobbered it.
   //
   // `scheduledStart` is the field that decides the bucket. `partitionActions`
   // treats an action as overdue when its `scheduledStart` is before today and
   // only consults `dueDate` when there is no `scheduledStart` at all — schedule
-  // wins. Writing the deadline alone therefore leaves a past `scheduledStart`
-  // untouched and the action stays in the overdue pile, which turns "Reschedule
-  // all overdue" into a no-op against exactly the rows it was aimed at.
+  // wins. So moving `scheduledStart` alone is enough to take a row off the
+  // overdue pile (or out of the inbox); the deadline never needs to follow it.
+  // An action with no deadline keeps having none.
   //
-  // What genuinely was broken is the *value*: this used to stamp the caller's
-  // wall-clock instant, so a bulk reschedule drew every action as an hour-long
-  // block seconds apart on the agenda rail. Callers now send local midnight
-  // (see `resolveQuickReschedule`) — normalised client-side, because the day
-  // boundary belongs to the viewer's timezone, not the server's.
+  // The *value* matters too: stamping the caller's wall-clock instant draws
+  // every action as an hour-long block seconds apart on the agenda rail.
+  // Callers send local midnight (see `resolveQuickReschedule`) — normalised
+  // client-side, because the day boundary belongs to the viewer's timezone,
+  // not the server's.
   //
   // A null date clears both fields, so "No date" empties the pile rather than
   // leaving a stale time-block behind. `bulkDefer` remains the intent-carrying
   // path for amnesty — it also writes activity rows.
+  //
+  // `date` is the input; `dueDate` is its deprecated former name, still
+  // accepted because the Mastra tool and published SDK send it. Both coerce:
+  // the Mastra tool posts raw `{ json, meta: {} }`, so its date arrives as an
+  // ISO string rather than a superjson-revived Date, and a strict `z.date()`
+  // rejected every call it made.
   bulkReschedule: protectedProcedure
     .input(z.object({
       actionIds: z.array(z.string()),
-      dueDate: z.date().nullable(),
-    }))
+      date: z.coerce.date().nullable().optional(),
+      /** @deprecated Use `date`. It sets the do-date, not the deadline. */
+      dueDate: z.coerce.date().nullable().optional(),
+    }).refine(
+      (i) => (i.date === undefined) !== (i.dueDate === undefined),
+      { message: "Pass exactly one of `date` or the deprecated `dueDate`" },
+    ))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.action.updateMany({
-        where: {
-          id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
-        },
-        data: {
-          scheduledStart: input.dueDate,
-          dueDate: input.dueDate,
-        },
-      });
+      // Not `input.date ?? input.dueDate`: an explicit null `date` is
+      // meaningful ("No date") and must not fall through to the alias.
+      const date = input.date !== undefined ? input.date : (input.dueDate ?? null);
+      const where: Prisma.ActionWhereInput = {
+        id: { in: input.actionIds },
+        ...buildActionEditWhere(ctx.session.user.id),
+      };
+
+      let count: number;
+      if (date === null) {
+        ({ count } = await ctx.db.action.updateMany({
+          where,
+          data: { scheduledStart: null, dueDate: null },
+        }));
+      } else {
+        // The first write touches every row `where` admits; its count is the
+        // number of actions actually rescheduled.
+        [{ count }] = await ctx.db.$transaction([
+          ctx.db.action.updateMany({
+            where,
+            data: { scheduledStart: date },
+          }),
+          ctx.db.action.updateMany({
+            where: { AND: [where, { dueDate: { lt: date } }] },
+            data: { dueDate: date },
+          }),
+        ]);
+      }
 
       return {
-        count: input.actionIds.length,
+        count,
         actionIds: input.actionIds,
       };
     }),
 
   // Amnesty: un-date actions back to their project backlog.
   //
-  // Lands on the same columns as `bulkReschedule({ dueDate: null })`, but keep
+  // Lands on the same columns as `bulkReschedule({ date: null })`, but keep
   // both: this one records activity rows for what was cleared, and the name is
   // what callers (and agents doing tool discovery) match on. The difference is
   // intent, and intent is what they need to express:
@@ -1294,7 +1354,7 @@ export const actionRouter = createTRPCRouter({
       const toDefer = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         select: { id: true, projectId: true, dueDate: true, scheduledStart: true },
       });
@@ -1302,7 +1362,7 @@ export const actionRouter = createTRPCRouter({
       const result = await ctx.db.action.updateMany({
         where: {
           id: { in: toDefer.map((a) => a.id) },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         data: {
           scheduledStart: null,
@@ -1360,13 +1420,13 @@ export const actionRouter = createTRPCRouter({
         }
       }
 
-      // Same reader set as before: the actions the caller may touch. Each
-      // then goes through applyActionUpdate, which re-checks the target,
-      // takes its workspace and re-seeds (or clears) the kanban column.
+      // The actions the caller may edit. Each then goes through
+      // applyActionUpdate, which re-checks the target, takes its workspace
+      // and re-seeds (or clears) the kanban column.
       const accessible = await ctx.db.action.findMany({
         where: {
           id: { in: input.actionIds },
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         select: { id: true },
       });
@@ -1410,11 +1470,11 @@ export const actionRouter = createTRPCRouter({
         throw new Error("Action not found");
       }
 
-      // Check if user has permission to modify this action (creator, assignee, project member, or team member)
+      // Check if user has permission to modify this action (creator, assignee, or project editor)
       const hasPermission = await ctx.db.action.findFirst({
         where: {
           id: input.actionId,
-          ...buildActionAccessWhere(ctx.session.user.id),
+          ...buildActionEditWhere(ctx.session.user.id),
         },
         select: { id: true },
       });
@@ -1507,7 +1567,7 @@ export const actionRouter = createTRPCRouter({
           id: input.actionId,
           // For self-removal, just verify the action exists
           // For unassigning others, verify user has permission
-          ...(isSelfRemoval ? {} : buildActionAccessWhere(ctx.session.user.id)),
+          ...(isSelfRemoval ? {} : buildActionEditWhere(ctx.session.user.id)),
         },
       });
 

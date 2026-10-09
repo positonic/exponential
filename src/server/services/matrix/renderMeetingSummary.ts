@@ -17,6 +17,8 @@
  * rooms see the markup literally.
  */
 
+import { formatDecisionLabel } from "~/lib/decision-label";
+import { withMeetingTab } from "~/lib/meeting-tabs";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 export interface MeetingForSummary {
@@ -27,8 +29,27 @@ export interface MeetingForSummary {
   createdAt: Date;
   workspaceId: string | null;
   project: { id: string; name: string } | null;
-  actions: { id: string }[];
+  actions: MeetingActionForSummary[];
+  /** Confirmed decisions logged from this meeting — never drafts, which are
+   *  invisible outside the meeting's own review surfaces (ADR-0060). */
+  decisions: MeetingDecisionForSummary[];
 }
+
+export interface MeetingActionForSummary {
+  id: string;
+  name: string;
+  assignees: { user: { name: string | null } }[];
+}
+
+export interface MeetingDecisionForSummary {
+  number: number;
+  statement: string;
+  /** `OPEN` is an open question; every other status is an answered decision. */
+  status: string;
+}
+
+/** Past this, a list stops and the link to the meeting carries the rest. */
+export const MAX_LISTED_ITEMS = 10;
 
 export interface RenderedSummary {
   text: string;
@@ -287,6 +308,111 @@ export function meetingUrl(meeting: MeetingForSummary): string {
   return `${origin.replace(/\/+$/, "")}/recording/${meeting.id}`;
 }
 
+/** The meeting page opened on its Outputs tab, where its decisions are listed. */
+export function meetingDecisionsUrl(meeting: MeetingForSummary): string {
+  return withMeetingTab(meetingUrl(meeting), "outputs").toString();
+}
+
+/**
+ * Confirmed is not accepted: a confirmed decision can still be a proposal, or have been
+ * superseded or deprecated since. Anything short of accepted says so, or a room would
+ * read a proposal as a settled choice and act on it.
+ */
+function statusSuffix(status: string): string {
+  return status === "ACCEPTED" ? "" : ` (${status.toLowerCase()})`;
+}
+
+interface DecisionsBlock {
+  text: string[];
+  html: string;
+}
+
+/** One headed, capped list of decision records — the decided ones or the open ones. */
+function renderDecisionList(
+  heading: string,
+  records: MeetingDecisionForSummary[],
+): DecisionsBlock {
+  const listed = records.slice(0, MAX_LISTED_ITEMS);
+  const hidden = records.length - listed.length;
+  // An open question's status is its heading; only decisions carry one per line.
+  const suffix = (d: MeetingDecisionForSummary) =>
+    d.status === "OPEN" ? "" : statusSuffix(d.status);
+
+  const text = [
+    heading,
+    ...listed.map((d) => `• ${formatDecisionLabel(d.number)} ${d.statement.trim()}${suffix(d)}`),
+    ...(hidden > 0 ? [`• …and ${hidden} more`] : []),
+  ];
+  const items = listed
+    .map((d) => {
+      const status = suffix(d).trim();
+      return `<li><strong>${escapeHtml(formatDecisionLabel(d.number))}</strong> ${escapeHtml(d.statement.trim())}${status ? ` <em>${escapeHtml(status)}</em>` : ""}</li>`;
+    })
+    .join("");
+  const html = `<h5>${escapeHtml(heading)}</h5><ul>${items}${hidden > 0 ? `<li>…and ${hidden} more</li>` : ""}</ul>`;
+  return { text, html };
+}
+
+/**
+ * What was decided — and what was left open — leads the message, straight under the
+ * title: it is the part of a meeting people who were not there most need, and the part
+ * a long summary buries. The link opens the Decisions tab directly rather than the
+ * Summary. Omitted entirely when there is neither — a link to an empty tab is noise.
+ */
+function renderDecisionsBlock(meeting: MeetingForSummary): DecisionsBlock | null {
+  const decided = meeting.decisions.filter((d) => d.status !== "OPEN");
+  const open = meeting.decisions.filter((d) => d.status === "OPEN");
+  if (decided.length === 0 && open.length === 0) return null;
+
+  const lists = [
+    ...(decided.length > 0 ? [renderDecisionList(`⚖️ Decisions (${decided.length})`, decided)] : []),
+    ...(open.length > 0 ? [renderDecisionList(`❓ Open questions (${open.length})`, open)] : []),
+  ];
+  const url = meetingDecisionsUrl(meeting);
+
+  return {
+    // The URL stands alone on its line so clients linkify it cleanly and it is easy to tap.
+    text: [...lists.flatMap((l) => [...l.text, ""]), "View decisions in Exponential:", url],
+    html: [
+      ...lists.map((l) => l.html),
+      `<p><a href="${escapeHtml(url)}">View decisions in Exponential</a></p>`,
+    ].join(""),
+  };
+}
+
+/**
+ * The action items, by name and owner, after the decisions: what was agreed, then who
+ * is doing what about it. Omitted when the meeting produced none.
+ */
+function renderActionsBlock(meeting: MeetingForSummary): DecisionsBlock | null {
+  if (meeting.actions.length === 0) return null;
+  const listed = meeting.actions.slice(0, MAX_LISTED_ITEMS);
+  const hidden = meeting.actions.length - listed.length;
+  const heading = `✅ Action items (${meeting.actions.length})`;
+  const owners = (a: MeetingActionForSummary) =>
+    a.assignees
+      .map((x) => x.user.name?.trim())
+      .filter((name): name is string => !!name)
+      .join(", ");
+
+  const text = [
+    heading,
+    ...listed.map((a) => {
+      const who = owners(a);
+      return `• ${a.name.trim()}${who ? ` — ${who}` : ""}`;
+    }),
+    ...(hidden > 0 ? [`• …and ${hidden} more`] : []),
+  ];
+  const items = listed
+    .map((a) => {
+      const who = owners(a);
+      return `<li>${escapeHtml(a.name.trim())}${who ? ` — <em>${escapeHtml(who)}</em>` : ""}</li>`;
+    })
+    .join("");
+  const html = `<h5>${escapeHtml(heading)}</h5><ul>${items}${hidden > 0 ? `<li>…and ${hidden} more</li>` : ""}</ul>`;
+  return { text, html };
+}
+
 function formatMeetingDate(meeting: MeetingForSummary): string {
   const date = meeting.meetingDate ?? meeting.createdAt;
   return date.toISOString().slice(0, 10);
@@ -296,10 +422,10 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
   const title = meeting.title?.trim() ?? "Untitled meeting";
   const date = formatMeetingDate(meeting);
   const sections = meeting.summary ? extractSummarySections(meeting.summary) : [];
-  const actionCount = meeting.actions.length;
-  const actionLine = `${actionCount} action item${actionCount === 1 ? "" : "s"}`;
   const url = meetingUrl(meeting);
   const project = meeting.project?.name;
+  const decisions = renderDecisionsBlock(meeting);
+  const actions = renderActionsBlock(meeting);
 
   const textBody = sections
     .map((s) =>
@@ -313,10 +439,11 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
   const textParts = [
     `📋 ${title}`,
     project ? `${date} · ${project}` : date,
+    ...(decisions ? ["", ...decisions.text] : []),
+    ...(actions ? ["", ...actions.text] : []),
     ...(textBody ? ["", textBody] : []),
     "",
-    actionLine,
-    url,
+    `Open in Exponential: ${url}`,
   ];
 
   const htmlBody = sections
@@ -328,8 +455,10 @@ export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummar
   const html = [
     `<h4>📋 ${escapeHtml(title)}</h4>`,
     `<p><em>${escapeHtml(project ? `${date} · ${project}` : date)}</em></p>`,
+    decisions?.html ?? "",
+    actions?.html ?? "",
     htmlBody,
-    `<p>${escapeHtml(actionLine)} — <a href="${escapeHtml(url)}">open in Exponential</a></p>`,
+    `<p><a href="${escapeHtml(url)}">Open in Exponential</a></p>`,
   ].join("");
 
   return { text: textParts.join("\n").trim(), html };

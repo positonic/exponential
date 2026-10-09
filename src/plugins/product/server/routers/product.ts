@@ -1,10 +1,14 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { buildProjectAccessWhere } from "~/server/services/access";
+import {
+  getWorkspaceMembership,
+  assertWorkspaceWriteRole,
+  buildProjectAccessWhere,
+} from "~/server/services/access";
 import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
-import type { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient, PluginConfig } from "@prisma/client";
 import { buildGraph } from "../services/DependencyGraphService";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
@@ -17,13 +21,33 @@ import {
 } from "../overviewSummaryService";
 
 /**
- * Ensure the caller is a member of the workspace. Throws FORBIDDEN otherwise.
+ * How much workspace access a product-plugin procedure needs.
+ *
+ * - `"view"`: any membership (owner/admin/member/viewer). Team-based access
+ *   counts. Project-only guests have no `WorkspaceUser` row and are refused.
+ * - `"edit"`: owner/admin/member only. A read-only `viewer` is refused.
+ *
+ * Every mutation must ask for `"edit"`; queries ask for `"view"`. The level
+ * is a required argument precisely so a new write can't silently inherit the
+ * weaker check.
  */
-async function assertWorkspaceMember(
+export type WorkspaceAccessLevel = "view" | "edit";
+
+/**
+ * Gate on the caller's workspace role. Throws FORBIDDEN when the caller is not
+ * a member, or is a viewer asking for `"edit"`. The role logic itself lives in
+ * the access service (`assertWorkspaceWriteRole`) — this only adds the
+ * read-side membership branch and the plugin's error wording.
+ */
+async function assertWorkspaceAccess(
   db: PrismaClient,
   userId: string,
   workspaceId: string,
+  level: WorkspaceAccessLevel,
 ) {
+  if (level === "edit") {
+    return assertWorkspaceWriteRole(db, userId, workspaceId);
+  }
   const membership = await getWorkspaceMembership(db, userId, workspaceId);
   if (!membership) {
     throw new TRPCError({
@@ -35,12 +59,13 @@ async function assertWorkspaceMember(
 }
 
 /**
- * Load a product and verify workspace membership in one step.
+ * Load a product and verify workspace access in one step.
  */
 async function loadProductWithAccess(
   db: PrismaClient,
   userId: string,
   productId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const product = await db.product.findUnique({
     where: { id: productId },
@@ -49,21 +74,27 @@ async function loadProductWithAccess(
   if (!product) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
   }
-  await assertWorkspaceMember(db, userId, product.workspaceId);
+  await assertWorkspaceAccess(db, userId, product.workspaceId, level);
   return product;
 }
 
 // Exported so other routers (feature, ticket, research, retrospective) can reuse
-export { assertWorkspaceMember, loadProductWithAccess };
+export { assertWorkspaceAccess, loadProductWithAccess };
+
+/** `expr` if it is a JSON object, else `{}`: a missing or malformed stored value merges as empty. */
+function jsonbObjectOrEmpty(expr: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`CASE WHEN jsonb_typeof(${expr}) = 'object' THEN ${expr} ELSE '{}'::jsonb END`;
+}
 
 export const productRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       return ctx.db.product.findMany({
@@ -86,10 +117,11 @@ export const productRouter = createTRPCRouter({
   listWithProjects: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       const projectInclude = {
@@ -143,10 +175,11 @@ export const productRouter = createTRPCRouter({
       if (!product) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         product.workspaceId,
+        "view",
       );
       return product;
     }),
@@ -159,10 +192,11 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
       const product = await ctx.db.product.findUnique({
         where: {
@@ -207,6 +241,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         userId,
         input.productId,
+        "view",
       );
       const now = new Date();
 
@@ -408,7 +443,7 @@ export const productRouter = createTRPCRouter({
   getManagerOverview: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const product = await ctx.db.product.findUniqueOrThrow({
         where: { id: input.productId },
         select: { id: true, name: true, workspaceId: true, funTicketIds: true },
@@ -425,7 +460,7 @@ export const productRouter = createTRPCRouter({
   getOverviewSummary: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       // Too recent to regenerate: skip loading the overview data, which is
       // only needed to hash the facts.
       const recent = await getRecentOverviewSummary(ctx.db, input.productId);
@@ -458,10 +493,11 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
 
       return ctx.db.product.create({
@@ -499,6 +535,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       const { id, ...data } = input;
@@ -543,6 +580,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       // Cache-bust by including a timestamp so the new URL replaces the old one in CDN/clients
@@ -582,6 +620,7 @@ export const productRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       const previous = await ctx.db.product.findUnique({
@@ -608,7 +647,7 @@ export const productRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.product.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -634,7 +673,7 @@ export const productRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
 
       // Membership of the SOURCE workspace (also loads the product).
-      const product = await loadProductWithAccess(ctx.db, userId, input.id);
+      const product = await loadProductWithAccess(ctx.db, userId, input.id, "edit");
 
       if (product.workspaceId === input.targetWorkspaceId) {
         throw new TRPCError({
@@ -644,7 +683,7 @@ export const productRouter = createTRPCRouter({
       }
 
       // Membership of the TARGET workspace (re-enforced server-side).
-      await assertWorkspaceMember(ctx.db, userId, input.targetWorkspaceId);
+      await assertWorkspaceAccess(ctx.db, userId, input.targetWorkspaceId, "edit");
 
       const targetWorkspace = await ctx.db.workspace.findUnique({
         where: { id: input.targetWorkspaceId },
@@ -751,7 +790,7 @@ export const productRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       return buildGraph(ctx.db, {
         productId: input.productId,
         includeCompleted: input.includeCompleted,
@@ -764,7 +803,7 @@ export const productRouter = createTRPCRouter({
   getViewPrefs: protectedProcedure
     .input(z.object({ productSlug: z.string(), workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, input.workspaceId, "view");
       const config = await ctx.db.pluginConfig.findUnique({
         where: {
           pluginId_workspaceId_userId: {
@@ -811,46 +850,54 @@ export const productRouter = createTRPCRouter({
       }),
     }))
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
-      const existing = await ctx.db.pluginConfig.findUnique({
-        where: {
-          pluginId_workspaceId_userId: {
-            pluginId: "product",
-            workspaceId: input.workspaceId,
-            userId: ctx.session.user.id,
-          },
-        },
-        select: { settings: true },
-      });
+      // View prefs are the caller's own per-user UI state (keyed by userId),
+      // not workspace content, so a read-only viewer may save them too.
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, input.workspaceId, "view");
 
-      const currentSettings = (existing?.settings as Record<string, unknown>) ?? {};
-      const currentViewPrefs = (currentSettings.viewPrefs as Record<string, unknown>) ?? {};
-      const currentProductPrefs = (currentViewPrefs[input.productSlug] as Record<string, unknown>) ?? {};
+      // One settings row holds every prefs key for this user and workspace
+      // (Backlog, Insights, Features...), and saves for any of them can
+      // overlap: other tabs, other devices, two pages. A read-then-write here
+      // would let the later write drop the earlier one's change, so the merge
+      // happens inside a single UPDATE instead: Postgres locks the row and,
+      // if another save committed first, re-evaluates the merge on that newer
+      // version.
 
-      const merged = { ...currentProductPrefs, ...input.prefs };
-      const newSettings = {
-        ...currentSettings,
-        viewPrefs: { ...currentViewPrefs, [input.productSlug]: merged },
-      };
-
-      return ctx.db.pluginConfig.upsert({
-        where: {
-          pluginId_workspaceId_userId: {
-            pluginId: "product",
-            workspaceId: input.workspaceId,
-            userId: ctx.session.user.id,
-          },
-        },
-        create: {
+      // Create the row if there is none yet (a no-op when there is), so the
+      // UPDATE always has one. Two first saves racing here both succeed.
+      await ctx.db.pluginConfig.createMany({
+        data: [{
           pluginId: "product",
           workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
           enabled: true,
-          settings: newSettings as Prisma.InputJsonValue,
-        },
-        update: {
-          settings: newSettings as Prisma.InputJsonValue,
-        },
+        }],
+        skipDuplicates: true,
       });
+
+      // settings.viewPrefs[productSlug] = { ...stored, ...input.prefs }: each
+      // saved pref replaces its old value; every other key is left as stored.
+      const settings = Prisma.sql`"settings"`;
+      const viewPrefs = Prisma.sql`"settings"->'viewPrefs'`;
+      const slugPrefs = Prisma.sql`"settings"->'viewPrefs'->${input.productSlug}::text`;
+      const [saved] = await ctx.db.$queryRaw<PluginConfig[]>`
+        UPDATE "PluginConfig"
+        SET "settings" = ${jsonbObjectOrEmpty(settings)} || jsonb_build_object(
+              'viewPrefs',
+              ${jsonbObjectOrEmpty(viewPrefs)} || jsonb_build_object(
+                ${input.productSlug}::text,
+                ${jsonbObjectOrEmpty(slugPrefs)} || ${JSON.stringify(input.prefs)}::jsonb
+              )
+            ),
+            "updatedAt" = now() AT TIME ZONE 'UTC'
+        WHERE "pluginId" = 'product'
+          AND "workspaceId" = ${input.workspaceId}
+          AND "userId" = ${ctx.session.user.id}
+        RETURNING "id", "pluginId", "workspaceId", "userId", "enabled", "settings", "createdAt", "updatedAt"
+      `;
+      // Only if the row was deleted in between (its workspace or user went).
+      if (!saved) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "View preferences not found" });
+      }
+      return saved;
     }),
 });

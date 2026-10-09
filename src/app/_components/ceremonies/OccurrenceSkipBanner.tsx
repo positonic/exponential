@@ -23,6 +23,7 @@ export function OccurrenceSkipBanner({
   proposed,
   canManage,
   onChanged,
+  cancelledMeeting = false,
 }: {
   workspaceId: string;
   occurrenceId: string;
@@ -31,6 +32,11 @@ export function OccurrenceSkipBanner({
   proposed: boolean;
   canManage: boolean;
   onChanged: () => Promise<unknown>;
+  /**
+   * A one-off whose booking was cancelled: it reads as a cancelled meeting,
+   * and there is no undo — its invites are withdrawn, so it is rebooked.
+   */
+  cancelledMeeting?: boolean;
 }) {
   const [reason, setReason] = useState(DEFAULT_REASON);
 
@@ -55,12 +61,16 @@ export function OccurrenceSkipBanner({
         variant="light"
         color="orange"
         icon={<IconCalendarOff size={16} />}
-        title="This occurrence was skipped"
+        title={cancelledMeeting ? "This meeting was cancelled" : "This occurrence was skipped"}
         data-testid="occurrence-skipped"
       >
         <Group justify="space-between" align="center">
-          <Text size="sm">{skipReason ?? "No reason recorded."}</Text>
-          {canManage && (
+          <Text size="sm">
+            {cancelledMeeting
+              ? "Attendees were sent a cancellation. To meet after all, schedule it again."
+              : (skipReason ?? "No reason recorded.")}
+          </Text>
+          {canManage && !cancelledMeeting && (
             <Button
               variant="subtle"
               size="compact-sm"

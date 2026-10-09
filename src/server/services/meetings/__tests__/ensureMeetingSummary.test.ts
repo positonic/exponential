@@ -115,3 +115,21 @@ describe("summarizeMeetingRow — post-summary decision extraction hook", () => 
     expect(result.status).toBe("created");
   });
 });
+
+describe("summarizeMeetingRow — model failure", () => {
+  beforeEach(() => {
+    mockReset(db);
+    summarizeMock.mockReset();
+  });
+
+  it("reports `failed` with the provider's error, not `no-transcript`, and persists nothing", async () => {
+    summarizeMock.mockRejectedValue(new Error("Your credit balance is too low"));
+    const result = await summarizeMeetingRow(db, MEETING);
+    expect(result).toEqual({
+      status: "failed",
+      eventEmitted: false,
+      error: "Your credit balance is too low",
+    });
+    expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
+  });
+});

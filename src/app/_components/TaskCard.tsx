@@ -11,6 +11,7 @@ import { TagBadgeList } from "./TagBadge";
 import { BlockedBadge } from "./BlockedBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 import { ActiveTimerIndicator } from "./ActiveTimerIndicator";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -200,7 +201,7 @@ export function TaskCard({ task, isDragging = false, onActionOpen }: TaskCardPro
         role="button"
         tabIndex={0}
         aria-describedby={`task-${task.id}-description`}
-        aria-label={`Task: ${task.name}. Priority: ${task.priority}. ${
+        aria-label={`Task: ${toPlainText(task.name) || "Untitled"}. Priority: ${task.priority}. ${
           task.assignees.length > 0 ? `Assigned to ${task.assignees.length} person${task.assignees.length > 1 ? "s" : ""}. ` : ""
         }${task.dueDate ? `Due: ${formatDate(task.dueDate)}. ` : ""}${
           isOverdue ? "Overdue. " : ""
