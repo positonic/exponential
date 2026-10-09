@@ -90,8 +90,8 @@ export function PageInvites({ pageId, workspaceId }: PageInvitesProps) {
         title: `Updated ${updated} sub-page${updated === 1 ? "" : "s"}`,
         message:
           skipped > 0
-            ? `${skipped} skipped — you can only change pages you own.`
-            : "They now have the same sharing as this page.",
+            ? `${skipped} skipped — pages you don't own, or that can't be invite-only.`
+            : "They're invite-only, and this page's invitees can see them.",
       });
     },
     onError: onError("Could not update sub-pages"),
@@ -241,8 +241,8 @@ export function PageInvites({ pageId, workspaceId }: PageInvitesProps) {
           onClick={() => applyToSubpages.mutate({ id: pageId })}
           data-testid="page-apply-subpages"
         >
-          Apply to {sharing.subpagesToApply} sub-page
-          {sharing.subpagesToApply === 1 ? "" : "s"}
+          Also share {sharing.subpagesToApply} sub-page
+          {sharing.subpagesToApply === 1 ? "" : "s"} you own this way
         </Button>
       ) : null}
     </Stack>

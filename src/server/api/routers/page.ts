@@ -32,6 +32,7 @@ import {
   canViewKnowledgePage,
   canEditKnowledgePage,
   canManageKnowledgePageAccess,
+  isKnowledgePageInviteRole,
   buildKnowledgePageAccessWhere,
   getProjectAccess,
   canEditProject,
@@ -39,7 +40,6 @@ import {
   filterWorkspaceMembers,
   hasMinimumWorkspaceRole,
   listKnowledgePageViewers,
-  type KnowledgePageInviteRole,
 } from "~/server/services/access";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
@@ -75,6 +75,44 @@ async function inviteOnlyBlocker(
   if (page?.workspaceUpdate) return "A workspace update can't be invite-only.";
   if (page?.ceremonyOccurrence) return "Ceremony notes can't be invite-only.";
   return null;
+}
+
+/** Batch {@link inviteOnlyBlocker}: which of `pageIds` can't be invite-only. */
+async function inviteOnlyBlockedIds(
+  db: PrismaClient,
+  pageIds: string[],
+): Promise<Set<string>> {
+  if (pageIds.length === 0) return new Set();
+  const blocked = await db.knowledgePage.findMany({
+    where: {
+      id: { in: pageIds },
+      OR: [{ workspaceUpdate: { isNot: null } }, { ceremonyOccurrence: { isNot: null } }],
+    },
+    select: { id: true },
+  });
+  return new Set(blocked.map((p) => p.id));
+}
+
+/**
+ * The linked sub-pages "Apply to sub-pages" would update: ones the caller
+ * owns that can be invite-only. Shared by the count in `sharing` and the
+ * mutation, so the button never promises more than it does.
+ */
+async function applicableSubpages(
+  db: PrismaClient,
+  userId: string,
+  page: { id: string; workspaceId: string },
+) {
+  const linked = await collectLinkedPages(db, page);
+  const owned = linked.filter((p) => p.createdById === userId);
+  const blocked = await inviteOnlyBlockedIds(
+    db,
+    owned.map((p) => p.id),
+  );
+  return {
+    targets: owned.filter((p) => !blocked.has(p.id)).map((p) => p.id),
+    skipped: linked.length - owned.length + blocked.size,
+  };
 }
 
 /** Most people `page.audience` returns; the rest are only counted. */
@@ -1140,7 +1178,9 @@ export const pageRouter = createTRPCRouter({
         select: DUPLICATE_SELECT,
       });
       const toCopy: { row: DuplicateRow; projectId: string | null }[] = [
-        { row: rootRow, projectId: rootPlacement?.projectId ?? rootRow.projectId },
+        // `rootPlacement` is non-null here (the gate above threw otherwise);
+        // its `projectId` may be a deliberate null — don't `??` it away.
+        { row: rootRow, projectId: rootPlacement ? rootPlacement.projectId : rootRow.projectId },
       ];
 
       if (input.withSubpages) {
@@ -1257,20 +1297,33 @@ export const pageRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
-      await ensurePageAccess(ctx.db, userId, page, "view");
-      const canManage = page.createdById === userId;
+      const access = await getKnowledgePageAccess(ctx.db, userId, page);
+      if (!canViewKnowledgePage(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have access to this page",
+        });
+      }
+      const canManage = canManageKnowledgePageAccess(access);
+      // Invitee rows outlive switching invite-only off (so switching back
+      // restores them) but grant nothing then — only the owner sees them.
+      const showInvitees = page.isInviteOnly || canManage;
 
-      const [invites, blocker, linked] = await Promise.all([
-        ctx.db.knowledgePageMember.findMany({
-          where: { pageId: page.id },
-          orderBy: { createdAt: "asc" },
-          select: {
-            role: true,
-            user: { select: { id: true, name: true, image: true, email: true } },
-          },
-        }),
+      const [invites, blocker, subpages] = await Promise.all([
+        showInvitees
+          ? ctx.db.knowledgePageMember.findMany({
+              where: { pageId: page.id },
+              orderBy: { createdAt: "asc" },
+              select: {
+                role: true,
+                user: { select: { id: true, name: true, image: true, email: true } },
+              },
+            })
+          : Promise.resolve([]),
         canManage ? inviteOnlyBlocker(ctx.db, page.id) : Promise.resolve(null),
-        canManage ? collectLinkedPages(ctx.db, page) : Promise.resolve([]),
+        canManage && page.isInviteOnly
+          ? applicableSubpages(ctx.db, userId, page)
+          : Promise.resolve({ targets: [], skipped: 0 }),
       ]);
       const stillMembers = await filterWorkspaceMembers(
         ctx.db,
@@ -1283,14 +1336,14 @@ export const pageRouter = createTRPCRouter({
         ownerId: page.createdById,
         canManage,
         inviteOnlyBlockedReason: blocker,
-        subpagesToApply: linked.filter((p) => p.createdById === userId).length,
+        subpagesToApply: subpages.targets.length,
         invitees: invites.map((i) => ({
           id: i.user.id,
           name: i.user.name,
           image: i.user.image,
           // Email only to the owner, who chose them; viewers see names.
           email: canManage ? i.user.email : null,
-          role: i.role as KnowledgePageInviteRole,
+          role: isKnowledgePageInviteRole(i.role) ? i.role : ("viewer" as const),
           // Invited, but has since left the workspace: no access.
           isWorkspaceMember: stillMembers.has(i.user.id),
         })),
@@ -1348,6 +1401,7 @@ export const pageRouter = createTRPCRouter({
       const userIds = [...new Set(input.userIds)].filter(
         (id) => id !== page.createdById,
       );
+      if (userIds.length === 0) return { added: 0, updated: 0 };
       const members = await filterWorkspaceMembers(
         ctx.db,
         page.workspaceId,
@@ -1369,19 +1423,27 @@ export const pageRouter = createTRPCRouter({
       const added = userIds.filter((id) => !already.has(id));
 
       await ctx.db.$transaction([
-        ctx.db.knowledgePageMember.createMany({
-          data: added.map((id) => ({
-            pageId: page.id,
-            userId: id,
-            role: input.role,
-            invitedById: userId,
-          })),
-          skipDuplicates: true,
-        }),
-        ctx.db.knowledgePageMember.updateMany({
-          where: { pageId: page.id, userId: { in: [...already] } },
-          data: { role: input.role },
-        }),
+        ...(added.length
+          ? [
+              ctx.db.knowledgePageMember.createMany({
+                data: added.map((id) => ({
+                  pageId: page.id,
+                  userId: id,
+                  role: input.role,
+                  invitedById: userId,
+                })),
+                skipDuplicates: true,
+              }),
+            ]
+          : []),
+        ...(already.size
+          ? [
+              ctx.db.knowledgePageMember.updateMany({
+                where: { pageId: page.id, userId: { in: [...already] } },
+                data: { role: input.role },
+              }),
+            ]
+          : []),
       ]);
 
       if (added.length > 0) {
@@ -1425,10 +1487,12 @@ export const pageRouter = createTRPCRouter({
 
   /**
    * One-off "Apply to sub-pages" (ADR-0067: sub-pages keep their own access,
-   * nothing is inherited live). Copies this page's mode and invitee list onto
-   * the linked sub-pages the caller owns; sub-pages owned by others, and
-   * pages that can't be invite-only, are skipped and counted. Nobody is
-   * re-notified — they were invited to the parent.
+   * nothing is inherited live). From an invite-only page only: makes the
+   * linked sub-pages the caller owns invite-only too and invites this page's
+   * invitees to them. Additive — a sub-page's own invitees are kept, and
+   * nobody's role is lowered. Sub-pages owned by others, and pages that can't
+   * be invite-only, are skipped and counted. Nobody is re-notified — they
+   * were invited to the parent.
    */
   applySharingToSubpages: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -1436,47 +1500,42 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "manage");
+      if (!page.isInviteOnly) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Only an invite-only page's sharing can be applied to its sub-pages",
+        });
+      }
 
-      const [linked, invites] = await Promise.all([
-        collectLinkedPages(ctx.db, page),
+      const [{ targets, skipped }, invites] = await Promise.all([
+        applicableSubpages(ctx.db, userId, page),
         ctx.db.knowledgePageMember.findMany({
           where: { pageId: page.id },
           select: { userId: true, role: true },
         }),
       ]);
-      let skipped = 0;
-      const targets: string[] = [];
-      for (const sub of linked) {
-        if (sub.createdById !== userId) {
-          skipped++;
-          continue;
-        }
-        if (page.isInviteOnly && (await inviteOnlyBlocker(ctx.db, sub.id))) {
-          skipped++;
-          continue;
-        }
-        targets.push(sub.id);
-      }
 
       if (targets.length > 0) {
         await ctx.db.$transaction([
           ctx.db.knowledgePage.updateMany({
             where: { id: { in: targets } },
-            data: { isInviteOnly: page.isInviteOnly },
+            data: { isInviteOnly: true },
           }),
-          ctx.db.knowledgePageMember.deleteMany({
-            where: { pageId: { in: targets } },
-          }),
-          ctx.db.knowledgePageMember.createMany({
-            data: targets.flatMap((pageId) =>
-              invites.map((i) => ({
-                pageId,
-                userId: i.userId,
-                role: i.role,
-                invitedById: userId,
-              })),
-            ),
-          }),
+          ...(invites.length
+            ? [
+                ctx.db.knowledgePageMember.createMany({
+                  data: targets.flatMap((pageId) =>
+                    invites.map((i) => ({
+                      pageId,
+                      userId: i.userId,
+                      role: i.role,
+                      invitedById: userId,
+                    })),
+                  ),
+                  skipDuplicates: true,
+                }),
+              ]
+            : []),
         ]);
       }
       return { updated: targets.length, skipped };

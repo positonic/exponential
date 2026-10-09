@@ -762,10 +762,64 @@ describe("page router", () => {
       await expect(createTestCaller(author.id).page.get({ id })).rejects.toThrow(TRPCError);
     });
 
+    it("a duplicate the duplicator can't place in the source's project lands project-less", async () => {
+      const { author, invitee, ws } = await setup("pg-io-dup-project");
+      const project = await createProject(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        isRestricted: true,
+      });
+      const page = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        projectId: project.id,
+        isInviteOnly: true,
+      });
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "viewer",
+      });
+      const { id } = await createTestCaller(invitee.id).page.duplicate({ id: page.id });
+      const copy = await db.knowledgePage.findUniqueOrThrow({
+        where: { id },
+        select: { projectId: true, isInviteOnly: true },
+      });
+      expect(copy).toEqual({ projectId: null, isInviteOnly: true });
+    });
+
+    it("hides a page's old invitee list from viewers once invite-only is off", async () => {
+      const { author, invitee, bystander, page } = await setup("pg-io-stale");
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [invitee.id], role: "viewer" });
+      await caller.page.setInviteOnly({ id: page.id, inviteOnly: false });
+      const asViewer = await createTestCaller(bystander.id).page.sharing({ id: page.id });
+      expect(asViewer.invitees).toEqual([]);
+      const asOwner = await caller.page.sharing({ id: page.id });
+      expect(asOwner.invitees.map((i) => i.id)).toEqual([invitee.id]);
+    });
+
+    it("refuses to apply sharing from a page that isn't invite-only", async () => {
+      const { author, ws } = await setup("pg-io-apply-open");
+      const open = await createPage(db, { createdById: author.id, workspaceId: ws.id });
+      await expect(
+        createTestCaller(author.id).page.applySharingToSubpages({ id: open.id }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
     it("applies the parent's sharing to the owner's own sub-pages only", async () => {
       const { author, invitee, bystander, ws, page } = await setup("pg-io-subpages");
       await addWorkspaceMember(db, ws.id, (await createUser(db)).id, "member");
-      const mine = await createPage(db, { createdById: author.id, workspaceId: ws.id, title: "Mine" });
+      const mine = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        title: "Mine",
+        isInviteOnly: true,
+      });
+      // The sub-page's own invitee survives — applying is additive.
+      await db.knowledgePageMember.create({
+        data: { pageId: mine.id, userId: bystander.id, role: "viewer" },
+      });
       const theirs = await createPage(db, {
         createdById: bystander.id,
         workspaceId: ws.id,
@@ -786,7 +840,12 @@ describe("page router", () => {
         db.knowledgePage.findUniqueOrThrow({ where: { id: theirs.id }, include: { members: true } }),
       ]);
       expect(mineAfter.isInviteOnly).toBe(true);
-      expect(mineAfter.members.map((m) => [m.userId, m.role])).toEqual([[invitee.id, "editor"]]);
+      expect(mineAfter.members.map((m) => [m.userId, m.role]).sort()).toEqual(
+        [
+          [bystander.id, "viewer"],
+          [invitee.id, "editor"],
+        ].sort(),
+      );
       expect(theirsAfter.isInviteOnly).toBe(false);
     });
   });

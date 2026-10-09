@@ -31,8 +31,9 @@ can see it.
   people, and publishes an invite-only Page to the web. An invited editor can edit the content, but
   can never make the page more visible than the owner chose.
 - **Sub-pages keep their own access.** Nothing is inherited through `pageLink`s. A page can have
-  several parents, and the link graph allows cycles. Instead, the owner can "Apply to sub-pages": a
-  one-off copy of the mode and invitee list onto the linked sub-pages they own.
+  several parents, and the link graph allows cycles. Instead, from an invite-only page the owner can
+  "Apply to sub-pages": a one-off action that makes the linked sub-pages they own invite-only and
+  adds this page's invitees to them. It only adds people; it never removes anyone's access.
 - **Shared surfaces can't be invite-only.** A Workspace update's body and a ceremony occurrence's
   notes page stay visible to the people they're for.
 - **Copies don't widen access.** Duplicating an invite-only Page creates an invite-only copy. The
