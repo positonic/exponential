@@ -36,6 +36,7 @@ import {
   canEditProject,
   getWorkspaceMembership,
   hasMinimumWorkspaceRole,
+  listKnowledgePageViewers,
 } from "~/server/services/access";
 
 /**
@@ -44,6 +45,9 @@ import {
  * server only stores it as JSON.
  */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+/** Most people `page.audience` returns; the rest are only counted. */
+const AUDIENCE_PEOPLE_LIMIT = 50;
 
 /** The publishing state the share popover renders (ADR-0038). */
 const PUBLIC_SETTINGS_SELECT = {
@@ -499,6 +503,67 @@ export const pageRouter = createTRPCRouter({
       }
       // The editor needs to know whether to render read-only.
       return { ...page, canEdit: canEditKnowledgePage(access) };
+    }),
+
+  /**
+   * Who can see this page right now — the Share popover's "General access"
+   * line. Resolved by `listKnowledgePageViewers`, the batch inverse of the
+   * page access resolver, so the roster matches who `get` would admit. Any
+   * viewer may read it: they reached the page through workspace or project
+   * membership, so the roster is people they can already see. A page in a
+   * public project returns no roster (everyone signed in can view).
+   */
+  audience: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const page = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.id },
+        select: {
+          createdById: true,
+          projectId: true,
+          workspaceId: true,
+          workspace: { select: { name: true } },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              isRestricted: true,
+              isPublic: true,
+            },
+          },
+        },
+      });
+      if (!page) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+      }
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+
+      const { isPublicProject, viewers } = await listKnowledgePageViewers(
+        ctx.db,
+        page,
+      );
+      const users = await ctx.db.user.findMany({
+        where: { id: { in: viewers.map((v) => v.userId) } },
+        select: { id: true, name: true, image: true },
+      });
+      const usersById = new Map(users.map((u) => [u.id, u]));
+      const people = viewers
+        .flatMap((v) => {
+          const user = usersById.get(v.userId);
+          return user ? [{ ...user, viaAdminEscapeHatch: v.viaAdminEscapeHatch }] : [];
+        })
+        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+
+      return {
+        workspaceName: page.workspace.name,
+        project: page.project,
+        isPublicProject,
+        total: people.length,
+        // Enough for an avatar row plus a hover list; `total` carries the rest.
+        people: people.slice(0, AUDIENCE_PEOPLE_LIMIT),
+        includesAdminEscapeHatch: people.some((p) => p.viaAdminEscapeHatch),
+      };
     }),
 
   /**

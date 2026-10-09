@@ -11,6 +11,8 @@ export interface AssignableProject {
   /** Null for personal (workspace-less) projects. */
   workspaceId: string | null;
   workspaceName: string | null;
+  /** Restricted projects are members-only — the picker marks them with a lock. */
+  isRestricted: boolean;
 }
 
 /**
@@ -32,6 +34,7 @@ export async function getAssignableProjects(
       id: true,
       name: true,
       workspaceId: true,
+      isRestricted: true,
       workspace: { select: { name: true } },
     },
     orderBy: [{ workspace: { name: "asc" } }, { name: "asc" }],
@@ -42,5 +45,6 @@ export async function getAssignableProjects(
     name: p.name,
     workspaceId: p.workspaceId,
     workspaceName: p.workspace?.name ?? null,
+    isRestricted: p.isRestricted,
   }));
 }

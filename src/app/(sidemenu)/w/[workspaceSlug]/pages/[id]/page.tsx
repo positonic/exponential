@@ -226,6 +226,7 @@ function PageEditorContent({
           />
           <PageShareMenu
             pageId={page.id}
+            workspaceId={page.workspaceId}
             workspaceSlug={workspaceSlug}
             isPublic={page.isPublic}
             publicId={page.publicId}

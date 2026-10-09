@@ -118,8 +118,12 @@ export {
   canViewKnowledgePage,
   canEditKnowledgePage,
   buildKnowledgePageAccessWhere,
+  listKnowledgePageViewers,
 } from "./resolvers/knowledgePageResolver";
-export type { KnowledgePageAccessInfo } from "./resolvers/knowledgePageResolver";
+export type {
+  KnowledgePageAccessInfo,
+  KnowledgePageViewer,
+} from "./resolvers/knowledgePageResolver";
 
 // Cross-workspace link guards (epic/feature/cycle/scope foreign keys)
 export { assertWorkspaceScopedRefs } from "./workspaceRefs";

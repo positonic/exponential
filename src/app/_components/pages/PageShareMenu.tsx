@@ -25,6 +25,7 @@ import {
   IconExternalLink,
   IconFileExport,
   IconMarkdown,
+  IconUsers,
   IconWorld,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
@@ -33,9 +34,11 @@ import {
   buildMarkdownExport,
   markdownFilename,
 } from "~/lib/pages/markdown-export";
+import { PageAudience } from "~/app/_components/pages/PageAudience";
 
 interface PageShareMenuProps {
   pageId: string;
+  workspaceId: string;
   workspaceSlug: string;
   isPublic: boolean;
   publicId: string | null;
@@ -53,12 +56,16 @@ interface PageShareMenuProps {
 }
 
 /**
- * The "Share" popover + page actions menu on the Page editor (ADR-0038).
- * Publishing is gated server-side on edit access; this component is the
- * consent surface — it says plainly that the page becomes public.
+ * The "Share" popover + page actions menu on the Page editor. The popover
+ * leads with who can see the page now (and, for editors, how to change that
+ * by moving it between projects); publishing to the web (ADR-0038) comes
+ * last, for editors only. Publishing is gated server-side on edit access;
+ * this component is the consent surface — it says plainly that the page
+ * becomes public.
  */
 export function PageShareMenu({
   pageId,
+  workspaceId,
   workspaceSlug,
   isPublic,
   publicId,
@@ -174,22 +181,32 @@ export function PageShareMenu({
 
   return (
     <Group gap="xs" wrap="nowrap">
-      {canEdit ? (
-        <Popover width={360} position="bottom-end" shadow="md">
-          <Popover.Target>
-            <Button
-              variant={isPublic ? "light" : "default"}
-              size="xs"
-              leftSection={<IconWorld size={14} />}
-            >
-              {isPublic ? "Published" : "Share"}
-            </Button>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <Stack gap="sm">
+      <Popover width={360} position="bottom-end" shadow="md">
+        <Popover.Target>
+          <Button
+            variant={isPublic ? "light" : "default"}
+            size="xs"
+            leftSection={
+              isPublic ? <IconWorld size={14} /> : <IconUsers size={14} />
+            }
+          >
+            {isPublic ? "Published" : "Share"}
+          </Button>
+        </Popover.Target>
+        <Popover.Dropdown>
+          <Stack gap="sm">
+            <PageAudience
+              pageId={pageId}
+              workspaceId={workspaceId}
+              canEdit={canEdit}
+            />
+
+            {canEdit ? (
+              <>
+              <Divider />
               <Switch
                 label="Publish to web"
-                description="Anyone with the link can view the live page."
+                description="Makes the page public: anyone with the link can view the live page, no sign-in needed."
                 checked={isPublic}
                 disabled={publish.isPending || unpublish.isPending}
                 onChange={(e) =>
@@ -310,10 +327,11 @@ export function PageShareMenu({
                   ) : null}
                 </>
               ) : null}
-            </Stack>
-          </Popover.Dropdown>
-        </Popover>
-      ) : null}
+              </>
+            ) : null}
+          </Stack>
+        </Popover.Dropdown>
+      </Popover>
 
       <Menu position="bottom-end" shadow="md">
         <Menu.Target>

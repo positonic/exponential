@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Combobox, Text, useCombobox } from "@mantine/core";
+import { Combobox, Group, Text, useCombobox } from "@mantine/core";
+import { IconLock } from "@tabler/icons-react";
 
 /** A project option, grouped by its workspace in the dropdown. */
 export interface MeetingProjectOption {
@@ -10,6 +11,8 @@ export interface MeetingProjectOption {
   /** Null for personal (workspace-less) projects. */
   workspaceId: string | null;
   workspaceName: string | null;
+  /** Shows a lock — restricted projects are visible to their members only. */
+  isRestricted?: boolean;
 }
 
 const NONE_VALUE = "__none__";
@@ -34,6 +37,9 @@ interface MeetingProjectPickerProps {
   loading?: boolean;
   /** Fires when the dropdown opens — lets callers fetch candidates lazily. */
   onOpen?: () => void;
+  /** Render the dropdown in a portal (default). Pass false inside a Popover,
+   * where a portalled dropdown counts as an outside click and closes it. */
+  withinPortal?: boolean;
 }
 
 /**
@@ -53,6 +59,7 @@ export function MeetingProjectPicker({
   dropdownWidth = 260,
   loading = false,
   onOpen,
+  withinPortal = true,
 }: MeetingProjectPickerProps) {
   const combobox = useCombobox({
     onDropdownOpen: () => onOpen?.(),
@@ -84,6 +91,7 @@ export function MeetingProjectPicker({
       store={combobox}
       width={dropdownWidth}
       position="bottom-end"
+      withinPortal={withinPortal}
       onOptionSubmit={(val) => {
         onChange(val === NONE_VALUE ? null : val);
         combobox.closeDropdown();
@@ -116,7 +124,16 @@ export function MeetingProjectPicker({
             <Combobox.Group key={groupName} label={groupName}>
               {items.map((p) => (
                 <Combobox.Option key={p.id} value={p.id} active={value === p.id}>
-                  <Text size="xs">{p.name}</Text>
+                  <Group gap={4} wrap="nowrap">
+                    <Text size="xs">{p.name}</Text>
+                    {p.isRestricted ? (
+                      <IconLock
+                        size={12}
+                        className="shrink-0 text-text-muted"
+                        aria-label="Restricted"
+                      />
+                    ) : null}
+                  </Group>
                 </Combobox.Option>
               ))}
             </Combobox.Group>
