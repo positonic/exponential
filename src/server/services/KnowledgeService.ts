@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
+import { buildTranscriptionAccessWhere } from "~/server/services/access/resolvers/transcriptionResolver";
 import type {
   EmbeddingSource,
   EmbeddingResult,
@@ -61,6 +62,15 @@ export interface KnowledgeSearchOptions {
    * Fails closed: without it, page chunks are excluded entirely.
    */
   pageViewerId?: string;
+  /**
+   * Restrict `transcription` chunks to Meetings this user can view (the
+   * `buildTranscriptionAccessWhere` rule). Workspace scope alone is NOT
+   * Meeting access — restricted-project Meetings live in the workspace too —
+   * so every caller that searches transcription chunks on someone's behalf
+   * must pass this. Fails closed: without it, transcription chunks are
+   * excluded entirely.
+   */
+  transcriptionViewerId?: string;
   limit?: number;
   similarityThreshold?: number;
 }
@@ -507,6 +517,9 @@ export class KnowledgeService {
    *      which is out of scope for this PR.
    *   - `pageViewerId` — keep `page` chunks only for Pages this user can view;
    *      omitted, page chunks are dropped (fail closed)
+   *   - `transcriptionViewerId` — keep `transcription` chunks only for
+   *      Meetings this user can view; omitted, they are dropped (fail closed).
+   *      ANDed with `participantEmail`, which can only narrow the result.
    */
   async search(
     query: string,
@@ -519,6 +532,7 @@ export class KnowledgeService {
       sourceTypes,
       participantEmail,
       pageViewerId,
+      transcriptionViewerId,
       limit = 10,
     } = options;
 
@@ -585,6 +599,30 @@ export class KnowledgeService {
       pageAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'page' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
     }
 
+    // Meeting access: same shape as pages. Restricted-project Meetings share
+    // the workspace, so resolve the viewable sessions through the Meeting
+    // access where-builder and keep only their chunks. This is ANDed with the
+    // participant filter above: `participantEmail` names whose meetings to
+    // search, never who may see them.
+    const searchesTranscriptions =
+      !sourceTypes?.length || sourceTypes.includes("transcription");
+    let transcriptionAccessCondition = Prisma.empty;
+    if (searchesTranscriptions && !transcriptionViewerId) {
+      transcriptionAccessCondition = Prisma.sql`AND kc."sourceType" <> 'transcription'`;
+    } else if (searchesTranscriptions && transcriptionViewerId) {
+      const viewable = await this.db.transcriptionSession.findMany({
+        where: {
+          AND: [
+            { workspaceId },
+            buildTranscriptionAccessWhere(transcriptionViewerId),
+          ],
+        },
+        select: { id: true },
+      });
+      const viewableIds = viewable.map((s) => s.id);
+      transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
+    }
+
     // Execute vector search with parameterized query
     const results = await this.db.$queryRaw<
       Array<{
@@ -631,6 +669,7 @@ export class KnowledgeService {
         ${sourceTypeCondition}
         ${participantCondition}
         ${pageAccessCondition}
+        ${transcriptionAccessCondition}
       ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}
     `;

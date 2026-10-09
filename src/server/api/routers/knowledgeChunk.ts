@@ -149,9 +149,12 @@ export const knowledgeChunkRouter = createTRPCRouter({
       // 2. Workspace is the primary scope; we deliberately do NOT pass userId
       //    so the agent can find context across all members of the workspace
       //    (pre-meeting briefs need to surface chunks regardless of who
-      //    originally ingested the transcript). Page chunks are the exception:
-      //    `pageViewerId` keeps only Pages the caller can view, so restricted
-      //    Pages don't reach the agent through search.
+      //    originally ingested the transcript). Access still applies per
+      //    source: `pageViewerId` keeps only Pages the caller can view and
+      //    `transcriptionViewerId` only Meetings they can view, so restricted
+      //    Pages and restricted-project Meetings don't reach the agent through
+      //    search. A brief needs no more than that: `transcription.findRelated`
+      //    already returns only Meetings the caller can view.
       const sourceTypes = input.sourceType ? [input.sourceType] : undefined;
 
       const knowledgeService = getKnowledgeService(ctx.db);
@@ -160,6 +163,7 @@ export const knowledgeChunkRouter = createTRPCRouter({
         sourceTypes,
         participantEmail: input.participantEmail,
         pageViewerId: userId,
+        transcriptionViewerId: userId,
         limit: input.limit,
       });
 
