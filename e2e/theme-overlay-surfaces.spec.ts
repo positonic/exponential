@@ -21,54 +21,61 @@ const INSIGHTS = "/w/dev-fixture/products/fixture/insights";
 const FIRST_PAINT = 60_000;
 
 /**
- * Resolves a CSS colour value - usually a design token such as
- * `var(--color-brand-primary)` - to the computed form `toHaveCSS` compares
- * against. Read from the live page, so the expectations follow the tokens
- * instead of duplicating their values here.
+ * The computed form of `transparent`. Fixed by CSS rather than by the theme,
+ * so it is safe as a literal - the assertion it serves is "nothing painted
+ * here", not "this particular token's value".
  */
-async function resolveColor(page: Page, value: string): Promise<string> {
-  return page.evaluate((cssValue) => {
-    const probe = document.createElement("div");
-    probe.style.color = cssValue;
-    document.body.appendChild(probe);
-    const computed = getComputedStyle(probe).color;
-    probe.remove();
-    return computed;
-  }, value);
-}
+const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
+/**
+ * Resolves a --color-* design token to the computed form `toHaveCSS` compares
+ * against, read from the live page so expectations follow the tokens instead
+ * of duplicating their values here.
+ *
+ * Reads, validates and resolves in one evaluation. A token that is undefined,
+ * that holds something which isn't a colour, or that holds a context-dependent
+ * keyword leaves the probe's `color` declaration resolving against its parent -
+ * so the probe silently takes body's colour and the assertion compares against
+ * the wrong thing. That silent-inherit failure is the whole reason this helper
+ * exists, so each case throws instead. Doing it in one round trip also stops a
+ * restyle between read and resolve producing a mismatched expectation.
+ *
+ * Resolving against `document.body` is sound because every --color-* token is
+ * defined on `:root` / `[data-mantine-color-scheme]`, which body inherits. The
+ * two narrower scopes that redefine them, `.auth-surface` and `.dec-surface`,
+ * wrap pages this spec never visits - a test added inside either must resolve
+ * against the element under assertion instead.
+ */
 async function token(page: Page, name: string): Promise<string> {
-  // Read, validate and resolve in one evaluation. A token that is undefined -
-  // or defined as something that isn't a colour - leaves the probe's `color`
-  // declaration invalid, so the probe silently inherits body's colour and the
-  // assertion compares against the wrong thing. Checking definedness alone
-  // doesn't catch the second case, and splitting read from resolve lets the
-  // page restyle between the two. Both are closed here.
-  //
-  // Resolving against `document.body` is sound because every --color-* token
-  // is defined on `:root` / `[data-mantine-color-scheme]`, which body
-  // inherits. The two narrower scopes that redefine them, `.auth-surface` and
-  // `.dec-surface`, wrap pages this spec never visits - a test added inside
-  // either must resolve against the element under assertion instead.
-  const { raw, computed } = await page.evaluate((prop) => {
+  const { raw, reason, computed } = await page.evaluate((prop) => {
     const value = getComputedStyle(document.body).getPropertyValue(prop).trim();
-    if (value === "" || !CSS.supports("color", value)) {
-      return { raw: value, computed: null };
+    if (value === "") {
+      return { raw: value, reason: "undefined", computed: null };
+    }
+    // CSS.supports accepts these, but they resolve against whatever element
+    // they land on, which is exactly the silent inheritance we are guarding.
+    if (/^(inherit|initial|unset|revert|revert-layer|currentcolor)$/i.test(value)) {
+      return { raw: value, reason: "contextual", computed: null };
+    }
+    if (!CSS.supports("color", value)) {
+      return { raw: value, reason: "not-a-colour", computed: null };
     }
     const probe = document.createElement("div");
     probe.style.color = value;
     document.body.appendChild(probe);
     const resolved = getComputedStyle(probe).color;
     probe.remove();
-    return { raw: value, computed: resolved };
+    return { raw: value, reason: null, computed: resolved };
   }, name);
 
   if (computed === null) {
-    throw new Error(
-      raw === ""
-        ? `${name} is not defined on this page`
-        : `${name} is "${raw}", which is not a colour`,
-    );
+    const detail =
+      reason === "undefined"
+        ? "is not defined on this page"
+        : reason === "contextual"
+          ? `is "${raw}", which resolves against whatever element it is used on`
+          : `is "${raw}", which is not a colour`;
+    throw new Error(`${name} ${detail}`);
   }
   return computed;
 }
@@ -109,7 +116,7 @@ test("CommandPalette keeps its own darker content surface", async ({ page }) => 
   );
   await expect(page.locator(".mantine-Modal-body")).toHaveCSS(
     "background-color",
-    await resolveColor(page, "transparent"),
+    TRANSPARENT,
   );
 });
 
