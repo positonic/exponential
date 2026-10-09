@@ -31,8 +31,13 @@ name: PR-Agent auto-merge
 #     a fork, a bot author, a PR into a branch other than main, the `no-automerge` label.
 #
 # Override: the `pr-agent-ack` label merges despite blocking findings or suggestions. It
-# covers only the commit it was applied to — a later push removes it, so a new commit
-# can't merge on an old acknowledgement. It never overrides the schema rule.
+# means "a person saw the blocker and is merging anyway", so it only counts when one of
+# ACK_BY applied it (the last `labeled` event for it); from anyone else it is ignored and
+# the verdict says so. Agent sessions run `gh` as that same person, so this check can't
+# tell them apart — the `pr-agent-ack-guard` Claude Code hook stops sessions adding the
+# label on their side. The label covers only the commit it was applied to — a later push
+# removes it, so a new commit can't merge on an old acknowledgement. It never overrides
+# the schema rule.
 #
 # The merge is pinned to the commit PR-Agent reviewed (`sha` on the merge call), and
 # GitHub's branch rules decide whether the required checks have passed. A later push can
@@ -51,7 +56,10 @@ name: PR-Agent auto-merge
 #   2. restrict that environment to the main branch, so workflows on other branches can't
 #      read the key.
 #   3. accept that open PRs keep their last dry-run verdict: it was posted by github-actions
-#      and the App can't edit it, so the live gate posts its own comment beside it.
+#      and the App can't edit it, so the live gate posts its own comment beside it;
+#   4. label every PR that is already open `no-automerge`, so a stray push to something
+#      shelved months ago can't land it:
+#        gh pr list --state open --json number -q '.[].number' | xargs -I{} gh pr edit {} --add-label no-automerge
 # Merges must use the App's token, not GITHUB_TOKEN: a merge made with GITHUB_TOKEN doesn't
 # trigger other workflows, so exponential-promote.yml would never move Tickets to DONE.
 #
@@ -124,6 +132,8 @@ jobs:
             const MARKER = '<!-- pr-agent-automerge -->';
             const OPT_OUT = 'no-automerge';
             const ACK = 'pr-agent-ack';
+            // Who may acknowledge a blocker. See the header on why this is a login list.
+            const ACK_BY = ['positonic'];
             // PR-Agent runs as a workflow in this repo, so it posts as github-actions.
             const PR_AGENT = 'github-actions[bot]';
             const CHECK_NAME = 'PR Agent review';
@@ -222,14 +232,18 @@ jobs:
               const minor = review.findings.length - review.findings.filter(f => f.tag !== 'minor').length;
               const tally = `${review.findings.length} unresolved finding(s) (${minor} tagged minor), ` +
                 `${scores.length} suggestion(s)${scores.length ? `, top score ${Math.max(...scores)}` : ''}`;
-              const acked = pr.labels.some(l => l.name === ACK);
+              const ackActor = pr.labels.some(l => l.name === ACK) ? await ackedBy(number) : null;
+              const acked = ackActor !== null && ACK_BY.includes(ackActor);
               if (blocking.length && !acked) {
+                const ackNote = ackActor !== null
+                  ? `The \`${ACK}\` label was added by @${ackActor}, who isn't allowed to acknowledge; only ${ACK_BY.map(a => `@${a}`).join(', ')} can.`
+                  : `Fix them, or add the \`${ACK}\` label to merge this commit anyway.`;
                 return report(number, `PR-Agent auto-merge skipped on \`${short}\`: ${blocking.length} blocking item(s) from PR-Agent ` +
-                  `(${tally}). Fix them, or add the \`${ACK}\` label to merge this commit anyway.\n\n` +
+                  `(${tally}). ${ackNote}\n\n` +
                   blocking.map(b => `- ${b}`).join('\n'));
               }
               const verdict = blocking.length
-                ? `PR-Agent: ${blocking.length} blocking item(s) on \`${short}\`, acknowledged with \`${ACK}\` (${tally})`
+                ? `PR-Agent: ${blocking.length} blocking item(s) on \`${short}\`, acknowledged by @${ackActor} with \`${ACK}\` (${tally})`
                 : `PR-Agent: nothing blocking on \`${short}\` (${tally})`;
 
               if (dryRun) return report(number, `[dry run] ${verdict} — would merge once the required checks pass.`);
@@ -273,12 +287,23 @@ jobs:
               }
             }
 
+            // Login of whoever last added the ack label, or null if it was never added.
+            async function ackedBy(number) {
+              const events = await github.paginate(github.rest.issues.listEvents, { owner, repo, issue_number: number, per_page: 100 });
+              const last = events.filter(e => e.event === 'labeled' && e.label?.name === ACK).pop();
+              return last?.actor?.login ?? null;
+            }
+
             // Returns { sha, complete, findings, security }, or null when the comment can't be
             // read. sha is null when the comment names no commit (a standalone review); the
             // caller then dates the comment against the review run instead.
             function readReview(body, url) {
+              // Fails closed: the review always has a 🔒 row (require_security_review), so a row
+              // that is missing or can't be read counts as a concern, never as "none found".
               const securityRow = body.match(/🔒(?:&nbsp;|\s)*<strong>([^<]*)<\/strong>/)?.[1].trim();
-              const security = securityRow && !/^No security concerns/i.test(securityRow) ? securityRow : null;
+              const security = securityRow
+                ? (/^No security concerns/i.test(securityRow) ? null : securityRow)
+                : (body.includes('🔒') ? 'the 🔒 row could not be read' : 'the review has no 🔒 row');
               const finding = (header, link, where) => {
                 const tag = header.match(/^\[(blocker|minor)\]/i)?.[1].toLowerCase() ?? null;
                 return { tag, title: header.replace(/^\[(blocker|minor)\]\s*/i, ''), url: link, where };
@@ -290,9 +315,11 @@ jobs:
                 // A state block always names its commit; without one, don't fall back to dating
                 // the comment, which would accept an incomplete review.
                 if (!state.last_run?.head_sha) return null;
+                // A missing or reshaped findings list is an unreadable block, not an empty one.
+                if (!Array.isArray(state.findings)) return null;
                 // Anything not RESOLVED counts as open (ACTIVE today) — the safe direction if
                 // PR-Agent adds a state.
-                const findings = (state.findings ?? []).filter(f => f.state !== 'RESOLVED').map(f =>
+                const findings = state.findings.filter(f => f.state !== 'RESOLVED').map(f =>
                   finding(f.body?.match(/^\s*\*\*([\s\S]+?)\*\*/)?.[1].trim() ?? 'Untitled finding', url, `${f.path}:${f.line_start}`));
                 return { sha: state.last_run?.head_sha ?? null, complete: state.last_run?.complete === true, findings, security };
               }

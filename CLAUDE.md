@@ -454,6 +454,20 @@ We use a hybrid git flow optimized for a small team (2 developers) that balances
 - `/check-deploy-safety` - Analyze changes and recommend merge strategy
 - `/sync-branches` - Keep develop updated with main after fast-track merges
 
+### Who merges: the PR-Agent auto-merge gate, or James
+
+`.github/workflows/pr-agent-automerge.yml` squash-merges a PR into `main` once CI is green
+and PR-Agent left nothing blocking on the latest commit. **Agent sessions do not merge PRs.**
+
+- Never pass `--merge` to `/ship-this` or `/ship-ticket`, and never run `gh pr merge`. Open
+  the PR, apply PR-Agent's findings, push, and stop at "in review". The gate (or James) merges.
+- Never add the `pr-agent-ack` label. It means "James saw the blocker and is merging anyway".
+  Only James applies it: a Claude Code hook blocks sessions from adding it, and the gate
+  ignores it from anyone else.
+- A PR you can't get past the gate is left for James with a comment saying what blocks it
+  and why you could not fix it.
+- `no-automerge` on a PR keeps it human-only. Don't remove it.
+
 ### Database Migration Safety
 - All schema changes MUST go through develop branch first
 - Test database (Railway) shared by develop and all PR previews
