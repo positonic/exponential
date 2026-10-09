@@ -90,6 +90,12 @@ export function CsvImportDialog({
     batchId: null,
     offset: 0,
   });
+  // Generation counter for the chunk loop: closing the dialog (including the
+  // title-bar X), unmounting, or starting a new run bumps it, and a loop
+  // whose id no longer matches stops dead. Without this, a loop surviving
+  // handleClose would see the reset resumeRef and silently restart the
+  // import from row 0 into a fresh batch.
+  const runSeqRef = useRef(0);
 
   const hasDealColumn = Object.values(mapping).includes("dealValue");
   const emailColumnCount = Object.values(mapping).filter(
@@ -123,6 +129,7 @@ export function CsvImportDialog({
   // again after a failed chunk resumes rather than restarts.
   const runImport = async () => {
     if (!parsed) return;
+    const runId = ++runSeqRef.current;
     setStep("progress");
     setImportError(null);
     const rows = parsed.rows;
@@ -130,6 +137,7 @@ export function CsvImportDialog({
       hasDealColumn && pipelineId && stageId ? { pipelineId, stageId } : null;
     try {
       while (resumeRef.current.offset < rows.length) {
+        if (runId !== runSeqRef.current) return; // dialog closed or rerun
         const offset = resumeRef.current.offset;
         const chunk = rows.slice(offset, offset + IMPORT_CHUNK_SIZE);
         const result = await importMutation.mutateAsync({
@@ -142,6 +150,7 @@ export function CsvImportDialog({
           mapping,
           dealConfig,
         });
+        if (runId !== runSeqRef.current) return;
         resumeRef.current = {
           batchId: result.batchId,
           offset: offset + chunk.length,
@@ -157,6 +166,7 @@ export function CsvImportDialog({
       }
       setStep("success");
     } catch (error) {
+      if (runId !== runSeqRef.current) return;
       setImportError(
         error instanceof Error ? error.message : "The import was interrupted",
       );
@@ -191,6 +201,7 @@ export function CsvImportDialog({
   };
 
   const handleClose = () => {
+    runSeqRef.current++; // stop a live chunk loop before resetting its refs
     setStep("upload");
     setFile(null);
     setParseError(null);
@@ -226,6 +237,7 @@ export function CsvImportDialog({
       onClose={handleClose}
       title="Import Contacts from CSV"
       size="xl"
+      withCloseButton={step !== "progress" || importError !== null}
       closeOnClickOutside={step !== "progress" || importError !== null}
       closeOnEscape={step !== "progress" || importError !== null}
     >

@@ -76,6 +76,12 @@ export function ImportDialog({
   // The server batch carries the resume cursor (Google page tokens), so
   // retrying with the same batchId continues where the failed step stopped.
   const batchIdRef = useRef<string | null>(null);
+  // Generation counter for the step loop: closing the dialog (including the
+  // title-bar X), unmounting, or starting a new run bumps it, and a loop
+  // whose id no longer matches stops dead. Without this, a loop surviving
+  // handleClose would see the nulled batchIdRef and silently restart the
+  // whole import into a fresh batch.
+  const runSeqRef = useRef(0);
 
   // Check Google connection
   const { data: connection, isLoading: connectionLoading } =
@@ -91,12 +97,14 @@ export function ImportDialog({
   // batch's cumulative counters. Background processing doesn't survive
   // serverless, so the client is the loop.
   const runImport = async () => {
+    const runId = ++runSeqRef.current;
     setStep("progress");
     setImportError(null);
     try {
       let completed = false;
       let steps = 0;
       while (!completed) {
+        if (runId !== runSeqRef.current) return; // dialog closed or rerun
         if (++steps > MAX_STEPS_PER_RUN) {
           throw new Error("The import is taking unusually long");
         }
@@ -107,6 +115,7 @@ export function ImportDialog({
             source === "CALENDAR" || source === "BOTH" ? dateRange : undefined,
           batchId: batchIdRef.current,
         });
+        if (runId !== runSeqRef.current) return;
         batchIdRef.current = result.batchId;
         completed = result.completed;
         setProgress({
@@ -120,6 +129,7 @@ export function ImportDialog({
       }
       setStep("success");
     } catch (error) {
+      if (runId !== runSeqRef.current) return;
       setImportError(
         error instanceof Error ? error.message : "The import was interrupted",
       );
@@ -139,6 +149,7 @@ export function ImportDialog({
 
   // Reset state on close
   const handleClose = () => {
+    runSeqRef.current++; // stop a live step loop before resetting its refs
     setStep("connect");
     setSource("BOTH");
     setDateRange({
@@ -164,6 +175,7 @@ export function ImportDialog({
       onClose={handleClose}
       title="Import Contacts"
       size="lg"
+      withCloseButton={step !== "progress" || importError !== null}
       closeOnClickOutside={step !== "progress" || importError !== null}
       closeOnEscape={step !== "progress" || importError !== null}
     >
