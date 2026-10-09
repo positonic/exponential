@@ -105,12 +105,22 @@ export function pickSummaryProse(rawSummary: string): string | null {
     return trimmed || null;
   }
 
-  const record = parsed as Record<string, unknown>;
+  // Matched loosely, so `shortSummary` and `short-summary` count as `short_summary`.
+  const byKey = new Map(
+    Object.entries(parsed as Record<string, unknown>).map(([key, value]) => [
+      normalizeKey(key),
+      value,
+    ]),
+  );
   for (const key of SUMMARY_PROSE_KEYS) {
-    const rendered = renderSection(record[key]);
+    const rendered = renderSection(byKey.get(normalizeKey(key)));
     if (rendered) return rendered;
   }
   return null;
+}
+
+function normalizeKey(key: string): string {
+  return key.replace(/[_-]+/g, "").toLowerCase();
 }
 
 function renderSection(value: unknown): string | null {

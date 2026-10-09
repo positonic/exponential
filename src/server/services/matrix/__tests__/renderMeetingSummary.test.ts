@@ -146,6 +146,12 @@ describe("pickSummaryProse", () => {
     );
   });
 
+  it("matches camelCase field names too", () => {
+    expect(
+      pickSummaryProse(JSON.stringify({ actionItems: ["x"], shortSummary: "Brief." })),
+    ).toBe("Brief.");
+  });
+
   it("turns a bullet-array field into markdown bullets", () => {
     expect(pickSummaryProse(JSON.stringify({ shorthand_bullet: ["one", "two"] }))).toBe(
       "- one\n- two",
