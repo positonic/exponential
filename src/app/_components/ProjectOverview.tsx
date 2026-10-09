@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   IconActivity,
@@ -10,9 +10,11 @@ import {
   IconLayersIntersect,
   IconMessage,
   IconPlus,
+  IconSortAscending,
+  IconSortDescending,
   IconTargetArrow,
 } from "@tabler/icons-react";
-import { ActionIcon } from "@mantine/core";
+import { ActionIcon, Tooltip } from "@mantine/core";
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
@@ -149,6 +151,13 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
     sinceDays: 7,
     limit: 12,
   });
+  const [activityNewestFirst, setActivityNewestFirst] = useState(true);
+  const sortedActivity = useMemo(() => {
+    const byTime = (a: ActivityRow, b: ActivityRow) =>
+      new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime();
+    const asc = [...activity].sort(byTime);
+    return activityNewestFirst ? asc.reverse() : asc;
+  }, [activity, activityNewestFirst]);
   const transcriptions = project.transcriptionSessions ?? [];
   const { workspace } = useWorkspace();
   const { data: docs = [] } = api.page.list.useQuery(
@@ -360,6 +369,22 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
             What shifted this week
             <span className={styles.sectionMeta}>{activity.length}</span>
           </div>
+          {activity.length > 1 && (
+            <Tooltip
+              label={activityNewestFirst ? "Newest first — click for oldest first" : "Oldest first — click for newest first"}
+              position="left"
+              withArrow
+            >
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                aria-label={activityNewestFirst ? "Sort oldest first" : "Sort newest first"}
+                onClick={() => setActivityNewestFirst((v) => !v)}
+              >
+                {activityNewestFirst ? <IconSortDescending size={16} /> : <IconSortAscending size={16} />}
+              </ActionIcon>
+            </Tooltip>
+          )}
         </div>
         <div className={styles.sectionBodyFlush}>
           {activity.length === 0 ? (
@@ -370,7 +395,7 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
               <div>No changes recorded in the last 7 days.</div>
             </div>
           ) : (
-            activity.map((row) => {
+            sortedActivity.map((row) => {
               const { verb, target, detail } = describeActivity(row);
               const actor = row.changedBy?.name ?? "Someone";
               return (
