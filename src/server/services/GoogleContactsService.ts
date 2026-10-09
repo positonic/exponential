@@ -43,7 +43,8 @@ export interface GoogleCalendarEvent {
     date?: string;
   };
   attendees?: Array<{
-    email: string;
+    /** The Calendar API can omit this (e.g. some resource/organizer rows). */
+    email?: string;
     displayName?: string;
     responseStatus?: string;
     organizer?: boolean;
@@ -163,6 +164,7 @@ export class GoogleContactsService {
       const attendees = event.attendees ?? [];
 
       for (const attendee of attendees) {
+        if (!attendee.email) continue;
         const email = attendee.email.toLowerCase().trim();
 
         // Skip the user's own email
@@ -205,8 +207,8 @@ export class GoogleContactsService {
 
     return events.filter((event) => {
       const attendees = event.attendees ?? [];
-      return attendees.some((attendee) =>
-        attendee.email.toLowerCase().trim() === email
+      return attendees.some(
+        (attendee) => attendee.email?.toLowerCase().trim() === email
       );
     });
   }

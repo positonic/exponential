@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { db } from "~/server/db";
 import {
@@ -40,6 +40,13 @@ const CALENDAR_STEP_PAIR_BUDGET = 300;
 const MAX_RECORDED_ERRORS = 20;
 
 /**
+ * A violation of the batch contract (unknown batch, finished import, raced
+ * step) — the router surfaces these as BAD_REQUEST; anything else thrown by
+ * a step is an upstream failure and is reported as a server error.
+ */
+export class ImportBatchError extends Error {}
+
+/**
  * Where the next step picks up. Persisted in the batch's metadata between
  * requests; absent once the import has finished.
  */
@@ -48,10 +55,13 @@ interface ImportCursor {
   /** Google page token for the phase's current page (first page when unset). */
   pageToken?: string;
   /**
-   * CALENDAR only: index of the next contact within the current page's
-   * extracted-contact list, for pages too heavy for one step.
+   * CALENDAR only: email hash of the last contact processed on the current
+   * page, for pages too heavy for one step. A hash (never the email), and
+   * resolved to a position on the re-fetched page — the calendar is live,
+   * so a positional index could silently skip contacts if the page shifted
+   * between steps.
    */
-  contactOffset?: number;
+  lastContactHash?: string;
 }
 
 export interface ImportStepResult {
@@ -159,17 +169,37 @@ export class ContactSyncService {
     if (
       !batch ||
       batch.workspaceId !== workspaceId ||
+      batch.createdById !== userId ||
       !["GMAIL", "CALENDAR", "BOTH"].includes(batch.source)
     ) {
-      throw new Error("Import batch not found");
+      throw new ImportBatchError("Import batch not found");
+    }
+    // A client that lost the response to the final step retries into a
+    // finished batch — report its final state instead of stranding the
+    // dialog on an error (same resend posture as the CSV import).
+    if (batch.status === "COMPLETED" || batch.status === "PARTIAL_SUCCESS") {
+      return {
+        batchId: batch.id,
+        status: batch.status,
+        phase: null,
+        totalContacts: batch.totalContacts,
+        processedContacts: batch.processedContacts,
+        newContacts: batch.newContacts,
+        updatedContacts: batch.updatedContacts,
+        errorCount: batch.errorCount,
+        errors: recordedErrorsOf(batch.metadata),
+        completed: true,
+      };
     }
     if (batch.status !== "IN_PROGRESS") {
-      throw new Error("This import has already finished");
+      throw new ImportBatchError("This import has already finished");
     }
 
     const cursor = cursorOf(batch.metadata);
     if (!cursor) {
-      throw new Error("This import has no resume point — start a new import");
+      throw new ImportBatchError(
+        "This import has no resume point — start a new import"
+      );
     }
 
     const priorErrors = recordedErrorsOf(batch.metadata);
@@ -207,31 +237,48 @@ export class ContactSyncService {
     if (allErrors.length > 0) metadata.errors = allErrors;
     if (counters.nextCursor) metadata.cursor = { ...counters.nextCursor };
 
-    const updatedBatch = await db.contactImportBatch.update({
-      where: { id: batch.id },
+    // No fixed denominator exists for a stepped Google import (calendar
+    // contacts are discovered page by page), so total tracks processed.
+    const totalContacts = batch.totalContacts + counters.processed;
+    const processedContacts = batch.processedContacts + counters.processed;
+    const newContacts = batch.newContacts + counters.created;
+    const updatedContacts = batch.updatedContacts + counters.updated;
+
+    // Guarded write: if a second step raced us on this batch (double-fired
+    // client), both computed their counts from the same base and the loser
+    // must not apply them a second time.
+    const written = await db.contactImportBatch.updateMany({
+      where: {
+        id: batch.id,
+        status: "IN_PROGRESS",
+        processedContacts: batch.processedContacts,
+      },
       data: {
         status,
-        // No fixed denominator exists for a stepped Google import (calendar
-        // contacts are discovered page by page), so total tracks processed.
-        totalContacts: batch.totalContacts + counters.processed,
-        processedContacts: batch.processedContacts + counters.processed,
-        newContacts: batch.newContacts + counters.created,
-        updatedContacts: batch.updatedContacts + counters.updated,
+        totalContacts,
+        processedContacts,
+        newContacts,
+        updatedContacts,
         errorCount,
         metadata,
         ...(completed ? { completedAt: new Date() } : {}),
       },
     });
+    if (written.count === 0) {
+      throw new ImportBatchError(
+        "Another step of this import is already running — retry in a moment"
+      );
+    }
 
     return {
-      batchId: updatedBatch.id,
-      status: updatedBatch.status,
+      batchId: batch.id,
+      status,
       phase: counters.nextCursor?.phase ?? null,
-      totalContacts: updatedBatch.totalContacts,
-      processedContacts: updatedBatch.processedContacts,
-      newContacts: updatedBatch.newContacts,
-      updatedContacts: updatedBatch.updatedContacts,
-      errorCount: updatedBatch.errorCount,
+      totalContacts,
+      processedContacts,
+      newContacts,
+      updatedContacts,
+      errorCount,
       errors: allErrors,
       completed,
     };
@@ -311,7 +358,7 @@ export class ContactSyncService {
 
   /**
    * One CALENDAR step: fetch the cursor's events page, extract its external
-   * attendees, and process contacts from `contactOffset` until the pair
+   * attendees, and process contacts after `lastContactHash` until the pair
    * budget is spent — the remainder of a heavy page carries over to the
    * next step. Contacts recurring across pages are re-processed cheaply
    * (dedup makes it a no-op), which slightly inflates the processed count
@@ -327,7 +374,9 @@ export class ContactSyncService {
   ): Promise<StepCounters> {
     const dateRange = dateRangeOf(batchMetadata);
     if (!dateRange) {
-      throw new Error("This import has no date range — start a new import");
+      throw new ImportBatchError(
+        "This import has no date range — start a new import"
+      );
     }
 
     const { events, nextPageToken } =
@@ -339,14 +388,19 @@ export class ContactSyncService {
         CALENDAR_EVENTS_PER_PAGE
       );
 
-    // Deterministic (Map insertion order), so the offset is stable when a
-    // split page is re-fetched by the same token on the next step.
     const pageContacts = GoogleContactsService.extractContactsFromEvents(
       events,
       userEmail ?? ""
     );
 
-    const offset = cursor.contactOffset ?? 0;
+    // Resolve the resume point on the (re-fetched, possibly shifted) page.
+    // An unknown hash resolves to 0: re-processing is idempotent, skipping
+    // is not.
+    const offset = cursor.lastContactHash
+      ? pageContacts.findIndex(
+          (c) => this.generateEmailHash(c.email) === cursor.lastContactHash
+        ) + 1
+      : 0;
     let sliceEnd = offset;
     let pairs = 0;
     while (
@@ -408,7 +462,13 @@ export class ContactSyncService {
 
     const nextCursor: ImportCursor | null =
       sliceEnd < pageContacts.length
-        ? { phase: "CALENDAR", pageToken: cursor.pageToken, contactOffset: sliceEnd }
+        ? {
+            phase: "CALENDAR",
+            pageToken: cursor.pageToken,
+            lastContactHash: this.generateEmailHash(
+              pageContacts[sliceEnd - 1]!.email
+            ),
+          }
         : nextPageToken
           ? { phase: "CALENDAR", pageToken: nextPageToken }
           : null;
@@ -492,22 +552,34 @@ export class ContactSyncService {
     }
 
     // Create new contact
-    await db.crmContact.create({
-      data: {
-        workspaceId,
-        createdById: userId,
-        firstName: contactInfo.firstName,
-        lastName: contactInfo.lastName,
-        email: encryptedEmail,
-        phone: encryptedPhone,
-        linkedIn: encryptedLinkedIn,
-        emailHash,
-        importSource: source,
-        googleContactId: contactInfo.googleContactId,
-        lastSyncedAt: new Date(),
-        connectionScore: 0, // Will be calculated later
-      },
-    });
+    try {
+      await db.crmContact.create({
+        data: {
+          workspaceId,
+          createdById: userId,
+          firstName: contactInfo.firstName,
+          lastName: contactInfo.lastName,
+          email: encryptedEmail,
+          phone: encryptedPhone,
+          linkedIn: encryptedLinkedIn,
+          emailHash,
+          importSource: source,
+          googleContactId: contactInfo.googleContactId,
+          lastSyncedAt: new Date(),
+          connectionScore: 0, // Will be calculated later
+        },
+      });
+    } catch (err) {
+      // Concurrent write raced us to (workspaceId, emailHash) — treat the
+      // winner as ours, same as the CSV import.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        return "unchanged";
+      }
+      throw err;
+    }
 
     return "created";
   }
@@ -653,17 +725,17 @@ function cursorOf(metadata: Prisma.JsonValue | null): ImportCursor | null {
   if (!cursor || typeof cursor !== "object" || Array.isArray(cursor)) {
     return null;
   }
-  const { phase, pageToken, contactOffset } = cursor as {
+  const { phase, pageToken, lastContactHash } = cursor as {
     phase?: unknown;
     pageToken?: unknown;
-    contactOffset?: unknown;
+    lastContactHash?: unknown;
   };
   if (phase !== "GMAIL" && phase !== "CALENDAR") return null;
   return {
     phase,
     pageToken: typeof pageToken === "string" ? pageToken : undefined,
-    contactOffset:
-      typeof contactOffset === "number" ? contactOffset : undefined,
+    lastContactHash:
+      typeof lastContactHash === "string" ? lastContactHash : undefined,
   };
 }
 

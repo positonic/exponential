@@ -5,7 +5,10 @@ import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
-import { ContactSyncService } from "~/server/services/ContactSyncService";
+import {
+  ContactSyncService,
+  ImportBatchError,
+} from "~/server/services/ContactSyncService";
 import {
   CSV_IMPORT_MAX_CHUNK,
   CSV_IMPORT_MAX_ROWS,
@@ -23,6 +26,7 @@ import {
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { GOOGLE_SCOPES, isGoogleOAuthTester } from "~/lib/googleAuth";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { CRM_CONTACT_MEMBER_TYPE } from "~/server/services/collections/memberTypeRegistry";
 import {
   MERGE_FIELD_KEYS,
@@ -1768,11 +1772,13 @@ export const crmContactRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { workspaceId, source, dateRange } = input;
 
-      // Verify user has access to workspace
+      // Importing writes contacts and interactions in bulk — members only,
+      // not viewers (same gate as importFromCsv below).
       const workspaceAccess = await ctx.db.workspaceUser.findFirst({
         where: {
           workspaceId,
           userId: ctx.session.user.id,
+          role: { in: ["owner", "admin", "member"] },
         },
       });
 
@@ -1828,10 +1834,18 @@ export const crmContactRouter = createTRPCRouter({
           userEmail,
         );
       } catch (error) {
-        // Batch-level violations and Google API failures surface here; the
-        // batch stays IN_PROGRESS with its cursor, so the client can retry.
+        // The batch stays IN_PROGRESS with its cursor, so the client can
+        // retry either way. Contract violations are the caller's problem;
+        // anything else (Google API, DB) is ours and worth a bug record.
+        if (error instanceof ImportBatchError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        reportHandledErrorServer(error, {
+          area: "crm.importContacts",
+          context: { batchId, source },
+        });
         throw new TRPCError({
-          code: "BAD_REQUEST",
+          code: "INTERNAL_SERVER_ERROR",
           message:
             error instanceof Error ? error.message : "Contact import failed",
         });
@@ -1960,7 +1974,11 @@ export const crmContactRouter = createTRPCRouter({
       }
     }),
 
-  // Get import batch status
+  // Get import batch status. Both import paths are now client-driven (the
+  // step/chunk responses carry the counters), so nothing in-app polls this
+  // anymore; it remains for external consumers of the batch row. For stepped
+  // Google batches, totalContacts tracks processedContacts (no upfront
+  // denominator) and PENDING never occurs.
   getImportStatus: protectedProcedure
     .input(z.object({ batchId: z.string() }))
     .query(async ({ ctx, input }) => {
