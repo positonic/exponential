@@ -137,11 +137,115 @@ export function cycleTimesMs(
   });
 }
 
+export interface DeliveryFlowTicketRef {
+  id: string;
+  urlId: string;
+  displayId: string;
+  title: string;
+  productSlug: string;
+}
+
 export interface DeliveryFlowTicket {
   id: string;
   status: string;
   completedAt: Date | null;
   updatedAt: Date;
+  /** Present when the caller wants size calibration. */
+  points?: number | null;
+  ref?: DeliveryFlowTicketRef;
+}
+
+export interface SizeBucket {
+  /** "XS" / "3" / "8h" per the workspace unit, or "Unsized". */
+  label: string;
+  points: number | null;
+  /** Completed in the window with this size (whether or not timed). */
+  count: number;
+  /** Of those, with a recorded start -> the percentiles' sample. */
+  sampleSize: number;
+  p50Hours: number | null;
+  p85Hours: number | null;
+}
+
+export interface SizeOutlier {
+  ticket: DeliveryFlowTicketRef;
+  size: string;
+  cycleTimeHours: number;
+  bucketP85Hours: number;
+}
+
+export interface SizeCalibration {
+  buckets: SizeBucket[];
+  /** Up to 10 tickets that took longer than their size's p85, worst first. */
+  outliers: SizeOutlier[];
+  /** Completed in the window carrying a size. */
+  sized: number;
+  /** Completed in the window, sized or not. */
+  completed: number;
+}
+
+export const UNSIZED_LABEL = "Unsized";
+const MAX_OUTLIERS = 10;
+
+/**
+ * Cycle time grouped by size, and the tickets that blew past their size.
+ * The point of sizing is this comparison: a ticket sized S that took two
+ * weeks is a spec or a blocked decision, and that is the planning signal.
+ * Pure; `labelFor` maps stored points to the workspace's vocabulary.
+ */
+export function computeSizeCalibration(
+  items: { ticket: DeliveryFlowTicket; cycleTimeMs: number | null }[],
+  labelFor: (points: number) => string,
+): SizeCalibration {
+  const groups = new Map<string, { points: number | null; times: number[]; count: number; timed: { ref: DeliveryFlowTicketRef; ms: number }[] }>();
+  for (const { ticket, cycleTimeMs } of items) {
+    const points = ticket.points ?? null;
+    const label = points == null ? UNSIZED_LABEL : labelFor(points);
+    const g = groups.get(label) ?? { points, times: [], count: 0, timed: [] };
+    g.count += 1;
+    if (cycleTimeMs != null) {
+      g.times.push(cycleTimeMs);
+      if (ticket.ref) g.timed.push({ ref: ticket.ref, ms: cycleTimeMs });
+    }
+    groups.set(label, g);
+  }
+
+  const buckets: SizeBucket[] = [...groups.entries()]
+    .map(([label, g]) => {
+      const enough = g.times.length >= MIN_CYCLE_TIME_SAMPLES;
+      return {
+        label,
+        points: g.points,
+        count: g.count,
+        sampleSize: g.times.length,
+        p50Hours: enough ? percentile(g.times, 0.5)! / HOUR : null,
+        p85Hours: enough ? percentile(g.times, 0.85)! / HOUR : null,
+      };
+    })
+    .sort((a, b) => {
+      if (a.points == null) return 1;
+      if (b.points == null) return -1;
+      return a.points - b.points;
+    });
+
+  const outliers: SizeOutlier[] = [];
+  for (const [label, g] of groups) {
+    if (label === UNSIZED_LABEL || g.times.length < MIN_CYCLE_TIME_SAMPLES) continue;
+    const p85 = percentile(g.times, 0.85)!;
+    for (const t of g.timed) {
+      if (t.ms > p85) {
+        outliers.push({ ticket: t.ref, size: label, cycleTimeHours: t.ms / HOUR, bucketP85Hours: p85 / HOUR });
+      }
+    }
+  }
+  outliers.sort((a, b) => b.cycleTimeHours / b.bucketP85Hours - a.cycleTimeHours / a.bucketP85Hours);
+
+  return {
+    buckets,
+    outliers: outliers.slice(0, MAX_OUTLIERS),
+    sized: items.filter((i) => i.ticket.points != null).length,
+    completed: items.length,
+  };
 }
 
 export interface DeliveryFlowResult {
@@ -160,6 +264,8 @@ export interface DeliveryFlowResult {
   };
   /** How many of the window's completions were dated by an event (vs. fallback). */
   datedByEvents: number;
+  /** Size versus actual cycle time; present when the caller asked for it. */
+  sizes: SizeCalibration | null;
 }
 
 /**
@@ -175,20 +281,21 @@ export function computeDeliveryFlow(
   moves: StatusMove[],
   now: Date,
   weeks = 12,
+  opts?: { sizeLabel?: (points: number) => string },
 ): DeliveryFlowResult {
   const finished = finishedAtFromEvents(moves);
   const started = startedAtFromEvents(moves);
   const endOfToday = startOfUtcDay(now) + DAY;
   const windowStart = flowWindowStart(now, weeks).getTime();
 
-  const inWindow: { id: string; finishedAt: Date; byEvent: boolean }[] = [];
+  const inWindow: { id: string; finishedAt: Date; byEvent: boolean; ticket: DeliveryFlowTicket }[] = [];
   for (const t of tickets) {
     if (!COMPLETED.has(t.status)) continue;
     const byEvent = finished.get(t.id);
     const at = byEvent ?? t.completedAt ?? t.updatedAt;
     const ms = at.getTime();
     if (ms >= windowStart && ms < endOfToday) {
-      inWindow.push({ id: t.id, finishedAt: at, byEvent: byEvent !== undefined });
+      inWindow.push({ id: t.id, finishedAt: at, byEvent: byEvent !== undefined, ticket: t });
     }
   }
 
@@ -205,6 +312,16 @@ export function computeDeliveryFlow(
   const enough = times.length >= MIN_CYCLE_TIME_SAMPLES;
   const hours = (ms: number | null) => (ms === null ? null : ms / HOUR);
 
+  const sizes = opts?.sizeLabel
+    ? computeSizeCalibration(
+        inWindow.map((t) => ({
+          ticket: t.ticket,
+          cycleTimeMs: cycleTimesMs([t], started)[0] ?? null,
+        })),
+        opts.sizeLabel,
+      )
+    : null;
+
   return {
     weeks,
     throughput,
@@ -216,5 +333,6 @@ export function computeDeliveryFlow(
       sampleSize: times.length,
     },
     datedByEvents: inWindow.filter((t) => t.byEvent).length,
+    sizes,
   };
 }

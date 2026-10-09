@@ -24,7 +24,19 @@ function makeService(opts: {
   events: { entityId: string; metadata: unknown; createdAt: Date }[];
 }) {
   const prisma = {
-    ticket: { findMany: vi.fn().mockResolvedValue(opts.tickets) },
+    workspace: { findUnique: vi.fn().mockResolvedValue({ effortUnit: "T_SHIRT" }) },
+    ticket: {
+      findMany: vi.fn().mockResolvedValue(
+        opts.tickets.map((t) => ({
+          points: null,
+          number: 1,
+          shortId: null,
+          title: "t",
+          product: { slug: "p", name: "P", funTicketIds: false },
+          ...t,
+        })),
+      ),
+    },
     workspaceActivityEvent: { findMany: vi.fn().mockResolvedValue(opts.events) },
   };
   return {
@@ -80,6 +92,8 @@ describe("SprintAnalyticsService.getDeliveryFlow", () => {
     expect(result.datedByEvents).toBe(1);
     expect(result.cycleTime.sampleSize).toBe(1);
     expect(result.cycleTime.p50Hours).toBeNull();
+    expect(result.sizes).toMatchObject({ completed: 1, sized: 0 });
+    expect(result.sizes?.buckets.map((b) => b.label)).toEqual(["Unsized"]);
   });
 
   it("omits the assignee clause when the member filter is off, and skips the event query with no tickets", async () => {

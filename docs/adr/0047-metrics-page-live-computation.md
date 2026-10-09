@@ -138,3 +138,13 @@ status moves, but the Metrics page did not show them.
 **Consequences.** The page has real numbers in any workspace that finishes tickets, with no sizing and
 no cycle discipline required. Sizing (ticket cosmic.dune onward) becomes a calibration layer on top of
 this — size versus actual cycle time — rather than the velocity unit itself.
+
+
+### Addendum (2026-10-09): size versus actual
+
+`getDeliveryFlow` also returns `sizes`: the window's completions bucketed by `Ticket.points` in the
+workspace's `effortUnit`, each with p50 / p85 cycle time (needing the same 3-sample minimum), an
+*Unsized* bucket so coverage is visible, and up to ten outliers — tickets whose cycle time exceeded
+their size's p85, worst first. `computeSizeCalibration` lives in the shared module. The ticket
+forms now honour `effortUnit` (ticket cosmic.dune), sizes are AI-suggested on create (inner.lotus)
+and backfilled by classification (dusty.cloud); this view is why those exist.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   computeDeliveryFlow,
+  computeSizeCalibration,
   cycleTimesMs,
   percentile,
   startedAtFromEvents,
@@ -136,5 +137,47 @@ describe("computeDeliveryFlow", () => {
     expect(more.cycleTime.sampleSize).toBe(3);
     expect(more.cycleTime.p50Hours).toBe(48);
     expect(more.cycleTime.p85Hours).toBeCloseTo(64.8);
+  });
+});
+
+
+describe("computeSizeCalibration", () => {
+  const ref = (id: string) => ({ id, urlId: id, displayId: id.toUpperCase(), title: id, productSlug: "p" });
+  const H = 3_600_000;
+  const label = (points: number) => ({ 1: "XS", 2: "S", 3: "M" })[points] ?? String(points);
+
+  it("buckets by size in points order, with Unsized last, and needs 3 samples for percentiles", () => {
+    const r = computeSizeCalibration(
+      [
+        { ticket: { id: "m1", status: "DONE", completedAt: null, updatedAt: new Date(), points: 3, ref: ref("m1") }, cycleTimeMs: 10 * H },
+        { ticket: { id: "m2", status: "DONE", completedAt: null, updatedAt: new Date(), points: 3, ref: ref("m2") }, cycleTimeMs: 20 * H },
+        { ticket: { id: "m3", status: "DONE", completedAt: null, updatedAt: new Date(), points: 3, ref: ref("m3") }, cycleTimeMs: 30 * H },
+        { ticket: { id: "m4", status: "DONE", completedAt: null, updatedAt: new Date(), points: 3, ref: ref("m4") }, cycleTimeMs: null },
+        { ticket: { id: "s1", status: "DONE", completedAt: null, updatedAt: new Date(), points: 2, ref: ref("s1") }, cycleTimeMs: 5 * H },
+        { ticket: { id: "u1", status: "DONE", completedAt: null, updatedAt: new Date(), points: null, ref: ref("u1") }, cycleTimeMs: 50 * H },
+      ],
+      label,
+    );
+    expect(r.buckets.map((b) => b.label)).toEqual(["S", "M", "Unsized"]);
+    expect(r.buckets[1]).toMatchObject({ count: 4, sampleSize: 3, p50Hours: 20 });
+    expect(r.buckets[1]?.p85Hours).toBeCloseTo(27);
+    expect(r.buckets[0]).toMatchObject({ count: 1, sampleSize: 1, p50Hours: null, p85Hours: null });
+    expect(r.sized).toBe(5);
+    expect(r.completed).toBe(6);
+  });
+
+  it("flags tickets above their bucket's p85, worst first, never from the Unsized bucket", () => {
+    const mk = (id: string, points: number | null, hours: number) => ({
+      ticket: { id, status: "DONE", completedAt: null, updatedAt: new Date(), points, ref: ref(id) },
+      cycleTimeMs: hours * H,
+    });
+    const r = computeSizeCalibration(
+      [mk("a", 1, 1), mk("b", 1, 1), mk("c", 1, 1), mk("d", 1, 40), mk("e", 1, 10), mk("u", null, 500), mk("v", null, 600), mk("w", null, 700)],
+      label,
+    );
+    // sorted [1,1,1,10,40]: p85 = 22h, so only d (40h) is past it.
+    expect(r.outliers.map((o) => o.ticket.id)).toEqual(["d"]);
+    expect(r.outliers[0]).toMatchObject({ size: "XS", cycleTimeHours: 40 });
+    expect(r.outliers[0]!.cycleTimeHours).toBeGreaterThan(r.outliers[0]!.bucketP85Hours);
   });
 });

@@ -7,7 +7,10 @@ import {
   flowWindowStart,
   statusMovesFromEvents,
   type DeliveryFlowResult,
+  type DeliveryFlowTicket,
 } from "~/server/services/deliveryFlow";
+import { ticketDisplayId, ticketUrlId } from "~/lib/fun-ids";
+import { effortToLabel, type EffortUnit } from "~/types/effort";
 
 export interface SprintMetricsResult {
   sprintId: string;
@@ -1416,18 +1419,48 @@ export class SprintAnalyticsService {
     const now = new Date();
     const memberIds = filterMemberIds(opts);
 
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { effortUnit: true },
+    });
+    const unit: EffortUnit = workspace?.effortUnit ?? "STORY_POINTS";
+
     // A ticket finished inside the window was saved at or after its finish,
     // so `updatedAt >= windowStart` is a safe superset of the tickets that
     // count; computeDeliveryFlow drops the ones whose finish event is older.
-    const tickets = await this.prisma.ticket.findMany({
+    const rows = await this.prisma.ticket.findMany({
       where: {
         product: { workspaceId },
         status: { in: ["DONE", "DEPLOYED"] },
         updatedAt: { gte: flowWindowStart(now, weeks) },
         ...(memberIds ? { assigneeId: { in: memberIds } } : {}),
       },
-      select: { id: true, status: true, completedAt: true, updatedAt: true },
+      select: {
+        id: true,
+        status: true,
+        completedAt: true,
+        updatedAt: true,
+        points: true,
+        number: true,
+        shortId: true,
+        title: true,
+        product: { select: { slug: true, name: true, funTicketIds: true } },
+      },
     });
+    const tickets: DeliveryFlowTicket[] = rows.map((t) => ({
+      id: t.id,
+      status: t.status,
+      completedAt: t.completedAt,
+      updatedAt: t.updatedAt,
+      points: t.points,
+      ref: {
+        id: t.id,
+        urlId: ticketUrlId(t),
+        displayId: ticketDisplayId(t.product, t),
+        title: t.title,
+        productSlug: t.product.slug,
+      },
+    }));
     const events =
       tickets.length > 0
         ? await this.prisma.workspaceActivityEvent.findMany({
@@ -1442,7 +1475,9 @@ export class SprintAnalyticsService {
           })
         : [];
 
-    return computeDeliveryFlow(tickets, statusMovesFromEvents(events), now, weeks);
+    return computeDeliveryFlow(tickets, statusMovesFromEvents(events), now, weeks, {
+      sizeLabel: (points) => effortToLabel(points, unit),
+    });
   }
 }
 

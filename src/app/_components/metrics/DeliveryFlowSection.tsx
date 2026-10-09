@@ -16,6 +16,8 @@ import {
 import { api } from '~/trpc/react';
 import { formatHours } from './format';
 import { StatCard } from './StatCard';
+import { SizeCalibrationCard } from './SizeCalibrationCard';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 
 /**
  * The headline tier of the Metrics page: how much finishes per week and how
@@ -30,6 +32,7 @@ export function DeliveryFlowSection({
   workspaceId: string | null;
   memberIds: string[];
 }) {
+  const { workspace } = useWorkspace();
   const { data, isLoading } = api.sprintAnalytics.getDeliveryFlow.useQuery(
     {
       workspaceId: workspaceId ?? '',
@@ -186,6 +189,10 @@ export function DeliveryFlowSection({
           )}
         </Stack>
       </Card>
+
+      {data.sizes && workspace && (
+        <SizeCalibrationCard sizes={data.sizes} workspaceSlug={workspace.slug} />
+      )}
     </Stack>
   );
 }
