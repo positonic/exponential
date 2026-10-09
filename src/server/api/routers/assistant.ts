@@ -4,6 +4,7 @@ import { requireWorkspaceMembership } from "~/server/services/access/middleware"
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
+import { createAssistantPrincipal } from "~/server/services/assistant/principal";
 
 /**
  * Assistants are **per user, per workspace** — each member of a workspace gets
@@ -63,13 +64,26 @@ export const assistantRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.assistant.create({
-        data: {
-          ...data,
+      // An Assistant is a principal (ADR-0067): shadow user → External agent →
+      // workspace membership → Assistant, in one transaction so a half-made
+      // Assistant can never exist. `requireWorkspaceMembership("edit")` above
+      // already guarantees the owner is a non-viewer member, which is the
+      // delegation-invariant precondition for the membership row.
+      return ctx.db.$transaction(async (tx) => {
+        const { externalAgentId } = await createAssistantPrincipal(tx, {
+          name: data.name,
+          ownerId: userId,
           workspaceId,
-          createdById: userId,
-          isDefault,
-        },
+        });
+        return tx.assistant.create({
+          data: {
+            ...data,
+            workspaceId,
+            createdById: userId,
+            isDefault,
+            externalAgentId,
+          },
+        });
       });
     }),
 

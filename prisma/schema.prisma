@@ -356,13 +356,27 @@ model ExternalAgent {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Which engine executes Agent runs assigned to this principal (ADR-0067).
+  executor     AgentExecutor @default(MASTRA)
+
   owner      User               @relation("ExternalAgentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   shadowUser User               @relation("ExternalAgentShadowUser", fields: [shadowUserId], references: [id], onDelete: Cascade)
   keys       ExternalAgentKey[]
   /// Time entries this agent wrote on its owner's behalf (ADR-0061).
   timeEntries TimeEntry[]       @relation("TimeEntryAuthorAgent")
+  /// Present when this row is an Assistant's principal (ADR-0067). Such rows are
+  /// managed from Settings → Assistant, not the External agents page.
+  assistant   Assistant?
 
   @@index([ownerId])
+}
+
+/// Engine that executes an Agent run for an ExternalAgent (ADR-0067).
+/// MASTRA = hosted Mastra executor; LOCAL_CLI = `exponential runner` on the
+/// owner's machine (V2 — the value exists so every row carries one).
+enum AgentExecutor {
+  MASTRA
+  LOCAL_CLI
 }
 
 /// Opaque credential for an ExternalAgent: SHA-256 hash of an `exp_agent_…` secret,
@@ -4291,11 +4305,16 @@ model Assistant {
   instructions String?  @db.Text // Operating instructions
   userContext  String?  @db.Text // About the user/team
   isDefault    Boolean  @default(false)
+  /// The Assistant's principal — an owned ExternalAgent with a shadow user and a
+  /// workspace membership, which is what makes it an assignee (ADR-0067).
+  /// Nullable only for the backfill window; the migration sets it NOT NULL.
+  externalAgentId String? @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy     User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+  externalAgent ExternalAgent? @relation(fields: [externalAgentId], references: [id], onDelete: Cascade)
   contentDrafts ContentDraft[]
 
   @@index([workspaceId])

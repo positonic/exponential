@@ -10,6 +10,7 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUser } from "~/server/services/access/assignability";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -1724,7 +1725,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Collect assignable users from multiple sources
-      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+      const userMap = new Map<string, AssignableUser>();
 
       const isRestrictedProject = action.project?.isRestricted ?? false;
 
@@ -1743,7 +1744,7 @@ export const actionRouter = createTRPCRouter({
           members: {
             include: {
               user: {
-                select: { id: true, name: true, email: true, image: true },
+                select: ASSIGNABLE_USER_SELECT,
               },
             },
           },
@@ -1753,7 +1754,7 @@ export const actionRouter = createTRPCRouter({
       if (!isRestrictedProject) {
         userTeams.forEach(team => {
           team.members.forEach(member => {
-            userMap.set(member.user.id, member.user);
+            userMap.set(member.user.id, toAssignableUser(member.user));
           });
         });
       }
@@ -1777,12 +1778,12 @@ export const actionRouter = createTRPCRouter({
           },
           include: {
             user: {
-              select: { id: true, name: true, email: true, image: true },
+              select: ASSIGNABLE_USER_SELECT,
             },
           },
         });
         workspaceUsers.forEach(wu => {
-          userMap.set(wu.user.id, wu.user);
+          userMap.set(wu.user.id, toAssignableUser(wu.user));
         });
       }
 
@@ -1792,21 +1793,21 @@ export const actionRouter = createTRPCRouter({
           where: { projectId: action.projectId },
           include: {
             user: {
-              select: { id: true, name: true, email: true, image: true },
+              select: ASSIGNABLE_USER_SELECT,
             },
           },
         });
         projectMembers.forEach(pm => {
-          userMap.set(pm.user.id, pm.user);
+          userMap.set(pm.user.id, toAssignableUser(pm.user));
         });
 
         // Always include the project creator (synthetic "Owner" axis).
         if (action.project?.createdById && !userMap.has(action.project.createdById)) {
           const creator = await ctx.db.user.findUnique({
             where: { id: action.project.createdById },
-            select: { id: true, name: true, email: true, image: true },
+            select: ASSIGNABLE_USER_SELECT,
           });
-          if (creator) userMap.set(creator.id, creator);
+          if (creator) userMap.set(creator.id, toAssignableUser(creator));
         }
       }
 
@@ -1814,10 +1815,10 @@ export const actionRouter = createTRPCRouter({
       if (!userMap.has(ctx.session.user.id)) {
         const currentUser = await ctx.db.user.findUnique({
           where: { id: ctx.session.user.id },
-          select: { id: true, name: true, email: true, image: true },
+          select: ASSIGNABLE_USER_SELECT,
         });
         if (currentUser) {
-          userMap.set(currentUser.id, currentUser);
+          userMap.set(currentUser.id, toAssignableUser(currentUser));
         }
       }
 
@@ -1897,7 +1898,7 @@ export const actionRouter = createTRPCRouter({
 
       const isRestrictedProject = project?.isRestricted ?? false;
 
-      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+      const userMap = new Map<string, AssignableUser>();
 
       const userTeams = await ctx.db.team.findMany({
         where: {
@@ -1907,7 +1908,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           members: {
             include: {
-              user: { select: { id: true, name: true, email: true, image: true } },
+              user: { select: ASSIGNABLE_USER_SELECT },
             },
           },
         },
@@ -1916,7 +1917,7 @@ export const actionRouter = createTRPCRouter({
       if (!isRestrictedProject) {
         userTeams.forEach(team => {
           team.members.forEach(member => {
-            userMap.set(member.user.id, member.user);
+            userMap.set(member.user.id, toAssignableUser(member.user));
           });
         });
       }
@@ -1928,11 +1929,11 @@ export const actionRouter = createTRPCRouter({
             ...(isRestrictedProject ? { role: { in: ["owner", "admin"] } } : {}),
           },
           include: {
-            user: { select: { id: true, name: true, email: true, image: true } },
+            user: { select: ASSIGNABLE_USER_SELECT },
           },
         });
         workspaceUsers.forEach(wu => {
-          userMap.set(wu.user.id, wu.user);
+          userMap.set(wu.user.id, toAssignableUser(wu.user));
         });
       }
 
@@ -1940,11 +1941,11 @@ export const actionRouter = createTRPCRouter({
         const projectMembers = await ctx.db.projectMember.findMany({
           where: { projectId: project.id },
           include: {
-            user: { select: { id: true, name: true, email: true, image: true } },
+            user: { select: ASSIGNABLE_USER_SELECT },
           },
         });
         projectMembers.forEach(pm => {
-          userMap.set(pm.user.id, pm.user);
+          userMap.set(pm.user.id, toAssignableUser(pm.user));
         });
 
         const projectRecord = await ctx.db.project.findUnique({
@@ -1954,19 +1955,19 @@ export const actionRouter = createTRPCRouter({
         if (projectRecord?.createdById && !userMap.has(projectRecord.createdById)) {
           const creator = await ctx.db.user.findUnique({
             where: { id: projectRecord.createdById },
-            select: { id: true, name: true, email: true, image: true },
+            select: ASSIGNABLE_USER_SELECT,
           });
-          if (creator) userMap.set(creator.id, creator);
+          if (creator) userMap.set(creator.id, toAssignableUser(creator));
         }
       }
 
       if (!userMap.has(ctx.session.user.id)) {
         const currentUser = await ctx.db.user.findUnique({
           where: { id: ctx.session.user.id },
-          select: { id: true, name: true, email: true, image: true },
+          select: ASSIGNABLE_USER_SELECT,
         });
         if (currentUser) {
-          userMap.set(currentUser.id, currentUser);
+          userMap.set(currentUser.id, toAssignableUser(currentUser));
         }
       }
 

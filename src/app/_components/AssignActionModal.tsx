@@ -15,6 +15,7 @@ import {
   TextInput
 } from "@mantine/core";
 import { IconSearch, IconRobot } from "@tabler/icons-react";
+import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
@@ -47,6 +48,18 @@ interface AssignableUser {
   email: string | null;
   image: string | null;
   isAIAgent?: boolean;
+  /** Real agent principal (ADR-0049 / ADR-0067) — the shadow user of an External agent. */
+  isAgent?: boolean;
+  /** Set when the agent is someone's Assistant: whose. */
+  assistantOwner?: { id: string; name: string | null; emoji: string | null } | null;
+}
+
+/** "your assistant" / "Andi's assistant" / "External agent" — the picker's second line for an agent row. */
+function agentSubtitle(user: AssignableUser, viewerId: string | undefined): string {
+  if (!user.assistantOwner) return "External agent";
+  if (viewerId && user.assistantOwner.id === viewerId) return "your assistant";
+  const owner = user.assistantOwner.name?.trim();
+  return owner ? `${owner}'s assistant` : "a teammate's assistant";
 }
 
 export function AssignActionModal({
@@ -60,6 +73,8 @@ export function AssignActionModal({
   onSelectionChange,
 }: AssignActionModalProps) {
   const isCreateMode = !actionId;
+  const { data: session } = useSession();
+  const viewerId = session?.user?.id;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     new Set(currentAssignees.map(a => a.user.id))
@@ -279,17 +294,17 @@ export function AssignActionModal({
                       styles={{
                         root: {
                           backgroundColor: !user.image ? 
-                            (user.isAIAgent ? 'var(--mantine-color-blue-6)' : getAvatarColor(getColorSeed(user.name, user.email))) : 
+                            (user.isAIAgent || user.isAgent ? 'var(--mantine-color-blue-6)' : getAvatarColor(getColorSeed(user.name, user.email))) : 
                             undefined,
                           color: !user.image ? 
-                            (user.isAIAgent ? 'white' : getTextColor(getAvatarColor(getColorSeed(user.name, user.email)))) : 
+                            (user.isAIAgent || user.isAgent ? 'white' : getTextColor(getAvatarColor(getColorSeed(user.name, user.email)))) : 
                             undefined,
                           fontWeight: !user.image ? 600 : undefined,
                           fontSize: '14px',
                         }
                       }}
                     >
-                      {user.isAIAgent ? (
+                      {(user.isAIAgent || user.isAgent) && !user.image ? (
                         <IconRobot size={16} />
                       ) : !user.image ? (
                         getInitial(user.name, user.email)
@@ -298,17 +313,21 @@ export function AssignActionModal({
                     <div>
                       <Text size="sm" fw={500}>
                         {user.name || user.email}
-                        {user.isAIAgent && (
+                        {(user.isAIAgent || user.isAgent) && (
                           <Badge size="xs" variant="light" color="blue" ml="xs">
-                            AI
+                            {user.isAgent ? "Agent" : "AI"}
                           </Badge>
                         )}
                       </Text>
-                      {user.name && user.email && (
+                      {user.isAgent ? (
+                        <Text size="xs" c="dimmed">
+                          {agentSubtitle(user, viewerId)}
+                        </Text>
+                      ) : user.name && user.email ? (
                         <Text size="xs" c="dimmed">
                           {user.email}
                         </Text>
-                      )}
+                      ) : null}
                     </div>
                   </Group>
                   <Checkbox
