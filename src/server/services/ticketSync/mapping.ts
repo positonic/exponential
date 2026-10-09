@@ -28,6 +28,8 @@ export const TICKET_STATUSES = [
  * guessing which one the page belongs to would link the wrong ticket. The host
  * is ignored so links from any deployment of the app count.
  */
+const MAX_TICKET_NUMBER = 2_147_483_647;
+
 export function linkedTicketNumbers(
   urls: readonly string[],
   product: { workspaceSlug: string; productSlug: string },
@@ -42,13 +44,19 @@ export function linkedTicketNumbers(
     }
     const match = /^\/w\/([^/]+)\/products\/([^/]+)\/tickets\/(\d+)\/?$/.exec(path);
     if (!match) continue;
-    const [, workspaceSlug, productSlug, number] = match;
-    if (
-      decodeURIComponent(workspaceSlug!) === product.workspaceSlug &&
-      decodeURIComponent(productSlug!) === product.productSlug
-    ) {
-      numbers.add(Number(number));
+    const [, workspaceSlug, productSlug, digits] = match;
+    let sameProduct: boolean;
+    try {
+      sameProduct =
+        decodeURIComponent(workspaceSlug!) === product.workspaceSlug &&
+        decodeURIComponent(productSlug!) === product.productSlug;
+    } catch {
+      continue; // malformed percent-encoding: not a link we made
     }
+    const number = Number(digits);
+    // Ticket.number is a Postgres int; a larger value can't be a ticket and
+    // would make the lookup throw.
+    if (sameProduct && number <= MAX_TICKET_NUMBER) numbers.add(number);
   }
   return [...numbers].sort((a, b) => a - b);
 }
