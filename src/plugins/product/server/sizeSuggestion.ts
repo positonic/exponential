@@ -51,7 +51,7 @@ export function pointsToSize(points: number, unit: EffortUnit): TicketSize | nul
     unit === "HOURS"
       ? SIZES.find((s) => HOURS_BY_SIZE[s] === points)
       : T_SHIRT_OPTIONS.find((o) => o.value === points)?.label;
-  return (found as TicketSize | undefined) ?? null;
+  return found ?? null;
 }
 
 export interface SizeAnchor {
