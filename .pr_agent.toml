@@ -65,6 +65,15 @@ across workspaces.
 Tests — integration tests (*.integration.test.ts, real DB via testcontainers) are
 deliberately rare. Prefer mocked Prisma with createMockCaller. Flag a new
 integration test that doesn't genuinely need real DB behaviour.
+
+Severity — begin the header of every key issue with exactly one tag, then the title
+as usual (e.g. "[blocker] Unscoped workspace query"):
+[blocker] — merging this commit as-is would ship a bug, a security hole, data loss,
+a cross-workspace leak or a build/CI failure, or would break a house rule above.
+[minor] — everything else, including anything you are not confident is a real
+problem (a "worth confirming", "may", or "could" finding is minor).
+An automated merge gate reads these tags: a [blocker] holds the PR for a human, a
+[minor] does not. Tag honestly in both directions.
 """
 
 [pr_description]
