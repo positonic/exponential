@@ -22,13 +22,19 @@ import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServe
  * sweeps inside their limits.
  *
  * Idempotent: it only ever picks up rows with `outputsExtractedAt IS NULL`,
- * and the service stamps that column when a run gets through (or already
- * had drafts), so a meeting is read at most once. A run killed mid-way
- * leaves the stamp unset and is retried next sweep, where the halves that
- * already landed short-circuit on their existing drafts. A run that fails
- * for a reason a retry cannot fix (no edit access, meeting outside a
- * workspace) is stamped here so it stops occupying a slot; the person can
- * still press the button.
+ * and the service stamps that column when both halves get through (or
+ * already had drafts), so a meeting is read at most once. A run killed
+ * mid-way, or one half failing on a model hiccup, leaves the stamp unset
+ * and is retried next sweep, where the half that already landed
+ * short-circuits on its existing drafts. A run that fails for a reason a
+ * retry cannot fix (no edit access, meeting outside a workspace) is stamped
+ * here so it stops occupying a slot; the person can still press the button.
+ *
+ * Bounded both ways: oldest first within a short lookback, so switching the
+ * flag on heals forward rather than reading a ceremony's whole history, and
+ * a transient failure sends the row to the back of the queue (its
+ * `updatedAt` is bumped, which also re-arms the quiet period) instead of
+ * letting it hold a slot every sweep.
  */
 
 /** Meetings extracted per sweep (bounds model cost and the function budget). */
@@ -44,8 +50,24 @@ export const DEFAULT_AUTO_EXTRACT_LIMIT = 3;
  */
 export const AUTO_EXTRACT_QUIET_PERIOD_MS = 10 * 60_000;
 
-/** Failures a second run would only repeat — stamp and move on. */
-const TERMINAL_ERROR_PATTERNS = [/access/i, /not in a workspace/i, /not found/i];
+/**
+ * Recordings older than this are left alone: the sweep heals forward from
+ * the moment the flag is switched on, never a ceremony's whole history.
+ */
+export const AUTO_EXTRACT_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Failures a second run would only repeat — stamp and move on. Anchored to
+ * the exact messages the two halves emit (`generateDraftActions`,
+ * `generateDraftDecisions`); a provider message that merely contains
+ * "access" or "not found" is transient and must stay retryable.
+ */
+const TERMINAL_ERROR_PATTERNS = [
+  /^User does not have access to this transcription$/,
+  /^You do not have edit access to this meeting$/,
+  /^This meeting is not in a workspace/,
+  /^(Transcription|Meeting) not found$/,
+];
 
 export function isTerminalExtractionFailure(errors: string[]): boolean {
   return errors.length > 0 && errors.every((e) => TERMINAL_ERROR_PATTERNS.some((p) => p.test(e)));
@@ -81,8 +103,9 @@ export async function runAutoExtractOutputsSweep(
   const now = options.now ?? new Date();
   const result: AutoExtractOutputsSweepResult = { candidates: 0, extracted: 0, givenUp: 0, failed: 0 };
 
-  // Newest first: a recording that keeps failing for a transient reason
-  // must not hold the slots back from the meeting that just ended.
+  // Oldest first: a plain queue. A transient failure below bumps the row's
+  // `updatedAt`, which moves it behind everything else and re-arms the
+  // quiet period, so it cannot take a slot on every sweep.
   const rows = await db.transcriptionSession.findMany({
     where: {
       outputsExtractedAt: null,
@@ -90,10 +113,11 @@ export async function runAutoExtractOutputsSweep(
       userId: { not: null },
       transcription: { not: null },
       NOT: { transcription: "" },
+      createdAt: { gte: new Date(now.getTime() - AUTO_EXTRACT_LOOKBACK_MS) },
       updatedAt: { lte: new Date(now.getTime() - AUTO_EXTRACT_QUIET_PERIOD_MS) },
       occurrence: { ceremony: { autoExtractOutputs: true, isActive: true } },
     },
-    orderBy: { updatedAt: "desc" },
+    orderBy: { updatedAt: "asc" },
     take: limit,
     select: { id: true, title: true, userId: true },
   });
@@ -121,13 +145,24 @@ export async function runAutoExtractOutputsSweep(
         });
         result.givenUp += 1;
       } else {
+        await deferRetry(db, row.id, now);
         result.failed += 1;
       }
     } catch (error) {
+      await deferRetry(db, row.id, now);
       result.failed += 1;
       reportHandledErrorServer(error, { area: "meetings.autoExtractOutputs", context: { meetingId: row.id } });
     }
   }
 
   return result;
+}
+
+/** Send a transiently failed row to the back of the queue (see the module doc). */
+async function deferRetry(db: PrismaClient, meetingId: string, now: Date): Promise<void> {
+  try {
+    await db.transcriptionSession.update({ where: { id: meetingId }, data: { updatedAt: now } });
+  } catch (error) {
+    reportHandledErrorServer(error, { area: "meetings.autoExtractOutputs.deferRetry", context: { meetingId } });
+  }
 }

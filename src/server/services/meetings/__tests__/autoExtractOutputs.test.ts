@@ -18,6 +18,7 @@ vi.mock("~/server/services/TranscriptionProcessingService", () => ({
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: reportMock }));
 
 import {
+  AUTO_EXTRACT_LOOKBACK_MS,
   AUTO_EXTRACT_QUIET_PERIOD_MS,
   isTerminalExtractionFailure,
   runAutoExtractOutputsSweep,
@@ -27,7 +28,7 @@ const db = mockDeep<PrismaClient>();
 const NOW = new Date("2026-10-09T10:00:00.000Z");
 
 const ok = (overrides: Partial<{ actions: boolean; decisions: boolean; errors: string[] }> = {}) => ({
-  extracted: (overrides.actions ?? true) || (overrides.decisions ?? true),
+  extracted: (overrides.actions ?? true) && (overrides.decisions ?? true),
   actions: { success: overrides.actions ?? true, errors: overrides.errors ?? [] },
   decisions: { success: overrides.decisions ?? true, errors: overrides.errors ?? [] },
 });
@@ -35,10 +36,18 @@ const ok = (overrides: Partial<{ actions: boolean; decisions: boolean; errors: s
 describe("isTerminalExtractionFailure", () => {
   it("is true only when every error is one a retry cannot fix", () => {
     expect(isTerminalExtractionFailure(["User does not have access to this transcription"])).toBe(true);
+    expect(isTerminalExtractionFailure(["You do not have edit access to this meeting"])).toBe(true);
     expect(isTerminalExtractionFailure(["This meeting is not in a workspace, so it has no decision sequence"])).toBe(true);
+    expect(isTerminalExtractionFailure(["Meeting not found"])).toBe(true);
     expect(isTerminalExtractionFailure(["Rate limit exceeded"])).toBe(false);
     expect(isTerminalExtractionFailure(["You do not have edit access to this meeting", "Rate limit exceeded"])).toBe(false);
     expect(isTerminalExtractionFailure([])).toBe(false);
+  });
+
+  it("does not mistake a provider message that merely contains the words for a terminal failure", () => {
+    expect(isTerminalExtractionFailure(["Could not access the transcription service"])).toBe(false);
+    expect(isTerminalExtractionFailure(["Model not found (temporarily unavailable)"])).toBe(false);
+    expect(isTerminalExtractionFailure(["Database access error"])).toBe(false);
   });
 });
 
@@ -50,7 +59,7 @@ describe("runAutoExtractOutputsSweep", () => {
     db.transcriptionSession.update.mockResolvedValue({} as never);
   });
 
-  it("selects quiet, unstamped recordings of opted-in ceremonies, newest first and bounded", async () => {
+  it("selects quiet, recent, unstamped recordings of opted-in ceremonies, oldest first and bounded", async () => {
     db.transcriptionSession.findMany.mockResolvedValue([] as never);
     const result = await runAutoExtractOutputsSweep(db, { now: NOW, limit: 2 });
 
@@ -63,7 +72,8 @@ describe("runAutoExtractOutputsSweep", () => {
       occurrence: { ceremony: { autoExtractOutputs: true, isActive: true } },
     });
     expect(args.where!.updatedAt).toEqual({ lte: new Date(NOW.getTime() - AUTO_EXTRACT_QUIET_PERIOD_MS) });
-    expect(args.orderBy).toEqual({ updatedAt: "desc" });
+    expect(args.where!.createdAt).toEqual({ gte: new Date(NOW.getTime() - AUTO_EXTRACT_LOOKBACK_MS) });
+    expect(args.orderBy).toEqual({ updatedAt: "asc" });
     expect(args.take).toBe(2);
     expect(extractMock).not.toHaveBeenCalled();
   });
@@ -101,7 +111,7 @@ describe("runAutoExtractOutputsSweep", () => {
     expect(reportMock).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves a transient failure unstamped for the next sweep and keeps going", async () => {
+  it("leaves a transient failure unstamped, sends it to the back of the queue, and keeps going", async () => {
     db.transcriptionSession.findMany.mockResolvedValue([
       { id: "m-1", title: "Standup", userId: "owner-1" },
       { id: "m-2", title: "Planning", userId: "owner-2" },
@@ -113,8 +123,20 @@ describe("runAutoExtractOutputsSweep", () => {
     const result = await runAutoExtractOutputsSweep(db, { now: NOW });
 
     expect(result).toEqual({ candidates: 2, extracted: 1, givenUp: 0, failed: 1 });
-    expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+    // No stamp; only the bump that re-arms the quiet period and moves it behind the rest.
+    expect(db.transcriptionSession.update).toHaveBeenCalledTimes(1);
+    expect(db.transcriptionSession.update).toHaveBeenCalledWith({ where: { id: "m-1" }, data: { updatedAt: NOW } });
     expect(extractMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a half-failed run: no stamp from the sweep, the row is deferred", async () => {
+    db.transcriptionSession.findMany.mockResolvedValue([{ id: "m-1", title: "Standup", userId: "owner-1" }] as never);
+    extractMock.mockResolvedValue(ok({ actions: false, errors: ["Rate limit exceeded"] }));
+
+    const result = await runAutoExtractOutputsSweep(db, { now: NOW });
+
+    expect(result).toEqual({ candidates: 1, extracted: 0, givenUp: 0, failed: 1 });
+    expect(db.transcriptionSession.update).toHaveBeenCalledWith({ where: { id: "m-1" }, data: { updatedAt: NOW } });
   });
 
   it("counts a thrown extraction as failed without sinking the batch", async () => {
