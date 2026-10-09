@@ -7,7 +7,7 @@
  * stubbed — no DB, no model calls.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mockDeep, mockReset } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
@@ -71,7 +71,7 @@ describe("runMeetingSummarySweep — decision extraction request", () => {
     });
   });
 
-  it("stops requesting extraction once the time budget is spent, but keeps summarizing", async () => {
+  it("never requests extraction when the budget is zero, but keeps summarizing", async () => {
     db.transcriptionSession.findMany.mockResolvedValue([row("m1"), row("m2")] as never);
 
     const result = await runMeetingSummarySweep(db, { extractionBudgetMs: 0 });
@@ -81,6 +81,29 @@ describe("runMeetingSummarySweep — decision extraction request", () => {
     for (const call of summarizeMeetingRowMock.mock.calls) {
       expect(call[2]).toEqual({ extractDecisions: false });
     }
+  });
+
+  describe("mid-run budget exhaustion", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("stops requesting extraction once the budget is spent, but keeps summarizing", async () => {
+      db.transcriptionSession.findMany.mockResolvedValue([row("m1"), row("m2"), row("m3")] as never);
+      // Each summarize "takes" 100ms on the fake clock; the budget covers two.
+      summarizeMeetingRowMock.mockImplementation(async () => {
+        vi.advanceTimersByTime(100);
+        return { status: "created", summary: "{}", eventEmitted: true };
+      });
+
+      const result = await runMeetingSummarySweep(db, { extractionBudgetMs: 150 });
+
+      expect(result.summarized).toBe(3);
+      expect(summarizeMeetingRowMock.mock.calls.map((call) => call[2])).toEqual([
+        { extractDecisions: true },
+        { extractDecisions: true },
+        { extractDecisions: false },
+      ]);
+    });
   });
 
   it("stops the batch cleanly when summarization is not configured", async () => {
