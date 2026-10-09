@@ -1441,6 +1441,8 @@ export const mastraRouter = createTRPCRouter({
         const searchResults = await knowledgeService.search(input.query, {
           workspaceId: input.workspaceId,
           userId,
+          // Own chunks are own pages today; keep page access explicit anyway.
+          pageViewerId: userId,
           projectId: input.projectId,
           sourceTypes: input.sourceTypes,
           limit: input.topK,

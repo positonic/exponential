@@ -3,7 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import type { Context } from "~/server/auth/types";
 import { verifyGoalAccess } from "~/server/services/goalService";
-import { getWorkspaceMembership } from "~/server/services/access";
+import {
+  buildKnowledgePageAccessWhere,
+  getWorkspaceMembership,
+} from "~/server/services/access";
 
 // Polymorphic favourites. Wires "objective" and "keyResult" (entity favourites,
 // titles resolved live) plus "page" — a generic bookmark of any workspace page
@@ -106,9 +109,17 @@ export const favoriteRouter = createTRPCRouter({
               select: { id: true, title: true },
             })
           : Promise.resolve([]),
+        // Only pages the caller can still view — a favourite must not become
+        // a way to read the title of a page they've lost (or never had)
+        // access to. Unviewable ones drop out like deleted ones.
         knowledgePageIds.length
           ? ctx.db.knowledgePage.findMany({
-              where: { id: { in: knowledgePageIds } },
+              where: {
+                AND: [
+                  { id: { in: knowledgePageIds } },
+                  buildKnowledgePageAccessWhere(userId),
+                ],
+              },
               select: { id: true, title: true },
             })
           : Promise.resolve([]),
@@ -215,6 +226,26 @@ export const favoriteRouter = createTRPCRouter({
             code: "FORBIDDEN",
             message: "Not a member of this workspace",
           });
+        }
+        // A knowledge-page path must name a page in this workspace that the
+        // caller can view — otherwise the favourite's live title would leak it.
+        const pageId = input.entityId.match(KNOWLEDGE_PAGE_PATH)?.[1];
+        if (pageId) {
+          const page = await ctx.db.knowledgePage.findFirst({
+            where: {
+              AND: [
+                { id: pageId, workspaceId: input.workspaceId },
+                buildKnowledgePageAccessWhere(userId),
+              ],
+            },
+            select: { id: true },
+          });
+          if (!page) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Page not found",
+            });
+          }
         }
         await ctx.db.favorite.create({
           data: {
