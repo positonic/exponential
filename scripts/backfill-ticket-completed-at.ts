@@ -99,8 +99,15 @@ async function main() {
   // Load environment variables (default import — named import breaks under
   // ESM tsx). The db import must stay DYNAMIC: a static import is hoisted
   // above loadEnvConfig and env validation fires before anything is loaded.
-  const nextEnv = (await import('@next/env')).default;
-  nextEnv.loadEnvConfig(process.cwd());
+  // `@next/env` is CJS: under tsx the namespace has no `default`, so take
+  // whichever form carries loadEnvConfig.
+  const envModule = (await import('@next/env')) as unknown as {
+    default?: { loadEnvConfig: (dir: string) => void };
+    loadEnvConfig?: (dir: string) => void;
+  };
+  const loadEnvConfig = envModule.default?.loadEnvConfig ?? envModule.loadEnvConfig;
+  if (!loadEnvConfig) throw new Error('Could not load @next/env');
+  loadEnvConfig(process.cwd());
   const { db } = await import('../src/server/db');
 
   const APPLY = process.argv.includes('--apply');
