@@ -92,7 +92,8 @@ export interface DueDateSubject {
  */
 export interface SummarySubject {
   userId: string;
-  kind: "daily" | "weekly";
+  /** `shutdown` is the weekday end-of-day recap (Shutdown recap). */
+  kind: "daily" | "weekly" | "shutdown";
   title: string;
   /** Plain-text rendering with bare URLs — what every channel gets by default. */
   message: string;
@@ -105,6 +106,16 @@ export interface SummarySubject {
   markdown?: string;
   /** Period id for dedup — e.g. "2026-07-23" (daily) or "2026-W30" (weekly). */
   periodKey: string;
+  /**
+   * Shutdown recap only: a line Matrix appends to the markdown, because a
+   * reply reaches the agent there and nowhere else.
+   */
+  replyHint?: string;
+  /**
+   * Shutdown recap only: what the Matrix gateway stores beside the message in
+   * the person's DM memory (the numbers → action ids), so a reply resolves.
+   */
+  agentContext?: string;
 }
 
 /**

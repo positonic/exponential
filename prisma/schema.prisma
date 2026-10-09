@@ -417,6 +417,12 @@ model Workspace {
   // When on, creating a CRM contact enqueues an async web-search enrichment job
   // (drained by the enrich-pending-contacts cron → Mastra enrichmentAgent).
   enableAutoEnrichContacts Boolean    @default(false)
+  // Key Results / OKR UI. Nullable on purpose — unlike the flags above there is
+  // no single sensible default: null means "follow the workspace type"
+  // (team/org on, personal off), which is the behaviour that predates this
+  // column. Setting it true/false is an explicit per-workspace override, so a
+  // personal workspace can opt into KRs. Resolved in `useTerminology`.
+  enableKeyResults         Boolean?
 
   // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
   notionDefaultConfig Json?
@@ -1190,6 +1196,9 @@ model Project {
   createdById           String
   slug                  String                     @unique
   description           String?
+  // Display icon: "emoji:🚀" or "tabler:IconRocket" (same format as Goal.icon)
+  icon                  String?
+  iconColor             String? // Color key: "purple", "blue", "teal", etc.
   // Per-scope AI guidance ("Instructions" in the UI). Layered on top of the
   // workspace's aiInstructions as DEMOTED <user_data> context in the chat
   // route (project wins on conflict), never an authoritative system prompt
@@ -2137,6 +2146,9 @@ model NotificationPreference {
   timezone              String       @default("UTC")
   dailySummaryTime      String?      @default("09:00")
   weeklyDayOfWeek       Int?         @default(1)
+  /// Weekday end-of-day recap (Shutdown recap), off until the user turns it on.
+  shutdownRecap         Boolean      @default(false)
+  shutdownRecapTime     String?      @default("18:00")
   reminderMinutesBefore Int[]        @default([15, 60, 1440])
   quietHoursEnabled     Boolean      @default(false)
   quietHoursStart       String?

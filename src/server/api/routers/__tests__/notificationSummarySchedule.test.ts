@@ -88,6 +88,8 @@ describe("notification.getSummarySchedule", () => {
       dailySummaryTime: "09:00",
       weeklySummary: false,
       weeklyDayOfWeek: 1,
+      shutdownRecap: false,
+      shutdownRecapTime: "18:00",
       timezone: "UTC",
       profileTimezone: null,
     });
@@ -134,6 +136,8 @@ describe("notification.updateSummarySchedule", () => {
       dailySummaryTime: "08:00",
       weeklySummary: false,
       weeklyDayOfWeek: 1,
+      shutdownRecap: false,
+      shutdownRecapTime: "18:00",
     });
 
     expect(dbMock.notificationPreference.upsert).toHaveBeenCalledWith({
@@ -143,6 +147,8 @@ describe("notification.updateSummarySchedule", () => {
         dailySummaryTime: "08:00",
         weeklySummary: false,
         weeklyDayOfWeek: 1,
+        shutdownRecap: false,
+        shutdownRecapTime: "18:00",
       },
       create: {
         userId: USER_ID,
@@ -150,6 +156,8 @@ describe("notification.updateSummarySchedule", () => {
         dailySummaryTime: "08:00",
         weeklySummary: false,
         weeklyDayOfWeek: 1,
+        shutdownRecap: false,
+        shutdownRecapTime: "18:00",
       },
     });
   });
@@ -162,6 +170,8 @@ describe("notification.updateSummarySchedule", () => {
         dailySummaryTime: "8am",
         weeklySummary: false,
         weeklyDayOfWeek: 1,
+        shutdownRecap: false,
+        shutdownRecapTime: "18:00",
       }),
     ).rejects.toThrow(/24-hour time/);
     await expect(
@@ -170,8 +180,45 @@ describe("notification.updateSummarySchedule", () => {
         dailySummaryTime: "25:00",
         weeklySummary: false,
         weeklyDayOfWeek: 1,
+        shutdownRecap: false,
+        shutdownRecapTime: "18:00",
       }),
     ).rejects.toThrow();
+    expect(dbMock.notificationPreference.upsert).not.toHaveBeenCalled();
+  });
+
+  it("saves the Shutdown recap switch and time", async () => {
+    dbMock.notificationPreference.upsert.mockResolvedValue({} as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.notification.updateSummarySchedule({
+      dailySummary: true,
+      dailySummaryTime: "08:00",
+      weeklySummary: false,
+      weeklyDayOfWeek: 1,
+      shutdownRecap: true,
+      shutdownRecapTime: "17:30",
+    });
+
+    expect(dbMock.notificationPreference.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ shutdownRecap: true, shutdownRecapTime: "17:30" }),
+      }),
+    );
+  });
+
+  it("rejects a Shutdown recap time that is not HH:MM 24-hour", async () => {
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.notification.updateSummarySchedule({
+        dailySummary: true,
+        dailySummaryTime: "08:00",
+        weeklySummary: false,
+        weeklyDayOfWeek: 1,
+        shutdownRecap: true,
+        shutdownRecapTime: "6pm",
+      }),
+    ).rejects.toThrow(/24-hour time/);
     expect(dbMock.notificationPreference.upsert).not.toHaveBeenCalled();
   });
 
@@ -183,6 +230,8 @@ describe("notification.updateSummarySchedule", () => {
         dailySummaryTime: "08:00",
         weeklySummary: true,
         weeklyDayOfWeek: 0,
+        shutdownRecap: false,
+        shutdownRecapTime: "18:00",
       }),
     ).rejects.toThrow();
   });

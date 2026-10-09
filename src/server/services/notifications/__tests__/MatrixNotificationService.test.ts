@@ -95,6 +95,38 @@ describe("MatrixNotificationService", () => {
     expect(body.message).toBe(markdown);
   });
 
+  it("appends the reply hint and forwards the agent context for the gateway's memory", async () => {
+    fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
+    const svc = new MatrixNotificationService({ userId: "u1" });
+
+    await svc.sendNotification({
+      title: "🌙 Shutdown recap",
+      message: "plain",
+      metadata: {
+        category: "summary",
+        markdown: "**📋 Left undone**\n1. Write the brief",
+        replyHint: "_Reply to sort the numbered ones._",
+        agentContext: '1 = action a1 "Write the brief"',
+      },
+    });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as { message: string; agentContext?: string };
+    expect(body.message).toBe("**📋 Left undone**\n1. Write the brief\n\n_Reply to sort the numbered ones._");
+    expect(body.agentContext).toBe('1 = action a1 "Write the brief"');
+  });
+
+  it("sends no agent context when the notification carries none", async () => {
+    fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
+    const svc = new MatrixNotificationService({ userId: "u1" });
+
+    await svc.sendNotification({ title: "t", message: "m", metadata: { category: "summary" } });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    const body = JSON.parse((init as RequestInit).body as string) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("agentContext");
+  });
+
   it("falls back to message (with deeplink) when metadata.markdown is absent or empty", async () => {
     fetchMock.mockResolvedValue(OK({ delivered: true, roomId: "!dm:server" }));
     const svc = new MatrixNotificationService({ userId: "u1" });

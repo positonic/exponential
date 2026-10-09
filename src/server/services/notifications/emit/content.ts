@@ -110,7 +110,7 @@ export async function buildContent(
       // workspace-scoped, so no per-workspace email override applies. The
       // markdown variant (ADR-0059) rides in metadata so it is persisted on
       // the Notification row and survives a cron retry (`contentFromRow`).
-      const { markdown } = input.subject;
+      const { markdown, replyHint, agentContext } = input.subject;
       return {
         category: NOTIFICATION_CATEGORIES.SUMMARY,
         title: input.subject.title,
@@ -119,6 +119,8 @@ export async function buildContent(
           kind: input.subject.kind,
           periodKey: input.subject.periodKey,
           ...(markdown ? { markdown } : {}),
+          ...(replyHint ? { replyHint } : {}),
+          ...(agentContext ? { agentContext } : {}),
         },
         workspaceId: "",
         dedupeKey: `summary:${input.subject.kind}:${input.subject.periodKey}`,
