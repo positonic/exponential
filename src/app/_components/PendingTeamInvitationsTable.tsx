@@ -114,9 +114,7 @@ export function PendingTeamInvitationsTable({
         </Table.Thead>
         <Table.Tbody>
           {invitations.map((invitation) => {
-            const baseUrl =
-              process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-            const inviteUrl = `${baseUrl}/team-invite/${invitation.token}`;
+            const { inviteUrl } = invitation;
 
             return (
               <Table.Tr key={invitation.id}>

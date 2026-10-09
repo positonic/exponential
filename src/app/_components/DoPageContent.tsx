@@ -167,8 +167,9 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
     );
   }
 
-  // Desktop "today" — new redesign shell owns its own top bar and tag filter.
-  if (filter === "today") {
+  // Desktop — the redesign shell owns its own top bar and tag filter for every
+  // tab, so switching Today / Tomorrow / Upcoming only swaps the rows.
+  if (!isMobile) {
     return (
       <TodayDesktopShell
         filter={filter}
@@ -179,8 +180,9 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
     );
   }
 
+  // Mobile Tomorrow / Upcoming keep the legacy list, padded like before.
   return (
-    <>
+    <div className="container flex flex-col items-stretch justify-start px-4 pb-20 pt-6">
       {/* Page Header */}
       <div className="mb-4 w-full">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -276,14 +278,14 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         </div>
       )}
 
-      {/* Actions List (filter is "tomorrow" or "upcoming" here — today is
-          handled by the redesigned TodayDesktopShell above). */}
+      {/* Actions List (mobile "tomorrow" or "upcoming" only — desktop is the
+          TodayDesktopShell above, mobile today is TodayLayout). */}
       <Actions
         viewName={getViewName(filter)}
         searchQuery={searchQuery}
         tagIds={selectedTagIds}
       />
-    </>
+    </div>
   );
 }
 

@@ -16,7 +16,7 @@ vi.mock("~/server/db", () => ({
   db: { integration: { findFirst } },
 }));
 
-import { resolvePostmark } from "../EmailService";
+import { resolvePostmark, sendMeetingInviteEmail } from "../EmailService";
 
 const ENV_KEY = "env-server-token";
 const ENV_FROM = "noreply@platform.test";
@@ -79,5 +79,31 @@ describe("resolvePostmark", () => {
       workspaceId: "ws_1",
     });
     expect(where).not.toHaveProperty("userId");
+  });
+});
+
+describe("EMAIL_DELIVERY_DISABLED", () => {
+  it("refuses every send before resolving a key or a workspace integration, and never calls Postmark", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    process.env.EMAIL_DELIVERY_DISABLED = "1";
+    try {
+      await expect(
+        sendMeetingInviteEmail({
+          to: "someone@example.com",
+          method: "REQUEST",
+          meetingTitle: "Launch scope",
+          organizerName: "Org",
+          startsAt: new Date("2026-10-12T09:00:00Z"),
+          endsAt: new Date("2026-10-12T09:30:00Z"),
+          icsContent: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+          workspaceId: "ws-with-its-own-postmark",
+        }),
+      ).rejects.toThrow(/EMAIL_DELIVERY_DISABLED/);
+      expect(findFirst).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.EMAIL_DELIVERY_DISABLED;
+      fetchSpy.mockRestore();
+    }
   });
 });

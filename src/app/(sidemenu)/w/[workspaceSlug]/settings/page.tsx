@@ -24,6 +24,7 @@ import {
   IconPencil,
   IconUserPlus,
   IconPlug,
+  IconCalendarRepeat,
   IconFolder,
   IconUsers,
   IconRocket,
@@ -84,6 +85,7 @@ import {
   SettingsRowLink,
   type SidebarGroup,
 } from '~/app/_components/settings/SettingsShell';
+import { WorkspaceUpdatesSettings } from '~/app/_components/settings/WorkspaceUpdatesSettings';
 
 type SectionId =
   | 'general'
@@ -92,6 +94,8 @@ type SectionId =
   | 'features'
   | 'integrations'
   | 'plugins'
+  | 'ceremonies'
+  | 'updates'
   | 'danger';
 
 export default function WorkspaceSettingsPage() {
@@ -256,6 +260,31 @@ export default function WorkspaceSettingsPage() {
       refetchWorkspace();
       void utils.workspace.list.invalidate();
       setEditingField(null);
+    },
+  });
+
+  // The workspace you land in when a URL doesn't name one (getDefault falls
+  // back to your first workspace when none has been chosen).
+  const { data: defaultWorkspace, isLoading: isDefaultLoading } = api.workspace.getDefault.useQuery();
+  const isDefaultWorkspace = !!workspaceId && defaultWorkspace?.id === workspaceId;
+
+  const setDefaultMutation = api.workspace.setDefault.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getDefault.invalidate();
+      notifications.show({
+        title: 'Default workspace updated',
+        message: `${workspace?.name ?? 'This workspace'} is now your default workspace.`,
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Could not set default workspace',
+        message: error.message,
+        color: 'red',
+        autoClose: 5000,
+      });
     },
   });
 
@@ -602,6 +631,10 @@ export default function WorkspaceSettingsPage() {
         { id: 'features', label: 'Features', icon: IconRocket, badge: `${featureOn}/${featureTotal}` },
         { id: 'integrations', label: 'Integrations', icon: IconPalette },
         { id: 'plugins', label: 'Plugins', icon: IconPlug },
+        { id: 'ceremonies', label: 'Ceremonies', icon: IconCalendarRepeat },
+        ...(userRole === 'owner' || userRole === 'admin'
+          ? [{ id: 'updates' as const, label: 'Updates', icon: IconSparkles }]
+          : []),
       ],
     },
     ...(userRole === 'owner'
@@ -730,6 +763,35 @@ export default function WorkspaceSettingsPage() {
               <SettingsPill variant={workspace.type === 'personal' ? 'neutral' : 'team'}>
                 {workspaceTypeLabel}
               </SettingsPill>
+            </SettingsField>
+
+            <SettingsField
+              label="Default workspace"
+              sublabel="Where you land when a link doesn't name a workspace. Only affects you."
+              action={
+                !isDefaultLoading && !isDefaultWorkspace && workspaceId ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (setDefaultMutation.isPending) return;
+                      setDefaultMutation.mutate({ workspaceId });
+                    }}
+                  >
+                    {setDefaultMutation.isPending ? 'Saving…' : 'Set as default'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {isDefaultLoading ? (
+                <Skeleton height={16} width={120} />
+              ) : isDefaultWorkspace ? (
+                <SettingsPill variant="active">Default</SettingsPill>
+              ) : (
+                <span className="text-text-muted text-[12px]">
+                  {defaultWorkspace
+                    ? `Your default is ${defaultWorkspace.name}`
+                    : 'No default set'}
+                </span>
+              )}
             </SettingsField>
 
             <SettingsField
@@ -1501,6 +1563,30 @@ export default function WorkspaceSettingsPage() {
               description="Toggle OKRs, CRM, notifications, and other plugins for this workspace."
             />
           </SettingsSection>
+        )}
+
+        {section === 'ceremonies' && (
+          <SettingsSection
+            icon={IconCalendarRepeat}
+            title="Ceremonies"
+            description="The workspace's operating rhythm: standups, planning, reviews, retros and the meetings that capture them."
+            flush
+          >
+            <SettingsRowLink
+              href={`/w/${workspace.slug}/settings/ceremonies`}
+              icon={IconCalendarRepeat}
+              title="Manage ceremonies"
+              description="Define recurring meetings from templates, set cadence, owner and participants, and link recordings to occurrences."
+            />
+          </SettingsSection>
+        )}
+
+        {section === 'updates' && (userRole === 'owner' || userRole === 'admin') && (
+          <WorkspaceUpdatesSettings
+            workspaceId={workspace.id}
+            workspaceSlug={workspace.slug}
+            members={workspace.members ?? []}
+          />
         )}
 
         {section === 'danger' && userRole === 'owner' && (

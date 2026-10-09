@@ -32,6 +32,7 @@ import {
   IconPhoto,
   IconChevronLeft,
   IconChevronRight,
+  IconLock,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -50,6 +51,7 @@ import { TagSelector } from "./TagSelector";
 import { useImagePaste } from "~/hooks/useImagePaste";
 import { InlineImageRenderer } from "./shared/InlineImageRenderer";
 import { HTMLContent } from "./HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 
 const KANBAN_STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
@@ -613,6 +615,36 @@ export function ActionDetailContent({
               <Badge size="xs" variant="light">
                 {action.epic.name}
               </Badge>
+            </PropertyRow>
+          )}
+
+          {/* Blocked by (ADR-0062): every blocker, open ones highlighted */}
+          {action.depsOut.length > 0 && (
+            <PropertyRow icon={<IconLock size={16} />} label="Blocked by">
+              <Group gap="xs">
+                {action.depsOut.map((dep) => {
+                  const isOpen = dep.dependsOn.status === "ACTIVE";
+                  const badge = (
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color={isOpen ? "red" : "gray"}
+                      td={isOpen ? undefined : "line-through"}
+                    >
+                      {/* The badge sits inside a Link below, so it shows the
+                          text of a legacy-HTML name, not a nested anchor. */}
+                      {toPlainText(dep.dependsOn.name) || "Untitled"}
+                    </Badge>
+                  );
+                  return workspace?.slug ? (
+                    <Link key={dep.id} href={`/w/${workspace.slug}/actions/${dep.dependsOn.id}`}>
+                      {badge}
+                    </Link>
+                  ) : (
+                    <span key={dep.id}>{badge}</span>
+                  );
+                })}
+              </Group>
             </PropertyRow>
           )}
 

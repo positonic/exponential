@@ -8,6 +8,11 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { ActivityRow, type FeedRowEvent } from './activityRow';
 import { SourceSwitcher } from './SourceSwitcher';
+import {
+  ActorSwitcher,
+  parseActivityActor,
+  type ActivityActor,
+} from './ActorSwitcher';
 
 import './activity-home.css';
 
@@ -30,6 +35,7 @@ export function WorkspaceActivityFullFeed() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const source = searchParams.get('source') ?? 'all';
+  const actor = parseActivityActor(searchParams.get('who'));
 
   const [cursor, setCursor] = useState<string | null>(null);
   const [accumulated, setAccumulated] = useState<FeedRowEvent[]>([]);
@@ -39,7 +45,7 @@ export function WorkspaceActivityFullFeed() {
   useEffect(() => {
     setCursor(null);
     setAccumulated([]);
-  }, [source]);
+  }, [source, actor]);
 
   const { data, isLoading } = api.workspace.getActivityFeed.useQuery(
     {
@@ -47,6 +53,7 @@ export function WorkspaceActivityFullFeed() {
       cursor: cursor ?? undefined,
       limit: PAGE_SIZE,
       source,
+      mine: actor === 'mine',
     },
     { enabled: !!workspaceId },
   );
@@ -56,13 +63,16 @@ export function WorkspaceActivityFullFeed() {
     { enabled: !!workspaceId },
   );
 
-  function setSource(next: string) {
+  // Each filter lives in the URL; its default value is left out of it.
+  function setParam(key: string, next: string, defaultValue: string) {
     const params = new URLSearchParams(searchParams.toString());
-    if (next === 'all') params.delete('source');
-    else params.set('source', next);
+    if (next === defaultValue) params.delete(key);
+    else params.set(key, next);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
+  const setSource = (next: string) => setParam('source', next, 'all');
+  const setActor = (next: ActivityActor) => setParam('who', next, 'everyone');
 
   if (workspaceLoading || !workspace) {
     return (
@@ -110,7 +120,7 @@ export function WorkspaceActivityFullFeed() {
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconClipboardList size={14} stroke={1.8} />
-              All workspace activity
+              {actor === 'mine' ? 'Your activity' : 'All workspace activity'}
               {data ? (
                 <span className="wsa-card__count">
                   {display.length}
@@ -118,6 +128,7 @@ export function WorkspaceActivityFullFeed() {
                 </span>
               ) : null}
             </h2>
+            <ActorSwitcher value={actor} onChange={setActor} />
           </div>
 
           <SourceSwitcher
@@ -148,6 +159,11 @@ export function WorkspaceActivityFullFeed() {
                 </div>
               ))}
             </Stack>
+          ) : isEmpty && actor === 'mine' ? (
+            <p className="wsa-feed__empty">
+              Nothing from you yet{source === 'all' ? '' : ' in this source'}.
+              What you create, update, complete, or comment on shows up here.
+            </p>
           ) : isEmpty ? (
             <p className="wsa-feed__empty">
               No activity yet in <b>{workspace.name}</b>. Events show up here

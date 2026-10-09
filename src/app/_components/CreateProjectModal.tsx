@@ -6,7 +6,10 @@ import { useDisclosure } from '@mantine/hooks';
 import type { Project } from '@prisma/client';
 import { useState, useEffect } from "react";
 import { useSession } from 'next-auth/react';
-import { api } from "~/trpc/react";
+import { useQueryClient } from '@tanstack/react-query';
+import { getQueryKey } from '@trpc/react-query';
+import { api, type RouterInputs, type RouterOutputs } from "~/trpc/react";
+import { reportHandledError } from '~/lib/reportHandledError';
 import { CreateGoalModal } from './CreateGoalModal';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -28,6 +31,37 @@ type ProjectWithRelations = Project & {
   productId?: string | null;
   dri?: { id: string; name: string | null; email: string | null; image: string | null } | null;
 };
+
+type ProjectListItem = RouterOutputs['project']['getAll'][number];
+type ProjectUpdateInput = RouterInputs['project']['update'];
+
+/**
+ * Apply an update's scalar fields to a cached list row. Relations (goals,
+ * dri, …) are left as they were; the refetch on settle brings those in line.
+ */
+function applyProjectUpdate(row: ProjectListItem, input: ProjectUpdateInput): ProjectListItem {
+  return {
+    ...row,
+    name: input.name,
+    status: input.status,
+    priority: input.priority,
+    description: input.description ?? row.description,
+    aiInstructions: input.aiInstructions ?? row.aiInstructions,
+    workspaceId: input.workspaceId === undefined ? row.workspaceId : input.workspaceId,
+    driId: input.driId === undefined ? row.driId : input.driId,
+    productId: input.productId === undefined ? row.productId : input.productId,
+    startDate: input.startDate === undefined ? row.startDate : input.startDate,
+    endDate: input.endDate === undefined ? row.endDate : input.endDate,
+    isPublic: input.isPublic ?? row.isPublic,
+    isRestricted: input.isRestricted ?? row.isRestricted,
+  };
+}
+
+/** The `status` filter a cached `project.getAll` query was made with, read off its key. */
+function statusFilterOf(queryKey: readonly unknown[]): string[] | undefined {
+  const meta = queryKey[1] as { input?: { status?: string[] } } | undefined;
+  return meta?.input?.status;
+}
 
 interface CreateProjectModalProps {
   children: React.ReactNode;
@@ -89,6 +123,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
 
   const { data: session } = useSession();
   const utils = api.useUtils();
+  const queryClient = useQueryClient();
 
   // Check if user is the project owner (can edit status/priority)
   const isOwner = !project || project.createdById === session?.user?.id;
@@ -111,22 +146,81 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
   );
   const productData = products?.map((p) => ({ value: p.id, label: p.name })) ?? [];
 
+  // Ceremonies in the project's workspace for the optional Ceremonies link. A
+  // ceremony can review several projects, so picking one here adds this
+  // project to it and leaves its other projects alone.
+  const { data: workspaceCeremonies } = api.ceremony.list.useQuery(
+    { workspaceId: effectiveWorkspaceId ?? '' },
+    { enabled: !!effectiveWorkspaceId },
+  );
+  const [selectedCeremonyIds, setSelectedCeremonyIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    // Seed once from the loaded list when editing; a new project starts empty.
+    if (selectedCeremonyIds !== null || !workspaceCeremonies) return;
+    setSelectedCeremonyIds(
+      project ? workspaceCeremonies.filter((c) => c.projects.some((p) => p.projectId === project.id)).map((c) => c.id) : [],
+    );
+  }, [workspaceCeremonies, project, selectedCeremonyIds]);
+  const ceremonyData =
+    workspaceCeremonies?.map((c) => ({
+      value: c.id,
+      label: (() => {
+        const others = c.projects.filter((p) => p.projectId !== project?.id).length;
+        return others > 0 ? `${c.name} (also reviews ${others} other project${others === 1 ? "" : "s"})` : c.name;
+      })(),
+    })) ?? [];
+
   // Fetch workflows for Notion imports (only when we have a prefillNotionProjectId)
   const { data: workflows = [] } = api.workflow.list.useQuery(undefined, {
     enabled: !!prefillNotionProjectId,
   });
   const notionWorkflows = workflows.filter(w => w.provider === 'notion');
 
+  // Saving closes the modal at once and patches every cached project list
+  // so the change shows immediately; the server round-trip finishes in the
+  // background. On failure the lists roll back and the user is told.
   const updateMutation = api.project.update.useMutation({
-    onSuccess: () => {
-      void utils.project.getAll.invalidate();
+    onMutate: async (input) => {
       handleClose();
+      const listKey = getQueryKey(api.project.getAll);
+      await queryClient.cancelQueries({ queryKey: listKey });
+      const previousLists = queryClient.getQueriesData<ProjectListItem[]>({ queryKey: listKey });
+      for (const [queryKey, rows] of previousLists) {
+        if (!rows) continue;
+        const statusFilter = statusFilterOf(queryKey);
+        const stillListed = !statusFilter || statusFilter.includes(input.status);
+        queryClient.setQueryData<ProjectListItem[]>(
+          queryKey,
+          stillListed
+            ? rows.map((row) => (row.id === input.id ? applyProjectUpdate(row, input) : row))
+            : rows.filter((row) => row.id !== input.id),
+        );
+      }
+      return { previousLists };
+    },
+    onError: (error, _input, context) => {
+      for (const [queryKey, rows] of context?.previousLists ?? []) {
+        queryClient.setQueryData(queryKey, rows);
+      }
+      reportHandledError(error, { area: 'project-update-modal' });
+      notifications.show({
+        title: 'Project not saved',
+        message: error.message,
+        color: 'red',
+      });
+    },
+    onSettled: () => {
+      void utils.project.getAll.invalidate();
+      // A status change moves the row between tabs, so the tab counts must follow.
+      void utils.project.getStatusCounts.invalidate();
+      void utils.ceremony.invalidate();
     },
   });
 
   const createMutation = api.project.create.useMutation({
     onSuccess: (data) => {
       void utils.project.getAll.invalidate();
+      void utils.ceremony.invalidate();
 
       // Call onSuccess callback with the created project
       onSuccess?.(data);
@@ -372,6 +466,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 endDate: endDate,
                 isPublic,
                 isRestricted,
+                ceremonyIds: selectedCeremonyIds ?? undefined,
               });
             } else {
               createMutation.mutate({
@@ -391,6 +486,7 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
                 endDate: endDate ?? undefined,
                 isPublic,
                 isRestricted,
+                ceremonyIds: selectedCeremonyIds ?? undefined,
               });
             }
           }}
@@ -670,6 +766,32 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
               },
             }}
           />
+
+          {effectiveWorkspaceId && ceremonyData.length > 0 && (
+            <MultiSelect
+              data={ceremonyData}
+              value={selectedCeremonyIds ?? []}
+              onChange={setSelectedCeremonyIds}
+              label="Ceremonies (optional)"
+              description="Recurring meetings that belong to this project — shown on its overview"
+              placeholder="Select ceremonies"
+              searchable
+              clearable
+              maxDropdownHeight={300}
+              mt="md"
+              styles={{
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+                dropdown: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+              }}
+            />
+          )}
 
           {/* Workspace selector - show when editing to allow moving between workspaces */}
           {project && workspaces && workspaces.length > 0 && (

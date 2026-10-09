@@ -53,9 +53,9 @@ export default function CrmListsPage() {
   const lists = listsQuery.data ?? [];
 
   return (
-    <div className="-m-6 flex h-full flex-col">
+    <div className="-m-4 flex h-full flex-col md:-m-6">
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-border-primary bg-background-primary px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-primary bg-background-primary px-4 py-3">
         <div>
           <Title order={3} className="text-text-primary">
             Lists

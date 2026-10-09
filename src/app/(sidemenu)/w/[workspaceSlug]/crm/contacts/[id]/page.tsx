@@ -104,18 +104,19 @@ function HighlightCard({
 }) {
   return (
     <div
-      className={`rounded-lg border border-border-primary bg-surface-secondary p-4 ${
+      className={`min-w-0 rounded-lg border border-border-primary bg-surface-secondary p-4 ${
         onClick ? 'cursor-pointer hover:border-border-focus transition-colors' : ''
       }`}
       onClick={onClick}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <Text size="xs" className="text-text-muted">
           {label}
         </Text>
-        <span className="text-text-muted">{icon}</span>
+        <span className="shrink-0 text-text-muted">{icon}</span>
       </div>
-      <div className="mt-2">{value}</div>
+      {/* overflow-wrap:anywhere so long emails / URLs wrap inside the card */}
+      <div className="mt-2 min-w-0 [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 }
@@ -243,7 +244,7 @@ function DetailRow({
           {label}
         </Text>
       </div>
-      <div className="flex-1 text-sm">{value}</div>
+      <div className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 }
@@ -301,7 +302,7 @@ function AddInteractionForm({
   return (
     <form onSubmit={handleSubmit}>
       <Stack gap="md">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Select
             label="Type"
             data={[
@@ -383,26 +384,19 @@ export default function ContactDetailPage() {
   );
   const meetings = activityData?.meetings ?? [];
 
-  // Get all contacts for prev/next navigation
-  const { data: allContacts } = api.crmContact.getAll.useQuery(
-    { workspaceId: workspaceId! },
-    { enabled: !!workspaceId }
+  // Prev/next navigation. Resolved server-side against the whole workspace —
+  // walking a page of `getAll` here confined the arrows to the first 50 contacts.
+  const { data: neighbors } = api.crmContact.getNeighbors.useQuery(
+    { workspaceId: workspaceId!, contactId },
+    { enabled: !!workspaceId && !!contactId }
   );
 
-  // Calculate navigation info
-  const navigationInfo = useMemo(() => {
-    if (!allContacts?.contacts || !contactId) {
-      return { currentIndex: -1, total: 0, prevId: null, nextId: null };
-    }
-    const contacts = allContacts.contacts;
-    const currentIndex = contacts.findIndex((c) => c.id === contactId);
-    return {
-      currentIndex,
-      total: contacts.length,
-      prevId: currentIndex > 0 ? contacts[currentIndex - 1]?.id : null,
-      nextId: currentIndex < contacts.length - 1 ? contacts[currentIndex + 1]?.id : null,
-    };
-  }, [allContacts, contactId]);
+  const navigationInfo = {
+    position: neighbors?.position ?? null,
+    total: neighbors?.total ?? 0,
+    prevId: neighbors?.prevId ?? null,
+    nextId: neighbors?.nextId ?? null,
+  };
 
   // Build activity items from the merged interaction + meeting timeline
   // Extra columns kept from a CSV import, keyed by the file's original headers.
@@ -509,9 +503,9 @@ export default function ContactDetailPage() {
     interactionCount > 5 ? 'bg-green-500' : interactionCount > 0 ? 'bg-yellow-500' : 'bg-red-500';
 
   return (
-    <div className="flex flex-col h-full -m-6">
+    <div className="flex flex-col h-full -m-4 md:-m-6">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between border-b border-border-primary bg-surface-secondary px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-primary bg-surface-secondary px-4 py-2">
         <div className="flex items-center gap-2">
           <Tooltip label="Back to Contacts">
             <ActionIcon
@@ -551,9 +545,10 @@ export default function ContactDetailPage() {
             </ActionIcon>
           </Tooltip>
 
-          {navigationInfo.total > 0 && (
+          {navigationInfo.position !== null && navigationInfo.total > 0 && (
             <Text size="xs" className="text-text-muted ml-2">
-              {navigationInfo.currentIndex + 1} of {navigationInfo.total} in All People
+              {navigationInfo.position} of {navigationInfo.total}
+              <span className="hidden sm:inline"> in All People</span>
             </Text>
           )}
         </div>
@@ -566,13 +561,13 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Contact Header */}
-      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-6 py-4">
+      <div className="flex items-center gap-4 border-b border-border-primary bg-background-primary px-4 py-4 md:px-6">
         <Avatar size="lg" radius="xl" src={contact.imageUrl}>
           {getInitialFromName(contact.firstName ?? contact.lastName)}
         </Avatar>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Title order={3} className="text-text-primary">
+            <Title order={3} className="min-w-0 break-words text-text-primary">
               {fullName}
             </Title>
             <ActionIcon
@@ -587,9 +582,10 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-border-primary bg-background-primary px-6">
+      <div className="border-b border-border-primary bg-background-primary px-4 md:px-6">
         <Tabs value={activeTab} onChange={setActiveTab}>
-          <Tabs.List>
+          {/* Scroll rather than wrap: nine tabs wrap to three rows on a phone. */}
+          <Tabs.List style={{ flexWrap: 'nowrap', overflowX: 'auto', overflowY: 'hidden' }}>
             <Tabs.Tab value="overview">Overview</Tabs.Tab>
             <Tabs.Tab value="activity">Activity</Tabs.Tab>
             <Tabs.Tab
@@ -623,14 +619,14 @@ export default function ContactDetailPage() {
               Meetings
             </Tabs.Tab>
             <Tabs.Tab
-              value="company"
+              value="organization"
               rightSection={
                 <Badge size="xs" variant="light">
                   {contact.organization ? 1 : 0}
                 </Badge>
               }
             >
-              Company
+              Organization
             </Tabs.Tab>
             <Tabs.Tab
               value="notes"
@@ -651,9 +647,11 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Below lg the two panes stack and scroll together; side by side, each
+          scrolls on its own. */}
+      <div className="flex flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         {/* Left Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="min-w-0 flex-1 p-4 md:p-6 lg:overflow-y-auto">
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {/* Highlights Section */}
@@ -665,7 +663,7 @@ export default function ContactDetailPage() {
                   </Text>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   <HighlightCard
                     icon={<IconStar size={14} />}
                     label="Connection strength"
@@ -691,7 +689,7 @@ export default function ContactDetailPage() {
 
                   <HighlightCard
                     icon={<IconBuilding size={14} />}
-                    label="Company"
+                    label="Organization"
                     value={
                       contact.organization ? (
                         <div className="flex items-center gap-2">
@@ -704,7 +702,7 @@ export default function ContactDetailPage() {
                         </div>
                       ) : (
                         <Text size="sm" className="text-text-muted">
-                          No company
+                          No organization
                         </Text>
                       )
                     }
@@ -1045,10 +1043,10 @@ export default function ContactDetailPage() {
             </div>
           )}
 
-          {activeTab === 'company' && (
+          {activeTab === 'organization' && (
             <div className="space-y-4">
               <Title order={4} className="text-text-primary">
-                Company
+                Organization
               </Title>
               {contact.organization ? (
                 <Link
@@ -1073,7 +1071,7 @@ export default function ContactDetailPage() {
                 <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
                   <IconBuilding size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
-                    No company associated
+                    No organization associated
                   </Text>
                 </div>
               )}
@@ -1159,7 +1157,7 @@ export default function ContactDetailPage() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-80 shrink-0 border-l border-border-primary bg-background-primary overflow-y-auto">
+        <div className="w-full shrink-0 border-t border-border-primary bg-background-primary lg:w-80 lg:overflow-y-auto lg:border-l lg:border-t-0">
           {/* Sidebar Tabs */}
           <div className="border-b border-border-primary">
             <Tabs value={sidebarTab} onChange={setSidebarTab}>
@@ -1236,7 +1234,7 @@ export default function ContactDetailPage() {
 
                   <DetailRow
                     icon={<IconBuilding size={14} />}
-                    label="Company"
+                    label="Organization"
                     value={
                       contact.organization ? (
                         <div className="flex items-center gap-1.5">

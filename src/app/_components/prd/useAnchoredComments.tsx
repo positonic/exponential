@@ -13,6 +13,20 @@ import {
   CommentResolution,
   setResolvedThreadIds,
 } from "~/lib/prd/comment-resolution";
+import {
+  PendingCommentHighlight,
+  anchorPendingComment,
+  clearPendingComment,
+  getPendingComment,
+  pendingThreadIdAt,
+  setPendingComment,
+  threadMarkText,
+} from "~/lib/prd/pending-comment";
+import {
+  anchorPayload,
+  type CommentAnchorPayload,
+  type CommentAnchorResult,
+} from "~/lib/prd/comment-anchor";
 import type { RichDocEditorHandle } from "~/app/_components/shared/RichDocEditor";
 import {
   PrdCommentsPanel,
@@ -42,8 +56,15 @@ function newThreadId(): string {
 export interface AnchoredCommentsAdapter {
   /** All comment rows for the document (threads are filtered here). */
   comments: FeatureCommentRow[];
-  /** Root comment on a brand-new thread; carries the highlight snapshot. */
-  createThread: (args: { threadId: string; body: string; quotedText?: string }) => Promise<unknown>;
+  /** Root comment on a brand-new thread; carries the highlight snapshot and,
+   *  for a fresh selection, the `anchor` the server pins the mark from. The
+   *  host returns the server's anchor result (void if it has none). */
+  createThread: (args: {
+    threadId: string;
+    body: string;
+    quotedText?: string;
+    anchor?: CommentAnchorPayload;
+  }) => Promise<CommentAnchorResult | void>;
   reply: (args: { parentId: string; body: string }) => Promise<unknown>;
   editComment: (args: { commentId: string; body: string }) => Promise<unknown>;
   deleteComment: (args: { commentId: string }) => Promise<unknown>;
@@ -76,6 +97,13 @@ export function useAnchoredComments({
 }) {
   const [editor, setEditor] = useState<Editor | null>(null);
   const flushSaveRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const docRef = useRef<
+    Pick<RichDocEditorHandle, "baseVersion" | "fastForward" | "runExclusive">
+  >({
+    baseVersion: () => 0,
+    fastForward: () => undefined,
+    runExclusive: (fn) => fn(),
+  });
 
   // Bumped on every doc change so thread reconciliation re-reads the live marks.
   const [docTick, setDocTick] = useState(0);
@@ -148,17 +176,19 @@ export function useAnchoredComments({
   // synchronously or it strips the mark from under the in-flight comment.
   const inFlightRef = useRef<Set<string>>(new Set());
 
-  // Discard the locally-created, never-posted thread: strip its mark, forget
-  // it. Gating every discard path on `pending` — never on the fetched comments
-  // array — means a slow or failed comments query can't misclassify a real
-  // thread as empty and strip its highlight.
+  // Discard the locally-created, never-posted thread: drop its highlight,
+  // forget it. A pending thread has no `comment` mark in the document (see
+  // startComment), so there's nothing to strip or save. Gating every discard
+  // path on `pending` — never on the fetched comments array — means a slow or
+  // failed comments query can't misclassify a real thread as empty.
   const discardPendingThread = () => {
     if (!pending || !editable) return;
-    // Only the pending thread's own in-flight post blocks a discard.
+    // Only the pending thread's own in-flight post blocks a discard: by then
+    // its mark is being applied, and the post settles it either way.
     // (Not adapter.isSubmitting: that flag is shared across threads, and a
     // reply mid-flight elsewhere shouldn't strand this highlight.)
     if (inFlightRef.current.has(pending.threadId)) return;
-    removeThreadMark(pending.threadId);
+    if (editor) clearPendingComment(editor);
     setPending(null);
   };
 
@@ -197,6 +227,7 @@ export function useAnchoredComments({
   const handleReady = (handle: RichDocEditorHandle) => {
     setEditor(handle.editor);
     flushSaveRef.current = handle.flushSave;
+    docRef.current = handle;
   };
 
   // Push the set of resolved threads to the editor so their highlights hide.
@@ -219,6 +250,13 @@ export function useAnchoredComments({
       liveDoc,
       comments,
     );
+    // The pending thread's mark goes in only after its first comment posts,
+    // so while that post is landing the refreshed rows already hold the
+    // thread but the doc doesn't: keep it showing as anchored, not orphaned.
+    if (pending) {
+      const posted = reconciled.find((t) => t.threadId === pending.threadId);
+      if (posted?.status === "orphaned") posted.status = "anchored";
+    }
     if (pending && !reconciled.some((t) => t.threadId === pending.threadId)) {
       return [
         {
@@ -248,21 +286,31 @@ export function useAnchoredComments({
     const quotedText = editor.state.doc.textBetween(from, to, " ").slice(0, 1000);
     const threadId = newThreadId();
     const anchor = computeAnchor(editor.view, from, to);
-    editor.chain().focus().setMark("comment", { threadId }).run();
-    // setMark's onUpdate scheduled a debounced autosave; flush it now so we don't
-    // fire two concurrent saves with the same baseVersion (which can race into a
-    // spurious stale-write conflict). Persist the mark right away instead so the
-    // thread is anchored on reload.
-    void flushSaveRef.current();
+    // Highlight with a view-only decoration, NOT the `comment` mark: the thread
+    // exists only in React state until its first comment posts, so a mark saved
+    // now (by any autosave — the composer taking focus blurs the editor) would
+    // outlive a reload as a highlight with no thread. submitComment anchors
+    // the real mark once the post is under way.
+    setPendingComment(editor, { threadId, from, to });
     setPending({ threadId, quotedText });
     setActiveThreadId(threadId);
     setAnchorPos(anchor);
+  };
+
+  const discardPendingUnless = (threadId: string) => {
+    if (pending && pending.threadId !== threadId) {
+      discardPendingThread();
+    }
   };
 
   // Find the document position of a thread's comment mark (for anchoring the
   // popover when a thread is opened from the bottom list).
   const findThreadPos = (threadId: string): number | null => {
     if (!editor) return null;
+    const pendingRange = getPendingComment(editor.state);
+    if (pendingRange?.threadId === threadId && pendingRange.from < pendingRange.to) {
+      return pendingRange.from;
+    }
     let found: number | null = null;
     editor.state.doc.descendants((node, pos) => {
       if (found != null) return false;
@@ -287,9 +335,7 @@ export function useAnchoredComments({
     // Switching away from a pending thread abandons it — discard so its
     // highlight doesn't linger (the popover's outside-click usually beats us
     // to it, but the panel composer path has no popover mounted).
-    if (pending && pending.threadId !== threadId) {
-      discardPendingThread();
-    }
+    discardPendingUnless(threadId);
     setActiveThreadId(threadId);
     const pos = findThreadPos(threadId);
     if (pos != null && editor) {
@@ -301,13 +347,62 @@ export function useAnchoredComments({
 
   const submitComment = async (threadId: string, body: string) => {
     if (pending?.threadId === threadId) {
-      // First comment on a brand-new thread → create the root (carries quotedText).
+      // First comment on a brand-new thread → create the root (carries
+      // quotedText) and have the server pin the `comment` mark into the
+      // stored doc in the same request. Leaving the mark to this tab's
+      // autosave lost it whenever that save was rejected — e.g. a CONFLICT
+      // after a CLI/agent rewrote the doc while the tab was open.
       inFlightRef.current.add(threadId);
+      let anchored = false;
+      let result: CommentAnchorResult | void;
       try {
-        await adapter.createThread({ threadId, body, quotedText: pending.quotedText });
-        setPending((p) => (p?.threadId === threadId ? null : p));
+        // The post writes the doc server-side, so it runs in line with this
+        // tab's saves: unsaved edits land first (making the positions sent
+        // positions in the stored doc, and the base version current), and no
+        // save can start until the version is adopted and the mark mirrored.
+        result = await docRef.current.runExclusive(async () => {
+          const range = editor ? getPendingComment(editor.state) : null;
+          const anchor =
+            editor && range?.threadId === threadId && range.from < range.to
+              ? anchorPayload(
+                  editor.state.doc,
+                  range.from,
+                  range.to,
+                  docRef.current.baseVersion(),
+                )
+              : undefined;
+          const res = await adapter.createThread({
+            threadId,
+            body,
+            quotedText: pending.quotedText,
+            ...(anchor ? { anchor } : {}),
+          });
+          // The server's write was made on top of this tab's base: adopt its
+          // version so this tab's next save doesn't conflict with it.
+          if (anchor && res?.anchored && res.fastForward && res.docVersion != null) {
+            docRef.current.fastForward(anchor.baseVersion, res.docVersion);
+          }
+          // Mirror the mark locally (the server has it already, unless it
+          // found nowhere to put it).
+          anchored = editor ? anchorPendingComment(editor, threadId) : false;
+          return res;
+        });
       } finally {
         inFlightRef.current.delete(threadId);
+      }
+      if (editor) clearPendingComment(editor);
+      setPending((p) => (p?.threadId === threadId ? null : p));
+      // Save the mirrored mark — unless the server stored it on top of a doc
+      // someone else had changed: this tab is stale then, and the save could
+      // only raise the conflict dialog. Its next real edit will, honestly.
+      const serverStale = result?.anchored === true && !result.fastForward;
+      if (anchored && !serverStale) {
+        flushSaveRef.current().catch(() => {
+          notifications.show({
+            color: "red",
+            message: "Couldn't save the comment highlight. Please try again.",
+          });
+        });
       }
     } else {
       // Existing thread → threaded reply hanging off its root.
@@ -316,7 +411,15 @@ export function useAnchoredComments({
       if (root) {
         await adapter.reply({ parentId: root.id, body });
       } else {
-        await adapter.createThread({ threadId, body });
+        // A highlight with no comment rows (left behind before pending threads
+        // stopped persisting their mark): create the root, snapshotting the
+        // marked text so the thread keeps its quote if the text is later cut.
+        const quotedText = editor ? threadMarkText(editor.state.doc, threadId) : "";
+        await adapter.createThread({
+          threadId,
+          body,
+          ...(quotedText ? { quotedText } : {}),
+        });
       }
     }
     setActiveThreadId(threadId);
@@ -399,8 +502,13 @@ export function useAnchoredComments({
           .resolve(pos)
           .marks()
           .find((m) => m.type.name === "comment");
-        const threadId = mark?.attrs.threadId as string | undefined;
+        // The pending highlight wins where it overlaps an existing thread's:
+        // clicking into the thread you're composing shouldn't abandon it.
+        const threadId =
+          pendingThreadIdAt(view.state, pos) ??
+          (mark?.attrs.threadId as string | undefined);
         if (threadId) {
+          discardPendingUnless(threadId);
           setActiveThreadId(threadId);
           setAnchorPos(computeAnchor(view, pos, pos));
         } else {
@@ -411,7 +519,7 @@ export function useAnchoredComments({
     : undefined;
 
   const extraExtensions: Extensions | undefined = enabled
-    ? [CommentResolution]
+    ? [CommentResolution, PendingCommentHighlight]
     : undefined;
 
   return {

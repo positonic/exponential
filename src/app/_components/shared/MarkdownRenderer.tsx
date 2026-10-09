@@ -1,7 +1,6 @@
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
-import { CodeHighlight } from "@mantine/code-highlight";
 import { Badge, Title, Text } from "@mantine/core";
 import type { ReactNode } from "react";
 import { SanitizedHtml } from "~/app/_components/shared/SanitizedHtml";
@@ -13,19 +12,25 @@ import {
 import { remarkSoftBreaks } from "~/lib/content/remarkSoftBreaks";
 import { detectContentType } from "~/lib/content/contentFormat";
 import { MarkdownImage } from "~/app/_components/shared/MarkdownImage";
+import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
 
 /**
  * The canonical renderer for authored prose (ADR-0017). Markdown is the
  * canonical stored format; legacy HTML is tolerated on read (sanitised). Use
- * `variant="prose"` for long-form surfaces (docs, blog, descriptions) and
- * `variant="compact"` for dense surfaces (activity feed, comments, chat).
+ * `variant="prose"` for long-form surfaces (docs, blog, descriptions),
+ * `variant="compact"` for dense surfaces (activity feed, comments, chat) and
+ * `variant="inline"` for a one-line authored string inside a host element
+ * (an agenda item title): compact styling, but a paragraph renders as a
+ * span so the output sits in the host's own text flow and inherits its
+ * size, colour and strike-through.
  *
  * Server-capable: the markdown path renders on the server so RSC pages keep
- * their HTML. The only client-only piece (the image lightbox) lives in the
- * separate MarkdownImage component.
+ * their HTML. The client-only pieces (the image lightbox, the lazily loaded
+ * code highlighter) live in the separate MarkdownImage and LazyCodeHighlight
+ * components.
  */
 
-export type MarkdownVariant = "prose" | "compact";
+export type MarkdownVariant = "prose" | "compact" | "inline";
 
 // Safely extract text from React children
 function getTextFromChildren(children: ReactNode): string {
@@ -66,7 +71,7 @@ function buildComponents(
   options: BuildOptions,
 ): Partial<Components> {
   const { onDeleteImage } = options;
-  const compact = variant === "compact";
+  const compact = variant === "compact" || variant === "inline";
 
   // Shared inline elements (identical across variants)
   const inlineComponents: Partial<Components> = {
@@ -105,7 +110,7 @@ function buildComponents(
         <div
           className={`overflow-hidden rounded-lg border border-border-primary ${compact ? "my-2" : "my-4"}`}
         >
-          <CodeHighlight code={codeString} language={language ?? "text"} />
+          <LazyCodeHighlight code={codeString} language={language ?? "text"} />
         </div>
       );
     },
@@ -175,11 +180,14 @@ function buildComponents(
           {children}
         </p>
       ),
-      p: ({ children }) => (
-        <p className="mb-2 text-sm leading-6 text-text-secondary last:mb-0">
-          {children}
-        </p>
-      ),
+      p: ({ children }) =>
+        variant === "inline" ? (
+          <span>{children}</span>
+        ) : (
+          <p className="mb-2 text-sm leading-6 text-text-secondary last:mb-0">
+            {children}
+          </p>
+        ),
       ul: ({ children }) => (
         <ul className="mb-2 list-disc space-y-1 pl-5 text-sm text-text-secondary last:mb-0">
           {children}
@@ -358,6 +366,13 @@ interface MarkdownRendererProps {
    * react-markdown itself, which ADR-0017 forbids.
    */
   extraRemarkPlugins?: PluggableList;
+  /**
+   * "auto" (default) renders content that looks like legacy HTML as
+   * sanitised HTML. "markdown" skips that sniffing: use it where the source
+   * is always authored Markdown (the /docs pages), so a literal `<code>` or
+   * `<br>` in text or inline code cannot flip the whole page into HTML mode.
+   */
+  format?: "auto" | "markdown";
   className?: string;
 }
 
@@ -368,12 +383,13 @@ export function MarkdownRenderer({
   mentionNames,
   onDeleteImage,
   extraRemarkPlugins,
+  format = "auto",
   className,
 }: MarkdownRendererProps) {
   // Tolerate legacy HTML on read (sanitised). New writes are always Markdown.
   // Sanitisation runs in a client boundary because DOMPurify needs a DOM —
   // doing it here would throw during SSR (this component is server-capable).
-  if (detectContentType(content) === "html") {
+  if (format === "auto" && detectContentType(content) === "html") {
     return (
       <SanitizedHtml
         html={content}
@@ -387,7 +403,7 @@ export function MarkdownRenderer({
   const remarkPlugins: PluggableList = [remarkGfm];
   // Textarea-authored content preserves typed line breaks: always for the
   // compact variant, opt-in via `softBreaks` for prose surfaces.
-  if (variant === "compact" || softBreaks)
+  if (variant !== "prose" || softBreaks)
     remarkPlugins.push(remarkSoftBreaks);
   if (mentionNames && mentionNames.length > 0) {
     remarkPlugins.push([remarkMentions, mentionNames]);
@@ -403,5 +419,6 @@ export function MarkdownRenderer({
     </ReactMarkdown>
   );
 
+  if (variant === "inline") return <span className={className}>{body}</span>;
   return className ? <div className={className}>{body}</div> : body;
 }

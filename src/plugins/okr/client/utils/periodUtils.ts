@@ -20,6 +20,17 @@ export type PeriodType =
   | "Q4-Annual";
 
 /**
+ * The selectable periods on the OKR dashboard. Timeline is deliberately not
+ * one of them: it is a view toggle applied on top of the chosen period.
+ */
+export const OKR_PERIOD_TABS = ["Q1", "Q2", "Q3", "Q4", "Annual"] as const;
+export type OkrPeriodTab = (typeof OKR_PERIOD_TABS)[number];
+
+export function isOkrPeriodTab(value: string | null | undefined): value is OkrPeriodTab {
+  return (OKR_PERIOD_TABS as readonly string[]).includes(value ?? "");
+}
+
+/**
  * Get the parent annual period for a given quarter or half-year period.
  * @example getParentPeriod("Q1-2026") => "Annual-2026"
  * @example getParentPeriod("H1-2026") => "Annual-2026"

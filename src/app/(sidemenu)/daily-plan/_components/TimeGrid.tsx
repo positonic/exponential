@@ -17,6 +17,7 @@ import {
 import { format, addMinutes, setHours, setMinutes, startOfDay, parseISO } from "date-fns";
 import type { RouterOutputs } from "~/trpc/react";
 import { HTMLContent } from "~/app/_components/HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 import { CalendarEventBlock } from "~/app/_components/calendar/CalendarEventBlock";
 import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
 
@@ -132,7 +133,7 @@ function DraggableTask({ task }: DraggableTaskProps) {
       <Group justify="space-between" wrap="nowrap">
         <Group gap="xs" wrap="nowrap" flex={1} style={{ minWidth: 0 }}>
           <IconGripVertical size={14} className="text-text-muted flex-shrink-0" />
-          <Tooltip label={task.name} multiline maw={300} withArrow>
+          <Tooltip label={toPlainText(task.name) || "Untitled"} multiline maw={300} withArrow>
             <Text size="sm" fw={500} className="text-text-primary" lineClamp={2} component="div" style={{ minWidth: 0, flex: 1 }}>
               <HTMLContent html={task.name} />
             </Text>
@@ -219,7 +220,7 @@ function ScheduledTaskBlock({ task, gridStartHour }: ScheduledTaskBlockProps) {
       {...attributes}
     >
       <Group gap={4} wrap="nowrap" style={{ minWidth: 0 }}>
-        <Tooltip label={task.name} multiline maw={300} withArrow>
+        <Tooltip label={toPlainText(task.name) || "Untitled"} multiline maw={300} withArrow>
           <Text size="xs" fw={500} className="text-brand-primary" lineClamp={1} component="div" style={{ flex: 1, minWidth: 0 }}>
             <HTMLContent html={task.name} className="text-brand-primary" />
           </Text>

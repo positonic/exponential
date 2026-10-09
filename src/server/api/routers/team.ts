@@ -570,7 +570,7 @@ export const teamRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.teamInvitation.findMany({
+      const invitations = await ctx.db.teamInvitation.findMany({
         where: {
           teamId: input.teamId,
           status: "pending",
@@ -582,6 +582,13 @@ export const teamRouter = createTRPCRouter({
         },
         orderBy: { createdAt: "desc" },
       });
+
+      // Built server-side, like the invitation email's link — the client's
+      // NEXT_PUBLIC_APP_URL fallback copied localhost links in production.
+      return invitations.map((invitation) => ({
+        ...invitation,
+        inviteUrl: generateTeamInviteUrl(invitation.token),
+      }));
     }),
 
   // Cancel a pending team invitation

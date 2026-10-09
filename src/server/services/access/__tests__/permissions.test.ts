@@ -516,6 +516,16 @@ describe("canEditProject", () => {
     expect(canEditProject(makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "member" }))).toBe(true);
   });
 
+  it("workspace viewer cannot edit (viewer is read-only)", () => {
+    expect(canEditProject(makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "viewer" }))).toBe(false);
+  });
+
+  it("workspace viewer who is on the project's team can edit via the team", () => {
+    expect(
+      canEditProject(makeProjectAccess({ isWorkspaceMember: true, workspaceRole: "viewer", isTeamMember: true })),
+    ).toBe(true);
+  });
+
   it("team owner can edit", () => {
     expect(canEditProject(makeProjectAccess({ isTeamMember: true, teamRole: "owner" }))).toBe(true);
   });

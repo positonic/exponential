@@ -56,6 +56,22 @@ export function currentTriggerInstant(cadence: Cadence, now: Date): Date {
 }
 
 /**
+ * The content window a run fired at `instant` covers: the whole period that
+ * ended at `instant` — one day for daily, seven for weekly. Consecutive runs
+ * tile exactly (each window's `since` is the previous run's `until`), so a
+ * Broadcast neither repeats nor drops changes between sends.
+ */
+export function periodWindow(
+  cadence: Cadence,
+  instant: Date,
+): { since: Date; until: Date } {
+  const days = cadence.kind === "daily" ? 1 : 7;
+  const since = new Date(instant);
+  since.setUTCDate(since.getUTCDate() - days);
+  return { since, until: new Date(instant) };
+}
+
+/**
  * Stable key for the `(definitionId, period)` idempotency guard. The cron route
  * pairs this with a unique write so a concurrent double-fire can't both run.
  */

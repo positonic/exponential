@@ -60,3 +60,19 @@ export function todayWindow(
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
 }
+
+/**
+ * A day window moved `days` whole days later — "tomorrow" is
+ * `shiftWindowByDays(todayWindow(tz), 1)`. Flat 24h steps, so like
+ * `todayWindow` it is an hour off across a DST change; fine for event overlap.
+ */
+export function shiftWindowByDays(
+  window: { start: Date; end: Date },
+  days: number,
+): { start: Date; end: Date } {
+  const ms = days * 24 * 60 * 60 * 1000;
+  return {
+    start: new Date(window.start.getTime() + ms),
+    end: new Date(window.end.getTime() + ms),
+  };
+}

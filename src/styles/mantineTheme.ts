@@ -31,6 +31,111 @@ const DEFAULT_BRAND: BrandConfig = {
 // Component styles that apply to both light and dark themes
 // NOTE: Mantine v7's styles prop only supports flat CSS properties (inline styles).
 // CSS selectors (&:hover, &[data-*], etc.) are defined in globals.css instead.
+//
+// NOTE: `styles` belongs at the component root here, NOT nested inside
+// `defaultProps`. Mantine resolves the two completely differently:
+//
+//   defaultProps.styles - merged by `useProps` as a plain shallow spread
+//     ({ ...defaultProps, ...themeDefaultProps, ...props }), so ANY call site
+//     that passes its own `styles` prop - even just `styles={{ input: { height: 30 } }}`
+//     to nudge a height - replaces this object wholesale and silently loses every
+//     token below. The control then falls back to Mantine's stock dark input
+//     background (#2e2e2e), which reads warm grey against our navy surfaces.
+//
+//   root-level styles - merged by `getThemeStyles` per selector key BENEATH the
+//     call site's `styles`, so a height override keeps the themed colours and a
+//     deliberate `backgroundColor` override still wins.
+//
+// The one thing that does NOT belong here at all is the input surface
+// (`backgroundColor` / `borderColor` on `input`). It has to skip
+// `variant="unstyled"`, and this object crosses an RSC boundary so it cannot
+// hold a `(theme, props) => styles` function to branch on that - the production
+// build rejects it. Those two tokens live in globals.css under
+// `:not([data-variant="unstyled"])`; see the "Input surface" block there.
+//
+// Use the root-level form for anything that paints a surface. Only genuine prop
+// defaults (sizes, variants, `popoverProps`, ...) go in `defaultProps`.
+//
+// Everything that paints below now uses the root-level form. Only `Paper`,
+// `Card` and `Table` still sit under `defaultProps`, and those pass `style`
+// (singular) rather than `styles`, which is a plain DOM prop and not subject to
+// the merge above. The one deliberate exception is the date pickers'
+// `popoverProps`, which can only be reached through `defaultProps`; see
+// `datePopoverProps` below for why call sites must not pass their own.
+
+// Shared paint for the calendar surface of every @mantine/dates component.
+// Containers are transparent so the calendar sits on whatever surface hosts
+// it (a Popover dropdown, a modal, a card) instead of drawing its own
+// nested box. See the "@mantine/dates" comment inside `componentStyles`.
+const calendarStyles = {
+  calendar: {
+    backgroundColor: 'transparent',
+  },
+  calendarHeader: {
+    backgroundColor: 'transparent',
+    color: 'var(--color-text-primary)',
+  },
+  calendarHeaderControl: {
+    color: 'var(--color-text-primary)',
+  },
+  calendarHeaderLevel: {
+    color: 'var(--color-text-primary)',
+  },
+  month: {
+    backgroundColor: 'transparent',
+  },
+  monthsList: {
+    backgroundColor: 'transparent',
+  },
+  yearsList: {
+    backgroundColor: 'transparent',
+  },
+  weekday: {
+    color: 'var(--color-text-muted)',
+  },
+};
+
+// The three input-shaped variants add a text field and a popover.
+const dateInputStyles = {
+  input: {
+    color: 'var(--color-text-primary)',
+  },
+  label: {
+    color: 'var(--color-text-primary)',
+  },
+  ...calendarStyles,
+};
+
+// The calendar popover has to read as a panel floating above whatever hosts
+// it. `bg-elevated` is also the Modal surface (see the Modal entry below), so
+// inside a modal the dropdown is the same colour as its host and the only
+// things separating the two are this edge and this shadow - both overlay
+// tokens from globals.css, both deliberately stronger than the generic
+// Popover entry's. A call site must NOT pass its own `popoverProps`: Mantine
+// merges defaultProps shallowly, so doing so replaces this whole object and
+// the calendar goes back to floating on nothing. Use the shared
+// `DateTimeField` component instead, which forbids the prop outright.
+// Exported because two calendars don't come from @mantine/dates' own popover
+// and so can't be reached by the theme entries below: UnifiedDatePicker and
+// DeadlinePicker put a `DatePicker` inside a hand-rolled `<Popover>`, which
+// picks up the generic `Popover` entry (a much weaker shadow) instead. They
+// spread this onto their own dropdown so all four calendars share one chrome.
+// Keep it a single object - a second copy of these three tokens is how the
+// looks drift apart again.
+export const calendarDropdownStyles = {
+  backgroundColor: 'var(--color-bg-elevated)',
+  borderColor: 'var(--color-border-overlay)',
+  boxShadow: 'var(--shadow-overlay)',
+};
+
+const datePopoverProps = {
+  popoverProps: {
+    styles: {
+      dropdown: calendarDropdownStyles,
+    },
+  },
+};
+
 const componentStyles = {
   // Paper component (used by Modal, Popover, etc.)
   Paper: {
@@ -43,69 +148,72 @@ const componentStyles = {
     },
   },
 
-  // Modal specific styles
+  // Modal specific styles.
+  // `body` deliberately has no background: it is a child of `content`, which
+  // already paints the surface, so a background here is redundant everywhere
+  // except where it does harm - now that these styles survive a call site's
+  // `styles` prop, it would paint over a deliberately different `content`
+  // colour (CommandPalette's `--color-bg-modal`, TranscriptionDetailsModal's
+  // `--color-bg-secondary`).
   Modal: {
-    defaultProps: {
-      styles: {
-        content: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        header: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          borderBottom: '1px solid var(--color-border-primary)',
-        },
-        body: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        title: {
-          color: 'var(--color-text-primary)',
-        },
-        close: {
-          color: 'var(--color-text-secondary)',
-        },
-        overlay: {
-          backgroundColor: 'var(--color-bg-overlay)',
-        },
+    styles: {
+      content: {
+        backgroundColor: 'var(--color-bg-elevated)',
+      },
+      header: {
+        backgroundColor: 'var(--color-bg-secondary)',
+        borderBottom: '1px solid var(--color-border-primary)',
+      },
+      title: {
+        color: 'var(--color-text-primary)',
+      },
+      close: {
+        color: 'var(--color-text-secondary)',
+      },
+      overlay: {
+        backgroundColor: 'var(--color-bg-overlay)',
       },
     },
   },
 
-  // Drawer specific styles
+  // Drawer specific styles. `body` is omitted for the same reason as Modal's -
+  // it sits inside `content`, and OkrDetailDrawer paints `content` with
+  // `--color-bg-primary` on purpose.
+  //
+  // Root-level `styles` also reaches the compound `Drawer.Root` API, which
+  // `defaultProps` could not: DrawerRoot calls `useProps('DrawerRoot', ...)`
+  // but `useStyles({ name: 'Drawer' })`, so it reads this object while
+  // ignoring `theme.components.Drawer.defaultProps`. EditContactDrawer still
+  // mirrors these tokens by hand; that is now belt-and-braces rather than
+  // load-bearing.
   Drawer: {
-    defaultProps: {
-      styles: {
-        content: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        header: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderBottom: '1px solid var(--color-border-primary)',
-        },
-        title: {
-          color: 'var(--color-text-primary)',
-        },
-        close: {
-          color: 'var(--color-text-secondary)',
-        },
-        body: {
-          backgroundColor: 'var(--color-bg-elevated)',
-        },
-        overlay: {
-          backgroundColor: 'var(--color-bg-overlay)',
-        },
+    styles: {
+      content: {
+        backgroundColor: 'var(--color-bg-elevated)',
+      },
+      header: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderBottom: '1px solid var(--color-border-primary)',
+      },
+      title: {
+        color: 'var(--color-text-primary)',
+      },
+      close: {
+        color: 'var(--color-text-secondary)',
+      },
+      overlay: {
+        backgroundColor: 'var(--color-bg-overlay)',
       },
     },
   },
 
   // Popover styles
   Popover: {
-    defaultProps: {
-      styles: {
-        dropdown: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-        },
+    styles: {
+      dropdown: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderColor: 'var(--color-border-primary)',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
       },
     },
   },
@@ -117,65 +225,53 @@ const componentStyles = {
   // a gray-in-dev / navy-in-prod mismatch. Setting it here (inline styles) makes
   // the dropdown surface deterministic across both bundlers.
   Menu: {
-    defaultProps: {
-      styles: {
-        dropdown: {
-          backgroundColor: 'var(--color-surface-secondary)',
-          borderColor: 'var(--color-border-primary)',
-        },
+    styles: {
+      dropdown: {
+        backgroundColor: 'var(--color-surface-secondary)',
+        borderColor: 'var(--color-border-primary)',
       },
     },
   },
 
   // Tooltip styles
   Tooltip: {
-    defaultProps: {
-      styles: {
-        tooltip: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          color: 'var(--color-text-primary)',
-          border: '1px solid var(--color-border-primary)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-        },
+    styles: {
+      tooltip: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        color: 'var(--color-text-primary)',
+        border: '1px solid var(--color-border-primary)',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
       },
     },
   },
 
   // Select component
   Select: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        dropdown: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        option: {
-          color: 'var(--color-text-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        color: 'var(--color-text-primary)',
+      },
+      dropdown: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      option: {
+        color: 'var(--color-text-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
 
   // TextInput and Textarea
   TextInput: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        color: 'var(--color-text-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
@@ -185,31 +281,23 @@ const componentStyles = {
   // Mantine doesn't inherit TextInput's defaults onto InputBase, so we mirror
   // them here so every InputBase picks up the theme tokens automatically.
   InputBase: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        color: 'var(--color-text-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
 
   Textarea: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        color: 'var(--color-text-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
@@ -218,303 +306,59 @@ const componentStyles = {
   // without this entry it falls back to the built-in dark default (#25262b),
   // clashing with our dark-blue surfaces. Mirror TextInput.
   NumberInput: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        color: 'var(--color-text-primary)',
+      },
+      label: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
 
-  // DateInput and DatePicker components
+  // ---------------------------------------------------------------------
+  // @mantine/dates: one calendar look for every component.
+  //
+  // DateInput, DateTimePicker, DatePickerInput, DatePicker and Calendar are
+  // five SEPARATE Mantine components with five static selectors and no
+  // inheritance between them, so each needs the same theme entry. They all
+  // spread `calendarStyles` (defined above `componentStyles`).
+  //
+  // Only inert container paint lives here. Everything that changes with
+  // state (selected, today, in-range, outside, hover, months/years lists)
+  // lives in globals.css under the "@mantine/dates" section. Do NOT add
+  // `backgroundColor` or `color` to `day` here: Mantine `styles` render as
+  // INLINE styles, and an inline value silently beats every
+  // [data-selected]/[data-today] rule - Mantine's own and ours - which is
+  // exactly the bug that made a selected day invisible.
+  // ---------------------------------------------------------------------
   DateInput: {
-    defaultProps: {
-      popoverProps: {
-        styles: {
-          dropdown: {
-            backgroundColor: 'var(--color-bg-elevated)',
-            borderColor: 'var(--color-border-primary)',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          },
-        },
-      },
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
-        calendar: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        calendarHeader: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderControl: {
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderLevel: {
-          color: 'var(--color-text-primary)',
-        },
-        month: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        yearsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        yearsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        weekday: {
-          color: 'var(--color-text-muted)',
-        },
-        day: {
-          color: 'var(--color-text-primary)',
-          backgroundColor: 'transparent',
-          border: '1px solid transparent',
-        },
-      },
-    },
+    defaultProps: datePopoverProps,
+    styles: dateInputStyles,
   },
 
-  // DateTimePicker is a separate Mantine component that does NOT inherit from
-  // DateInput. Without an explicit theme entry it falls back to Mantine's
-  // built-in dark-mode default (#25262b), which clashes with our dark-blue
-  // surfaces. Mirror DateInput's config and add `timeInput` for the time
-  // sub-field at the bottom of the popover.
+  // The `timeInput` selector is the TimeInput WRAPPER, not the field, so
+  // painting it here did nothing visible and the clock at the foot of the
+  // dropdown kept Mantine's stock grey input. The field itself is
+  // `.mantine-TimeInput-input`, and input surfaces live in the "Input
+  // surface" block of globals.css for the reasons documented at the top of
+  // this file.
   DateTimePicker: {
-    defaultProps: {
-      popoverProps: {
-        styles: {
-          dropdown: {
-            backgroundColor: 'var(--color-bg-elevated)',
-            borderColor: 'var(--color-border-primary)',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          },
-        },
-      },
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
-        timeInput: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        calendar: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        calendarHeader: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderControl: {
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderLevel: {
-          color: 'var(--color-text-primary)',
-        },
-        month: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        yearsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        yearsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        weekday: {
-          color: 'var(--color-text-muted)',
-        },
-        day: {
-          color: 'var(--color-text-primary)',
-          backgroundColor: 'transparent',
-          border: '1px solid transparent',
-        },
-      },
-    },
+    defaultProps: datePopoverProps,
+    styles: dateInputStyles,
   },
 
-  // DatePickerInput is also a separate Mantine component that does NOT inherit
-  // from DateInput. Same fallback issue as DateTimePicker - mirror DateInput.
   DatePickerInput: {
-    defaultProps: {
-      popoverProps: {
-        styles: {
-          dropdown: {
-            backgroundColor: 'var(--color-bg-elevated)',
-            borderColor: 'var(--color-border-primary)',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          },
-        },
-      },
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-primary)',
-        },
-        calendar: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        calendarHeader: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderControl: {
-          color: 'var(--color-text-primary)',
-        },
-        calendarHeaderLevel: {
-          color: 'var(--color-text-primary)',
-        },
-        month: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        monthsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        yearsList: {
-          backgroundColor: 'var(--color-bg-primary)',
-        },
-        yearsListCell: {
-          color: 'var(--color-text-primary)',
-          border: '1px solid transparent',
-        },
-        weekday: {
-          color: 'var(--color-text-muted)',
-        },
-        day: {
-          color: 'var(--color-text-primary)',
-          backgroundColor: 'transparent',
-          border: '1px solid transparent',
-        },
-      },
-    },
+    defaultProps: datePopoverProps,
+    styles: dateInputStyles,
   },
 
   DatePicker: {
-    styles: {
-      calendar: {
-        backgroundColor: 'var(--color-bg-primary)',
-      },
-      calendarHeader: {
-        backgroundColor: 'var(--color-bg-primary)',
-        color: 'var(--color-text-primary)',
-      },
-      calendarHeaderControl: {
-        color: 'var(--color-text-primary)',
-      },
-      calendarHeaderLevel: {
-        color: 'var(--color-text-primary)',
-      },
-      month: {
-        backgroundColor: 'transparent',
-      },
-      monthsList: {
-        backgroundColor: 'transparent',
-      },
-      monthsListCell: {
-        color: 'var(--color-text-primary)',
-        border: '1px solid transparent',
-      },
-      yearsList: {
-        backgroundColor: 'transparent',
-      },
-      yearsListCell: {
-        color: 'var(--color-text-primary)',
-        border: '1px solid transparent',
-      },
-      weekday: {
-        color: 'var(--color-text-muted)',
-      },
-      day: {
-        color: 'var(--color-text-primary)',
-        backgroundColor: 'transparent',
-        border: '1px solid transparent',
-      },
-    },
+    styles: calendarStyles,
   },
 
   Calendar: {
-    styles: {
-      calendar: {
-        backgroundColor: 'transparent',
-      },
-      calendarHeader: {
-        backgroundColor: 'transparent',
-        color: 'var(--color-text-primary)',
-      },
-      calendarHeaderControl: {
-        color: 'var(--color-text-primary)',
-      },
-      calendarHeaderLevel: {
-        color: 'var(--color-text-primary)',
-      },
-      month: {
-        backgroundColor: 'transparent',
-      },
-      monthsList: {
-        backgroundColor: 'transparent',
-      },
-      monthsListCell: {
-        color: 'var(--color-text-primary)',
-        border: '1px solid transparent',
-      },
-      yearsList: {
-        backgroundColor: 'transparent',
-      },
-      yearsListCell: {
-        color: 'var(--color-text-primary)',
-        border: '1px solid transparent',
-      },
-      weekday: {
-        color: 'var(--color-text-muted)',
-      },
-      day: {
-        color: 'var(--color-text-primary)',
-        backgroundColor: 'transparent',
-        border: '1px solid transparent',
-      },
-    },
+    styles: calendarStyles,
   },
 
   // Table component
@@ -562,74 +406,59 @@ const componentStyles = {
     },
   },
 
-  // Tabs component
-  Tabs: {
-    defaultProps: {
-      styles: {
-        list: {
-          scrollbarWidth: 'none',
-        },
-        tab: {
-          color: 'var(--color-text-secondary)',
-        },
-      },
-    },
-  },
+  // Tabs: no entry. Both tokens it used to carry belong in globals.css and are
+  // already there. `list.scrollbarWidth` duplicated `.mantine-Tabs-list`, and
+  // `tab.color` had to become a selector: as an inline style it beat
+  // `.mantine-Tabs-tab[data-active]`, so the active tab rendered
+  // `--color-text-secondary` instead of `--color-brand-primary` on every Tabs
+  // in the app that did not pass its own `styles`. Hoisting it to the component
+  // root would have spread that to the two that did. See the "Tabs" block in
+  // globals.css.
 
   // SegmentedControl component
+  // `label` / `innerLabel` colours are NOT here: they have to differ between the
+  // active and inactive segments, and an inline style beats the `[data-active]`
+  // and `:hover` rules that draw that distinction. They live in globals.css -
+  // see the "SegmentedControl labels" block.
   SegmentedControl: {
-    defaultProps: {
-      styles: {
-        root: {
-          backgroundColor: 'var(--color-surface-primary)',
-          border: '1px solid var(--color-border-primary)',
-        },
-        indicator: {
-          backgroundColor: 'var(--color-surface-tertiary)',
-          border: '1px solid var(--color-border-primary)',
-        },
-        label: {
-          color: 'var(--color-text-secondary)',
-        },
-        innerLabel: {
-          color: 'var(--color-text-secondary)',
-        },
+    styles: {
+      root: {
+        backgroundColor: 'var(--color-surface-primary)',
+        border: '1px solid var(--color-border-primary)',
+      },
+      indicator: {
+        backgroundColor: 'var(--color-surface-tertiary)',
+        border: '1px solid var(--color-border-primary)',
       },
     },
   },
 
   // MultiSelect component
   MultiSelect: {
-    defaultProps: {
-      styles: {
-        input: {
-          backgroundColor: 'var(--color-bg-secondary)',
-          color: 'var(--color-text-primary)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        pill: {
-          backgroundColor: 'var(--color-surface-secondary)',
-          color: 'var(--color-text-primary)',
-          border: '1px solid var(--color-border-primary)',
-        },
-        dropdown: {
-          backgroundColor: 'var(--color-bg-elevated)',
-          borderColor: 'var(--color-border-primary)',
-        },
-        option: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      input: {
+        color: 'var(--color-text-primary)',
+      },
+      pill: {
+        backgroundColor: 'var(--color-surface-secondary)',
+        color: 'var(--color-text-primary)',
+        border: '1px solid var(--color-border-primary)',
+      },
+      dropdown: {
+        backgroundColor: 'var(--color-bg-elevated)',
+        borderColor: 'var(--color-border-primary)',
+      },
+      option: {
+        color: 'var(--color-text-primary)',
       },
     },
   },
 
   // Title component
   Title: {
-    defaultProps: {
-      styles: {
-        root: {
-          color: 'var(--color-text-primary)',
-        },
+    styles: {
+      root: {
+        color: 'var(--color-text-primary)',
       },
     },
   },

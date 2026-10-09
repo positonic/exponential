@@ -590,6 +590,10 @@
   margin: 10px 0 6px;
 }
 
+.wsa-projects__seg--inline {
+  margin: 0;
+}
+
 .wsa-projects__seg-btn {
   display: inline-flex;
   align-items: center;
@@ -1331,6 +1335,11 @@
   background: var(--color-surface-hover);
 }
 
+/* A row that only displays — no link, no handler — shouldn't invite a click. */
+.wsa-item--static:hover {
+  background: transparent;
+}
+
 .wsa-item__icon {
   display: grid;
   place-items: center;
@@ -1400,6 +1409,36 @@
   border-radius: 50%;
   flex-shrink: 0;
   background: var(--color-brand-primary);
+}
+
+/* A .wsa-item link with a done tick box beside it. The tick is a sibling,
+   not a child, so clicking it never follows the link (and the link never
+   marks anything done). */
+.wsa-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 7px;
+}
+
+.wsa-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.wsa-row > .wsa-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.wsa-row > .wsa-item:hover {
+  background: transparent;
+}
+
+.wsa-row__done {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0 8px 0 4px;
 }
 
 /* Subsection label inside a tier card ("Mentions", "Waiting on you", …) */
@@ -1481,6 +1520,23 @@
   color: var(--color-text-secondary);
   line-height: 1.5;
   margin: 8px 0 0;
+}
+
+/* The goal renders through MarkdownRenderer (compact); its blocks take the
+   card's type rather than the renderer's defaults. Descendant selectors, not
+   child ones: the legacy-HTML read path wraps its blocks in a div. */
+.wsa-cycle__goal :is(p, ul, ol) {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.wsa-cycle__goal :is(p, ul, ol):first-child {
+  margin-top: 0;
+}
+
+.wsa-cycle__goal :is(p, ul, ol):last-child {
+  margin-bottom: 0;
 }
 
 .wsa-cycle__track {

@@ -3,6 +3,8 @@ import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 import { actionRouter } from "./routers/action";
 import { adminRouter } from "./routers/admin";
 import { adrRouter } from "./routers/adr";
+import { decisionRouter } from "./routers/decision";
+import { ceremonyRouter } from "./routers/ceremony";
 import { projectRouter } from "./routers/project";
 import { searchRouter } from "./routers/search";
 import { toolRouter } from "./routers/tool";
@@ -25,6 +27,7 @@ import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
 import { feedbackRouter } from "./routers/feedback";
+import { docsRouter } from "./routers/docs";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
@@ -33,6 +36,7 @@ import { matrixGatewayRouter } from "./routers/matrixGateway";
 import { matrixServerRouter } from "./routers/matrixServer";
 import { matrixRoomRouter } from "./routers/matrixRoom";
 import { notificationRouter } from "./routers/notification";
+import { inboxRouter } from "./routers/inbox";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
@@ -55,6 +59,7 @@ import { formRouter } from "./routers/form";
 import { collectionRouter } from "./routers/collection";
 import { listAutomationRouter } from "./routers/listAutomation";
 import { broadcastRouter } from "./routers/broadcast";
+import { workspaceUpdateRouter } from "./routers/workspaceUpdate";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
 import { taskScheduleRouter } from "./routers/taskSchedule";
@@ -104,6 +109,8 @@ export const appRouter = createTRPCRouter({
   action: actionRouter,
   admin: adminRouter,
   adr: adrRouter,
+  decision: decisionRouter,
+  ceremony: ceremonyRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,
@@ -124,6 +131,7 @@ export const appRouter = createTRPCRouter({
   calendar: calendarRouter,
   workspaceScheduling: workspaceSchedulingRouter,
   feedback: feedbackRouter,
+  docs: docsRouter,
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
@@ -133,6 +141,7 @@ export const appRouter = createTRPCRouter({
   matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
   notification: notificationRouter,
+  inbox: inboxRouter,
   pushSubscription: pushSubscriptionRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,
@@ -154,6 +163,7 @@ export const appRouter = createTRPCRouter({
   collection: collectionRouter,
   listAutomation: listAutomationRouter,
   broadcast: broadcastRouter,
+  workspaceUpdate: workspaceUpdateRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
   taskSchedule: taskScheduleRouter,

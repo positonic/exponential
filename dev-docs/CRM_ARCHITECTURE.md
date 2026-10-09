@@ -141,9 +141,11 @@ Stage types:
 
 Moving a deal FROM a terminal stage back to an active stage clears `closedAt`.
 
-### One Pipeline Per Workspace (MVP)
+### Multiple Pipelines Per Workspace
 
-The current implementation supports one pipeline per workspace. The `pipeline.get` query finds the first `Project` with `type: "pipeline"` in the workspace. The `pipeline.create` mutation checks for existence before creating.
+A workspace may hold many pipelines (ADR-0033) — e.g. Sales, Hiring, Grants. `pipeline.list` returns every pipeline the caller can view, oldest first, and the board UI has a switcher.
+
+`pipeline.get` and the API-key `crmApi.pipelineGet` / `pipelineGetStages` / deal procedures take an optional `pipelineId`. When it is **omitted** they fall back to the workspace's **default** pipeline: the oldest one whose status is not `CANCELLED` or `COMPLETED` (see `RETIRED_PIPELINE_STATUSES` in `src/server/services/crm/pipelineDefaults.ts`). The status filter exists because the oldest pipeline is often a retired, empty board created before multi-pipeline shipped; without it, CLI/SDK callers that never pass an id would only ever see that board. A retired pipeline is still addressable by id. Callers that can, should pass `pipelineId` explicitly rather than rely on the default.
 
 The page uses a `useEffect` pattern to auto-create the pipeline on first visit:
 
@@ -437,6 +439,47 @@ src/app/(sidemenu)/w/[workspaceSlug]/crm/contacts/_components/ConnectionScoreGau
 - CRM dashboard with aggregate stats
 - Workspace-scoped data isolation
 
+### Merging contacts
+
+Select two or more contacts on `/crm/contacts` and click **Merge contacts**. The
+dialog (`contacts/_components/MergeContactsDialog.tsx`) shows every selected
+contact side by side and the value proposed for each field, and lets the user
+change the kept contact or take any field from a different contact before
+committing.
+
+- **Rules live in `src/lib/crm/contactMerge.ts`** (pure, unit-tested) and are
+  shared by the dialog and the server, so the preview is exactly what gets
+  applied. Kept contact = the one with the most filled fields + linked records
+  (ties → oldest). Per field: the kept contact's value if set, else the richest
+  other contact's — but a human-entered value always beats an AI-sourced one
+  (ADR-0036 provenance is carried into the merged row). Skills and tags are
+  unioned.
+- **`crmContact.getMergePreview`** returns the decrypted candidates plus
+  per-contact counts of interactions, communications, deals, meetings, images,
+  enrichment jobs and list memberships.
+- **`crmContact.merge`** takes `primaryId`, `duplicateIds` and `choices`
+  (`field → contactId | null`, i.e. "take this field from that contact" — PII
+  values never round-trip through the client). In one transaction it reparents
+  every child record (`CollectionMember` by string match, since it has no FK),
+  deletes the duplicates, then updates the kept contact. Deleting first frees a
+  duplicate's `(workspaceId, emailHash)` for the kept contact. Most recent
+  interaction, highest connection score and earliest `firstSeenAt` win;
+  `emailOptedOutAt` is preserved if *any* merged contact had unsubscribed.
+  No Automation fires on merge (a duplicate may already have triggered its
+  onboarding run). Requires role `owner | admin | member`. A duplicate's
+  `PENDING` enrichment job is dropped rather than moved (it would become a
+  second paid run).
+- **Known limitations** (a merged-away contact's id simply stops existing):
+  - Unsubscribe links already sent to a duplicate's address name the old id;
+    the route now answers "link no longer valid" instead of a false success.
+  - Automation idempotency is keyed on `WorkflowPipelineRun.input.contactId`,
+    so a run that fired for a duplicate is not seen when the kept contact is
+    later re-tagged or re-added to a list — the onboarding can fire again.
+  - A contact has one email; the discarded addresses are not remembered, so
+    the next Gmail/Calendar/CSV import that sees one recreates the duplicate.
+  All three want a merge-redirect record (`fromId → toId`) written inside the
+  transaction; that needs a migration and is tracked separately.
+
 ### Not Yet Implemented
 
 - **Communications module**: Schema exists (`CrmCommunication`, `CrmCommunicationTemplate`) but no router or UI. Shown as "Coming Soon" in CRM nav.
@@ -444,7 +487,7 @@ src/app/(sidemenu)/w/[workspaceSlug]/crm/contacts/_components/ConnectionScoreGau
 - **Contact tagging**: `tags String[]` field exists on CrmContact but no tag management UI.
 - **Background import jobs**: Gmail/Calendar imports run synchronously. Should move to background job queue for large imports.
 - **CSV/Excel import**: No file-based import yet.
-- **Advanced contact deduplication/merge**: Email hash exists for basic dedup, but no merge UI.
+- **Automatic duplicate detection**: Contacts dedupe on emailHash at import/create time, and users can merge selected contacts by hand (see "Merging contacts" below), but nothing yet scans the workspace for likely duplicates or suggests merges.
 - **Multiple pipelines per workspace**: Currently limited to one pipeline. The architecture supports multiple (via Project model) but the UI assumes one.
 - **Stage drag-to-reorder in settings**: The `reorderStages` API exists but the settings UI doesn't have drag-to-reorder yet (grip icon is visual only).
 - **Pipeline in dashboard stats**: The CRM dashboard doesn't show pipeline stats yet.

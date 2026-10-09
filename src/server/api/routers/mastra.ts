@@ -7,7 +7,8 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
-import { deriveActionSource } from "~/server/utils/actionSource";
+import { resolveAgentActionSource } from "~/server/utils/actionSource";
+import { actionWriteDeps, applyActionUpdate, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -22,10 +23,11 @@ import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { buildMeetingTranscriptionsWhere } from "~/server/services/meetings/meetingTranscriptionsWhere";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
-import { loadProductWithAccess, assertWorkspaceMember } from "~/plugins/product/server/routers/product";
+import { loadProductWithAccess, assertWorkspaceAccess } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { matchCycle, wouldCreateCycle } from "~/plugins/product/server/services/ticketDependencies";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
@@ -422,10 +424,15 @@ export const mastraRouter = createTRPCRouter({
       // Generate JWT token for agent authentication
       const agentJWT = generateAgentJWT(ctx.session.user, 30);
 
-      // If an assistantId is provided, fetch the custom personality and inject it
+      // If an assistantId is provided, fetch the custom personality and inject it.
+      // `assistantId` is client-supplied, and the row's personality/instructions/
+      // userContext are injected verbatim into the system prompt below — so scope
+      // the lookup to the caller's own assistants (mirrors the streaming route,
+      // see "scope assistants to their owner", PR 536). An id belonging to anyone
+      // else simply doesn't resolve, and the request falls through to `agentId`.
       if (input.assistantId) {
-        const assistant = await ctx.db.assistant.findUnique({
-          where: { id: input.assistantId },
+        const assistant = await ctx.db.assistant.findFirst({
+          where: { id: input.assistantId, createdById: ctx.session.user.id },
         });
 
         if (assistant) {
@@ -1122,32 +1129,19 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, userId=${userId}`);
 
-      // Verify user has access to this project via all access paths
-      const access = await getProjectAccess(ctx.db, userId, input.projectId);
-      if (!hasProjectAccess(access)) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Project not found or access denied'
-        });
-      }
-
-      // Inherit workspaceId from the target project
-      const mastraProject = await ctx.db.project.findUnique({
-        where: { id: input.projectId },
-        select: { workspaceId: true },
-      });
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: input.name,
-          description: input.description,
-          priority: input.priority,
-          dueDate: parseAgentDate(input.dueDate, "dueDate"),
-          scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart"),
-          projectId: input.projectId,
-          createdById: userId,
-          workspaceId: mastraProject?.workspaceId ?? null,
-        },
+      // The write is the Action module's: it gates on project EDIT access
+      // (ADR-0016 — Zoe can do exactly what the user's own hands can; the
+      // old view-access gate here let an agent create in a project the user
+      // could only look at), takes the project's workspace, seeds the kanban
+      // column and records the activity event.
+      const action = await createAction(actionWriteDeps(ctx), {
+        name: input.name,
+        description: input.description,
+        priority: input.priority,
+        dueDate: parseAgentDate(input.dueDate, "dueDate") ?? undefined,
+        scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart") ?? undefined,
+        projectId: input.projectId,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
 
       console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);
@@ -1217,45 +1211,23 @@ export const mastraRouter = createTRPCRouter({
           ? parseAgentDate(input.dueDate, "dueDate")
           : parsed.dueDate;
 
-      // Get kanban order if project specified
-      let kanbanOrder: number | null = null;
-      if (parsed.projectId) {
-        const highestOrder = await ctx.db.action.findFirst({
-          where: { projectId: parsed.projectId, kanbanOrder: { not: null } },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true },
-        });
-        kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-      }
-
-      // Inherit workspaceId from the target project
-      let quickMastraWsId: string | null = null;
-      if (parsed.projectId) {
-        const proj = await ctx.db.project.findUnique({
-          where: { id: parsed.projectId },
-          select: { workspaceId: true },
-        });
-        quickMastraWsId = proj?.workspaceId ?? null;
-      }
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: parsed.name,
-          projectId: parsed.projectId,
-          priority: input.priority ?? "Quick",
-          status: "ACTIVE",
-          createdById: userId,
-          scheduledStart,
-          dueDate,
-          source: deriveActionSource(ctx.tokenType),
-          kanbanStatus: parsed.projectId ? "TODO" : null,
-          kanbanOrder,
-          workspaceId: quickMastraWsId,
-        },
-        include: {
-          project: { select: { id: true, name: true } },
-        },
+      // The write is the Action module's: project edit gate on the resolved
+      // project (ADR-0016), workspace from the project, kanban seed, activity
+      // event. A gateway token names its surface; an unmapped gateway type
+      // is rejected rather than mislabelled; anything else is the agent.
+      const created = await createAction(actionWriteDeps(ctx), {
+        name: parsed.name,
+        projectId: parsed.projectId ?? undefined,
+        priority: input.priority ?? "Quick",
+        status: "ACTIVE",
+        scheduledStart: scheduledStart ?? undefined,
+        dueDate: dueDate ?? undefined,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
+      const action = {
+        ...created,
+        project: created.project ? { id: created.project.id, name: created.project.name } : null,
+      };
 
       console.log(`✅ [tRPC quickCreateAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}, project=${action.project?.name || "none"}`);
 
@@ -1335,10 +1307,6 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      // Build where clause for TranscriptionSession query
-      const whereClause: any = {
-        userId: userId, // Ensure user can only access their own transcriptions
-      };
 
       if (input.workspaceId) {
         const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
@@ -1348,11 +1316,9 @@ export const mastraRouter = createTRPCRouter({
             message: 'Workspace not found or access denied',
           });
         }
-        whereClause.workspaceId = input.workspaceId;
       }
 
       if (input.projectId) {
-        whereClause.projectId = input.projectId;
         // Verify user has access to this project via all access paths
         const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
         if (!hasProjectAccess(projectAccess)) {
@@ -1363,11 +1329,9 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
-      if (input.startDate || input.endDate) {
-        whereClause.createdAt = {}; // Use createdAt instead of meetingDate
-        if (input.startDate) whereClause.createdAt.gte = new Date(input.startDate);
-        if (input.endDate) whereClause.createdAt.lte = new Date(input.endDate);
-      }
+      // Every Meeting the user can see (not only ones they own — agent imports
+      // belong to the agent), dated by when the meeting happened.
+      const whereClause = buildMeetingTranscriptionsWhere(userId, input);
 
       // Participant filtering needs to scan transcript text; force-include it
       // even when the caller asked for the lightweight path.
@@ -1378,13 +1342,14 @@ export const mastraRouter = createTRPCRouter({
       // Get transcriptions first, then filter by participants if needed
       let transcriptions = await ctx.db.transcriptionSession.findMany({
         where: whereClause,
-        orderBy: { createdAt: 'desc' }, // Use createdAt instead of meetingDate
+        orderBy: [{ meetingDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         take: input.participants ? 50 : input.limit, // Get more if we need to filter by participants
         select: {
           id: true,
           title: true,
           ...(selectTranscript ? { transcription: true } : {}),
           createdAt: true,
+          meetingDate: true,
           projectId: true,
           summary: true,
         },
@@ -1418,7 +1383,7 @@ export const mastraRouter = createTRPCRouter({
             ? ((t as { transcription?: string | null }).transcription ?? "")
             : "",
           participants: [], // Empty array - field doesn't exist in schema
-          meetingDate: t.createdAt.toISOString(), // Map createdAt to meetingDate
+          meetingDate: (t.meetingDate ?? t.createdAt).toISOString(),
           meetingType: "", // Empty string - field doesn't exist in schema
           projectId: t.projectId,
           duration: null, // Null - field doesn't exist in schema
@@ -4336,92 +4301,31 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`✏️ [tRPC updateAction] RECEIVED: actionId=${input.actionId}, userId=${userId}, changes=${JSON.stringify(input)}`);
 
-      // Find the action first
-      const existing = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: { id: true, createdById: true, projectId: true, status: true, priority: true, name: true, description: true, dueDate: true },
-      });
-
-      if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Action not found',
-        });
-      }
-
-      // Check access: user is creator, or has project-level access
-      let hasAccess = existing.createdById === userId;
-      if (!hasAccess && existing.projectId) {
-        const projectAccess = await getProjectAccess(ctx.db, userId, existing.projectId);
-        hasAccess = hasProjectAccess(projectAccess);
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have access to this action',
-        });
-      }
-
-      // Build update data
+      // The write is the Action module's: central edit gate (ADR-0016 — the
+      // inline gate here accepted view access), kanban ⇄ status lockstep
+      // and completedAt (this copy stamped it without the legacy backfill),
+      // project moves with the kanban re-seed, and the activity event.
       const { actionId, ...fields } = input;
-      const updateData: Record<string, unknown> = {};
-
-      if (fields.name !== undefined) updateData.name = fields.name;
-      if (fields.description !== undefined) updateData.description = fields.description;
-      if (fields.priority !== undefined) updateData.priority = fields.priority;
-      if (fields.dueDate !== undefined) {
-        updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
-      }
-      if (fields.scheduledStart !== undefined) {
-        updateData.scheduledStart = fields.scheduledStart
-          ? new Date(fields.scheduledStart)
-          : null;
-      }
-      if (fields.scheduledEnd !== undefined) {
-        updateData.scheduledEnd = fields.scheduledEnd
-          ? new Date(fields.scheduledEnd)
-          : null;
-      }
-      if (fields.duration !== undefined) {
-        updateData.duration = fields.duration;
-      }
-
-      // Handle status change
-      if (fields.status !== undefined) {
-        updateData.status = fields.status;
-        if (fields.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
-          updateData.completedAt = new Date();
-        } else if (fields.status !== 'COMPLETED' && existing.status === 'COMPLETED') {
-          updateData.completedAt = null;
-        }
-      }
-
-      // Handle project reassignment
-      if (fields.projectId !== undefined) {
-        updateData.projectId = fields.projectId;
-        if (fields.projectId && fields.projectId !== existing.projectId) {
-          // Moving to a new project — set kanban defaults
-          const highestOrder = await ctx.db.action.findFirst({
-            where: { projectId: fields.projectId, kanbanOrder: { not: null } },
-            orderBy: { kanbanOrder: 'desc' },
-            select: { kanbanOrder: true },
-          });
-          updateData.kanbanStatus = 'TODO';
-          updateData.kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-        } else if (fields.projectId === null) {
-          // Unassigning from project — clear kanban
-          updateData.kanbanStatus = null;
-          updateData.kanbanOrder = null;
-        }
-      }
-
-      const action = await ctx.db.action.update({
-        where: { id: actionId },
-        data: updateData,
-        include: {
-          project: { select: { id: true, name: true } },
+      const { action } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        actionId,
+        {
+          ...(fields.name !== undefined ? { name: fields.name } : {}),
+          ...(fields.description !== undefined ? { description: fields.description } : {}),
+          ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
+          ...(fields.status !== undefined ? { status: fields.status } : {}),
+          ...(fields.dueDate !== undefined ? { dueDate: parseAgentDate(fields.dueDate, "dueDate") } : {}),
+          ...(fields.scheduledStart !== undefined
+            ? { scheduledStart: parseAgentDate(fields.scheduledStart, "scheduledStart") }
+            : {}),
+          ...(fields.scheduledEnd !== undefined
+            ? { scheduledEnd: parseAgentDate(fields.scheduledEnd, "scheduledEnd") }
+            : {}),
+          ...(fields.duration !== undefined ? { duration: fields.duration } : {}),
+          ...(fields.projectId !== undefined ? { projectId: fields.projectId } : {}),
         },
-      });
+        { include: { project: { select: { id: true, name: true } } } },
+      );
 
       console.log(`✅ [tRPC updateAction] UPDATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}`);
 
@@ -4514,8 +4418,8 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎫 [tRPC createTicket] RECEIVED: productId=${input.productId}, title="${input.title}", type=${input.type ?? 'FEATURE'}, status=${input.status ?? 'BACKLOG'}, userId=${userId}`);
 
-      // Verifies the product exists and the user is a member of its workspace.
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      // Verifies the product exists and the user can write to its workspace.
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       // Counter increment, shortId, create, and activity-feed write live in the
       // shared service (ADR-0016). Access was already verified above.
@@ -4580,7 +4484,7 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎫 [tRPC bulkCreateTickets] RECEIVED: productId=${input.productId}, count=${input.tickets.length}, userId=${userId}`);
 
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       // Resolve the shared label set once; per-ticket labels resolve lazily
       // through a memo so repeated names don't re-query.
@@ -4760,7 +4664,7 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`📥 [tRPC importNotionCycleTickets] RECEIVED: productId=${input.productId}, cycle="${input.cycleName ?? input.cyclePageId}", dryRun=${input.dryRun ?? false}, userId=${userId}`);
 
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       const result = await importNotionCycleTickets(ctx.db, {
         userId,
@@ -4803,10 +4707,10 @@ export const mastraRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       let workspaceId = input.workspaceId;
       if (input.productId) {
-        const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+        const product = await loadProductWithAccess(ctx.db, userId, input.productId, "view");
         workspaceId = product.workspaceId;
       } else if (workspaceId) {
-        await assertWorkspaceMember(ctx.db, userId, workspaceId);
+        await assertWorkspaceAccess(ctx.db, userId, workspaceId, "view");
       }
 
       const cycles = await ctx.db.list.findMany({
@@ -4865,7 +4769,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "view");
       const limit = input.limit ?? 100;
 
       // Resolve the human cycle reference against the workspace's cycles.
@@ -4981,7 +4885,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await loadProductWithAccess(ctx.db, userId, input.productId);
+      await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       console.log(`🔗 [tRPC addTicketDependencies] RECEIVED: productId=${input.productId}, edges=${input.dependencies.length}, userId=${userId}`);
 
@@ -5051,7 +4955,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await loadProductWithAccess(ctx.db, userId, input.productId);
+      await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       const [ticket, dependsOn] = await Promise.all([
         ctx.db.ticket.findUnique({

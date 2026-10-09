@@ -3,7 +3,7 @@
 import { Paper, Stack, Text, Title } from "@mantine/core";
 import { IconCalendar } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "~/trpc/react";
 import { useCalendarNavigation } from "./useCalendarNavigation";
 import { useCalendarConnectionToast } from "./useCalendarConnectionToast";
@@ -22,7 +22,14 @@ import {
   TZ_PROMPT_DISMISSED_KEY,
 } from "./TimezonePromptModal";
 import { ScheduleMeetingModal } from "./ScheduleMeetingModal";
+import { CalendarEventModal } from "./CalendarEventModal";
+import type { CalendarEventWithSource } from "~/server/services/GoogleCalendarService";
 import type { ScheduledAction, CalendarTimeEntry } from "./types";
+
+/** Event ids are only unique within a calendar, so identity needs all three. */
+function calendarEventKey(event: CalendarEventWithSource): string {
+  return `${event.accountId ?? ""}:${event.calendarId}:${event.id}`;
+}
 
 export function CalendarPageContent() {
   // Query connection status for all providers
@@ -86,7 +93,7 @@ export function CalendarPageContent() {
   // gated on having a connected source: DB-backed sources (workspace
   // meetings, ICS feeds) exist without any OAuth connection, and for a
   // connection-less user the query is a cheap DB read.
-  const { data: events, isLoading: eventsLoading } =
+  const { data: fetchedEvents, isLoading: eventsLoading } =
     api.calendar.getEventsMultiCalendar.useQuery(
       {
         timeMin: dateRange.start,
@@ -99,6 +106,18 @@ export function CalendarPageContent() {
         refetchOnWindowFocus: false,
       }
     );
+
+  // Event details modal state
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEventWithSource | null>(null);
+
+  // The server's provider event cache is in-memory per serverless instance, so
+  // a refetch served by another instance can return an event for up to 15
+  // minutes after it was deleted. Keep deleted events hidden for the session.
+  const [deletedEventKeys, setDeletedEventKeys] = useState<ReadonlySet<string>>(new Set());
+  const events = useMemo(
+    () => fetchedEvents?.filter((event) => !deletedEventKeys.has(calendarEventKey(event))),
+    [fetchedEvents, deletedEventKeys],
+  );
 
   // A user whose only calendar content is meetings still gets the grid —
   // the connect-a-calendar empty state is for users with nothing to show.
@@ -467,6 +486,7 @@ export function CalendarPageContent() {
           scheduledActions={scheduledActions}
           timeEntries={timeEntries}
           selectedDate={selectedDate}
+          onEventClick={setSelectedEvent}
           onActionClick={handleActionClick}
           onRescheduleAction={handleRescheduleAction}
           onResizeAction={handleResizeAction}
@@ -483,6 +503,7 @@ export function CalendarPageContent() {
         scheduledActions={scheduledActions}
         timeEntries={timeEntries}
         dateRange={dateRange}
+        onEventClick={setSelectedEvent}
         onActionClick={handleActionClick}
         onRescheduleAction={handleRescheduleAction}
         onResizeAction={handleResizeAction}
@@ -526,6 +547,14 @@ export function CalendarPageContent() {
         />
       </div>
 
+      <CalendarEventModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        onDeleted={(event) =>
+          setDeletedEventKeys((keys) => new Set(keys).add(calendarEventKey(event)))
+        }
+      />
+
       <EditActionModal
         action={
           selectedAction?.actionId
@@ -550,6 +579,7 @@ export function CalendarPageContent() {
         onSuccess={() => {
           void utils.action.getScheduledByDateRange.invalidate();
         }}
+        showTimeEntries
       />
 
       <TimeEntryModal

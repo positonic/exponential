@@ -1149,7 +1149,7 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.workspaceInvitation.findMany({
+      const invitations = await ctx.db.workspaceInvitation.findMany({
         where: {
           workspaceId: input.workspaceId,
           status: "pending",
@@ -1161,6 +1161,14 @@ export const workspaceRouter = createTRPCRouter({
         },
         orderBy: { createdAt: "desc" },
       });
+
+      // Built server-side, like the invitation email's link. The client used to
+      // read NEXT_PUBLIC_APP_URL, which production doesn't set, so "Copy invite
+      // link" handed out http://localhost:3000/invite/<token>.
+      return invitations.map((invitation) => ({
+        ...invitation,
+        inviteUrl: generateInviteUrl(invitation.token),
+      }));
     }),
 
   // Cancel a pending invitation
@@ -2107,6 +2115,8 @@ export const workspaceRouter = createTRPCRouter({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
         source: z.string().optional(),
+        /** Only the caller's own events — the feed's "Mine" filter. */
+        mine: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -2139,6 +2149,7 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
+        actorUserId: input.mine ? ctx.session.user.id : undefined,
       });
     }),
 
@@ -2211,6 +2222,8 @@ export const workspaceRouter = createTRPCRouter({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
         source: z.string().optional(),
+        /** Only the caller's own events — the feed's "Mine" filter. */
+        mine: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -2224,6 +2237,7 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
+        actorUserId: input.mine ? ctx.session.user.id : undefined,
       });
     }),
 

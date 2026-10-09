@@ -98,7 +98,7 @@ export default function NewTicketPage() {
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
       if (product?.id) {
-        await utils.product.ticket.list.invalidate({ productId: product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
       }
       if (workspace) {
         router.push(

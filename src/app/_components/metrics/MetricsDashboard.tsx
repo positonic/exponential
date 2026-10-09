@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { keepPreviousData } from '@tanstack/react-query';
 import {
   Card,
   Text,
@@ -22,6 +23,9 @@ import {
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CycleTrendChart } from './CycleTrendChart';
+import { formatHours, formatMinutes } from './format';
+import { ContributorsTable } from './ContributorsTable';
+import { MemberFilter, useMemberFilter } from './MemberFilter';
 
 /**
  * Metrics page dashboard.
@@ -36,9 +40,27 @@ import { CycleTrendChart } from './CycleTrendChart';
  * completed-ticket **count** with summed points alongside; nothing is read from
  * the dormant `SprintMetrics` table. See ADR-0047 (incl. the Ticket-based
  * amendment).
+ *
+ * A page-wide **member filter** (kept in `?members=`) narrows every number to
+ * the selected people — tickets by assignee, PRs by linked GitHub login, time
+ * by who logged it — and each tier carries a per-person Contributors table.
  */
 export function MetricsDashboard() {
   const { workspace, workspaceId } = useWorkspace();
+  const [memberIds, setMemberIds] = useMemberFilter();
+  // Unfiltered requests keep the exact same query key as before the filter
+  // existed, so the default view shares its cache.
+  const memberFilter = memberIds.length > 0 ? memberIds : undefined;
+
+  const toggleMember = useCallback(
+    (userId: string) =>
+      setMemberIds(
+        memberIds.includes(userId)
+          ? memberIds.filter((id) => id !== userId)
+          : [...memberIds, userId],
+      ),
+    [memberIds, setMemberIds],
+  );
 
   const { data: cycles } = api.sprintAnalytics.getCycles.useQuery(
     { workspaceId: workspaceId ?? '' },
@@ -57,8 +79,12 @@ export function MetricsDashboard() {
   const selectedCycleId = picked ?? defaultCycleId;
 
   const { data, isLoading } = api.sprintAnalytics.getActiveCycleMetrics.useQuery(
-    { workspaceId: workspaceId ?? '', cycleId: selectedCycleId ?? undefined },
-    { enabled: !!workspaceId },
+    {
+      workspaceId: workspaceId ?? '',
+      cycleId: selectedCycleId ?? undefined,
+      memberIds: memberFilter,
+    },
+    { enabled: !!workspaceId, placeholderData: keepWhileSameCycle(selectedCycleId ?? undefined) },
   );
 
   const cycleOptions = useMemo(
@@ -73,21 +99,35 @@ export function MetricsDashboard() {
   return (
     <Container size="xl" className="w-full py-6">
       <Stack gap="xl">
-        <Group gap="sm">
-          <IconChartBar size={24} className="text-text-secondary" />
-          <div>
-            <Text fw={600} size="xl" className="text-text-primary">
-              Metrics
-            </Text>
-            <Text size="sm" className="text-text-secondary">
-              {workspace?.name
-                ? `Delivery metrics for ${workspace.name}`
-                : 'Delivery metrics'}
-            </Text>
-          </div>
+        <Group justify="space-between" align="flex-start" gap="md">
+          <Group gap="sm" wrap="nowrap">
+            <IconChartBar size={24} className="text-text-secondary" />
+            <div>
+              <Text fw={600} size="xl" className="text-text-primary">
+                Metrics
+              </Text>
+              <Text size="sm" className="text-text-secondary">
+                {workspace?.name
+                  ? `Delivery metrics for ${workspace.name}`
+                  : 'Delivery metrics'}
+                {memberIds.length > 0 &&
+                  ` · ${memberIds.length} ${memberIds.length === 1 ? 'member' : 'members'} selected`}
+              </Text>
+            </div>
+          </Group>
+
+          <MemberFilter
+            workspaceId={workspaceId}
+            value={memberIds}
+            onChange={setMemberIds}
+          />
         </Group>
 
-        <AllCyclesSection workspaceId={workspaceId} />
+        <AllCyclesSection
+          workspaceId={workspaceId}
+          memberIds={memberIds}
+          onToggleMember={toggleMember}
+        />
 
         <Divider className="border-border-primary" />
 
@@ -121,15 +161,42 @@ export function MetricsDashboard() {
           ) : !data ? (
             <EmptyState />
           ) : (
-            <SelectedCycleMetrics
-              data={data}
-              cycleId={selectedCycleId ?? undefined}
-            />
+            <>
+              <SelectedCycleMetrics
+                data={data}
+                cycleId={selectedCycleId ?? undefined}
+                memberIds={memberFilter}
+              />
+              <ContributorsTable
+                workspaceId={workspaceId}
+                cycleId={data.cycleId}
+                memberIds={memberIds}
+                onToggleMember={toggleMember}
+              />
+            </>
           )}
         </Stack>
       </Stack>
     </Container>
   );
+}
+
+/**
+ * `placeholderData` for the cycle-scoped queries: keep the previous result on
+ * screen while only the member filter changes, but never across a cycle switch
+ * — otherwise the breakdown briefly mixes two cycles' numbers. Reads the cycle
+ * off tRPC's query key (`[path, { input }]`).
+ */
+function keepWhileSameCycle<T>(cycleId: string | undefined) {
+  return (
+    previous: T | undefined,
+    previousQuery?: { queryKey: readonly unknown[] },
+  ): T | undefined => {
+    const key = previousQuery?.queryKey[1] as
+      | { input?: { cycleId?: string } }
+      | undefined;
+    return key?.input?.cycleId === cycleId ? previous : undefined;
+  };
 }
 
 type AllCycles = RouterOutputs['sprintAnalytics']['getAllCyclesMetrics'];
@@ -138,10 +205,21 @@ type AllCycles = RouterOutputs['sprintAnalytics']['getAllCyclesMetrics'];
  * The headline block: every cycle summed into one set of numbers, plus the
  * per-cycle trend chart behind them.
  */
-function AllCyclesSection({ workspaceId }: { workspaceId: string | null }) {
+function AllCyclesSection({
+  workspaceId,
+  memberIds,
+  onToggleMember,
+}: {
+  workspaceId: string | null;
+  memberIds: string[];
+  onToggleMember: (userId: string) => void;
+}) {
   const { data, isLoading } = api.sprintAnalytics.getAllCyclesMetrics.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId },
+    {
+      workspaceId: workspaceId ?? '',
+      memberIds: memberIds.length > 0 ? memberIds : undefined,
+    },
+    { enabled: !!workspaceId, placeholderData: keepPreviousData },
   );
 
   if (isLoading || !workspaceId) {
@@ -199,6 +277,8 @@ function AllCyclesSection({ workspaceId }: { workspaceId: string | null }) {
 
       <AllCyclesTotals data={data} />
 
+      <GithubLinkNotice workspaceId={workspaceId} memberIds={memberIds} />
+
       <Card
         withBorder
         radius="md"
@@ -225,7 +305,45 @@ function AllCyclesSection({ workspaceId }: { workspaceId: string | null }) {
           )}
         </Stack>
       </Card>
+
+      <ContributorsTable
+        workspaceId={workspaceId}
+        memberIds={memberIds}
+        onToggleMember={onToggleMember}
+      />
     </Stack>
+  );
+}
+
+/**
+ * When the filter includes members with no linked GitHub account, say so —
+ * otherwise their "0 PRs merged" reads as a fact about their work.
+ */
+function GithubLinkNotice({
+  workspaceId,
+  memberIds,
+}: {
+  workspaceId: string;
+  memberIds: string[];
+}) {
+  // Same query (and cache entry) as the all-cycles Contributors table.
+  const { data } = api.sprintAnalytics.getContributions.useQuery({
+    workspaceId,
+    cycleId: undefined,
+  });
+  if (memberIds.length === 0 || !data) return null;
+
+  const selected = new Set(memberIds);
+  const unlinked = data.rows
+    .filter((r) => r.userId != null && selected.has(r.userId) && !r.githubLinked)
+    .map((r) => r.name ?? r.email ?? 'Unknown');
+  if (unlinked.length === 0) return null;
+
+  return (
+    <Text size="xs" className="text-text-muted">
+      PRs and commits aren&apos;t counted for {unlinked.join(', ')} — no GitHub
+      account is linked.
+    </Text>
   );
 }
 
@@ -334,9 +452,11 @@ type CycleMetrics = NonNullable<
 function SelectedCycleMetrics({
   data,
   cycleId,
+  memberIds,
 }: {
   data: CycleMetrics;
   cycleId: string | undefined;
+  memberIds: string[] | undefined;
 }) {
   const completionRate = Math.round(data.completionRate);
 
@@ -372,6 +492,16 @@ function SelectedCycleMetrics({
             <Text size="xs" className="text-text-muted">
               {data.completedPoints} of {data.totalPoints} points delivered
             </Text>
+            {/* Untracked work (Daily worklog V4): confirmed time in the cycle
+                window on Actions with no Ticket — shipped work nobody filed.
+                Computed live beside velocity, never stored (ADR-0047). */}
+            <Text size="xs" className="text-text-muted" data-testid="untracked-work">
+              {data.untrackedWorkEntries === 0
+                ? 'No untracked work'
+                : `${data.untrackedWorkEntries} untracked ${
+                    data.untrackedWorkEntries === 1 ? 'entry' : 'entries'
+                  } (${formatMinutes(data.untrackedWorkMinutes)}) with no ticket`}
+            </Text>
           </Stack>
         </Card>
 
@@ -406,26 +536,24 @@ function SelectedCycleMetrics({
         </Card>
 
         {/* Merged-PR turnaround */}
-        <PrTurnaroundCard cycleId={cycleId} />
+        <PrTurnaroundCard cycleId={cycleId} memberIds={memberIds} />
       </div>
     </Stack>
   );
 }
 
-/** Format a duration in hours as a compact, sensible unit. */
-function formatHours(hours: number): { value: string; unit: string } {
-  if (hours < 1)
-    return { value: String(Math.max(1, Math.round(hours * 60))), unit: 'min' };
-  if (hours < 48) return { value: String(Math.round(hours)), unit: 'h' };
-  return { value: (hours / 24).toFixed(1), unit: 'd' };
-}
-
-function PrTurnaroundCard({ cycleId }: { cycleId: string | undefined }) {
+function PrTurnaroundCard({
+  cycleId,
+  memberIds,
+}: {
+  cycleId: string | undefined;
+  memberIds: string[] | undefined;
+}) {
   const { workspaceId } = useWorkspace();
   const { data, isLoading } =
     api.sprintAnalytics.getActiveCyclePrTurnaround.useQuery(
-      { workspaceId: workspaceId ?? '', cycleId },
-      { enabled: !!workspaceId },
+      { workspaceId: workspaceId ?? '', cycleId, memberIds },
+      { enabled: !!workspaceId, placeholderData: keepWhileSameCycle(cycleId) },
     );
 
   const header = (

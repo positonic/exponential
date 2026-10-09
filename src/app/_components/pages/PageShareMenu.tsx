@@ -23,10 +23,16 @@ import {
   IconCopy,
   IconDots,
   IconExternalLink,
+  IconFileExport,
+  IconMarkdown,
   IconWorld,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { buildPublicPagePath } from "~/lib/pages/public-url";
+import {
+  buildMarkdownExport,
+  markdownFilename,
+} from "~/lib/pages/markdown-export";
 
 interface PageShareMenuProps {
   pageId: string;
@@ -36,6 +42,14 @@ interface PageShareMenuProps {
   publicSlug: string | null;
   publicSeoIndexed: boolean;
   canEdit: boolean;
+  /** Page title — the H1 of the export and the download's filename. */
+  title: string;
+  /**
+   * Current Markdown projection of the body, read from the live editor so an
+   * export reflects edits the debounced autosave hasn't written yet. Returns
+   * null before the editor has mounted.
+   */
+  getMarkdown: () => string | null;
 }
 
 /**
@@ -51,6 +65,8 @@ export function PageShareMenu({
   publicSlug,
   publicSeoIndexed,
   canEdit,
+  title,
+  getMarkdown,
 }: PageShareMenuProps) {
   const router = useRouter();
   const utils = api.useUtils();
@@ -60,8 +76,8 @@ export function PageShareMenu({
   useEffect(() => setSlugDraft(publicSlug ?? ""), [publicSlug]);
 
   const onSettled = () => utils.page.get.invalidate({ id: pageId });
-  const onError = (error: { message: string }, title: string) =>
-    notifications.show({ color: "red", title, message: error.message });
+  const onError = (error: { message: string }, failed: string) =>
+    notifications.show({ color: "red", title: failed, message: error.message });
 
   const publish = api.page.publish.useMutation({
     onSettled,
@@ -107,6 +123,45 @@ export function PageShareMenu({
       ? buildPublicPagePath(publicSlug ?? "untitled", publicId)
       : null;
   const publicUrl = publicPath ? `${origin}${publicPath}` : null;
+
+  /** Title-as-H1 + the live body projection, or null if the editor isn't up. */
+  const markdownDocument = () => {
+    const body = getMarkdown();
+    return body == null ? null : buildMarkdownExport(title, body);
+  };
+
+  const copyMarkdown = async () => {
+    const markdown = markdownDocument();
+    if (markdown == null) return;
+    try {
+      await navigator.clipboard.writeText(markdown);
+      notifications.show({
+        color: "teal",
+        title: "Copied as Markdown",
+        message: "Paste into Notion, Obsidian, or any Markdown editor.",
+      });
+    } catch {
+      // Denied permission, or a non-secure origin.
+      notifications.show({
+        color: "red",
+        title: "Could not copy",
+        message: "Your browser blocked clipboard access.",
+      });
+    }
+  };
+
+  const exportMarkdown = () => {
+    const markdown = markdownDocument();
+    if (markdown == null) return;
+    const url = URL.createObjectURL(
+      new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = markdownFilename(title);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const commitSlug = () => {
     const next = slugDraft.trim();
@@ -283,6 +338,22 @@ export function PageShareMenu({
               Duplicate with sub-pages
             </Menu.Item>
           ) : null}
+          <Menu.Divider />
+          {/* Plain copy (Cmd-C) puts text on the clipboard and the formatted
+              slice on `text/html`; these two are the explicit Markdown route,
+              for a Markdown-source target. */}
+          <Menu.Item
+            leftSection={<IconMarkdown size={14} />}
+            onClick={() => void copyMarkdown()}
+          >
+            Copy as Markdown
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconFileExport size={14} />}
+            onClick={exportMarkdown}
+          >
+            Export as Markdown
+          </Menu.Item>
         </Menu.Dropdown>
       </Menu>
     </Group>

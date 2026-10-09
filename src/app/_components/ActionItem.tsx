@@ -1,6 +1,7 @@
 import { Checkbox, Text, Group, Paper, Badge, Tooltip, Avatar, HoverCard } from '@mantine/core';
 import { IconCalendar, IconCloudOff, IconAlertTriangle, IconCloudCheck, IconBrandNotion, IconClock, IconMicrophone, IconTrendingUp, IconTrendingDown, IconRobot } from '@tabler/icons-react';
 import { TagBadgeList } from "./TagBadge";
+import { BlockedBadge } from "./BlockedBadge";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
 import { type Action, type SimpleAction } from "~/lib/actions/types";
@@ -316,6 +317,9 @@ export function ActionItem({
 
               {/* ETA badge for auto-scheduled tasks */}
               <ETABadge action={action} />
+
+              {/* Blocked by another still-active action (ADR-0062) */}
+              <BlockedBadge status={action.status} depsOut={(action as { depsOut?: Array<{ dependsOn: { id: string; name: string; status: string } }> }).depsOut} />
 
               {/* Sync status */}
               {showSyncStatus && <SyncStatusIndicator action={action} />}

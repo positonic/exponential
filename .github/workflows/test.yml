@@ -38,6 +38,24 @@ jobs:
           SKIP_ENV_VALIDATION: true
           AUTH_SECRET: test-secret-for-ci
 
+  # Docs guardrails: every /docs link and #anchor resolves, every /doc-assets
+  # image exists, "**Label** in the sidebar" names a real sidebar item or
+  # settings tab, and every page has frontmatter + a last-updated entry.
+  # See scripts/check-docs.ts and dev-docs/DOCS_STYLE_GUIDE.md.
+  docs-check:
+    name: Docs links & labels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+        env:
+          SKIP_ENV_VALIDATION: true
+      - run: npm run docs:check
+
   # The Tauri shell's Rust tests. Worth its own job rather than being left to
   # whoever remembers to run `cargo test` locally: the wiki commands are
   # reachable from a remote page, so the path-jail tests here are the thing

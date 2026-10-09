@@ -12,10 +12,19 @@ interface AgendaRailProps {
   dayLabel: string;
   eventsCount: number;
   blocks: RailBlock[];
-  now: number;
+  /** Current hour float, or null when the rail shows a day other than today. */
+  now: number | null;
+  /** Pill beside the date, e.g. "Today" / "Tomorrow". */
+  pillLabel?: string;
 }
 
-export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailProps) {
+export function AgendaRail({
+  dayLabel,
+  eventsCount,
+  blocks,
+  now,
+  pillLabel = "Today",
+}: AgendaRailProps) {
   const totalHrs = END_HR - START_HR;
   const [openOverflow, setOpenOverflow] = useState<string | null>(null);
   const overflowRef = useRef<HTMLDivElement | null>(null);
@@ -56,7 +65,7 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
             {eventsCount} event{eventsCount === 1 ? "" : "s"}
           </div>
         </div>
-        <span className="td-pill--today">Today</span>
+        <span className="td-pill--today">{pillLabel}</span>
       </div>
 
       <div className="td-rail__scroll">
@@ -79,7 +88,7 @@ export function AgendaRail({ dayLabel, eventsCount, blocks, now }: AgendaRailPro
             );
           })}
 
-          {now >= START_HR && now <= END_HR && (
+          {now !== null && now >= START_HR && now <= END_HR && (
             <div
               className="td-timeline__now"
               style={{ top: (now - START_HR) * HOUR_PX }}

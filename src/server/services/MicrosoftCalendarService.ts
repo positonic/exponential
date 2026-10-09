@@ -1,5 +1,6 @@
 import { db } from "~/server/db";
 import NodeCache from "node-cache";
+import { CalendarEventPermissionError } from "./CalendarProvider";
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -7,7 +8,16 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  DeleteEventInput,
+  DeleteEventResult,
 } from "./CalendarProvider";
+
+/**
+ * Cap on the event DELETE, matching GOOGLE_TIMEOUT_MS in GoogleCalendarService.
+ * The event modal cannot be dismissed while a delete is pending, so an
+ * uncapped stall would hold it until the function's own budget ran out.
+ */
+const GRAPH_DELETE_TIMEOUT_MS = 10_000;
 
 // Cache with 15 minute TTL (same as Google)
 const calendarCache = new NodeCache({
@@ -47,6 +57,22 @@ interface GraphCreatedEvent extends GraphCalendarViewEvent {
   onlineMeeting?: {
     joinUrl?: string;
   };
+}
+
+/**
+ * Graph returns start/end as offset-less strings ("2026-10-05T14:00:00.0000000")
+ * in the zone named by the sibling `timeZone` — UTC unless a
+ * `Prefer: outlook.timezone` header asks otherwise, and we send none.
+ * Consumers parse `CalendarEvent.start.dateTime` with parseISO / `new Date`,
+ * which read an offset-less string as LOCAL time, so a UTC-declared value is
+ * emitted as an explicit instant (fractional seconds trimmed to the three
+ * digits every ISO 8601 parser accepts). A time declared in any other zone is
+ * left as Graph sent it: stamping Z on it would claim the wrong instant.
+ */
+function graphDateTimeToIso(point: { dateTime: string; timeZone: string }): string {
+  const hasOffset = /(?:Z|[+-]\d\d:?\d\d)$/i.test(point.dateTime);
+  if (hasOffset || point.timeZone !== "UTC") return point.dateTime;
+  return `${point.dateTime.replace(/(\.\d{3})\d+$/, "$1")}Z`;
 }
 
 export class MicrosoftCalendarService implements CalendarProvider {
@@ -221,7 +247,7 @@ export class MicrosoftCalendarService implements CalendarProvider {
   private mapGraphEventToCalendarEvent(
     event: GraphCalendarViewEvent,
   ): CalendarEvent {
-    // Microsoft Graph returns dateTime as local time string without offset
+    // Timed events become explicit instants (see graphDateTimeToIso).
     // For all-day events, use the date field instead
     const isAllDay = event.isAllDay ?? false;
 
@@ -230,12 +256,12 @@ export class MicrosoftCalendarService implements CalendarProvider {
       summary: event.subject ?? "No title",
       description: event.bodyPreview ?? undefined,
       start: {
-        dateTime: isAllDay ? undefined : event.start.dateTime,
+        dateTime: isAllDay ? undefined : graphDateTimeToIso(event.start),
         date: isAllDay ? event.start.dateTime.split("T")[0] : undefined,
         timeZone: event.start.timeZone ?? undefined,
       },
       end: {
-        dateTime: isAllDay ? undefined : event.end.dateTime,
+        dateTime: isAllDay ? undefined : graphDateTimeToIso(event.end),
         date: isAllDay ? event.end.dateTime.split("T")[0] : undefined,
         timeZone: event.end.timeZone ?? undefined,
       },
@@ -491,11 +517,11 @@ export class MicrosoftCalendarService implements CalendarProvider {
       summary: created.subject ?? "No title",
       description: created.bodyPreview ?? undefined,
       start: {
-        dateTime: created.start.dateTime,
+        dateTime: graphDateTimeToIso(created.start),
         timeZone: created.start.timeZone ?? undefined,
       },
       end: {
-        dateTime: created.end.dateTime,
+        dateTime: graphDateTimeToIso(created.end),
         timeZone: created.end.timeZone ?? undefined,
       },
       location: created.location?.displayName ?? undefined,
@@ -511,6 +537,58 @@ export class MicrosoftCalendarService implements CalendarProvider {
         created.onlineMeeting?.joinUrl ??
         undefined,
     };
+  }
+
+  /**
+   * Delete an event from the user's Outlook calendar. calendarView lists
+   * recurring events as occurrences, so this removes one occurrence, never
+   * the series. Graph sends the cancellation itself when the organizer
+   * deletes a meeting — there is no silent variant, so `notifyAttendees` is
+   * not consulted.
+   */
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult> {
+    const { eventId, calendarId, accountId } = input;
+    const accessToken = await this.getAccessToken(userId, accountId);
+    // Address the event through the calendar it was listed from, as getEvents
+    // does: an event on a shared calendar isn't reachable at me/events, and
+    // the 404 that produces would read as "already deleted".
+    const calendarPath =
+      calendarId !== "primary"
+        ? `me/calendars/${encodeURIComponent(calendarId)}/events`
+        : "me/events";
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://graph.microsoft.com/v1.0/${calendarPath}/${encodeURIComponent(eventId)}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(GRAPH_DELETE_TIMEOUT_MS),
+        },
+      );
+    } catch (error) {
+      // Network failure, or the timeout above.
+      console.error(`Failed to reach Outlook to delete event ${eventId} (account ${accountId}):`, error);
+      throw new Error("Failed to delete calendar event. Please try again.", { cause: error });
+    }
+
+    // 404: the event is no longer on that calendar — deleted or moved since
+    // our last fetch. Not a failure, but not a delete we made either.
+    const alreadyGone = response.status === 404;
+    if (!response.ok && !alreadyGone) {
+      const text = await response.text();
+      console.error(
+        `Failed to delete Outlook event ${eventId} (account ${accountId}): ${response.status} ${text}`,
+      );
+      if (response.status === 403) throw new CalendarEventPermissionError();
+      throw new Error("Failed to delete calendar event. Please try again.");
+    }
+
+    this.clearUserCache(userId);
+    console.log(
+      `Outlook event ${eventId} ${alreadyGone ? "was already gone" : "deleted"} for user ${userId} (account ${accountId})`,
+    );
+    return { alreadyGone };
   }
 
   clearUserCache(userId: string): void {

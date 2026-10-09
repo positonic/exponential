@@ -25,7 +25,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mockSearchParams.current,
 }));
 
-import { useProjectViewState } from "../useProjectViewState";
+import {
+  useProjectViewState,
+  computeProjectFilterCounts,
+  filterProjects,
+} from "../useProjectViewState";
+import {
+  countActiveProjectFilters,
+  describeActiveProjectFilters,
+} from "../ProjectFilterControls";
 
 /** Matches SEARCH_URL_DEBOUNCE_MS in the hook. */
 const DEBOUNCE_MS = 350;
@@ -38,6 +46,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   mockReplace.mockClear();
   setUrl("");
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -151,6 +160,14 @@ describe("useProjectViewState search query", () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
+  it("does not persist anything when no persistScope is given", () => {
+    const { result } = renderHook(() => useProjectViewState());
+
+    act(() => result.current.setFilters({ status: ["ACTIVE"] }));
+
+    expect(window.localStorage.length).toBe(0);
+  });
+
   it("carries the live text on view-tab links before the URL catches up", () => {
     setUrl("status=ACTIVE");
     const { result } = renderHook(() => useProjectViewState());
@@ -163,5 +180,290 @@ describe("useProjectViewState search query", () => {
     const params = new URLSearchParams(result.current.viewParamsQueryString);
     expect(params.get("q")).toBe("realtime");
     expect(params.get("status")).toBe("ACTIVE");
+  });
+});
+
+/**
+ * Filter/sort persistence — with a `persistScope`, the hook remembers the
+ * user's filters in localStorage (keyed per workspace + page family) and
+ * re-applies them on a bare-URL visit. A URL that already carries view state
+ * must always win, and clearing filters must clear the memory — not have the
+ * old filters snap back on the next visit.
+ */
+const STORAGE_KEY = "exponential.viewFilters.acme.projects";
+
+describe("useProjectViewState filter persistence", () => {
+  it("saves filter changes and restores them on a later bare-URL mount", () => {
+    const first = renderHook(() =>
+      useProjectViewState(undefined, "projects"),
+    );
+    act(() => first.result.current.setFilters({ status: ["ACTIVE"] }));
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("status=ACTIVE");
+    first.unmount();
+
+    // A fresh visit to the bare URL re-applies the saved state.
+    setUrl("");
+    mockReplace.mockClear();
+    renderHook(() => useProjectViewState(undefined, "projects"));
+
+    expect(mockReplace).toHaveBeenCalledWith("/w/acme/projects?status=ACTIVE", {
+      scroll: false,
+    });
+  });
+
+  it("restores the saved sort as well as the filters", () => {
+    window.localStorage.setItem(STORAGE_KEY, "status=ACTIVE&sort=-endDate");
+
+    renderHook(() => useProjectViewState(undefined, "projects"));
+
+    const [url] = mockReplace.mock.calls[0] as [string];
+    const written = new URLSearchParams(url.split("?")[1]);
+    expect(written.get("status")).toBe("ACTIVE");
+    expect(written.get("sort")).toBe("-endDate");
+  });
+
+  it("lets a deep link's explicit params win over the saved state", () => {
+    window.localStorage.setItem(STORAGE_KEY, "status=ACTIVE");
+    setUrl("status=ON_HOLD");
+
+    const { result } = renderHook(() =>
+      useProjectViewState(undefined, "projects"),
+    );
+
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(result.current.filters.status).toEqual(["ON_HOLD"]);
+    // Merely following the link doesn't overwrite the saved default.
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("status=ACTIVE");
+  });
+
+  it("remembers an explicit clear as an empty entry, not as never-visited", () => {
+    window.localStorage.setItem(STORAGE_KEY, "status=ACTIVE");
+    setUrl("status=ACTIVE");
+
+    const { result } = renderHook(() =>
+      useProjectViewState(undefined, "projects"),
+    );
+    act(() => result.current.setFilters({}));
+
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe("");
+  });
+
+  it("applies the product default on a first-ever visit, without saving it", () => {
+    renderHook(() =>
+      useProjectViewState(undefined, "projects", "status=ACTIVE,ON_HOLD"),
+    );
+
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/w/acme/projects?status=ACTIVE%2CON_HOLD",
+      { scroll: false },
+    );
+    // The default stays a default — only user interaction writes the memory,
+    // so a future change to the product default still reaches this user.
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("prefers the user's saved state over the product default", () => {
+    window.localStorage.setItem(STORAGE_KEY, "status=COMPLETED");
+
+    renderHook(() =>
+      useProjectViewState(undefined, "projects", "status=ACTIVE,ON_HOLD"),
+    );
+
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/w/acme/projects?status=COMPLETED",
+      { scroll: false },
+    );
+  });
+
+  it("does not re-apply the default after the user explicitly cleared filters", () => {
+    window.localStorage.setItem(STORAGE_KEY, "");
+
+    renderHook(() =>
+      useProjectViewState(undefined, "projects", "status=ACTIVE,ON_HOLD"),
+    );
+
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("never persists the search query", () => {
+    const { result } = renderHook(() =>
+      useProjectViewState(undefined, "projects"),
+    );
+
+    act(() => {
+      result.current.setSearchQuery("transient");
+      vi.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    expect(mockReplace).toHaveBeenCalledWith("/w/acme/projects?q=transient", {
+      scroll: false,
+    });
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("computeProjectFilterCounts", () => {
+  const projects = [
+    { name: "Alpha", status: "ACTIVE", priority: "HIGH", driId: "u1" },
+    { name: "Beta", status: "ACTIVE", priority: "LOW", driId: "u2" },
+    { name: "Gamma", status: "COMPLETED", priority: "HIGH", driId: null },
+  ];
+
+  it("counts each field with the other filters applied (facet semantics)", () => {
+    const counts = computeProjectFilterCounts(
+      projects,
+      { priority: ["HIGH"] },
+      "",
+    );
+
+    // Priority options are counted without the priority filter itself...
+    expect(counts.priority).toEqual({ HIGH: 2, LOW: 1 });
+    // ...while the other fields are counted under it.
+    expect(counts.status).toEqual({ ACTIVE: 1, COMPLETED: 1 });
+    expect(counts.driId).toEqual({ u1: 1, none: 1 });
+  });
+
+  it("counts the signed-in user under the `me` sentinel when the session is known", () => {
+    const counts = computeProjectFilterCounts(projects, {}, "", undefined, {
+      currentUserId: "u2",
+    });
+
+    expect(counts.driId).toEqual({ u1: 1, u2: 1, none: 1, me: 1 });
+  });
+
+  it("counts visibility and ETA buckets", () => {
+    const now = new Date("2026-09-27T12:00:00Z");
+    const counts = computeProjectFilterCounts(
+      [
+        { status: "ACTIVE", priority: "NONE", isPublic: true, endDate: "2026-09-01" },
+        { status: "ACTIVE", priority: "NONE", isRestricted: true, endDate: "2026-10-10" },
+        { status: "COMPLETED", priority: "NONE", endDate: "2026-09-01" },
+        { status: "ACTIVE", priority: "NONE" },
+      ],
+      {},
+      "",
+      undefined,
+      { now },
+    );
+
+    expect(counts.visibility).toEqual({ public: 1, restricted: 1 });
+    // The completed project's past end date is not "overdue" — it's done.
+    expect(counts.eta).toEqual({ overdue: 1, soon: 1, none: 1 });
+  });
+  it("counts the other fields under an active status filter", () => {
+    const counts = computeProjectFilterCounts(
+      projects,
+      { status: ["ACTIVE"] },
+      "",
+    );
+
+    expect(counts.priority).toEqual({ HIGH: 1, LOW: 1 });
+    expect(counts.driId).toEqual({ u1: 1, u2: 1 });
+  });
+
+  it("omits status counts under an active status filter until server totals arrive", () => {
+    // The fetched list excludes the filtered-out statuses, so a client count
+    // would report them as a confident 0 — no counts beats wrong counts.
+    const counts = computeProjectFilterCounts(
+      projects.filter((p) => p.status === "ACTIVE"),
+      { status: ["ACTIVE"] },
+      "",
+    );
+
+    expect(counts.status).toBeUndefined();
+  });
+
+  it("applies the search text to every field's counts", () => {
+    const counts = computeProjectFilterCounts(projects, {}, "alp");
+
+    expect(counts.priority).toEqual({ HIGH: 1 });
+    expect(counts.status).toEqual({ ACTIVE: 1 });
+  });
+
+  it("prefers server status totals when the list is fetched pre-filtered", () => {
+    const counts = computeProjectFilterCounts(
+      projects.filter((p) => p.status === "ACTIVE"),
+      { status: ["ACTIVE"] },
+      "",
+      { ACTIVE: 2, COMPLETED: 7, CANCELLED: 3 },
+    );
+
+    expect(counts.status).toEqual({ ACTIVE: 2, COMPLETED: 7, CANCELLED: 3 });
+  });
+});
+
+
+describe("filterProjects", () => {
+  const now = new Date("2026-09-27T12:00:00Z");
+  const projects = [
+    { name: "Mine", status: "ACTIVE", priority: "HIGH", driId: "me-id", isPublic: true, endDate: "2026-09-20" },
+    { name: "Theirs", status: "ACTIVE", priority: "LOW", driId: "u2", isRestricted: true, endDate: "2026-10-05" },
+    { name: "Orphan", status: "ON_HOLD", priority: "NONE", driId: null, endDate: null },
+    { name: "Done", status: "COMPLETED", priority: "NONE", driId: "me-id", endDate: "2026-01-01" },
+  ];
+  const names = (rows: Array<{ name: string }>) => rows.map((r) => r.name);
+
+  it("resolves `driId=me` against the signed-in user", () => {
+    expect(
+      names(filterProjects(projects, { driId: ["me"] }, "", { currentUserId: "me-id" })),
+    ).toEqual(["Mine", "Done"]);
+  });
+
+  it("matches nothing for `me` until the session is known", () => {
+    expect(filterProjects(projects, { driId: ["me"] }, "")).toEqual([]);
+  });
+
+  it("selects unassigned projects with the `none` sentinel, OR-ed with members", () => {
+    expect(names(filterProjects(projects, { driId: ["none"] }, ""))).toEqual(["Orphan"]);
+    expect(names(filterProjects(projects, { driId: ["none", "u2"] }, ""))).toEqual([
+      "Theirs",
+      "Orphan",
+    ]);
+  });
+
+  it("filters by visibility flags", () => {
+    expect(names(filterProjects(projects, { visibility: ["public"] }, ""))).toEqual(["Mine"]);
+    expect(
+      names(filterProjects(projects, { visibility: ["public", "restricted"] }, "")),
+    ).toEqual(["Mine", "Theirs"]);
+  });
+
+  it("buckets ETA into overdue / due soon / none, ignoring finished work", () => {
+    expect(names(filterProjects(projects, { eta: ["overdue"] }, "", { now }))).toEqual(["Mine"]);
+    expect(names(filterProjects(projects, { eta: ["soon"] }, "", { now }))).toEqual(["Theirs"]);
+    expect(names(filterProjects(projects, { eta: ["none"] }, "", { now }))).toEqual(["Orphan"]);
+  });
+
+  it("treats today and the 30th day ahead as due soon, the 31st as not", () => {
+    const at = (endDate: string) => ({ status: "ACTIVE", priority: "NONE", endDate, name: endDate });
+    const rows = [at("2026-09-27"), at("2026-10-27"), at("2026-10-28")];
+    expect(names(filterProjects(rows, { eta: ["soon"] }, "", { now }))).toEqual([
+      "2026-09-27",
+      "2026-10-27",
+    ]);
+  });
+});
+
+describe("project filter pills", () => {
+  const members = [{ id: "u2", name: "Pat Reviewer", email: null, image: null }];
+
+  it("labels the `me` sentinel as My projects and members by name", () => {
+    const pills = describeActiveProjectFilters(
+      { driId: ["me", "u2", "gone"], status: ["ACTIVE"] },
+      members,
+    );
+    expect(pills.map((p) => p.label)).toEqual([
+      "Active",
+      "My projects",
+      "DRI: Pat Reviewer",
+      // A DRI who left the workspace still gets a removable pill.
+      "DRI: gone",
+    ]);
+  });
+
+  it("counts every applied value across facets", () => {
+    expect(
+      countActiveProjectFilters({ status: ["ACTIVE", "ON_HOLD"], driId: ["me"], eta: undefined }),
+    ).toBe(3);
   });
 });

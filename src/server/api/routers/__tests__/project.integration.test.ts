@@ -78,6 +78,28 @@ describe("project router", () => {
       expect(projects.some((p) => p.name === "Team Project")).toBe(true);
     });
 
+    it("filters by status when a status list is passed", async () => {
+      const user = await createUser(db);
+      await createProject(db, { createdById: user.id, name: "Live", status: "ACTIVE" });
+      await createProject(db, { createdById: user.id, name: "Paused", status: "ON_HOLD" });
+      await createProject(db, { createdById: user.id, name: "Done", status: "COMPLETED" });
+
+      const caller = createTestCaller(user.id);
+      const projects = await caller.project.getAll({ status: ["ACTIVE", "ON_HOLD"] });
+
+      expect(projects.map((p) => p.name).sort()).toEqual(["Live", "Paused"]);
+    });
+
+    it("an empty status list means no status filter", async () => {
+      const user = await createUser(db);
+      await createProject(db, { createdById: user.id, name: "Done", status: "COMPLETED" });
+
+      const caller = createTestCaller(user.id);
+      const projects = await caller.project.getAll({ status: [] });
+
+      expect(projects).toHaveLength(1);
+    });
+
     it("response has expected shape (contract test)", async () => {
       const user = await createUser(db);
       const ws = await createWorkspace(db, { ownerId: user.id, slug: "contract-proj-ws" });
@@ -157,6 +179,47 @@ describe("project router", () => {
       const names = projects.map((p) => p.name);
       expect(names).toContain("Owner Project");
       expect(names).toContain("Owner Public");
+    });
+  });
+
+  describe("getStatusCounts", () => {
+    it("returns per-status totals scoped to the workspace", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id, slug: "counts-ws" });
+      await createProject(db, { createdById: user.id, workspaceId: ws.id, status: "ACTIVE" });
+      await createProject(db, { createdById: user.id, workspaceId: ws.id, status: "ACTIVE" });
+      await createProject(db, { createdById: user.id, workspaceId: ws.id, status: "COMPLETED" });
+      // A project outside the workspace must not be counted.
+      await createProject(db, { createdById: user.id, status: "CANCELLED" });
+
+      const caller = createTestCaller(user.id);
+      const counts = await caller.project.getStatusCounts({ workspaceId: ws.id });
+
+      expect(counts).toEqual({ ACTIVE: 2, COMPLETED: 1 });
+    });
+
+    it("does not count other users' projects", async () => {
+      const user = await createUser(db);
+      const stranger = await createUser(db);
+      await createProject(db, { createdById: stranger.id, status: "ACTIVE" });
+
+      const caller = createTestCaller(user.id);
+      const counts = await caller.project.getStatusCounts({});
+
+      expect(counts).toEqual({});
+    });
+  });
+
+  describe("getProjectsWithActions", () => {
+    it("filters projects by status when a status list is passed", async () => {
+      const user = await createUser(db);
+      await createProject(db, { createdById: user.id, name: "Live", status: "ACTIVE" });
+      await createProject(db, { createdById: user.id, name: "Done", status: "COMPLETED" });
+
+      const caller = createTestCaller(user.id);
+      const result = await caller.project.getProjectsWithActions({ status: ["ACTIVE"] });
+
+      expect(result.projects.map((p) => p.name)).toEqual(["Live"]);
     });
   });
 

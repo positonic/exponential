@@ -12,15 +12,15 @@ interface PageProps {
 
 /**
  * Server shell for the cycle detail page. Prefetches the queries the client
- * tree needs (cycle, workspace, product header) so they stream with the RSC
+ * tree needs (cycle, product header) so they stream with the RSC
  * payload instead of waiting for JS load → client fetch round trips. Inputs
- * must match the client useQuery keys exactly or the cache won't hit.
+ * must match the client useQuery keys exactly or the cache won't hit. The
+ * workspace itself comes from the workspace layout (useSeedWorkspaceQuery).
  */
 export default async function CycleDetailPage({ params }: PageProps) {
   const { workspaceSlug, productSlug, cycleId } = await params;
 
   void api.product.cycle.getById.prefetch({ id: cycleId });
-  void api.workspace.getBySlug.prefetch({ slug: workspaceSlug });
 
   // ProductLayout's header query keys on { workspaceId, slug }, so resolve the
   // workspace id (single indexed lookup) before prefetching it. This is a

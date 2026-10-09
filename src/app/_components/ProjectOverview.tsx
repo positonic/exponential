@@ -1,23 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import Link from "next/link";
 import {
   IconActivity,
+  IconCalendarRepeat,
   IconChecklist,
+  IconFileText,
   IconLayersIntersect,
   IconMessage,
+  IconPlus,
   IconTargetArrow,
 } from "@tabler/icons-react";
+import { ActionIcon } from "@mantine/core";
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { ProjectTimeline } from "./ProjectTimeline";
-import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
+import { CreateGoalModal } from "./CreateGoalModal";
+import { CreateActionModal } from "./CreateActionModal";
+import { CeremonyIconTile } from "./ceremonies/CeremonyIcon";
+import { CEREMONY_KIND_LABELS } from "./ceremonies/CeremonyEditorModal";
+import { describeCadence } from "~/lib/ceremonies/cadence";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
 type ActivityRow = RouterOutputs["project"]["getRecentActivity"][number];
-type Transcription = NonNullable<Project["transcriptionSessions"]>[number];
 
 interface ProjectOverviewProps {
   project: Project;
@@ -133,7 +142,6 @@ function describeActivity(row: ActivityRow): { verb: string; target: string | nu
 }
 
 export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
-  const [openTranscription, setOpenTranscription] = useState<Transcription | null>(null);
 
   const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
   const { data: activity = [] } = api.project.getRecentActivity.useQuery({
@@ -142,6 +150,16 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
     limit: 12,
   });
   const transcriptions = project.transcriptionSessions ?? [];
+  const { workspace } = useWorkspace();
+  const { data: docs = [] } = api.page.list.useQuery(
+    { workspaceId: workspace?.id ?? "", projectId: project.id },
+    { enabled: !!workspace },
+  );
+
+  const { data: ceremonies = [] } = api.ceremony.listForProject.useQuery(
+    { projectId: project.id },
+    { enabled: !!workspace },
+  );
 
   const weekStart = useMemo(() => startOfThisWeek(), []);
   const weekEnd = useMemo(() => endOfThisWeek(), []);
@@ -172,6 +190,11 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
             OKR alignment
             <span className={styles.sectionMeta}>{goals.length}</span>
           </div>
+          <CreateGoalModal projectId={project.id}>
+            <ActionIcon variant="subtle" size="sm" aria-label="Add goal">
+              <IconPlus size={14} />
+            </ActionIcon>
+          </CreateGoalModal>
         </div>
         <div className={styles.sectionBody}>
           {goals.length === 0 ? (
@@ -180,6 +203,12 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                 <IconTargetArrow size={16} />
               </div>
               <div>No goal linked yet — link one to see alignment here.</div>
+              <CreateGoalModal projectId={project.id}>
+                <button type="button" className={styles.emptyCta}>
+                  <IconPlus size={12} />
+                  Add a goal
+                </button>
+              </CreateGoalModal>
             </div>
           ) : (
             <div className={styles.okrStrip}>
@@ -214,6 +243,54 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
         <ProjectTimeline projectId={project.id} />
       </section>
 
+      {/* ── 2b. Ceremonies ──────────────────────────────── */}
+      {workspace && (
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconCalendarRepeat size={14} className={styles.sectionTitleIcon} />
+              Ceremonies
+              <span className={styles.sectionMeta}>{ceremonies.length}</span>
+            </div>
+          </div>
+          <div className={styles.sectionBodyFlush}>
+            {ceremonies.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <IconCalendarRepeat size={16} />
+                </div>
+                <div>No ceremonies linked — link one from the project&apos;s edit form.</div>
+              </div>
+            ) : (
+              ceremonies.map((ceremony) => {
+                const next = ceremony.occurrences[0];
+                return (
+                  <Link
+                    key={ceremony.id}
+                    href={`/w/${workspace.slug}/ceremonies/${ceremony.id}`}
+                    className={`${styles.row} ${styles.rowLink}`}
+                  >
+                    <CeremonyIconTile icon={ceremony.icon} kind={ceremony.kind} size="sm" />
+                    <div className={styles.rowBody}>
+                      <div className={styles.rowTitle}>{ceremony.name}</div>
+                      <div className={styles.rowSub}>
+                        <span>{CEREMONY_KIND_LABELS[ceremony.kind]}</span>
+                        <span>{describeCadence(ceremony.cadenceRule)}</span>
+                        {next && (
+                          <span className={styles.rowDue}>
+                            Next {format(new Date(next.scheduledStart), "EEE d MMM, HH:mm")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        </section>
+      )}
+
       {/* ── 3. This week ────────────────────────────────── */}
       <div className={styles.twoCol}>
         <section className={styles.section}>
@@ -223,6 +300,11 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
               Actions this week
               <span className={styles.sectionMeta}>{actionsThisWeek.length}</span>
             </div>
+            <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+              <ActionIcon variant="subtle" size="sm" aria-label="Add action">
+                <IconPlus size={14} />
+              </ActionIcon>
+            </CreateActionModal>
           </div>
           <div className={styles.sectionBodyFlush}>
             {actionsThisWeek.length === 0 ? (
@@ -231,6 +313,12 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                   <IconChecklist size={16} />
                 </div>
                 <div>No actions due this week.</div>
+                <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+                  <button type="button" className={styles.emptyCta}>
+                    <IconPlus size={12} />
+                    Add an action
+                  </button>
+                </CreateActionModal>
               </div>
             ) : (
               actionsThisWeek.map((a) => {
@@ -334,11 +422,10 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                   : "";
               const liveActions = t.actions.filter((a) => a.status !== "DELETED").length;
               return (
-                <button
+                <Link
                   key={t.id}
-                  type="button"
+                  href={`/recording/${t.id}`}
                   className={styles.standup}
-                  onClick={() => setOpenTranscription(t)}
                 >
                   <div className={styles.standupTop}>
                     <span className={styles.standupTitle}>{t.title ?? "Standup"}</span>
@@ -350,19 +437,51 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                       {liveActions} action{liveActions === 1 ? "" : "s"} extracted
                     </span>
                   )}
-                </button>
+                </Link>
               );
             })
           )}
         </div>
       </section>
 
-      <TranscriptionDetailsModal
-        opened={!!openTranscription}
-        onClose={() => setOpenTranscription(null)}
-        transcription={openTranscription}
-        onTranscriptionUpdate={(updated) => setOpenTranscription(updated as Transcription)}
-      />
+      {/* ── 6. Docs ─────────────────────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.sectionHead}>
+          <div className={styles.sectionTitle}>
+            <IconFileText size={14} className={styles.sectionTitleIcon} />
+            Docs
+            <span className={styles.sectionMeta}>{docs.length}</span>
+          </div>
+        </div>
+        <div className={styles.sectionBodyFlush}>
+          {docs.length === 0 ? (
+            <div className={styles.empty}>
+              <div className={styles.emptyIcon}>
+                <IconFileText size={16} />
+              </div>
+              <div>No docs linked to this project yet.</div>
+            </div>
+          ) : (
+            docs.map((doc) => (
+              <Link
+                key={doc.id}
+                href={`/w/${workspace?.slug ?? ""}/pages/${doc.id}`}
+                className={`${styles.row} ${styles.rowLink}`}
+              >
+                <IconFileText size={16} className={styles.sectionTitleIcon} />
+                <div className={styles.rowBody}>
+                  <div className={styles.rowTitle}>{doc.title || "Untitled"}</div>
+                  <div className={styles.rowSub}>
+                    <span>
+                      Edited {formatDistanceToNow(new Date(doc.updatedAt), { addSuffix: true })}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+      </section>
     </div>
   );
 }

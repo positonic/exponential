@@ -26,7 +26,14 @@ interface MeetingProjectPickerProps {
   children: (args: { toggle: () => void }) => ReactNode;
   /** Label for the clear-placement option. */
   noneLabel?: string;
-  dropdownWidth?: number;
+  /** Offer the clear-placement option. Off when the caller knows clearing
+   * would be rejected (e.g. detaching a page needs workspace membership). */
+  allowNone?: boolean;
+  dropdownWidth?: number | "target";
+  /** True while the candidate list is still loading. */
+  loading?: boolean;
+  /** Fires when the dropdown opens — lets callers fetch candidates lazily. */
+  onOpen?: () => void;
 }
 
 /**
@@ -42,9 +49,13 @@ export function MeetingProjectPicker({
   onChange,
   children,
   noneLabel = "Personal / no project",
+  allowNone = true,
   dropdownWidth = 260,
+  loading = false,
+  onOpen,
 }: MeetingProjectPickerProps) {
   const combobox = useCombobox({
+    onDropdownOpen: () => onOpen?.(),
     onDropdownClose: () => {
       combobox.resetSelectedOption();
       setSearch("");
@@ -94,11 +105,13 @@ export function MeetingProjectPicker({
           size="xs"
         />
         <Combobox.Options mah={280} style={{ overflowY: "auto" }}>
-          <Combobox.Option value={NONE_VALUE} active={value === null}>
-            <Text size="xs" className="text-text-muted">
-              {noneLabel}
-            </Text>
-          </Combobox.Option>
+          {allowNone && (
+            <Combobox.Option value={NONE_VALUE} active={value === null}>
+              <Text size="xs" className="text-text-muted">
+                {noneLabel}
+              </Text>
+            </Combobox.Option>
+          )}
           {groups.map(([groupName, items]) => (
             <Combobox.Group key={groupName} label={groupName}>
               {items.map((p) => (
@@ -111,7 +124,7 @@ export function MeetingProjectPicker({
           {groups.length === 0 && (
             <Combobox.Empty>
               <Text size="xs" className="text-text-muted">
-                No matching projects
+                {loading ? "Loading projects…" : "No matching projects"}
               </Text>
             </Combobox.Empty>
           )}

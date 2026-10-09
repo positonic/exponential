@@ -35,7 +35,12 @@ vi.mock("~/server/db", () => {
 });
 
 vi.mock("../FirefliesService", () => ({
-  FirefliesService: { parseActionItems: vi.fn(() => []) },
+  FirefliesService: {
+    parseActionItems: vi.fn(() => []),
+    parseAssigneeFromText: vi.fn(() => undefined),
+    parseDate: vi.fn(() => undefined),
+    extractDueDateFromText: vi.fn(() => undefined),
+  },
 }));
 
 vi.mock("../ActionExtractionService", () => ({
@@ -66,6 +71,7 @@ vi.mock("../meetings/assignMeetingPlacement", () => ({
 import { TranscriptionProcessingService } from "../TranscriptionProcessingService";
 import { InternalActionProcessor } from "../processors/InternalActionProcessor";
 import { ActionExtractionService } from "../ActionExtractionService";
+import { FirefliesService } from "../FirefliesService";
 
 const USER_ID = "user-1";
 const TRANSCRIPTION_ID = "session-1";
@@ -163,5 +169,128 @@ describe("screenshot pairing survives a failed create mid-list", () => {
       ],
       skipDuplicates: true,
     });
+  });
+});
+
+describe("generateDraftActions after a partial publish", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    // The extraction mocks are module-level and carry calls over from the
+    // pairing tests above; clear them so "not called" means this test.
+    vi.mocked(ActionExtractionService.extractFromNotes).mockClear();
+    vi.mocked(ActionExtractionService.extractFromTranscript).mockClear();
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      id: TRANSCRIPTION_ID,
+      userId: USER_ID,
+      projectId: null,
+      project: null,
+      user: { id: USER_ID },
+      title: "Test meeting",
+      summary: null,
+      notes: "- a curated notes action",
+      transcription: "some transcript text",
+    } as never);
+    db.screenshot.findMany.mockResolvedValue([] as never);
+  });
+
+  it("reports the leftover drafts alongside alreadyPublished so the card can be reopened", async () => {
+    // First count call is the ACTIVE check, second is the DRAFT check.
+    db.action.count.mockResolvedValueOnce(3).mockResolvedValueOnce(2);
+
+    const result = await TranscriptionProcessingService.generateDraftActions(
+      TRANSCRIPTION_ID,
+      USER_ID,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.alreadyPublished).toBe(true);
+    expect(result.draftCount).toBe(2);
+    // No new extraction runs against an already-reviewed meeting.
+    expect(ActionExtractionService.extractFromNotes).not.toHaveBeenCalled();
+    expect(db.action.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("generateDraftActions with action items from the combined decision pass", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const combinedItems = [
+    {
+      text: "Review the accordion PR",
+      assigneeName: "Pat Reviewer",
+      evidence: [{ turnIndex: 5, speaker: "Pat Reviewer", startTime: 70, text: "I'll take the accordion review today." }],
+    },
+  ];
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    vi.mocked(ActionExtractionService.extractFromNotes).mockReset().mockResolvedValue([]);
+    vi.mocked(ActionExtractionService.extractFromTranscript).mockReset().mockResolvedValue([]);
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      id: TRANSCRIPTION_ID,
+      userId: USER_ID,
+      projectId: null,
+      project: null,
+      user: { id: USER_ID },
+      title: "Test meeting",
+      summary: null,
+      notes: null,
+      transcription: "Pat Reviewer: I'll take the accordion review today.",
+    } as never);
+    db.action.count.mockResolvedValue(0);
+    db.action.create.mockImplementation(((args: { data: { name: string } }) =>
+      Promise.resolve({ id: `id-${args.data.name}`, name: args.data.name })) as never);
+    db.transcriptionSession.update.mockResolvedValue({} as never);
+  });
+
+  it("drafts the combined pass's items instead of running a second transcript pass", async () => {
+    db.screenshot.findMany.mockResolvedValue([] as never);
+
+    const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+      transcriptActionItems: combinedItems,
+    });
+
+    expect(ActionExtractionService.extractFromTranscript).not.toHaveBeenCalled();
+    expect(result.draftCount).toBe(1);
+    const created = db.action.create.mock.calls[0]![0] as { data: { name: string; description: string } };
+    expect(created.data.name).toBe("Review the accordion PR");
+    // The quoted turn is what the reviewer sees on the draft.
+    expect(created.data.description).toContain("I'll take the accordion review today.");
+  });
+
+  it("prefers the combined pass's items over a stored summary's action list", async () => {
+    db.screenshot.findMany.mockResolvedValue([] as never);
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      id: TRANSCRIPTION_ID,
+      userId: USER_ID,
+      projectId: null,
+      project: null,
+      user: { id: USER_ID },
+      title: "Test meeting",
+      summary: JSON.stringify({ action_items: "- Summary-only task" }),
+      notes: null,
+      transcription: "Pat Reviewer: I'll take the accordion review today.",
+    } as never);
+    vi.mocked(FirefliesService.parseActionItems).mockReturnValueOnce([{ text: "Summary-only task" }]);
+
+    await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+      transcriptActionItems: combinedItems,
+    });
+
+    const names = db.action.create.mock.calls.map((c) => (c[0] as { data: { name: string } }).data.name);
+    expect(names).toEqual(["Review the accordion PR"]);
+  });
+
+  it("keeps the dedicated pass for screen recordings, which pairs screenshots", async () => {
+    db.screenshot.findMany.mockResolvedValue([{ id: "shot-1" }] as never);
+
+    await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+      transcriptActionItems: combinedItems,
+    });
+
+    expect(ActionExtractionService.extractFromTranscript).toHaveBeenCalledTimes(1);
   });
 });

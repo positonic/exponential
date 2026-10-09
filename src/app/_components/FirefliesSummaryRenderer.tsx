@@ -83,9 +83,10 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Overview</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.overview}
-            </Text>
+            {/* Prose fields may be plain text or markdown (the summarizer
+                emits **bold** / lists in the overview). Compact keeps typed
+                line breaks, so plain text renders exactly as it did before. */}
+            <MarkdownRenderer content={summary.overview} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -96,9 +97,7 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Short Summary</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.short_summary}
-            </Text>
+            <MarkdownRenderer content={summary.short_summary} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -109,9 +108,7 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Gist</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.gist}
-            </Text>
+            <MarkdownRenderer content={summary.gist} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -168,9 +165,7 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Outline</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.outline}
-            </Text>
+            <MarkdownRenderer content={summary.outline} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}

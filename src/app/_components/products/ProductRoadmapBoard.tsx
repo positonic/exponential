@@ -35,7 +35,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { EmptyState } from '~/app/_components/EmptyState';
-import { getAvatarColor, getInitial } from '~/utils/avatarColors';
+import { ProductBadge } from '~/app/_components/product/ProductBadge';
 import {
   FEATURE_STATUSES,
   ROADMAP_BOARD_COLUMNS,
@@ -49,7 +49,6 @@ import {
 
 type RoadmapFeature =
   RouterOutputs['product']['feature']['listForWorkspace'][number];
-type RoadmapProduct = RoadmapFeature['product'];
 type RoadmapColumn = (typeof FEATURE_STATUSES)[number];
 
 type GroupBy = 'objective' | 'none';
@@ -117,33 +116,6 @@ function resolveTargetStatus(
     return STATUS_VALUES.has(status) ? (status as FeatureStatus) : null;
   }
   return featuresById.get(overId)?.status ?? null;
-}
-
-// ---------------------------------------------------------------------------
-// Product badge - small colored chip identifying the card's owning Product.
-// `Product.icon` / `Product.color` are free-text and often unset, so fall back
-// to a deterministic avatar color + the product's initial.
-// ---------------------------------------------------------------------------
-
-function ProductBadge({ product }: { product: RoadmapProduct }) {
-  const dotStyle = {
-    backgroundColor: product.color ?? getAvatarColor(product.id),
-  };
-
-  return (
-    <Group gap={6} wrap="nowrap" align="center" className="min-w-0">
-      <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[10px] leading-none"
-        style={dotStyle}
-        aria-hidden
-      >
-        {product.icon ?? getInitial(product.name)}
-      </span>
-      <Text size="xs" className="text-text-muted truncate">
-        {product.name}
-      </Text>
-    </Group>
-  );
 }
 
 function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {

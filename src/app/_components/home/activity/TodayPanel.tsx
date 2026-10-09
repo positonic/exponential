@@ -14,6 +14,8 @@ import {
   statusCss,
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
+import { toPlainText } from '~/lib/content/plainText';
+import { completeActionPatch, DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
 
 const MAX_ROWS = 6;
 
@@ -26,6 +28,10 @@ const MAX_ROWS = 6;
  */
 export function TodayPanel() {
   const { workspaceId, workspaceSlug } = useWorkspace();
+  const utils = api.useUtils();
+  const completeAction = api.action.update.useMutation({
+    onSuccess: () => void utils.action.getAll.invalidate(),
+  });
 
   const { data: actions, isLoading: actionsLoading } = api.action.getAll.useQuery(
     { workspaceId: workspaceId ?? undefined },
@@ -106,25 +112,36 @@ export function TodayPanel() {
       ) : (
         <>
           {actionRows.map((action) => (
-            <UnstyledButton
-              key={action.id}
-              component={Link}
-              href={`/w/${workspaceSlug}/actions/${action.id}`}
-              className="wsa-item"
-            >
-              <span className="wsa-item__icon">
-                <IconSquareRoundedCheck size={14} stroke={1.75} />
+            <div key={action.id} className="wsa-row">
+              <UnstyledButton
+                component={Link}
+                href={`/w/${workspaceSlug}/actions/${action.id}`}
+                className="wsa-item"
+              >
+                <span className="wsa-item__icon">
+                  <IconSquareRoundedCheck size={14} stroke={1.75} />
+                </span>
+                {/* Action names are stored as legacy HTML or Markdown; this
+                    row is itself an anchor and one line, so it shows the text. */}
+                <span className="wsa-item__label">
+                  {toPlainText(action.name)}
+                  {action.project && (
+                    <span className="wsa-item__sub">{action.project.name}</span>
+                  )}
+                </span>
+                <span className="wsa-item__meta">
+                  {action.dueDate && dueLabel(new Date(action.dueDate))}
+                </span>
+              </UnstyledButton>
+              <span className="wsa-row__done">
+                <DoneCheckbox
+                  label="Mark action done"
+                  onDone={() =>
+                    completeAction.mutateAsync(completeActionPatch(action))
+                  }
+                />
               </span>
-              <span className="wsa-item__label">
-                {action.name}
-                {action.project && (
-                  <span className="wsa-item__sub">{action.project.name}</span>
-                )}
-              </span>
-              <span className="wsa-item__meta">
-                {action.dueDate && dueLabel(new Date(action.dueDate))}
-              </span>
-            </UnstyledButton>
+            </div>
           ))}
 
           {outOfCycleTickets.length > 0 && (

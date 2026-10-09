@@ -2,6 +2,7 @@ import { Octokit } from "@octokit/rest";
 import { type PrismaClient } from "@prisma/client";
 
 import { initGithubClient, parseRepoInfo } from "../../githubService";
+import { parseCadence, periodWindow } from "../scheduling/scheduleResolver";
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
 
 export interface GitHubCommit {
@@ -41,12 +42,11 @@ export class FetchGitHubCommitsStep implements IStepExecutor {
 
   async execute(
     input: Record<string, unknown>,
-    _config: Record<string, unknown>,
+    config: Record<string, unknown>,
     context: StepContext,
   ): Promise<Record<string, unknown>> {
     const branch = (input.branch as string) ?? "main";
-    const since = this.resolveSinceDate(input);
-    const until = (input.until as string) ?? new Date().toISOString();
+    const { since, until } = resolveCommitWindow(input, config, new Date());
 
     const githubToken = process.env.GITHUB_TOKEN;
     const octokit = githubToken ? initGithubClient(githubToken) : new Octokit();
@@ -141,13 +141,46 @@ export class FetchGitHubCommitsStep implements IStepExecutor {
 
     return commits;
   }
+}
 
-  private resolveSinceDate(input: Record<string, unknown>): string {
-    if (input.since) return input.since as string;
+/**
+ * Which commits a run covers. In precedence order:
+ * 1. An explicit `input.since` (content workflow, product-timeline).
+ * 2. A scheduled run — the engine passes `scheduledFor` and the definition's
+ *    `schedule` — covers exactly the period that just ended
+ *    (`periodWindow`), so consecutive Broadcast sends tile with no repeats.
+ * 3. A trailing `dayRange` window from the input (test send) or the step's own
+ *    config, defaulting to 7 days.
+ *
+ * Step config is read here as well as input: the engine passes a step's config
+ * as the separate `config` argument, so a `dayRange` stored there was
+ * previously ignored and every Broadcast fell back to 7 days.
+ */
+export function resolveCommitWindow(
+  input: Record<string, unknown>,
+  config: Record<string, unknown>,
+  now: Date,
+): { since: string; until: string } {
+  const until =
+    typeof input.until === "string" ? input.until : now.toISOString();
+  if (typeof input.since === "string") return { since: input.since, until };
 
-    const dayRange = (input.dayRange as number) ?? 7;
-    const since = new Date();
-    since.setDate(since.getDate() - dayRange);
-    return since.toISOString();
+  const cadence = parseCadence(input);
+  if (typeof input.scheduledFor === "string" && cadence) {
+    const window = periodWindow(cadence, new Date(input.scheduledFor));
+    return {
+      since: window.since.toISOString(),
+      until: window.until.toISOString(),
+    };
   }
+
+  const dayRange =
+    typeof input.dayRange === "number"
+      ? input.dayRange
+      : typeof config.dayRange === "number"
+        ? config.dayRange
+        : 7;
+  const since = new Date(now);
+  since.setUTCDate(since.getUTCDate() - dayRange);
+  return { since: since.toISOString(), until };
 }

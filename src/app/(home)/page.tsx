@@ -8,14 +8,13 @@ import { themes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
 import {
   HeroSection,
-  StatsSection,
+  FactsSection,
   ProblemStatementSection,
   SolutionIntroSection,
   ProductDemoSection,
   HowItWorksSection,
   KeyFeaturesSection,
   PersonaSection,
-  TestimonialsSection,
   PricingSection,
   FinalCTASection,
   FooterSection,
@@ -76,8 +75,8 @@ export default async function Home() {
         {/* Section 1: Hero */}
         <HeroSection />
 
-        {/* Section 2: Stats - Social Proof */}
-        <StatsSection />
+        {/* Section 2: Facts */}
+        <FactsSection />
 
         {/* Section 3: Problem Statement */}
         <ProblemStatementSection />
@@ -97,17 +96,14 @@ export default async function Home() {
         {/* Section 8: Who It's For */}
         <PersonaSection id="personas" />
 
-        {/* Section 9: Testimonials */}
-        <TestimonialsSection id="testimonials" />
-
-        {/* Section 10: Pricing */}
+        {/* Section 9: Pricing */}
         <PricingSection id="pricing" />
 
-        {/* Section 11: Final CTA */}
+        {/* Section 10: Final CTA */}
         <FinalCTASection />
       </main>
 
-      {/* Section 12: Footer */}
+      {/* Section 11: Footer */}
       <FooterSection />
     </div>
   );

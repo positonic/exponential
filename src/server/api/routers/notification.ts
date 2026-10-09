@@ -9,6 +9,10 @@ import {
   DEFAULT_MATRIX,
 } from "~/server/services/notifications/emit/constants";
 import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
+import {
+  DEFAULT_SUMMARY_TIME,
+  resolveSummaryTimezone,
+} from "~/server/services/notifications/emit/summarySchedule";
 
 /**
  * Which opt-in channels the user has actually connected — Push/Email are
@@ -135,15 +139,31 @@ export const notificationRouter = createTRPCRouter({
       return { success: true, count: result.count };
     }),
 
-  /** Unread Notification count for the badge, optionally per category. */
+  /**
+   * Unread Notification count, optionally per category. `excludeCategories`
+   * lets the sidebar Inbox badge leave out categories the user reads
+   * elsewhere (e.g. summaries, read by email) so it can reach zero.
+   */
   unreadCount: protectedProcedure
-    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
+    .input(
+      z
+        .object({
+          category: z.enum(CATEGORY_LIST).optional(),
+          excludeCategories: z.array(z.enum(CATEGORY_LIST)).optional(),
+        })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
+      const excluded = input?.excludeCategories ?? [];
       return ctx.db.notification.count({
         where: {
           userId: ctx.session.user.id,
           readAt: null,
-          ...(input?.category ? { category: input.category } : {}),
+          ...(input?.category
+            ? { category: input.category }
+            : excluded.length
+              ? { category: { notIn: excluded } }
+              : {}),
           ...firedWindow(),
         },
       });
@@ -288,6 +308,70 @@ export const notificationRouter = createTRPCRouter({
           channel: input.channel,
           enabled: input.enabled,
         },
+      });
+      return { success: true };
+    }),
+
+  // Settings → Notifications "Summary schedule" card: when the daily and
+  // weekly digests fire. Times are read in the profile timezone
+  // (`User.timezone`, Settings → Profile) — see `resolveSummaryTimezone`.
+  // Read-only: never creates the preference row (unlike `getPreferences`,
+  // whose create path switches the daily summary off).
+  getSummarySchedule: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const [pref, user] = await Promise.all([
+      ctx.db.notificationPreference.findUnique({
+        where: { userId },
+        select: {
+          dailySummary: true,
+          dailySummaryTime: true,
+          weeklySummary: true,
+          weeklyDayOfWeek: true,
+          timezone: true,
+        },
+      }),
+      ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      }),
+    ]);
+
+    const profileTimezone = user?.timezone ?? null;
+    return {
+      // No row means the scheduler never visits this user (it iterates
+      // existing rows), so report the summary as off — the schema default of
+      // `true` only takes effect once a row exists. Saving creates the row.
+      dailySummary: pref?.dailySummary ?? false,
+      dailySummaryTime: pref?.dailySummaryTime ?? DEFAULT_SUMMARY_TIME,
+      weeklySummary: pref?.weeklySummary ?? false,
+      weeklyDayOfWeek: pref?.weeklyDayOfWeek ?? 1,
+      /** The zone the scheduler will actually use for this user. */
+      timezone: resolveSummaryTimezone({
+        timezone: pref?.timezone ?? null,
+        user: { timezone: profileTimezone },
+      }),
+      /** Null until the user sets one on their profile; then times follow it. */
+      profileTimezone,
+    };
+  }),
+
+  updateSummarySchedule: protectedProcedure
+    .input(
+      z.object({
+        dailySummary: z.boolean(),
+        dailySummaryTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 08:00"),
+        weeklySummary: z.boolean(),
+        weeklyDayOfWeek: z.number().int().min(1).max(7),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await ctx.db.notificationPreference.upsert({
+        where: { userId },
+        update: input,
+        create: { userId, ...input },
       });
       return { success: true };
     }),

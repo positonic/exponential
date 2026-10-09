@@ -97,7 +97,7 @@ const workspaceId = "ws-1";
 const productId = "prod-1";
 const areaTagId = "tag-clear-api";
 
-/** Stub the workspace-membership probe that `assertWorkspaceMember` runs. */
+/** Stub the workspace-membership probe that `assertWorkspaceAccess` runs. */
 function stubMembership(dbMock: DeepMockProxy<PrismaClient>, isMember: boolean) {
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     isMember
@@ -216,6 +216,78 @@ describe("ticket router — list Area filter (mocked)", () => {
     expect(result[0]).toMatchObject({ id: "t1", openBlockerCount: 0, isBlocked: false });
     expect(result[0]).not.toHaveProperty("depsOut");
     expect(findManyWhere(dbMock)).toMatchObject({ tags: { some: { tagId: areaTagId } } });
+  });
+});
+
+describe("ticket router — listSummaries (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubProductLookup(dbMock);
+    stubMembership(dbMock, true);
+    dbMock.ticket.findMany.mockResolvedValue([]);
+  });
+
+  it("selects list columns only, never the body, its doc or the links", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.listSummaries({ productId });
+
+    const args = dbMock.ticket.findMany.mock.calls[0]?.[0];
+    expect(args).not.toHaveProperty("include");
+    expect(args?.select).toMatchObject({ id: true, title: true, status: true });
+    for (const heavy of ["body", "bodyDoc", "links", "branchName", "prUrl"]) {
+      expect(args?.select).not.toHaveProperty(heavy);
+    }
+  });
+
+  it("applies the same filters and order as list", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const input = {
+      productId,
+      areaTagId,
+      status: "IN_PROGRESS" as const,
+      featureId: "feat-1",
+      assigneeId: "user-2",
+    };
+    await caller.product.ticket.list(input);
+    await caller.product.ticket.listSummaries(input);
+
+    const [listArgs, summaryArgs] = dbMock.ticket.findMany.mock.calls.map((c) => c[0]);
+    expect(summaryArgs?.where).toEqual(listArgs?.where);
+    expect(summaryArgs?.orderBy).toEqual(listArgs?.orderBy);
+  });
+
+  it("swaps depsOut for open-blocker counts", async () => {
+    dbMock.ticket.findMany.mockResolvedValue([
+      {
+        id: "t1",
+        status: "IN_PROGRESS",
+        depsOut: [
+          { dependsOn: { status: "BACKLOG" } },
+          { dependsOn: { status: "DONE" } },
+        ],
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const [row] = await caller.product.ticket.listSummaries({ productId });
+
+    expect(row).toMatchObject({ id: "t1", openBlockerCount: 1, isBlocked: true });
+    expect(row).not.toHaveProperty("depsOut");
+  });
+
+  it("refuses a caller outside the product's workspace", async () => {
+    stubMembership(dbMock, false);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.listSummaries({ productId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticket.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -382,6 +454,51 @@ describe("ticket router — assignee containment guard (mocked)", () => {
     expect(dbMock.ticket.update).toHaveBeenCalled();
   });
 
+  it("records other fields changed in the same edit on the status event", async () => {
+    stubTicketLoad();
+    dbMock.ticket.update.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-1", status: "IN_PROGRESS" } as any,
+    );
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.update({ id: "ticket-1", status: "IN_PROGRESS", priority: 2 });
+
+    const events = dbMock.workspaceActivityEvent.create.mock.calls.map((c) => c[0].data);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        action: "status_changed",
+        metadata: { from: "BACKLOG", to: "IN_PROGRESS", fieldsChanged: ["priority"] },
+      }),
+    );
+  });
+
+  it("records a bulk cycle move only for tickets not already in that cycle", async () => {
+    dbMock.ticket.findMany.mockResolvedValue([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-in", status: "IN_PROGRESS", cycleId: "cycle-1", productId: "p1", product: { workspaceId } } as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-out", status: "IN_PROGRESS", cycleId: null, productId: "p1", product: { workspaceId } } as any,
+    ]);
+    dbMock.list.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { workspaceId, productId: null } as any,
+    );
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.bulkUpdate({ ids: ["ticket-in", "ticket-out"], cycleId: "cycle-1" });
+
+    const events = dbMock.workspaceActivityEvent.create.mock.calls.map((c) => c[0].data);
+    expect(events.filter((e) => e.entityId === "ticket-in")).toEqual([]);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        entityId: "ticket-out",
+        action: "updated",
+        metadata: { fieldsChanged: ["cycleId"], bulk: true },
+      }),
+    );
+  });
+
   it("refuses a bulkUpdate that assigns a non-member", async () => {
     dbMock.ticket.findMany.mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -510,5 +627,89 @@ describe("ticket router — getAdjacent (mocked)", () => {
       caller.product.ticket.getAdjacent({ productId, number: 3 }),
     ).rejects.toThrow();
     expect(dbMock.ticket.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("ticket router — getByRef (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const ticketRow = {
+    id: "ticket-47",
+    number: 47,
+    status: "IN_PROGRESS",
+    product: { id: productId, slug: "clear", workspaceId, name: "Clear", funTicketIds: false },
+    depsOut: [{ id: "d1", dependsOn: { id: "t-9", number: 9, status: "BACKLOG" } }],
+    depsIn: [{ id: "d2", ticket: { id: "t-50", number: 50, status: "DONE" } }],
+  };
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.product.findFirst.mockResolvedValue(
+      { id: productId, workspaceId } as never,
+    );
+    stubMembership(dbMock, true);
+    dbMock.ticket.findFirst.mockResolvedValue(ticketRow as never);
+    dbMock.workspaceActivityEvent.findMany.mockResolvedValue([]);
+  });
+
+  const ref = { workspaceSlug: "clear-ws", productSlug: "clear", identifier: "47" };
+
+  it("resolves the product by both slugs and the ticket by its number", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const result = await caller.product.ticket.getByRef(ref);
+
+    expect(dbMock.product.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { slug: "clear", workspace: { slug: "clear-ws" } },
+    });
+    expect(dbMock.ticket.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { productId, number: 47 },
+    });
+    // Same shape as getById, so it can seed that cache on the client.
+    expect(result?.ticket).toMatchObject({
+      id: "ticket-47",
+      dependsOn: [{ id: "t-9" }],
+      requiredFor: [{ id: "t-50" }],
+      openBlockerCount: 1,
+      isBlocked: true,
+    });
+    expect(result?.ticket).not.toHaveProperty("depsOut");
+    expect(result?.events).toEqual([]);
+    expect(dbMock.workspaceActivityEvent.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { workspaceId, entityType: "ticket", entityId: "ticket-47" },
+    });
+  });
+
+  it("matches a non-numeric segment against id or shortId", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.getByRef({ ...ref, identifier: "cmabc123" });
+
+    expect(dbMock.ticket.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { productId, OR: [{ id: "cmabc123" }, { shortId: "cmabc123" }] },
+    });
+  });
+
+  it("returns null (not a throw) for an unknown product", async () => {
+    // A server-prefetched query that rejects surfaces as an unhandled error on
+    // the client, so not-found has to be a value.
+    dbMock.product.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(caller.product.ticket.getByRef(ref)).resolves.toBeNull();
+    expect(dbMock.ticket.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("returns null for an unknown ticket", async () => {
+    dbMock.ticket.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(caller.product.ticket.getByRef(ref)).resolves.toBeNull();
+  });
+
+  it("returns null to a non-member even when the ticket exists", async () => {
+    stubMembership(dbMock, false);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(caller.product.ticket.getByRef(ref)).resolves.toBeNull();
+    expect(dbMock.workspaceActivityEvent.findMany).not.toHaveBeenCalled();
   });
 });

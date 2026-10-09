@@ -236,6 +236,27 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "updated",
   },
 
+  // Ceremony occurrences (ADR-0059). "created" is emitted once per expansion
+  // that inserted rows (not once per row — a weekday standup would otherwise
+  // flood the feed); metadata.name carries "N occurrences of <ceremony>" or
+  // the single upcoming date. "captured" fires when a recorded meeting is
+  // linked to an occurrence, by hand, on ingestion or by backfill;
+  // metadata.name carries "<ceremony> · <date>" and metadata.meetingId the
+  // recording.
+  [key("ceremony_occurrence", "created")]: {
+    template: "{actor} scheduled {entityRef}",
+    iconKind: "created",
+  },
+  [key("ceremony_occurrence", "captured")]: {
+    template: "{actor} linked a recording to {entityRef}",
+    iconKind: "milestone",
+  },
+  // Circulation is usually the hourly cron (system actor, rendered as such).
+  [key("ceremony_occurrence", "agenda_circulated")]: {
+    template: "{actor} circulated the agenda for {entityRef}",
+    iconKind: "updated",
+  },
+
   // Time recordings — one event per stopped timer (TimeEntryService, incl. the
   // silent auto-stop when a new timer starts). The tracked Action's name rides
   // in metadata so {entityRef} renders the task, not the action CUID; the
@@ -258,6 +279,38 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("ticket_sync_run", "reverted")]: {
     template: "{actor} reverted a ticket sync: {entityRef}",
     iconKind: "status_changed",
+  },
+
+  // Decisions (ADR-0060). The label + statement ride in metadata.title so
+  // {entityRef} reads "D-0042 Park prioritisation debates…", never a CUID.
+  // Status transitions are separate actions so the feed reads as a lifecycle.
+  [key("decision", "created")]: {
+    template: "{actor} logged decision {entityRef}",
+    iconKind: "created",
+  },
+  [key("decision", "updated")]: {
+    template: "{actor} updated decision {entityRef}",
+    iconKind: "updated",
+  },
+  [key("decision", "status_changed")]: {
+    template: "{actor} changed status on decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "accepted")]: {
+    template: "{actor} accepted decision {entityRef}",
+    iconKind: "completed",
+  },
+  [key("decision", "superseded")]: {
+    template: "{actor} superseded decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "deprecated")]: {
+    template: "{actor} deprecated decision {entityRef}",
+    iconKind: "deleted",
+  },
+  [key("decision", "confirmed")]: {
+    template: "{actor} confirmed decision {entityRef}",
+    iconKind: "completed",
   },
 
   // Channel activity summaries (ADR-0023). The feed renders these rows with a

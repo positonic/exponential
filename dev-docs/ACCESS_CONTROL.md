@@ -71,7 +71,13 @@ A user can **view** an action if ANY of these are true:
 A user can **edit** an action if ANY of these are true:
 1. They created the action
 2. They are assigned to the action
-3. They can edit the project (creator, workspace admin+, team admin+)
+3. They can edit the project (see Projects below)
+
+A user can **delete** an action if they created it or can edit its project.
+Being assigned is not enough to delete.
+
+Public visibility never grants edit or delete, and neither does a workspace
+`viewer` role.
 
 ### Projects
 
@@ -84,8 +90,12 @@ A user can **view** a project if ANY of these are true:
 
 A user can **edit** a project if ANY of these are true:
 1. They created the project
-2. They are a workspace owner or admin
-3. They are a team owner or admin
+2. They are a direct project member (on a restricted project: `editor` or `admin` role only)
+3. They are a member of the project's team (unrestricted projects only)
+4. They hold a **write role** in the project's workspace: `owner`, `admin` or
+   `member`, or team-via-workspace access (which resolves to `member`). A
+   `viewer` gets view through workspace membership, never edit. On a
+   restricted project only `owner`/`admin` qualify (the escape hatch).
 
 **Restricted projects** (`Project.isRestricted = true`): paths 3 and 4 above
 are revoked — only the creator, explicit `ProjectMember`s, and workspace
@@ -197,6 +207,22 @@ if (!result.allowed) {
 
 When fetching lists of resources, use `buildActionAccessWhere()` to scope the query.
 
+**`buildActionAccessWhere` is a READ clause.** It admits public-project
+outsiders and workspace viewers, so it must never scope a write. For
+`updateMany` / `deleteMany`, or for choosing the rows a write will touch, use
+the write mirrors:
+
+| Builder | Mirrors | Use for |
+|---------|---------|---------|
+| `buildActionAccessWhere(userId)` | `canViewAction` | lists, search, lookups |
+| `buildActionEditWhere(userId)` | `canEditAction` | bulk updates, assign/unassign |
+| `buildActionDeleteWhere(userId)` | `checkActionPermission(…, "delete")` | bulk hard delete |
+| `buildProjectEditWhere(userId)` | `canEditProject` | candidate projects for a write |
+
+`src/server/services/access/__tests__/actionWriteWhere.test.ts` property-tests
+each write builder against its per-row check, using `matchesWhere` from
+`src/test/prismaWhere.ts`. If you add a path to one side, add it to the other.
+
 ```typescript
 import { buildActionAccessWhere } from '~/server/services/access';
 
@@ -210,6 +236,24 @@ const actions = await ctx.db.action.findMany({
 ```
 
 You can also use individual resolvers for specific checks:
+
+For workspace-scoped **reads**, `assertWorkspaceMembership(db, userId, workspaceId)`
+throws `FORBIDDEN` for non-members and admits every role, `viewer` included. Never
+put it alone in front of a write.
+
+For workspace-scoped **writes**, membership alone is not enough — `viewer` is a
+read-only role. Use `assertWorkspaceWriteRole` (owner/admin/member pass; viewer,
+guest and non-member get `FORBIDDEN`) rather than re-checking `role` inline:
+
+```typescript
+import { assertWorkspaceWriteRole } from '~/server/services/access';
+
+await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
+```
+
+The product plugin wraps this as `assertWorkspaceAccess(db, userId, workspaceId, level)`
+with a required `"view" | "edit"` level (and the same on its `load*WithAccess`
+helpers); every mutation there passes `"edit"`.
 
 ```typescript
 import { getProjectAccess, hasProjectAccess, canEditProject } from '~/server/services/access';
@@ -262,7 +306,7 @@ archive: protectedProcedure
 | `src/server/services/access/resolvers/workspaceResolver.ts` | Workspace membership lookup |
 | `src/server/services/access/resolvers/teamResolver.ts` | Team membership lookup |
 | `src/server/services/access/resolvers/projectResolver.ts` | Multi-path project access resolution |
-| `src/server/services/access/resolvers/actionResolver.ts` | Action access + `buildActionAccessWhere()` |
+| `src/server/services/access/resolvers/actionResolver.ts` | Action access + `buildActionAccessWhere()` (read) / `buildActionEditWhere()` / `buildActionDeleteWhere()` (write) |
 
 ---
 
@@ -280,3 +324,7 @@ The centralized service is in place. Routers are being incrementally migrated:
 - [ ] `view.ts` / `list.ts` — still uses inline workspace membership checks
 - [ ] `crmContact.ts` — still uses inline workspace membership checks
 - [ ] `okrCheckin.ts` — still uses inline team membership checks
+- [x] `epic.ts` — reads use `assertWorkspaceMembership`; writes use `assertWorkspaceWriteRole` (delete also needs admin+ or epic owner)
+- [x] `document.ts` — reads use `assertWorkspaceMembership`; create/ingest/delete use `assertWorkspaceWriteRole`
+- [x] `sprintAnalytics.ts` — every procedure, including the API-key ones, checks the caller's membership of the target workspace (a list's own workspace for `listId` inputs); `captureDailySnapshot` uses `assertWorkspaceWriteRole`
+- [x] product plugin (`src/plugins/product/server/routers/`) — `assertWorkspaceAccess(..., "view" | "edit")`; every mutation passes `"edit"`

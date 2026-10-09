@@ -12,19 +12,23 @@ type ActionWithSyncs = RouterOutputs["action"]["getAll"][number];
  *     {id, name, slug, workspaceId} select rather than the full row)
  *   - action.getByTranscription
  *
- * The `createdBy`, `lists`, `epic`, `tags`, and `syncs` fields are optional
+ * The `createdBy`, `lists`, `epic`, `tags`, `syncs` and blocker fields are optional
  * because not every query selects them; consumers should treat them as
  * possibly-undefined.
  */
 export type Action = Omit<
   ActionWithSyncs,
-  "createdBy" | "lists" | "epic" | "tags" | "syncs"
+  "createdBy" | "lists" | "epic" | "tags" | "syncs" | "depsOut" | "openBlockerCount" | "isBlocked"
 > & {
   createdBy?: ActionWithSyncs["createdBy"] | null;
   lists?: ActionWithSyncs["lists"];
   epic?: ActionWithSyncs["epic"] | null;
   tags?: ActionWithSyncs["tags"];
   syncs?: ActionWithSyncs["syncs"];
+  /** Blockers (`ActionDependency` edges) and the state derived from them; absent on queries that do not include them. */
+  depsOut?: ActionWithSyncs["depsOut"];
+  openBlockerCount?: number;
+  isBlocked?: boolean;
 };
 
 /**

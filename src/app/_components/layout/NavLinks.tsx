@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   IconInbox,
   IconClock,
+  IconHourglass,
   IconTarget,
   IconStack2,
   IconLayoutGrid,
@@ -13,7 +14,7 @@ import {
   IconMicrophone,
   IconBook,
   IconBook2,
-  IconRoute,
+  IconGavel,
   IconBriefcase,
   IconFileText,
   IconChartBar,
@@ -29,7 +30,7 @@ import { parseNavLayout, NAV_ITEM_CONFIG } from "~/lib/navLayout";
 
 const ITEM_ICONS: Record<string, Icon> = {
   goals: IconTarget,
-  alignment: IconRoute,
+  decisions: IconGavel,
   actions: IconBriefcase,
   projects: IconStack2,
   products: IconLayoutGrid,
@@ -102,7 +103,7 @@ function SectionDivider() {
 
 /**
  * Renders the workspace sidebar navigation from the user's persisted
- * `navLayout` preference: global items (Inbox/Today) followed by the
+ * `navLayout` preference: global items (Inbox/Today/Time) followed by the
  * configurable sections/items, with plugin gating and a reduced guest view.
  */
 export function NavLinks(): React.ReactElement {
@@ -129,6 +130,9 @@ export function NavLinks(): React.ReactElement {
       </NavLink>
       <NavLink href="/today" icon={IconClock} count={<TodayCount />}>
         Today
+      </NavLink>
+      <NavLink href="/time" icon={IconHourglass}>
+        Time
       </NavLink>
       {/* Desktop shell only, and global — the wiki belongs to the device, not
           to a workspace. Absent in a browser, where its IPC doesn't exist. */}

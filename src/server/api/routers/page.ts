@@ -17,8 +17,16 @@ import {
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { docHasCommentMarks } from "~/lib/prd/comment-anchor";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { uploadToBlob } from "~/lib/blob";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
+import {
+  syncPageLinks,
+  writePageBodyIfVersion,
+} from "~/server/services/pages/page-links";
 import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
@@ -46,6 +54,20 @@ const PUBLIC_SETTINGS_SELECT = {
   publicSeoIndexed: true,
   publishedAt: true,
 } satisfies Prisma.KnowledgePageSelect;
+
+/**
+ * The occurrence a page is the notes canvas of (ADR-0059), enough to render
+ * a crumb back to it. The occurrence itself is readable by any workspace
+ * member, so exposing it on a page the caller can already view leaks nothing.
+ */
+const OCCURRENCE_CRUMB_SELECT = {
+  select: {
+    id: true,
+    ceremonyId: true,
+    scheduledStart: true,
+    ceremony: { select: { name: true, timezone: true } },
+  },
+} satisfies Prisma.KnowledgePage$ceremonyOccurrenceArgs;
 
 /** A Page reduced to exactly what the access resolver needs. */
 const PAGE_ACCESS_SELECT = {
@@ -245,16 +267,16 @@ async function publishPage(db: PrismaClient, id: string) {
 const LINKED_PAGES_LIMIT = 50;
 
 /**
- * Walk the `pageLink` graph from a root page (BFS, cycle-safe, capped at
- * {@link LINKED_PAGES_LIMIT}), returning the distinct reachable pages.
- * Constrained to the root's workspace: `/page` only ever creates same-workspace
- * links, and a pasted cross-workspace id must not leak another workspace's
- * titles through this query.
+ * Walk the `pageLink` graph from a root page (BFS over the stored `PageLink`
+ * rows, cycle-safe, capped at {@link LINKED_PAGES_LIMIT}), returning the
+ * distinct reachable pages in BFS/document order. Constrained to the root's
+ * workspace: `/page` only ever creates same-workspace links, and a pasted
+ * cross-workspace id must not leak another workspace's titles through this
+ * query (`syncPageLinks` never stores one; the filter is belt and braces).
  */
 async function collectLinkedPages(
   db: PrismaClient,
   root: { id: string; workspaceId: string },
-  rootDoc: JSONContent | null,
 ) {
   const visited = new Set<string>([root.id]);
   const linked: {
@@ -265,7 +287,14 @@ async function collectLinkedPages(
     projectId: string | null;
     workspaceId: string;
   }[] = [];
-  let frontier = collectPageLinkIds(rootDoc).filter((id) => !visited.has(id));
+  const rootLinks = await db.pageLink.findMany({
+    where: { fromPageId: root.id },
+    orderBy: { position: "asc" },
+    select: { toPageId: true },
+  });
+  let frontier = rootLinks
+    .map((l) => l.toPageId)
+    .filter((id) => !visited.has(id));
 
   while (frontier.length > 0 && visited.size <= LINKED_PAGES_LIMIT) {
     frontier.forEach((id) => visited.add(id));
@@ -275,20 +304,25 @@ async function collectLinkedPages(
         id: true,
         title: true,
         isPublic: true,
-        bodyDoc: true,
         createdById: true,
         projectId: true,
         workspaceId: true,
+        linksFrom: {
+          orderBy: { position: "asc" },
+          select: { toPageId: true },
+        },
       },
     });
+    const byId = new Map(pages.map((p) => [p.id, p]));
     const next: string[] = [];
-    for (const page of pages) {
-      const { bodyDoc, ...rest } = page;
+    // Iterate the frontier (not `pages`) to keep BFS/document order.
+    for (const id of frontier) {
+      const page = byId.get(id);
+      if (!page) continue;
+      const { linksFrom, ...rest } = page;
       linked.push(rest);
       next.push(
-        ...collectPageLinkIds(bodyDoc as JSONContent | null).filter(
-          (id) => !visited.has(id),
-        ),
+        ...linksFrom.map((l) => l.toPageId).filter((t) => !visited.has(t)),
       );
     }
     frontier = [...new Set(next)];
@@ -375,26 +409,30 @@ export const pageRouter = createTRPCRouter({
           projectId: true,
           isPublic: true,
           updatedAt: true,
-          bodyDoc: true,
+          createdAt: true,
           project: { select: { id: true, name: true } },
+          createdBy: { select: { id: true, name: true, image: true } },
+          ceremonyOccurrence: OCCURRENCE_CRUMB_SELECT,
         },
       });
+      // The workspace's link graph — three short columns per link, not a doc
+      // per page. Restricted to the viewable set below.
+      const links = await ctx.db.pageLink.findMany({
+        where: { workspaceId: input.workspaceId },
+        orderBy: { position: "asc" },
+        select: { fromPageId: true, toPageId: true },
+      });
 
-      type Row = Omit<(typeof pages)[number], "bodyDoc">;
-      const rowById = new Map<string, Row>();
+      type Row = (typeof pages)[number];
+      const rowById = new Map<string, Row>(pages.map((p) => [p.id, p]));
       // Child ids per page, restricted to viewable pages in this set and in the
       // page's document order.
       const childIdsOf = new Map<string, string[]>();
-      const inSet = new Set(pages.map((p) => p.id));
-      for (const page of pages) {
-        const { bodyDoc, ...row } = page;
-        rowById.set(page.id, row);
-        childIdsOf.set(
-          page.id,
-          collectPageLinkIds(bodyDoc as JSONContent | null).filter((id) =>
-            inSet.has(id),
-          ),
-        );
+      for (const { fromPageId, toPageId } of links) {
+        if (!rowById.has(fromPageId) || !rowById.has(toPageId)) continue;
+        const childIds = childIdsOf.get(fromPageId);
+        if (childIds) childIds.push(toPageId);
+        else childIdsOf.set(fromPageId, [toPageId]);
       }
 
       // Canonical parent per child = the newest-edited page that links it.
@@ -442,6 +480,7 @@ export const pageRouter = createTRPCRouter({
         include: {
           project: { select: { id: true, name: true, slug: true } },
           createdBy: { select: { id: true, name: true, image: true } },
+          ceremonyOccurrence: OCCURRENCE_CRUMB_SELECT,
         },
       });
       if (!page) {
@@ -465,12 +504,12 @@ export const pageRouter = createTRPCRouter({
   /**
    * The "parent" of a page for breadcrumbs: a page whose body links to this
    * one via a `pageLink` node. Sub-pages are soft — there is no stored parent
-   * pointer (ADR-0033/0038) — so this is a reverse lookup: scan same-workspace
-   * pages whose serialized `bodyDoc` mentions this id (cheap `::text` LIKE
-   * pre-filter), then confirm with {@link collectPageLinkIds} to reject
-   * incidental text matches, and gate on the caller's view access. A page can
-   * have several linkers; the newest-edited viewable one wins. Returns null
-   * when the page is top-level or has no viewable linker.
+   * pointer (ADR-0033/0038) — so this is a reverse lookup over the `PageLink`
+   * index: same-workspace pages linking this id, gated on the caller's view
+   * access in the query (buildKnowledgePageAccessWhere mirrors
+   * getKnowledgePageAccess). A page can have several linkers; the
+   * newest-edited viewable one wins, matching `tree`. Returns null when the
+   * page is top-level or has no viewable linker.
    */
   parentCrumb: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -479,54 +518,28 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
-      // Escape LIKE wildcards (`%` `_` `\`) so a pathological id can't broaden
-      // the pre-filter into a full-workspace scan. Postgres LIKE treats `\` as
-      // the escape char by default, so `\%`/`\_`/`\\` match those literals.
-      // (Titles still can't leak: every candidate is view-gated below.)
-      const likePattern = `%${input.id.replace(/[\\%_]/g, "\\$&")}%`;
-      const rows = await ctx.db.$queryRaw<{ id: string }[]>`
-        SELECT "id" FROM "KnowledgePage"
-        WHERE "workspaceId" = ${page.workspaceId}
-          AND "id" <> ${input.id}
-          AND "bodyDoc"::text LIKE ${likePattern}
-        ORDER BY "updatedAt" DESC
-        LIMIT 20
-      `;
-      if (rows.length === 0) return null;
-
-      const candidates = await ctx.db.knowledgePage.findMany({
-        where: { id: { in: rows.map((r) => r.id) } },
-        select: {
-          id: true,
-          title: true,
-          bodyDoc: true,
-          createdById: true,
-          projectId: true,
-          workspaceId: true,
+      return ctx.db.knowledgePage.findFirst({
+        where: {
+          AND: [
+            {
+              workspaceId: page.workspaceId,
+              id: { not: input.id },
+              linksFrom: { some: { toPageId: input.id } },
+            },
+            buildKnowledgePageAccessWhere(userId),
+          ],
         },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, title: true },
       });
-      const byId = new Map(candidates.map((c) => [c.id, c]));
-
-      // Preserve the raw query's newest-edited-first order.
-      for (const { id } of rows) {
-        const candidate = byId.get(id);
-        if (!candidate) continue;
-        const links = collectPageLinkIds(candidate.bodyDoc as JSONContent | null);
-        if (!links.includes(input.id)) continue;
-        const access = await getKnowledgePageAccess(ctx.db, userId, candidate);
-        if (canViewKnowledgePage(access)) {
-          return { id: candidate.id, title: candidate.title };
-        }
-      }
-      return null;
     }),
 
   /**
    * The sub-pages of a page: the `pageLink` targets in its own `bodyDoc`
    * (ADR-0039 — nesting is the link graph, so a child is literally a link in
-   * the parent's body), resolved to live `{id, title, isPublic}` in document
-   * order and filtered to the ones the caller can view. Cheap: no reverse scan
-   * — the children are already named in the body we just loaded.
+   * the parent's body), read from the `PageLink` index and resolved to live
+   * `{id, title, isPublic}` in document order, filtered to the ones the caller
+   * can view.
    */
   children: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -535,35 +548,24 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
-      const self = await ctx.db.knowledgePage.findUniqueOrThrow({
-        where: { id: input.id },
-        select: { bodyDoc: true },
-      });
-      const ids = collectPageLinkIds(self.bodyDoc as JSONContent | null);
-      if (ids.length === 0) return [];
-
       // Same-workspace only: a pasted cross-workspace id must not surface
       // another workspace's title (mirrors collectLinkedPages / parentCrumb).
       // Push the view-access filter into the query (buildKnowledgePageAccessWhere
-      // mirrors getKnowledgePageAccess) so one round-trip returns exactly the
-      // viewable candidates — no per-child access resolution.
-      const candidates = await ctx.db.knowledgePage.findMany({
+      // mirrors getKnowledgePageAccess) — no per-child access resolution.
+      const links = await ctx.db.pageLink.findMany({
         where: {
-          id: { in: ids },
-          workspaceId: page.workspaceId,
-          ...buildKnowledgePageAccessWhere(userId),
+          fromPageId: input.id,
+          to: {
+            AND: [
+              { workspaceId: page.workspaceId },
+              buildKnowledgePageAccessWhere(userId),
+            ],
+          },
         },
-        select: { id: true, title: true, isPublic: true },
+        orderBy: { position: "asc" },
+        select: { to: { select: { id: true, title: true, isPublic: true } } },
       });
-      const byId = new Map(candidates.map((c) => [c.id, c]));
-
-      // Re-emit in document order (the order of `ids`), viewable ones only.
-      const children: { id: string; title: string; isPublic: boolean }[] = [];
-      for (const id of ids) {
-        const candidate = byId.get(id);
-        if (candidate) children.push(candidate);
-      }
-      return children;
+      return links.map((l) => l.to);
     }),
 
   create: protectedProcedure
@@ -572,7 +574,7 @@ export const pageRouter = createTRPCRouter({
         workspaceId: z.string(),
         projectId: z.string().nullish(),
         title: boundedText("Title", TEXT_LIMITS.LABEL).optional(),
-        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        body: boundedText("Body", TEXT_LIMITS.HUGE).optional(),
         bodyDoc: prosemirrorDoc.optional(),
         includeInSearch: z.boolean().optional(),
       }),
@@ -586,16 +588,20 @@ export const pageRouter = createTRPCRouter({
         input.projectId,
       );
 
-      const page = await ctx.db.knowledgePage.create({
-        data: {
-          workspaceId: input.workspaceId,
-          projectId: input.projectId ?? null,
-          title: input.title?.trim() ? input.title.trim() : "Untitled",
-          body: input.body,
-          bodyDoc: input.bodyDoc as Prisma.InputJsonValue | undefined,
-          includeInSearch: input.includeInSearch ?? true,
-          createdById: userId,
-        },
+      const page = await ctx.db.$transaction(async (tx) => {
+        const created = await tx.knowledgePage.create({
+          data: {
+            workspaceId: input.workspaceId,
+            projectId: input.projectId ?? null,
+            title: input.title?.trim() ? input.title.trim() : "Untitled",
+            body: input.body,
+            bodyDoc: input.bodyDoc as Prisma.InputJsonValue | undefined,
+            includeInSearch: input.includeInSearch ?? true,
+            createdById: userId,
+          },
+        });
+        await syncPageLinks(tx, created.id, input.bodyDoc as JSONContent | undefined);
+        return created;
       });
 
       // Index any seeded body (e.g. agent-authored pages) — no-op when empty.
@@ -619,7 +625,7 @@ export const pageRouter = createTRPCRouter({
         projectId: z.string().nullish(),
         includeInSearch: z.boolean().optional(),
         bodyDoc: prosemirrorDoc.optional(),
-        body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        body: boundedText("Body", TEXT_LIMITS.HUGE).optional(),
         baseVersion: z.number().int().min(0).optional(),
       }),
     )
@@ -644,11 +650,35 @@ export const pageRouter = createTRPCRouter({
 
       // A Markdown-source write — `body` set without `bodyDoc` — comes from a
       // non-editor writer (the Zoe agent authors Markdown; the rich editor
-      // always sends both). Treat the Markdown as canonical: null out `bodyDoc`
-      // and bump `docVersion` so the editor re-derives the ProseMirror doc from
+      // always sends both). Treat the Markdown as canonical and bump
+      // `docVersion`: null out `bodyDoc` so the editor re-derives the doc from
       // the new Markdown on next open (the same lazy migration a null bodyDoc
-      // triggers), instead of rendering a now-stale canonical doc.
+      // triggers) — or, when the old doc has comment marks, derive it here so
+      // they can be carried across (below).
       const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
+      // Nulling the doc would take every comment mark with it, orphaning the
+      // page's anchored threads. When there are marks to keep, derive the doc
+      // here instead and carry them across wherever their text survived.
+      let carriedDoc: JSONContent | null = null;
+      if (markdownSourceWrite) {
+        const stored = await ctx.db.knowledgePage.findUnique({
+          where: { id },
+          select: { bodyDoc: true },
+        });
+        const storedDoc = stored?.bodyDoc as JSONContent | null | undefined;
+        if (docHasCommentMarks(storedDoc)) {
+          try {
+            carriedDoc = withCarriedCommentMarks(
+              storedDoc,
+              markdownToDocServer(body),
+              "page.update",
+            );
+          } catch (error) {
+            // Fall back to the lazy re-derivation (marks lost, as before).
+            reportHandledErrorServer(error, { area: "page.update" });
+          }
+        }
+      }
       const data: Prisma.KnowledgePageUpdateInput = {
         ...rest,
         ...(projectIdProvided
@@ -660,7 +690,12 @@ export const pageRouter = createTRPCRouter({
           : {}),
         ...(body !== undefined ? { body } : {}),
         ...(markdownSourceWrite
-          ? { bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } }
+          ? {
+              bodyDoc: carriedDoc
+                ? (carriedDoc as Prisma.InputJsonValue)
+                : Prisma.DbNull,
+              docVersion: { increment: 1 },
+            }
           : {}),
       };
 
@@ -687,17 +722,17 @@ export const pageRouter = createTRPCRouter({
         }
         // The WHERE on docVersion closes the read→write race so two concurrent
         // saves can't both bump from the same base.
-        const res = await ctx.db.knowledgePage.updateMany({
-          where: { id, docVersion: baseVersion },
+        const written = await writePageBodyIfVersion(ctx.db, {
+          pageId: id,
+          expectedVersion: baseVersion,
+          doc: bodyDoc as JSONContent,
           data: {
             ...rest,
             ...(projectIdProvided ? { projectId: projectId ?? null } : {}),
             ...(body !== undefined ? { body } : {}),
-            bodyDoc: bodyDoc as Prisma.InputJsonValue,
-            docVersion: { increment: 1 },
           },
         });
-        if (res.count === 0) {
+        if (!written) {
           throw new TRPCError({
             code: "CONFLICT",
             message:
@@ -710,10 +745,16 @@ export const pageRouter = createTRPCRouter({
         return { id, docVersion: decision.nextVersion };
       }
 
-      const updated = await ctx.db.knowledgePage.update({
-        where: { id },
-        data,
-      });
+      // A Markdown-source write replaces the doc (carried, or nulled for lazy
+      // re-derivation), so its links are re-derived with it; a metadata-only
+      // update leaves the doc and its links alone.
+      const updated = markdownSourceWrite
+        ? await ctx.db.$transaction(async (tx) => {
+            const row = await tx.knowledgePage.update({ where: { id }, data });
+            await syncPageLinks(tx, id, carriedDoc);
+            return row;
+          })
+        : await ctx.db.knowledgePage.update({ where: { id }, data });
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
       // doesn't take the bodyDoc save path above, so cover it here too.
@@ -744,10 +785,14 @@ export const pageRouter = createTRPCRouter({
         return { migrated: false, bodyDoc: existing.bodyDoc };
       }
 
-      const updated = await ctx.db.knowledgePage.update({
-        where: { id: input.id },
-        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
-        select: { bodyDoc: true },
+      const updated = await ctx.db.$transaction(async (tx) => {
+        const row = await tx.knowledgePage.update({
+          where: { id: input.id },
+          data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+          select: { bodyDoc: true },
+        });
+        await syncPageLinks(tx, input.id, input.doc as JSONContent);
+        return row;
       });
       return { migrated: true, bodyDoc: updated.bodyDoc };
     }),
@@ -806,15 +851,7 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
-      const root = await ctx.db.knowledgePage.findUniqueOrThrow({
-        where: { id: input.id },
-        select: { bodyDoc: true },
-      });
-      const linked = await collectLinkedPages(
-        ctx.db,
-        page,
-        root.bodyDoc as JSONContent | null,
-      );
+      const linked = await collectLinkedPages(ctx.db, page);
 
       const publishable: { id: string; title: string }[] = [];
       for (const candidate of linked) {
@@ -941,11 +978,7 @@ export const pageRouter = createTRPCRouter({
       const toCopy: DuplicateRow[] = [rootRow];
 
       if (input.withSubpages) {
-        const linked = await collectLinkedPages(
-          ctx.db,
-          page,
-          rootRow.bodyDoc as JSONContent | null,
-        );
+        const linked = await collectLinkedPages(ctx.db, page);
         const extraIds = linked.map((l) => l.id).filter((id) => id !== input.id);
         // Filter to viewable rows in the query (buildKnowledgePageAccessWhere
         // mirrors getKnowledgePageAccess) rather than resolving access per row.
@@ -983,7 +1016,9 @@ export const pageRouter = createTRPCRouter({
       }
 
       // Two passes in one transaction: create every copy (to mint ids and build
-      // the old→new remap), then rewrite each copied body's `pageLink` targets.
+      // the old→new remap), then rewrite each copied body's `pageLink` targets
+      // and index the copy's links (which may point at copies minted later in
+      // the first pass, so they can't be indexed on create).
       const copies = await ctx.db.$transaction(async (tx) => {
         const remap = new Map<string, PageLinkRewrite>();
         const created: { source: DuplicateRow; id: string }[] = [];
@@ -1014,14 +1049,15 @@ export const pageRouter = createTRPCRouter({
         // page — skip the no-op writes.
         for (const { source, id } of created) {
           if (source.bodyDoc === null) continue;
-          const doc = source.bodyDoc as JSONContent;
-          if (!collectPageLinkIds(doc).some((linkId) => remap.has(linkId))) {
-            continue;
+          let doc = source.bodyDoc as JSONContent;
+          if (collectPageLinkIds(doc).some((linkId) => remap.has(linkId))) {
+            doc = remapPageLinkIds(doc, remap);
+            await tx.knowledgePage.update({
+              where: { id },
+              data: { bodyDoc: doc as Prisma.InputJsonValue },
+            });
           }
-          await tx.knowledgePage.update({
-            where: { id },
-            data: { bodyDoc: remapPageLinkIds(doc, remap) as Prisma.InputJsonValue },
-          });
+          await syncPageLinks(tx, id, doc);
         }
         return created;
       });

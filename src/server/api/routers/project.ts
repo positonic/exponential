@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { syncProjectCeremonies } from "~/server/services/ceremonies/projectCeremonies";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
@@ -15,6 +16,7 @@ import {
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
+import { rehomeProjectMeetings } from "~/server/services/meetings/assignMeetingPlacement";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -92,6 +94,7 @@ export const projectRouter = createTRPCRouter({
       }).optional(),
       workspaceId: z.string().optional(),
       goalId: z.number().optional(),
+      status: z.array(z.string()).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
@@ -123,6 +126,9 @@ export const projectRouter = createTRPCRouter({
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
           // Filter by goal if provided
           ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          ...(input?.status && input.status.length > 0
+            ? { status: { in: input.status } }
+            : {}),
           ...accessWhere,
         },
         orderBy: {
@@ -192,6 +198,38 @@ export const projectRouter = createTRPCRouter({
       return sortedProjects;
     }),
 
+  /**
+   * Per-status project totals for the filter UI. Kept separate from getAll so
+   * the list can be fetched status-filtered while the status picker still
+   * shows honest counts for the statuses currently hidden.
+   */
+  getStatusCounts: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const isGuest = input?.workspaceId
+        ? await isWorkspaceGuest(ctx.db, userId, input.workspaceId)
+        : false;
+      const accessWhere = isGuest
+        ? { projectMembers: { some: { userId } } }
+        : buildProjectAccessWhere(userId);
+
+      const groups = await ctx.db.project.groupBy({
+        by: ["status"],
+        where: {
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...accessWhere,
+        },
+        _count: { _all: true },
+      });
+
+      return Object.fromEntries(
+        groups.map((g) => [g.status, g._count._all]),
+      ) as Record<string, number>;
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
@@ -215,6 +253,8 @@ export const projectRouter = createTRPCRouter({
         productId: z.string().nullable().optional(),
         isPublic: z.boolean().optional().default(false),
         isRestricted: z.boolean().optional().default(false),
+        /** Ceremonies (same workspace) this project owns; see syncProjectCeremonies. */
+        ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -282,6 +322,14 @@ export const projectRouter = createTRPCRouter({
       }
 
       // Link to key results via the KeyResultProject join table
+      if (input.ceremonyIds?.length) {
+        await syncProjectCeremonies(ctx.db, {
+          projectId: project.id,
+          workspaceId: project.workspaceId,
+          ceremonyIds: input.ceremonyIds,
+        });
+      }
+
       if (input.keyResultIds?.length) {
         await ctx.db.keyResultProject.createMany({
           data: input.keyResultIds.map((keyResultId) => ({
@@ -386,10 +434,11 @@ export const projectRouter = createTRPCRouter({
         isRestricted: z.boolean().optional(),
         enableDetailedActions: z.boolean().nullable().optional(),
         enableBounties: z.boolean().nullable().optional(),
+        ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
+      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ceremonyIds, ...updateData } = input;
 
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -421,7 +470,7 @@ export const projectRouter = createTRPCRouter({
       // already-completed project).
       const priorProject = await ctx.db.project.findUnique({
         where: { id },
-        select: { status: true },
+        select: { status: true, workspaceId: true },
       });
 
       // A product can only be linked to a project in the same workspace.
@@ -450,44 +499,57 @@ export const projectRouter = createTRPCRouter({
         }
       }
 
-      const updated = await ctx.db.project.update({
-        where: { id },
-        data: {
-          ...updateData,
-          slug,
-          goals: goalIds?.length ? {
-            set: goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          lifeDomains: lifeDomainIds !== undefined ? {
-            set: lifeDomainIds.map(id => ({ id })),
-          } : undefined,
-          // Handle workspace: null means disconnect, string means connect
-          workspace: workspaceId === null
-            ? { disconnect: true }
-            : workspaceId !== undefined
-              ? { connect: { id: workspaceId } }
-              : undefined,
-          // Handle DRI: null means disconnect, string means connect
-          dri: driId === null
-            ? { disconnect: true }
-            : driId !== undefined
-              ? { connect: { id: driId } }
-              : undefined,
-          // Handle Product: null means disconnect, string means connect
-          product: productId === null
-            ? { disconnect: true }
-            : productId !== undefined
-              ? { connect: { id: productId } }
-              : undefined,
-          // Handle public visibility toggle
-          ...(isPublic !== undefined ? { isPublic } : {}),
-          // Handle restriction toggle (gated above by canManageProjectMembers)
-          ...(isRestricted !== undefined ? { isRestricted } : {}),
-          // Handle detailed actions override (null = inherit from workspace)
-          ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
-          // Handle bounties override (null = inherit from workspace)
-          ...(enableBounties !== undefined ? { enableBounties } : {}),
-        },
+      // A project moved to another workspace takes its meetings, and the
+      // actions under it, with it: a meeting's workspace is always its
+      // project's (CONTEXT.md → Meeting↔Workspace). One transaction, so the
+      // project row and its meetings move together or not at all.
+      const movesWorkspace =
+        workspaceId !== undefined && workspaceId !== (priorProject?.workspaceId ?? null);
+      const updated = await ctx.db.$transaction(async (tx) => {
+        const row = await tx.project.update({
+          where: { id },
+          data: {
+            ...updateData,
+            slug,
+            goals: goalIds?.length ? {
+              set: goalIds.map(id => ({ id: parseInt(id) })),
+            } : undefined,
+            lifeDomains: lifeDomainIds !== undefined ? {
+              set: lifeDomainIds.map(id => ({ id })),
+            } : undefined,
+            // Handle workspace: null means disconnect, string means connect
+            workspace: workspaceId === null
+              ? { disconnect: true }
+              : workspaceId !== undefined
+                ? { connect: { id: workspaceId } }
+                : undefined,
+            // Handle DRI: null means disconnect, string means connect
+            dri: driId === null
+              ? { disconnect: true }
+              : driId !== undefined
+                ? { connect: { id: driId } }
+                : undefined,
+            // Handle Product: null means disconnect, string means connect
+            product: productId === null
+              ? { disconnect: true }
+              : productId !== undefined
+                ? { connect: { id: productId } }
+                : undefined,
+            // Handle public visibility toggle
+            ...(isPublic !== undefined ? { isPublic } : {}),
+            // Handle restriction toggle (gated above by canManageProjectMembers)
+            ...(isRestricted !== undefined ? { isRestricted } : {}),
+            // Handle detailed actions override (null = inherit from workspace)
+            ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
+            // Handle bounties override (null = inherit from workspace)
+            ...(enableBounties !== undefined ? { enableBounties } : {}),
+          },
+        });
+
+        if (movesWorkspace) {
+          await rehomeProjectMeetings(tx, { projectId: id, workspaceId: row.workspaceId ?? null });
+        }
+        return row;
       });
 
       // Record a milestone activity event when a project is newly completed.
@@ -526,6 +588,15 @@ export const projectRouter = createTRPCRouter({
               ]
             : []),
         ]);
+      }
+
+      // Replace the project's ceremony set when provided (absent = untouched).
+      if (ceremonyIds !== undefined) {
+        await syncProjectCeremonies(ctx.db, {
+          projectId: id,
+          workspaceId: updated.workspaceId,
+          ceremonyIds,
+        });
       }
 
       return updated;
@@ -639,6 +710,7 @@ export const projectRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
       includeCompleted: z.boolean().default(false),
       goalId: z.number().optional(),
+      status: z.array(z.string()).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -648,6 +720,9 @@ export const projectRouter = createTRPCRouter({
         where: {
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           ...(input.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          ...(input.status && input.status.length > 0
+            ? { status: { in: input.status } }
+            : {}),
           ...buildProjectAccessWhere(userId),
         },
         include: {
@@ -904,7 +979,9 @@ export const projectRouter = createTRPCRouter({
       return ctx.db.project.findUnique({
         where: { id: projectExists.id },
         include: {
-          goals: { select: { id: true, title: true } },
+          // Dates feed the header's days-left fallback, which must be the
+          // same for every member — so every linked goal, not the viewer's.
+          goals: { select: { id: true, title: true, dueDate: true, period: true, status: true } },
           lifeDomains: { select: { id: true, title: true } },
           keyResults: {
             select: {

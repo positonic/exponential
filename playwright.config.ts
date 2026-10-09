@@ -11,10 +11,15 @@ import { defineConfig, devices } from "@playwright/test";
  * Dev-only by construction: global-setup runs the same guards as the fixture
  * scripts (refuses NODE_ENV=production and non-local databases).
  */
-const PORT = 3100;
+// Override with E2E_PORT when another checkout already holds 3100 (parallel
+// worktrees): with reuseExistingServer the suite would otherwise run against
+// that checkout's server instead of this one.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/perf/ has its own config (production build, one worker).
+  testIgnore: ["perf/**", "docs-screenshots/**"],
   globalSetup: "./e2e/global-setup",
   outputDir: "./e2e/.results",
   // First hit on a `next dev` route pays compile + data-fetch cost; give each
@@ -36,5 +41,11 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // Never deliver real email from a spec: booking a meeting sends calendar
+    // invites, and `.env.local` carries a live Postmark key. The switch blocks
+    // every send whatever the key source (env or a workspace integration).
+    // It only reaches a server Playwright starts — a reused one must be
+    // started with EMAIL_DELIVERY_DISABLED=1 (AGENT_VISUAL_TESTING.md).
+    env: { EMAIL_DELIVERY_DISABLED: "1" },
   },
 });

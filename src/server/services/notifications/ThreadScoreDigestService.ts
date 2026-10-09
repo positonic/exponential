@@ -1,5 +1,6 @@
 import { db } from "~/server/db";
 import { SlackNotificationService } from "./SlackNotificationService";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
   buildLaneReport,
   type LaneReportEntry,
@@ -77,7 +78,7 @@ export class ThreadScoreDigestService {
   /** Format digest data into Slack blocks. */
   formatSlackBlocks(digest: ThreadScoreDigestData): Array<Record<string, unknown>> {
     const blocks: Array<Record<string, unknown>> = [];
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = getPublicBaseUrlFromEnv();
 
     blocks.push({
       type: "header",

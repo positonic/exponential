@@ -1,0 +1,296 @@
+import { STATUS_LABELS } from "~/lib/ticket-statuses";
+import { dailyBriefSectionTitle } from "~/server/services/ceremonies/templates";
+import type {
+  DailySummaryCycle,
+  DailySummaryDigest,
+  DailySummaryPace,
+} from "./types";
+
+/**
+ * Pure renderers for the Daily summary digest (ADR-0059). Both walk the same
+ * section order and render every section — a section with nothing in it
+ * collapses to its one-line empty state rather than disappearing, so the
+ * message always answers "yesterday / today / this cycle" even when the
+ * answer is "nothing".
+ *
+ * - markdown: bold headings, numbered lists, `[label](url)` links. The Matrix
+ *   gateway renders it with `breaks: true`, so single newlines survive; the
+ *   email channel renders it as the HTML body (`buildNotificationEmail`).
+ * - plain text: the same lines with no markup; a linked item is followed by
+ *   its bare URL on its own line (most clients auto-link it).
+ */
+
+type Mode = "markdown" | "plain";
+
+export const DAILY_SUMMARY_TITLE = "☀️ Daily summary";
+
+/**
+ * Section headings come from the daily-brief ceremony template — the
+ * notification and the ceremony agenda are two renderings of one running
+ * order — with an emoji prefix that only the message carries.
+ */
+export const DAILY_SUMMARY_HEADINGS = {
+  yesterday: `⏪ ${dailyBriefSectionTitle("yesterday")}`,
+  todayMeetings: `📅 ${dailyBriefSectionTitle("todays_meetings")}`,
+  todaysActions: `✅ ${dailyBriefSectionTitle("todays_actions")}`,
+  cycle: `🔄 ${dailyBriefSectionTitle("cycle_progress")}`,
+  upNext: `⏭ ${dailyBriefSectionTitle("up_next")}`,
+  driProjects: `🧭 ${dailyBriefSectionTitle("dri_projects")}`,
+} as const;
+
+export const DAILY_SUMMARY_EMPTY = {
+  yesterday: "No meetings yesterday",
+  time: "No time recorded yesterday",
+  todayMeetings: "No meetings today",
+  todaysActions: "Nothing scheduled or due today",
+  cycle: "No active cycle",
+  inFlight: "Nothing in flight for you",
+  upNext: "Nothing committed to you",
+  driProjects: "No active projects you are DRI for",
+} as const;
+
+const PACE_LABELS: Record<DailySummaryPace, string> = {
+  ahead: "Ahead",
+  ontrack: "On pace",
+  behind: "Behind pace",
+};
+
+/** Precedes each project's next action — the one thing to do on it. */
+export const NEXT_ACTION_ICON = "➡️";
+
+/** Precedes the reasons a project needs a look ("ended 10 Sept, 2 overdue actions"). */
+export const ATTENTION_ICON = "⚠️";
+
+const NO_BREAK_SPACE = "\u00A0";
+
+/**
+ * The gap before every section heading. Element shows the gateway's `<p>`s
+ * with no margin, so a blank line alone leaves a heading flush against the
+ * list above it; a paragraph holding one no-break space renders as an empty
+ * line. Plain text keeps an ordinary blank line.
+ */
+function sectionGap(mode: Mode): string[] {
+  return mode === "markdown" ? ["", NO_BREAK_SPACE, ""] : [""];
+}
+
+function heading(mode: Mode, text: string): string {
+  return mode === "markdown" ? `**${text}**` : text;
+}
+
+function link(mode: Mode, label: string, url: string): string {
+  return mode === "markdown" ? `[${label}](${url})` : label;
+}
+
+/** Plain text carries the URL on its own line under the item; markdown inlines it. */
+function urlLine(mode: Mode, url: string): string[] {
+  return mode === "markdown" ? [] : [`   ${url}`];
+}
+
+const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)]*)\)/g;
+
+/**
+ * An action name is Markdown. Markdown keeps it inline; plain text shows each
+ * link as its label with the URL on its own line under the item.
+ */
+function actionLines(mode: Mode, name: string): string[] {
+  if (mode === "markdown") return [`${bullet(mode)}${name}`];
+  const urls = [...name.matchAll(MARKDOWN_LINK)].map((m) => m[2] ?? "");
+  return [
+    `${bullet(mode)}${name.replace(MARKDOWN_LINK, "$1")}`,
+    ...urls.flatMap((url) => urlLine(mode, url)),
+  ];
+}
+
+function bullet(mode: Mode): string {
+  return mode === "markdown" ? "- " : "• ";
+}
+
+function timePrefix(startLocal: string | null): string {
+  return startLocal ? `${startLocal} ` : "";
+}
+
+function daysLeftLabel(daysLeft: number): string {
+  const n = Math.abs(daysLeft);
+  const unit = n === 1 ? "day" : "days";
+  return daysLeft < 0 ? `${n} ${unit} over` : `${n} ${unit} left`;
+}
+
+function present(parts: Array<string | null>): string[] {
+  return parts.filter((p): p is string => p !== null);
+}
+
+function formatMinutes(totalMins: number): string {
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/**
+ * "Yesterday's time: 1h 32m across Exponential, CLEAR, 2 proposed" — the
+ * Daily worklog's one line, read from the same day report as the day view.
+ * Links to /time so a proposed day is one click from being confirmed.
+ */
+function timeLines(mode: Mode, time: DailySummaryDigest["time"]): string[] {
+  if (!time || time.attentionMinutes === 0) return [DAILY_SUMMARY_EMPTY.time];
+  const products = time.topProducts.map((p) => p.name).join(", ");
+  const proposed =
+    time.proposedCount > 0
+      ? `${time.proposedCount} proposed`
+      : null;
+  const text = present([
+    `Yesterday's time: ${formatMinutes(time.attentionMinutes)}${products ? ` across ${products}` : ""}`,
+    proposed,
+  ]).join(", ");
+  return mode === "markdown"
+    ? [`${text} → ${link(mode, "/time", time.dayUrl)}`]
+    : [`${text} → ${time.dayUrl}`];
+}
+
+function cycleLines(mode: Mode, cycle: DailySummaryCycle, showProduct: boolean): string[] {
+  const lines: string[] = [];
+  const name = link(mode, cycle.name, cycle.cycleUrl);
+  const headline = present([
+    showProduct ? `${cycle.productName}: ${name}` : name,
+    cycle.range,
+    cycle.daysLeft !== null ? daysLeftLabel(cycle.daysLeft) : null,
+  ]).join(" · ");
+  lines.push(`${heading(mode, DAILY_SUMMARY_HEADINGS.cycle)} — ${headline}`);
+
+  if (cycle.committed === 0) {
+    lines.push("No tickets committed yet");
+  } else {
+    lines.push(
+      present([
+        `${cycle.completed} / ${cycle.committed} ${cycle.unit} done`,
+        cycle.elapsedPct !== null ? `${cycle.elapsedPct}% elapsed` : null,
+        cycle.pace ? PACE_LABELS[cycle.pace] : null,
+      ]).join(" · "),
+    );
+  }
+  lines.push(...urlLine(mode, cycle.cycleUrl));
+
+  if (cycle.inFlight.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.inFlight);
+  } else {
+    lines.push("Your in-flight tickets:");
+    for (const t of cycle.inFlight) {
+      const status = STATUS_LABELS[t.status] ?? t.status;
+      lines.push(`${bullet(mode)}${link(mode, t.label, t.url)} — ${status}`);
+      lines.push(...urlLine(mode, t.url));
+    }
+  }
+  return lines;
+}
+
+function render(digest: DailySummaryDigest, mode: Mode): string {
+  const lines: string[] = [`☀️ Good morning ${digest.firstName}! 👋`, ...sectionGap(mode)];
+
+  // ---- Yesterday ----
+  lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.yesterday));
+  if (digest.yesterday.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.yesterday);
+  } else {
+    digest.yesterday.forEach((item, i) => {
+      const recorded = item.source === "recording" ? " (recorded)" : "";
+      const text = `${i + 1}. ${timePrefix(item.startLocal)}${item.title}${recorded}`;
+      if (item.recordingUrl) {
+        lines.push(`${text} — ${link(mode, "recording", item.recordingUrl)}`);
+        lines.push(...urlLine(mode, item.recordingUrl));
+      } else {
+        lines.push(text);
+      }
+    });
+  }
+  lines.push(...timeLines(mode, digest.time));
+  lines.push(...sectionGap(mode));
+
+  // ---- Today's meetings ----
+  lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.todayMeetings));
+  if (digest.todayMeetings.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.todayMeetings);
+  } else {
+    digest.todayMeetings.forEach((m, i) => {
+      lines.push(`${i + 1}. ${timePrefix(m.startLocal)}${m.title}`);
+    });
+  }
+  lines.push(...sectionGap(mode));
+
+  // ---- Today's actions ----
+  lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.todaysActions));
+  if (digest.todaysActions.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.todaysActions);
+  } else {
+    for (const a of digest.todaysActions) lines.push(...actionLines(mode, a.name));
+  }
+  lines.push(
+    mode === "markdown"
+      ? `${digest.overdueCount} overdue → ${link(mode, "/today", digest.todayUrl)}`
+      : `${digest.overdueCount} overdue → ${digest.todayUrl}`,
+  );
+  lines.push(...sectionGap(mode));
+
+  // ---- Current cycle (one block per product) ----
+  if (digest.cycles.length === 0) {
+    lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.cycle), DAILY_SUMMARY_EMPTY.cycle);
+  } else {
+    digest.cycles.forEach((cycle, i) => {
+      if (i > 0) lines.push(...sectionGap(mode));
+      lines.push(...cycleLines(mode, cycle, digest.cycles.length > 1));
+    });
+  }
+  lines.push(...sectionGap(mode));
+
+  // ---- Up next (the user's COMMITTED tickets across the cycle blocks) ----
+  lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.upNext));
+  const upNext = digest.cycles.flatMap((c) => c.upNext);
+  if (upNext.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.upNext);
+  } else {
+    upNext.forEach((t, i) => {
+      lines.push(`${i + 1}. ${link(mode, t.label, t.url)}`);
+      lines.push(...urlLine(mode, t.url));
+    });
+  }
+  const unrefined = digest.cycles.reduce((s, c) => s + c.unrefinedCount, 0);
+  if (unrefined > 0) {
+    lines.push(
+      unrefined === 1
+        ? "1 of your cycle tickets still needs refinement"
+        : `${unrefined} of your cycle tickets still need refinement`,
+    );
+  }
+  lines.push(...sectionGap(mode));
+
+  // ---- DRI projects (the projects the user owns, most urgent first) ----
+  lines.push(heading(mode, DAILY_SUMMARY_HEADINGS.driProjects));
+  const driProjects = digest.driProjects ?? [];
+  if (driProjects.length === 0) {
+    lines.push(DAILY_SUMMARY_EMPTY.driProjects);
+  } else {
+    for (const p of driProjects) {
+      const name = p.url ? link(mode, p.name, p.url) : p.name;
+      const state = present([
+        `${NEXT_ACTION_ICON} ${p.nextAction ?? "no next action"}`,
+        p.attention.length > 0 ? `${ATTENTION_ICON} ${p.attention.join(", ")}` : null,
+        ...p.dates,
+      ]).join(" · ");
+      lines.push(`${bullet(mode)}${name} — ${state}`);
+      if (p.url) lines.push(...urlLine(mode, p.url));
+    }
+  }
+
+  lines.push(...sectionGap(mode), "💪 Have a productive day!");
+  return lines.join("\n");
+}
+
+/** Markdown rendering — the variant the Matrix channel prefers (rides in `metadata.markdown`). */
+export function renderDailySummaryMarkdown(digest: DailySummaryDigest): string {
+  return render(digest, "markdown");
+}
+
+/** Plain-text rendering with bare absolute URLs — the notification's `message`. */
+export function renderDailySummaryPlainText(digest: DailySummaryDigest): string {
+  return render(digest, "plain");
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ActionIcon,
@@ -25,10 +25,15 @@ import {
 import { api } from "~/trpc/react";
 import { generateLinearId } from "~/lib/fun-ids";
 import {
+  COMPLETED_TICKET_STATUSES,
   STATUS_COLORS,
   STATUS_LABELS,
   type TicketStatus,
 } from "~/lib/ticket-statuses";
+import {
+  useTicketSummaryCache,
+  withBlockedFlag,
+} from "~/app/_components/product/useTicketSummaryCache";
 
 interface LinkedTicket {
   id: string;
@@ -84,6 +89,148 @@ export function BlockedIndicator({
   );
 }
 
+type Direction = "out" | "in";
+
+interface DependencyMutations {
+  add: (direction: Direction, linked: LinkedTicket) => void;
+  remove: (direction: Direction, linked: LinkedTicket) => void;
+}
+
+/**
+ * Add/remove that show up in the cached getById the instant they're clicked,
+ * roll back (with the server's reason, e.g. a cycle) on error, and reconcile
+ * both ends of the edge on settle. Lives in the section, not the row: a
+ * removed row unmounts immediately and would take its undo toast with it.
+ */
+function useDependencyMutations(ticketId: string, productId: string): DependencyMutations {
+  const utils = api.useUtils();
+  const summaries = useTicketSummaryCache();
+  // addDependency's input is ids only; the optimistic row needs the whole
+  // linked ticket, so add() parks it here for onMutate to pick up.
+  const pendingLinked = useRef(new Map<string, LinkedTicket>());
+
+  const edge = (direction: Direction, otherId: string) =>
+    direction === "out"
+      ? { ticketId, dependsOnId: otherId }
+      : { ticketId: otherId, dependsOnId: ticketId };
+  const sideOf = (vars: { ticketId: string; dependsOnId: string }) =>
+    vars.ticketId === ticketId
+      ? { key: "dependsOn" as const, otherId: vars.dependsOnId }
+      : { key: "requiredFor" as const, otherId: vars.ticketId };
+
+  // Patches this ticket's getById and, in the Backlog lists, the open-blocker
+  // count on the row of the ticket that depends (vars.ticketId) - it drives
+  // the row's blocked chip.
+  const patch = async (
+    vars: { ticketId: string; dependsOnId: string },
+    update: (list: LinkedTicket[], otherId: string) => LinkedTicket[],
+  ) => {
+    const [, prevSummaries] = await Promise.all([
+      utils.product.ticket.getById.cancel({ id: ticketId }),
+      summaries.snapshot(vars.ticketId),
+    ]);
+    const prev = utils.product.ticket.getById.getData({ id: ticketId });
+    if (prev) {
+      const { key, otherId } = sideOf(vars);
+      const before = prev[key];
+      const after = update(before, otherId);
+      utils.product.ticket.getById.setData({ id: ticketId }, { ...prev, [key]: after });
+
+      const had = before.some((t) => t.id === otherId);
+      const has = after.some((t) => t.id === otherId);
+      // The blocker is the other ticket when this one depends on it, and this
+      // ticket itself when the other one does.
+      const blockerStatus =
+        key === "dependsOn"
+          ? (after.find((t) => t.id === otherId) ?? before.find((t) => t.id === otherId))?.status
+          : prev.status;
+      if (had !== has && blockerStatus && !COMPLETED_TICKET_STATUSES.includes(blockerStatus)) {
+        summaries.patch(vars.ticketId, (row) =>
+          withBlockedFlag({
+            ...row,
+            openBlockerCount: Math.max(0, row.openBlockerCount + (has ? 1 : -1)),
+          }),
+        );
+      }
+    }
+    return { prev, prevSummaries };
+  };
+  const onError = (
+    err: { message: string },
+    _vars: unknown,
+    mctx: Awaited<ReturnType<typeof patch>> | undefined,
+  ) => {
+    if (mctx?.prev) utils.product.ticket.getById.setData({ id: ticketId }, mctx.prev);
+    summaries.restore(mctx?.prevSummaries);
+    notifications.show({ title: "Dependency not saved", message: err.message, color: "red" });
+  };
+  const onSettled = async (
+    _data: unknown,
+    _err: unknown,
+    vars: { ticketId: string; dependsOnId: string },
+  ) => {
+    await Promise.all([
+      utils.product.ticket.getById.invalidate({ id: ticketId }),
+      utils.product.ticket.getById.invalidate({ id: sideOf(vars).otherId }),
+      utils.product.ticket.listSummaries.invalidate({ productId }),
+    ]);
+  };
+
+  const addMutation = api.product.ticket.addDependency.useMutation({
+    onMutate: (vars) =>
+      patch(vars, (list, otherId) => {
+        const linked = pendingLinked.current.get(otherId);
+        pendingLinked.current.delete(otherId);
+        return linked && !list.some((t) => t.id === otherId) ? [...list, linked] : list;
+      }),
+    onError,
+    onSettled,
+  });
+
+  // Removal is one unconfirmed click - the undo toast closes the loop
+  // (re-adding is idempotent), matching the list's bulk-edit undo pattern.
+  const removeMutation = api.product.ticket.removeDependency.useMutation({
+    onMutate: (vars) =>
+      patch(vars, (list, otherId) => list.filter((t) => t.id !== otherId)),
+    onError,
+    onSettled,
+  });
+
+  const add = (direction: Direction, linked: LinkedTicket) => {
+    pendingLinked.current.set(linked.id, linked);
+    addMutation.mutate(edge(direction, linked.id));
+  };
+
+  const remove = (direction: Direction, linked: LinkedTicket) => {
+    const vars = edge(direction, linked.id);
+    removeMutation.mutate(vars, {
+      onSuccess: () => {
+        const nid = `dep-removed-${vars.ticketId}-${vars.dependsOnId}`;
+        notifications.show({
+          id: nid,
+          message: (
+            <Group justify="space-between" gap="sm" wrap="nowrap">
+              <Text size="sm">Dependency removed</Text>
+              <Button
+                size="compact-xs"
+                variant="light"
+                onClick={() => {
+                  notifications.hide(nid);
+                  add(direction, linked);
+                }}
+              >
+                Undo
+              </Button>
+            </Group>
+          ),
+        });
+      },
+    });
+  };
+
+  return { add, remove };
+}
+
 /**
  * Two dependency groups - "Depends on" and "Required for" - shared by the
  * ticket detail PropertiesSidebar (variant="sidebar") and the peek drawer
@@ -101,6 +248,7 @@ export function TicketDependenciesSection({
   productName,
   funTicketIds,
 }: Props) {
+  const mutations = useDependencyMutations(ticketId, productId);
   const alreadyLinkedIds = new Set([
     ...dependsOn.map((t) => t.id),
     ...requiredFor.map((t) => t.id),
@@ -128,6 +276,7 @@ export function TicketDependenciesSection({
         alreadyLinkedIds={alreadyLinkedIds}
         wide={variant === "wide"}
         getDisplayId={getDisplayId}
+        mutations={mutations}
       />
       <DependencySection
         icon={<IconArrowNarrowRight size={13} />}
@@ -140,6 +289,7 @@ export function TicketDependenciesSection({
         alreadyLinkedIds={alreadyLinkedIds}
         wide={variant === "wide"}
         getDisplayId={getDisplayId}
+        mutations={mutations}
       />
     </div>
   );
@@ -158,6 +308,7 @@ function DependencySection({
   alreadyLinkedIds,
   wide,
   getDisplayId,
+  mutations,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -169,6 +320,7 @@ function DependencySection({
   alreadyLinkedIds: Set<string>;
   wide: boolean;
   getDisplayId: GetDisplayId;
+  mutations: DependencyMutations;
 }) {
   const [isAdding, setIsAdding] = useState(false);
 
@@ -193,13 +345,12 @@ function DependencySection({
                 <DependencyRow
                   key={t.id}
                   ticket={t}
-                  ticketId={ticketId}
-                  productId={productId}
                   basePath={basePath}
                   direction={direction}
                   wide={wide}
                   withDivider={i < tickets.length - 1}
                   getDisplayId={getDisplayId}
+                  onRemove={mutations.remove}
                 />
               ))}
             </div>
@@ -209,12 +360,11 @@ function DependencySection({
                 <DependencyRow
                   key={t.id}
                   ticket={t}
-                  ticketId={ticketId}
-                  productId={productId}
                   basePath={basePath}
                   direction={direction}
                   wide={wide}
                   getDisplayId={getDisplayId}
+                  onRemove={mutations.remove}
                 />
               ))}
             </div>
@@ -225,6 +375,7 @@ function DependencySection({
             productId={productId}
             direction={direction}
             excludedIds={alreadyLinkedIds}
+            onAdd={mutations.add}
             onDone={() => setIsAdding(false)}
             getDisplayId={getDisplayId}
           />
@@ -251,64 +402,21 @@ function DependencySection({
 
 function DependencyRow({
   ticket,
-  ticketId,
-  productId,
   basePath,
   direction,
   wide,
   withDivider = false,
   getDisplayId,
+  onRemove,
 }: {
   ticket: LinkedTicket;
-  ticketId: string;
-  productId: string;
   basePath: string;
-  direction: "out" | "in";
+  direction: Direction;
   wide: boolean;
   withDivider?: boolean;
   getDisplayId: GetDisplayId;
+  onRemove: DependencyMutations["remove"];
 }) {
-  const utils = api.useUtils();
-
-  const invalidatePair = async () => {
-    await Promise.all([
-      utils.product.ticket.getById.invalidate({ id: ticketId }),
-      utils.product.ticket.getById.invalidate({ id: ticket.id }),
-      utils.product.ticket.list.invalidate({ productId }),
-    ]);
-  };
-
-  const restore = api.product.ticket.addDependency.useMutation({
-    onSuccess: invalidatePair,
-  });
-
-  // Removal is one unconfirmed click - the undo toast closes the loop
-  // (re-adding is idempotent), matching the list's bulk-edit undo pattern.
-  const remove = api.product.ticket.removeDependency.useMutation({
-    onSuccess: async (_data, vars) => {
-      await invalidatePair();
-      const nid = `dep-removed-${vars.ticketId}-${vars.dependsOnId}`;
-      notifications.show({
-        id: nid,
-        message: (
-          <Group justify="space-between" gap="sm" wrap="nowrap">
-            <Text size="sm">Dependency removed</Text>
-            <Button
-              size="compact-xs"
-              variant="light"
-              onClick={() => {
-                notifications.hide(nid);
-                restore.mutate(vars);
-              }}
-            >
-              Undo
-            </Button>
-          </Group>
-        ),
-      });
-    },
-  });
-
   const statusLabel = STATUS_LABELS[ticket.status] ?? ticket.status;
   const statusColor = STATUS_COLORS[ticket.status] ?? "gray";
   const displayId = wide ? getDisplayId(ticket) : null;
@@ -365,13 +473,8 @@ function DependencyRow({
         className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity shrink-0 text-brand-error hover:bg-surface-hover"
         onClick={(e) => {
           e.stopPropagation();
-          remove.mutate(
-            direction === "out"
-              ? { ticketId, dependsOnId: ticket.id }
-              : { ticketId: ticket.id, dependsOnId: ticketId },
-          );
+          onRemove(direction, ticket);
         }}
-        disabled={remove.isPending}
         title="Remove"
       >
         <IconX size={12} />
@@ -385,54 +488,37 @@ function AddDependencyCombobox({
   productId,
   direction,
   excludedIds,
+  onAdd,
   onDone,
   getDisplayId,
 }: {
   ticketId: string;
   productId: string;
-  direction: "out" | "in";
+  direction: Direction;
   excludedIds: Set<string>;
+  onAdd: DependencyMutations["add"];
   onDone: () => void;
   getDisplayId: GetDisplayId;
 }) {
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const combobox = useCombobox({ defaultOpened: true });
-  const utils = api.useUtils();
-
   const { data: results, isLoading } = api.product.ticket.search.useQuery(
     { productId, query, excludeTicketId: ticketId, limit: 20 },
     { enabled: true },
   );
-
-  const add = api.product.ticket.addDependency.useMutation({
-    onSuccess: async (_data, vars) => {
-      await Promise.all([
-        utils.product.ticket.getById.invalidate({ id: ticketId }),
-        utils.product.ticket.getById.invalidate({
-          id: direction === "out" ? vars.dependsOnId : vars.ticketId,
-        }),
-        utils.product.ticket.list.invalidate({ productId }),
-      ]);
-      onDone();
-    },
-    onError: (err) => {
-      setError(err.message);
-    },
-  });
 
   const filtered = useMemo(
     () => (results ?? []).filter((t) => !excludedIds.has(t.id)),
     [results, excludedIds],
   );
 
+  // The row appears and the search closes at once; a rejected link (e.g. it
+  // would form a cycle) rolls back with the server's reason in a toast.
   const handleSelect = (selectedId: string) => {
-    setError(null);
-    if (direction === "out") {
-      add.mutate({ ticketId, dependsOnId: selectedId });
-    } else {
-      add.mutate({ ticketId: selectedId, dependsOnId: ticketId });
-    }
+    const linked = filtered.find((t) => t.id === selectedId);
+    if (!linked) return;
+    onAdd(direction, linked);
+    onDone();
   };
 
   return (
@@ -446,7 +532,6 @@ function AddDependencyCombobox({
             autoFocus
             onChange={(e) => {
               setQuery(e.currentTarget.value);
-              setError(null);
               combobox.openDropdown();
             }}
             onFocus={() => combobox.openDropdown()}
@@ -516,12 +601,6 @@ function AddDependencyCombobox({
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>
-
-      {error && (
-        <Text size="xs" c="red" mt={4}>
-          {error}
-        </Text>
-      )}
     </div>
   );
 }

@@ -67,6 +67,7 @@ export function ActionsList({
   projectId,
   actions,
   isLoading = false,
+  showProject = true,
   bulkActions,
   completedSection = "hidden",
   deepLinkActionId,
@@ -186,10 +187,11 @@ export function ActionsList({
     });
   };
 
-  // Moves the do-date and the deadline together, at day granularity — see
-  // `rescheduleUpdateFields` for why scheduledStart has to move too.
+  // Moves the do-date, and the deadline only if it would fall before it — see
+  // `rescheduleUpdateFields`.
   const handleReschedule = (id: string, choice: RescheduleChoice) => {
-    updateAction({ id, ...rescheduleUpdateFields(choice) });
+    const a = actions.find((x) => x.id === id);
+    updateAction({ id, ...rescheduleUpdateFields(choice, a?.dueDate) });
   };
 
   const handleAssign = (a: Action) => {
@@ -247,6 +249,7 @@ export function ActionsList({
             })()
           : undefined
       }
+      showProject={showProject}
       bulkMode={bulkMode}
       bulkSelected={selection.isSelected(a.id)}
       onBulkToggle={selection.toggle}

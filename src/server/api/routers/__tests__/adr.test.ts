@@ -330,12 +330,18 @@ describe("adr router authz", () => {
           updatedAt: new Date(),
           repository: { id: "repo-1", fullName: "acme/api", productId: null, product: null },
           _count: { ticketLinks: 2 },
+          // A SUPERSEDES edge into this doc from doc-3 (API-0003).
+          linksTo: [{ from: { id: "doc-3", repositoryId: "repo-1", number: 3 } }],
         },
       ] as never);
 
       const rows = await caller(db).adr.list({ workspaceId: WORKSPACE_ID });
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ label: "API-0001", _count: { ticketLinks: 2 } });
+      expect(rows[0]).toMatchObject({
+        label: "API-0001",
+        _count: { ticketLinks: 2 },
+        supersededBy: { id: "doc-3", label: "API-0003" },
+      });
     });
 
     it("allows an admin on disableConfig (and keeps it a soft state change)", async () => {

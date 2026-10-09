@@ -1,15 +1,14 @@
 "use client";
 
-import { Button, Container, Group, Skeleton, Text, Title } from "@mantine/core";
-import { IconAffiliate } from "@tabler/icons-react";
-import Link from "next/link";
+import { Container, Skeleton, Text } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DecisionsIndex } from "~/app/_components/decisions/DecisionsIndex";
 
 /**
- * Decision Log — workspace-level index of ADRs projected read-only from every
- * enrolled repo. Git is the source of truth; there is deliberately no write
- * path to ADR content anywhere in this UI.
+ * Decision Log — one index, two sources (ADR-0060): ADRs projected read-only
+ * from every enrolled repo (git is the source of truth; there is deliberately
+ * no write path to ADR content anywhere in this UI) beside Decisions logged
+ * from meetings, by hand or by Zoe.
  */
 export default function DecisionsPage() {
   const { workspace, workspaceId, isLoading } = useWorkspace();
@@ -32,26 +31,17 @@ export default function DecisionsPage() {
   }
 
   return (
-    <Container size="xl" className="py-8">
-      <Group justify="space-between" mb="lg">
-        <div>
-          <Title order={2}>Decisions</Title>
-          <Text size="sm" className="text-text-secondary">
-            Architectural decision records across this workspace&apos;s enrolled
-            repos. Read-only — git is the source of truth.
-          </Text>
-        </div>
-        <Button
-          component={Link}
-          href={`/w/${workspace.slug}/decisions/graph`}
-          variant="light"
-          size="sm"
-          leftSection={<IconAffiliate size={16} />}
-        >
-          Graph
-        </Button>
-      </Group>
-      <DecisionsIndex workspaceId={workspaceId} workspaceSlug={workspace.slug} />
-    </Container>
+    <DecisionsIndex
+      workspaceId={workspaceId}
+      workspaceSlug={workspace.slug}
+      graphHref={`/w/${workspace.slug}/decisions/graph`}
+      description={
+        <>
+          Decisions logged from meetings or by hand, beside the ADRs of this
+          workspace&apos;s enrolled repositories — those stay read-only,{" "}
+          <code>git</code> is their source of truth.
+        </>
+      }
+    />
   );
 }

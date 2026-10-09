@@ -15,6 +15,14 @@
   --po-mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
 }
 
+/* ---- product description (was the subtitle of the old title block) ---- */
+.po-description {
+  max-width: 800px;
+  margin-bottom: 18px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
 /* ---- body grid ---- */
 .po-grid {
   display: grid;

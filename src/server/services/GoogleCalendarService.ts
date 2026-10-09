@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { db } from '~/server/db';
 import NodeCache from 'node-cache';
 import { withTimeout } from '~/server/utils/withTimeout';
+import { CalendarEventPermissionError } from './CalendarProvider';
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -9,6 +10,8 @@ import type {
   CreateEventInput,
   CreatedCalendarEvent,
   CalendarProvider,
+  DeleteEventInput,
+  DeleteEventResult,
 } from './CalendarProvider';
 
 // Re-export shared types for backwards compatibility
@@ -381,6 +384,49 @@ export class GoogleCalendarService implements CalendarProvider {
       console.error('Failed to create calendar event:', error);
       throw new Error('Failed to create calendar event. Please try again.');
     }
+  }
+
+  /**
+   * Delete an event from the user's Google calendar. Events are listed with
+   * `singleEvents: true`, so a recurring event's id is its instance id and
+   * this removes that one occurrence, never the series.
+   */
+  async deleteEvent(userId: string, input: DeleteEventInput): Promise<DeleteEventResult> {
+    const { eventId, calendarId, accountId, notifyAttendees = true } = input;
+    const calendar = await this.getCalendarClient(userId, accountId);
+
+    let alreadyGone = false;
+    try {
+      await calendar.events.delete(
+        { calendarId, eventId, sendUpdates: notifyAttendees ? 'all' : 'none' },
+        { timeout: GOOGLE_TIMEOUT_MS },
+      );
+    } catch (error) {
+      const { status, response, errors } = error as {
+        status?: number;
+        response?: { status?: number };
+        errors?: Array<{ reason?: string }>;
+      };
+      const httpStatus = status ?? response?.status;
+      // 410 is Google's "already deleted"; 404 means the event isn't on this
+      // calendar, which also covers one that moved. Neither is a failure, but
+      // neither is a delete we made — the caller is told which.
+      if (httpStatus !== 404 && httpStatus !== 410) {
+        console.error(`Failed to delete calendar event ${eventId} (account ${accountId}):`, error);
+        // Google also answers 403 when it is throttling (rateLimitExceeded,
+        // userRateLimitExceeded, quotaExceeded) — retryable, not a refusal.
+        const isThrottled = /limit|quota/i.test(errors?.[0]?.reason ?? '');
+        if (httpStatus === 403 && !isThrottled) throw new CalendarEventPermissionError();
+        throw new Error('Failed to delete calendar event. Please try again.', { cause: error });
+      }
+      alreadyGone = true;
+    }
+
+    this.clearUserCache(userId);
+    console.log(
+      `Calendar event ${eventId} ${alreadyGone ? 'was already gone' : 'deleted'} for user ${userId} (account ${accountId}, notifyAttendees=${notifyAttendees})`,
+    );
+    return { alreadyGone };
   }
 
   /**

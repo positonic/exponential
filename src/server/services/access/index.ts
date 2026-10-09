@@ -68,6 +68,8 @@ export {
 export {
   getWorkspaceMembership,
   assertWorkspaceRole,
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
   canEditWorkspaceContent,
   isWorkspaceOwner,
   isWorkspaceGuest,
@@ -90,6 +92,8 @@ export {
   canEditAction,
   checkActionPermission,
   buildActionAccessWhere,
+  buildActionEditWhere,
+  buildActionDeleteWhere,
 } from "./resolvers/actionResolver";
 export {
   getTranscriptionAccess,
@@ -98,6 +102,17 @@ export {
   buildTranscriptionAccessWhere,
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
+export {
+  getDecisionAccess,
+  canViewDecision,
+  canEditDecision,
+  buildDecisionAccessWhere,
+  buildDecisionAccessWhereAcrossWorkspaces,
+} from "./resolvers/decisionResolver";
+export type {
+  DecisionAccessInfo,
+  DecisionAccessSubject,
+} from "./resolvers/decisionResolver";
 export {
   getKnowledgePageAccess,
   canViewKnowledgePage,

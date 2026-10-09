@@ -1,4 +1,8 @@
 name: PR Agent
+#
+# Reactivated 2026-10-08 with a funded ANTHROPIC_KEY. It was parked from
+# 2026-10-02 because the old key ran out of credit and every run reported a red
+# check having reviewed nothing. This check is not required on main.
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
@@ -7,8 +11,8 @@ on:
 jobs:
   pr_agent_job:
     # Skip when the event was triggered by a bot (e.g. PR-Agent's own comments)
-    # to avoid an infinite review loop.
-    if: ${{ github.event.sender.type != 'Bot' }}
+    # to avoid an infinite review loop, and skip comments on non-PR issues.
+    if: ${{ github.event.sender.type != 'Bot' && (github.event_name != 'issue_comment' || github.event.issue.pull_request) }}
     runs-on: ubuntu-latest
     permissions:
       issues: write

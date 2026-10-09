@@ -2,7 +2,12 @@
 
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useCallback, useMemo, useTransition } from "react";
-import { getCurrentYear, getCurrentQuarterType } from "../utils/periodUtils";
+import {
+  getCurrentYear,
+  getCurrentQuarterType,
+  isOkrPeriodTab,
+  type OkrPeriodTab,
+} from "../utils/periodUtils";
 
 export type DrawerEntity = "objective" | "keyResult";
 
@@ -36,8 +41,13 @@ export function useOkrSearchParams() {
   const [isPending, startTransition] = useTransition();
 
   const year = searchParams.get("year") ?? getCurrentYear();
-  const period = (searchParams.get("period") as "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline") ??
-    getCurrentQuarterType().replace(/-(Annual)?/, '') as "Q1" | "Q2" | "Q3" | "Q4";
+  // Anything that isn't a real period — including the retired
+  // `period=Timeline` pseudo-period, now `view=timeline` — falls back to the
+  // current quarter.
+  const rawPeriod = searchParams.get("period");
+  const period: OkrPeriodTab = isOkrPeriodTab(rawPeriod)
+    ? rawPeriod
+    : (getCurrentQuarterType() as OkrPeriodTab);
 
   const drawerParam = useMemo(
     () => parseDrawerParam(searchParams.get("drawer")),
@@ -67,7 +77,7 @@ export function useOkrSearchParams() {
   }, [searchParams, router, pathname, startTransition]);
 
   const setParams = useCallback(
-    (newYear: string, newPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline") => {
+    (newYear: string, newPeriod: OkrPeriodTab) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("year", newYear);
       params.set("period", newPeriod);
@@ -86,7 +96,7 @@ export function useOkrSearchParams() {
   );
 
   const setPeriod = useCallback(
-    (newPeriod: "Annual" | "Q1" | "Q2" | "Q3" | "Q4" | "Timeline") => {
+    (newPeriod: OkrPeriodTab) => {
       setParams(year, newPeriod);
     },
     [year, setParams]

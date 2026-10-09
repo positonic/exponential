@@ -2,30 +2,15 @@ import { z } from "zod";
 import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getWorkspaceMembership } from "~/server/services/access";
+import {
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
+  hasMinimumWorkspaceRole,
+} from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 const epicStatusSchema = z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]);
 const epicPrioritySchema = z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]);
-
-/**
- * Ensure the caller is a member of the workspace (directly or via a team).
- * Throws FORBIDDEN otherwise.
- */
-async function assertWorkspaceMember(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-) {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!membership) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You must be a member of this workspace",
-    });
-  }
-  return membership;
-}
 
 /**
  * An epic belongs to a product, and that product must live in the epic's own
@@ -76,7 +61,7 @@ export const epicRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
 
       return ctx.db.epic.findMany({
         where: {
@@ -163,7 +148,7 @@ export const epicRouter = createTRPCRouter({
         });
       }
 
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, epic.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, epic.workspaceId);
 
       return epic;
     }),
@@ -182,7 +167,7 @@ export const epicRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, input.workspaceId);
       await assertProductInWorkspace(ctx.db, input.productId, input.workspaceId);
 
       return ctx.db.epic.create({
@@ -232,7 +217,7 @@ export const epicRouter = createTRPCRouter({
         });
       }
 
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, epic.workspaceId);
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, epic.workspaceId);
 
       if (updateData.productId) {
         await assertProductInWorkspace(
@@ -263,15 +248,16 @@ export const epicRouter = createTRPCRouter({
         });
       }
 
-      const member = await assertWorkspaceMember(
+      // A write: viewers are refused even on an epic they own (e.g. one they
+      // created before being demoted). Beyond that, admins+ or the epic's owner.
+      const member = await assertWorkspaceWriteRole(
         ctx.db,
         ctx.session.user.id,
         epic.workspaceId,
       );
 
       const canDelete =
-        member.role === "owner" ||
-        member.role === "admin" ||
+        hasMinimumWorkspaceRole(member.role, "admin") ||
         epic.ownerId === ctx.session.user.id;
 
       if (!canDelete) {

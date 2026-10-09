@@ -1,3 +1,5 @@
+import type { PrismaClient } from "@prisma/client";
+
 /**
  * The shared Matrix gateway Integration (ADR-0043).
  *
@@ -18,3 +20,20 @@ export const SHARED_MATRIX_INTEGRATION_WHERE = {
   userId: null,
   workspaceId: null,
 } as const;
+
+/** Has this user paired a Matrix account with the shared gateway (a DM can reach them)? */
+export async function hasPairedMatrix(
+  db: Pick<PrismaClient, "integration" | "integrationUserMapping">,
+  userId: string,
+): Promise<boolean> {
+  const integration = await db.integration.findFirst({
+    where: SHARED_MATRIX_INTEGRATION_WHERE,
+    select: { id: true },
+  });
+  if (!integration) return false;
+  const mapping = await db.integrationUserMapping.findFirst({
+    where: { userId, integrationId: integration.id },
+    select: { id: true },
+  });
+  return !!mapping;
+}

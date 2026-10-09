@@ -7,15 +7,12 @@ import {
   IconSparkles,
   IconCopy,
   IconPencil,
-  IconCheck,
-  IconAlertCircle,
-  IconPlus,
   IconRefresh,
   IconBulb,
 } from "@tabler/icons-react";
-import { SmartContentRenderer } from "~/app/_components/SmartContentRenderer";
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { ActionsList } from "~/app/_components/actions/ActionsList";
 import type { MeetingViewModel } from "~/lib/meeting-view-model";
@@ -38,13 +35,13 @@ interface SummaryTabProps {
   actions: TranscriptAction[];
   isActionsLoading: boolean;
   hasTranscript: boolean;
-  isCreatingActions: boolean;
   /** True while feature ideation is running for this meeting. */
   isIdeatingFeatures: boolean;
   /** True while a summary is being auto-generated on view for this meeting. */
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
-  onCreateActions: () => void;
+  /** Open the Outputs tab, where extracted actions are reviewed. */
+  onShowOutputs: () => void;
   /** Turn the transcript into reviewable draft product features. */
   onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
@@ -58,11 +55,10 @@ export function SummaryTab({
   actions,
   isActionsLoading,
   hasTranscript,
-  isCreatingActions,
   isIdeatingFeatures,
   isGeneratingSummary,
   onSaveSummary,
-  onCreateActions,
+  onShowOutputs,
   onIdeateFeatures,
   onRegenerate,
 }: SummaryTabProps) {
@@ -185,7 +181,9 @@ export function SummaryTab({
               <FirefliesSummaryDisplay summary={vm.firefliesSummary} />
             ) : vm.plainSummary ? (
               <div className="mp-tldr__text">
-                <SmartContentRenderer content={vm.plainSummary} />
+                {/* Freeform summaries are markdown or plain text; the canonical
+                    renderer handles both (ADR-0017). */}
+                <MarkdownRenderer content={vm.plainSummary} variant="compact" />
               </div>
             ) : isGeneratingSummary ? (
               <p
@@ -236,22 +234,6 @@ export function SummaryTab({
         </section>
       )}
 
-      {/* ===== Decisions / Open questions (dormant until AI extraction lands) ===== */}
-      {(vm.decisions.length > 0 || vm.questions.length > 0) && (
-        <div className="mp-twocard">
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--decision">
-              <IconCheck size={11} /> Decisions
-            </div>
-          </div>
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--question">
-              <IconAlertCircle size={11} /> Open questions
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ===== Actions ===== */}
       <section>
         <div className="mp-sec">
@@ -270,26 +252,19 @@ export function SummaryTab({
             showProject
           />
         ) : hasTranscript ? (
-          <div className="mp-actbar">
-            <div className="mp-actbar__txt">
-              <b>AI-drafted actions</b> can be pulled from this meeting. Review and confirm the
-              ones you want — they’re added to your projects.
-            </div>
-            <button
-              className="mp-btn mp-btn--primary"
-              onClick={onCreateActions}
-              disabled={isCreatingActions}
-            >
-              <IconPlus size={13} /> Create Actions
+          <div className="mp-empty">
+            No actions yet. Extract outputs drafts this meeting&apos;s actions, decisions and open
+            questions for review on the Outputs tab.
+            <button className="mp-chipbtn" onClick={onShowOutputs} type="button">
+              Go to Outputs
             </button>
           </div>
         ) : (
           <div className="mp-empty">No transcript available to create actions from.</div>
         )}
 
-        {/* Sits beside Create Actions rather than inside its bar: that bar
-            disappears once the meeting has actions, and ideating features
-            stays useful after that. */}
+        {/* Ideating features stays here: it is a separate, optional pass, not
+            one of the meeting's reviewed outputs. */}
         {hasTranscript && (
           <div className="mp-actbar">
             <div className="mp-actbar__txt">

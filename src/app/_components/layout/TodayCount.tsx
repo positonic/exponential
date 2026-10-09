@@ -1,14 +1,10 @@
 'use client';
 
-import { api } from "~/trpc/react";
+import { useSidebarActionCounts } from "~/hooks/useSidebarActionCounts";
 
 export function TodayCount() {
-  const { data: actions } = api.action.getToday.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: 30 * 1000, // Consider data stale after 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-  });
-  const activeTodayCount = actions?.length ?? 0;
+  const { todayCount } = useSidebarActionCounts();
+  const activeTodayCount = todayCount ?? 0;
 
   if (activeTodayCount === 0) return null;
 

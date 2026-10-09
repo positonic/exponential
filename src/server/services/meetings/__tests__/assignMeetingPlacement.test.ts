@@ -13,7 +13,11 @@ import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 
-import { assignMeetingPlacement } from "../assignMeetingPlacement";
+import {
+  assignMeetingPlacement,
+  resolveMeetingWorkspace,
+  rehomeProjectMeetings,
+} from "../assignMeetingPlacement";
 import {
   getProjectAccess,
   canEditProject,
@@ -31,11 +35,16 @@ vi.mock("~/server/services/access", () => ({
 const db = mockDeep<PrismaClient>();
 const USER = "user-1";
 
-/** Make $transaction run the array of (mocked) Prisma promises, as in prod. */
+/**
+ * Make $transaction behave as in prod: run an array of (mocked) Prisma
+ * promises, or call an interactive callback with the mock as its `tx`.
+ */
 function runTransactionsLikeProd(mock: DeepMockProxy<PrismaClient>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (mock.$transaction as any).mockImplementation((ops: unknown) =>
-    Promise.all(ops as Promise<unknown>[]),
+    typeof ops === "function"
+      ? (ops as (tx: DeepMockProxy<PrismaClient>) => Promise<unknown>)(mock)
+      : Promise.all(ops as Promise<unknown>[]),
   );
 }
 
@@ -96,6 +105,42 @@ describe("assignMeetingPlacement", () => {
         data: { projectId: "proj-1", workspaceId: "ws-A" },
       }),
     );
+  });
+
+  it("drops feature links that the move strands in another workspace", async () => {
+    vi.mocked(canEditProject).mockReturnValue(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: "ws-A" });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }]);
+
+    await assignMeetingPlacement(db, USER, {
+      meetingIds: ["m1"],
+      projectId: "proj-1",
+      scope: "owner",
+    });
+
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: {
+        transcriptionSessionId: { in: ["m1"] },
+        feature: { product: { workspaceId: { not: "ws-A" } } },
+      },
+    });
+  });
+
+  it("drops every feature link when the meeting goes Personal", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }]);
+
+    await assignMeetingPlacement(db, USER, {
+      meetingIds: ["m1"],
+      projectId: null,
+      scope: "owner",
+    });
+
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: { in: ["m1"] } },
+    });
   });
 
   it("clears project AND workspace on the meeting and its Actions when projectId is null", async () => {
@@ -203,6 +248,143 @@ describe("assignMeetingPlacement", () => {
 
     expect(result.count).toBe(0);
     expect(getProjectAccess).not.toHaveBeenCalled();
+    expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveMeetingWorkspace", () => {
+  it("returns the project's workspace when a project is given", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: "ws-A" });
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "proj-1", workspaceId: undefined }),
+    ).resolves.toBe("ws-A");
+  });
+
+  it("accepts a caller workspace that matches the project's", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: "ws-A" });
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "proj-1", workspaceId: "ws-A" }),
+    ).resolves.toBe("ws-A");
+  });
+
+  it("rejects a caller workspace that disagrees with the project's", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: "ws-A" });
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "proj-1", workspaceId: "ws-other" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("is NOT_FOUND for a missing project", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue(null);
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "nope", workspaceId: undefined }),
+    ).rejects.toBeInstanceOf(TRPCError);
+  });
+
+  it("keeps the caller's workspace for a project-less meeting, null for Personal", async () => {
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: null, workspaceId: "ws-A" }),
+    ).resolves.toBe("ws-A");
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: undefined, workspaceId: undefined }),
+    ).resolves.toBeNull();
+    expect(db.project.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("a personal project (no workspace) yields null", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: null });
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "proj-personal", workspaceId: undefined }),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects a caller workspace on a personal project rather than placing it in Personal", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.project.findUnique as any).mockResolvedValue({ workspaceId: null });
+
+    await expect(
+      resolveMeetingWorkspace(db, { projectId: "proj-personal", workspaceId: "ws-A" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("rehomeProjectMeetings", () => {
+  it("moves the project's meetings, the project's actions, and what travels with them", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }, { id: "m2" }]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.updateMany as any).mockResolvedValue({ count: 2 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.action.updateMany as any).mockResolvedValue({ count: 3 });
+
+    const result = await rehomeProjectMeetings(db, { projectId: "proj-1", workspaceId: "ws-B" });
+
+    expect(result).toEqual({ meetings: 2, actions: 3 });
+    // The meetings keep their project; their workspace follows it.
+    expect(db.transcriptionSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ["m1", "m2"] } },
+        data: expect.objectContaining({ workspaceId: "ws-B" }),
+      }),
+    );
+    // Every action in the project follows the project, meeting-derived or not;
+    // one re-pointed at another project is not selected.
+    expect(db.action.updateMany).toHaveBeenCalledWith({
+      where: { projectId: "proj-1", workspaceId: { not: "ws-B" } },
+      data: { workspaceId: "ws-B" },
+    });
+    // Participants follow, minus their old-workspace CRM contact link.
+    expect(db.transcriptionSessionParticipant.updateMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: { in: ["m1", "m2"] }, workspaceId: { not: "ws-B" } },
+      data: { workspaceId: "ws-B", contactId: null },
+    });
+    // A ceremony occurrence from another workspace is detached.
+    expect(db.transcriptionSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ["m1", "m2"] },
+        occurrenceId: { not: null },
+        occurrence: { workspaceId: { not: "ws-B" } },
+      },
+      data: { occurrenceId: null },
+    });
+    // Feature links stranded in the old workspace are dropped.
+    expect(db.meetingFeature.deleteMany).toHaveBeenCalled();
+  });
+
+  it("moving to Personal leaves participants (non-null workspace) and detaches every occurrence", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([{ id: "m1" }]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.action.updateMany as any).mockResolvedValue({ count: 0 });
+
+    await rehomeProjectMeetings(db, { projectId: "proj-1", workspaceId: null });
+
+    expect(db.transcriptionSessionParticipant.updateMany).not.toHaveBeenCalled();
+    expect(db.transcriptionSession.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["m1"] }, occurrenceId: { not: null } },
+      data: { occurrenceId: null },
+    });
+  });
+
+  it("still re-homes the project's actions when it has no meetings", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findMany as any).mockResolvedValue([]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.action.updateMany as any).mockResolvedValue({ count: 2 });
+
+    const result = await rehomeProjectMeetings(db, { projectId: "proj-1", workspaceId: "ws-B" });
+
+    expect(result).toEqual({ meetings: 0, actions: 2 });
     expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
   });
 });

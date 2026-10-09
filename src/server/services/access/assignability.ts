@@ -21,7 +21,7 @@
  *  - **Workspace guests are not assignable to tickets.** A guest (project-only
  *    `ProjectMember`, no `WorkspaceUser` row) is refused by
  *    `getWorkspaceMembership`, which is the same resolver behind
- *    `assertWorkspaceMember` — the gate on every ticket read. A guest therefore
+ *    `assertWorkspaceAccess` — the gate on every ticket read. A guest therefore
  *    cannot open the ticket at all, so assigning one is both useless and a
  *    leak. Excluding them keeps the assignable set a subset of the reader set.
  *  - **External-agent shadow users need no exception.** ADR-0049 gives each

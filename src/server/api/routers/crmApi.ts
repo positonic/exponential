@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
+import { RETIRED_PIPELINE_STATUSES } from "~/server/services/crm/pipelineDefaults";
 import {
   dispatchContactEnrichment,
   enqueueContactEnrichment,
@@ -81,14 +82,18 @@ async function getPipelineForWorkspace(
   pipelineId?: string,
 ) {
   // A workspace may hold N pipelines (ADR-0033). Target a specific one when
-  // pipelineId is supplied; otherwise default to the oldest (the stable default
-  // the single-pipeline contract used to imply) so existing API callers keep
-  // working without choosing a pipeline.
+  // pipelineId is supplied; otherwise default to the oldest *live* pipeline
+  // (the stable default the single-pipeline contract used to imply) so
+  // existing API callers keep working without choosing a pipeline. Cancelled
+  // and completed pipelines are skipped by the fallback so a retired board
+  // never shadows the active ones.
   const pipeline = await db.project.findFirst({
     where: {
       workspaceId,
       type: "pipeline",
-      ...(pipelineId ? { id: pipelineId } : {}),
+      ...(pipelineId
+        ? { id: pipelineId }
+        : { status: { notIn: [...RETIRED_PIPELINE_STATUSES] } }),
     },
     orderBy: { createdAt: "asc" },
   });
@@ -693,7 +698,9 @@ export const crmApiRouter = createTRPCRouter({
         where: {
           workspaceId: input.workspaceId,
           type: "pipeline",
-          ...(input.pipelineId ? { id: input.pipelineId } : {}),
+          ...(input.pipelineId
+            ? { id: input.pipelineId }
+            : { status: { notIn: [...RETIRED_PIPELINE_STATUSES] } }),
         },
         include: {
           pipelineStages: { orderBy: { order: "asc" } },

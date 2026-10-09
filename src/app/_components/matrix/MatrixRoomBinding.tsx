@@ -10,9 +10,10 @@ import {
   Text,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconAlertTriangle } from "@tabler/icons-react";
+import { IconAlertTriangle, IconExternalLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { api } from "~/trpc/react";
+import { matrixRoomPermalink } from "~/lib/matrixPermalink";
 import { MatrixRoomPicker, type MatrixRoomChoice } from "./MatrixRoomPicker";
 
 interface MatrixRoomBindingProps {
@@ -89,6 +90,7 @@ export function MatrixRoomBinding({
   }
 
   const effective = binding?.effective;
+  const roomLink = binding?.room ? matrixRoomPermalink(binding.room.roomId) : null;
 
   return (
     <Stack gap="xs">
@@ -127,6 +129,19 @@ export function MatrixRoomBinding({
           >
             Change
           </Button>
+          {roomLink && (
+            <Button
+              component="a"
+              href={roomLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="subtle"
+              size="compact-xs"
+              rightSection={<IconExternalLink size={12} />}
+            >
+              Open in Matrix
+            </Button>
+          )}
         </Text>
       )}
 

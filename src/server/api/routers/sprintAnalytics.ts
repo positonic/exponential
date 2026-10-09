@@ -1,12 +1,18 @@
 import { z } from "zod";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import type { db as dbInstance } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
+  getWorkspaceMembership,
+} from "~/server/services/access";
+import {
   sprintAnalyticsService,
   type AllCyclesMetricsResult,
+  type ContributionsResult,
   type CycleSummary,
   type CycleTicketMetricsResult,
   type CycleVelocityPoint,
@@ -15,26 +21,31 @@ import {
 import { githubActivityService } from "~/server/services/GitHubActivityService";
 
 /**
- * Verify the caller is a member of the workspace. Throws FORBIDDEN if not.
- * Mirrors the helper in document.ts — the Metrics page is read-only and
- * visible to any workspace member.
+ * Gate the agent-facing procedures that take a bare `listId`.
+ *
+ * A missing list and a list in a workspace the caller doesn't belong to both
+ * return the same NOT_FOUND, so the error never confirms that an id exists in
+ * another workspace. A member who lacks the role for a write (a viewer on
+ * `captureDailySnapshot`) gets FORBIDDEN: they can already see the list.
  */
-async function assertWorkspaceMember(
-  db: Prisma.TransactionClient | typeof dbInstance,
+async function assertListAccess(
+  db: PrismaClient,
   userId: string,
-  workspaceId: string,
+  listId: string,
+  level: "view" | "edit",
 ): Promise<void> {
-  const membership = await db.workspaceUser.findUnique({
-    where: {
-      userId_workspaceId: { userId, workspaceId },
-    },
-    select: { userId: true },
+  const list = await db.list.findUnique({
+    where: { id: listId },
+    select: { workspaceId: true },
   });
-  if (!membership) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You are not a member of this workspace",
-    });
+  const membership = list
+    ? await getWorkspaceMembership(db, userId, list.workspaceId)
+    : null;
+  if (!list || !membership) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Sprint not found" });
+  }
+  if (level === "edit") {
+    await assertWorkspaceWriteRole(db, userId, list.workspaceId);
   }
 }
 
@@ -68,11 +79,21 @@ async function resolveCycleId(
 }
 
 /**
+ * Optional member filter for the Metrics page (assignee / GitHub author / time
+ * logger — see `MetricsMemberFilter`). Ids that aren't in the workspace simply
+ * match nothing; every query stays scoped to `workspaceId` regardless.
+ */
+const memberIdsInput = z.array(z.string().min(1)).max(100).optional();
+
+/**
  * Sprint analytics tRPC router.
  *
  * Exposes SprintAnalyticsService + GitHubActivityService as API endpoints.
  * Two audiences share ONE service so their numbers can never drift:
- *  - `apiKeyMiddleware` procedures: Mastra PM agent, server-to-server.
+ *  - `apiKeyMiddleware` procedures: Mastra PM agent, acting as the user whose
+ *    session or API key it presents. They check that user's workspace
+ *    membership exactly like the UI procedures do — the API key authenticates
+ *    the caller, it does not grant access to every workspace.
  *  - `protectedProcedure` procedures: the read-only Metrics page UI
  *    (`/w/[slug]/metrics`), gated by workspace membership.
  *
@@ -86,7 +107,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
   getCycles: protectedProcedure
     .input(z.object({ workspaceId: z.string().min(1) }))
     .query(async ({ ctx, input }): Promise<CycleSummary[]> => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
       return sprintAnalyticsService.getWorkspaceCycles(input.workspaceId);
     }),
 
@@ -100,10 +121,43 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    * table. See ADR-0047.
    */
   getAllCyclesMetrics: protectedProcedure
-    .input(z.object({ workspaceId: z.string().min(1) }))
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        memberIds: memberIdsInput,
+      }),
+    )
     .query(async ({ ctx, input }): Promise<AllCyclesMetricsResult> => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
-      return sprintAnalyticsService.getAllCyclesMetrics(input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
+      return sprintAnalyticsService.getAllCyclesMetrics(input.workspaceId, {
+        memberIds: input.memberIds,
+      });
+    }),
+
+  /**
+   * Metrics page (UI): per-person contributions — tickets (by assignee),
+   * merged PRs and commits (by linked GitHub login) and confirmed time logged —
+   * over one cycle (`cycleId`, workspace-verified) or every cycle with tickets.
+   * Returns every row; the page narrows to selected members client-side.
+   */
+  getContributions: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        cycleId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }): Promise<ContributionsResult> => {
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
+
+      const cycleId = input.cycleId
+        ? await resolveCycleId(ctx.db, input.workspaceId, input.cycleId)
+        : undefined;
+
+      return sprintAnalyticsService.getContributions(
+        input.workspaceId,
+        cycleId ?? undefined,
+      );
     }),
 
   /**
@@ -121,10 +175,11 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string().min(1),
         cycleId: z.string().optional(),
+        memberIds: memberIdsInput,
       }),
     )
     .query(async ({ ctx, input }): Promise<CycleTicketMetricsResult | null> => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
 
       const cycleId = await resolveCycleId(
         ctx.db,
@@ -133,7 +188,9 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       );
       if (!cycleId) return null;
 
-      return sprintAnalyticsService.getCycleTicketMetrics(cycleId);
+      return sprintAnalyticsService.getCycleTicketMetrics(cycleId, {
+        memberIds: input.memberIds,
+      });
     }),
 
   /**
@@ -152,7 +209,7 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }): Promise<CycleVelocityPoint[]> => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
 
       return sprintAnalyticsService.getTicketVelocityHistory(
         input.workspaceId,
@@ -174,10 +231,11 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string().min(1),
         cycleId: z.string().optional(),
+        memberIds: memberIdsInput,
       }),
     )
     .query(async ({ ctx, input }): Promise<PrTurnaroundResult | null> => {
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
 
       const cycleId = await resolveCycleId(
         ctx.db,
@@ -186,7 +244,9 @@ export const sprintAnalyticsRouter = createTRPCRouter({
       );
       if (!cycleId) return null;
 
-      return sprintAnalyticsService.getPrTurnaround(cycleId);
+      return sprintAnalyticsService.getPrTurnaround(cycleId, {
+        memberIds: input.memberIds,
+      });
     }),
 
   /**
@@ -194,7 +254,8 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    */
   getActiveSprint: apiKeyMiddleware
     .input(z.object({ workspaceId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMembership(ctx.db, ctx.userId, input.workspaceId);
       return sprintAnalyticsService.getActiveSprint(input.workspaceId);
     }),
 
@@ -203,7 +264,8 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    */
   getMetrics: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "view");
       return sprintAnalyticsService.getSprintMetrics(input.listId);
     }),
 
@@ -212,7 +274,8 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    */
   getBurndown: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "view");
       return sprintAnalyticsService.getBurndownData(input.listId);
     }),
 
@@ -221,7 +284,8 @@ export const sprintAnalyticsRouter = createTRPCRouter({
    */
   getRiskSignals: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "view");
       return sprintAnalyticsService.detectRiskSignals(input.listId);
     }),
 
@@ -235,7 +299,8 @@ export const sprintAnalyticsRouter = createTRPCRouter({
         count: z.number().int().min(1).max(20).optional(),
       }),
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMembership(ctx.db, ctx.userId, input.workspaceId);
       return sprintAnalyticsService.getVelocityHistory(
         input.workspaceId,
         input.count,
@@ -252,7 +317,8 @@ export const sprintAnalyticsRouter = createTRPCRouter({
         since: z.coerce.date(),
       }),
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceMembership(ctx.db, ctx.userId, input.workspaceId);
       return githubActivityService.getActivitySummary(
         input.workspaceId,
         input.since,
@@ -260,11 +326,13 @@ export const sprintAnalyticsRouter = createTRPCRouter({
     }),
 
   /**
-   * Capture a daily snapshot of the sprint for burndown tracking.
+   * Capture a daily snapshot of the sprint for burndown tracking. A write, so
+   * a read-only viewer is refused.
    */
   captureDailySnapshot: apiKeyMiddleware
     .input(z.object({ listId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      await assertListAccess(ctx.db, ctx.userId, input.listId, "edit");
       return sprintAnalyticsService.captureDailySnapshot(input.listId);
     }),
 });

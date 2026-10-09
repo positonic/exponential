@@ -167,11 +167,9 @@ describe("matrixGateway router (mocked)", () => {
     });
 
     it("passes mxid + default-assistant context to the gateway and returns the code", async () => {
-      dbMock.assistant.findFirst.mockResolvedValue({
-        id: "asst-1",
-        name: "Zoe",
-        workspaceId: "ws-1",
-      } as never);
+      dbMock.assistant.findMany.mockResolvedValue([
+        { id: "asst-1", name: "Zoe", workspaceId: "ws-1", workspace: { name: "WS" } },
+      ] as never);
       fetchMock.mockResolvedValue(
         okJson({
           pairingCode: "A3F1B2",
@@ -197,7 +195,7 @@ describe("matrixGateway router (mocked)", () => {
     });
 
     it("surfaces a friendly error when the gateway is unreachable", async () => {
-      dbMock.assistant.findFirst.mockResolvedValue(null as never);
+      dbMock.assistant.findMany.mockResolvedValue([] as never);
       fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
 
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });

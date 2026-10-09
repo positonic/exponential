@@ -1,90 +1,64 @@
 ---
 title: Introduction
-description: Welcome to Exponential - your AI-powered productivity platform
+description: What Exponential is, who it is for, and where to start
+section: get-started
+order: 1
+icon: IconBook
+updated: 2026-09-29
 ---
 
-## Welcome to Exponential
+Exponential is a productivity OS that turns meeting transcripts into projects, actions and decisions. Record a meeting, and Zoe, the built-in assistant, extracts the actions and decisions and files them against the right project. Plan your day from what is due, track time, review the week, and let agents (Zoe, specialist agents, or your own external agents) act across all of it. Product teams get a second layer on top: products, features, tickets, cycles and metrics.
 
-Exponential is your AI-powered productivity platform. Organize projects, track tasks, achieve goals, and work smarter with intelligent assistance.
+## Who it is for
 
-## What You Can Do
+- **On your own.** Capture actions from anywhere (phone, browser, chat), plan each day from Today, keep a journal and a weekly plan, and ask Zoe to think things through with you.
+- **As a team.** Share a workspace, run meetings through Fireflies, turn them into actions and decisions, and keep goals, projects and OKRs aligned in one place.
+- **As a product team.** Turn on the Product Management plugin for products, features, tickets, cycles, retrospectives and delivery metrics.
 
-| Feature | Description |
-|---------|-------------|
-| **Projects** | Organize work with status, priority, and progress tracking |
-| **Actions** | Manage tasks with flexible scheduling and assignments |
-| **Goals** | Set strategic objectives and track measurable key results |
-| **Journal** | Reflect daily and plan ahead |
-| **AI Assistant** | Chat with intelligent agents for help and insights |
-| **Integrations** | Connect Slack, Fireflies, and more |
+## How the pieces fit
 
-## Quick Start
+```
+Workspace
+├─ Goals → Key results        the outcomes
+├─ Projects → Actions, Epics  the work
+├─ Meetings → Decisions       what was said, what was agreed
+├─ Products → Features,       product teams (plugin)
+│  Tickets, Cycles
+├─ Pages, Knowledge           what Zoe can read
+├─ CRM                        the people you work with
+└─ Zoe, agents, plugins       who works with you
+```
 
-New to Exponential? Get productive in 5 minutes:
+Every object lives in a workspace. You get a personal workspace on sign-up and can create more for teams or clients. [Concepts](/docs/concepts) defines each term in two sentences.
 
-1. **[Create your account](/docs/getting-started)** - Sign up with Google, Discord, or Notion
-2. **Create a project** - Organize your first piece of work
-3. **Add actions** - Break work into tasks
-4. **Use Today view** - Focus on what matters daily
+## Start here
 
-[Start the Quickstart Guide](/docs/getting-started)
+1. **Ten minutes in.** Follow the [Quickstart](/docs/quickstart): sign in, meet the sidebar, create a project and three actions, plan your day, ask Zoe a question, and connect one way to capture from your phone or browser.
+2. **Bring your meetings.** Connect [Fireflies](/docs/meet/fireflies) so every recorded meeting arrives with its actions extracted, then review them on the [Meetings](/docs/meet/meetings) page.
+3. **Set the direction.** Write [Goals](/docs/plan/goals) and [OKRs](/docs/plan/okrs), link projects to them, and run the [Weekly plan](/docs/reflect/weekly-plan) on Fridays.
 
-## Documentation Sections
+## What is in the box
 
-### Get Started
+| Area | What you will find | Start with |
+|---|---|---|
+| **Plan** | Goals, OKRs and key results, decisions, Wheel of Life | [Goals](/docs/plan/goals) |
+| **Do** | Inbox, Today, the daily plan, actions, projects, epics, time tracking, pages, activity and views | [Inbox & Today](/docs/do/inbox-and-today) |
+| **Build (Products)** | Products, tickets, features and cycles; retrospectives, insights and metrics; sprint insights | [Products](/docs/build/products) |
+| **Reflect** | Journal, startup and wind-down routines, habits, weekly plan | [Journal](/docs/reflect/journal) |
+| **Meet** | Meetings that become actions and decisions, Fireflies, ceremonies, calendar and scheduling | [Meetings](/docs/meet/meetings) |
+| **Connect (CRM)** | Contacts and organisations, lists, automations, pipeline, forms, broadcasts | [Contacts](/docs/crm/contacts) |
+| **Collaborate** | Workspaces, teams, members and access, notifications | [Workspaces](/docs/collaborate/workspaces) |
+| **Zoe & AI** | The assistant, the knowledge base, chat over WhatsApp, Telegram and Matrix | [Zoe](/docs/zoe/assistant) |
+| **Capture anywhere** | iOS shortcut, Chrome extension, mobile app, desktop app | [iOS shortcut](/docs/capture/ios-shortcut) |
+| **Integrations** | Slack, Notion, GitHub, Google, Monday.com, calendar feeds | [Integrations](/docs/integrations) |
+| **Developers & agents** | API tokens, external agents, the CLI reference, the MCP server and SDK | [API tokens](/docs/developers/api-tokens) |
+| **Reference** | Your settings, workspace settings, plugins, keyboard shortcuts | [Your settings](/docs/reference/your-settings) |
+| **Self-hosting** | Running your own installation | [Self-hosting](/docs/self-hosting) |
 
-Set up your account and learn the basics:
+## Getting help
 
-- [Quickstart Guide](/docs/getting-started) - Your first 5 minutes
-- [Configuration](/docs/getting-started/configuration) - Customize your setup
-- [Mobile App](/docs/getting-started/mobile-app) - Use Exponential on the go
-
-### Features
-
-Explore what Exponential can do:
-
-- [Projects](/docs/features/projects) - Project management
-- [Actions & Tasks](/docs/features/actions) - Task management
-- [Goals](/docs/features/goals) - Strategic alignment
-- [AI Assistant](/docs/features/ai-assistant) - Get AI help
-- [All Features](/docs/features) - Complete feature list
-
-### Integrations
-
-Connect external services:
-
-- [Slack](/docs/features/slack) - Team notifications
-- [Fireflies](/docs/features/fireflies) - Meeting capture
-- [Workflows](/docs/features/workflows) - Automation
-- [All Integrations](/docs/features/integrations) - Complete list
-
-### Plugins
-
-Extend with optional features:
-
-- [OKRs](/docs/features/okr) - Objectives and Key Results
-- [CRM](/docs/features/crm) - Contact management
-- [All Plugins](/docs/features/plugins) - Plugin overview
-
-## Common Tasks
-
-| I want to... | Start here |
-|--------------|------------|
-| Get started quickly | [Quickstart](/docs/getting-started) |
-| Organize my projects | [Projects Guide](/docs/features/projects) |
-| Set goals and track progress | [Goals](/docs/features/goals) |
-| Work with my team | [Teams](/docs/features/teams) |
-| Connect Slack | [Slack Integration](/docs/features/slack) |
-| Capture meeting actions | [Fireflies Setup](/docs/features/fireflies) |
-| Manage contacts | [CRM Guide](/docs/features/crm) |
-| Customize my sidebar | [Settings](/docs/features/settings) |
-
-## Getting Help
-
-- **In-app AI** - Chat with the [AI Assistant](/docs/features/ai-assistant)
-- **This documentation** - Browse guides and references
-- **Support** - Contact us for additional help
-
-## Ready?
-
-[Start the Quickstart Guide](/docs/getting-started)
+- Press **/** on any docs page to search.
+- Ask Zoe inside the app: the **Ask Zoe · ⌘J** button at the bottom right of every page opens her drawer.
+- See [What's new](/docs/whats-new) for the latest features and fixes.
+- Email support@exponential.im.
+- For agents and LLM tools: [/llms.txt](/llms.txt) indexes every page, and [/llms-full.txt](/llms-full.txt) is the whole documentation as one Markdown file.

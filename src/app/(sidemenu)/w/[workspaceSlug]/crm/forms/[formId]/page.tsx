@@ -891,7 +891,8 @@ export default function FormEditorPage() {
                 setDealTitleTemplate(e.currentTarget.value);
                 touch();
               }}
-              w={420}
+              w="100%"
+              maw={420}
             />
             <Divider label="Map form fields → applicant" labelPosition="left" />
             <Group gap="sm" wrap="wrap">

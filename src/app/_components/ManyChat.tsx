@@ -27,6 +27,7 @@ import { ToolActivity } from './agent/ToolActivity';
 import { ThinkingStatus } from './agent/ThinkingStatus';
 import { DraftActionsReviewCard } from './DraftActionsReviewCard';
 import { DraftFeaturesReviewCard } from './DraftFeaturesReviewCard';
+import { DraftDecisionsReviewCard } from './decisions/DraftDecisionsReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
@@ -406,6 +407,9 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   )}
                   {message.card?.kind === 'draft-features' && (
                     <DraftFeaturesReviewCard transcriptionId={message.card.transcriptionId} />
+                  )}
+                  {message.card?.kind === 'draft-decisions' && (
+                    <DraftDecisionsReviewCard transcriptionId={message.card.transcriptionId} />
                   )}
                   {message.interactionId && (
                     <AgentMessageFeedback
@@ -1012,14 +1016,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   }, [initialInput]);
 
   // Auto-submit when the drawer opens with a pending prompt seeded from
-  // another surface (e.g. the home-page Zoe input). Runs once per open.
+  // another surface (e.g. the home-page Zoe input). Runs once per open. Waits
+  // for the conversation thread: ZoeDrawer mounts this component on its first
+  // open, so a prompt that opens the drawer can arrive before
+  // startConversation above has returned.
   const didSeedRef = useRef(false);
   useEffect(() => {
     if (!isOpen) {
       didSeedRef.current = false;
       return;
     }
-    if (!pendingPrompt || didSeedRef.current) return;
+    if (!pendingPrompt || !conversationId || didSeedRef.current) return;
     didSeedRef.current = true;
     const seeded = pendingPrompt;
     const seededContext = pendingContext ?? undefined;
@@ -1030,7 +1037,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }, 0);
     // handleSubmit intentionally omitted — it's a stable closure over current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, pendingPrompt, pendingContext, consumePendingPrompt]);
+  }, [isOpen, pendingPrompt, pendingContext, consumePendingPrompt, conversationId]);
 
   // Handle input changes and autocomplete
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

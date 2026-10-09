@@ -36,6 +36,7 @@ import {
   IconArrowsLeftRight,
   IconClock,
   IconTrash,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useDisclosure } from "@mantine/hooks";
 import { useForm } from "@mantine/form";
@@ -44,6 +45,9 @@ import { api } from "~/trpc/react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { NotionSetupWizard } from "./integrations/NotionSetupWizard";
+import { MatrixRoomBinding } from "./matrix/MatrixRoomBinding";
+import { matrixRoomPermalink } from "~/lib/matrixPermalink";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 
 interface ProjectIntegrationsProps {
   project: {
@@ -102,6 +106,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [selectedSlackIntegration, setSelectedSlackIntegration] = useState<string>('');
   const [selectedSlackChannel, setSelectedSlackChannel] = useState<string>('');
   const [slackConfigExpanded, setSlackConfigExpanded] = useState(false);
+  const [matrixConfigExpanded, setMatrixConfigExpanded] = useState(false);
   const [selectedNotionProjectId, setSelectedNotionProjectId] = useState<string>(project.notionProjectId ?? '');
   const [selectedSyncStrategy, setSelectedSyncStrategy] = useState<string>(project.taskManagementConfig?.syncStrategy ?? 'manual');
   const [mondayConfigOpened, { open: openMondayConfig, close: closeMondayConfig }] = useDisclosure(false);
@@ -109,6 +114,19 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
   const [mondaySyncDirection, setMondaySyncDirection] = useState<string>(project.taskManagementConfig?.syncDirection ?? 'pull');
   const [mondaySyncFrequency, setMondaySyncFrequency] = useState<string>(project.taskManagementConfig?.syncFrequency ?? 'manual');
   const searchParams = useSearchParams();
+  const { workspace, workspaceId } = useWorkspace();
+
+  // Matrix: the room binding is an outbound ChannelLink (see matrixRoom router), so
+  // there is nothing project-specific to fetch here beyond whether a homeserver exists.
+  const { data: matrixServers = [], isLoading: isLoadingMatrixServers } =
+    api.matrixServer.list.useQuery(
+      { workspaceId: workspaceId ?? "" },
+      { enabled: !!workspaceId },
+    );
+  const { data: matrixBinding } = api.matrixRoom.getBinding.useQuery(
+    { workspaceId: workspaceId ?? "", projectId: project.id },
+    { enabled: !!workspaceId && matrixServers.length > 0 },
+  );
 
   // Auto-open Notion wizard after OAuth redirect
   useEffect(() => {
@@ -1069,6 +1087,114 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
               </Stack>
             </Card>
           </Stack>
+        )}
+
+        {/* Matrix Room Section */}
+        {workspaceId && matrixServers.length > 0 && (
+          <Stack gap="sm">
+            <Text size="sm" fw={500} c="dimmed">Matrix Room</Text>
+            <Card shadow="sm" padding="md" radius="md" withBorder>
+              <Stack gap="md">
+                <Group justify="space-between" align="center" wrap="nowrap">
+                  <Group align="center" gap="md" style={{ flex: 1 }}>
+                    <ThemeIcon size="lg" variant="light" color="teal" radius="md">
+                      <IconMessageCircle size={24} />
+                    </ThemeIcon>
+                    <div style={{ flex: 1 }}>
+                      <Group gap="xs" align="center">
+                        <Text fw={600} size="md">
+                          Matrix Room
+                        </Text>
+                        {matrixBinding?.mode === "room" && (
+                          <Badge color="green" variant="light" size="sm">
+                            <Group gap={4}>
+                              <IconCheck size={12} />
+                              Connected
+                            </Group>
+                          </Badge>
+                        )}
+                        {matrixBinding?.mode === "inherit" &&
+                          matrixBinding.effective.kind === "room" && (
+                            <Badge color="gray" variant="light" size="sm">
+                              Inherits workspace default
+                            </Badge>
+                          )}
+                        {matrixBinding?.mode === "off" && (
+                          <Badge color="gray" variant="light" size="sm">
+                            Off
+                          </Badge>
+                        )}
+                      </Group>
+                      <Text size="sm" c="dimmed" mt={2}>
+                        Post meeting summaries into a Matrix room for this project, or create a new room and bind it.
+                      </Text>
+                      {matrixBinding?.mode === "room" && matrixBinding.room && (
+                        <Text size="sm" mt={4}>
+                          Connected to <strong>{matrixBinding.room.name}</strong>
+                          {matrixRoomPermalink(matrixBinding.room.roomId) && (
+                            <>
+                              {" · "}
+                              <a
+                                href={matrixRoomPermalink(matrixBinding.room.roomId) ?? undefined}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-brand-primary hover:underline"
+                              >
+                                Open in Matrix
+                              </a>
+                            </>
+                          )}
+                        </Text>
+                      )}
+                    </div>
+                  </Group>
+
+                  <ActionIcon
+                    variant="subtle"
+                    onClick={() => setMatrixConfigExpanded(!matrixConfigExpanded)}
+                    aria-label={matrixConfigExpanded ? 'Collapse Matrix settings' : 'Expand Matrix settings'}
+                  >
+                    {matrixConfigExpanded ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+                  </ActionIcon>
+                </Group>
+
+                <Collapse in={matrixConfigExpanded}>
+                  <Stack gap="md" pt="sm">
+                    <Text size="xs" c="dimmed">
+                      Posting is always a manual click from a meeting — nothing is sent automatically.
+                      Choosing <strong>Off</strong> keeps this project&apos;s summaries out of Matrix even when the workspace has a default room.
+                    </Text>
+                    <MatrixRoomBinding workspaceId={workspaceId} projectId={project.id} />
+                  </Stack>
+                </Collapse>
+              </Stack>
+            </Card>
+          </Stack>
+        )}
+
+        {workspaceId && !isLoadingMatrixServers && matrixServers.length === 0 && (
+          <Alert
+            icon={<IconAlertCircle size={16} />}
+            title="Matrix Server Required"
+            color="teal"
+            variant="light"
+          >
+            <Text size="sm">
+              To connect this project to a Matrix room, register your workspace&apos;s Matrix homeserver first.
+            </Text>
+            {workspace?.slug && (
+              <Button
+                component={Link}
+                href={`/w/${workspace.slug}/settings`}
+                size="sm"
+                variant="light"
+                mt="sm"
+                leftSection={<IconExternalLink size={14} />}
+              >
+                Register Matrix Server
+              </Button>
+            )}
+          </Alert>
         )}
 
         {isLoadingSlackIntegrations ? (
