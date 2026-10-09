@@ -38,10 +38,21 @@ interface PageAudienceProps {
  * today: placing the page in a restricted project.
  */
 export function PageAudience({ pageId, workspaceId, canEdit }: PageAudienceProps) {
-  const { data: audience, isLoading } = api.page.audience.useQuery({ id: pageId });
+  const { data: audience, isError } = api.page.audience.useQuery({ id: pageId });
   const placement = usePageProjectPlacement(pageId, workspaceId);
 
-  if (isLoading || !audience) {
+  if (isError) {
+    return (
+      <Stack gap={6}>
+        <SectionLabel />
+        <Text size="xs" className="text-text-muted">
+          Couldn&apos;t load who can see this page.
+        </Text>
+      </Stack>
+    );
+  }
+
+  if (!audience) {
     return (
       <Stack gap={6}>
         <SectionLabel />
@@ -61,8 +72,9 @@ export function PageAudience({ pageId, workspaceId, canEdit }: PageAudienceProps
     icon = <IconBuilding size={16} />;
     headline = `Everyone in ${workspaceName}`;
     detail = peopleCount;
-    note =
-      "Anyone in the workspace can see this page. To limit who sees it, move it to a restricted project.";
+    note = canEdit
+      ? "Anyone in the workspace can see this page. To limit who sees it, move it to a restricted project."
+      : "Anyone in the workspace can see this page.";
   } else if (audience.isPublicProject) {
     icon = <IconWorld size={16} />;
     headline = "Anyone signed in";
@@ -148,6 +160,17 @@ export function PageAudience({ pageId, workspaceId, canEdit }: PageAudienceProps
         <Text size="xs" className="text-text-muted">
           {note}
         </Text>
+      ) : null}
+
+      {/* Publishing overrides everything above, so say so — readers never see
+          the Publish switch that would otherwise tell them. */}
+      {audience.isPublishedToWeb ? (
+        <Group gap={6} wrap="nowrap" data-testid="page-audience-published">
+          <IconWorld size={14} className="shrink-0 text-text-secondary" />
+          <Text size="xs" className="text-text-secondary">
+            Also published to the web: anyone with the link can view it.
+          </Text>
+        </Group>
       ) : null}
     </Stack>
   );
