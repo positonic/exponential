@@ -70,6 +70,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 
 const WORKSPACE_ID = "ws-1";
 const USER_ID = "user-1";
@@ -154,6 +155,49 @@ describe("favorite router (mocked)", () => {
           workspaceId: WORKSPACE_ID,
         }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" } satisfies Partial<TRPCError>);
+
+      expect(dbMock.favorite.create).not.toHaveBeenCalled();
+    });
+
+    it("favourites a knowledge page only when it is in the workspace and viewable", async () => {
+      mockMember(dbMock, true);
+      dbMock.favorite.findUnique.mockResolvedValue(null as never);
+      dbMock.knowledgePage.findFirst.mockResolvedValue({ id: "ckpage111" } as never);
+      dbMock.favorite.create.mockResolvedValue({ id: "fav-kp" } as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.favorite.toggle({
+          entityType: "page",
+          entityId: "pages/ckpage111",
+          workspaceId: WORKSPACE_ID,
+        }),
+      ).resolves.toEqual({ favorited: true });
+
+      expect(dbMock.knowledgePage.findFirst).toHaveBeenCalledWith({
+        where: {
+          AND: [
+            { id: "ckpage111", workspaceId: WORKSPACE_ID },
+            buildKnowledgePageAccessWhere(USER_ID),
+          ],
+        },
+        select: { id: true },
+      });
+    });
+
+    it("refuses to favourite a knowledge page the caller can't view (or in another workspace)", async () => {
+      mockMember(dbMock, true);
+      dbMock.favorite.findUnique.mockResolvedValue(null as never);
+      dbMock.knowledgePage.findFirst.mockResolvedValue(null as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.favorite.toggle({
+          entityType: "page",
+          entityId: "pages/ckrestricted",
+          workspaceId: WORKSPACE_ID,
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" } satisfies Partial<TRPCError>);
 
       expect(dbMock.favorite.create).not.toHaveBeenCalled();
     });
@@ -268,8 +312,15 @@ describe("favorite router (mocked)", () => {
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
       const items = await caller.favorite.list({ workspaceId: WORKSPACE_ID });
 
+      // Titles resolve only for pages the caller can view — an unviewable
+      // page drops out exactly like a deleted one.
       expect(dbMock.knowledgePage.findMany).toHaveBeenCalledWith({
-        where: { id: { in: ["ckpage111", "ckpage999"] } },
+        where: {
+          AND: [
+            { id: { in: ["ckpage111", "ckpage999"] } },
+            buildKnowledgePageAccessWhere(USER_ID),
+          ],
+        },
         select: { id: true, title: true },
       });
       expect(items).toEqual([

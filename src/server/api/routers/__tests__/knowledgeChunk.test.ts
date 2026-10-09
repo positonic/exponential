@@ -358,6 +358,19 @@ describe("knowledgeChunk router (mocked)", () => {
       expect(callArgs.userId).toBeUndefined();
     });
 
+    it("restricts page chunks to pages the caller can view (pageViewerId)", async () => {
+      stubMembership(true);
+      mockSearch.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.knowledgeChunk.semanticSearch({ query: "x", workspaceId });
+
+      expect(mockSearch).toHaveBeenCalledWith(
+        "x",
+        expect.objectContaining({ pageViewerId: callerId }),
+      );
+    });
+
     it("forwards participantEmail to KnowledgeService.search", async () => {
       stubMembership(true);
       mockSearch.mockResolvedValue([]);

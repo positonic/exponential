@@ -2,6 +2,7 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
 import type {
   EmbeddingSource,
   EmbeddingResult,
@@ -52,6 +53,14 @@ export interface KnowledgeSearchOptions {
   projectId?: string;
   sourceTypes?: ("transcription" | "resource" | "document" | "page")[];
   participantEmail?: string;
+  /**
+   * Restrict `page` chunks to Pages this user can view (the
+   * `buildKnowledgePageAccessWhere` rule). Workspace scope alone is NOT page
+   * access — restricted-project Pages live in the workspace too — so every
+   * caller that searches page chunks on someone's behalf must pass this
+   * (or `userId`, which narrows to their own chunks).
+   */
+  pageViewerId?: string;
   limit?: number;
   similarityThreshold?: number;
 }
@@ -496,6 +505,7 @@ export class KnowledgeService {
    *      per-utterance speaker filter — proper per-speaker filtering requires
    *      Fireflies-aware chunking that populates `KnowledgeChunk.speakerEmail`,
    *      which is out of scope for this PR.
+   *   - `pageViewerId` — keep `page` chunks only for Pages this user can view
    */
   async search(
     query: string,
@@ -507,6 +517,7 @@ export class KnowledgeService {
       projectId,
       sourceTypes,
       participantEmail,
+      pageViewerId,
       limit = 10,
     } = options;
 
@@ -551,6 +562,23 @@ export class KnowledgeService {
           )
         )`
       : Prisma.empty;
+
+    // Page access: workspace scope isn't enough (restricted-project Pages share
+    // the workspace), so resolve the viewable set through the page access
+    // where-builder and keep only those Pages' chunks. Skipped when the search
+    // can't return page chunks at all.
+    const searchesPages = !sourceTypes?.length || sourceTypes.includes("page");
+    let pageAccessCondition = Prisma.empty;
+    if (pageViewerId && searchesPages) {
+      const viewable = await this.db.knowledgePage.findMany({
+        where: {
+          AND: [{ workspaceId }, buildKnowledgePageAccessWhere(pageViewerId)],
+        },
+        select: { id: true },
+      });
+      const viewableIds = viewable.map((p) => p.id);
+      pageAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'page' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
+    }
 
     // Execute vector search with parameterized query
     const results = await this.db.$queryRaw<
@@ -597,6 +625,7 @@ export class KnowledgeService {
         ${projectCondition}
         ${sourceTypeCondition}
         ${participantCondition}
+        ${pageAccessCondition}
       ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}
     `;

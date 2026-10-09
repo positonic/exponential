@@ -35,6 +35,7 @@ vi.mock("@langchain/openai", () => ({
 
 // Imports of code under test must come AFTER vi.mock calls.
 import { KnowledgeService } from "../KnowledgeService";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
 import type { EmbeddingSource } from "../embedding/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ function buildFakeDb() {
   const executeRawCalls: CapturedRawCall[] = [];
   const queryRawCalls: CapturedRawCall[] = [];
   let queryRawResult: unknown[] = [];
+  let viewablePages: { id: string }[] = [];
 
   // Prisma's tagged template hands the function `(strings, ...values)`.
   // We accept a single Prisma.Sql object too (when caller pre-built it).
@@ -80,6 +82,9 @@ function buildFakeDb() {
     knowledgeChunk: {
       count: vi.fn(async () => 0),
     },
+    knowledgePage: {
+      findMany: vi.fn(async () => viewablePages),
+    },
   } as unknown as ConstructorParameters<typeof KnowledgeService>[0];
 
   return {
@@ -88,6 +93,9 @@ function buildFakeDb() {
     queryRawCalls,
     setQueryRawResult: (rows: unknown[]) => {
       queryRawResult = rows;
+    },
+    setViewablePages: (ids: string[]) => {
+      viewablePages = ids.map((id) => ({ id }));
     },
   };
 }
@@ -308,6 +316,53 @@ describe("KnowledgeService — workspace scoping", () => {
       expect(haystack).toContain('p."workspaceId"');
       expect(allBound).toContain("alice@example.com");
       expect(allBound).toContain("ws-A");
+    });
+
+    it("keeps page chunks only for pages the pageViewerId can view", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setViewablePages } = buildFakeDb();
+      setQueryRawResult([]);
+      setViewablePages(["page-ok"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", pageViewerId: "u-7" });
+
+      const pageFindMany = (db as unknown as {
+        knowledgePage: { findMany: ReturnType<typeof vi.fn> };
+      }).knowledgePage.findMany;
+      expect(pageFindMany).toHaveBeenCalledTimes(1);
+      const where = (pageFindMany.mock.calls[0]?.[0] as { where: unknown }).where;
+      expect(where).toEqual({
+        AND: [{ workspaceId: "ws-A" }, buildKnowledgePageAccessWhere("u-7")],
+      });
+
+      const call = queryRawCalls[0]!;
+      const fragments: string[] = [];
+      const bound: unknown[] = [];
+      for (const v of call.values) {
+        const sub = (v as { strings?: readonly string[] })?.strings;
+        if (sub) fragments.push(sub.join(" ?? "));
+        const subVals = (v as { values?: unknown[] })?.values;
+        if (Array.isArray(subVals)) bound.push(...subVals);
+      }
+      expect(fragments.join("\n")).toContain(`kc."sourceType" <> 'page' OR kc."sourceId" = ANY(`);
+      expect(bound).toContainEqual(["page-ok"]);
+    });
+
+    it("skips the page-access lookup when the search can't return page chunks", async () => {
+      const { db, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", {
+        workspaceId: "ws-A",
+        pageViewerId: "u-7",
+        sourceTypes: ["resource"],
+      });
+
+      const pageFindMany = (db as unknown as {
+        knowledgePage: { findMany: ReturnType<typeof vi.fn> };
+      }).knowledgePage.findMany;
+      expect(pageFindMany).not.toHaveBeenCalled();
     });
   });
 });
