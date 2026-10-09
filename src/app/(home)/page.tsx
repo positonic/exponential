@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "~/server/auth";
@@ -21,6 +22,29 @@ import {
   FeaturesMenu,
   ResourcesMenu,
 } from "~/app/_components/home";
+import { PRODUCT_NAME, PRODUCT_SEO_DESCRIPTION, PRODUCT_SEO_TITLE } from "~/lib/brand";
+
+// The homepage's search-result title and description. Other (home) pages fall
+// back to the layout's branding copy.
+export const metadata: Metadata = {
+  title: PRODUCT_SEO_TITLE,
+  description: PRODUCT_SEO_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    siteName: PRODUCT_NAME,
+    url: "/",
+    title: PRODUCT_SEO_TITLE,
+    description: PRODUCT_SEO_DESCRIPTION,
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: PRODUCT_SEO_TITLE,
+    description: PRODUCT_SEO_DESCRIPTION,
+    images: ["/og-image.png"],
+  },
+};
 
 export default async function Home() {
   const session = await auth();
