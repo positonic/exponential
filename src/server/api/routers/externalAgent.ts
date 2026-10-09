@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
+import { deleteExternalAgentPrincipal } from "~/server/services/assistant/principal";
 
 /**
  * External-agent management (ADR-0049).
@@ -179,34 +180,16 @@ export const externalAgentRouter = createTRPCRouter({
         });
       }
 
-      // Credentials and memberships always die with the agent.
-      await ctx.db.$transaction([
-        ctx.db.externalAgentKey.deleteMany({ where: { agentId: agent.id } }),
-        ctx.db.workspaceUser.deleteMany({ where: { userId: agent.shadowUserId } }),
-        ctx.db.externalAgent.delete({ where: { id: agent.id } }),
-      ]);
-
-      // The shadow user row is removed only when nothing references it: if the
-      // agent authored content (Action.createdById etc.), the restricted FKs
-      // block deletion and we keep the row — inert (no keys, no memberships,
-      // no login) but preserving historical attribution.
-      try {
-        await ctx.db.user.delete({ where: { id: agent.shadowUserId } });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          (error.code === "P2003" || error.code === "P2014")
-        ) {
-          return { success: true, shadowUserRetained: true };
-        }
-        throw error;
+      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
+      if (result.shadowUserRetained) {
+        return { success: true, shadowUserRetained: true };
       }
 
       // A retained shadow user still needs its image for historical
       // attribution. Once the row is gone, the blob is unreachable and can be
       // cleaned up without affecting deletion if storage is temporarily down.
-      if (agent.shadowUser.image) {
-        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
+      if (result.orphanedImage) {
+        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
       }
       return { success: true, shadowUserRetained: false };
     }),

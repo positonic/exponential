@@ -92,6 +92,7 @@ const ownedAssistant = {
   id: ASSISTANT_ID,
   workspaceId: WORKSPACE_ID,
   createdById: OWNER_ID,
+  externalAgentId: null,
   name: "Aria",
   emoji: "✨",
   personality: "Warm, direct, allergic to filler.",
@@ -132,6 +133,8 @@ describe("assistant router — ownership (cross-tenant IDOR)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     stubOwnershipScopedLookup(dbMock);
+    dbMock.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) =>
+      cb(dbMock)) as never);
     dbMock.assistant.update.mockResolvedValue(ownedAssistant as never);
     dbMock.assistant.delete.mockResolvedValue(ownedAssistant as never);
     dbMock.assistant.updateMany.mockResolvedValue({ count: 0 } as never);

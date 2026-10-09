@@ -304,7 +304,11 @@ export function AssignActionModal({
                           }}
                         >
                           {user.isAgent && !user.image ? (
-                            <IconRobot size={16} />
+                            user.assistantOwner?.emoji ? (
+                              <span aria-hidden>{user.assistantOwner.emoji}</span>
+                            ) : (
+                              <IconRobot size={16} />
+                            )
                           ) : !user.image ? (
                             getInitial(user.name, user.email)
                           ) : null}

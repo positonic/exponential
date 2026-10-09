@@ -155,3 +155,90 @@ describe("assistant.create — the Assistant is a principal (ADR-0067)", () => {
     expect(writes).toEqual([]);
   });
 });
+
+describe("assistant.update / delete — the principal follows the Assistant (ADR-0067)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  let writes: string[];
+  const owned = {
+    id: "assistant-1",
+    workspaceId: WORKSPACE_ID,
+    createdById: OWNER_ID,
+    externalAgentId: AGENT_ID,
+    name: "Aria",
+    emoji: "✨",
+    personality: "Warm.",
+    instructions: null,
+    userContext: null,
+    isDefault: true,
+    createdAt: new Date("2026-01-01"),
+    updatedAt: new Date("2026-01-01"),
+    externalAgent: { id: AGENT_ID, executor: "MASTRA", shadowUserId: SHADOW_USER_ID },
+  };
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    writes = [];
+    dbMock.assistant.findFirst.mockResolvedValue(owned as never);
+    dbMock.assistant.updateMany.mockResolvedValue({ count: 0 } as never);
+    dbMock.$transaction.mockImplementation(((arg: unknown) =>
+      typeof arg === "function" ? (arg as (tx: unknown) => unknown)(dbMock) : Promise.resolve([])) as never);
+    dbMock.externalAgent.update.mockImplementation((() => {
+      writes.push("externalAgent.update");
+      return Promise.resolve({ shadowUserId: SHADOW_USER_ID });
+    }) as never);
+    dbMock.user.update.mockImplementation((() => {
+      writes.push("user.update");
+      return Promise.resolve({});
+    }) as never);
+    dbMock.assistant.update.mockImplementation((() => {
+      writes.push("assistant.update");
+      return Promise.resolve({ ...owned, name: "Max" });
+    }) as never);
+  });
+
+  it("renaming propagates to the External agent and its shadow user", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: owned.id, name: "Max" });
+
+    expect(writes).toEqual(["externalAgent.update", "user.update", "assistant.update"]);
+    expect(dbMock.externalAgent.update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: AGENT_ID },
+      data: { name: "Max" },
+    });
+    expect(dbMock.user.update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: SHADOW_USER_ID },
+      data: { name: "Max" },
+    });
+  });
+
+  it("an update that keeps the name touches neither principal row", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: owned.id, personality: "Warmer." });
+
+    expect(writes).toEqual(["assistant.update"]);
+  });
+
+  it("deleting the Assistant deletes its principal: keys, memberships, agent, shadow user", async () => {
+    dbMock.externalAgent.findUnique.mockResolvedValue({
+      id: AGENT_ID,
+      shadowUserId: SHADOW_USER_ID,
+      shadowUser: { image: null },
+    } as never);
+    dbMock.user.delete.mockResolvedValue({} as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.delete({ id: owned.id });
+
+    expect(dbMock.externalAgentKey.deleteMany).toHaveBeenCalledWith({ where: { agentId: AGENT_ID } });
+    expect(dbMock.workspaceUser.deleteMany).toHaveBeenCalledWith({
+      where: { userId: SHADOW_USER_ID },
+    });
+    expect(dbMock.externalAgent.delete).toHaveBeenCalledWith({ where: { id: AGENT_ID } });
+    expect(dbMock.user.delete).toHaveBeenCalledWith({ where: { id: SHADOW_USER_ID } });
+    // The Assistant row goes with the agent (FK cascade) — no direct delete.
+    expect(dbMock.assistant.delete).not.toHaveBeenCalled();
+  });
+});

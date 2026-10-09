@@ -4,7 +4,12 @@ import { requireWorkspaceMembership } from "~/server/services/access/middleware"
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
-import { createAssistantPrincipal } from "~/server/services/assistant/principal";
+import {
+  createAssistantPrincipal,
+  deleteExternalAgentPrincipal,
+  renameAssistantPrincipal,
+} from "~/server/services/assistant/principal";
+import { deleteFromBlob } from "~/lib/blob";
 
 /**
  * Assistants are **per user, per workspace** — each member of a workspace gets
@@ -23,6 +28,11 @@ import { createAssistantPrincipal } from "~/server/services/assistant/principal"
  * read access is as sensitive as write access — `getById` and `list` are
  * guarded on the same terms as the mutations.
  */
+/** What the settings page needs from the principal: which engine runs its Agent runs. */
+const ASSISTANT_PRINCIPAL_INCLUDE = {
+  externalAgent: { select: { id: true, executor: true, shadowUserId: true } },
+} as const;
+
 async function getOwnedAssistantOrThrow(
   db: PrismaClient,
   id: string,
@@ -30,6 +40,7 @@ async function getOwnedAssistantOrThrow(
 ) {
   const assistant = await db.assistant.findFirst({
     where: { id, createdById: userId },
+    include: ASSISTANT_PRINCIPAL_INCLUDE,
   });
   if (!assistant) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
@@ -118,12 +129,20 @@ export const assistantRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.assistant.update({
-        where: { id },
-        data: {
-          ...data,
-          ...(isDefault !== undefined && { isDefault }),
-        },
+      const renamed = data.name !== undefined && data.name !== existing.name;
+      return ctx.db.$transaction(async (tx) => {
+        // The principal answers to the Assistant's name (ADR-0067).
+        if (renamed && existing.externalAgentId) {
+          await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
+        }
+        return tx.assistant.update({
+          where: { id },
+          data: {
+            ...data,
+            ...(isDefault !== undefined && { isDefault }),
+          },
+          include: ASSISTANT_PRINCIPAL_INCLUDE,
+        });
       });
     }),
 
@@ -159,6 +178,7 @@ export const assistantRouter = createTRPCRouter({
           createdById: ctx.session.user.id,
           isDefault: true,
         },
+        include: ASSISTANT_PRINCIPAL_INCLUDE,
       });
     }),
 
@@ -170,12 +190,31 @@ export const assistantRouter = createTRPCRouter({
     return findGatewayAssistant(ctx.db, ctx.session.user.id);
   }),
 
-  /** Delete an assistant owned by the calling user */
+  /**
+   * Delete an assistant owned by the calling user — and its principal. The
+   * Assistant row itself goes with the External agent (FK cascade); the shadow
+   * user is kept when it authored content, so attribution survives (ADR-0067).
+   */
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
-      return ctx.db.assistant.delete({ where: { id: input.id } });
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      if (!assistant.externalAgentId) {
+        // Pre-backfill row: nothing to cascade from.
+        return ctx.db.assistant.delete({ where: { id: input.id } });
+      }
+      const agent = await ctx.db.externalAgent.findUnique({
+        where: { id: assistant.externalAgentId },
+        select: { id: true, shadowUserId: true, shadowUser: { select: { image: true } } },
+      });
+      if (!agent) {
+        return ctx.db.assistant.delete({ where: { id: input.id } });
+      }
+      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
+      if (result.orphanedImage) {
+        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
+      }
+      return assistant;
     }),
 
   /** Set one of the calling user's assistants as their workspace default */

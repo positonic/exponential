@@ -166,7 +166,8 @@ export default function AssistantSettingsPage() {
           </Group>
           <Text size="sm" c="dimmed" mt="xs">
             Give your AI assistant a name and personality. This defines how it
-            responds to you across the app.
+            responds to you across the app, and it can be assigned work like a
+            teammate.
           </Text>
         </div>
 
@@ -277,6 +278,24 @@ export default function AssistantSettingsPage() {
             autosize
           />
         </Paper>
+
+        {/* Delegation (ADR-0067) */}
+        {assistant && (
+          <Paper p="lg" withBorder className="bg-surface-secondary">
+            <Text fw={500} className="text-text-primary mb-1">
+              Delegation
+            </Text>
+            <Text size="sm" c="dimmed">
+              <b>{assistant.name}</b> can be assigned work. Pick it from the Assign
+              modal on any action in this workspace and it will research, delegate,
+              or do the work inside Exponential, asking you when it gets stuck.
+              Everything it writes is attributed to it, never to you.
+            </Text>
+            <Text size="xs" c="dimmed" mt="sm">
+              Runs on: {assistant.externalAgent?.executor === 'LOCAL_CLI' ? 'your machine (local runner)' : 'Hosted'}
+            </Text>
+          </Paper>
+        )}
 
         {gatewayAssistant && (
           <Text size="sm" c="dimmed">
