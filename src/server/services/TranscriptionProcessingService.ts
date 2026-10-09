@@ -47,7 +47,7 @@ export interface GenerateDraftActionsOptions {
 export interface ExtractMeetingOutputsResult {
   actions: DraftTranscriptionActionsResult;
   decisions: Omit<DraftDecisionsResult, "actionItems">;
-  /** True when the run completed and the meeting was stamped `outputsExtractedAt`. */
+  /** True when both halves got through and the meeting was stamped `outputsExtractedAt`. */
   extracted: boolean;
 }
 
@@ -374,11 +374,13 @@ export class TranscriptionProcessingService {
     const actions = await this.generateDraftActions(transcriptionId, userId, {
       transcriptActionItems: actionItems,
     });
-    // The run counts as done once either half got through (including the
+    // The run counts as done once both halves got through (including the
     // "already drafted" short-circuits): the stamp is what keeps the
-    // ceremony sweep from reading the same meeting again, so a run that
-    // failed outright leaves it unset and the sweep retries.
-    const extracted = actions.success || decisions.success;
+    // ceremony sweep from reading the same meeting again. A half that
+    // failed leaves it unset, so the sweep retries and the half that landed
+    // short-circuits on its drafts; the sweep stamps the failures a retry
+    // cannot fix itself.
+    const extracted = actions.success && decisions.success;
     if (extracted) {
       await db.transcriptionSession.update({
         where: { id: transcriptionId },
