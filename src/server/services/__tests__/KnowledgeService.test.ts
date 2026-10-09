@@ -348,6 +348,24 @@ describe("KnowledgeService — workspace scoping", () => {
       expect(bound).toContainEqual(["page-ok"]);
     });
 
+    it("drops page chunks entirely when no pageViewerId is given (fails closed)", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A" });
+
+      const pageFindMany = (db as unknown as {
+        knowledgePage: { findMany: ReturnType<typeof vi.fn> };
+      }).knowledgePage.findMany;
+      expect(pageFindMany).not.toHaveBeenCalled();
+      const fragments = queryRawCalls[0]!.values
+        .map((v) => (v as { strings?: readonly string[] })?.strings?.join(" ?? "))
+        .filter(Boolean)
+        .join("\n");
+      expect(fragments).toContain(`AND kc."sourceType" <> 'page'`);
+    });
+
     it("skips the page-access lookup when the search can't return page chunks", async () => {
       const { db, setQueryRawResult } = buildFakeDb();
       setQueryRawResult([]);

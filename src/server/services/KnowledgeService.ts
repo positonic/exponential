@@ -57,8 +57,8 @@ export interface KnowledgeSearchOptions {
    * Restrict `page` chunks to Pages this user can view (the
    * `buildKnowledgePageAccessWhere` rule). Workspace scope alone is NOT page
    * access — restricted-project Pages live in the workspace too — so every
-   * caller that searches page chunks on someone's behalf must pass this
-   * (or `userId`, which narrows to their own chunks).
+   * caller that searches page chunks on someone's behalf must pass this.
+   * Fails closed: without it, page chunks are excluded entirely.
    */
   pageViewerId?: string;
   limit?: number;
@@ -505,7 +505,8 @@ export class KnowledgeService {
    *      per-utterance speaker filter — proper per-speaker filtering requires
    *      Fireflies-aware chunking that populates `KnowledgeChunk.speakerEmail`,
    *      which is out of scope for this PR.
-   *   - `pageViewerId` — keep `page` chunks only for Pages this user can view
+   *   - `pageViewerId` — keep `page` chunks only for Pages this user can view;
+   *      omitted, page chunks are dropped (fail closed)
    */
   async search(
     query: string,
@@ -565,11 +566,15 @@ export class KnowledgeService {
 
     // Page access: workspace scope isn't enough (restricted-project Pages share
     // the workspace), so resolve the viewable set through the page access
-    // where-builder and keep only those Pages' chunks. Skipped when the search
-    // can't return page chunks at all.
+    // where-builder and keep only those Pages' chunks. With no viewer to check
+    // against, page chunks are dropped — a caller that forgets the option
+    // fails closed instead of leaking. Skipped when the search can't return
+    // page chunks at all.
     const searchesPages = !sourceTypes?.length || sourceTypes.includes("page");
     let pageAccessCondition = Prisma.empty;
-    if (pageViewerId && searchesPages) {
+    if (searchesPages && !pageViewerId) {
+      pageAccessCondition = Prisma.sql`AND kc."sourceType" <> 'page'`;
+    } else if (searchesPages && pageViewerId) {
       const viewable = await this.db.knowledgePage.findMany({
         where: {
           AND: [{ workspaceId }, buildKnowledgePageAccessWhere(pageViewerId)],
