@@ -51,9 +51,7 @@ export type EnsureMeetingSummaryStatus =
   /** No usable transcript to summarize. */
   | "no-transcript"
   /** Summarization isn't configured (missing OPENAI_API_KEY). */
-  | "not-configured"
-  /** The meeting row could not be found. */
-  | "not-found";
+  | "not-configured";
 
 export interface EnsureMeetingSummaryResult {
   status: EnsureMeetingSummaryStatus;

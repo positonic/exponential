@@ -2166,8 +2166,8 @@ export const transcriptionRouter = createTRPCRouter({
         case "created":
           return { id: session.id, summary: outcome.summary ?? null };
         default:
-          // already-had / not-found shouldn't occur here (we just loaded the
-          // row and pass overwriteExisting), but fall back to the stored value.
+          // already-had shouldn't occur here (we just loaded the row and pass
+          // overwriteExisting), but fall back to the stored value.
           return { id: session.id, summary: session.summary };
       }
     }),
