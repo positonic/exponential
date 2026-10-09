@@ -11,6 +11,12 @@
  *   restricted-project allowlist included).
  * - It has no project and they are a member of its workspace (any role may
  *   view; edit requires a non-viewer role).
+ *
+ * An **invite-only** Page (ADR-0067) replaces the last two paths entirely: it
+ * is visible to its owner and its invitees (`KnowledgePageMember`) who still
+ * belong to its workspace — nobody else, workspace owners/admins included.
+ * Project placement grants nothing. Invitee role "editor" may edit; "viewer"
+ * may only view. Only the owner manages access ({@link canManageKnowledgePageAccess}).
  */
 
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -24,10 +30,27 @@ import {
 import {
   getWorkspaceMembership,
   buildWorkspaceAccessWhere,
+  filterWorkspaceMembers,
 } from "./workspaceResolver";
+
+/** An invitee's role on an invite-only Page (ADR-0067). */
+export type KnowledgePageInviteRole = "viewer" | "editor";
+
+export function isKnowledgePageInviteRole(
+  role: string,
+): role is KnowledgePageInviteRole {
+  return role === "viewer" || role === "editor";
+}
 
 export interface KnowledgePageAccessInfo {
   isOwner: boolean;
+  /** Invite-only page: only the owner and invitees get in (ADR-0067). */
+  isInviteOnly: boolean;
+  /**
+   * The caller's invite role on an invite-only page — null when not invited,
+   * when no longer a member of the page's workspace, or on any other page.
+   */
+  inviteRole: KnowledgePageInviteRole | null;
   /** Whether the page is assigned to a project. */
   hasProject: boolean;
   hasProjectAccess: boolean;
@@ -40,12 +63,38 @@ export async function getKnowledgePageAccess(
   db: PrismaClient,
   userId: string,
   page: {
+    id: string;
     createdById: string;
     projectId: string | null;
     workspaceId: string;
+    isInviteOnly: boolean;
   },
 ): Promise<KnowledgePageAccessInfo> {
   const isOwner = page.createdById === userId;
+
+  if (page.isInviteOnly) {
+    // Project and workspace paths don't apply — only the invite does, and
+    // only while the invitee still belongs to the page's workspace.
+    const [invite, membership] = await Promise.all([
+      db.knowledgePageMember.findUnique({
+        where: { pageId_userId: { pageId: page.id, userId } },
+        select: { role: true },
+      }),
+      getWorkspaceMembership(db, userId, page.workspaceId),
+    ]);
+    return {
+      isOwner,
+      isInviteOnly: true,
+      inviteRole:
+        invite && membership && isKnowledgePageInviteRole(invite.role)
+          ? invite.role
+          : null,
+      hasProject: !!page.projectId,
+      hasProjectAccess: false,
+      canEditProject: false,
+      workspaceRole: null,
+    };
+  }
 
   let projectAccess = null;
   if (page.projectId) {
@@ -64,6 +113,8 @@ export async function getKnowledgePageAccess(
 
   return {
     isOwner,
+    isInviteOnly: false,
+    inviteRole: null,
     hasProject: !!page.projectId,
     hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
     canEditProject: projectAccess ? canEditProject(projectAccess) : false,
@@ -74,6 +125,8 @@ export async function getKnowledgePageAccess(
 /** Check if user can view this page. */
 export function canViewKnowledgePage(access: KnowledgePageAccessInfo): boolean {
   if (access.isOwner) return true;
+  // Invite-only: the invite is the only way in (no admin escape hatch).
+  if (access.isInviteOnly) return access.inviteRole !== null;
   // Project access is authoritative for project-assigned pages.
   if (access.hasProject) return access.hasProjectAccess;
   // Project-less pages: any workspace member (any role) may view.
@@ -83,10 +136,22 @@ export function canViewKnowledgePage(access: KnowledgePageAccessInfo): boolean {
 /** Check if user can edit this page. */
 export function canEditKnowledgePage(access: KnowledgePageAccessInfo): boolean {
   if (access.isOwner) return true;
+  if (access.isInviteOnly) return access.inviteRole === "editor";
   if (access.hasProject) return access.canEditProject;
   // Project-less pages: workspace members may edit, except viewers
   // (viewer is a read-only role).
   return access.workspaceRole !== null && access.workspaceRole !== "viewer";
+}
+
+/**
+ * Who may change a page's sharing — its invite-only mode and its invitees, and
+ * publish an invite-only page to the web (ADR-0067). The owner alone, so an
+ * invited editor can never widen a page they were let into.
+ */
+export function canManageKnowledgePageAccess(
+  access: KnowledgePageAccessInfo,
+): boolean {
+  return access.isOwner;
 }
 
 /**
@@ -102,13 +167,30 @@ export function buildKnowledgePageAccessWhere(
     OR: [
       // Page owner
       { createdById: userId },
-      // Project-assigned pages: project access is authoritative
-      { project: buildProjectAccessWhere(userId) },
-      // Project-less pages: workspace membership (direct or via team)
+      // Invite-only pages: invitees still in the page's workspace, nobody else
       {
         AND: [
-          { projectId: null },
+          { isInviteOnly: true },
+          { members: { some: { userId } } },
           { workspace: buildWorkspaceAccessWhere(userId) },
+        ],
+      },
+      {
+        AND: [
+          { isInviteOnly: false },
+          {
+            OR: [
+              // Project-assigned pages: project access is authoritative
+              { project: buildProjectAccessWhere(userId) },
+              // Project-less pages: workspace membership (direct or via team)
+              {
+                AND: [
+                  { projectId: null },
+                  { workspace: buildWorkspaceAccessWhere(userId) },
+                ],
+              },
+            ],
+          },
         ],
       },
     ],
@@ -141,11 +223,20 @@ export interface KnowledgePageViewer {
 export async function listKnowledgePageViewers(
   db: PrismaClient,
   page: {
+    id: string;
     createdById: string;
     projectId: string | null;
     workspaceId: string;
+    isInviteOnly: boolean;
   },
 ): Promise<{ isPublicProject: boolean; viewers: KnowledgePageViewer[] }> {
+  if (page.isInviteOnly) {
+    return {
+      isPublicProject: false,
+      viewers: await listInviteOnlyViewers(db, page),
+    };
+  }
+
   const project = page.projectId
     ? await db.project.findUnique({
         where: { id: page.projectId },
@@ -228,6 +319,8 @@ export async function listKnowledgePageViewers(
       : null;
     const access: KnowledgePageAccessInfo = {
       isOwner: page.createdById === userId,
+      isInviteOnly: false,
+      inviteRole: null,
       hasProject: !!page.projectId,
       hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
       // View-only question; edit rights don't affect who is in the audience.
@@ -246,4 +339,47 @@ export async function listKnowledgePageViewers(
   }
 
   return { isPublicProject: false, viewers };
+}
+
+/**
+ * Viewers of an invite-only page: the owner plus invitees who still belong to
+ * the page's workspace (direct or via a workspace-linked team) — the same test
+ * `getKnowledgePageAccess` applies per user, batch-loaded.
+ */
+async function listInviteOnlyViewers(
+  db: PrismaClient,
+  page: { id: string; createdById: string; workspaceId: string },
+): Promise<KnowledgePageViewer[]> {
+  const invites = await db.knowledgePageMember.findMany({
+    where: { pageId: page.id },
+    select: { userId: true, role: true },
+  });
+  const stillMembers = await filterWorkspaceMembers(
+    db,
+    page.workspaceId,
+    invites.map((i) => i.userId),
+  );
+
+  const viewers: KnowledgePageViewer[] = [
+    { userId: page.createdById, viaAdminEscapeHatch: false },
+  ];
+  for (const invite of invites) {
+    if (invite.userId === page.createdById) continue;
+    const access: KnowledgePageAccessInfo = {
+      isOwner: false,
+      isInviteOnly: true,
+      inviteRole:
+        stillMembers.has(invite.userId) && isKnowledgePageInviteRole(invite.role)
+          ? invite.role
+          : null,
+      hasProject: false,
+      hasProjectAccess: false,
+      canEditProject: false,
+      workspaceRole: null,
+    };
+    if (canViewKnowledgePage(access)) {
+      viewers.push({ userId: invite.userId, viaAdminEscapeHatch: false });
+    }
+  }
+  return viewers;
 }

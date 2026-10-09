@@ -126,6 +126,42 @@ export async function buildContent(
         dedupeKey: `summary:${input.subject.kind}:${input.subject.periodKey}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.PAGE_SHARED: {
+      const { pageId } = input.subject;
+      const [page, actor] = await Promise.all([
+        db.knowledgePage.findUnique({
+          where: { id: pageId },
+          select: {
+            title: true,
+            workspace: { select: { id: true, slug: true, name: true } },
+          },
+        }),
+        input.actorUserId
+          ? db.user.findUnique({
+              where: { id: input.actorUserId },
+              select: { name: true, email: true },
+            })
+          : Promise.resolve(null),
+      ]);
+      if (!page) return null;
+
+      const sharerName = actor?.name ?? actor?.email ?? "Someone";
+      return {
+        category: NOTIFICATION_CATEGORIES.PAGE_SHARED,
+        title: `${sharerName} shared a page with you`,
+        message: page.title,
+        deeplink: buildPageEditorPath(page.workspace.slug, pageId),
+        metadata: {
+          pageId,
+          workspaceId: page.workspace.id,
+          workspaceSlug: page.workspace.slug,
+          workspaceName: page.workspace.name,
+          sharerName,
+        },
+        workspaceId: page.workspace.id,
+        dedupeKey: `page_shared:${pageId}:${recipientId}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED: {
       const { sessionId } = input.subject;
 

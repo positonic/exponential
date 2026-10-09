@@ -21,6 +21,7 @@ async function createPage(
     projectId?: string | null;
     title?: string;
     includeInSearch?: boolean;
+    isInviteOnly?: boolean;
   },
 ) {
   return db.knowledgePage.create({
@@ -31,6 +32,7 @@ async function createPage(
       title: args.title ?? "A page",
       body: "hello world",
       includeInSearch: args.includeInSearch ?? true,
+      isInviteOnly: args.isInviteOnly ?? false,
     },
   });
 }
@@ -623,6 +625,169 @@ describe("page router", () => {
       });
       // Row-for-row identical, positions included.
       expect(fromBackfill).toEqual(fromSync);
+    });
+  });
+
+  describe("invite-only pages (ADR-0067)", () => {
+    /** A workspace with an owner (who is also the page author), an admin, a
+     * member who gets invited, a member who doesn't, and an outsider. */
+    async function setup(slug: string) {
+      const author = await createUser(db);
+      const admin = await createUser(db);
+      const invitee = await createUser(db);
+      const bystander = await createUser(db);
+      const outsider = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: author.id, slug });
+      await addWorkspaceMember(db, ws.id, admin.id, "admin");
+      await addWorkspaceMember(db, ws.id, invitee.id, "member");
+      await addWorkspaceMember(db, ws.id, bystander.id, "member");
+      const page = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        isInviteOnly: true,
+        title: "Private plan",
+      });
+      return { author, admin, invitee, bystander, outsider, ws, page };
+    }
+
+    it("only the owner and invitees can see it — workspace admins included out", async () => {
+      const { author, admin, invitee, bystander, ws, page } = await setup("pg-io-see");
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "viewer",
+      });
+
+      await expect(createTestCaller(invitee.id).page.get({ id: page.id })).resolves.toMatchObject({
+        id: page.id,
+        canEdit: false,
+      });
+      await expect(createTestCaller(admin.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+      await expect(createTestCaller(bystander.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+
+      // The bulk where-clause agrees with the per-page resolver.
+      const listed = async (userId: string) =>
+        (await createTestCaller(userId).page.list({ workspaceId: ws.id })).map((p) => p.id);
+      expect(await listed(invitee.id)).toContain(page.id);
+      expect(await listed(admin.id)).not.toContain(page.id);
+      expect(await listed(bystander.id)).not.toContain(page.id);
+    });
+
+    it("project placement grants nothing, even to restricted-project members", async () => {
+      const { author, bystander, ws } = await setup("pg-io-project");
+      const project = await createProject(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        isRestricted: true,
+      });
+      await addProjectMember(db, project.id, bystander.id, "editor");
+      const page = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        projectId: project.id,
+        isInviteOnly: true,
+      });
+      await expect(createTestCaller(bystander.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+    });
+
+    it("an invitee who leaves the workspace loses access", async () => {
+      const { author, invitee, ws, page } = await setup("pg-io-leave");
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "editor",
+      });
+      await db.workspaceUser.deleteMany({ where: { workspaceId: ws.id, userId: invitee.id } });
+      await expect(createTestCaller(invitee.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+    });
+
+    it("an editor invitee can edit but can't share, unshare or publish", async () => {
+      const { author, invitee, bystander, page } = await setup("pg-io-editor");
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "editor",
+      });
+      const caller = createTestCaller(invitee.id);
+      await expect(caller.page.get({ id: page.id })).resolves.toMatchObject({ canEdit: true });
+      await expect(
+        caller.page.invite({ id: page.id, userIds: [bystander.id], role: "viewer" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(
+        caller.page.setInviteOnly({ id: page.id, inviteOnly: false }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(caller.page.publish({ id: page.id })).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+    });
+
+    it("rejects inviting people outside the workspace, and inviting before invite-only", async () => {
+      const { author, outsider, invitee, ws, page } = await setup("pg-io-guard");
+      const caller = createTestCaller(author.id);
+      await expect(
+        caller.page.invite({ id: page.id, userIds: [outsider.id], role: "viewer" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      const open = await createPage(db, { createdById: author.id, workspaceId: ws.id });
+      await expect(
+        caller.page.invite({ id: open.id, userIds: [invitee.id], role: "viewer" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("switching invite-only off restores workspace visibility and keeps the invite list", async () => {
+      const { author, invitee, bystander, page } = await setup("pg-io-toggle");
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [invitee.id], role: "viewer" });
+      await caller.page.setInviteOnly({ id: page.id, inviteOnly: false });
+      await expect(createTestCaller(bystander.id).page.get({ id: page.id })).resolves.toBeTruthy();
+
+      await caller.page.setInviteOnly({ id: page.id, inviteOnly: true });
+      const sharing = await caller.page.sharing({ id: page.id });
+      expect(sharing.invitees.map((i) => i.id)).toEqual([invitee.id]);
+    });
+
+    it("a duplicate of an invite-only page stays invite-only, owned by the duplicator, with no invitees", async () => {
+      const { author, invitee, page } = await setup("pg-io-dup");
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "viewer",
+      });
+      const { id } = await createTestCaller(invitee.id).page.duplicate({ id: page.id });
+      const copy = await db.knowledgePage.findUniqueOrThrow({
+        where: { id },
+        select: { isInviteOnly: true, createdById: true, members: true },
+      });
+      expect(copy).toMatchObject({ isInviteOnly: true, createdById: invitee.id, members: [] });
+      await expect(createTestCaller(author.id).page.get({ id })).rejects.toThrow(TRPCError);
+    });
+
+    it("applies the parent's sharing to the owner's own sub-pages only", async () => {
+      const { author, invitee, bystander, ws, page } = await setup("pg-io-subpages");
+      await addWorkspaceMember(db, ws.id, (await createUser(db)).id, "member");
+      const mine = await createPage(db, { createdById: author.id, workspaceId: ws.id, title: "Mine" });
+      const theirs = await createPage(db, {
+        createdById: bystander.id,
+        workspaceId: ws.id,
+        title: "Theirs",
+      });
+      await db.knowledgePage.update({ where: { id: page.id }, data: { bodyDoc: linkDoc(mine.id, theirs.id) } });
+      await syncPageLinks(db, page.id, linkDoc(mine.id, theirs.id));
+
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [invitee.id], role: "editor" });
+      await expect(caller.page.applySharingToSubpages({ id: page.id })).resolves.toEqual({
+        updated: 1,
+        skipped: 1,
+      });
+
+      const [mineAfter, theirsAfter] = await Promise.all([
+        db.knowledgePage.findUniqueOrThrow({ where: { id: mine.id }, include: { members: true } }),
+        db.knowledgePage.findUniqueOrThrow({ where: { id: theirs.id }, include: { members: true } }),
+      ]);
+      expect(mineAfter.isInviteOnly).toBe(true);
+      expect(mineAfter.members.map((m) => [m.userId, m.role])).toEqual([[invitee.id, "editor"]]);
+      expect(theirsAfter.isInviteOnly).toBe(false);
     });
   });
 });

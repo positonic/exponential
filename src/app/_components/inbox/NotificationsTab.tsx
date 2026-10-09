@@ -16,6 +16,7 @@ import {
   IconCalendarEvent,
   IconCheck,
   IconClockExclamation,
+  IconFileText,
   IconListDetails,
   IconMicrophone,
   IconNews,
@@ -46,6 +47,7 @@ const CATEGORY_DISPLAY: Record<NotificationCategory, { label: string; icon: Icon
   [NOTIFICATION_CATEGORIES.AGENDA_READY]: { label: 'Agendas', icon: IconListDetails },
   [NOTIFICATION_CATEGORIES.SUMMARY]: { label: 'Summaries', icon: IconNews },
   [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { label: 'Updates to review', icon: IconSparkles },
+  [NOTIFICATION_CATEGORIES.PAGE_SHARED]: { label: 'Shared pages', icon: IconFileText },
 };
 
 const CATEGORY_OPTIONS = [

@@ -4,6 +4,7 @@ import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 import { ZulipNotificationService } from "~/server/services/notifications/ZulipNotificationService";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { listKnowledgePageViewers } from "~/server/services/access/resolvers/knowledgePageResolver";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
@@ -170,6 +171,10 @@ async function fanOutMentionNotifications(
      * so editing a comment only notifies newly added mentions — never re-spams
      * everyone on each edit. */
     previousContent?: string;
+    /** When set, only these users may be notified — for targets narrower than
+     * the workspace (a restricted or invite-only Page), so a mention never
+     * sends its title and preview to someone who can't open it. */
+    restrictToUserIds?: string[];
   },
 ): Promise<void> {
   const {
@@ -182,7 +187,9 @@ async function fanOutMentionNotifications(
     commentContent,
     commentAuthorId,
     previousContent,
+    restrictToUserIds,
   } = params;
+  const allowed = restrictToUserIds ? new Set(restrictToUserIds) : null;
 
   const mentionedUserIds = await extractMentionedUserIds(
     db,
@@ -199,7 +206,10 @@ async function fanOutMentionNotifications(
   // mentioned before an edit. Non-member ids (e.g. mentioned agents) never
   // match a User row below, so they drop out.
   const recipientIds = mentionedUserIds.filter(
-    (id) => id !== commentAuthorId && !previouslyMentioned?.has(id),
+    (id) =>
+      id !== commentAuthorId &&
+      !previouslyMentioned?.has(id) &&
+      (!allowed || allowed.has(id)),
   );
   if (recipientIds.length === 0) return;
 
@@ -310,11 +320,23 @@ export async function sendPageMentionNotifications(
     const page = await db.knowledgePage.findUnique({
       where: { id: pageId },
       select: {
+        id: true,
         title: true,
+        createdById: true,
+        projectId: true,
+        workspaceId: true,
+        isInviteOnly: true,
         workspace: { select: { id: true, slug: true, name: true } },
       },
     });
     if (!page) return;
+
+    // Only people who can open the page hear about mentions on it. A public
+    // project's page is open to everyone, so it needs no restriction.
+    const { isPublicProject, viewers } = await listKnowledgePageViewers(db, page);
+    const restrictToUserIds = isPublicProject
+      ? undefined
+      : viewers.map((v) => v.userId);
 
     await fanOutMentionNotifications(db, {
       workspaceId: page.workspace.id,
@@ -326,6 +348,7 @@ export async function sendPageMentionNotifications(
       commentContent,
       commentAuthorId,
       previousContent,
+      restrictToUserIds,
     });
   } catch (error) {
     console.error("[EmailNotificationService] Failed to send page mention notifications:", error);

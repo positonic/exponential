@@ -14,7 +14,10 @@ import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
 import { uploadToBlob } from "~/lib/blob";
-import { assertWorkspaceWriteRole } from "~/server/services/access";
+import {
+  assertWorkspaceWriteRole,
+  buildKnowledgePageAccessWhere,
+} from "~/server/services/access";
 import {
   planFeatureMove,
   type FeatureMoveGraph,
@@ -472,7 +475,10 @@ export const featureRouter = createTRPCRouter({
               checkedBy: { select: { id: true, name: true, image: true } },
             },
           },
+          // Only pages the caller can view — a linked invite-only or
+          // restricted page must not surface its title through the feature.
           pages: {
+            where: { page: buildKnowledgePageAccessWhere(ctx.session.user.id) },
             orderBy: { createdAt: "asc" },
             include: {
               page: {
@@ -1679,8 +1685,15 @@ export const featureRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
-      const page = await ctx.db.knowledgePage.findUnique({
-        where: { id: input.pageId },
+      // Linking requires seeing the page: you can't attach (and so expose the
+      // title of) a page you can't view.
+      const page = await ctx.db.knowledgePage.findFirst({
+        where: {
+          AND: [
+            { id: input.pageId },
+            buildKnowledgePageAccessWhere(ctx.session.user.id),
+          ],
+        },
         select: { id: true, workspaceId: true },
       });
       if (!page || page.workspaceId !== feature.product.workspaceId) {

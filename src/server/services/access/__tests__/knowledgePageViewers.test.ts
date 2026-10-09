@@ -31,24 +31,32 @@ interface Fixture {
   teams: { id: string; workspaceId: string | null }[];
   teamUsers: { userId: string; teamId: string; role: string }[];
   projectMembers: { userId: string; projectId: string; role: string }[];
+  pageMembers: { userId: string; pageId: string; role: string }[];
 }
 
 interface Where {
   id?: string;
-  userId?: string;
+  pageId?: string;
+  userId?: string | { in: string[] };
   projectId?: string;
   teamId?: string;
   workspaceId?: string;
   team?: { workspaceId?: string };
   userId_teamId?: { userId: string; teamId: string };
   userId_workspaceId?: { userId: string; workspaceId: string };
+  pageId_userId?: { pageId: string; userId: string };
 }
 
 function fakeDb(f: Fixture): PrismaClient {
   const teamWorkspace = (teamId: string) =>
     f.teams.find((t) => t.id === teamId)?.workspaceId ?? null;
+  const userMatches = (userId: string, where: Where) =>
+    where.userId === undefined ||
+    (typeof where.userId === "string"
+      ? userId === where.userId
+      : where.userId.in.includes(userId));
   const teamUserMatches = (row: Fixture["teamUsers"][number], where: Where) =>
-    (where.userId === undefined || row.userId === where.userId) &&
+    userMatches(row.userId, where) &&
     (where.teamId === undefined || row.teamId === where.teamId) &&
     (where.team?.workspaceId === undefined ||
       teamWorkspace(row.teamId) === where.team.workspaceId);
@@ -81,8 +89,22 @@ function fakeDb(f: Fixture): PrismaClient {
         ),
       findMany: ({ where }: { where: Where }) =>
         Promise.resolve(
-          f.workspaceUsers.filter((w) => w.workspaceId === where.workspaceId),
+          f.workspaceUsers.filter(
+            (w) => w.workspaceId === where.workspaceId && userMatches(w.userId, where),
+          ),
         ),
+    },
+    knowledgePageMember: {
+      findUnique: ({ where }: { where: Where }) =>
+        Promise.resolve(
+          f.pageMembers.find(
+            (m) =>
+              m.pageId === where.pageId_userId?.pageId &&
+              m.userId === where.pageId_userId?.userId,
+          ) ?? null,
+        ),
+      findMany: ({ where }: { where: Where }) =>
+        Promise.resolve(f.pageMembers.filter((m) => m.pageId === where.pageId)),
     },
     teamUser: {
       findUnique: ({ where }: { where: Where }) =>
@@ -159,13 +181,35 @@ function fixture(project: Partial<FakeProject>): Fixture {
       { userId: "projTeam", teamId: "projectTeam", role: "member" },
     ],
     projectMembers: [{ userId: "projMember", projectId: "p1", role: "viewer" }],
+    pageMembers: [
+      { userId: "member", pageId: "pg", role: "viewer" },
+      { userId: "teamGuy", pageId: "pg", role: "editor" },
+      // Invited, but not (or no longer) in the workspace: no access.
+      { userId: "projMember", pageId: "pg", role: "viewer" },
+    ],
   };
 }
 
-async function expectParity(
-  f: Fixture,
-  page: { createdById: string; projectId: string | null; workspaceId: string },
-) {
+interface TestPage {
+  id: string;
+  createdById: string;
+  projectId: string | null;
+  workspaceId: string;
+  isInviteOnly: boolean;
+}
+
+function testPage(overrides: Partial<TestPage>): TestPage {
+  return {
+    id: "pg",
+    createdById: "author",
+    projectId: null,
+    workspaceId: WS,
+    isInviteOnly: false,
+    ...overrides,
+  };
+}
+
+async function expectParity(f: Fixture, page: TestPage) {
   const db = fakeDb(f);
   const { viewers } = await listKnowledgePageViewers(db, page);
   const listed = viewers.map((v) => v.userId).sort();
@@ -181,11 +225,7 @@ async function expectParity(
 
 describe("listKnowledgePageViewers", () => {
   it("project-less page: the author plus every workspace member, team route included", async () => {
-    const viewers = await expectParity(fixture({}), {
-      createdById: "author",
-      projectId: null,
-      workspaceId: WS,
-    });
+    const viewers = await expectParity(fixture({}), testPage({}));
     expect(viewers.map((v) => v.userId).sort()).toEqual(
       ["admin", "author", "member", "owner", "teamGuy", "viewer"].sort(),
     );
@@ -193,19 +233,11 @@ describe("listKnowledgePageViewers", () => {
   });
 
   it("unrestricted project: workspace, project team and project members", async () => {
-    await expectParity(fixture({}), {
-      createdById: "author",
-      projectId: "p1",
-      workspaceId: WS,
-    });
+    await expectParity(fixture({}), testPage({ projectId: "p1" }));
   });
 
   it("restricted project: only creator, members, author and admins (flagged)", async () => {
-    const viewers = await expectParity(fixture({ isRestricted: true }), {
-      createdById: "author",
-      projectId: "p1",
-      workspaceId: WS,
-    });
+    const viewers = await expectParity(fixture({ isRestricted: true }), testPage({ projectId: "p1" }));
     expect(viewers.map((v) => v.userId).sort()).toEqual(
       ["admin", "author", "member", "owner", "projMember"].sort(),
     );
@@ -217,7 +249,7 @@ describe("listKnowledgePageViewers", () => {
   it("restricted project created by an admin: the admin is not flagged as escape hatch", async () => {
     const viewers = await expectParity(
       fixture({ isRestricted: true, createdById: "admin" }),
-      { createdById: "author", projectId: "p1", workspaceId: WS },
+      testPage({ projectId: "p1" }),
     );
     expect(viewers.find((v) => v.userId === "admin")?.viaAdminEscapeHatch).toBe(
       false,
@@ -227,8 +259,24 @@ describe("listKnowledgePageViewers", () => {
   it("public project: reports public, lists nobody", async () => {
     const result = await listKnowledgePageViewers(
       fakeDb(fixture({ isPublic: true })),
-      { createdById: "author", projectId: "p1", workspaceId: WS },
+      testPage({ projectId: "p1" }),
     );
     expect(result).toEqual({ isPublicProject: true, viewers: [] });
+  });
+
+  it("invite-only page: the owner plus invitees still in the workspace — no admins", async () => {
+    const viewers = await expectParity(fixture({ isRestricted: true }), testPage({ isInviteOnly: true, projectId: "p1" }));
+    // Not owner/admin (no escape hatch), not projMember (invited but outside
+    // the workspace), not the project's own members.
+    expect(viewers.map((v) => v.userId).sort()).toEqual(
+      ["author", "member", "teamGuy"].sort(),
+    );
+  });
+
+  it("invite-only page with no invitees: only the owner", async () => {
+    const f = fixture({});
+    f.pageMembers = [];
+    const viewers = await expectParity(f, testPage({ isInviteOnly: true }));
+    expect(viewers.map((v) => v.userId)).toEqual(["author"]);
   });
 });

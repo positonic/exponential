@@ -35,6 +35,7 @@ import {
   markdownFilename,
 } from "~/lib/pages/markdown-export";
 import { PageAudience } from "~/app/_components/pages/PageAudience";
+import { PageInvites } from "~/app/_components/pages/PageInvites";
 
 interface PageShareMenuProps {
   pageId: string;
@@ -113,6 +114,11 @@ export function PageShareMenu({
     onError: (e) => onError(e, "Could not publish linked pages"),
   });
   // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
+  // An invite-only page publishes only by its owner (ADR-0067) — an invited
+  // editor sees the switch locked. Shares the cache with PageInvites.
+  const sharing = api.page.sharing.useQuery({ id: pageId });
+  const publishLocked =
+    !!sharing.data?.isInviteOnly && !sharing.data.canManage;
   const children = api.page.children.useQuery({ id: pageId });
   const hasSubpages = (children.data?.length ?? 0) > 0;
   const duplicate = api.page.duplicate.useMutation({
@@ -200,15 +206,24 @@ export function PageShareMenu({
               workspaceId={workspaceId}
               canEdit={canEdit}
             />
+            <PageInvites pageId={pageId} workspaceId={workspaceId} />
 
             {canEdit ? (
               <>
               <Divider />
               <Switch
                 label="Publish to web"
-                description="Makes the page public: anyone with the link can view the live page, no sign-in needed."
+                description={
+                  publishLocked
+                    ? "Only the page's owner can publish an invite-only page."
+                    : "Makes the page public: anyone with the link can view the live page, no sign-in needed."
+                }
                 checked={isPublic}
-                disabled={publish.isPending || unpublish.isPending}
+                disabled={
+                  publish.isPending ||
+                  unpublish.isPending ||
+                  (publishLocked && !isPublic)
+                }
                 onChange={(e) =>
                   e.currentTarget.checked
                     ? publish.mutate({ id: pageId })

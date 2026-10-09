@@ -23,6 +23,9 @@ export async function resolveRecipients(
     case NOTIFICATION_CATEGORIES.SUMMARY:
       // Summary → the subject user their digest was built for.
       return Promise.resolve([input.subject.userId]);
+    case NOTIFICATION_CATEGORIES.PAGE_SHARED:
+      // Page shared → the members just invited. De-dup defensively.
+      return Promise.resolve(Array.from(new Set(input.subject.invitedUserIds)));
     case NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED:
       // Meeting participant added → the members just linked. De-dup defensively.
       return Promise.resolve(

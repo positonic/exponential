@@ -1,4 +1,8 @@
 import { AccessControlService } from "~/server/services/access/AccessControlService";
+import {
+  canViewKnowledgePage,
+  getKnowledgePageAccess,
+} from "~/server/services/access/resolvers/knowledgePageResolver";
 import type { ResourceType } from "~/server/services/access/types";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import type { EmitNotificationInput } from "./types";
@@ -32,6 +36,30 @@ export async function filterRecipientsByAccess(
   recipientIds: string[],
 ): Promise<string[]> {
   if (recipientIds.length === 0) return recipientIds;
+
+  // Pages aren't an AccessControlService resource type — gate them through
+  // the page resolver directly (invite-only pages admit invitees only).
+  if (input.category === NOTIFICATION_CATEGORIES.PAGE_SHARED) {
+    const page = await input.db.knowledgePage.findUnique({
+      where: { id: input.subject.pageId },
+      select: {
+        id: true,
+        createdById: true,
+        projectId: true,
+        workspaceId: true,
+        isInviteOnly: true,
+      },
+    });
+    if (!page) return [];
+    const allowed = await Promise.all(
+      recipientIds.map(async (userId) =>
+        canViewKnowledgePage(await getKnowledgePageAccess(input.db, userId, page))
+          ? userId
+          : null,
+      ),
+    );
+    return allowed.filter((id): id is string => id !== null);
+  }
 
   const resource = resolveResource(input);
   if (!resource) return recipientIds;
