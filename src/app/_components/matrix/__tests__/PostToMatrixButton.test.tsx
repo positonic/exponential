@@ -119,6 +119,54 @@ describe("PostToMatrixButton", () => {
     expect(screen.getByText(/switched off/i)).toBeTruthy();
   });
 
+  test("warns that drafts will not be posted, and offers to review them", () => {
+    const onReviewDrafts = vi.fn();
+    render(
+      <PostToMatrixButton
+        meetingId="m1"
+        workspaceId="ws-1"
+        projectId="p1"
+        draftCounts={{ actions: 2, decisions: 1 }}
+        onReviewDrafts={onReviewDrafts}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Post to Matrix"));
+    expect(
+      screen.getByText(/2 actions and 1 decision or question are still drafts/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("Review drafts first"));
+    expect(onReviewDrafts).toHaveBeenCalledOnce();
+  });
+
+  test("names only the kinds that have drafts, in the singular for one", () => {
+    render(
+      <PostToMatrixButton
+        meetingId="m1"
+        workspaceId="ws-1"
+        projectId="p1"
+        draftCounts={{ actions: 1, decisions: 0 }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Post to Matrix"));
+    expect(screen.getByText(/^1 action is still a draft/)).toBeTruthy();
+  });
+
+  test("shows no draft warning when everything is reviewed", () => {
+    render(
+      <PostToMatrixButton
+        meetingId="m1"
+        workspaceId="ws-1"
+        projectId="p1"
+        draftCounts={{ actions: 0, decisions: 0 }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Post to Matrix"));
+    expect(screen.queryByText(/won't be posted/)).toBeNull();
+  });
+
   test("says a picker is coming when nothing is bound", () => {
     render(<PostToMatrixButton meetingId="m1" workspaceId="ws-1" projectId="p1" />);
 

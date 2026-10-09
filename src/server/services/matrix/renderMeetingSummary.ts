@@ -56,14 +56,6 @@ export interface RenderedSummary {
   html: string;
 }
 
-/** One titled block of the outgoing message. */
-export interface SummarySection {
-  /** Humanized field name ("Overview"); null when the summary is one prose blob. */
-  title: string | null;
-  /** Markdown-ish content, converted per-format by the text/HTML emitters. */
-  content: string;
-}
-
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -73,12 +65,31 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Pull readable sections out of whatever shape the summary is in.
- *
- * Fireflies-derived summaries are objects with named sections; older and hand-written
- * ones are plain strings. Both reach this function.
+ * The summary fields worth posting, best first. Only the first one present is used:
+ * the meeting's outputs are the message, and the summary is context under them — a
+ * room that got every field (outline, bullets, gist, breakdown…) saw a wall of text
+ * with the outputs lost in it. `action_items` is deliberately absent: it is the
+ * summarizer's own unreviewed list, and the message already carries the real one.
  */
-export function extractSummarySections(rawSummary: string): SummarySection[] {
+const SUMMARY_PROSE_KEYS = [
+  "overview",
+  "short_summary",
+  "short_overview",
+  "gist",
+  "detailed_breakdown",
+  "outline",
+  "bullet_gist",
+  "shorthand_bullet",
+] as const;
+
+/**
+ * The one piece of prose to post under the outputs, from whatever shape the summary
+ * is in. Fireflies-derived summaries are objects with named fields; older and
+ * hand-written ones are plain strings. Both reach this function. Null when an object
+ * holds none of the known prose fields — dumping its raw JSON into a room helps nobody,
+ * and the link carries the reader to the full meeting.
+ */
+export function pickSummaryProse(rawSummary: string): string | null {
   const trimmed = rawSummary.trim();
 
   let parsed: unknown;
@@ -86,25 +97,20 @@ export function extractSummarySections(rawSummary: string): SummarySection[] {
     parsed = JSON.parse(trimmed);
   } catch {
     // Not JSON at all — it is already the prose we want.
-    return [{ title: null, content: trimmed }];
+    return trimmed || null;
   }
 
-  if (typeof parsed === "string") return [{ title: null, content: parsed.trim() }];
-  if (parsed === null || typeof parsed !== "object") {
-    return [{ title: null, content: trimmed }];
+  if (typeof parsed === "string") return parsed.trim() || null;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return trimmed || null;
   }
 
   const record = parsed as Record<string, unknown>;
-  const sections: SummarySection[] = [];
-
-  for (const [key, value] of Object.entries(record)) {
-    const rendered = renderSection(value);
-    if (!rendered) continue;
-    sections.push({ title: humanizeKey(key), content: rendered });
+  for (const key of SUMMARY_PROSE_KEYS) {
+    const rendered = renderSection(record[key]);
+    if (rendered) return rendered;
   }
-
-  // An object we could not get any prose out of is more useful shown raw than dropped.
-  return sections.length > 0 ? sections : [{ title: null, content: trimmed }];
+  return null;
 }
 
 function renderSection(value: unknown): string | null {
@@ -118,15 +124,6 @@ function renderSection(value: unknown): string | null {
     return items.length > 0 ? items.join("\n") : null;
   }
   return null;
-}
-
-/** `action_items` / `actionItems` → `Action items`. */
-function humanizeKey(key: string): string {
-  const spaced = key
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .trim();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
 }
 
 /** Inline markdown (code, bold, links) → HTML. Input must already be escaped. */
@@ -169,7 +166,8 @@ function renderList(items: ListItem[]): string {
  * The Markdown subset the summarizer emits (`##` headings, `- ` bullets nested by
  * indentation, `**bold**`, inline code, links) → Matrix-safe HTML. Headings render
  * as bold paragraphs, not `<h*>`: the message already carries its own `<h4>` title
- * and `<h5>` section labels, and a summary's inner headings must sit below both.
+ * plus `<h5>` output and `<h6>` summary labels, and a summary's inner headings must
+ * sit below all of them.
  * Unknown constructs degrade to escaped paragraph text — never dropped.
  */
 export function markdownToMatrixHtml(markdown: string): string {
@@ -308,8 +306,9 @@ export function meetingUrl(meeting: MeetingForSummary): string {
   return `${origin.replace(/\/+$/, "")}/recording/${meeting.id}`;
 }
 
-/** The meeting page opened on its Outputs tab, where its decisions are listed. */
-export function meetingDecisionsUrl(meeting: MeetingForSummary): string {
+/** The meeting page opened on its Outputs tab, where actions, decisions and open
+ *  questions are listed side by side. */
+export function meetingOutputsUrl(meeting: MeetingForSummary): string {
   return withMeetingTab(meetingUrl(meeting), "outputs").toString();
 }
 
@@ -322,95 +321,112 @@ function statusSuffix(status: string): string {
   return status === "ACCEPTED" ? "" : ` (${status.toLowerCase()})`;
 }
 
-interface DecisionsBlock {
+interface OutputBlock {
   text: string[];
   html: string;
 }
 
-/** One headed, capped list of decision records — the decided ones or the open ones. */
-function renderDecisionList(
-  heading: string,
-  records: MeetingDecisionForSummary[],
-): DecisionsBlock {
-  const listed = records.slice(0, MAX_LISTED_ITEMS);
-  const hidden = records.length - listed.length;
-  // An open question's status is its heading; only decisions carry one per line.
-  const suffix = (d: MeetingDecisionForSummary) =>
-    d.status === "OPEN" ? "" : statusSuffix(d.status);
-
-  const text = [
-    heading,
-    ...listed.map((d) => `• ${formatDecisionLabel(d.number)} ${d.statement.trim()}${suffix(d)}`),
-    ...(hidden > 0 ? [`• …and ${hidden} more`] : []),
-  ];
-  const items = listed
-    .map((d) => {
-      const status = suffix(d).trim();
-      return `<li><strong>${escapeHtml(formatDecisionLabel(d.number))}</strong> ${escapeHtml(d.statement.trim())}${status ? ` <em>${escapeHtml(status)}</em>` : ""}</li>`;
-    })
-    .join("");
-  const html = `<h5>${escapeHtml(heading)}</h5><ul>${items}${hidden > 0 ? `<li>…and ${hidden} more</li>` : ""}</ul>`;
-  return { text, html };
+/** One output list's line, in both formats. */
+interface OutputLine {
+  text: string;
+  html: string;
 }
 
-/**
- * What was decided — and what was left open — leads the message, straight under the
- * title: it is the part of a meeting people who were not there most need, and the part
- * a long summary buries. The link opens the Decisions tab directly rather than the
- * Summary. Omitted entirely when there is neither — a link to an empty tab is noise.
- */
-function renderDecisionsBlock(meeting: MeetingForSummary): DecisionsBlock | null {
-  const decided = meeting.decisions.filter((d) => d.status !== "OPEN");
-  const open = meeting.decisions.filter((d) => d.status === "OPEN");
-  if (decided.length === 0 && open.length === 0) return null;
-
-  const lists = [
-    ...(decided.length > 0 ? [renderDecisionList(`⚖️ Decisions (${decided.length})`, decided)] : []),
-    ...(open.length > 0 ? [renderDecisionList(`❓ Open questions (${open.length})`, open)] : []),
-  ];
-  const url = meetingDecisionsUrl(meeting);
-
+/** A headed, capped list — every output type is shaped the same, so none looks lesser. */
+function renderOutputList(heading: string, lines: OutputLine[]): OutputBlock {
+  const listed = lines.slice(0, MAX_LISTED_ITEMS);
+  const hidden = lines.length - listed.length;
+  const more = hidden > 0 ? `…and ${hidden} more` : null;
   return {
-    // The URL stands alone on its line so clients linkify it cleanly and it is easy to tap.
-    text: [...lists.flatMap((l) => [...l.text, ""]), "View decisions in Exponential:", url],
-    html: [
-      ...lists.map((l) => l.html),
-      `<p><a href="${escapeHtml(url)}">View decisions in Exponential</a></p>`,
-    ].join(""),
+    text: [heading, ...listed.map((l) => `• ${l.text}`), ...(more ? [`• ${more}`] : [])],
+    html: `<h5>${escapeHtml(heading)}</h5><ul>${listed.map((l) => `<li>${l.html}</li>`).join("")}${more ? `<li>${more}</li>` : ""}</ul>`,
+  };
+}
+
+function actionLine(action: MeetingActionForSummary): OutputLine {
+  const who = action.assignees
+    .map((x) => x.user.name?.trim())
+    .filter((name): name is string => !!name)
+    .join(", ");
+  const name = action.name.trim();
+  return {
+    text: `${name}${who ? ` — ${who}` : ""}`,
+    html: `${escapeHtml(name)}${who ? ` — <em>${escapeHtml(who)}</em>` : ""}`,
+  };
+}
+
+function decisionLine(decision: MeetingDecisionForSummary): OutputLine {
+  const label = formatDecisionLabel(decision.number);
+  const statement = decision.statement.trim();
+  // An open question's status is its heading; only decisions carry one per line.
+  const status = decision.status === "OPEN" ? "" : statusSuffix(decision.status).trim();
+  return {
+    text: `${label} ${statement}${status ? ` ${status}` : ""}`,
+    html: `<strong>${escapeHtml(label)}</strong> ${escapeHtml(statement)}${status ? ` <em>${escapeHtml(status)}</em>` : ""}`,
+  };
+}
+
+function plural(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+interface MeetingOutputs {
+  actions: MeetingActionForSummary[];
+  decided: MeetingDecisionForSummary[];
+  open: MeetingDecisionForSummary[];
+}
+
+function splitOutputs(meeting: MeetingForSummary): MeetingOutputs {
+  return {
+    actions: meeting.actions,
+    decided: meeting.decisions.filter((d) => d.status !== "OPEN"),
+    open: meeting.decisions.filter((d) => d.status === "OPEN"),
   };
 }
 
 /**
- * The action items, by name and owner, after the decisions: what was agreed, then who
- * is doing what about it. Omitted when the meeting produced none.
+ * One line naming all three output types, zeros included. It is the line a reader
+ * skimming the room actually reads, and "0 open questions" is information — a list
+ * that is simply absent cannot say whether nothing was left open or nobody looked.
  */
-function renderActionsBlock(meeting: MeetingForSummary): DecisionsBlock | null {
-  if (meeting.actions.length === 0) return null;
-  const listed = meeting.actions.slice(0, MAX_LISTED_ITEMS);
-  const hidden = meeting.actions.length - listed.length;
-  const heading = `✅ Action items (${meeting.actions.length})`;
-  const owners = (a: MeetingActionForSummary) =>
-    a.assignees
-      .map((x) => x.user.name?.trim())
-      .filter((name): name is string => !!name)
-      .join(", ");
+function renderOutputsTally(outputs: MeetingOutputs): string {
+  return [
+    plural(outputs.actions.length, "action"),
+    plural(outputs.decided.length, "decision"),
+    plural(outputs.open.length, "open question"),
+  ].join(" · ");
+}
 
-  const text = [
-    heading,
-    ...listed.map((a) => {
-      const who = owners(a);
-      return `• ${a.name.trim()}${who ? ` — ${who}` : ""}`;
-    }),
-    ...(hidden > 0 ? [`• …and ${hidden} more`] : []),
+/**
+ * The meeting's outputs lead the message, straight under the title — they are what
+ * people who were not there most need, and what a summary buries. Same order as the
+ * Outputs tab's columns: who is doing what, what was agreed, what is still open. Each
+ * list is omitted when empty (the tally already says so), and the whole block, link
+ * included, when there is nothing at all — a link to an empty tab is noise.
+ */
+function renderOutputsBlock(meeting: MeetingForSummary, outputs: MeetingOutputs): OutputBlock | null {
+  const lists = [
+    ...(outputs.actions.length > 0
+      ? [renderOutputList(`✅ Actions (${outputs.actions.length})`, outputs.actions.map(actionLine))]
+      : []),
+    ...(outputs.decided.length > 0
+      ? [renderOutputList(`⚖️ Decisions (${outputs.decided.length})`, outputs.decided.map(decisionLine))]
+      : []),
+    ...(outputs.open.length > 0
+      ? [renderOutputList(`❓ Open questions (${outputs.open.length})`, outputs.open.map(decisionLine))]
+      : []),
   ];
-  const items = listed
-    .map((a) => {
-      const who = owners(a);
-      return `<li>${escapeHtml(a.name.trim())}${who ? ` — <em>${escapeHtml(who)}</em>` : ""}</li>`;
-    })
-    .join("");
-  const html = `<h5>${escapeHtml(heading)}</h5><ul>${items}${hidden > 0 ? `<li>…and ${hidden} more</li>` : ""}</ul>`;
-  return { text, html };
+  if (lists.length === 0) return null;
+
+  const url = meetingOutputsUrl(meeting);
+  return {
+    // The URL stands alone on its line so clients linkify it cleanly and it is easy to tap.
+    text: [...lists.flatMap((l) => [...l.text, ""]), "Review all outputs in Exponential:", url],
+    html: [
+      ...lists.map((l) => l.html),
+      `<p><a href="${escapeHtml(url)}">Review all outputs in Exponential</a></p>`,
+    ].join(""),
+  };
 }
 
 function formatMeetingDate(meeting: MeetingForSummary): string {
@@ -418,46 +434,38 @@ function formatMeetingDate(meeting: MeetingForSummary): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Separates the outputs from the summary in the text body, where there is no `<hr>`. */
+const TEXT_RULE = "──────────";
+
 export function renderMeetingSummary(meeting: MeetingForSummary): RenderedSummary {
   const title = meeting.title?.trim() ?? "Untitled meeting";
   const date = formatMeetingDate(meeting);
-  const sections = meeting.summary ? extractSummarySections(meeting.summary) : [];
+  const prose = meeting.summary ? pickSummaryProse(meeting.summary) : null;
   const url = meetingUrl(meeting);
   const project = meeting.project?.name;
-  const decisions = renderDecisionsBlock(meeting);
-  const actions = renderActionsBlock(meeting);
-
-  const textBody = sections
-    .map((s) =>
-      s.title
-        ? `${s.title}\n${markdownToPlainText(s.content)}`
-        : markdownToPlainText(s.content),
-    )
-    .join("\n\n");
+  const outputs = splitOutputs(meeting);
+  const tally = renderOutputsTally(outputs);
+  const outputsBlock = renderOutputsBlock(meeting, outputs);
+  const subtitle = project ? `${date} · ${project}` : date;
 
   // No stray blank block when the meeting has no summary text at all.
   const textParts = [
     `📋 ${title}`,
-    project ? `${date} · ${project}` : date,
-    ...(decisions ? ["", ...decisions.text] : []),
-    ...(actions ? ["", ...actions.text] : []),
-    ...(textBody ? ["", textBody] : []),
+    subtitle,
+    tally,
+    ...(outputsBlock ? ["", ...outputsBlock.text] : []),
+    ...(prose ? ["", TEXT_RULE, "Summary", markdownToPlainText(prose)] : []),
     "",
     `Open in Exponential: ${url}`,
   ];
 
-  const htmlBody = sections
-    .map(
-      (s) =>
-        `${s.title ? `<h5>${escapeHtml(s.title)}</h5>` : ""}${markdownToMatrixHtml(s.content)}`,
-    )
-    .join("");
+  // The summary's label sits a level below the output headings: it is context for
+  // them, not a peer.
   const html = [
     `<h4>📋 ${escapeHtml(title)}</h4>`,
-    `<p><em>${escapeHtml(project ? `${date} · ${project}` : date)}</em></p>`,
-    decisions?.html ?? "",
-    actions?.html ?? "",
-    htmlBody,
+    `<p><em>${escapeHtml(subtitle)}</em><br/><strong>${escapeHtml(tally)}</strong></p>`,
+    outputsBlock?.html ?? "",
+    prose ? `<hr/><h6>Summary</h6>${markdownToMatrixHtml(prose)}` : "",
     `<p><a href="${escapeHtml(url)}">Open in Exponential</a></p>`,
   ].join("");
 
