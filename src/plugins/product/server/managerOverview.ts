@@ -14,6 +14,16 @@
  *   when the product's median cycle time says it will not finish by then.
  */
 import type { TicketStatus } from "~/lib/ticket-statuses";
+import { startOfUtcDay } from "~/server/services/deliveryFlow";
+
+// Completion-time helpers (finished-at, median, weekly throughput) moved to the
+// shared delivery-flow service so the Metrics page computes them the same way.
+export {
+  finishedAtFromEvents,
+  median,
+  weeklyCompleted,
+  MIN_CYCLE_TIME_SAMPLES,
+} from "~/server/services/deliveryFlow";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -183,10 +193,6 @@ export interface Burnup {
   projectedDaysEarly: number | null;
 }
 
-function startOfUtcDay(d: Date): number {
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-}
-
 /**
  * `cycle.endDate` is exclusive, as everywhere else for cycles: auto-generated
  * cycles end at the next one's start, and a cycle completes once
@@ -336,8 +342,6 @@ export function computeCriticalPath(
 // Slipping (cycle end date as the due date)
 // ---------------------------------------------------------------------------
 
-/** Fewer completed tickets than this and the median is too noisy to use. */
-export const MIN_CYCLE_TIME_SAMPLES = 3;
 
 /**
  * Whether an open ticket committed to a cycle is expected to miss the cycle
@@ -363,61 +367,8 @@ export function isSlipping(
 }
 
 // ---------------------------------------------------------------------------
-// Completion time
-// ---------------------------------------------------------------------------
-
-const COMPLETED: ReadonlySet<string> = new Set(["DONE", "DEPLOYED"]);
-
-/**
- * When each ticket was finished: the first move into DONE/DEPLOYED after its
- * last reopen. `Ticket.completedAt` is reset by every save that sends a
- * completed status (including DONE -> DEPLOYED), so it reads as "deployed at"
- * or "last edited at" rather than "finished at". Events must be oldest first.
- */
-export function finishedAtFromEvents(
-  events: { ticketId: string; to: string; at: Date }[],
-): Map<string, Date> {
-  const finished = new Map<string, Date>();
-  for (const e of events) {
-    if (COMPLETED.has(e.to)) {
-      if (!finished.has(e.ticketId)) finished.set(e.ticketId, e.at);
-    } else {
-      finished.delete(e.ticketId);
-    }
-  }
-  return finished;
-}
-
-// ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-
-export function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
-
-/** Completed tickets per week, oldest first, for the last `weeks` weeks. */
-export function weeklyCompleted(
-  completedAt: Date[],
-  now: Date,
-  weeks = 12,
-): { weekStart: Date; count: number }[] {
-  const endOfToday = startOfUtcDay(now) + DAY;
-  const out: { weekStart: Date; count: number }[] = [];
-  for (let i = weeks - 1; i >= 0; i--) {
-    const from = endOfToday - (i + 1) * 7 * DAY;
-    const to = from + 7 * DAY;
-    out.push({
-      weekStart: new Date(from),
-      count: completedAt.filter((d) => d.getTime() >= from && d.getTime() < to)
-        .length,
-    });
-  }
-  return out;
-}
 
 /** "github.com/acme/app/pull/418" -> { repo: "acme/app", number: 418 }. */
 export function parsePrUrl(url: string): { repo: string; number: number } | null {

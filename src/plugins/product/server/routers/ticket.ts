@@ -30,6 +30,7 @@ import {
   dispatchTicketPush,
   PUSH_RELEVANT_TICKET_FIELDS,
 } from "~/server/services/ticketSync/pushRunner";
+import { suggestTicketSize, type SizeSuggestion } from "../sizeSuggestion";
 import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
@@ -82,6 +83,7 @@ async function loadTicketWithAccess(
       docVersion: true,
       type: true,
       status: true,
+      completedAt: true,
       priority: true,
       points: true,
       branchName: true,
@@ -535,6 +537,40 @@ export const ticketRouter = createTRPCRouter({
       return ticket;
     }),
 
+  /**
+   * AI-suggested size for a ticket being written (ticket inner.lotus). Never
+   * persists anything: the form stores the mapped points only when the person
+   * accepts. Returns null when the server has no OpenAI key, so the client can
+   * hide the affordance.
+   */
+  suggestSize: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        title: boundedText("Title", 300, { min: 1 }),
+        body: boundedText("Body", TEXT_LIMITS.LARGE),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<SizeSuggestion | null> => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.productId,
+        "edit",
+      );
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: product.workspaceId },
+        select: { effortUnit: true },
+      });
+      return suggestTicketSize(ctx.db, {
+        product: { id: product.id, workspaceId: product.workspaceId },
+        userId: ctx.session.user.id,
+        title: input.title,
+        body: input.body,
+        unit: workspace?.effortUnit ?? "STORY_POINTS",
+      });
+    }),
+
   create: protectedProcedure
     .input(
       z.object({
@@ -699,11 +735,21 @@ export const ticketRouter = createTRPCRouter({
       const { id, bodyDoc, baseVersion, ...rest } = input;
       const data: Record<string, unknown> = { ...rest };
 
-      // Auto-track completedAt when transitioning to a completed status
-      if (input.status && COMPLETED_TICKET_STATUSES.includes(input.status)) {
-        data.completedAt = new Date();
-      } else if (input.status) {
-        data.completedAt = null;
+      // `completedAt` means "first finished at": stamped on the move INTO a
+      // completed status, left alone while the ticket stays completed (a body
+      // edit, a Notion re-sync, DONE -> DEPLOYED), cleared on reopen. It used
+      // to be re-stamped by every completed-status save, which turned the
+      // column into "last edited at" (149 tickets "completed" on one day) and
+      // broke every throughput number read from it. A completed ticket that
+      // somehow has no date (legacy rows) is stamped now rather than left null.
+      if (input.status) {
+        const wasCompleted = COMPLETED_TICKET_STATUSES.includes(previousTicket.status);
+        const isCompleted = COMPLETED_TICKET_STATUSES.includes(input.status);
+        if (isCompleted && (!wasCompleted || !previousTicket.completedAt)) {
+          data.completedAt = new Date();
+        } else if (!isCompleted) {
+          data.completedAt = null;
+        }
       }
 
       // Markdown-only body write (CLI/SDK/agents): derive the canonical
@@ -978,16 +1024,36 @@ export const ticketRouter = createTRPCRouter({
       }
 
       const data: Record<string, unknown> = Object.fromEntries(fields);
-      if (input.status) {
-        data.completedAt = COMPLETED_TICKET_STATUSES.includes(input.status)
-          ? new Date()
-          : null;
-      }
+      const toCompleted =
+        input.status !== undefined &&
+        COMPLETED_TICKET_STATUSES.includes(input.status);
+      if (input.status && !toCompleted) data.completedAt = null;
 
-      await ctx.db.ticket.updateMany({
-        where: { id: { in: uniqueIds } },
-        data,
-      });
+      // Same "first finished at" rule as `update`: only the tickets moving
+      // INTO a completed status get stamped; the ones already completed keep
+      // the date they have. Two writes when the selection is mixed, one
+      // otherwise.
+      const newlyCompleted = toCompleted
+        ? new Set(
+            tickets
+              .filter((t) => !COMPLETED_TICKET_STATUSES.includes(t.status))
+              .map((t) => t.id),
+          )
+        : new Set<string>();
+      const stampIds = uniqueIds.filter((id) => newlyCompleted.has(id));
+      const keepIds = uniqueIds.filter((id) => !newlyCompleted.has(id));
+      if (stampIds.length > 0) {
+        await ctx.db.ticket.updateMany({
+          where: { id: { in: stampIds } },
+          data: { ...data, completedAt: new Date() },
+        });
+      }
+      if (keepIds.length > 0) {
+        await ctx.db.ticket.updateMany({
+          where: { id: { in: keepIds } },
+          data,
+        });
+      }
 
       const patchedFields = fields.map(([k]) => k).filter((k) => k !== "status");
       await Promise.all(

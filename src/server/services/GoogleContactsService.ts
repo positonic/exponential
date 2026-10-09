@@ -43,7 +43,8 @@ export interface GoogleCalendarEvent {
     date?: string;
   };
   attendees?: Array<{
-    email: string;
+    /** The Calendar API can omit this (e.g. some resource/organizer rows). */
+    email?: string;
     displayName?: string;
     responseStatus?: string;
     organizer?: boolean;
@@ -69,11 +70,14 @@ export interface ContactInfo {
 
 export class GoogleContactsService {
   /**
-   * Fetch contacts from Google People API
+   * Fetch one page of contacts from the Google People API. Callers paginate
+   * with the returned token — imports run one page per request, so there is
+   * deliberately no fetch-everything variant.
    */
   static async fetchContacts(
     userId: string,
-    pageToken?: string
+    pageToken?: string,
+    pageSize = 1000
   ): Promise<{ contacts: GoogleContact[]; nextPageToken?: string }> {
     const accessToken = await GoogleTokenManager.getValidAccessToken(
       userId,
@@ -85,7 +89,7 @@ export class GoogleContactsService {
     try {
       const response = await people.people.connections.list({
         resourceName: "people/me",
-        pageSize: 1000,
+        pageSize,
         pageToken,
         personFields: "names,emailAddresses,phoneNumbers,organizations,biographies,urls",
         access_token: accessToken,
@@ -102,32 +106,17 @@ export class GoogleContactsService {
   }
 
   /**
-   * Fetch all contacts (handles pagination)
+   * Fetch one page of calendar events within a date range. Page tokens are
+   * plain cursors into the result set, so re-requesting the same token (e.g.
+   * on a retried import step) returns the same page.
    */
-  static async fetchAllContacts(userId: string): Promise<GoogleContact[]> {
-    const allContacts: GoogleContact[] = [];
-    let pageToken: string | undefined;
-
-    do {
-      const { contacts, nextPageToken } = await this.fetchContacts(
-        userId,
-        pageToken
-      );
-      allContacts.push(...contacts);
-      pageToken = nextPageToken;
-    } while (pageToken);
-
-    return allContacts;
-  }
-
-  /**
-   * Fetch calendar events within a date range (handles pagination)
-   */
-  static async fetchCalendarEvents(
+  static async fetchCalendarEventsPage(
     userId: string,
     timeMin: Date,
-    timeMax: Date
-  ): Promise<GoogleCalendarEvent[]> {
+    timeMax: Date,
+    pageToken?: string,
+    maxResults = 100
+  ): Promise<{ events: GoogleCalendarEvent[]; nextPageToken?: string }> {
     const accessToken = await GoogleTokenManager.getValidAccessToken(
       userId,
       GOOGLE_SCOPES.CALENDAR,
@@ -142,26 +131,20 @@ export class GoogleContactsService {
     const calendar = google.calendar({ version: "v3", auth: oauth2Client });
 
     try {
-      const allEvents: GoogleCalendarEvent[] = [];
-      let pageToken: string | undefined;
+      const response = await calendar.events.list({
+        calendarId: "primary",
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        maxResults,
+        singleEvents: true,
+        orderBy: "startTime",
+        pageToken,
+      });
 
-      do {
-        const response = await calendar.events.list({
-          calendarId: "primary",
-          timeMin: timeMin.toISOString(),
-          timeMax: timeMax.toISOString(),
-          maxResults: 2500,
-          singleEvents: true,
-          orderBy: "startTime",
-          pageToken,
-        });
-
-        const items = response.data.items ?? [];
-        allEvents.push(...(items as GoogleCalendarEvent[]));
-        pageToken = response.data.nextPageToken ?? undefined;
-      } while (pageToken);
-
-      return allEvents;
+      return {
+        events: (response.data.items ?? []) as GoogleCalendarEvent[],
+        nextPageToken: response.data.nextPageToken ?? undefined,
+      };
     } catch (error) {
       console.error("Error fetching calendar events:", error);
       throw new Error(`Failed to fetch calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -181,6 +164,7 @@ export class GoogleContactsService {
       const attendees = event.attendees ?? [];
 
       for (const attendee of attendees) {
+        if (!attendee.email) continue;
         const email = attendee.email.toLowerCase().trim();
 
         // Skip the user's own email
@@ -223,8 +207,8 @@ export class GoogleContactsService {
 
     return events.filter((event) => {
       const attendees = event.attendees ?? [];
-      return attendees.some((attendee) =>
-        attendee.email.toLowerCase().trim() === email
+      return attendees.some(
+        (attendee) => attendee.email?.toLowerCase().trim() === email
       );
     });
   }

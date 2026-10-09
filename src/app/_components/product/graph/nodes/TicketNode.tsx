@@ -3,6 +3,8 @@
 import { Badge, Group, Text, Tooltip } from "@mantine/core";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { STATUS_LABELS } from "~/lib/ticket-statuses";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortPillLabel, effortToLabel } from "~/types/effort";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import {
   PriorityIcon,
@@ -38,6 +40,7 @@ function hasPriority(priority: number | null): priority is number {
 
 export function TicketNode({ data }: NodeProps) {
   const d = data as unknown as TicketNodeData;
+  const effortUnit = useWorkspaceEffortUnit();
   const statusLabel = STATUS_LABELS[d.status] ?? d.status;
   const displayId = d.shortId ?? `#${d.number}`;
 
@@ -81,9 +84,9 @@ export function TicketNode({ data }: NodeProps) {
           {d.title}
         </Text>
         {d.points !== null && (
-          <Tooltip label={`${d.points} points`} position="top" withArrow>
+          <Tooltip label={`Effort: ${effortPillLabel(d.points, effortUnit)}`} position="top" withArrow>
             <Text size="xs" className="text-text-muted shrink-0">
-              {d.points}
+              {effortToLabel(d.points, effortUnit)}
             </Text>
           </Tooltip>
         )}

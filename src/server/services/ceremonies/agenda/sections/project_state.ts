@@ -18,6 +18,8 @@
  * falling back to "the whole workspace" would present someone else's project
  * as this room's. Same rule as `blockers`.
  */
+import { toPlainText } from "~/lib/content/plainText";
+import { projectActivityScopeWhere } from "~/server/services/projectActivity";
 import type { AgendaItem, SectionContext, SectionModule } from "../types";
 
 const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
@@ -53,7 +55,7 @@ interface ShiftRow {
 
 /** Mirrors `describeActivity` on the project overview, as one title + detail. */
 function describeShift(row: ShiftRow): { title: string; detail: string } | null {
-  const name = row.action?.name ?? row.toValue ?? row.fromValue;
+  const name = toPlainText(row.action?.name ?? row.toValue ?? row.fromValue);
   if (!name) return null;
   switch (row.type) {
     case "STATUS_CHANGED":
@@ -131,6 +133,7 @@ async function projectItems(
         projectId,
         changedAt: { gte: since, lte: ctx.now },
         type: { in: [...SHIFT_TYPES] },
+        ...projectActivityScopeWhere(projectId),
       },
       select: {
         id: true,
@@ -175,13 +178,13 @@ async function projectItems(
       title: `${completed.length} action${completed.length === 1 ? "" : "s"} completed ${sinceLabel}`,
       refType: "text",
       refId: `${idScope}completed`,
-      detail: completed.map((a) => a.name).join(", "),
+      detail: completed.map((a) => toPlainText(a.name)).join(", "),
     });
   }
   for (const a of overdue) {
     push({
       id: `${sectionKey}:action:${a.id}`,
-      title: a.name,
+      title: toPlainText(a.name),
       refType: "action",
       refId: a.id,
       detail: `fell overdue · due ${fmt(a.dueDate!)}`,

@@ -15,6 +15,7 @@ import {
   AccessControlService,
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { projectActivityScopeWhere } from "~/server/services/projectActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
 import { rehomeProjectMeetings } from "~/server/services/meetings/assignMeetingPlacement";
 import type { PrismaClient } from "@prisma/client";
@@ -403,6 +404,31 @@ export const projectRouter = createTRPCRouter({
         where: { id: input.id },
         data: { priority: input.priority },
         select: { id: true, priority: true },
+      });
+    }),
+
+  // Slim mutation for the header icon picker (same format as goal icons).
+  updateIcon: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        icon: z.string().max(100).nullable(),
+        iconColor: z.string().max(32).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
+      return ctx.db.project.update({
+        where: { id: input.id },
+        data: { icon: input.icon, iconColor: input.iconColor },
+        select: { id: true, icon: true, iconColor: true },
       });
     }),
 
@@ -1098,6 +1124,7 @@ export const projectRouter = createTRPCRouter({
         where: {
           projectId: input.projectId,
           changedAt: { gte: since },
+          ...projectActivityScopeWhere(input.projectId),
         },
         orderBy: { changedAt: "desc" },
         take: input.limit,

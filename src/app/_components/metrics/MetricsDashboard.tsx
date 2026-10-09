@@ -26,20 +26,25 @@ import { CycleTrendChart } from './CycleTrendChart';
 import { formatHours, formatMinutes } from './format';
 import { ContributorsTable } from './ContributorsTable';
 import { MemberFilter, useMemberFilter } from './MemberFilter';
+import { StatCard } from './StatCard';
+import { DeliveryFlowSection } from './DeliveryFlowSection';
 
 /**
  * Metrics page dashboard.
  *
- * Two tiers, in the order they answer questions:
- *  1. **All cycles** (headline) — every cycle's metrics summed into one
- *     roll-up, with a line chart tracking each metric across cycles.
- *  2. **Cycle breakdown** — the same metrics for one cycle, chosen from a
+ * Three tiers, in the order they answer questions:
+ *  1. **Delivery flow** (headline) — completed tickets per week and cycle-time
+ *     percentiles over the trailing weeks, from the activity event log. Needs
+ *     neither cycles nor points, so it is the number that is always real.
+ *  2. **All cycles** — every cycle's metrics summed into one roll-up, with a
+ *     line chart tracking each metric across cycles.
+ *  3. **Cycle breakdown** — the same metrics for one cycle, chosen from a
  *     dropdown (defaults to the ACTIVE cycle).
  *
- * All numbers are computed live over the cycles' Tickets — velocity is a
+ * All numbers are computed live over Tickets — cycle velocity is a
  * completed-ticket **count** with summed points alongside; nothing is read from
- * the dormant `SprintMetrics` table. See ADR-0047 (incl. the Ticket-based
- * amendment).
+ * the dormant `SprintMetrics` table. See ADR-0047 (incl. the Ticket-based and
+ * flow-headline amendments).
  *
  * A page-wide **member filter** (kept in `?members=`) narrows every number to
  * the selected people — tickets by assignee, PRs by linked GitHub login, time
@@ -122,6 +127,10 @@ export function MetricsDashboard() {
             onChange={setMemberIds}
           />
         </Group>
+
+        <DeliveryFlowSection workspaceId={workspaceId} memberIds={memberIds} />
+
+        <Divider className="border-border-primary" />
 
         <AllCyclesSection
           workspaceId={workspaceId}
@@ -395,53 +404,6 @@ function AllCyclesTotals({ data }: { data: AllCycles }) {
         }
       />
     </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-  valueSuffix,
-  hint,
-  children,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  valueSuffix?: string;
-  hint?: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <Card
-      withBorder
-      radius="md"
-      className="border-border-primary bg-surface-secondary"
-    >
-      <Stack gap="xs">
-        <Group gap="xs">
-          {icon}
-          <Text size="sm" fw={500} className="text-text-secondary">
-            {label}
-          </Text>
-        </Group>
-        <Group align="baseline" gap="xs">
-          <Text className="text-4xl font-bold text-accent-indigo">{value}</Text>
-          {valueSuffix && (
-            <Text size="sm" className="text-text-muted">
-              {valueSuffix}
-            </Text>
-          )}
-        </Group>
-        {hint && (
-          <Text size="xs" className="text-text-muted">
-            {hint}
-          </Text>
-        )}
-        {children}
-      </Stack>
-    </Card>
   );
 }
 

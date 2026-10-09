@@ -312,16 +312,30 @@ github      Bytes?
 
 ### Import Flow
 
+Both import paths are client-driven: fire-and-forget background work does
+not survive Vercel serverless (the function is frozen once the response is
+sent), so the dialog drives the whole import, one bounded request at a time.
+
 ```
-1. User triggers import from ImportDialog component
-2. crmContact.importFromGmail/importFromCalendar mutation called
-3. ContactImportBatch record created (status: PENDING)
-4. ContactSyncService orchestrates import (status: IN_PROGRESS)
-5. GoogleContactsService fetches from Google APIs
-6. Contacts deduplicated by emailHash (SHA-256)
-7. New contacts created, existing contacts updated
-8. ConnectionStrengthCalculator scores each contact (0-100)
-9. Batch marked COMPLETED or PARTIAL_SUCCESS
+Google (ImportDialog → crmContact.importContacts, one step per call):
+1. First call creates a ContactImportBatch (status: IN_PROGRESS) and runs
+   the first step; the resume cursor (phase + Google page token) lives in
+   the batch's metadata
+2. Each step fetches one slice via GoogleContactsService (one People API
+   page, or a budgeted slice of a calendar events page) and processes it
+   synchronously in its own request
+3. Contacts deduplicated by emailHash (SHA-256); interactions deduplicated
+   by Google event id, so a retried step is idempotent
+4. ConnectionStrengthCalculator scores each calendar contact as its
+   meetings are imported
+5. The dialog loops the mutation with the returned batchId until
+   `completed`; the final step marks the batch COMPLETED or PARTIAL_SUCCESS
+
+CSV (CsvImportDialog → crmContact.importFromCsv, one chunk per call):
+1. The client parses the file and streams rows in chunks of 100; the first
+   chunk creates the batch
+2. Each chunk upserts its rows synchronously; the response carries the
+   batch's cumulative counters; the final chunk closes the batch
 ```
 
 ### Connection Strength
@@ -485,8 +499,7 @@ committing.
 - **Communications module**: Schema exists (`CrmCommunication`, `CrmCommunicationTemplate`) but no router or UI. Shown as "Coming Soon" in CRM nav.
 - **Email delivery tracking**: Postmark integration fields exist in schema but not connected.
 - **Contact tagging**: `tags String[]` field exists on CrmContact but no tag management UI.
-- **Background import jobs**: Gmail/Calendar imports run synchronously. Should move to background job queue for large imports.
-- **CSV/Excel import**: No file-based import yet.
+- **Import batch lifecycle**: an import abandoned mid-run (tab closed) parks its `ContactImportBatch` at IN_PROGRESS forever — nothing marks batches FAILED or resumes them on reopen, and the model has no `updatedAt` to detect staleness.
 - **Automatic duplicate detection**: Contacts dedupe on emailHash at import/create time, and users can merge selected contacts by hand (see "Merging contacts" below), but nothing yet scans the workspace for likely duplicates or suggests merges.
 - **Multiple pipelines per workspace**: Currently limited to one pipeline. The architecture supports multiple (via Project model) but the UI assumes one.
 - **Stage drag-to-reorder in settings**: The `reorderStages` API exists but the settings UI doesn't have drag-to-reorder yet (grip icon is visual only).

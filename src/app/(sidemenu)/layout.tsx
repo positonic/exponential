@@ -28,6 +28,7 @@ import { ThemeInitScript } from '~/app/_components/layout/ThemeInitScript';
 import { DesktopChromeScript } from '~/app/_components/layout/DesktopChromeScript';
 import { MantineRootProvider } from '~/app/_components/layout/MantineRootProvider';
 import { SessionProvider } from "next-auth/react";
+import { auth } from "~/server/auth";
 import { WorkspaceProvider } from '~/providers/WorkspaceProvider';
 import { ActiveTimerProvider } from '~/hooks/useActiveTimer';
 import { ServiceWorkerRegistration } from '~/app/_components/ServiceWorkerRegistration';
@@ -52,6 +53,12 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const domain = getThemeDomain();
+  // Hand the session to SessionProvider so the client doesn't open every page
+  // with an /api/auth/session round trip before anything that reads it can
+  // render. auth() is request-cached and decodes the JWT without a DB call;
+  // Layout below awaits the same call. Only the fields the UI reads are
+  // passed, so the raw token never lands in page HTML.
+  const session = await auth();
 
   return (
     <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full`} suppressHydrationWarning>
@@ -71,7 +78,7 @@ export default async function RootLayout({
       <body className="h-full bg-background-primary">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
-            <SessionProvider>
+            <SessionProvider session={session ? { user: session.user, expires: session.expires } : null}>
               <MantineRootProvider>
                 <AgentModalProvider>
                   <BugReportProvider>

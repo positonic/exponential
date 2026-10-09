@@ -24,6 +24,11 @@ import {
   weeklyCompleted,
   type StageKey,
 } from "./managerOverview";
+import {
+  cycleTimesMs,
+  startedAtFromEvents,
+  type StatusMove,
+} from "~/server/services/deliveryFlow";
 
 const DAY = 86_400_000;
 /** Window for the "median time to merge" stat. */
@@ -336,16 +341,12 @@ export async function loadManagerOverview(
   // ---- time each ticket entered its current status / the cycle ----
   const statusSince = new Map<string, Date>();
   const cycleJoinedAt = new Map<string, Date>();
-  const startedAt = new Map<string, Date>();
-  const statusMoves: { ticketId: string; to: string; at: Date }[] = [];
+  const statusMoves: StatusMove[] = [];
   for (const e of events) {
     const meta = (e.metadata ?? {}) as { to?: string; fieldsChanged?: string[] };
     if (e.action === "status_changed" && meta.to) {
       statusSince.set(`${e.entityId}:${meta.to}`, e.createdAt);
       statusMoves.push({ ticketId: e.entityId, to: meta.to, at: e.createdAt });
-      if (meta.to === "IN_PROGRESS" && !startedAt.has(e.entityId)) {
-        startedAt.set(e.entityId, e.createdAt);
-      }
     }
     // A cycle move is recorded on `updated`, or on `status_changed` when the
     // status changed in the same edit.
@@ -354,6 +355,7 @@ export async function loadManagerOverview(
     }
   }
   const finishedAtByTicket = finishedAtFromEvents(statusMoves);
+  const startedAt = startedAtFromEvents(statusMoves);
   const finishedAt = (t: { id: string; completedAt: Date | null; updatedAt?: Date }) =>
     finishedAtByTicket.get(t.id) ?? t.completedAt ?? t.updatedAt ?? null;
 
@@ -457,13 +459,10 @@ export async function loadManagerOverview(
 
   // ---- at risk (cycle only) ----
   // Median cycle time (first move to IN_PROGRESS -> completion), last 12 weeks.
-  const cycleTimes = completedLast12Weeks
-    .map((t) => {
-      const start = startedAt.get(t.id);
-      const end = finishedAt(t);
-      return start && end ? end.getTime() - start.getTime() : null;
-    })
-    .filter((ms): ms is number => ms !== null && ms > 0);
+  const cycleTimes = cycleTimesMs(
+    completedLast12Weeks.map((t) => ({ id: t.id, finishedAt: finishedAt(t) })),
+    startedAt,
+  );
   const medianCycleMs =
     cycleTimes.length >= MIN_CYCLE_TIME_SAMPLES ? median(cycleTimes) : null;
   // endDate is exclusive (see computeBurnup).

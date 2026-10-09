@@ -5,7 +5,10 @@ import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import { Prisma } from "@prisma/client";
 import type { CrmContact, PrismaClient } from "@prisma/client";
-import { ContactSyncService } from "~/server/services/ContactSyncService";
+import {
+  ContactSyncService,
+  ImportBatchError,
+} from "~/server/services/ContactSyncService";
 import {
   CSV_IMPORT_MAX_CHUNK,
   CSV_IMPORT_MAX_ROWS,
@@ -23,6 +26,7 @@ import {
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { GOOGLE_SCOPES, isGoogleOAuthTester } from "~/lib/googleAuth";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { CRM_CONTACT_MEMBER_TYPE } from "~/server/services/collections/memberTypeRegistry";
 import {
   MERGE_FIELD_KEYS,
@@ -1742,7 +1746,14 @@ export const crmContactRouter = createTRPCRouter({
       };
     }),
 
-  // Import contacts from Gmail/Calendar
+  // Import contacts from Gmail/Calendar, one bounded step per call. The
+  // client creates the batch with its first call (batchId: null), then keeps
+  // calling with the returned batchId until `completed`. Each step fetches
+  // one slice from Google and processes it synchronously inside its own
+  // request — fire-and-forget background work does not survive serverless
+  // (Vercel freezes the function after the response), which stalled large
+  // imports mid-batch. The resume cursor (phase + Google page token) lives
+  // in the batch's metadata, so a retried call picks up where it stopped.
   importContacts: protectedProcedure
     .input(
       z.object({
@@ -1754,16 +1765,20 @@ export const crmContactRouter = createTRPCRouter({
             end: z.date(),
           })
           .optional(),
+        // Null on the first call (creates the batch), set on the rest.
+        batchId: z.string().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const { workspaceId, source, dateRange } = input;
 
-      // Verify user has access to workspace
+      // Importing writes contacts and interactions in bulk — members only,
+      // not viewers (same gate as importFromCsv below).
       const workspaceAccess = await ctx.db.workspaceUser.findFirst({
         where: {
           workspaceId,
           userId: ctx.session.user.id,
+          role: { in: ["owner", "admin", "member"] },
         },
       });
 
@@ -1800,15 +1815,41 @@ export const crmContactRouter = createTRPCRouter({
       // Get user's email for filtering calendar events
       const userEmail = ctx.session.user.email ?? undefined;
 
-      // Start async import
-      const batchId = await ContactSyncService.importContacts(
-        workspaceId,
-        ctx.session.user.id,
-        source,
-        { dateRange, userEmail },
-      );
+      // Source and date range are fixed on the batch at creation; the
+      // continuation calls only need the batchId.
+      const batchId =
+        input.batchId ??
+        (await ContactSyncService.createImportBatch(
+          workspaceId,
+          ctx.session.user.id,
+          source,
+          { dateRange },
+        ));
 
-      return { batchId };
+      try {
+        return await ContactSyncService.processImportStep(
+          batchId,
+          ctx.session.user.id,
+          workspaceId,
+          userEmail,
+        );
+      } catch (error) {
+        // The batch stays IN_PROGRESS with its cursor, so the client can
+        // retry either way. Contract violations are the caller's problem;
+        // anything else (Google API, DB) is ours and worth a bug record.
+        if (error instanceof ImportBatchError) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+        }
+        reportHandledErrorServer(error, {
+          area: "crm.importContacts",
+          context: { batchId, source },
+        });
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            error instanceof Error ? error.message : "Contact import failed",
+        });
+      }
     }),
 
   // Import contacts from an uploaded CSV, one chunk of rows per call. The
@@ -1816,10 +1857,9 @@ export const crmContactRouter = createTRPCRouter({
   // (batchId: null), then streams the remaining chunks sequentially with the
   // returned batchId. Each chunk is processed synchronously inside its own
   // request — fire-and-forget background work does not survive serverless
-  // (Vercel freezes the function after the response), which is why this is
-  // not the poll-a-background-batch contract the Google import uses. The
-  // heavy lifting (and the deliberate automation suppression) lives in
-  // CsvContactImportService.
+  // (Vercel freezes the function after the response), the same reason the
+  // Google import above runs in client-driven steps. The heavy lifting (and
+  // the deliberate automation suppression) lives in CsvContactImportService.
   importFromCsv: protectedProcedure
     .input(
       z.object({
@@ -1934,7 +1974,11 @@ export const crmContactRouter = createTRPCRouter({
       }
     }),
 
-  // Get import batch status
+  // Get import batch status. Both import paths are now client-driven (the
+  // step/chunk responses carry the counters), so nothing in-app polls this
+  // anymore; it remains for external consumers of the batch row. For stepped
+  // Google batches, totalContacts tracks processedContacts (no upfront
+  // denominator) and PENDING never occurs.
   getImportStatus: protectedProcedure
     .input(z.object({ batchId: z.string() }))
     .query(async ({ ctx, input }) => {

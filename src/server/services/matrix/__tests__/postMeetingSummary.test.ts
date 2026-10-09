@@ -138,14 +138,14 @@ describe("postMeetingSummaryToMatrix", () => {
     expect(payload.text).toContain("Weekly sync");
     expect(payload.text).toContain("2026-08-10");
     expect(payload.text).toContain("We agreed to ship on Friday.");
-    expect(payload.text).toContain("✅ Action items (2)");
+    expect(payload.text).toContain("✅ Actions (2)");
     expect(payload.text).toContain("• Ship the release — Raj");
     // Absolute, because most readers are in a Matrix client, not in the app.
     expect(payload.text).toMatch(/https?:\/\/[^\s]+\/recording\/meeting-1/);
     expect(payload.html).toContain("<a href=");
   });
 
-  it("loads only confirmed decisions and leads the message with them", async () => {
+  it("loads only confirmed decisions and non-draft actions, and leads the message with them", async () => {
     db.transcriptionSession.findUnique.mockResolvedValue(
       meetingRow({
         decisions: [{ number: 7, statement: "Ship on Friday.", status: "ACCEPTED" }],
@@ -164,7 +164,7 @@ describe("postMeetingSummaryToMatrix", () => {
     };
     // Drafts are unreviewed; a room cannot un-see them.
     expect(query.include.decisions.where).toEqual({ reviewState: "CONFIRMED" });
-    expect(query.include.actions.where).toEqual({ status: { not: "DELETED" } });
+    expect(query.include.actions.where).toEqual({ status: { notIn: ["DELETED", "DRAFT"] } });
 
     const [, payload] = client.send.mock.calls[0]! as [string, SendArgs];
     expect(payload.text).toContain("D-0007 Ship on Friday.");

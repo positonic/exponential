@@ -3,7 +3,7 @@ title: Notifications
 description: Choose which notifications you get and where they go — push, email, Matrix, WhatsApp or Zulip
 icon: IconBell
 order: 3
-updated: 2026-10-02
+updated: 2026-10-08
 ---
 
 Exponential can notify you by **push**, **email**, **Matrix**, **WhatsApp** and **Zulip**. Push and email work out of the box; the chat channels are opt-in — connect one, then tick which notifications it receives. Assignments, mentions, due-date reminders, meeting and agenda updates, and your daily and weekly summaries are all configured on one page.
@@ -21,7 +21,7 @@ Open [Settings → Notifications](/settings/notifications), or choose **Settings
 | **Assignments** | Someone assigns you an action | Push, Email |
 | **Mentions** | Someone @mentions you in a comment on a ticket, feature, action or insight | Push, Email |
 | **Due-date reminders** | 15 minutes, 1 hour and 1 day before an action you own is due | Push, Email |
-| **Summaries** | Your daily and weekly digests, at the time you choose | Email |
+| **Summaries** | Your daily and weekly digests and the weekday Shutdown recap, at the times you choose | Email |
 | **Meeting-ready** | A meeting's notes and summary are ready | Push, Email |
 | **Added to a meeting** | Someone adds you as a meeting participant | Push, Email |
 | **Agenda ready** | A ceremony's agenda has been generated | Push, Email |
@@ -79,8 +79,9 @@ The **Summary schedule** card controls when digests go out. Which channels recei
 
 - **Daily summary** — actions due today, what is completed and pending, overdue items and your top priorities, plus yesterday's [time](/docs/do/time-tracking). Pick the **Send at** time.
 - **Weekly summary** — completion rate, active projects and week-over-week progress. Pick the weekday; it goes out at the same time as the daily summary.
+- **Shutdown recap** — closes each weekday (Monday to Friday): a short note on how the day went, what you got done, what moved, your time, what is left undone and what tomorrow holds. Pick its own **Send at** time (default `18:00`). It is off until you turn it on.
 
-If you have never saved a schedule, both summaries show as off. Turn one on, then click **Save schedule**.
+If you have never saved a schedule, the summaries show as off. Turn one on, then click **Save schedule**.
 
 Times use the timezone on your [profile](/settings/profile). If you have not set one, times are read as UTC and the card offers to use your browser's timezone.
 
@@ -93,6 +94,20 @@ A common setup is a Daily Summary arriving as a Matrix message from Zoe every mo
 3. **Switch the daily summary on.** In the **Summary schedule** card, check **Daily summary** is on, set **Send at** (for example `08:00`), and click **Save schedule**.
 
 The first summary arrives at the next **Send at** time, in your profile's timezone. A summary can go out up to an hour after **Send at**, so if you save within that hour, today's may arrive straight away. Click **Send test** on the Matrix card if you want to check the chat works before then. Turn on **Weekly summary** in the same card to get the weekly digest in Matrix too.
+
+## How to reply to your Shutdown recap in Matrix
+
+In Matrix, the actions under **Left undone** and **Tomorrow** are numbered. Reply in the same chat to deal with them without opening the app, for example:
+
+- `1, 3 tomorrow` — moves them to tomorrow
+- `drop 2` — cancels it
+- `4 done` — completes it
+- `5 to Monday` — moves it to a date
+- `6 back to backlog` — clears its dates
+
+Zoe replies with what it changed. If a reply is unclear, it asks rather than guessing. The numbers belong to that evening's recap, so they still work if you reply later that evening.
+
+Turn the recap on the same way as the [daily summary in Matrix](#how-to-get-your-daily-summary-in-matrix), using the **Shutdown recap** switch in step 3.
 
 ## Due-date reminders
 

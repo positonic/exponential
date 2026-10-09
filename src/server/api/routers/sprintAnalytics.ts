@@ -19,6 +19,7 @@ import {
   type PrTurnaroundResult,
 } from "~/server/services/SprintAnalyticsService";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
+import type { DeliveryFlowResult } from "~/server/services/deliveryFlow";
 
 /**
  * Gate the agent-facing procedures that take a bare `listId`.
@@ -215,6 +216,29 @@ export const sprintAnalyticsRouter = createTRPCRouter({
         input.workspaceId,
         input.count,
       );
+    }),
+
+  /**
+   * Metrics page (UI): the headline flow numbers — completed tickets per week
+   * and cycle-time percentiles (first IN_PROGRESS -> DONE/DEPLOYED) over the
+   * trailing window, from the activity event log. Needs neither cycles nor
+   * points, so it has data wherever tickets get finished.
+   */
+  getDeliveryFlow: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        weeks: z.number().int().min(4).max(26).optional(),
+        memberIds: memberIdsInput,
+      }),
+    )
+    .query(async ({ ctx, input }): Promise<DeliveryFlowResult> => {
+      await assertWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
+
+      return sprintAnalyticsService.getDeliveryFlow(input.workspaceId, {
+        weeks: input.weeks,
+        memberIds: input.memberIds,
+      });
     }),
 
   /**

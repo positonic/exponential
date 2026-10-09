@@ -10,6 +10,7 @@ import {
 } from "~/server/services/notifications/emit/constants";
 import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 import {
+  DEFAULT_SHUTDOWN_RECAP_TIME,
   DEFAULT_SUMMARY_TIME,
   resolveSummaryTimezone,
 } from "~/server/services/notifications/emit/summarySchedule";
@@ -327,6 +328,8 @@ export const notificationRouter = createTRPCRouter({
           dailySummaryTime: true,
           weeklySummary: true,
           weeklyDayOfWeek: true,
+          shutdownRecap: true,
+          shutdownRecapTime: true,
           timezone: true,
         },
       }),
@@ -345,6 +348,8 @@ export const notificationRouter = createTRPCRouter({
       dailySummaryTime: pref?.dailySummaryTime ?? DEFAULT_SUMMARY_TIME,
       weeklySummary: pref?.weeklySummary ?? false,
       weeklyDayOfWeek: pref?.weeklyDayOfWeek ?? 1,
+      shutdownRecap: pref?.shutdownRecap ?? false,
+      shutdownRecapTime: pref?.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME,
       /** The zone the scheduler will actually use for this user. */
       timezone: resolveSummaryTimezone({
         timezone: pref?.timezone ?? null,
@@ -364,6 +369,10 @@ export const notificationRouter = createTRPCRouter({
           .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 08:00"),
         weeklySummary: z.boolean(),
         weeklyDayOfWeek: z.number().int().min(1).max(7),
+        shutdownRecap: z.boolean(),
+        shutdownRecapTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 18:00"),
       }),
     )
     .mutation(async ({ ctx, input }) => {

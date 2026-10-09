@@ -32,8 +32,20 @@ function appendDeeplink(message: string, meta: NotificationPayload['metadata']):
  */
 function messageBody(payload: NotificationPayload): string {
   const markdown = payload.metadata?.markdown as unknown;
-  if (typeof markdown === 'string' && markdown.length > 0) return markdown;
-  return appendDeeplink(payload.message, payload.metadata);
+  const replyHint = payload.metadata?.replyHint as unknown;
+  const hint = typeof replyHint === 'string' && replyHint.length > 0 ? `\n\n${replyHint}` : '';
+  if (typeof markdown === 'string' && markdown.length > 0) return `${markdown}${hint}`;
+  return `${appendDeeplink(payload.message, payload.metadata)}${hint}`;
+}
+
+/**
+ * Context the gateway saves beside the message in the person's DM memory
+ * (Shutdown recap: its numbers → action ids), so the agent can resolve a
+ * reply. Never shown in the room.
+ */
+function agentContext(payload: NotificationPayload): string | undefined {
+  const value = payload.metadata?.agentContext as unknown;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -78,6 +90,7 @@ export class MatrixNotificationService extends NotificationService {
           userId: this.config.userId,
           title: payload.title,
           message: messageBody(payload),
+          agentContext: agentContext(payload),
         }),
       });
 

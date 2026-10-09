@@ -36,6 +36,9 @@ interface Workspace {
   logoUrl: string | null;
   type: string;
   homeLayout: HomeLayout;
+  // null = follow the workspace type (team/org on, personal off). See the
+  // column comment in schema.prisma and the resolution in useTerminology.
+  enableKeyResults: boolean | null;
   members?: WorkspaceMember[];
 }
 
@@ -149,13 +152,18 @@ export function WorkspaceProvider({
     }
   }, [workspaceError, router]);
 
-  // Set default workspace when loaded (without URL navigation)
+  // Set default workspace when loaded (without URL navigation). getDefault
+  // already carries the workspace in getBySlug's shape: seed that cache first so
+  // the getBySlug query below starts with data instead of a second round trip.
   useEffect(() => {
     if (!urlSlug && defaultWorkspace && !hasInitialized) {
+      if (defaultWorkspace.details && !utils.workspace.getBySlug.getData({ slug: defaultWorkspace.slug })) {
+        utils.workspace.getBySlug.setData({ slug: defaultWorkspace.slug }, defaultWorkspace.details);
+      }
       setContextWorkspaceSlug(defaultWorkspace.slug);
       setHasInitialized(true);
     }
-  }, [urlSlug, defaultWorkspace, hasInitialized]);
+  }, [urlSlug, defaultWorkspace, hasInitialized, utils]);
 
   // Sync with URL changes
   useEffect(() => {
