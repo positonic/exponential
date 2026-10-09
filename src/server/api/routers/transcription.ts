@@ -2143,8 +2143,12 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Explicit user-triggered generation re-summarizes through the shared
       // path (overwriteExisting) so the manual button can refresh a summary.
+      // Decision extraction (ADR-0060) is requested too: it only fires on the
+      // first null → summary transition (the on-view auto-generate), never on
+      // a regenerate, and is gated per workspace inside.
       const outcome = await summarizeMeetingRow(ctx.db, session, {
         overwriteExisting: true,
+        extractDecisions: true,
       });
 
       switch (outcome.status) {

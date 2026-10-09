@@ -86,6 +86,28 @@ describe("summarizeMeetingRow — post-summary decision extraction hook", () => 
     expect(generateDraftDecisionsMock).not.toHaveBeenCalled();
   });
 
+  it("extracts on the first summary but not on a regenerate, as generateSummary calls it", async () => {
+    process.env.DECISION_EXTRACTION_WORKSPACES = "w1";
+    const manual = { overwriteExisting: true, extractDecisions: true };
+
+    // On-view auto-generate: null → summary, so extraction fires.
+    const first = await summarizeMeetingRow(db, MEETING, manual);
+    expect(first.status).toBe("created");
+    expect(generateDraftDecisionsMock).toHaveBeenCalledTimes(1);
+
+    // The "Regenerate" button: overwrite of an existing summary, no extraction.
+    db.transcriptionSession.update.mockResolvedValue({} as never);
+    const regen = await summarizeMeetingRow(db, { ...MEETING, summary: "{}" }, manual);
+    expect(regen.status).toBe("created");
+    expect(generateDraftDecisionsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when the caller does not ask for extraction", async () => {
+    process.env.DECISION_EXTRACTION_WORKSPACES = "*";
+    await summarizeMeetingRow(db, MEETING);
+    expect(generateDraftDecisionsMock).not.toHaveBeenCalled();
+  });
+
   it("never fails the summary when extraction throws", async () => {
     process.env.DECISION_EXTRACTION_WORKSPACES = "*";
     generateDraftDecisionsMock.mockRejectedValue(new Error("model down"));

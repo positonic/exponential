@@ -16,7 +16,9 @@ import { attachUnlinkedMeetings } from "~/server/services/ceremonies/autoAttach"
  *   2. summarizes each via the existing `TranscriptSummarizerService` and
  *      persists the result to `summary` in the same shape as the manual
  *      `generateSummary` mutation,
- *   3. emits one `meeting`/`summarized` activity event per summary that lands.
+ *   3. emits one `meeting`/`summarized` activity event per summary that lands,
+ *   4. requests post-summary decision extraction (ADR-0060) for workspaces
+ *      that have opted in — the only automatic route to draft decisions.
  *
  * Idempotent: it only ever picks up `summary IS NULL` rows, so re-running is
  * safe and never double-emits the `summarized` event for an already-summarised
@@ -121,7 +123,9 @@ export async function runMeetingSummarySweep(
     // Single shared summarization path (cron, manual mutation, on-view triggers
     // all funnel through summarizeMeetingRow). Per-meeting failures resolve to a
     // status rather than throwing, so one bad transcript can't sink the sweep.
-    const outcome = await summarizeMeetingRow(db, meeting);
+    // Decision extraction (ADR-0060) is requested here and gated per workspace
+    // inside; it only runs on the first summary landing, never on `already-had`.
+    const outcome = await summarizeMeetingRow(db, meeting, { extractDecisions: true });
 
     if (outcome.status === "not-configured") {
       // No key configured — abort the whole sweep cleanly; nothing here will
