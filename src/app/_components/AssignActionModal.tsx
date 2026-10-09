@@ -293,10 +293,10 @@ export function AssignActionModal({
                           styles={{
                             root: {
                               backgroundColor: !user.image ? 
-                                (user.isAgent ? 'var(--mantine-color-blue-6)' : getAvatarColor(getColorSeed(user.name, user.email))) : 
+                                (user.isAgent ? 'var(--color-brand-primary)' : getAvatarColor(getColorSeed(user.name, user.email))) : 
                                 undefined,
                               color: !user.image ? 
-                                (user.isAgent ? 'white' : getTextColor(getAvatarColor(getColorSeed(user.name, user.email)))) : 
+                                (user.isAgent ? 'var(--color-text-inverse)' : getTextColor(getAvatarColor(getColorSeed(user.name, user.email)))) : 
                                 undefined,
                               fontWeight: !user.image ? 600 : undefined,
                               fontSize: '14px',

@@ -61,5 +61,5 @@ BEGIN
   RAISE NOTICE 'Assistant backfill done; % membership(s) skipped under the delegation invariant', skipped;
 END $$;
 
--- Every Assistant is a principal from here on.
+-- Every Assistant is a principal from here on (schema.prisma declares the column required).
 ALTER TABLE "Assistant" ALTER COLUMN "externalAgentId" SET NOT NULL;

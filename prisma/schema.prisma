@@ -4307,14 +4307,14 @@ model Assistant {
   isDefault    Boolean  @default(false)
   /// The Assistant's principal — an owned ExternalAgent with a shadow user and a
   /// workspace membership, which is what makes it an assignee (ADR-0067).
-  /// Nullable only for the backfill window; the migration sets it NOT NULL.
-  externalAgentId String? @unique
+  /// Required: the migration backfills every existing row before setting NOT NULL.
+  externalAgentId String   @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy     User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
-  externalAgent ExternalAgent? @relation(fields: [externalAgentId], references: [id], onDelete: Cascade)
+  externalAgent ExternalAgent  @relation(fields: [externalAgentId], references: [id], onDelete: Cascade)
   contentDrafts ContentDraft[]
 
   @@index([workspaceId])

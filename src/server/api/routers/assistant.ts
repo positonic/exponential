@@ -132,7 +132,7 @@ export const assistantRouter = createTRPCRouter({
       const renamed = data.name !== undefined && data.name !== existing.name;
       return ctx.db.$transaction(async (tx) => {
         // The principal answers to the Assistant's name (ADR-0067).
-        if (renamed && existing.externalAgentId) {
+        if (renamed) {
           await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
         }
         return tx.assistant.update({
@@ -199,10 +199,6 @@ export const assistantRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
-      if (!assistant.externalAgentId) {
-        // Pre-backfill row: nothing to cascade from.
-        return ctx.db.assistant.delete({ where: { id: input.id } });
-      }
       const agent = await ctx.db.externalAgent.findUnique({
         where: { id: assistant.externalAgentId },
         select: { id: true, shadowUserId: true, shadowUser: { select: { image: true } } },
