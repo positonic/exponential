@@ -15,6 +15,7 @@ import {
   AccessControlService,
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { projectActivityScopeWhere } from "~/server/services/projectActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
 import { rehomeProjectMeetings } from "~/server/services/meetings/assignMeetingPlacement";
 import type { PrismaClient } from "@prisma/client";
@@ -1098,6 +1099,7 @@ export const projectRouter = createTRPCRouter({
         where: {
           projectId: input.projectId,
           changedAt: { gte: since },
+          ...projectActivityScopeWhere(input.projectId),
         },
         orderBy: { changedAt: "desc" },
         take: input.limit,
