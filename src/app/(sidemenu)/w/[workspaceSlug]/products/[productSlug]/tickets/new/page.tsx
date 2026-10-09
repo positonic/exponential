@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   Group,
-  NumberInput,
   Select,
   Stack,
   Text,
@@ -16,6 +15,8 @@ import {
   Title,
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortFieldLabel, effortOptions } from "~/types/effort";
 import { api } from "~/trpc/react";
 import { ticketUrlId } from "~/lib/fun-ids";
 
@@ -88,6 +89,7 @@ export default function NewTicketPage() {
   const [type, setType] = useState<TicketType>("FEATURE");
   const [status, setStatus] = useState<TicketStatus>("BACKLOG");
   const [points, setPoints] = useState<number | "">("");
+  const effortUnit = useWorkspaceEffortUnit();
   const [featureId, setFeatureId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [branchName, setBranchName] = useState("");
@@ -168,14 +170,16 @@ export default function NewTicketPage() {
                 value={status}
                 onChange={(v) => v && setStatus(v as TicketStatus)}
               />
-              <NumberInput
-                label="Story points"
-                value={points}
-                onChange={(v) =>
-                  setPoints(typeof v === "number" ? v : "")
-                }
-                min={0}
-                allowDecimal={false}
+              <Select
+                label={effortFieldLabel(effortUnit)}
+                placeholder="None"
+                data={effortOptions(effortUnit).map((o) => ({
+                  value: String(o.value),
+                  label: o.label,
+                }))}
+                value={typeof points === "number" ? String(points) : null}
+                onChange={(v) => setPoints(v ? Number(v) : "")}
+                clearable
               />
             </Group>
             <Group grow>

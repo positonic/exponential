@@ -30,6 +30,8 @@ import TipTapLink from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import DOMPurify from "dompurify";
 import { api } from "~/trpc/react";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortOptions, effortPillLabel } from "~/types/effort";
 import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import "@mantine/tiptap/styles.css";
 
@@ -130,6 +132,7 @@ export function CreateTicketModal({
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [points, setPoints] = useState<string>("");
+  const effortUnit = useWorkspaceEffortUnit();
 
   // overflow
   const [epicId, setEpicId] = useState<string | null>(null);
@@ -381,10 +384,13 @@ export function CreateTicketModal({
           </Pill>
 
           {/* Effort */}
-          <Pill icon={<IconFlame size={14} />} label={points || "Effort"}>
-            {[1, 2, 3, 5, 8, 13].map((n) => (
-              <Menu.Item key={n} onClick={() => setPoints(String(n))}>
-                {n}
+          <Pill
+            icon={<IconFlame size={14} />}
+            label={effortPillLabel(points ? Number(points) : null, effortUnit)}
+          >
+            {effortOptions(effortUnit).map((o) => (
+              <Menu.Item key={o.value} onClick={() => setPoints(String(o.value))}>
+                {o.label}
               </Menu.Item>
             ))}
             {points && (

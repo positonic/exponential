@@ -26,6 +26,8 @@ import {
 import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortOptions, effortPillLabel } from "~/types/effort";
 import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_components/product/PropertyPill";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
@@ -50,8 +52,6 @@ const TYPE_COLORS: Record<string, string> = {
   BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
 };
 
-const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
-
 /**
  * Full ticket content for the peek drawer: everything the detail page offers,
  * with the properties sidebar compressed into ONE pill line. Workflow pills
@@ -61,6 +61,7 @@ const EFFORT_OPTIONS = [1, 2, 3, 5, 8, 13];
  */
 export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath: string }) {
   const { workspace, workspaceId } = useWorkspace();
+  const effortUnit = useWorkspaceEffortUnit();
   const utils = api.useUtils();
 
   const { data: ticket, isLoading } = api.product.ticket.getById.useQuery(
@@ -303,15 +304,15 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
               tooltip="Effort"
               ghost={ticket.points == null}
               icon={<IconFlame size={13} />}
-              label={ticket.points == null ? "Effort" : `${ticket.points} pts`}
+              label={effortPillLabel(ticket.points, effortUnit)}
             >
-              {EFFORT_OPTIONS.map((n) => (
+              {effortOptions(effortUnit).map((o) => (
                 <Menu.Item
-                key={n}
-                rightSection={n === ticket.points ? <IconCheck size={13} className="text-text-muted" /> : undefined}
-                onClick={() => setField("points", n)}
-              >
-                  {n}
+                  key={o.value}
+                  rightSection={o.value === ticket.points ? <IconCheck size={13} className="text-text-muted" /> : undefined}
+                  onClick={() => setField("points", o.value)}
+                >
+                  {o.label}
                 </Menu.Item>
               ))}
               <Menu.Divider />

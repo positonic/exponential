@@ -17,6 +17,8 @@ import {
   Title,
 } from "@mantine/core";
 import { IconArrowLeft } from "@tabler/icons-react";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortPillLabel } from "~/types/effort";
 import { DateInput } from "@mantine/dates";
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
@@ -31,6 +33,7 @@ const STATUS_OPTIONS = [
 type CycleStatus = "PLANNED" | "ACTIVE" | "COMPLETED" | "ARCHIVED";
 
 export function CycleDetailClient() {
+  const effortUnit = useWorkspaceEffortUnit();
   const router = useRouter();
   const params = useParams();
   const cycleId = params.cycleId as string;
@@ -344,7 +347,7 @@ export function CycleDetailClient() {
                       </Badge>
                       {t.points !== null && t.points !== undefined && (
                         <Badge size="xs" variant="outline">
-                          {t.points} pts
+                          {effortPillLabel(t.points, effortUnit)}
                         </Badge>
                       )}
                     </Group>
