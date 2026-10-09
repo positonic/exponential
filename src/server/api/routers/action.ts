@@ -539,8 +539,10 @@ export const actionRouter = createTRPCRouter({
       // Project activity audit log: explicit status + dueDate diffs
       // (fire-and-forget). A kanban-driven status change is already logged
       // by the module as the column move; logging the coarse diff too would
-      // record one drag twice.
-      if (previous.projectId) {
+      // record one drag twice. Logged against the project the action ends up
+      // in, so a change made while moving it lands in the new project's feed.
+      const activityProjectId = updatedAction.projectId ?? previous.projectId;
+      if (activityProjectId) {
         const statusDiff =
           patch.status !== undefined && transitions.statusChanged
             ? { from: previous.status, to: transitions.nextStatus }
@@ -552,7 +554,7 @@ export const actionRouter = createTRPCRouter({
 
         if (statusDiff || dueDateDiff) {
           void logActionDiffActivities(ctx.db, {
-            projectId: previous.projectId,
+            projectId: activityProjectId,
             actionId: id,
             changedById: ctx.session.user.id,
             diff: { status: statusDiff, dueDate: dueDateDiff },

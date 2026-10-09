@@ -23,6 +23,22 @@ interface LogProjectActivityArgs {
   changedById?: string | null;
 }
 
+/**
+ * Rows are written against the project an action was in at the time, and
+ * stay there when the action later moves to another project. A feed of
+ * "what changed in this project" keeps only rows whose action still lives
+ * here (or whose action is gone — ACTION_DELETED rows carry no actionId), so
+ * a reschedule of something now filed elsewhere never shows up as this
+ * project's news.
+ */
+export function projectActivityScopeWhere(
+  projectId: string,
+): Prisma.ProjectActivityWhereInput {
+  return {
+    OR: [{ actionId: null }, { action: { projectId } }],
+  };
+}
+
 export async function logProjectActivity(
   db: DbClient,
   args: LogProjectActivityArgs,

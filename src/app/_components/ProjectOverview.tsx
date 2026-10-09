@@ -22,6 +22,7 @@ import { CreateActionModal } from "./CreateActionModal";
 import { CeremonyIconTile } from "./ceremonies/CeremonyIcon";
 import { CEREMONY_KIND_LABELS } from "./ceremonies/CeremonyEditorModal";
 import { describeCadence } from "~/lib/ceremonies/cadence";
+import { toPlainText } from "~/lib/content/plainText";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
@@ -113,6 +114,13 @@ function activityDotClass(type: string): string {
 }
 
 function describeActivity(row: ActivityRow): { verb: string; target: string | null; detail: string | null } {
+  const { verb, target, detail } = describeActivityRaw(row);
+  // Action names may be stored as legacy HTML (a pasted link) or Markdown;
+  // this line is a sentence, so show the text a reader would see.
+  return { verb, target: target ? toPlainText(target) || null : null, detail };
+}
+
+function describeActivityRaw(row: ActivityRow): { verb: string; target: string | null; detail: string | null } {
   const targetName = row.action?.name ?? row.fromValue ?? null;
   switch (row.type) {
     case "STATUS_CHANGED":
@@ -333,7 +341,7 @@ export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
                       </span>
                     )}
                     <div className={styles.rowBody}>
-                      <div className={styles.rowTitle}>{a.name}</div>
+                      <div className={styles.rowTitle}>{toPlainText(a.name)}</div>
                       <div className={styles.rowSub}>
                         <span>{a.priority ?? "Action"}</span>
                         {due && (

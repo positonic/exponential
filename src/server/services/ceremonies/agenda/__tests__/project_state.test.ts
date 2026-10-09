@@ -121,6 +121,25 @@ describe("project_state section", () => {
     const where = db.projectActivity.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ projectId: "p-1", changedAt: { gte: prevStart, lte: now } });
     expect((where.type as { in: string[] }).in).not.toContain("ASSIGNEE_CHANGED");
+    // Rows left behind by an action that has since moved to another project are not this project's news.
+    expect(where.OR).toEqual([{ actionId: null }, { action: { projectId: "p-1" } }]);
+  });
+
+  it("shows action names stored as legacy HTML as their text", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.ceremonyOccurrence.findFirst.mockResolvedValue(null);
+    db.project.findUnique.mockResolvedValue({
+      id: "p-1", name: "P", slug: "p", status: "ACTIVE", priority: "NONE", progress: 10,
+      endDate: null, reviewDate: null, nextActionDate: null, goals: [],
+    } as never);
+    db.action.findMany.mockResolvedValue([] as never);
+    db.projectActivity.findMany.mockResolvedValue([
+      { id: "ev-1", actionId: "a-1", type: "STATUS_CHANGED", fromValue: "TODO", toValue: "DONE", action: { name: '<a target="_blank" rel="noopener noreferrer" href="https://example.com">Assess awardees</a>' }, changedBy: null },
+    ] as never);
+
+    const items = await projectStateSection.run(ctx(db), section);
+
+    expect(items[1]).toMatchObject({ title: "Assess awardees", detail: "moved TODO → DONE" });
   });
 
   it("looks back seven days when there is no previous occurrence", async () => {
