@@ -56,6 +56,13 @@ export interface GitHubFeedInput {
   prMerged?: boolean;
   prReviewState?: string | null;
   prReviewer?: string | null;
+  /**
+   * GitHub's review node id. Required for a unique per-review feed key: one PR
+   * collects many reviews and the backfill dedups on `(entityType, entityId)`.
+   * The live path reads it off `review.node_id`; the backfill off the stored
+   * `GitHubActivity.externalId`, which is the same value.
+   */
+  prReviewId?: string | null;
 
   /** Push fields. A push event summarizes its whole commit list. */
   commitCount?: number;
@@ -81,6 +88,65 @@ export interface GitHubFeedEvent {
    * exists; otherwise the feed renders the login itself.
    */
   authorLogin: string | null;
+}
+
+/** Length GitHub itself uses for abbreviated commit shas in UI and metadata. */
+const SHORT_SHA_LENGTH = 7;
+
+/**
+ * Canonical commit sha for keys and metadata: trimmed and lower-cased. Returns
+ * `null` for blank input so callers can fall through to a non-sha key.
+ */
+export function normalizeCommitSha(
+  sha: string | null | undefined,
+): string | null {
+  const trimmed = sha?.trim().toLowerCase();
+  return trimmed ? trimmed : null;
+}
+
+/** Abbreviated sha for display (`metadata.commitSha`). */
+export function shortCommitSha(sha: string | null | undefined): string | null {
+  const normalized = normalizeCommitSha(sha);
+  return normalized ? normalized.slice(0, SHORT_SHA_LENGTH) : null;
+}
+
+/**
+ * Feed key for a push. The live webhook path and the backfill script MUST build
+ * this through the same function — they hold different sha spellings (webhook
+ * gives the full 40-char id, `GitHubActivity.commitSha` stores an abbreviated
+ * one) and a mismatch would make the backfill re-insert every push the webhook
+ * already recorded. Callers pass the *full* sha whenever they have it.
+ *
+ * Note that nothing in the schema enforces uniqueness on `(entityType,
+ * entityId)`; the write sites check for an existing row themselves.
+ */
+export function pushEntityId(input: {
+  repoFullName: string;
+  branchName?: string | null;
+  headCommitSha?: string | null;
+}): string {
+  const sha = normalizeCommitSha(input.headCommitSha);
+  return sha
+    ? `${input.repoFullName}@${sha}`
+    : `${input.repoFullName}@${input.branchName ?? "unknown"}`;
+}
+
+/**
+ * Feed key for a submitted review. Includes the review id so each review on a
+ * PR is its own row; a bare `repo#pr:review` key would let the backfill's
+ * `(entityType, entityId)` filter drop every review after the first. Falls back
+ * to the reviewer login when no review id is available, which still separates
+ * different reviewers' reviews.
+ */
+export function reviewEntityId(input: {
+  repoFullName: string;
+  prNumber: number;
+  prReviewId?: string | null;
+  prReviewer?: string | null;
+}): string {
+  const discriminator =
+    input.prReviewId?.trim() ?? input.prReviewer?.trim() ?? "unknown";
+  return `${input.repoFullName}#${input.prNumber}:review:${discriminator}`;
 }
 
 /** PR actions that earn a feed row, and the activity action each maps to. */
@@ -138,7 +204,12 @@ export function toGitHubFeedEvent(
       return {
         entityType: "github_pull_request_review",
         action: "commented",
-        entityId: `${input.repoFullName}#${input.prNumber}:review`,
+        entityId: reviewEntityId({
+          repoFullName: input.repoFullName,
+          prNumber: input.prNumber,
+          prReviewId: input.prReviewId,
+          prReviewer: input.prReviewer,
+        }),
         authorLogin: input.prReviewer ?? null,
         metadata: {
           title: input.prTitle ?? `PR #${input.prNumber}`,
@@ -165,8 +236,11 @@ export function toGitHubFeedEvent(
       return {
         entityType: "github_push",
         action: "created",
-        // Keyed on the head commit so a redelivered push dedups naturally.
-        entityId: input.headCommitSha ?? `${input.repoFullName}@${branch}`,
+        // Keyed on the head commit so a redelivered push maps onto the same
+        // row. The key alone does not dedup — `WorkspaceActivityEvent` has no
+        // unique constraint on it — so `emitFeedEvent` and the backfill look
+        // the key up before writing.
+        entityId: pushEntityId(input),
         authorLogin: input.commitAuthor ?? null,
         metadata: {
           title: headline,
@@ -174,7 +248,7 @@ export function toGitHubFeedEvent(
           repoUrl: input.repoUrl ?? null,
           branchName: branch,
           commitCount,
-          commitSha: input.headCommitSha ?? null,
+          commitSha: shortCommitSha(input.headCommitSha),
           commitUrl: input.headCommitUrl ?? null,
           author: input.commitAuthor ?? null,
         },

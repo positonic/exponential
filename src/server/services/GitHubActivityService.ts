@@ -363,7 +363,9 @@ export class GitHubActivityService {
         repoUrl: data.repository.html_url,
         branchName,
         commitCount: data.commits.length,
-        headCommitSha: head?.id.slice(0, 7) ?? null,
+        // Full sha: the feed key is derived from it (see `pushEntityId`), and
+        // the backfill reads the full sha from `GitHubActivity.externalId`.
+        headCommitSha: head?.id ?? null,
         headCommitMessage: head?.message.split("\n")[0] ?? null,
         headCommitUrl: head?.url ?? null,
         commitAuthor: head?.author.username ?? head?.author.name ?? null,
@@ -558,6 +560,7 @@ export class GitHubActivityService {
         prUrl: pr.html_url,
         prReviewState: review.state,
         prReviewer: review.user.login,
+        prReviewId: review.node_id,
       },
       new Date(review.submitted_at),
     );
@@ -582,6 +585,22 @@ export class GitHubActivityService {
   ): Promise<void> {
     const event = toGitHubFeedEvent(input);
     if (!event) return; // below feed altitude — recorded, deliberately not shown
+
+    // `WorkspaceActivityEvent` has no unique constraint on `(entityType,
+    // entityId)`, so a redelivered webhook (or a backfill that already ran) would
+    // otherwise append a second row for the same push / PR transition / review.
+    // Make the write idempotent here instead of in `recordActivity`, which stays
+    // an append-only primitive for in-app mutations.
+    const duplicate = await this.prisma.workspaceActivityEvent.findFirst({
+      where: {
+        workspaceId: ctx.workspaceId,
+        entityType: event.entityType,
+        entityId: event.entityId,
+        action: event.action,
+      },
+      select: { id: true },
+    });
+    if (duplicate) return;
 
     await recordActivity(this.prisma, {
       workspaceId: ctx.workspaceId,

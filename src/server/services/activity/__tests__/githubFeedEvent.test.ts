@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { toGitHubFeedEvent } from "../githubFeedEvent";
+import {
+  pushEntityId,
+  reviewEntityId,
+  toGitHubFeedEvent,
+} from "../githubFeedEvent";
 import { deriveActivitySource } from "../deriveActivitySource";
 
 const repo = "positonic/exponential";
@@ -96,6 +100,32 @@ describe("toGitHubFeedEvent — pushes", () => {
       title: "refactor: Keep untimed tasks off the agenda timeline",
     });
   });
+
+  it("keys the full and abbreviated spellings of one sha identically, per repo", () => {
+    const full = "b8b334e0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6";
+    const live = toGitHubFeedEvent({ ...pushInput(1), headCommitSha: full });
+    const backfill = toGitHubFeedEvent({
+      ...pushInput(1),
+      headCommitSha: full.toUpperCase(),
+    });
+    expect(live!.entityId).toBe(backfill!.entityId);
+    expect(live!.entityId).toBe(pushEntityId({ repoFullName: repo, headCommitSha: full }));
+    expect(live!.entityId.startsWith(`${repo}@`)).toBe(true);
+    // Display form stays abbreviated.
+    expect(live!.metadata).toMatchObject({ commitSha: "b8b334e" });
+
+    const otherRepo = toGitHubFeedEvent({
+      ...pushInput(1),
+      repoFullName: "positonic/mastra",
+      headCommitSha: full,
+    });
+    expect(otherRepo!.entityId).not.toBe(live!.entityId);
+  });
+
+  it("falls back to repo@branch when the push has no head sha", () => {
+    const event = toGitHubFeedEvent({ ...pushInput(1), headCommitSha: null });
+    expect(event!.entityId).toBe(`${repo}@main`);
+  });
 });
 
 describe("toGitHubFeedEvent — reviews", () => {
@@ -120,6 +150,35 @@ describe("toGitHubFeedEvent — reviews", () => {
   it("suppresses review edits and dismissals", () => {
     expect(toGitHubFeedEvent(reviewInput("edited"))).toBeNull();
     expect(toGitHubFeedEvent(reviewInput("dismissed"))).toBeNull();
+  });
+
+  it("gives each review on a PR its own key, so a backfill keeps all of them", () => {
+    const first = toGitHubFeedEvent({
+      ...reviewInput("submitted"),
+      prReviewId: "PRR_1",
+    });
+    const second = toGitHubFeedEvent({
+      ...reviewInput("submitted"),
+      prReviewId: "PRR_2",
+    });
+    expect(first!.entityId).not.toBe(second!.entityId);
+    expect(first!.entityId).toBe(
+      reviewEntityId({ repoFullName: repo, prNumber: 497, prReviewId: "PRR_1" }),
+    );
+    // Same review redelivered → same key.
+    expect(
+      toGitHubFeedEvent({ ...reviewInput("submitted"), prReviewId: "PRR_1" })!
+        .entityId,
+    ).toBe(first!.entityId);
+  });
+
+  it("separates reviewers when no review id is available", () => {
+    const andi = toGitHubFeedEvent(reviewInput("submitted"));
+    const james = toGitHubFeedEvent({
+      ...reviewInput("submitted"),
+      prReviewer: "james",
+    });
+    expect(andi!.entityId).not.toBe(james!.entityId);
   });
 });
 
