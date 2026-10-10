@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
-import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "../enqueue";
+import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned, resumeWaitingRunsOnOwnerReply } from "../enqueue";
 
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 
@@ -93,5 +93,38 @@ describe("cancelQueuedRunsForUnassigned", () => {
       where: { actionId: ACTION, agentId: { in: [AGENT] }, status: "QUEUED" },
       data: { status: "CANCELLED" },
     });
+  });
+});
+
+describe("resumeWaitingRunsOnOwnerReply", () => {
+  beforeEach(() => {
+    mockReset(db);
+    db.externalAgent.findMany.mockResolvedValue([{ id: AGENT, executor: "MASTRA" }] as never);
+    db.agentRun.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: "run-2", agentId: args.data.agentId, executor: args.data.executor })) as never);
+  });
+
+  it("the owner's reply on an action whose latest run is WAITING_ON_OWNER starts a resume run", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "WAITING_ON_OWNER" } as never);
+    const runs = await resumeWaitingRunsOnOwnerReply(db, { actionId: ACTION, authorId: "owner-1", commentId: "c-9" });
+    expect(runs).toEqual([{ id: "run-2", agentId: AGENT, executor: "MASTRA" }]);
+    expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { ownerId: "owner-1" } });
+    expect(db.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { actionId: ACTION, agentId: AGENT, requestedById: "owner-1", predecessorId: "run-1", wakeCommentId: "c-9" },
+    });
+  });
+
+  it("does nothing when the latest run is not waiting (finished, live, or none)", async () => {
+    for (const latest of [{ id: "run-1", status: "SUCCEEDED" }, { id: "run-1", status: "RUNNING" }, null]) {
+      db.agentRun.findFirst.mockResolvedValue(latest as never);
+      expect(await resumeWaitingRunsOnOwnerReply(db, { actionId: ACTION, authorId: "owner-1", commentId: "c" })).toEqual([]);
+    }
+    expect(db.agentRun.create).not.toHaveBeenCalled();
+  });
+
+  it("a commenter who owns no agent never resumes anything", async () => {
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+    expect(await resumeWaitingRunsOnOwnerReply(db, { actionId: ACTION, authorId: "teammate", commentId: "c" })).toEqual([]);
+    expect(db.agentRun.findFirst).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,9 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
 import { createActionComment } from "~/server/services/actions/comments";
+import { resumeWaitingRunsOnOwnerReply } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { after } from "next/server";
 import { deleteFromBlob } from "~/lib/blob";
 
 function hasViewAccess(access: {
@@ -65,6 +68,18 @@ export const actionCommentRouter = createTRPCRouter({
         authorId: ctx.session.user.id,
         content: input.content,
       });
+
+      // The owner answering their Assistant's question resumes the run
+      // (ADR-0067, Agent PRD D6). Only a human's comment reaches this router;
+      // an Assistant's own comment goes through the run tool and never resumes.
+      const resumed = await resumeWaitingRunsOnOwnerReply(ctx.db, {
+        actionId: input.actionId,
+        authorId: ctx.session.user.id,
+        commentId: comment.id,
+      });
+      if (resumed.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
 
       return comment;
     }),

@@ -88,3 +88,45 @@ export async function cancelQueuedRunsForUnassigned(
   });
   return result.count;
 }
+
+/**
+ * Resume on owner reply (Agent PRD D6): the owner of an External agent comments
+ * on an action whose latest run by that agent is WAITING_ON_OWNER → a new run
+ * with `predecessorId` and `wakeCommentId`, requested by the owner. An agent's
+ * own comment never resumes anything (the run tool does not call this), and a
+ * second reply while the resumed run is live is coalesced like any other.
+ * Returns the runs it created (one per waiting agent of the author).
+ */
+export async function resumeWaitingRunsOnOwnerReply(
+  db: Db,
+  input: { actionId: string; authorId: string; commentId: string },
+): Promise<Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }>> {
+  const agents = await db.externalAgent.findMany({
+    where: { ownerId: input.authorId },
+    select: { id: true, executor: true },
+  });
+  if (!agents?.length) return [];
+
+  const created: Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }> = [];
+  for (const agent of agents) {
+    const latest = await db.agentRun.findFirst({
+      where: { actionId: input.actionId, agentId: agent.id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, status: true },
+    });
+    if (!latest || latest.status !== "WAITING_ON_OWNER") continue;
+    const run = await db.agentRun.create({
+      data: {
+        actionId: input.actionId,
+        agentId: agent.id,
+        requestedById: input.authorId,
+        executor: agent.executor,
+        predecessorId: latest.id,
+        wakeCommentId: input.commentId,
+      },
+      select: { id: true, agentId: true, executor: true },
+    });
+    created.push(run);
+  }
+  return created;
+}

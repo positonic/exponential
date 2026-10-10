@@ -185,3 +185,44 @@ describe("agentRun.listForAction", () => {
     expect(viewer[0]).toMatchObject({ status: "SUCCEEDED", toolCallCount: 2, summary: "s" });
   });
 });
+
+describe("mastra.askOwner", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    mentionMock.mockReset();
+    db.agentRun.findFirst.mockResolvedValue(liveRun as never);
+    db.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) => cb(db)) as never);
+    db.agentRunEvent.aggregate.mockResolvedValue({ _max: { seq: 1 } } as never);
+    db.agentRunEvent.create.mockResolvedValue({ id: "ev", seq: 2 } as never);
+    db.agentRun.update.mockResolvedValue({} as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "owner-1", name: "James" } as never);
+    db.actionComment.create.mockResolvedValue({ id: "c1", author: { id: SHADOW, name: "Aria", image: null } } as never);
+    db.action.findUnique.mockResolvedValue({ workspaceId: "ws-1", project: null } as never);
+  });
+
+  it("comments with the owner mentioned, logs ask-owner, moves the run to WAITING_ON_OWNER, and tells the agent to stop", async () => {
+    const result = await runCaller(db).mastra.askOwner({ question: "12 or 19 Nov?" });
+
+    expect(db.actionComment.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { actionId: ACTION, authorId: SHADOW, content: "@[James](owner-1) 12 or 19 Nov?" },
+    });
+    expect(mentionMock).toHaveBeenCalledTimes(1);
+    expect(db.agentRunEvent.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { kind: "tool_call", payload: { tool: "ask-owner", commentId: "c1" } },
+    });
+    expect(db.agentRun.updateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: RUN, status: "RUNNING" },
+      data: { status: "WAITING_ON_OWNER" },
+    });
+    expect(result).toMatchObject({ stop: true, status: "WAITING_ON_OWNER", commentId: "c1" });
+  });
+
+  it("refuses without a run token", async () => {
+    await expect(runCaller(db, { tokenType: undefined, agentRunId: undefined }).mastra.askOwner({ question: "x" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.actionComment.create).not.toHaveBeenCalled();
+  });
+});

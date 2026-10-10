@@ -1125,6 +1125,49 @@ export const mastraRouter = createTRPCRouter({
       return { assigned: target };
     }),
 
+  /**
+   * ask-owner: a comment mentioning the owner (so it lands as a Mention under
+   * Waiting on me) and the run moves to WAITING_ON_OWNER — terminal for this
+   * row; the owner's reply on the action starts a resume run (D6). The tool
+   * returns a stop instruction the prompt tells the agent to honour; the
+   * dispatcher sees the status when the Mastra call returns and records the
+   * wall-clock without finishing.
+   */
+  askOwner: protectedProcedure
+    .input(z.object({ question: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const owner = await ctx.db.user.findUniqueOrThrow({
+        where: { id: run.agent.ownerId },
+        select: { id: true, name: true },
+      });
+      const markdown = `@[${owner.name ?? "Owner"}](${owner.id}) ${input.question}`;
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question.slice(0, 200) },
+      });
+      // Guard on RUNNING so a cancel that landed meanwhile wins.
+      await ctx.db.agentRun.updateMany({
+        where: { id: run.id, status: "RUNNING" },
+        data: { status: "WAITING_ON_OWNER", lastEventAt: new Date() },
+      });
+      return {
+        stop: true as const,
+        status: "WAITING_ON_OWNER" as const,
+        commentId: comment.id,
+      };
+    }),
+
   getAllGoals: protectedProcedure
     .query(async ({ ctx }) => {
       console.log('🎯 [MASTRA DEBUG] getAllGoals called');
