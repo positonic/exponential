@@ -126,7 +126,9 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
 // callback inline and stub the dispatcher itself (it would call Mastra).
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  after: (cb: () => unknown) => void cb(),
+  after: (cb: () => unknown) => {
+    void Promise.resolve(cb()).catch(() => undefined);
+  },
 }));
 const dispatchMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("~/server/services/agentRuns/dispatch", () => ({
@@ -1519,13 +1521,9 @@ describe("action router (mocked)", () => {
         dbMock.action.findUnique.mockResolvedValue({
           id: actionId, name: "Loose end", projectId: null, project: null, teamId: null, team: null,
           workspaceId, status: "ACTIVE", kanbanStatus: opts.kanbanStatus,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any);
+        } as never);
       }
-      dbMock.workspaceUser.findUnique.mockResolvedValue(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { role: "member", workspaceId } as any,
-      );
+      dbMock.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId } as never);
       dbMock.actionAssignee.findMany.mockResolvedValue([]);
       dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
       dbMock.agentRun.findMany.mockResolvedValue([] as never);
@@ -2565,12 +2563,10 @@ describe("action router (mocked)", () => {
     it("mastra.quickCreateAction lands a project-less action in the passed workspace for a member", async () => {
       dbMock.workspaceUser.findUnique.mockResolvedValue({
         userId: callerId, workspaceId: "w1", role: "member", joinedAt: new Date(),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any);
+      } as never);
       dbMock.teamUser.findFirst.mockResolvedValue(null);
       dbMock.project.findMany.mockResolvedValue([]);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Shortlist Madrid hotels", priority: "Quick", dueDate: null, scheduledStart: null, projectId: null, workspaceId: "w1", project: null } as any);
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Shortlist Madrid hotels", priority: "Quick", dueDate: null, scheduledStart: null, projectId: null, workspaceId: "w1", project: null } as never);
 
       const result = await createMockCaller({ userId: callerId, db: dbMock }).mastra.quickCreateAction({
         text: "Shortlist Madrid hotels",

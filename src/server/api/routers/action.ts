@@ -1583,7 +1583,7 @@ export const actionRouter = createTRPCRouter({
         },
       });
       if (!updated) {
-        throw new Error("Action not found");
+        throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
       return { ...updated, agentRunsQueued: runs.length };
     }),
