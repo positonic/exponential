@@ -131,7 +131,8 @@ vi.mock("next/server", async (importOriginal) => ({
   },
 }));
 const dispatchMock = vi.fn().mockResolvedValue(undefined);
-vi.mock("~/server/services/agentRuns/dispatch", () => ({
+vi.mock("~/server/services/agentRuns/dispatch", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   triggerDispatch: (...args: unknown[]) => dispatchMock(...args),
 }));
 
@@ -2583,6 +2584,35 @@ describe("action router (mocked)", () => {
       expect(dbMock.project.findMany.mock.calls[0]?.[0]).toMatchObject({
         where: { workspaceId: "w1" },
       });
+    });
+
+    it("mastra.quickCreateAction lets the project's workspace win over a passed workspaceId", async () => {
+      // The caller owns the explicit project (isCreator ⇒ canEditProject),
+      // which lives in w2, and holds no workspace membership at all. The row
+      // still lands in w2: `createAction` derives the workspace from the
+      // project and never gates on the chat's workspaceId when a project is
+      // resolved (Agent PRD D8.3: "a project's workspace still wins").
+      dbMock.project.findMany.mockResolvedValue([]);
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId, teamId: null, workspaceId: "w2", isPublic: false, isRestricted: false,
+      } as never);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.action.findFirst.mockResolvedValue(null);
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.action.create.mockResolvedValue({
+        id: "a1", name: "Book the venue", priority: "Quick", dueDate: null, scheduledStart: null,
+        projectId: "p-2", workspaceId: "w2", project: { id: "p-2", name: "Madrid trip", workspaceId: "w2" },
+      } as never);
+
+      const result = await createMockCaller({ userId: callerId, db: dbMock }).mastra.quickCreateAction({
+        text: "Book the venue",
+        projectId: "p-2",
+        workspaceId: "w1",
+      });
+
+      expect(result.success).toBe(true);
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ projectId: "p-2", workspaceId: "w2" });
     });
 
     it("mastra.quickCreateAction refuses a workspace the caller is not a member of, writing nothing", async () => {
