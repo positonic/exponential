@@ -18,9 +18,11 @@ type ActionWithSyncs = RouterOutputs["action"]["getAll"][number];
  */
 export type Action = Omit<
   ActionWithSyncs,
-  "createdBy" | "lists" | "epic" | "tags" | "syncs" | "depsOut" | "openBlockerCount" | "isBlocked"
+  "createdBy" | "lists" | "epic" | "tags" | "syncs" | "depsOut" | "openBlockerCount" | "isBlocked" | "agentRuns"
 > & {
   createdBy?: ActionWithSyncs["createdBy"] | null;
+  /** The live Agent run (at most one) on queries that include it (ADR-0067); drives the title spinner. */
+  agentRuns?: ActionWithSyncs["agentRuns"];
   lists?: ActionWithSyncs["lists"];
   epic?: ActionWithSyncs["epic"] | null;
   tags?: ActionWithSyncs["tags"];

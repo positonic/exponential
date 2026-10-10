@@ -14,6 +14,7 @@ import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUser } from "~
 import { after } from "next/server";
 import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -129,6 +130,7 @@ export const actionRouter = createTRPCRouter({
       include: {
         project: true,
         syncs: true, // Include ActionSync records to show sync status
+        ...activeRunInclude,
         assignees: {
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
@@ -165,6 +167,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           project: true,
           syncs: true,
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -192,7 +195,7 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      return { ...action, ...deriveActionBlocked(action) };
+      return { ...withActiveRun(action), ...deriveActionBlocked(action) };
     }),
 
   /**
@@ -348,6 +351,7 @@ export const actionRouter = createTRPCRouter({
           // duplicated N times per response. Select only what rows render.
           project: { select: { id: true, name: true, slug: true, workspaceId: true } },
           syncs: true, // Include ActionSync records to show sync status
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -436,6 +440,7 @@ export const actionRouter = createTRPCRouter({
         where: whereClause,
         include: {
           project: true,
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -691,6 +696,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },

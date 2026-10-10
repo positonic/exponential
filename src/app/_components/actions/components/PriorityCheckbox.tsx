@@ -15,6 +15,8 @@ interface PriorityCheckboxProps {
   visual?: "circular" | "mantine";
   ariaLabel?: string;
   title?: string;
+  /** An Agent run is live on this action: a spinning ring replaces the dot and it is not clickable (ADR-0067). */
+  isRunning?: boolean;
 }
 
 const visualClass: Record<VisualPriority, string> = {
@@ -42,8 +44,21 @@ export function PriorityCheckbox({
   visual = "circular",
   ariaLabel,
   title,
+  isRunning = false,
 }: PriorityCheckboxProps) {
   const isDone = status === "COMPLETED" || status === "DONE";
+
+  if (isRunning) {
+    return (
+      <span
+        className={`${styles.check} ${styles.running}`}
+        role="status"
+        aria-label="Assistant is working on this action"
+        title="Assistant is working on this action"
+        data-testid="action-running-ring"
+      />
+    );
+  }
 
   if (visual === "mantine") {
     return (
