@@ -103,7 +103,7 @@ export const externalAgentRouter = createTRPCRouter({
     .input(
       z.object({
         name: z.string().trim().min(1).max(100),
-        description: z.string().trim().max(500).optional(),
+        description: z.string().trim().max(5000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -164,6 +164,38 @@ export const externalAgentRouter = createTRPCRouter({
       }
 
       return { avatarUrl: updatedUser.image };
+    }),
+
+  update: humanOnlyProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        name: z.string().trim().min(1).max(100),
+        description: z.string().trim().max(5000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+
+      // An Assistant's principal is renamed from Settings → Assistant (ADR-0067).
+      if (agent.assistant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This agent is your Assistant — edit it from Settings → Assistant instead",
+        });
+      }
+
+      return ctx.db.$transaction(async (tx) => {
+        // The shadow user carries the agent's name into comments and assignments.
+        await tx.user.update({
+          where: { id: agent.shadowUserId },
+          data: { name: input.name },
+        });
+        return tx.externalAgent.update({
+          where: { id: agent.id },
+          data: { name: input.name, description: input.description ?? null },
+        });
+      });
     }),
 
   delete: humanOnlyProcedure
