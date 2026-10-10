@@ -21,6 +21,7 @@ import {
 } from '@mantine/core';
 import { IconSend, IconMicrophone, IconMicrophoneOff, IconRefresh } from '@tabler/icons-react';
 import { useVoiceSession } from '~/lib/voice/useVoiceSession';
+import type { VoiceEvent } from '~/lib/voice/voiceEventLog';
 import { buildVoiceSeedContext } from '~/lib/voice/seedContext';
 import { AgentMessageFeedback } from './agent/AgentMessageFeedback';
 import { ToolActivity } from './agent/ToolActivity';
@@ -745,7 +746,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // A committed voice turn: show it in the thread (marked 🎙) and persist it to
   // the voice-scoped memory thread so the session stays continuous.
   const recordVoiceTurn = useCallback(
-    (type: 'human' | 'ai', content: string) => {
+    (type: 'human' | 'ai', content: string, events?: VoiceEvent[]) => {
       const token = voiceTokenRef.current;
 
       if (type === 'human') {
@@ -763,9 +764,12 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setMessages(prev => [...prev, { type, content, marker: 'voice', voiceTurnId }]);
       if (!token) return;
 
-      // Persist + log the paired exchange, then attach the returned interactionId
-      // to the tagged message so the rating widget appears for voice too (mirrors
-      // the typed-stream meta-frame path).
+      // Persist + log the exchange, then attach the returned interactionId to
+      // the tagged message so the rating widget appears for voice too (mirrors
+      // the typed-stream meta-frame path). `paired` is null for a continuation
+      // (the real answer spoken after a tool result, with no new user utterance
+      // in between); the server still logs it, with the Realtime events that
+      // explain it, so no spoken turn goes missing from the history.
       const paired = lastVoiceUserTurnRef.current;
       lastVoiceUserTurnRef.current = null;
       persistVoiceTurn
@@ -775,6 +779,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
           text: content,
           ...(paired?.text ? { userMessage: paired.text } : {}),
           ...(paired ? { responseTime: Date.now() - paired.at } : {}),
+          ...(events?.length ? { events } : {}),
         })
         .then(res => {
           if (!res.interactionId) return;
@@ -806,7 +811,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       return res;
     },
     onUserTranscript: (text) => recordVoiceTurn('human', text),
-    onAssistantTranscript: (text) => recordVoiceTurn('ai', text),
+    onAssistantTranscript: (text, meta) => recordVoiceTurn('ai', text, meta.events),
     // Seed the Realtime router with the thread the user is looking at. Without
     // this it starts every session blank — you can type for ten minutes, tap the
     // mic, and be answered by something that has never seen a word of it. The
