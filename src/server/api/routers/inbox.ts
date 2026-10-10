@@ -55,27 +55,26 @@ export const inboxRouter = createTRPCRouter({
   reviewDelegated: protectedProcedure
     .input(z.object({ runId: z.string(), markDone: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
-      try {
-        const result = await reviewDelegatedRun(ctx.db, {
-          userId: ctx.session.user.id,
-          runId: input.runId,
-          markDone: input.markDone,
-          completeAction: async (actionId, kanbanStatus) => {
-            await applyActionUpdate(actionWriteDeps(ctx), actionId, {
-              status: "COMPLETED",
-              ...(kanbanStatus ? { kanbanStatus: "DONE" } : {}),
-            });
-          },
-        });
-        if (!result.reviewed) {
+      const result = await reviewDelegatedRun(ctx.db, {
+        userId: ctx.session.user.id,
+        runId: input.runId,
+        markDone: input.markDone,
+        completeAction: async (actionId, kanbanStatus) => {
+          await applyActionUpdate(actionWriteDeps(ctx), actionId, {
+            status: "COMPLETED",
+            ...(kanbanStatus ? { kanbanStatus: "DONE" } : {}),
+          });
+        },
+      });
+      switch (result.outcome) {
+        case "not_found":
           throw new TRPCError({ code: "NOT_FOUND", message: "Run not found" });
-        }
-        return result;
-      } catch (error) {
-        if (error instanceof Error && error.message === "Run is not finished") {
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
-        }
-        throw error;
+        case "not_finished":
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Run is ${result.status}` });
+        case "already_reviewed":
+          return { reviewed: true, markedDone: false };
+        case "reviewed":
+          return { reviewed: true, markedDone: result.markedDone };
       }
     }),
 });

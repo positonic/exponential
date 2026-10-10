@@ -110,13 +110,13 @@ describe("reviewDelegatedRun", () => {
     db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
   });
 
-  it("stamps reviewedAt for a finished run the viewer may see, and completes the action only on markDone", async () => {
+  it("stamps reviewedAt first (guarded), then completes the action only on markDone", async () => {
     db.agentRun.findFirst.mockResolvedValue({
       id: "run-1", status: "SUCCEEDED", reviewedAt: null, actionId: "a1", action: { kanbanStatus: "IN_PROGRESS", status: "ACTIVE" },
     } as never);
 
     const dismissed = await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: false, completeAction: complete });
-    expect(dismissed).toEqual({ reviewed: true, markedDone: false });
+    expect(dismissed).toEqual({ outcome: "reviewed", markedDone: false });
     expect(complete).not.toHaveBeenCalled();
     expect(db.agentRun.findFirst.mock.calls[0]?.[0]).toMatchObject({
       where: { AND: [{ id: "run-1" }, delegatedRunsWhere(USER)] },
@@ -127,25 +127,39 @@ describe("reviewDelegatedRun", () => {
     });
 
     const done = await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete });
-    expect(done).toEqual({ reviewed: true, markedDone: true });
+    expect(done).toEqual({ outcome: "reviewed", markedDone: true });
     expect(complete).toHaveBeenCalledWith("a1", "IN_PROGRESS");
+  });
+
+  it("is idempotent: an already-reviewed run, or a lost race on the stamp, never completes the action again", async () => {
+    db.agentRun.findFirst.mockResolvedValue({
+      id: "run-1", status: "SUCCEEDED", reviewedAt: new Date(), actionId: "a1", action: { kanbanStatus: null, status: "ACTIVE" },
+    } as never);
+    expect(await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete })).toEqual({ outcome: "already_reviewed" });
+
+    db.agentRun.findFirst.mockResolvedValue({
+      id: "run-1", status: "SUCCEEDED", reviewedAt: null, actionId: "a1", action: { kanbanStatus: null, status: "ACTIVE" },
+    } as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
+    expect(await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete })).toEqual({ outcome: "already_reviewed" });
+    expect(complete).not.toHaveBeenCalled();
   });
 
   it("does not re-complete an already completed action, but still clears the row", async () => {
     db.agentRun.findFirst.mockResolvedValue({
       id: "run-1", status: "SUCCEEDED", reviewedAt: null, actionId: "a1", action: { kanbanStatus: null, status: "COMPLETED" },
     } as never);
-    const r = await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete });
-    expect(r).toEqual({ reviewed: true, markedDone: false });
+    expect(await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete })).toEqual({ outcome: "reviewed", markedDone: false });
     expect(complete).not.toHaveBeenCalled();
   });
 
-  it("refuses a live or waiting run (not a result yet) and ignores a stranger's run", async () => {
-    db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "WAITING_ON_OWNER", reviewedAt: null, actionId: "a1", action: { kanbanStatus: null, status: "ACTIVE" } } as never);
-    await expect(reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete })).rejects.toThrow("Run is not finished");
-
+  it("refuses a live or waiting run (derived from the terminal set) and reports a stranger's run as not found", async () => {
+    for (const status of ["QUEUED", "RUNNING", "WAITING_ON_OWNER"]) {
+      db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status, reviewedAt: null, actionId: "a1", action: { kanbanStatus: null, status: "ACTIVE" } } as never);
+      expect(await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete })).toEqual({ outcome: "not_finished", status });
+    }
     db.agentRun.findFirst.mockResolvedValue(null as never);
-    expect(await reviewDelegatedRun(db, { userId: "stranger", runId: "run-1", markDone: true, completeAction: complete })).toEqual({ reviewed: false, markedDone: false });
+    expect(await reviewDelegatedRun(db, { userId: "stranger", runId: "run-1", markDone: true, completeAction: complete })).toEqual({ outcome: "not_found" });
     expect(complete).not.toHaveBeenCalled();
     expect(db.agentRun.updateMany).not.toHaveBeenCalled();
   });

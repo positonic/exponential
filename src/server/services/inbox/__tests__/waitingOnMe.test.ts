@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { buildDecisionAccessWhereAcrossWorkspaces } from "~/server/services/access";
+import { buildActionAccessWhere, buildDecisionAccessWhereAcrossWorkspaces } from "~/server/services/access";
 import {
   OVERDUE_WINDOW,
   WAITING_ROW_CAP,
@@ -58,6 +58,7 @@ describe("assistant questions (ADR-0067)", () => {
       status: "WAITING_ON_OWNER",
       agent: { ownerId: USER },
       successors: { none: {} },
+      action: buildActionAccessWhere(USER),
     });
   });
 

@@ -179,7 +179,18 @@ export type DelegatedRun = Delegated["live"][number];
  * page and voice use (`applyActionUpdate`: access gate, activity, kanban
  * column), never as the Assistant. Only a terminal run the viewer may see on
  * Delegated can be reviewed; a live or waiting run is not a result yet.
+ *
+ * Idempotent: the stamp is guarded on `reviewedAt: null` and the completion
+ * runs only for the write that won, so a double click or two reviewers
+ * complete the action once. Returns a typed outcome, never throws for the
+ * expected cases, so the router maps codes without matching strings.
  */
+export type ReviewDelegatedOutcome =
+  | { outcome: "reviewed"; markedDone: boolean }
+  | { outcome: "already_reviewed" }
+  | { outcome: "not_finished"; status: string }
+  | { outcome: "not_found" };
+
 export async function reviewDelegatedRun(
   db: PrismaClient,
   input: {
@@ -188,26 +199,25 @@ export async function reviewDelegatedRun(
     markDone: boolean;
     completeAction: (actionId: string, kanbanStatus: string | null) => Promise<void>;
   },
-): Promise<{ reviewed: boolean; markedDone: boolean }> {
+): Promise<ReviewDelegatedOutcome> {
   const run = await db.agentRun.findFirst({
     where: { AND: [{ id: input.runId }, delegatedRunsWhere(input.userId)] },
     select: { id: true, status: true, reviewedAt: true, actionId: true, action: { select: { kanbanStatus: true, status: true } } },
   });
-  if (!run) return { reviewed: false, markedDone: false };
-  if (run.status === "QUEUED" || run.status === "RUNNING" || run.status === "WAITING_ON_OWNER") {
-    throw new Error("Run is not finished");
-  }
+  if (!run) return { outcome: "not_found" };
+  if (!TERMINAL_RUN_STATUSES.includes(run.status)) return { outcome: "not_finished", status: run.status };
+  if (run.reviewedAt) return { outcome: "already_reviewed" };
+
+  const stamped = await db.agentRun.updateMany({
+    where: { id: run.id, reviewedAt: null },
+    data: { reviewedAt: new Date(), reviewedById: input.userId },
+  });
+  if (stamped.count !== 1) return { outcome: "already_reviewed" };
 
   let markedDone = false;
   if (input.markDone && run.action.status !== "COMPLETED") {
     await input.completeAction(run.actionId, run.action.kanbanStatus);
     markedDone = true;
   }
-
-  // Guard on reviewedAt so a double click records the first reviewer only.
-  const result = await db.agentRun.updateMany({
-    where: { id: run.id, reviewedAt: null },
-    data: { reviewedAt: new Date(), reviewedById: input.userId },
-  });
-  return { reviewed: result.count === 1 || run.reviewedAt !== null, markedDone };
+  return { outcome: "reviewed", markedDone };
 }

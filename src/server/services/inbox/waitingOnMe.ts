@@ -4,6 +4,7 @@ import {
   buildWorkspaceAccessWhere,
 } from "~/server/services/access";
 import { myOverdueActionsWhere } from "~/server/services/actions/myActionsWhere";
+import { buildActionAccessWhere } from "~/server/services/access";
 import { compareOverdue } from "~/lib/actions/partition";
 import { formatDecisionLabel } from "~/lib/decision-label";
 
@@ -122,6 +123,9 @@ export function assistantQuestionsWaitingOnMeWhere(userId: string): Prisma.Agent
     status: "WAITING_ON_OWNER",
     agent: { ownerId: userId },
     successors: { none: {} },
+    // Owning the Assistant is not a read grant on the action (same rule as
+    // the Delegated tab): a revoked membership takes the question with it.
+    action: buildActionAccessWhere(userId),
   };
 }
 

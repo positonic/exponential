@@ -24,9 +24,12 @@ function assistantLabel(run: Run): string {
   return run.isOwner ? name : `${name} (a teammate's assistant)`;
 }
 
+const LIVE = new Set(['QUEUED', 'RUNNING']);
+
 function duration(run: Run): string {
   const start = run.startedAt ?? run.createdAt;
-  const end = run.finishedAt ?? run.lastEventAt ?? new Date();
+  // A live run is still going: measure to now, not to its last event.
+  const end = LIVE.has(run.status) ? new Date() : (run.finishedAt ?? run.lastEventAt ?? new Date());
   const s = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 1000));
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
