@@ -28,6 +28,8 @@ import { api } from "~/trpc/react";
 /** Small batches keep each request well inside the serverless time limit. */
 const BATCH_SIZE = 3;
 const BATCH_DELAY_MS = 500;
+/** Stays under the server's 10,000-id cap on `excludeIds`. */
+const MAX_EXCLUDED_IDS = 9_000;
 
 interface StatCardProps {
   title: string;
@@ -97,15 +99,29 @@ export function KnowledgeIndexPanel() {
 
   const [progress, setProgress] = useState<BackfillProgress>(IDLE_PROGRESS);
   const stopRef = useRef(false);
+  // Set synchronously on entry: `progress.isRunning` only flips after a
+  // re-render, so a quick double-click could otherwise start two loops that
+  // embed the same rows twice.
+  const runningRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  // Stop the loop if the admin navigates away mid-run.
+  // Stop the loop if the admin navigates away mid-run, and stop touching
+  // state once the panel is gone.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       stopRef.current = true;
     };
   }, []);
 
+  const updateProgress = (update: (prev: BackfillProgress) => BackfillProgress) => {
+    if (mountedRef.current) setProgress(update);
+  };
+
   const runBackfill = async () => {
+    if (runningRef.current) return;
+    runningRef.current = true;
     stopRef.current = false;
     setProgress({ ...IDLE_PROGRESS, isRunning: true });
 
@@ -113,7 +129,9 @@ export function KnowledgeIndexPanel() {
     // sent back as excludeIds to stop the loop retrying them forever. Rows that
     // indexed drop out of the server query on their own.
     const excludeIds: string[] = [];
-    let stopReason = "Stopped";
+    // The only way out of the while-condition is the Stop button (or leaving
+    // the page, where nothing is shown); every other exit sets its own reason.
+    let stopReason = "Stopped by you";
 
     try {
       while (!stopRef.current) {
@@ -122,31 +140,43 @@ export function KnowledgeIndexPanel() {
           if (item.error !== undefined || item.chunkCount === 0) excludeIds.push(item.id);
         }
 
-        setProgress((prev) => ({
+        // Live counters come from the batch result; the stats query (several
+        // full-table aggregates) is refreshed once, when the run ends.
+        updateProgress((prev) => ({
           ...prev,
           indexed: prev.indexed + result.successful,
           empty: prev.empty + result.empty,
           failed: prev.failed + result.failed,
           remaining: result.remaining,
         }));
-        await utils.admin.getKnowledgeIndexStats.invalidate();
 
         if (result.attemptedIds.length === 0 || result.remaining === 0) {
           stopReason = "Finished: nothing left to index";
           break;
         }
+        // The server caps excludeIds; stop cleanly rather than have the next
+        // request rejected mid-run.
+        if (excludeIds.length >= MAX_EXCLUDED_IDS) {
+          stopReason = "Stopped: too many meetings could not be indexed";
+          break;
+        }
         await wait(BATCH_DELAY_MS);
       }
-      setProgress((prev) => ({ ...prev, isRunning: false, stopReason }));
+      updateProgress((prev) => ({ ...prev, isRunning: false, stopReason }));
     } catch (error) {
-      setProgress((prev) => ({
+      updateProgress((prev) => ({
         ...prev,
         isRunning: false,
         stopReason: "Stopped on error",
         error: error instanceof Error ? error.message : "Unknown error",
       }));
     } finally {
-      await utils.admin.getKnowledgeIndexStats.invalidate();
+      runningRef.current = false;
+      // Fire-and-forget: a refetch aborted by unmounting must not surface as
+      // an unhandled rejection from the void-ed run.
+      if (mountedRef.current) {
+        void utils.admin.getKnowledgeIndexStats.invalidate().catch(() => undefined);
+      }
     }
   };
 
