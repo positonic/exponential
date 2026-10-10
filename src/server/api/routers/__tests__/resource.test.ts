@@ -127,10 +127,15 @@ describe("readTransition", () => {
     expect(readTransition("read", "read", first)).toEqual({ readStatus: "read", readAt: first });
   });
 
-  it("clears readAt when a resource goes back to the queue", () => {
+  it("clears readAt only when a resource goes back to to_read", () => {
     const first = new Date("2026-09-01T00:00:00Z");
     expect(readTransition("to_read", "read", first)).toEqual({ readStatus: "to_read", readAt: null });
-    expect(readTransition("reading", "read", first)).toEqual({ readStatus: "reading", readAt: null });
+  });
+
+  it("keeps the first-read date when a finished item is picked up again", () => {
+    const first = new Date("2026-09-01T00:00:00Z");
+    expect(readTransition("reading", "read", first)).toEqual({ readStatus: "reading", readAt: first });
+    expect(readTransition("reading", "to_read", null)).toEqual({ readStatus: "reading", readAt: null });
   });
 });
 

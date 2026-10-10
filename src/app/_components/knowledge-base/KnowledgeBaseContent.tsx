@@ -124,7 +124,9 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     refetch: refetchReading,
   } = api.resource.list.useQuery(
     { limit: 100, workspaceId, readStatus: readingView },
-    { enabled: true, placeholderData: keepPreviousData }
+    // Only fetch while the Reading tab is showing; a mutation's refetch is a
+    // no-op while hidden and the query refires on the next tab switch.
+    { enabled: activeTab === 'reading', placeholderData: keepPreviousData }
   );
 
   // Debounce the typed query so we only search after the user pauses,

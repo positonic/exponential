@@ -24,9 +24,11 @@ export type ReadStatus = z.infer<typeof readStatusEnum>;
 
 /**
  * The data patch for a read-state change. `readAt` records the FIRST time a
- * resource was marked read and survives a to_read → read → to_read → read
- * round trip only if the caller never un-read it; un-reading clears it so
- * the Reading list's "read on" column never shows a stale date.
+ * resource was marked read: re-marking an already-read row keeps it, and a
+ * finished item picked up again (`read` → `reading`) keeps it too, so a
+ * re-read never erases when it was first read. Only `to_read` — "I have not
+ * read this" — clears it, so the Reading list's "read on" column never shows
+ * a stale date.
  */
 export function readTransition(
   next: ReadStatus,
@@ -38,6 +40,9 @@ export function readTransition(
       readStatus: next,
       readAt: current === "read" && currentReadAt ? currentReadAt : new Date(),
     };
+  }
+  if (next === "reading") {
+    return { readStatus: next, readAt: currentReadAt };
   }
   return { readStatus: next, readAt: null };
 }
