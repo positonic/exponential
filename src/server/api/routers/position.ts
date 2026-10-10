@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
+import { getWorkspaceMembership, hasMinimumWorkspaceRole } from "~/server/services/access";
 import { hasRemitGap, POSITION_SUMMARY_SELECT } from "~/server/services/positions";
 
 /**
@@ -43,7 +44,15 @@ type PositionWithHolders = Prisma.PositionGetPayload<{ select: typeof POSITION_W
 
 function presentPosition(position: PositionWithHolders) {
   const { holders, ...summary } = position;
-  return { ...summary, holders: holders.map((holder) => holder.workspaceUser.user) };
+  return {
+    ...summary,
+    holders: holders.map(({ workspaceUser: { user } }) => ({
+      userId: user.id,
+      name: user.name,
+      image: user.image,
+      isAgent: user.isAgent,
+    })),
+  };
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -185,8 +194,9 @@ export const positionRouter = createTRPCRouter({
    * Title and "not accountable for" need owner/admin. The Remit needs
    * owner/admin OR that the caller holds this Position — the gate is "holds
    * it", so a viewer who holds one may edit its Remit (Agent PRD D12). The
-   * role is the caller's direct `WorkspaceUser.role`: a team-synthesized
-   * `member` (no row) is never an admin and can hold nothing.
+   * role comes from the centralized resolver, where team-based access
+   * resolves to `member`: never an admin, and with no `WorkspaceUser` row it
+   * can hold nothing either.
    */
   update: humanOnlyProcedure
     .input(
@@ -202,11 +212,8 @@ export const positionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
 
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: { userId_workspaceId: { userId: ctx.session.user.id, workspaceId: input.workspaceId } },
-        select: { id: true, role: true },
-      });
-      const isAdmin = membership?.role === "owner" || membership?.role === "admin";
+      const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
+      const isAdmin = !!membership && hasMinimumWorkspaceRole(membership.role, "admin");
 
       const editsTitleOrScope = input.title !== undefined || input.notAccountableFor !== undefined;
       if (editsTitleOrScope && !isAdmin) {
@@ -216,14 +223,13 @@ export const positionRouter = createTRPCRouter({
         });
       }
       if (input.remit !== undefined && !isAdmin) {
-        const holding = membership
-          ? await ctx.db.positionHolder.findUnique({
-              where: {
-                positionId_workspaceUserId: { positionId: input.positionId, workspaceUserId: membership.id },
-              },
-              select: { positionId: true },
-            })
-          : null;
+        const holding = await ctx.db.positionHolder.findFirst({
+          where: {
+            positionId: input.positionId,
+            workspaceUser: { userId: ctx.session.user.id, workspaceId: input.workspaceId },
+          },
+          select: { positionId: true },
+        });
         if (!holding) {
           throw new TRPCError({
             code: "FORBIDDEN",

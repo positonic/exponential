@@ -48,7 +48,7 @@ interface PositionRow {
   title: string;
   remit: string;
   notAccountableFor: string | null;
-  holders: Array<{ id: string; name: string | null; image: string | null; isAgent: boolean }>;
+  holders: Array<{ userId: string; name: string | null; image: string | null; isAgent: boolean }>;
 }
 
 const TITLE_MAX = 80;
@@ -147,7 +147,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
           remit: values.remit,
           notAccountableFor: values.notAccountableFor || null,
         });
-        const currentHolderIds = editing.holders.map((holder) => holder.id);
+        const currentHolderIds = editing.holders.map((holder) => holder.userId);
         if (!sameSet(currentHolderIds, values.holderUserIds)) {
           await setHoldersMutation.mutateAsync({
             workspaceId,
@@ -227,7 +227,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
                       ) : (
                         <Avatar.Group spacing="xs">
                           {position.holders.map((holder) => (
-                            <Tooltip key={holder.id} label={holder.name ?? "Member"}>
+                            <Tooltip key={holder.userId} label={holder.name ?? "Member"}>
                               <Avatar src={holder.image} size="sm" radius="xl">
                                 {holder.isAgent ? <IconRobotFace size={12} /> : (holder.name?.charAt(0).toUpperCase() ?? "?")}
                               </Avatar>
@@ -319,7 +319,7 @@ function PositionFormModal({
     setTitle(position?.title ?? "");
     setRemit(position?.remit ?? "");
     setNotAccountableFor(position?.notAccountableFor ?? "");
-    setHolderUserIds(position?.holders.map((holder) => holder.id) ?? []);
+    setHolderUserIds(position?.holders.map((holder) => holder.userId) ?? []);
   }, [opened, position]);
 
   const canSave = title.trim().length > 0 && remit.trim().length > 0 && !isSaving;

@@ -150,8 +150,9 @@ export interface AssignableUser {
   /**
    * `ExternalAgent.description`, only for an agent principal holding no
    * Position in this workspace — its fallback Remit (ADR-0068 §3). null for
-   * humans and for agents that hold a Position. The fallback rule lives here,
-   * once, so every roster agrees.
+   * humans and for agents that hold a Position. Every roster gets the rule
+   * from here; the settings warning applies its twin, `hasRemitGap`, in
+   * services/positions.
    */
   agentDescription: string | null;
 }

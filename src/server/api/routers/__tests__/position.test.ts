@@ -159,7 +159,7 @@ describe("position.create", () => {
     expect(result).toMatchObject({
       id: POSITION_ID,
       title: "Travel researcher",
-      holders: [{ id: "aria", name: "Aria", isAgent: true }],
+      holders: [{ userId: "aria", name: "Aria", isAgent: true }],
     });
   });
 
@@ -223,24 +223,24 @@ describe("position.update", () => {
       data: { title: "Travel lead", remit: "New remit", notAccountableFor: null },
     });
     // An admin never needs to hold the Position.
-    expect(db.positionHolder.findUnique).not.toHaveBeenCalled();
+    expect(db.positionHolder.findFirst).not.toHaveBeenCalled();
   });
 
   it("a holder who is a plain member edits the Remit", async () => {
     arrangeCaller(db, "member");
-    db.positionHolder.findUnique.mockResolvedValue({ positionId: POSITION_ID } as never);
+    db.positionHolder.findFirst.mockResolvedValue({ positionId: POSITION_ID } as never);
 
     await caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" });
 
-    expect(db.positionHolder.findUnique.mock.calls[0]?.[0]).toMatchObject({
-      where: { positionId_workspaceUserId: { positionId: POSITION_ID, workspaceUserId: `wu-${USER_ID}` } },
+    expect(db.positionHolder.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { positionId: POSITION_ID, workspaceUser: { userId: USER_ID, workspaceId: WORKSPACE_ID } },
     });
     expect(db.position.update.mock.calls[0]?.[0]).toMatchObject({ data: { remit: "Sharper" } });
   });
 
   it("a holder who is a viewer edits the Remit too — the gate is holding it (Agent PRD D12)", async () => {
     arrangeCaller(db, "viewer");
-    db.positionHolder.findUnique.mockResolvedValue({ positionId: POSITION_ID } as never);
+    db.positionHolder.findFirst.mockResolvedValue({ positionId: POSITION_ID } as never);
 
     await caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" });
 
@@ -249,7 +249,19 @@ describe("position.update", () => {
 
   it("a member who does not hold it → FORBIDDEN, nothing written", async () => {
     arrangeCaller(db, "member");
-    db.positionHolder.findUnique.mockResolvedValue(null);
+    db.positionHolder.findFirst.mockResolvedValue(null);
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("a team-only member (no WorkspaceUser row) is neither admin nor holder → FORBIDDEN", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.teamUser.findFirst.mockResolvedValue({ role: "owner", team: { workspaceId: WORKSPACE_ID } } as never);
+    db.positionHolder.findFirst.mockResolvedValue(null);
 
     await expect(
       caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" }),
@@ -262,7 +274,7 @@ describe("position.update", () => {
     { field: "notAccountableFor", input: { notAccountableFor: "Booking" } },
   ])("a holder changing $field → FORBIDDEN, nothing written", async ({ input }) => {
     arrangeCaller(db, "member");
-    db.positionHolder.findUnique.mockResolvedValue({ positionId: POSITION_ID } as never);
+    db.positionHolder.findFirst.mockResolvedValue({ positionId: POSITION_ID } as never);
 
     await expect(
       caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, ...input }),
@@ -360,7 +372,7 @@ describe("position.setHolders", () => {
         { positionId: POSITION_ID, workspaceUserId: "wu-andi" },
       ],
     });
-    expect(result).toMatchObject({ id: POSITION_ID, holders: [{ id: "aria" }] });
+    expect(result).toMatchObject({ id: POSITION_ID, holders: [{ userId: "aria" }] });
   });
 
   it("an empty set leaves the Position vacant without a createMany", async () => {
@@ -440,7 +452,7 @@ describe("position.list", () => {
         title: "Travel researcher",
         remit: "Research travel options",
         notAccountableFor: null,
-        holders: [{ id: "aria", name: "Aria", image: null, isAgent: true }],
+        holders: [{ userId: "aria", name: "Aria", image: null, isAgent: true }],
       },
     ]);
     expect(result.members).toEqual([
@@ -491,12 +503,16 @@ describe("position writes are human-only (ADR-0049 denylist)", () => {
     expectNothingWritten(db);
   });
 
-  it("create with an agent-key token → FORBIDDEN before any principal lookup", async () => {
+  const base = { workspaceId: WORKSPACE_ID, positionId: POSITION_ID };
+  it.each([
+    { write: "create", call: () => caller(db, { tokenType: "agent-key" }).position.create({ workspaceId: WORKSPACE_ID, title: "X", remit: "Y" }) },
+    { write: "update", call: () => caller(db, { tokenType: "agent-key" }).position.update({ ...base, remit: "Y" }) },
+    { write: "delete", call: () => caller(db, { tokenType: "agent-key" }).position.delete(base) },
+    { write: "setHolders", call: () => caller(db, { tokenType: "agent-key" }).position.setHolders({ ...base, userIds: [] }) },
+  ])("$write with an agent-key token → FORBIDDEN before any principal lookup", async ({ call }) => {
     db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
 
-    await expect(
-      caller(db, { tokenType: "agent-key" }).position.create({ workspaceId: WORKSPACE_ID, title: "X", remit: "Y" }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(call()).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(db.user.findUnique).not.toHaveBeenCalled();
     expectNothingWritten(db);
   });

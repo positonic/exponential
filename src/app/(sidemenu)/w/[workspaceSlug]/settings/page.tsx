@@ -998,38 +998,10 @@ export default function WorkspaceSettingsPage() {
                         className="flex flex-wrap items-center gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated"
                         data-testid="member-positions"
                       >
-                        {(() => {
-                          const held = memberPositions.get(member.userId);
-                          if (!held) return null;
-                          if (held.remitGap) {
-                            return (
-                              <Tooltip
-                                label={
-                                  member.user.isAgent
-                                    ? "No Position or description — Zoe can't route work here"
-                                    : "No Position — Zoe can't route work here"
-                                }
-                              >
-                                <span
-                                  className="inline-flex items-center gap-1 text-[11.5px] text-brand-warning"
-                                  data-testid="remit-gap"
-                                >
-                                  <IconAlertTriangle size={14} aria-hidden="true" />
-                                  No Position
-                                </span>
-                              </Tooltip>
-                            );
-                          }
-                          if (held.titles.length === 0) {
-                            // An agent routed by its own description (ADR-0068 §3).
-                            return <span className="text-[11.5px] text-text-muted">By description</span>;
-                          }
-                          return held.titles.map((title) => (
-                            <SettingsPill key={title} variant="neutral">
-                              {title}
-                            </SettingsPill>
-                          ));
-                        })()}
+                        <MemberPositionsCell
+                          held={memberPositions.get(member.userId)}
+                          isAgent={member.user.isAgent}
+                        />
                       </div>
                     )}
                     <div className="flex items-center border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
@@ -1951,5 +1923,42 @@ function FeatureRow({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * A member's Positions as pills, or the remit-gap warning (ADR-0068): a human
+ * with no Position, or an agent with neither a Position nor a description.
+ * An agent routed by its own description shows nothing — the description is
+ * routing data, not a label.
+ */
+function MemberPositionsCell({
+  held,
+  isAgent,
+}: {
+  held: { titles: string[]; remitGap: boolean } | undefined;
+  isAgent: boolean;
+}) {
+  if (!held) return null;
+  if (held.remitGap) {
+    const label = isAgent
+      ? "No Position or description — Zoe can't route work here"
+      : "No Position — Zoe can't route work here";
+    return (
+      <Tooltip label={label}>
+        <span className="inline-flex text-brand-warning" data-testid="remit-gap" aria-label={label}>
+          <IconAlertTriangle size={14} />
+        </span>
+      </Tooltip>
+    );
+  }
+  return (
+    <>
+      {held.titles.map((title) => (
+        <SettingsPill key={title} variant="neutral">
+          {title}
+        </SettingsPill>
+      ))}
+    </>
   );
 }
