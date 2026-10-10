@@ -16,7 +16,7 @@
  *     first, matching what the webhook would have written at the time.
  *
  * Idempotent: existing `github*` events are read first and matched on
- * `(entityType, entityId)`, so re-running adds nothing. Backfilled rows carry
+ * `(entityType, entityId, action)`, so re-running adds nothing. Backfilled rows carry
  * the original `eventTimestamp` as `createdAt`, so history lands on the day it
  * happened rather than the day the script ran.
  *
@@ -33,13 +33,85 @@ import {
 } from "../src/server/services/activity/githubFeedEvent";
 import { GITHUB_ENTITY_PREFIX } from "../src/server/services/activity/deriveActivitySource";
 
+const USAGE =
+  "Usage: npx tsx scripts/backfill-github-activity-feed.ts [--apply] [--workspace <id>]";
+
+/**
+ * Parse `--workspace <id>`. The value must be present and must not itself be a
+ * flag: `--workspace --apply` would otherwise treat `--apply` as the workspace
+ * id *and* silently turn apply mode off, and a trailing `--workspace` with no
+ * value would silently widen the scope to every workspace.
+ */
+function parseWorkspaceArg(argv: readonly string[]): string | undefined {
+  const index = argv.indexOf("--workspace");
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith("--") || value.trim() === "") {
+    console.error("error: --workspace requires a workspace id\n" + USAGE);
+    process.exit(2);
+  }
+  return value;
+}
+
 const db = new PrismaClient();
 const apply = process.argv.includes("--apply");
-const workspaceArgIndex = process.argv.indexOf("--workspace");
-const workspaceId =
-  workspaceArgIndex >= 0 ? process.argv[workspaceArgIndex + 1] : undefined;
+const workspaceId = parseWorkspaceArg(process.argv);
 
 const BATCH_SIZE = 500;
+
+const ACTIVITY_SELECT = {
+  id: true,
+  workspaceId: true,
+  integrationId: true,
+  eventType: true,
+  eventAction: true,
+  // The GitHub object id: the full commit sha for pushes, the review node id
+  // for reviews. Both feed keys are derived from it (see githubFeedEvent.ts).
+  externalId: true,
+  repoFullName: true,
+  repoUrl: true,
+  branchName: true,
+  prNumber: true,
+  prTitle: true,
+  prUrl: true,
+  prAuthor: true,
+  prState: true,
+  prMergedAt: true,
+  prReviewState: true,
+  prReviewer: true,
+  commitSha: true,
+  commitMessage: true,
+  commitAuthor: true,
+  commitUrl: true,
+  eventTimestamp: true,
+} satisfies Prisma.GitHubActivitySelect;
+
+type ActivityRow = Prisma.GitHubActivityGetPayload<{
+  select: typeof ACTIVITY_SELECT;
+}>;
+
+/**
+ * Walk `GitHubActivity` in id-ordered pages rather than one unbounded
+ * `findMany` — a busy workspace holds a row per commit, which is far too much
+ * to materialise at once.
+ */
+async function* readActivities(
+  where: Prisma.GitHubActivityWhereInput,
+): AsyncGenerator<ActivityRow> {
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await db.gitHubActivity.findMany({
+      where,
+      orderBy: { id: "asc" },
+      take: BATCH_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: ACTIVITY_SELECT,
+    });
+    for (const row of page) yield row;
+    if (page.length < BATCH_SIZE) return;
+    cursor = page[page.length - 1]!.id;
+  }
+}
 
 interface PendingRow {
   workspaceId: string;
@@ -56,41 +128,16 @@ async function main() {
   console.log(`Mode: ${apply ? "APPLY" : "DRY-RUN"}`);
   console.log(`Scope: ${workspaceId ?? "all workspaces"}\n`);
 
-  const activities = await db.gitHubActivity.findMany({
-    where: workspaceId ? { workspaceId } : {},
-    orderBy: { eventTimestamp: "asc" },
-    select: {
-      workspaceId: true,
-      integrationId: true,
-      eventType: true,
-      eventAction: true,
-      repoFullName: true,
-      repoUrl: true,
-      branchName: true,
-      prNumber: true,
-      prTitle: true,
-      prUrl: true,
-      prAuthor: true,
-      prState: true,
-      prMergedAt: true,
-      prReviewState: true,
-      prReviewer: true,
-      commitSha: true,
-      commitMessage: true,
-      commitAuthor: true,
-      commitUrl: true,
-      eventTimestamp: true,
-    },
-  });
-
-  console.log(`Read ${activities.length} GitHubActivity rows`);
-
   // Collapse commit rows into one push per (workspace, repo, branch, day) so the
-  // backfill produces the same altitude as the live webhook path.
-  const pushBuckets = new Map<string, typeof activities>();
-  const nonPush: typeof activities = [];
+  // backfill produces the same altitude as the live webhook path. Pages are read
+  // in id order, so each bucket is sorted by eventTimestamp before its head
+  // commit is picked.
+  const pushBuckets = new Map<string, ActivityRow[]>();
+  const nonPush: ActivityRow[] = [];
+  let readCount = 0;
 
-  for (const row of activities) {
+  for await (const row of readActivities(workspaceId ? { workspaceId } : {})) {
+    readCount += 1;
     if (row.eventType !== "push") {
       nonPush.push(row);
       continue;
@@ -102,10 +149,12 @@ async function main() {
     else pushBuckets.set(key, [row]);
   }
 
+  console.log(`Read ${readCount} GitHubActivity rows`);
   console.log(
     `→ ${nonPush.length} PR/review rows, ${pushBuckets.size} collapsed pushes ` +
-      `(from ${activities.length - nonPush.length} commit rows)\n`,
+      `(from ${readCount - nonPush.length} commit rows)\n`,
   );
+  nonPush.sort((a, b) => a.eventTimestamp.getTime() - b.eventTimestamp.getTime());
 
   const pending: PendingRow[] = [];
 
@@ -125,6 +174,8 @@ async function main() {
       prMerged: row.prState === "merged" || row.prMergedAt != null,
       prReviewState: row.prReviewState,
       prReviewer: row.prReviewer,
+      prReviewId:
+        row.eventType === "pull_request_review" ? row.externalId : null,
     };
     const event = toGitHubFeedEvent(input);
     if (!event) continue;
@@ -141,6 +192,7 @@ async function main() {
   }
 
   for (const bucket of pushBuckets.values()) {
+    bucket.sort((a, b) => a.eventTimestamp.getTime() - b.eventTimestamp.getTime());
     const head = bucket[bucket.length - 1]!;
     const event = toGitHubFeedEvent({
       eventType: "push",
@@ -148,7 +200,9 @@ async function main() {
       repoUrl: head.repoUrl,
       branchName: head.branchName,
       commitCount: bucket.length,
-      headCommitSha: head.commitSha,
+      // `externalId` is the full sha the webhook keyed the live row on;
+      // `commitSha` is only the abbreviated display form.
+      headCommitSha: head.externalId,
       headCommitMessage: head.commitMessage,
       headCommitUrl: head.commitUrl,
       commitAuthor: head.commitAuthor,
@@ -172,12 +226,14 @@ async function main() {
       ...(workspaceId ? { workspaceId } : {}),
       entityType: { startsWith: GITHUB_ENTITY_PREFIX },
     },
-    select: { entityType: true, entityId: true },
+    select: { entityType: true, entityId: true, action: true },
   });
-  const seen = new Set(existing.map((e) => `${e.entityType}|${e.entityId}`));
-  const fresh = pending.filter(
-    (p) => !seen.has(`${p.entityType}|${p.entityId}`),
-  );
+  // Same key the live path checks before writing: a PR's `created` and
+  // `completed` rows share an entityId and must both survive.
+  const feedKey = (e: { entityType: string; entityId: string; action: string }) =>
+    `${e.entityType}|${e.entityId}|${e.action}`;
+  const seen = new Set(existing.map(feedKey));
+  const fresh = pending.filter((p) => !seen.has(feedKey(p)));
 
   console.log(
     `${pending.length} candidate events, ${existing.length} already present, ` +
