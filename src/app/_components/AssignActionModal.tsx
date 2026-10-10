@@ -53,6 +53,8 @@ interface AssignableUser {
   assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
   /** Positions held in this roster's workspace (ADR-0068) — the same hint Zoe routes by. */
   positions: Array<{ id: string; title: string }>;
+  /** An agent's fallback Remit when it holds no Position: routing data for Zoe, not a label here. */
+  agentDescription: string | null;
 }
 
 /** "your assistant" / "Andi's assistant" / "External agent" — the picker's second line for an agent row. */

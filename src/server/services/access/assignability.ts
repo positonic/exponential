@@ -120,6 +120,10 @@ export const ASSIGNABLE_USER_SELECT = {
   isAgent: true,
   externalAgentShadow: {
     select: {
+      // The agent's own description: its fallback Remit when it holds no
+      // Position in the roster's workspace (ADR-0068 §3). One column, no
+      // extra query; covers Assistants and plain External agents alike.
+      description: true,
       assistant: {
         select: {
           emoji: true,
@@ -143,6 +147,13 @@ export interface AssignableUser {
    * when the roster has no trusted workspace. Routing data, never access.
    */
   positions: PositionSummary[];
+  /**
+   * `ExternalAgent.description`, only for an agent principal holding no
+   * Position in this workspace — its fallback Remit (ADR-0068 §3). null for
+   * humans and for agents that hold a Position. The fallback rule lives here,
+   * once, so every roster agrees.
+   */
+  agentDescription: string | null;
 }
 
 export type AssignableUserRow = {
@@ -152,6 +163,7 @@ export type AssignableUserRow = {
   image: string | null;
   isAgent: boolean;
   externalAgentShadow: {
+    description: string | null;
     assistant: {
       emoji: string | null;
       createdBy: { id: string; name: string | null };
@@ -180,5 +192,9 @@ export function toAssignableUser(
       ? { id: assistant.createdBy.id, name: assistant.createdBy.name, emoji: assistant.emoji }
       : null,
     positions,
+    agentDescription:
+      row.isAgent && positions.length === 0
+        ? (row.externalAgentShadow?.description ?? null)
+        : null,
   };
 }

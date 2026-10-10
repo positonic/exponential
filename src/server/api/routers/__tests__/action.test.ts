@@ -1019,6 +1019,58 @@ describe("action router (mocked)", () => {
 
       expect(dbMock.workspaceUser.findMany).not.toHaveBeenCalled();
       expect(result.assignableUsers.map((u) => u.id)).toEqual([callerId]);
+      // The workspace gate is closed, so no Positions are looked up either —
+      // not even the caller's own through a different workspace.
+      expect(dbMock.positionHolder.findMany).not.toHaveBeenCalled();
+      expect(result.assignableUsers[0]?.positions).toEqual([]);
+    });
+
+    it("carries an agent's description only when it holds no Position (ADR-0068 §3)", async () => {
+      stubMembership(true);
+      dbMock.team.findMany.mockResolvedValue([]);
+      const agent = (id: string, description: string | null) => ({
+        user: {
+          id,
+          name: id,
+          email: null,
+          image: null,
+          isAgent: true,
+          externalAgentShadow: { description, assistant: null },
+        },
+      });
+      dbMock.workspaceUser.findMany.mockResolvedValue([
+        agent("bot-described", "Triages inbound bugs"),
+        agent("bot-positioned", "Triages inbound bugs"),
+        agent("bot-blank", null),
+        // A human's row never carries one, whatever the shadow select says.
+        { user: { id: "u2", name: "Colleague", email: "u2@test.com", image: null, isAgent: false, externalAgentShadow: null } },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ] as any);
+      dbMock.user.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: callerId, name: "Me", email: "caller-1@test.com", image: null } as any,
+      );
+      dbMock.positionHolder.findMany.mockResolvedValue([
+        {
+          workspaceUser: { userId: "bot-positioned" },
+          position: { id: "pos-1", title: "Bug triage", remit: "Triage", notAccountableFor: null },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      ]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.getAssignableUsersForContext({ workspaceId });
+
+      const byId = new Map(result.assignableUsers.map((u) => [u.id, u]));
+      expect(byId.get("bot-described")?.agentDescription).toBe("Triages inbound bugs");
+      expect(byId.get("bot-positioned")?.agentDescription).toBeNull();
+      expect(byId.get("bot-positioned")?.positions.map((p) => p.title)).toEqual(["Bug triage"]);
+      expect(byId.get("bot-blank")?.agentDescription).toBeNull();
+      expect(byId.get("u2")?.agentDescription).toBeNull();
+      // The member set is unchanged by any of this.
+      expect([...byId.keys()].sort()).toEqual(
+        ["bot-blank", "bot-described", "bot-positioned", callerId, "u2"].sort(),
+      );
     });
 
     it("still rejects a bare workspaceId even when a public project is passed", async () => {
@@ -1183,6 +1235,57 @@ describe("action router (mocked)", () => {
       // The roster query must never run, and the caller sees only themselves.
       expect(dbMock.workspaceUser.findMany).not.toHaveBeenCalled();
       expect(result.assignableUsers.map((u) => u.id)).toEqual([callerId]);
+      // No trusted workspace → no Position lookup, `positions: []`.
+      expect(dbMock.positionHolder.findMany).not.toHaveBeenCalled();
+      expect(result.assignableUsers[0]?.positions).toEqual([]);
+    });
+
+    it("attaches Positions for the project's workspace when the caller is an insider", async () => {
+      dbMock.action.findUnique.mockResolvedValue({
+        id: "a1",
+        createdById: callerId,
+        projectId: "p1",
+        assignees: [],
+        project: { id: "p1", name: "Proj", workspaceId: "w1", isRestricted: false, createdById: callerId },
+        team: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.projectMember.findFirst.mockResolvedValue(null);
+      dbMock.team.findMany.mockResolvedValue([]);
+      dbMock.workspaceUser.findMany.mockResolvedValue([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { user: { id: "u2", name: "Colleague", email: "u2@test.com", image: null } } as any,
+      ]);
+      dbMock.projectMember.findMany.mockResolvedValue([]);
+      dbMock.user.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: callerId, name: "Me", email: "caller-1@test.com", image: null } as any,
+      );
+      dbMock.positionHolder.findMany.mockResolvedValue([
+        {
+          workspaceUser: { userId: "u2" },
+          position: { id: "pos-1", title: "Delivery lead", remit: "Delivers", notAccountableFor: null },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      ]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.getAssignableUsers({ actionId: "a1" });
+
+      expect(dbMock.positionHolder.findMany.mock.calls[0]?.[0]).toMatchObject({
+        where: { position: { workspaceId: "w1" } },
+      });
+      const byId = new Map(result.assignableUsers.map((u) => [u.id, u]));
+      expect(byId.get("u2")?.positions.map((p) => p.title)).toEqual(["Delivery lead"]);
+      expect(byId.get(callerId)?.positions).toEqual([]);
     });
   });
 
