@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { actionWriteDeps, applyActionUpdate } from "~/server/services/actions";
 import {
   countWaitingOnMe,
   listWaitingOnMe,
 } from "~/server/services/inbox/waitingOnMe";
-import { countDelegated, listDelegated } from "~/server/services/inbox/delegated";
+import { countDelegated, listDelegated, reviewDelegatedRun } from "~/server/services/inbox/delegated";
 
 /**
  * The `/inbox` page's "Waiting on me" tab (see `services/inbox/waitingOnMe`).
@@ -45,4 +47,35 @@ export const inboxRouter = createTRPCRouter({
   delegatedCounts: protectedProcedure.query(({ ctx }) =>
     countDelegated(ctx.db, ctx.session.user.id),
   ),
+
+  /**
+   * Review a finished run: clears its Delegated row; with `markDone`, also
+   * completes the action as the caller (the run only ever proposed).
+   */
+  reviewDelegated: protectedProcedure
+    .input(z.object({ runId: z.string(), markDone: z.boolean().default(false) }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await reviewDelegatedRun(ctx.db, {
+          userId: ctx.session.user.id,
+          runId: input.runId,
+          markDone: input.markDone,
+          completeAction: async (actionId, kanbanStatus) => {
+            await applyActionUpdate(actionWriteDeps(ctx), actionId, {
+              status: "COMPLETED",
+              ...(kanbanStatus ? { kanbanStatus: "DONE" } : {}),
+            });
+          },
+        });
+        if (!result.reviewed) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Run not found" });
+        }
+        return result;
+      } catch (error) {
+        if (error instanceof Error && error.message === "Run is not finished") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: error.message });
+        }
+        throw error;
+      }
+    }),
 });

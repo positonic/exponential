@@ -150,3 +150,43 @@ export async function listDelegated(db: PrismaClient, userId: string, now: Date)
 
 export type Delegated = Awaited<ReturnType<typeof listDelegated>>;
 export type DelegatedRun = Delegated["live"][number];
+
+/**
+ * Review a finished run (Agent PRD D10): stamps `reviewedAt` so the row leaves
+ * the badge and the Finished group, and — when the viewer chose **Mark done**
+ * — completes the action **as the human**, through the same path the action
+ * page and voice use (`applyActionUpdate`: access gate, activity, kanban
+ * column), never as the Assistant. Only a terminal run the viewer may see on
+ * Delegated can be reviewed; a live or waiting run is not a result yet.
+ */
+export async function reviewDelegatedRun(
+  db: PrismaClient,
+  input: {
+    userId: string;
+    runId: string;
+    markDone: boolean;
+    completeAction: (actionId: string, kanbanStatus: string | null) => Promise<void>;
+  },
+): Promise<{ reviewed: boolean; markedDone: boolean }> {
+  const run = await db.agentRun.findFirst({
+    where: { AND: [{ id: input.runId }, delegatedRunsWhere(input.userId)] },
+    select: { id: true, status: true, reviewedAt: true, actionId: true, action: { select: { kanbanStatus: true, status: true } } },
+  });
+  if (!run) return { reviewed: false, markedDone: false };
+  if (run.status === "QUEUED" || run.status === "RUNNING" || run.status === "WAITING_ON_OWNER") {
+    throw new Error("Run is not finished");
+  }
+
+  let markedDone = false;
+  if (input.markDone && run.action.status !== "COMPLETED") {
+    await input.completeAction(run.actionId, run.action.kanbanStatus);
+    markedDone = true;
+  }
+
+  // Guard on reviewedAt so a double click records the first reviewer only.
+  const result = await db.agentRun.updateMany({
+    where: { id: run.id, reviewedAt: null },
+    data: { reviewedAt: new Date(), reviewedById: input.userId },
+  });
+  return { reviewed: result.count === 1 || run.reviewedAt !== null, markedDone };
+}

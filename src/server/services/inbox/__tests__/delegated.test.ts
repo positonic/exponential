@@ -3,7 +3,7 @@
  * shared by count and list, badge arithmetic that never counts live runs.
  * Mocked Prisma — no DB.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 import {
@@ -11,6 +11,7 @@ import {
   delegatedRunsWhere,
   liveDelegatedWhere,
   listDelegated,
+  reviewDelegatedRun,
   unreviewedDelegatedWhere,
   waitingDelegatedWhere,
 } from "../delegated";
@@ -83,5 +84,54 @@ describe("listDelegated", () => {
       agent: { name: "Aria", emoji: "✨" },
       action: { name: "Find a venue", projectName: "Offsite", workspace: { slug: "acme", name: "Acme" } },
     });
+  });
+});
+
+describe("reviewDelegatedRun", () => {
+  const complete = vi.fn().mockResolvedValue(undefined);
+  beforeEach(() => {
+    mockReset(db);
+    complete.mockClear();
+    db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
+  });
+
+  it("stamps reviewedAt for a finished run the viewer may see, and completes the action only on markDone", async () => {
+    db.agentRun.findFirst.mockResolvedValue({
+      id: "run-1", status: "SUCCEEDED", reviewedAt: null, actionId: "a1", action: { kanbanStatus: "IN_PROGRESS", status: "ACTIVE" },
+    } as never);
+
+    const dismissed = await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: false, completeAction: complete });
+    expect(dismissed).toEqual({ reviewed: true, markedDone: false });
+    expect(complete).not.toHaveBeenCalled();
+    expect(db.agentRun.findFirst.mock.calls[0]?.[0]).toMatchObject({
+      where: { AND: [{ id: "run-1" }, delegatedRunsWhere(USER)] },
+    });
+    expect(db.agentRun.updateMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: "run-1", reviewedAt: null },
+      data: { reviewedById: USER },
+    });
+
+    const done = await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete });
+    expect(done).toEqual({ reviewed: true, markedDone: true });
+    expect(complete).toHaveBeenCalledWith("a1", "IN_PROGRESS");
+  });
+
+  it("does not re-complete an already completed action, but still clears the row", async () => {
+    db.agentRun.findFirst.mockResolvedValue({
+      id: "run-1", status: "SUCCEEDED", reviewedAt: null, actionId: "a1", action: { kanbanStatus: null, status: "COMPLETED" },
+    } as never);
+    const r = await reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete });
+    expect(r).toEqual({ reviewed: true, markedDone: false });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("refuses a live or waiting run (not a result yet) and ignores a stranger's run", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "WAITING_ON_OWNER", reviewedAt: null, actionId: "a1", action: { kanbanStatus: null, status: "ACTIVE" } } as never);
+    await expect(reviewDelegatedRun(db, { userId: USER, runId: "run-1", markDone: true, completeAction: complete })).rejects.toThrow("Run is not finished");
+
+    db.agentRun.findFirst.mockResolvedValue(null as never);
+    expect(await reviewDelegatedRun(db, { userId: "stranger", runId: "run-1", markDone: true, completeAction: complete })).toEqual({ reviewed: false, markedDone: false });
+    expect(complete).not.toHaveBeenCalled();
+    expect(db.agentRun.updateMany).not.toHaveBeenCalled();
   });
 });

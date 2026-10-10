@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { Loader, Skeleton, UnstyledButton } from '@mantine/core';
+import { Button, Group, Loader, Skeleton, UnstyledButton } from '@mantine/core';
 import { IconHourglass, IconRobot } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
@@ -49,16 +49,60 @@ function Section({ label, shown, total, children }: { label: string; shown: numb
   );
 }
 
-function Row({ run, icon, sub, meta }: { run: Run; icon: ReactNode; sub: string; meta: ReactNode }) {
+function Row({ run, icon, sub, meta, actions }: { run: Run; icon: ReactNode; sub: string; meta: ReactNode; actions?: ReactNode }) {
   return (
-    <UnstyledButton component={Link} href={actionHref(run)} className="wsa-item" data-testid={`delegated-row-${run.id}`} data-status={run.status}>
-      <span className="wsa-item__icon">{icon}</span>
-      <span className="wsa-item__label">
-        {toPlainText(run.action.name)}
-        <span className="wsa-item__sub">{sub}</span>
-      </span>
-      <span className="wsa-item__meta">{meta}</span>
-    </UnstyledButton>
+    <div className="flex items-center gap-2" data-testid={`delegated-row-${run.id}`} data-status={run.status}>
+      <UnstyledButton component={Link} href={actionHref(run)} className="wsa-item flex-1">
+        <span className="wsa-item__icon">{icon}</span>
+        <span className="wsa-item__label">
+          {toPlainText(run.action.name)}
+          <span className="wsa-item__sub">{sub}</span>
+        </span>
+        <span className="wsa-item__meta">{meta}</span>
+      </UnstyledButton>
+      {actions}
+    </div>
+  );
+}
+
+/** Mark done / Dismiss on a finished row — both clear it; only Mark done completes the action, as you. */
+function ReviewButtons({ run }: { run: Run }) {
+  const utils = api.useUtils();
+  const review = api.inbox.reviewDelegated.useMutation({
+    onSuccess: () => {
+      void utils.inbox.delegated.invalidate();
+      void utils.inbox.delegatedCounts.invalidate();
+      void utils.action.getAll.invalidate();
+      void utils.action.getById.invalidate({ id: run.action.id });
+    },
+  });
+  const pending = review.isPending;
+  return (
+    <Group gap={4} wrap="nowrap">
+      {run.action.status !== 'COMPLETED' && (
+        <Button
+          size="compact-xs"
+          variant="light"
+          loading={pending && review.variables?.markDone === true}
+          disabled={pending}
+          onClick={() => review.mutate({ runId: run.id, markDone: true })}
+          data-testid="delegated-mark-done"
+        >
+          Mark done
+        </Button>
+      )}
+      <Button
+        size="compact-xs"
+        variant="subtle"
+        color="gray"
+        loading={pending && review.variables?.markDone === false}
+        disabled={pending}
+        onClick={() => review.mutate({ runId: run.id, markDone: false })}
+        data-testid="delegated-dismiss"
+      >
+        Dismiss
+      </Button>
+    </Group>
   );
 }
 
@@ -139,6 +183,7 @@ export function DelegatedTab() {
                 {run.finishedAt ? compactAge(run.finishedAt) : null}
               </>
             }
+            actions={<ReviewButtons run={run} />}
           />
         ))}
       </Section>
