@@ -6,8 +6,8 @@ import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueu
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { createActionComment } from "~/server/services/actions/comments";
 import { assertAssignableUsers } from "~/server/services/actions/containment";
-import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
-import { loadPositionsByUser, type PositionSummary } from "~/server/services/positions";
+import { ASSIGNABLE_USER_SELECT } from "~/server/services/access/assignability";
+import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
@@ -1011,16 +1011,12 @@ export const mastraRouter = createTRPCRouter({
           })).map((m) => m.user)
         : [];
     // Positions ride along so the run can delegate by Remit (ADR-0068, Agent
-    // PRD D8.4): the same `toAssignableUser` + `loadPositionsByUser` mapping
-    // the Assign modal's rosters use, scoped to the action's workspace. With
-    // no workspace there is nothing to look up and every member gets `[]`.
-    // Routing data only — the member set and containment are unchanged.
+    // PRD D8.4): the same `attachPositions` mapping the Assign modal's rosters
+    // use, scoped to the action's workspace. With no workspace there is
+    // nothing to look up and every member gets `[]`. Routing data only — the
+    // member set and containment are unchanged.
     const rosterWorkspaceId = action.workspaceId ?? action.project?.workspaceId ?? null;
-    const positionsByUser = rosterWorkspaceId
-      ? await loadPositionsByUser(ctx.db, rosterWorkspaceId, memberRows.map((row) => row.id))
-      : new Map<string, PositionSummary[]>();
-    const members = memberRows
-      .map((row) => toAssignableUser(row, positionsByUser.get(row.id) ?? []))
+    const members = (await attachPositions(ctx.db, rosterWorkspaceId, memberRows))
       .map((u) => ({
         id: u.id,
         name: u.name,
