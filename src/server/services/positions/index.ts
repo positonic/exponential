@@ -128,3 +128,181 @@ export async function assertCanEditPosition(
     }
   }
 }
+
+/**
+ * The counts behind the chat's "Import roles & responsibilities" pill
+ * (Agent PRD D11).
+ */
+export interface PositionCoverage {
+  isPersonal: boolean;
+  /** `WorkspaceUser` rows of the workspace, of any kind. */
+  memberCount: number;
+  /** Humans plus Assistant principals. Plain External agents are not counted. */
+  eligibleCount: number;
+  /** Eligible members holding at least one Position in the workspace. */
+  coveredCount: number;
+}
+
+/**
+ * Should the chat nudge this workspace to import its Positions? Only in a
+ * team workspace with two or more humans and Assistants, fewer than half of
+ * whom hold a Position. A plain External agent never counts towards the
+ * two: one human beside a plain agent has nobody to route work to, the same
+ * reason a personal workspace never qualifies.
+ */
+export function shouldOfferPositionImport(coverage: PositionCoverage): boolean {
+  return (
+    !coverage.isPersonal &&
+    coverage.eligibleCount >= 2 &&
+    coverage.coveredCount * 2 < coverage.eligibleCount
+  );
+}
+
+/** Read the workspace's `PositionCoverage`. Two queries, run together. */
+export async function loadPositionCoverage(
+  db: PrismaClient | Prisma.TransactionClient,
+  workspaceId: string,
+): Promise<PositionCoverage> {
+  const [workspace, members] = await Promise.all([
+    db.workspace.findUnique({ where: { id: workspaceId }, select: { type: true } }),
+    db.workspaceUser.findMany({
+      where: { workspaceId },
+      select: {
+        user: {
+          select: {
+            isAgent: true,
+            // An Assistant is an External agent with an Assistant row (ADR-0067).
+            externalAgentShadow: { select: { assistant: { select: { id: true } } } },
+          },
+        },
+        // One holding is enough to count as covered.
+        positionHolders: {
+          where: { position: { workspaceId } },
+          select: { positionId: true },
+          take: 1,
+        },
+      },
+    }),
+  ]);
+
+  let eligibleCount = 0;
+  let coveredCount = 0;
+  for (const member of members) {
+    const isEligible = !member.user.isAgent || !!member.user.externalAgentShadow?.assistant;
+    if (!isEligible) continue;
+    eligibleCount += 1;
+    if (member.positionHolders.length > 0) coveredCount += 1;
+  }
+
+  return {
+    isPersonal: workspace?.type === "personal",
+    memberCount: members.length,
+    eligibleCount,
+    coveredCount,
+  };
+}
+
+/** One row of a Positions import, as Zoe drafted it (Agent PRD D10). */
+export interface PositionImportRow {
+  title: string;
+  remit: string;
+  /** Omitted keeps the stored value on an update; an empty string clears it. */
+  notAccountableFor?: string;
+  holderUserIds: string[];
+}
+
+/** A Position already in the workspace, as the import matches against it. */
+export interface ExistingPositionForImport {
+  id: string;
+  title: string;
+  notAccountableFor: string | null;
+  holderUserIds: string[];
+}
+
+export type PlannedPositionImport =
+  | {
+      outcome: "create";
+      title: string;
+      remit: string;
+      /** The value the Position will have. */
+      notAccountableFor: string | null;
+      /** Every holder of the new Position. */
+      holderUserIds: string[];
+    }
+  | {
+      outcome: "update";
+      positionId: string;
+      /** The stored title: an import matches case-insensitively and never renames. */
+      title: string;
+      remit: string;
+      /** The value after the import: kept when the row omits it, cleared by "". */
+      notAccountableFor: string | null;
+      /** Every holder after the import: the existing ones, then the added ones. */
+      holderUserIds: string[];
+      /** Only the holders the import adds — the rows to write. */
+      addedHolderUserIds: string[];
+    };
+
+/** The key titles are matched on: trimmed, case-folded. */
+export function positionTitleKey(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+/**
+ * Plan an import (Agent PRD D3, `position.importMany`). Pure, so the dry run
+ * and the real run cannot disagree about what happens.
+ *
+ * Upsert by title, matched case-insensitively within the workspace: a new
+ * title creates; a matching one replaces its Remit, keeps its "not
+ * accountable for" unless the row states one (an empty string clears it),
+ * and **adds** holders. An import never removes a holder — that is a
+ * settings action. Results are in input order. The caller rejects duplicate
+ * titles in the input before planning.
+ *
+ * Titles are unique per workspace case-sensitively, so "Travel" and "travel"
+ * can both exist; an import then updates the exact-case match, else the
+ * first in title order.
+ */
+export function planPositionImport(
+  existing: ExistingPositionForImport[],
+  rows: PositionImportRow[],
+): PlannedPositionImport[] {
+  const byKey = new Map<string, ExistingPositionForImport>();
+  for (const position of [...existing].sort((a, b) => a.title.localeCompare(b.title))) {
+    const key = positionTitleKey(position.title);
+    if (!byKey.has(key)) byKey.set(key, position);
+  }
+
+  return rows.map((row) => {
+    const title = row.title.trim();
+    // undefined: the row says nothing; null: the row clears it.
+    const stated = row.notAccountableFor?.trim();
+    const statedNotAccountableFor = stated === undefined ? undefined : stated.length > 0 ? stated : null;
+    const importedHolders = [...new Set(row.holderUserIds)];
+    const match =
+      existing.find((position) => position.title === title) ?? byKey.get(positionTitleKey(title));
+
+    if (!match) {
+      return {
+        outcome: "create",
+        title,
+        remit: row.remit,
+        notAccountableFor: statedNotAccountableFor ?? null,
+        holderUserIds: importedHolders,
+      };
+    }
+
+    const current = new Set(match.holderUserIds);
+    const addedHolderUserIds = importedHolders.filter((userId) => !current.has(userId));
+    return {
+      outcome: "update",
+      positionId: match.id,
+      title: match.title,
+      remit: row.remit,
+      notAccountableFor:
+        statedNotAccountableFor === undefined ? match.notAccountableFor : statedNotAccountableFor,
+      holderUserIds: [...match.holderUserIds, ...addedHolderUserIds],
+      addedHolderUserIds,
+    };
+  });
+}

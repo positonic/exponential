@@ -47,6 +47,7 @@ import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdo
 import { failureCopy } from '~/lib/chat/failureCopy';
 import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 import { LocalWikiFirstRun } from './LocalWikiFirstRun';
+import { PositionsImportPill, IMPORT_POSITIONS_PROMPT } from './PositionsImportPill';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -1082,6 +1083,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
+  // Focus the composer with the cursor at `position`, after React has
+  // committed the new input value.
+  const focusComposerAt = (position: number) => {
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.setSelectionRange(position, position);
+      }
+    }, 0);
+  };
+
   // Handle agent selection from dropdown
   const selectAgent = (agent: { id: string; name: string }) => {
     if (!inputRef.current) return;
@@ -1096,14 +1108,19 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setShowAgentDropdown(false);
       
       // Focus back to input
-      setTimeout(() => {
-        if (inputRef.current) {
-          const newPosition = lastAtIndex + agent.name.length + 2;
-          inputRef.current.focus();
-          inputRef.current.setSelectionRange(newPosition, newPosition);
-        }
-      }, 0);
+      focusComposerAt(lastAtIndex + agent.name.length + 2);
     }
+  };
+
+  // The Positions import pill: put the ask in front of whatever is already in
+  // the composer (a draft or a pasted document is kept, never replaced) and
+  // leave the cursor right after the ask, where the document goes.
+  const handleImportPositions = () => {
+    setInput((current) =>
+      current.startsWith(IMPORT_POSITIONS_PROMPT) ? current : `${IMPORT_POSITIONS_PROMPT}${current.trimStart()}`,
+    );
+    setShowAgentDropdown(false);
+    focusComposerAt(IMPORT_POSITIONS_PROMPT.length);
   };
 
   const startRecording = async () => {
@@ -1653,6 +1670,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               <Text size="xs" c="red">{voice.lastError}</Text>
             ) : null}
           </div>
+        )}
+        {workspaceId && !localWikiSelected && (
+          // Keyed so a workspace switch remounts it with that workspace's state.
+          // Not for the local wiki agent: only Zoe can run the import.
+          <PositionsImportPill
+            key={workspaceId}
+            workspaceId={workspaceId}
+            onImport={handleImportPositions}
+          />
         )}
         <form onSubmit={handleSubmit}>
           <div className="relative">
