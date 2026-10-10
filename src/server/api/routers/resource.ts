@@ -225,7 +225,14 @@ export const resourceRouter = createTRPCRouter({
       const where: Record<string, unknown> = {
         userId,
         ...(input.projectId && { projectId: input.projectId }),
-        ...(input.workspaceId && { workspaceId: input.workspaceId }),
+        // A workspace view also lists the caller's rows that have no
+        // workspace (saved from the unscoped /knowledge-base page, or
+        // pre-dating workspaces) — otherwise they show up nowhere. Safe
+        // because `userId` already limits the list to the caller's own rows.
+        // Under AND so it can't collide with the title/description `OR` below.
+        ...(input.workspaceId && {
+          AND: [{ OR: [{ workspaceId: input.workspaceId }, { workspaceId: null }] }],
+        }),
         ...(input.contentType && { contentType: input.contentType }),
         ...(!input.includeArchived && { archivedAt: null }),
         ...(input.readStatus === "unread"
