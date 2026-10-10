@@ -327,7 +327,7 @@ _Avoid_: Analytics/Insights (Insights is the customer-feedback product surface �
 
 **Unassigned project**:
 A Project with `productId = null` — it belongs to a workspace but not to any Product. The default state for every project (the link is opt-in), and where a project lands when its Product is deleted (`onDelete: SetNull`). Surfaced as an "Unassigned" group in the Products & Projects view.
-_Avoid_: Orphan project (only in conversation/code, never UI copy).
+_Avoid_: Orphan project (only in conversation/code, never UI copy). Also avoid using a Project as a never-finishing bucket ("Reading", "Someday"): a Project is finite — it has status, progress and a review cadence — so a container that can never reach Done is a **Reading list** (things to consume), a **Goal** (something to pursue) or a **LifeDomain** (a standing area), never a Project.
 
 **Ticket**:
 A unit of engineering work inside a Product, stored as `Ticket`. Has its own status enum (`BACKLOG`, `NEEDS_REFINEMENT`, … `DEPLOYED`, `ARCHIVED`), type (`BUG`, `FEATURE`, `CHORE`, …), optional `assignee`, optional `cycle`. Strictly **distinct from Action** — Tickets are product-management artefacts; Actions are meeting-extracted tasks. A Ticket may have many child Actions (`Ticket.actions`), but they are not the same entity. User-facing word is always "ticket" inside the product surface.
@@ -746,8 +746,12 @@ A **Page** whose *live* content is world-readable at `/p/{publicSlug}-{publicId}
 _Avoid_: "Public page" for a page shared *within* a workspace (that's just Page visibility); "shared" (ambiguous with workspace sharing).
 
 **Resource**:
-A piece of **ingested external content** saved for reference and search — a web page, PDF, bookmark, or pasted note — stored as `Resource` with cleaned `content` (String) + original `rawContent`. The *consumption* side of Knowledge (you save/clip it), as opposed to a **Page** (you author it). Optionally embedded into the Knowledge index on create.
+A piece of **ingested external content** saved for reference and search — a web page, PDF, bookmark, or pasted note — stored as `Resource` with cleaned `content` (String) + original `rawContent`. The *consumption* side of Knowledge (you save/clip it), as opposed to a **Page** (you author it). Optionally embedded into the Knowledge index on create — **indexing follows content, never read state**: a Resource with no `content`/`rawContent` (a bare saved link) has nothing to embed and is findable by title and URL only. Carries a **read state** (`readStatus`: `to_read | reading | read`, plus `readAt`) that is orthogonal to `archivedAt` — archived means "out of the list", read means "consumed". Rows that pre-date the column were backfilled to `read` (decision 2026-10-10: they were saved as reference, not as a queue).
 _Avoid_: Document, Page, attachment.
+
+**Reading list**:
+The **Reading** tab of the Knowledge page — a *filtered view* over the caller's own **Resources** by read state (`to_read` + `reading` is the queue, `read` the history), with a quick-add that saves a URL as a `bookmark` Resource in `to_read`. **Not an entity** and not a Project: a bucket that can never finish is not a Project (decision 2026-10-10 — a "Reading" Project in the Personal workspace was the symptom; "Pillar"/"Area" as a new noun was rejected because **LifeDomain** already is the standing-area concept and **Area** is taken by Features). Marking read stamps `readAt` and fetches nothing; a URL fetcher that fills `content` on save or on mark-read, behind an explicit "add to knowledge" choice, is a named follow-up. No sidebar count: it would become another nag.
+_Avoid_: Read later (Pocket/Instapaper branding), bookmarks (a `contentType`, not the list), Pillar, Someday/Maybe.
 
 **Document** (ingested file):
 The narrow ingestion-artefact model `Document` — an uploaded/synced **file** (`s3Key`, `mimeType`, `sourceType: drive_file | upload | url | email_attachment`, `ingestionStatus`). It is a *file record*, **not** authored prose; never use the bare word "Document" for a **Page**.
