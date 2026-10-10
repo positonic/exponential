@@ -1567,8 +1567,13 @@ export const actionRouter = createTRPCRouter({
         db: ctx.db,
       });
 
-      // Return updated action with assignees
-      return ctx.db.action.findUnique({
+      // Return updated action with assignees. `agentRunsQueued` is the number
+      // of Agent runs this call actually started (Agent PRD D8.2): 0 whenever
+      // the enqueue skipped — a human assignee, an Assistant already on the
+      // action, a parked or completed action, a plain External agent, or a
+      // run already live — so a caller routing from chat can say honestly
+      // whether work began.
+      const updated = await ctx.db.action.findUnique({
         where: { id: input.actionId },
         include: {
           assignees: {
@@ -1577,6 +1582,10 @@ export const actionRouter = createTRPCRouter({
           project: true,
         },
       });
+      if (!updated) {
+        throw new Error("Action not found");
+      }
+      return { ...updated, agentRunsQueued: runs.length };
     }),
 
   // Unassign users from an action
