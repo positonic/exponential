@@ -6,8 +6,8 @@
 # Catches the broad class of route-handler module-load crashes (a missing
 # polyfill, a top-level require that throws on import, a broken tRPC root
 # router) before they reach a deployed environment. Won't catch
-# Vercel-runtime-specific bugs — that's what the post-deploy preview-URL
-# smoke workflow (.github/workflows/preview-smoke.yml) is for.
+# Vercel-runtime-specific bugs — that is what the post-deploy probe in
+# .github/workflows/deploy-production.yml is for.
 #
 # Usage: scripts/smoketest.sh
 # Requires: a prior `npm run build`.

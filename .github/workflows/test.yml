@@ -207,7 +207,7 @@ jobs:
       # crashes that get past `next build` because building isn't running.
       # See scripts/smoketest.sh for the probe list. Note this won't catch
       # Vercel-runtime-specific crashes (e.g. PR #100's DOMMatrix bug) —
-      # that's the job of preview-smoke.yml.
+      # that is the job of deploy-production.yml's post-deploy probe.
       - name: Smoke-test built server
         run: npm run smoketest
         env:
