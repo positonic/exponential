@@ -39,8 +39,8 @@ interface PositionsImportPillProps {
  * "Import roles & responsibilities" above the chat composer (Agent PRD D11).
  *
  * Shown while `position.coverage` says the workspace should be nudged: a team
- * workspace with two or more members where fewer than half of the humans and
- * Assistants hold a Position. The server owns that rule, including "never in
+ * workspace with two or more humans and Assistants, fewer than half of whom
+ * hold a Position. The server owns that rule, including "never in
  * a personal workspace". Shown to every member (D12); only an owner or admin
  * can complete the import, and Zoe says so.
  *
