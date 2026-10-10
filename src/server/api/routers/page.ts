@@ -1147,6 +1147,72 @@ export const pageRouter = createTRPCRouter({
       return { id: rootCopy.id };
     }),
 
+  /**
+   * Re-home a Page: move it to another workspace and/or project in one step
+   * (same-workspace project changes can also go through `update`). The caller
+   * must be able to edit the page and to place a page in the target scope.
+   * Page links are same-workspace only (ADR-0039), so a cross-workspace move
+   * detaches the page from its parent and sub-pages — the links' index rows
+   * are dropped; the `pageLink` nodes in the docs remain as plain links.
+   */
+  move: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        workspaceId: z.string(),
+        projectId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "edit");
+      await assertCanPlacePage(ctx.db, userId, input.workspaceId, input.projectId);
+
+      const crossWorkspace = input.workspaceId !== page.workspaceId;
+      if (crossWorkspace) {
+        const anchors = await ctx.db.knowledgePage.findUniqueOrThrow({
+          where: { id: input.id },
+          select: {
+            ceremonyOccurrence: { select: { id: true } },
+            workspaceUpdate: { select: { id: true } },
+            _count: { select: { features: true } },
+          },
+        });
+        if (
+          anchors.ceremonyOccurrence ||
+          anchors.workspaceUpdate ||
+          anchors._count.features > 0
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This page belongs to a ceremony, workspace update or feature and can't leave its workspace",
+          });
+        }
+      }
+
+      await ctx.db.$transaction(async (tx) => {
+        await tx.knowledgePage.update({
+          where: { id: input.id },
+          data: { workspaceId: input.workspaceId, projectId: input.projectId },
+        });
+        if (crossWorkspace) {
+          await tx.pageLink.deleteMany({
+            where: { OR: [{ fromPageId: input.id }, { toPageId: input.id }] },
+          });
+        }
+      });
+      // Search chunks are scoped by the page's placement — re-index.
+      getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(input.id);
+
+      const workspace = await ctx.db.workspace.findUniqueOrThrow({
+        where: { id: input.workspaceId },
+        select: { slug: true },
+      });
+      return { id: input.id, workspaceSlug: workspace.slug };
+    }),
+
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
