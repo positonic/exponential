@@ -4,8 +4,8 @@ name: PR-Agent auto-merge
 # nothing blocking on it, and every required check has passed. Modelled on the Greptile
 # auto-merge in the CLEAR repos, adapted to what PR-Agent actually publishes.
 #
-# ⚠️  DRY RUN (env.DRY_RUN below): it decides and posts its verdict as a PR comment, but
-# never merges. Leave it there until a week of verdicts shows the blocking rule is right.
+# Dry run (env.DRY_RUN below): set to 'true' to decide and post the verdict as a PR comment
+# without merging. It ran that way for the first week of verdicts before going live.
 #
 # What PR-Agent gives us to read (both are issue comments it edits in place — there are no
 # inline threads, so nothing for a human to "resolve"):
@@ -91,7 +91,7 @@ permissions:
 
 env:
   # Dry run: decide and post the PR comment, but never merge.
-  DRY_RUN: 'true'
+  DRY_RUN: 'false'
 
 jobs:
   evaluate:
