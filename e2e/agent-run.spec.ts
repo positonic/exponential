@@ -118,4 +118,24 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   await expect(page.getByText("Reading the venue shortlist")).toBeVisible();
   await pill.hover();
   await expect(page.getByText(STUB_OUTPUT.text)).toBeVisible();
+
+  // Inbox → Delegated lists the finished run under Finished with Mark done;
+  // reviewing it completes the action as the human and clears the row.
+  await page.goto("/inbox?tab=delegated");
+  const tab = page.getByTestId("delegated-tab");
+  await expect(tab).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  const row = tab
+    .locator('[data-testid^="delegated-row-"][data-status="SUCCEEDED"]')
+    .filter({ hasText: fixture.agentRunActionName })
+    .first();
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(STUB_OUTPUT.text.slice(0, 30));
+  await row.getByTestId("delegated-mark-done").click();
+  // The row leaves Finished (no Mark done any more) for Reviewed this week.
+  await expect(row.getByTestId("delegated-mark-done")).toHaveCount(0, { timeout: 10_000 });
+  await expect(tab.getByText("Reviewed this week")).toBeVisible();
+  // ...and the action itself is complete.
+  await page.goto(fixture.agentRunActionUrl);
+  await expect(page.getByText(fixture.agentRunActionName).first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(page.getByText(/^(Completed|Done)$/).first()).toBeVisible();
 });
