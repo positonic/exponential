@@ -18,6 +18,8 @@ export const metadata: Metadata = {
   title: `${themes[domain].branding.title} - Team Invitation`,
   description: 'Accept a team invitation',
   icons: themes[domain].branding.icons,
+  // Token pages are private to whoever holds the link.
+  robots: { index: false, follow: false },
 };
 
 export default async function TeamInviteLayout({

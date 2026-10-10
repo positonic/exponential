@@ -16,7 +16,7 @@ import { ModalsProvider } from '@mantine/modals';
 import { Analytics } from '@vercel/analytics/next';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import { FloatingFeedbackButton } from '~/app/_components/FloatingFeedbackButton';
-import { PRODUCT_NAME } from '~/lib/brand';
+import { PRODUCT_NAME, PRODUCT_SEO_DESCRIPTION, SOCIAL_PROFILES } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
 
 const domain = getThemeDomain();
@@ -52,7 +52,50 @@ export const metadata: Metadata = {
     description: themes[domain].branding.description,
     images: ['/og-image.png'],
   },
+  // Search Console HTML-tag verification. Unset means no tag (e.g. the
+  // property is verified by DNS instead).
+  ...(process.env.GOOGLE_SITE_VERIFICATION
+    ? { verification: { google: process.env.GOOGLE_SITE_VERIFICATION } }
+    : {}),
 };
+
+const organizationId = `${baseUrl}/#organization`;
+
+const structuredData = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "@id": organizationId,
+    "name": PRODUCT_NAME,
+    "url": baseUrl,
+    "logo": `${baseUrl}/expo-logo-1024.png`,
+    "sameAs": Object.values(SOCIAL_PROFILES),
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": PRODUCT_NAME,
+    "description": PRODUCT_SEO_DESCRIPTION,
+    "url": baseUrl,
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web Browser",
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "creator": { "@id": organizationId },
+    "featureList": [
+      "Goals and OKRs that cascade into projects and actions",
+      "AI agents and humans working on the same projects",
+      "MCP server for Claude Desktop and Claude Code",
+      "Command-line interface and TypeScript SDK",
+      "Meeting notes that turn into actions",
+      "Open source (AGPL-3.0) and self-hostable"
+    ]
+  },
+];
 
 export default async function HomeLayout({
   children,
@@ -73,34 +116,7 @@ export default async function HomeLayout({
         />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "SoftwareApplication",
-              "name": PRODUCT_NAME,
-              "description": "The coordination layer for AI-first organizations. Goals cascade into projects, AI handles execution, and your team stays aligned.",
-              "url": baseUrl,
-              "applicationCategory": "ProductivityApplication",
-              "operatingSystem": "Web Browser",
-              "offers": {
-                "@type": "Offer",
-                "price": "0",
-                "priceCurrency": "USD"
-              },
-              "creator": {
-                "@type": "Organization",
-                "name": PRODUCT_NAME,
-                "url": baseUrl
-              },
-              "featureList": [
-                "AI-native organization coordination",
-                "Goals to projects to actions framework",
-                "AI-powered execution layer",
-                "Human-AI collaboration workspace",
-                "Team alignment without status meetings"
-              ]
-            })
-          }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
       </head>
       <body className="h-full w-full overflow-x-hidden">
