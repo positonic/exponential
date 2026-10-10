@@ -20,8 +20,9 @@ import {
  *
  * Every write is `humanOnlyProcedure` (ADR-0049 denylist): no agent principal
  * can give itself or another agent a Position, however it authenticated.
- * Owners and admins (`manage_members`) create, rename, delete and set holders;
- * a holder may edit the Remit of a Position they hold (`update`).
+ * Owners and admins (`manage_members`) create, rename, delete, set holders
+ * and import; a holder may edit the Remit of a Position they hold (`update`).
+ * `coverage` is a read for any member (the chat's import pill).
  *
  * Every procedure takes `workspaceId` so `requireWorkspaceMembership` gates
  * it, and a `positionId` from another workspace answers NOT_FOUND — no
@@ -331,7 +332,8 @@ export const positionRouter = createTRPCRouter({
    * Upsert by title, matched case-insensitively on the trimmed title within
    * the workspace (`planPositionImport`). Every holder must be a member,
    * checked before anything is planned. `dryRun: true` validates and returns
-   * the plan without writing, so Zoe can show a draft and ask first.
+   * the plan without writing, so Zoe can show a draft and ask first; a real
+   * run writes the same plan in one transaction, all or nothing.
    *
    * Returns `{ written, results }`, results in input order, each with the
    * Position's holders as they stand after the import.
@@ -358,11 +360,18 @@ export const positionRouter = createTRPCRouter({
         seen.add(key);
       }
 
-      await mapHolderMemberships(
+      const memberships = await mapHolderMemberships(
         ctx.db,
         input.workspaceId,
         input.positions.flatMap((row) => row.holderUserIds),
       );
+      const workspaceUserIdOf = (userId: string) => {
+        const workspaceUserId = memberships.get(userId);
+        if (!workspaceUserId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Member not found in this workspace" });
+        }
+        return workspaceUserId;
+      };
 
       const present = (plan: ReturnType<typeof planPositionImport>) =>
         plan.map(({ title, outcome, holderUserIds }) => ({ title, outcome, holderUserIds }));
@@ -372,7 +381,55 @@ export const positionRouter = createTRPCRouter({
         return { written: false, results: present(plan) };
       }
 
-      throw new TRPCError({ code: "NOT_IMPLEMENTED", message: "Only a dry run is supported yet" });
+      // All or nothing: the plan is re-read and written inside one
+      // transaction, so a concurrent edit cannot leave half an import.
+      try {
+        const plan = await ctx.db.$transaction(
+          async (tx) => {
+            const planned = planPositionImport(await loadPositionsForImport(tx, input.workspaceId), input.positions);
+            for (const row of planned) {
+              if (row.outcome === "create") {
+                await tx.position.create({
+                  data: {
+                    workspaceId: input.workspaceId,
+                    title: row.title,
+                    remit: row.remit,
+                    notAccountableFor: row.notAccountableFor,
+                    holders: {
+                      create: row.holderUserIds.map((userId) => ({ workspaceUserId: workspaceUserIdOf(userId) })),
+                    },
+                  },
+                  select: { id: true },
+                });
+              } else {
+                await tx.position.update({
+                  where: { id: row.positionId },
+                  data: { remit: row.remit, notAccountableFor: row.notAccountableFor },
+                  select: { id: true },
+                });
+                // Adds only; an import never removes a holder.
+                if (row.addedHolderUserIds.length > 0) {
+                  await tx.positionHolder.createMany({
+                    data: row.addedHolderUserIds.map((userId) => ({
+                      positionId: row.positionId,
+                      workspaceUserId: workspaceUserIdOf(userId),
+                    })),
+                    skipDuplicates: true,
+                  });
+                }
+              }
+            }
+            return planned;
+          },
+          // Up to 50 rows of sequential writes; the 5s default is tight.
+          { timeout: 20_000 },
+        );
+        return { written: true, results: present(plan) };
+      } catch (error) {
+        // A Position created under the same title since the plan was read.
+        if (isUniqueViolation(error)) throw DUPLICATE_TITLE();
+        throw error;
+      }
     }),
 
   /** Replace the holder set. Same member check and NOT_FOUND rule as `create`. */

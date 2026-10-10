@@ -655,6 +655,134 @@ describe("position.importMany", () => {
     });
   });
 
+  describe("real run", () => {
+    let tx: DeepMockProxy<PrismaClient>;
+
+    beforeEach(() => {
+      // A separate client for the transaction, so the test can tell what ran inside it.
+      tx = mockDeep<PrismaClient>();
+      db.$transaction.mockImplementation(((cb: (client: unknown) => unknown) => cb(tx)) as never);
+      tx.position.findMany.mockResolvedValue([
+        { id: POSITION_ID, title: "Travel researcher", holders: [{ workspaceUser: { userId: "aria" } }] },
+      ] as never);
+      tx.position.create.mockResolvedValue({ id: "pos-new" } as never);
+      tx.position.update.mockResolvedValue({ id: POSITION_ID } as never);
+      tx.positionHolder.createMany.mockResolvedValue({ count: 1 } as never);
+    });
+
+    it("creates new titles, updates matches and only adds holders, all in one transaction", async () => {
+      arrangeCaller(db, "owner");
+      arrangeMembers(["andi"]);
+
+      const result = await caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows });
+
+      expect(result).toEqual({
+        written: true,
+        results: [
+          { title: "Travel researcher", outcome: "update", holderUserIds: ["aria", "andi"] },
+          { title: "Delivery lead", outcome: "create", holderUserIds: ["andi"] },
+        ],
+      });
+      expect(db.$transaction).toHaveBeenCalledTimes(1);
+      // The plan is read inside the transaction, not before it.
+      expect(tx.position.findMany).toHaveBeenCalledTimes(1);
+      expect(db.position.findMany).not.toHaveBeenCalled();
+
+      // The match keeps its title; its Remit and exclusions are replaced.
+      expect(tx.position.update).toHaveBeenCalledWith({
+        where: { id: POSITION_ID },
+        data: { remit: "Shortlists hotels", notAccountableFor: null },
+        select: { id: true },
+      });
+      // Andi is added beside Aria; nothing is removed.
+      expect(tx.positionHolder.createMany).toHaveBeenCalledWith({
+        data: [{ positionId: POSITION_ID, workspaceUserId: "wu-andi" }],
+        skipDuplicates: true,
+      });
+      expect(tx.positionHolder.deleteMany).not.toHaveBeenCalled();
+      expect(tx.positionHolder.delete).not.toHaveBeenCalled();
+      expect(tx.position.delete).not.toHaveBeenCalled();
+
+      expect(tx.position.create.mock.calls[0]?.[0]).toMatchObject({
+        data: {
+          workspaceId: WORKSPACE_ID,
+          title: "Delivery lead",
+          remit: "Keeps the plan honest",
+          notAccountableFor: "Budget",
+          holders: { create: [{ workspaceUserId: "wu-andi" }] },
+        },
+      });
+      // Nothing is written outside the transaction.
+      expect(db.position.create).not.toHaveBeenCalled();
+      expect(db.position.update).not.toHaveBeenCalled();
+      expect(db.positionHolder.createMany).not.toHaveBeenCalled();
+    });
+
+    it("re-importing holders who already hold the Position adds no rows", async () => {
+      arrangeCaller(db, "admin");
+      arrangeMembers(["aria"]);
+
+      await caller(db).position.importMany({
+        workspaceId: WORKSPACE_ID,
+        dryRun: false,
+        positions: [{ title: "Travel researcher", remit: "Same job", holderUserIds: ["aria"] }],
+      });
+
+      expect(tx.position.update).toHaveBeenCalledTimes(1);
+      expect(tx.positionHolder.createMany).not.toHaveBeenCalled();
+    });
+
+    it("a failing write fails the whole import (the transaction rolls back)", async () => {
+      arrangeCaller(db, "owner");
+      arrangeMembers(["andi"]);
+      tx.position.create.mockRejectedValue(new Error("connection reset"));
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),
+      ).rejects.toThrow();
+      expect(db.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("a title created concurrently since the plan was read → CONFLICT", async () => {
+      arrangeCaller(db, "owner");
+      arrangeMembers(["andi"]);
+      tx.position.create.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    });
+
+    it.each<Role>(["member", "viewer"])("%s → FORBIDDEN, nothing written", async (role) => {
+      arrangeCaller(db, role);
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expectNothingWritten(db);
+      expect(tx.position.create).not.toHaveBeenCalled();
+    });
+
+    it("a holder who is not a member → NOT_FOUND, nothing written", async () => {
+      arrangeCaller(db, "owner");
+      arrangeMembers([]);
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expectNothingWritten(db);
+    });
+
+    it("an agent principal (isAgent: true) is refused, nothing written", async () => {
+      arrangeCaller(db, "owner", { isAgent: true });
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expectNothingWritten(db);
+    });
+  });
+
   it("is refused for an agent principal (isAgent: true), even an owner by role", async () => {
     arrangeCaller(db, "owner", { isAgent: true });
 
