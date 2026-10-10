@@ -335,6 +335,11 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       return <div className={styles.empty}>Open a workspace to search its knowledge.</div>;
     }
     if (searchQueryResult.isLoading) return <RowSkeletons />;
+    // An error is not "no matches" — say search failed so nobody concludes
+    // the content isn't there.
+    if (searchQueryResult.isError && searchResults.length === 0) {
+      return <div className={styles.empty}>Search failed. Try again in a moment.</div>;
+    }
     if (searchResults.length === 0) {
       return searchQueryResult.isFetching ? (
         <RowSkeletons />
