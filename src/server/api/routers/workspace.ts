@@ -108,6 +108,10 @@ async function loadWorkspaceForUser(
               email: true,
               image: true,
               isAgent: true,
+              // An agent member's description lives on its ExternalAgent row
+              // (global to the agent, not per workspace); shown read-only in
+              // the Edit Role modal.
+              externalAgentShadow: { select: { description: true } },
             },
           },
         },

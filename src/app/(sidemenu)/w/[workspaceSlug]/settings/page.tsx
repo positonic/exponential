@@ -117,6 +117,8 @@ export default function WorkspaceSettingsPage() {
     email: string | null;
     image: string | null;
     role: string;
+    isAgent: boolean;
+    agentDescription: string | null;
   } | null>(null);
   const [firefliesModalOpened, { open: openFirefliesModal, close: closeFirefliesModal }] = useDisclosure(false);
   const [emailModalOpened, { open: openEmailModal, close: closeEmailModal }] = useDisclosure(false);
@@ -580,7 +582,13 @@ export default function WorkspaceSettingsPage() {
 
   const handleEditRole = (member: {
     userId: string;
-    user: { name: string | null; email: string | null; image: string | null };
+    user: {
+      name: string | null;
+      email: string | null;
+      image: string | null;
+      isAgent: boolean;
+      externalAgentShadow?: { description: string | null } | null;
+    };
     role: string;
   }) => {
     setEditingMember({
@@ -589,6 +597,8 @@ export default function WorkspaceSettingsPage() {
       email: member.user.email,
       image: member.user.image,
       role: member.role,
+      isAgent: member.user.isAgent,
+      agentDescription: member.user.externalAgentShadow?.description ?? null,
     });
     openEditRoleModal();
   };
@@ -971,6 +981,7 @@ export default function WorkspaceSettingsPage() {
                           <ActionIcon
                             variant="subtle"
                             color="gray"
+                            aria-label="Edit role"
                             onClick={() => handleEditRole(member)}
                           >
                             <IconPencil size={14} />

@@ -24,6 +24,8 @@ interface WorkspaceMember {
     email: string | null;
     image: string | null;
     isAgent: boolean;
+    /** Present for agent members: the agent's own (workspace-independent) description. */
+    externalAgentShadow?: { description: string | null } | null;
   };
 }
 

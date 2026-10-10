@@ -77,6 +77,8 @@ export const FIXTURE = {
    * colleague's, and an unassigned action to hand to one from the Assign modal.
    */
   assistantName: "Aria",
+  /** The colleague's agent carries a description so the Edit Role modal has one to show. */
+  colleagueAssistantDescription: "Drafts **agendas** and summarises long threads for the fixture team.",
   colleagueAssistantName: "Max",
   assistantActionName: "Find a venue for the fixture offsite",
   /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
@@ -118,6 +120,8 @@ export interface SeededFixture {
   /** The fixture user's Assistant and the colleague's, both members of the workspace. */
   assistantName: string;
   colleagueAssistantName: string;
+  /** The colleague's agent description (global to the agent, shown read-only in Edit Role). */
+  colleagueAssistantDescription: string;
   /** App-relative URL of the unassigned action the Assign-to-Assistant spec hands over. */
   assistantActionUrl: string;
   assistantActionName: string;
@@ -412,7 +416,13 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     });
   }
   await ensureAssistant(user.id, FIXTURE.assistantName);
-  await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
+  const colleagueAssistant = await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
+  // The agent's own description (on its ExternalAgent row, not per workspace)
+  // is what the workspace Edit Role modal shows for an agent member.
+  await db.assistant.update({
+    where: { id: colleagueAssistant.id },
+    data: { externalAgent: { update: { description: FIXTURE.colleagueAssistantDescription } } },
+  });
 
   // The actions the specs assign. Re-seeding clears their assignees and
   // Agent runs so each spec starts from "Unassigned" and a fresh run rather
@@ -958,6 +968,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     tagName: FIXTURE.tagName,
     assistantName: FIXTURE.assistantName,
     colleagueAssistantName: FIXTURE.colleagueAssistantName,
+    colleagueAssistantDescription: FIXTURE.colleagueAssistantDescription,
     assistantActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${assistantAction.id}`,
     assistantActionName: FIXTURE.assistantActionName,
     agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
