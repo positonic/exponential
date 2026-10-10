@@ -24,6 +24,7 @@ import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { TelegramGatewayCard } from '~/app/_components/TelegramGatewayCard';
 import { MatrixGatewayCard } from '~/app/_components/MatrixGatewayCard';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
 const PERSONALITY_PLACEHOLDER = `Example: You're warm, direct, and a little playful. You have opinions and share them honestly. Skip the corporate tone — be real. When something doesn't add up, say so (kindly). You're genuinely helpful, not performatively helpful.`;
 
@@ -33,6 +34,10 @@ const INSTRUCTIONS_PLACEHOLDER = `Example: When asked to create tasks, always co
 const EDITABLE_ROLES = new Set(['owner', 'admin', 'member']);
 
 const USER_CONTEXT_PLACEHOLDER = `Example: I'm a startup founder working on a SaaS product. I manage a small team of 5. I prefer morning focus blocks and async communication.`;
+
+/** The Assistant's fallback Remit when it holds no Position (ADR-0068 §3). */
+const DESCRIPTION_PLACEHOLDER = `Example: Research and shortlist options — venues, travel, suppliers — and post them as a comment with a recommendation. Does not book or pay.`;
+const DESCRIPTION_MAX = 500;
 
 /** Which engine runs Agent runs assigned to the Assistant (ADR-0067 §4, Agent PRD V2). */
 const EXECUTOR_OPTIONS = [
@@ -73,6 +78,7 @@ export default function AssistantSettingsPage() {
   const [personality, setPersonality] = useState('');
   const [instructions, setInstructions] = useState('');
   const [userContext, setUserContext] = useState('');
+  const [description, setDescription] = useState('');
   const [saved, setSaved] = useState(false);
 
   // Populate form when data loads — and clear it when switching to a
@@ -83,6 +89,7 @@ export default function AssistantSettingsPage() {
     setPersonality(assistant?.personality ?? '');
     setInstructions(assistant?.instructions ?? '');
     setUserContext(assistant?.userContext ?? '');
+    setDescription(assistant?.externalAgent.description ?? '');
   }, [assistant]);
 
   const createMutation = api.assistant.create.useMutation({
@@ -162,6 +169,7 @@ export default function AssistantSettingsPage() {
         personality: personality.trim(),
         instructions: instructions.trim() || null,
         userContext: userContext.trim() || null,
+        description: description.trim() || null,
       });
     } else {
       createMutation.mutate({
@@ -310,6 +318,27 @@ export default function AssistantSettingsPage() {
             autosize
           />
         </Paper>
+
+        {/* Routing (ADR-0068): the Assistant's fallback Remit */}
+        {assistant && (
+          <Paper p="lg" withBorder className="bg-surface-secondary">
+            <Text fw={500} className="text-text-primary mb-1">
+              What work should be assigned to this assistant?
+            </Text>
+            <Text size="xs" c="dimmed" mb="md">
+              Zoe uses this to route tasks when {assistant.name} holds no Position. Give it a
+              Position on the workspace&apos;s Members settings to say the same thing for a whole
+              function.
+            </Text>
+            <MarkdownInput
+              value={description}
+              onChange={(next) => setDescription(next.slice(0, DESCRIPTION_MAX))}
+              placeholder={DESCRIPTION_PLACEHOLDER}
+              minRows={3}
+              maxRows={8}
+            />
+          </Paper>
+        )}
 
         {/* Delegation (ADR-0067) */}
         {assistant && (

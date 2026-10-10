@@ -174,7 +174,7 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     isDefault: true,
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
-    externalAgent: { id: AGENT_ID, executor: "MASTRA", shadowUserId: SHADOW_USER_ID },
+    externalAgent: { id: AGENT_ID, executor: "MASTRA", shadowUserId: SHADOW_USER_ID, description: null },
   };
 
   beforeEach(() => {
@@ -223,6 +223,35 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     await caller.assistant.update({ id: owned.id, personality: "Warmer." });
 
     expect(writes).toEqual(["assistant.update"]);
+  });
+
+  it("the description is written to the principal in the same transaction (ADR-0068 §3)", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: owned.id, description: "  Researches travel options.  " });
+
+    expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual(["externalAgent.update", "assistant.update"]);
+    expect(dbMock.externalAgent.update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: AGENT_ID },
+      data: { description: "Researches travel options." },
+    });
+    // The Assistant row has no such column; it never receives the field.
+    expect(dbMock.assistant.update.mock.calls[0]?.[0]).toMatchObject({
+      data: expect.not.objectContaining({ description: expect.anything() }),
+    });
+  });
+
+  it("a blank or null description clears the principal's", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: owned.id, description: "   " });
+    await caller.assistant.update({ id: owned.id, description: null });
+
+    expect(dbMock.externalAgent.update.mock.calls.map((c) => c[0].data)).toEqual([
+      { description: null },
+      { description: null },
+    ]);
   });
 
   it("deleting the Assistant deletes its principal: keys, memberships, agent, shadow user", async () => {
