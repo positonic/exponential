@@ -80,6 +80,7 @@ A product's **Settings** page (append `/settings` to the product's URL; **Back t
 
 ## How it connects
 
+- **The workflow** — how features, PRDs and tickets fit together, and how coding agents use them: [Features, PRDs and tickets](/docs/build/features-prds-tickets).
 - **Projects** — a product can own projects (Project → Action work) alongside its Feature → Ticket work: [Projects](/docs/do/projects).
 - **Epics** — group tickets and actions across products; every epic belongs to a product: [Epics](/docs/do/epics).
 - **Goals and OKRs** — features link to key results as executing work: [OKRs](/docs/plan/okrs).

@@ -49,7 +49,7 @@ import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
  */
 const DESCRIPTION_LABEL = 'What work should be assigned to this agent?';
 const DESCRIPTION_HELP = 'Zoe uses this to route tasks when the agent holds no Position.';
-const DESCRIPTION_MAX = 500;
+const DESCRIPTION_MAX = 5000;
 
 // tRPC carries the image as base64 JSON. Keep the encoded request comfortably
 // below Vercel's 4.5 MB function-body limit (3 MB becomes ~4 MB as base64).
@@ -71,8 +71,6 @@ export default function ExternalAgentsPage() {
   const [generatedSecret, setGeneratedSecret] = useState<string | null>(null);
   const [grantAgentId, setGrantAgentId] = useState<string | null>(null);
   const [grantWorkspaceIds, setGrantWorkspaceIds] = useState<string[]>([]);
-  const [editAgentId, setEditAgentId] = useState<string | null>(null);
-  const [editDescription, setEditDescription] = useState('');
 
   const invalidate = () => utils.externalAgent.list.invalidate();
 
@@ -91,14 +89,29 @@ export default function ExternalAgentsPage() {
       notifications.show({ title: 'Could not create agent', message: error.message, color: 'red' }),
   });
 
-  const closeEditModal = () => {
+  const [editAgentId, setEditAgentId] = useState<string | null>(null);
+
+  const closeAgentModal = () => {
+    closeCreate();
     setEditAgentId(null);
-    setEditDescription('');
+    createForm.reset();
+  };
+
+  const openNew = () => {
+    setEditAgentId(null);
+    createForm.reset();
+    openCreate();
+  };
+
+  const openEdit = (agent: { id: string; name: string; description: string | null }) => {
+    setEditAgentId(agent.id);
+    createForm.setValues({ name: agent.name, description: agent.description ?? '' });
+    openCreate();
   };
 
   const updateAgent = api.externalAgent.update.useMutation({
     onSuccess: async () => {
-      closeEditModal();
+      closeAgentModal();
       await invalidate();
     },
     onError: (error) =>
@@ -244,7 +257,7 @@ export default function ExternalAgentsPage() {
             as its own principal — its work is attributed to the agent, not to you.
           </Text>
         </div>
-        <Button leftSection={<IconPlus size={16} />} onClick={openCreate}>
+        <Button leftSection={<IconPlus size={16} />} onClick={openNew}>
           New agent
         </Button>
       </Group>
@@ -316,6 +329,12 @@ export default function ExternalAgentsPage() {
                   </Button>
                 </Tooltip>
               ) : (
+                <Group gap={4} wrap="nowrap">
+                <Tooltip label="Edit agent">
+                  <ActionIcon variant="subtle" onClick={() => openEdit(agent)}>
+                    <IconPencil size={16} />
+                  </ActionIcon>
+                </Tooltip>
                 <Tooltip label="Delete agent (keys and workspace access are removed)">
                   <ActionIcon
                     variant="subtle"
@@ -326,6 +345,7 @@ export default function ExternalAgentsPage() {
                     <IconTrash size={16} />
                   </ActionIcon>
                 </Tooltip>
+                </Group>
               )}
             </Group>
             <Group gap="xs" align="flex-start" wrap="nowrap">
@@ -345,22 +365,6 @@ export default function ExternalAgentsPage() {
                   )
                 )}
               </div>
-              {!agent.assistantId && (
-                <Tooltip label={DESCRIPTION_LABEL}>
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    size="sm"
-                    onClick={() => {
-                      setEditAgentId(agent.id);
-                      setEditDescription(agent.description ?? '');
-                    }}
-                    aria-label={`Edit description for ${agent.name}`}
-                  >
-                    <IconPencil size={14} />
-                  </ActionIcon>
-                </Tooltip>
-              )}
             </Group>
 
             <Group gap="xs">
@@ -463,8 +467,18 @@ export default function ExternalAgentsPage() {
       ))}
 
       {/* Create agent */}
-      <Modal opened={createOpened} onClose={closeCreate} title="New external agent">
-        <form onSubmit={createForm.onSubmit((values) => createAgent.mutate(values))}>
+      <Modal
+        opened={createOpened}
+        onClose={closeAgentModal}
+        title={editAgentId ? 'Edit external agent' : 'New external agent'}
+      >
+        <form
+          onSubmit={createForm.onSubmit((values) =>
+            editAgentId
+              ? updateAgent.mutate({ agentId: editAgentId, ...values })
+              : createAgent.mutate(values),
+          )}
+        >
           <Stack>
             <TextInput
               label="Name"
@@ -483,48 +497,15 @@ export default function ExternalAgentsPage() {
               />
             </Input.Wrapper>
             <Group justify="flex-end">
-              <Button variant="default" onClick={closeCreate}>
+              <Button variant="default" onClick={closeAgentModal}>
                 Cancel
               </Button>
-              <Button type="submit" loading={createAgent.isPending}>
-                Create
+              <Button type="submit" loading={createAgent.isPending || updateAgent.isPending}>
+                {editAgentId ? 'Save' : 'Create'}
               </Button>
             </Group>
           </Stack>
         </form>
-      </Modal>
-
-      {/* Edit description — the agent's fallback Remit */}
-      <Modal opened={editAgentId !== null} onClose={closeEditModal} title="Edit description">
-        <Stack>
-          <Input.Wrapper label={DESCRIPTION_LABEL} description={DESCRIPTION_HELP}>
-            <MarkdownInput
-              value={editDescription}
-              onChange={(next) => setEditDescription(next.slice(0, DESCRIPTION_MAX))}
-              placeholder="Triages inbound bug reports and drafts the first reply."
-              minRows={3}
-            />
-          </Input.Wrapper>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={closeEditModal}>
-              Cancel
-            </Button>
-            <Button
-              loading={updateAgent.isPending}
-              onClick={() => {
-                if (editAgentId) {
-                  const trimmed = editDescription.trim();
-                  updateAgent.mutate({
-                    agentId: editAgentId,
-                    description: trimmed === '' ? null : trimmed,
-                  });
-                }
-              }}
-            >
-              Save
-            </Button>
-          </Group>
-        </Stack>
       </Modal>
 
       {/* Create key + display-once secret */}

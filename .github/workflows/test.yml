@@ -1,10 +1,27 @@
 name: Tests
 
+# PR-only on purpose. PRs are squash-merged only after every required check has
+# passed on the PR itself, so re-running the suite on `push` to main repeated
+# work that had already passed. Branch protection has `strict: false`, so a PR
+# can merge without being rebased on the latest main and two PRs could in theory
+# conflict semantically; in the 30 days to 2026-10-10 (228 push runs) that never
+# happened — all 7 push failures were the next/font Google Fonts fetch flake,
+# fixed by vendoring the font. `Build` also wouldn't catch a type-level conflict
+# (next.config sets typescript.ignoreBuildErrors). The only typecheck in CI is
+# `Lint & Typecheck`, which runs on the PR.
 on:
   pull_request:
     branches: [main, develop]
-  push:
-    branches: [main]
+
+# A new push to a PR cancels that PR's still-running suite: only the newest
+# commit can be merged, so the older run's verdict is worthless and its
+# job-minutes are wasted. The gate (pr-agent-automerge.yml) only acts on
+# workflow_run events whose conclusion is `success`, so a cancelled run never
+# reaches it. cancel-in-progress is gated on the event name so that if a
+# non-PR trigger is ever added again, runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-typecheck:
@@ -15,11 +32,7 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npx tsc --noEmit
       - run: npx next lint
 
@@ -28,11 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npm run test
         env:
           SKIP_ENV_VALIDATION: true
@@ -47,13 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-        env:
-          SKIP_ENV_VALIDATION: true
+      - uses: ./.github/actions/npm-install
       - run: npm run docs:check
 
   # The Tauri shell's Rust tests. Worth its own job rather than being left to
@@ -75,9 +78,7 @@ jobs:
       - id: changes
         name: Did anything in src-tauri change?
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -q '^src-tauri/'; then
+          if git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -q '^src-tauri/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -130,11 +131,7 @@ jobs:
       SKIP_ENV_VALIDATION: true
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - name: Apply all migrations from scratch
         run: npx prisma migrate deploy
       - name: Verify no pending migrations / drift
@@ -166,11 +163,7 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npx prisma migrate deploy
       - run: npm run test:integration
 
@@ -187,11 +180,26 @@ jobs:
       MASTRA_API_URL: http://localhost:4111
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/npm-install
+
+      # Warm Next.js's compiler cache (.next/cache). Build sets the run's
+      # wall-clock, and the webpack cache is the main lever on it. The exact
+      # key hashes the lockfile plus the build inputs; the restore key falls
+      # back to the newest cache for the same lockfile, so a PR reuses the
+      # cache of whatever built last and only recompiles what changed.
+      # A PR can only read caches from its own branch or from main, and this
+      # workflow never runs on main, so cache-warm.yml keeps main's copy
+      # (and main's node_modules cache) fresh for new PRs.
+      # next/font/local writes nothing here, but next/font/google used to
+      # store fetched fonts in it — that fetch is gone (fonts are vendored),
+      # not merely cached.
+      - uses: actions/cache@v4
         with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+          path: .next/cache
+          key: next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**', 'content/**', 'next.config.js', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json', 'sentry.*.config.ts') }}
+          restore-keys: |
+            next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
       - run: npm run build
 
       # Smoke-test the built artifact: boot `next start` and probe a handful

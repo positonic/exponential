@@ -3393,6 +3393,13 @@ model Resource {
   // Agent context injection
   pinnedAsContext Boolean @default(false)
 
+  // Reading list: whether the owner has consumed this Resource yet.
+  // "to_read" | "reading" | "read". Orthogonal to archivedAt (archived =
+  // out of the list, read = consumed). Rows that pre-date the column were
+  // backfilled to "read" — they were saved as reference, not as a queue.
+  readStatus String    @default("to_read")
+  readAt     DateTime?
+
   // Timestamps
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -3404,6 +3411,7 @@ model Resource {
   workspace Workspace? @relation(fields: [workspaceId], references: [id])
 
   @@index([userId])
+  @@index([userId, readStatus])
   @@index([projectId])
   @@index([workspaceId])
   @@index([contentType])

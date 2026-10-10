@@ -21,6 +21,52 @@ const SUCCESS_BODY = {
 };
 
 describe("brainDispatcher.dispatch", () => {
+  it("aborts a request that never returns and reports a transport timeout", async () => {
+    // A fetch that only settles when its signal aborts — the hung-request case.
+    const fetchImpl = vi.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError")),
+          );
+        }),
+    ) as unknown as typeof fetch;
+
+    const err = await dispatch(
+      { toolName: "ask_exponential", voiceSessionToken: "tok", args: { phrase: "x" } },
+      { fetchImpl, timeoutMs: 10 },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BrainDispatchError);
+    expect((err as BrainDispatchError).kind).toBe("transport");
+    expect((err as BrainDispatchError).message).toBe("Request timed out after 10ms");
+  });
+
+  it("still times out when headers arrive but the body never does", async () => {
+    const fetchImpl = vi.fn(
+      (_url: unknown, init?: RequestInit) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise<unknown>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("The operation was aborted.", "AbortError")),
+              );
+            }),
+        } as unknown as Response),
+    ) as unknown as typeof fetch;
+
+    const err = await dispatch(
+      { toolName: "query", voiceSessionToken: "tok", args: { phrase: "x" } },
+      { fetchImpl, timeoutMs: 10 },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(BrainDispatchError);
+    expect((err as BrainDispatchError).kind).toBe("transport");
+    expect((err as BrainDispatchError).message).toBe("Request timed out after 10ms");
+  });
+
   it("returns the parsed DispatchResult on HTTP 2xx", async () => {
     const fetchImpl = fakeFetch(SUCCESS_BODY);
     const res = await dispatch(

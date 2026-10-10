@@ -33,6 +33,11 @@ import {
   FEED_PAGE_SIZE,
 } from "~/server/services/activity/feed";
 import {
+  GITHUB_ENTITY_PREFIX,
+  GITHUB_SOURCE,
+} from "~/server/services/activity/deriveActivitySource";
+import { getWorkspaceTimeline } from "~/server/services/activity/workspaceTimeline";
+import {
   getOrGenerateWeeklyWorkDigest,
   DigestRateLimitError,
 } from "~/server/services/activity/weeklyWorkDigest/digest";
@@ -2177,6 +2182,26 @@ export const workspaceRouter = createTRPCRouter({
       });
     }),
 
+  // Per-workspace shipping timeline: merged PRs and commits across every repo
+  // the workspace tracks, read from stored `GitHubActivity` (not a live GitHub
+  // call). The per-workspace sibling of the public `/product-timeline`.
+  getWorkspaceTimeline: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        days: z.number().int().min(1).max(365).optional(),
+        repoFullName: z.string().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      return getWorkspaceTimeline(ctx.db, {
+        workspaceId: input.workspaceId,
+        days: input.days,
+        repoFullName: input.repoFullName,
+      });
+    }),
+
   // Which Activity sources actually have events in a workspace, so the source
   // switcher only renders a chip for a source that exists (ADR-0023). Returns
   // `hasInternal` and the distinct list of channel providers present.
@@ -2210,10 +2235,15 @@ export const workspaceRouter = createTRPCRouter({
         }),
       ]);
 
+      // "Internal" is the Exponential stream — it must exclude every external
+      // origin, channel summaries AND GitHub, or the chip would claim events it
+      // doesn't show.
       const hasInternal = distinctTypes.some(
-        (t) => t.entityType !== "channel_summary",
+        (t) =>
+          t.entityType !== "channel_summary" &&
+          !t.entityType.startsWith(GITHUB_ENTITY_PREFIX),
       );
-      const providers = Array.from(
+      const channelProviders = Array.from(
         new Set(
           channelRows
             .map((r) =>
@@ -2226,6 +2256,14 @@ export const workspaceRouter = createTRPCRouter({
             .filter((p): p is string => typeof p === "string" && p.length > 0),
         ),
       );
+      // GitHub gets one chip covering all of its entity types, not one per
+      // push/PR/review.
+      const hasGitHub = distinctTypes.some((t) =>
+        t.entityType.startsWith(GITHUB_ENTITY_PREFIX),
+      );
+      const providers = hasGitHub
+        ? [...channelProviders, GITHUB_SOURCE]
+        : channelProviders;
 
       return { hasInternal, providers };
     }),

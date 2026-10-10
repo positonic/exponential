@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { getAllBlogPosts } from '~/lib/blog/getBlogPost';
 import { getAllFeatureSlugs } from '~/app/(home)/features/_data/features';
+import { getAllIntegrationSlugs } from '~/app/(home)/features/integrations/_data/integrations';
+import { getAllLearnArticles } from '~/lib/learn/getLearnArticle';
 import { getAllDocSlugs } from '~/lib/docs/getDoc';
 import { getPublicBaseUrl } from '~/lib/urls';
 import { buildPublicPagePath } from '~/lib/pages/public-url';
@@ -25,6 +27,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/learn`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/product-timeline`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.5,
     },
     {
       url: `${baseUrl}/explore`,
@@ -70,6 +84,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
+  // Learn articles
+  const learnArticles = await getAllLearnArticles();
+  const learnPages: MetadataRoute.Sitemap = learnArticles.map((article) => ({
+    url: `${baseUrl}/learn/${article.slug}`,
+    lastModified: new Date(article.meta.date),
+    changeFrequency: 'monthly' as const,
+    priority: 0.7,
+  }));
+
+  // Integration pages
+  const integrationPages: MetadataRoute.Sitemap = getAllIntegrationSlugs().map((slug) => ({
+    url: `${baseUrl}/features/integrations/${slug}`,
+    lastModified: new Date(),
+    changeFrequency: 'monthly' as const,
+    priority: 0.7,
+  }));
+
   // Doc pages
   const docSlugs = await getAllDocSlugs();
   const docPages: MetadataRoute.Sitemap = docSlugs.map((slugParts) => ({
@@ -103,7 +134,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     ...staticPages,
     ...blogPages,
+    ...learnPages,
     ...featurePages,
+    ...integrationPages,
     ...docPages,
     ...publicPagePaths,
   ];

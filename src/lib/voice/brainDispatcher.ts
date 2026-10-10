@@ -62,7 +62,18 @@ export interface BrainDispatcherOptions {
   baseUrl?: string;
   /** Injectable fetch (tests / non-browser environments); defaults to global. */
   fetchImpl?: typeof fetch;
+  /**
+   * Abort the request after this long. A dispatch MUST settle: while one is
+   * outstanding the voice session holds back the user's turns (see
+   * useVoiceSession's committed gate), so a request that never returns would
+   * mean silence. Default sits above the server's own 45s generate cap plus
+   * the tRPC function's wall so the server-side fallback normally wins.
+   */
+  timeoutMs?: number;
 }
+
+/** Default {@link BrainDispatcherOptions.timeoutMs}. */
+export const DEFAULT_DISPATCH_TIMEOUT_MS = 55_000;
 
 /**
  * Forward one coarse-tool call to the brain and return its `DispatchResult`.
@@ -87,24 +98,42 @@ export async function dispatch(
     },
   });
 
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const timeoutError = () =>
+    new BrainDispatchError("transport", `Request timed out after ${timeoutMs}ms`);
+
   let response: Response;
   try {
     response = await fetchImpl(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
+      signal: controller.signal,
     });
   } catch (err) {
+    clearTimeout(timer);
+    if (timedOut) throw timeoutError();
     throw new BrainDispatchError(
       "transport",
       err instanceof Error ? err.message : "Network request failed",
     );
   }
 
+  // The timer stays armed until the body is in hand: headers can arrive and
+  // the body then stall, which is the same hang the timeout exists to end.
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
+    clearTimeout(timer);
+    if (timedOut) throw timeoutError();
     throw new BrainDispatchError(
       "decoding",
       `Malformed response (HTTP ${response.status})`,
@@ -112,6 +141,7 @@ export async function dispatch(
       response.status,
     );
   }
+  clearTimeout(timer);
 
   // tRPC returns a structured error envelope even on non-2xx; prefer it.
   const trpcError = extractTrpcError(payload);

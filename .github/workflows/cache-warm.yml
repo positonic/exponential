@@ -1,0 +1,63 @@
+name: Warm caches
+
+# Keeps the dependency and Next.js build caches warm in main's cache scope.
+#
+# Why this exists: a workflow run can only restore Actions caches saved by its
+# own branch or by the default branch. The Tests workflow is PR-only now (it no
+# longer runs on push to main), so without this job every cache it saved would
+# live in one PR's scope and a fresh PR would always start cold. This job is the
+# only thing that writes to main's scope.
+#
+# It is NOT a test: it runs no checks, is not a required status check, and is
+# not listed in the auto-merge gate's workflow_run triggers. Cost per push to
+# main is a cache restore plus an incremental `next build` (a few minutes),
+# against the ~36 job-minutes the old push-to-main Tests run cost. To make it
+# cheaper still, drop the push trigger and keep only the nightly schedule: PRs
+# then build on a cache at most a day old via the lockfile-only restore key.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '47 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Queue rather than cancel: actions/cache only saves when the job succeeds, so
+# cancelling a warm run on the next push would leave main's scope unseeded
+# during a burst of merges (four pushes landed within a minute on 2026-10-09).
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    name: Warm caches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SKIP_ENV_VALIDATION: true
+      # Same import-time dummies as the Build job in test.yml.
+      AUTH_SECRET: build-secret
+      OPENAI_API_KEY: sk-build-dummy
+      AUTH_POSTMARK_KEY: build-dummy
+      MASTRA_API_URL: http://localhost:4111
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      # Hits when the lockfile and schema are unchanged (then this is ~30 s);
+      # otherwise installs once and saves node_modules for every PR to reuse.
+      - uses: ./.github/actions/npm-install
+
+      # Same key scheme as the Build job in test.yml, so a PR's lockfile-only
+      # restore key finds what this saved.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**', 'content/**', 'next.config.js', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json', 'sentry.*.config.ts') }}
+          restore-keys: |
+            next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      - run: npm run build
