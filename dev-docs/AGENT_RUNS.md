@@ -47,9 +47,49 @@ Assistant 1──1 ExternalAgent 1──1 User(isAgent)        (ADR-0067: the pr
 7. **Cancel** (`agentRun.cancel`, anyone with edit access on the action): `QUEUED → CANCELLED` outright; `RUNNING → CANCELLED` as a flag — callbacks refuse a non-`RUNNING` run and the dispatcher discards late results. The in-flight Mastra call is not aborted (accepted; `maxSteps: 12` on the agent bounds it).
 8. **Unassign** cancels that agent's `QUEUED` run and lets a `RUNNING` one finish.
 
+## Local runner (V2) procedures
+
+An Assistant whose External agent has `executor = LOCAL_CLI` (Settings → Assistant → Delegation → "Runs on: My machine (local runner)") is never dispatched to Mastra: `dispatchQueuedRuns` filters `executor: "MASTRA"`, `action.assign` / `bulkAssign` / `reassign-action` skip the kick when no MASTRA run was created, and the cron sweep's retry dispatch inherits the same filter. Instead a process on the owner's machine **claims** the run with the Assistant's `exp_agent_` key (`assistant.createRunnerKey`, shown once, same `ExternalAgentKey` model and ceiling as `externalAgent.createKey`; revoked with `assistant.revokeRunnerKey`). The app stays the source of truth for run state; the runner only reports.
+
+Four procedures on the `agentRun` router, callable **only** with an agent-key principal (`ctx.tokenType === "agent-key"` — a web session or an `agent-context` run token is `FORBIDDEN`; `requireAgentKeyPrincipal` in `services/agentRuns/callbacks.ts`). Every one resolves the run through the caller's own External agent (`shadowUserId = ctx.session.user.id` → `agentId`), never from `runId` alone (`requireClaimedRunForRunner`):
+
+| Procedure | Input | Effect |
+|---|---|---|
+| `agentRun.claim` | `{ runnerId }` | Oldest `QUEUED` run of the caller's agent with `executor = LOCAL_CLI`; guarded `updateMany` `QUEUED → RUNNING` with `startedAt`, `lastEventAt`, `claimedBy = runnerId` (retries a few times if another runner wins the row). Appends a `status` event. Returns `{ id, actionId, predecessorId, claimedBy, startedAt, action, owner, messages: [{ role: "system", content: persona }, { role: "user", content: brief }] }` — the same persona and brief the hosted dispatcher builds (`loadRunBrief` in `dispatch.ts`, with a runner-specific closing line) — or `null` when nothing is queued. |
+| `agentRun.heartbeat` | `{ runId, runnerId? }` | Touches `lastEventAt` (guarded on `RUNNING`). Refuses unless the run is `RUNNING`, belongs to the caller's agent, and `claimedBy` matches `runnerId` or is null. The sweep times out a `RUNNING` row silent for 5 minutes, so a runner heartbeats at least every couple of minutes while a step is slow. |
+| `agentRun.appendEvents` | `{ runId, runnerId?, events: [{ seq, kind, payload }] }` (1–200) | The runner numbers `seq` itself; `appendRunEvents` (`events.ts`) skips seqs already stored (`createMany` + `skipDuplicates`), bumps `toolCallCount` only by the **new** `tool_call` rows, and heartbeats. A retried batch is therefore safe. Returns `{ inserted, newToolCalls, toolCallCount }`. |
+| `agentRun.finish` | `{ runId, runnerId?, status: SUCCEEDED \| FAILED \| WAITING_ON_OWNER, summary?, readyToClose?, error?, usage?, question? }` | `SUCCEEDED`/`FAILED`: guarded `updateMany` from `RUNNING` (a cancel that landed meanwhile wins and already ran the hook), a `status` event, then `onRunFinished`. `WAITING_ON_OWNER` **requires `question`**: the app posts the `@[Owner](id) question` comment exactly as `mastra.askOwner` does, logs the `ask-owner` tool call and parks the row (`finishedAt` set, no finish hook — the Mention is the notification). The owner's reply resumes it as a new run the runner claims next. |
+
+**Decision (PRD left it open):** the runner has no `mastra.*` access (those need an `agent-context` token), so ask-owner is folded into `finish` rather than exposing a fifth procedure — the runner surface stays at these four. Comments the runner wants to post mid-run go through the ordinary `actionComment.addComment` with the same key (attributed to the shadow user).
+
+Curl shape (tRPC mutation over HTTP; the `json` envelope is superjson's):
+
+```bash
+BASE=https://www.exponential.im   # or http://localhost:3000
+KEY=exp_agent_...                 # from Settings → Assistant → New runner key
+
+# claim (null body => nothing queued)
+curl -s -X POST "$BASE/api/trpc/agentRun.claim" \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"json":{"runnerId":"james-mbp"}}'
+
+curl -s -X POST "$BASE/api/trpc/agentRun.heartbeat" -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" -d '{"json":{"runId":"<id>","runnerId":"james-mbp"}}'
+
+curl -s -X POST "$BASE/api/trpc/agentRun.appendEvents" -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"json":{"runId":"<id>","runnerId":"james-mbp","events":[{"seq":1,"kind":"tool_call","payload":{"tool":"search"}}]}}'
+
+curl -s -X POST "$BASE/api/trpc/agentRun.finish" -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"json":{"runId":"<id>","runnerId":"james-mbp","status":"SUCCEEDED","summary":"Booked the venue.","readyToClose":true}}'
+```
+
+The pill, the transcript and the Delegated tab read the same `AgentRun` rows, so a curl-driven run renders exactly like a hosted one. Tests: `routers/__tests__/agentRunRunner.test.ts` (guards, claim race, idempotent append, all three finish shapes, and the claim → append → finish tracer ending in `listForAction`), `services/agentRuns/__tests__/events.test.ts` (`appendRunEvents`).
+
 ## Security invariants (do not loosen)
 
-- A run acts **only** through an `agent-context` JWT minted by the dispatcher for the Assistant's shadow user; a web session, an `agent-key` principal or any token without the `runId` claim is `FORBIDDEN` at every callback (pinned in `routers/__tests__/mastraRunCallbacks.test.ts`).
+- A hosted run acts **only** through an `agent-context` JWT minted by the dispatcher for the Assistant's shadow user; a web session, an `agent-key` principal or any token without the `runId` claim is `FORBIDDEN` at every `mastra.*` callback (pinned in `routers/__tests__/mastraRunCallbacks.test.ts`). Symmetrically, the runner procedures `agentRun.claim/heartbeat/appendEvents/finish` accept **only** an `agent-key` principal and resolve the run through that key's own agent (`agentRunRunner.test.ts`).
 - Delegation: `reassign-action` runs its containment check **as the owner** (`assertAssignableUsers(db, run.agent.ownerId, …)`) — the Assistant may assign exactly whom its owner could.
 - The tool map is restricted **by construction** in the mastra repo (`assistantRunAgent`, `RUN_EXCLUDED_TOOL_KEYS`): no email send/reply, calendar create, Notion or CRM writes, OKR deletes, Slack, WhatsApp. The prompt's security policy is not what enforces this.
 - Events are owner-only and selected server-side (`agentRun.listForAction` only queries events for runs whose agent the caller owns); a viewer's response never carries them.

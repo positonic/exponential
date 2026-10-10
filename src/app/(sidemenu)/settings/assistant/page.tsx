@@ -13,8 +13,12 @@ import {
   Loader,
   Alert,
   Select,
+  Code,
+  CopyButton,
+  ActionIcon,
+  Tooltip,
 } from '@mantine/core';
-import { IconRobot, IconCheck, IconAlertCircle } from '@tabler/icons-react';
+import { IconRobot, IconCheck, IconAlertCircle, IconCopy, IconTrash } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -29,6 +33,12 @@ const INSTRUCTIONS_PLACEHOLDER = `Example: When asked to create tasks, always co
 const EDITABLE_ROLES = new Set(['owner', 'admin', 'member']);
 
 const USER_CONTEXT_PLACEHOLDER = `Example: I'm a startup founder working on a SaaS product. I manage a small team of 5. I prefer morning focus blocks and async communication.`;
+
+/** Which engine runs Agent runs assigned to the Assistant (ADR-0067 §4, Agent PRD V2). */
+const EXECUTOR_OPTIONS = [
+  { value: 'MASTRA', label: 'Hosted' },
+  { value: 'LOCAL_CLI', label: 'My machine (local runner)' },
+];
 
 export default function AssistantSettingsPage() {
   const { workspaceId: currentWorkspaceId } = useWorkspace();
@@ -101,8 +111,30 @@ export default function AssistantSettingsPage() {
     },
   });
 
+  // The executor saves on change — it is a property of the principal, not of
+  // the persona form, and a stale "Hosted" while the owner's runner polls
+  // would start runs nobody claims.
+  const executorMutation = api.assistant.update.useMutation({
+    onSuccess: () => {
+      void utils.assistant.getDefault.invalidate();
+    },
+  });
+  const [runnerSecret, setRunnerSecret] = useState<string | null>(null);
+  const createKeyMutation = api.assistant.createRunnerKey.useMutation({
+    onSuccess: (result) => {
+      setRunnerSecret(result.secret);
+      void utils.assistant.getDefault.invalidate();
+    },
+  });
+  const revokeKeyMutation = api.assistant.revokeRunnerKey.useMutation({
+    onSuccess: () => {
+      void utils.assistant.getDefault.invalidate();
+    },
+  });
+
   const isSaving = createMutation.isPending || updateMutation.isPending;
-  const error = createMutation.error ?? updateMutation.error;
+  const error =
+    createMutation.error ?? updateMutation.error ?? executorMutation.error ?? createKeyMutation.error ?? revokeKeyMutation.error;
 
   const handleSave = () => {
     console.log('[AssistantSettings] handleSave called', {
@@ -291,9 +323,98 @@ export default function AssistantSettingsPage() {
               or do the work inside Exponential, asking you when it gets stuck.
               Everything it writes is attributed to it, never to you.
             </Text>
-            <Text size="xs" c="dimmed" mt="sm">
-              Runs on: {assistant.externalAgent?.executor === 'LOCAL_CLI' ? 'your machine (local runner)' : 'Hosted'}
-            </Text>
+            <Select
+              mt="md"
+              label="Runs on"
+              description="Hosted runs in Exponential's cloud. A local runner is a process on your own machine that claims runs with a runner key."
+              data={EXECUTOR_OPTIONS}
+              value={assistant.externalAgent?.executor ?? 'MASTRA'}
+              onChange={(value) => {
+                if (value === 'MASTRA' || value === 'LOCAL_CLI') {
+                  executorMutation.mutate({ id: assistant.id, executor: value });
+                }
+              }}
+              disabled={executorMutation.isPending}
+              allowDeselect={false}
+              data-testid="assistant-executor"
+            />
+
+            {assistant.externalAgent?.executor === 'LOCAL_CLI' && (
+              <Stack gap="sm" mt="md">
+                <Group justify="space-between" align="center">
+                  <div>
+                    <Text size="sm" fw={500} className="text-text-primary">
+                      Runner keys
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      The runner authenticates with one of these. The secret is shown once.
+                    </Text>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="light"
+                    loading={createKeyMutation.isPending}
+                    onClick={() => createKeyMutation.mutate({ id: assistant.id, name: 'runner' })}
+                    data-testid="assistant-create-runner-key"
+                  >
+                    New runner key
+                  </Button>
+                </Group>
+
+                {runnerSecret && (
+                  <Alert color="yellow" variant="light" title="Copy this key now — it will not be shown again">
+                    <Group gap="xs" wrap="nowrap">
+                      <Code block className="flex-1 break-all" data-testid="assistant-runner-secret">
+                        {runnerSecret}
+                      </Code>
+                      <CopyButton value={runnerSecret}>
+                        {({ copied, copy }) => (
+                          <Tooltip label={copied ? 'Copied' : 'Copy'}>
+                            <ActionIcon variant="subtle" color={copied ? 'green' : 'gray'} onClick={copy}>
+                              {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                            </ActionIcon>
+                          </Tooltip>
+                        )}
+                      </CopyButton>
+                    </Group>
+                  </Alert>
+                )}
+
+                {(assistant.externalAgent?.keys ?? []).length === 0 ? (
+                  <Text size="xs" c="dimmed">
+                    No runner keys yet. Runs assigned to {assistant.name} will wait for a runner until one claims them.
+                  </Text>
+                ) : (
+                  <Stack gap={4}>
+                    {assistant.externalAgent?.keys.map((key) => (
+                      <Group key={key.id} justify="space-between" wrap="nowrap">
+                        <Group gap="xs" wrap="nowrap">
+                          <Code>{key.keyPrefix}</Code>
+                          <Text size="xs" c="dimmed">
+                            {key.name}
+                            {key.lastUsedAt
+                              ? ` · last used ${new Date(key.lastUsedAt).toLocaleDateString()}`
+                              : ' · never used'}
+                          </Text>
+                        </Group>
+                        <Tooltip label="Revoke">
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            size="sm"
+                            loading={revokeKeyMutation.isPending}
+                            onClick={() => revokeKeyMutation.mutate({ id: assistant.id, keyId: key.id })}
+                            aria-label={`Revoke key ${key.keyPrefix}`}
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </Group>
+                    ))}
+                  </Stack>
+                )}
+              </Stack>
+            )}
           </Paper>
         )}
 

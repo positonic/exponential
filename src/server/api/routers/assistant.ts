@@ -10,6 +10,10 @@ import {
   renameAssistantPrincipal,
 } from "~/server/services/assistant/principal";
 import { deleteFromBlob } from "~/lib/blob";
+import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
+
+/** Same ceiling as `externalAgent.createKey`: an Assistant's principal is an External agent. */
+const MAX_RUNNER_KEYS = 10;
 
 /**
  * Assistants are **per user, per workspace** — each member of a workspace gets
@@ -32,9 +36,23 @@ import { deleteFromBlob } from "~/lib/blob";
  * read access is as sensitive as write access — `getById` and `list` are
  * guarded on the same terms as the mutations.
  */
-/** What the settings page needs from the principal: which engine runs its Agent runs. */
+/**
+ * What the settings page needs from the principal: which engine runs its
+ * Agent runs and the runner keys minted for it (prefixes only — the secret is
+ * never stored).
+ */
 const ASSISTANT_PRINCIPAL_INCLUDE = {
-  externalAgent: { select: { id: true, executor: true, shadowUserId: true } },
+  externalAgent: {
+    select: {
+      id: true,
+      executor: true,
+      shadowUserId: true,
+      keys: {
+        orderBy: { createdAt: "desc" as const },
+        select: { id: true, name: true, keyPrefix: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+      },
+    },
+  },
 } as const;
 
 async function getOwnedAssistantOrThrow(
@@ -113,10 +131,12 @@ export const assistantRouter = createTRPCRouter({
         instructions: z.string().max(10000).optional().nullable(),
         userContext: z.string().max(5000).optional().nullable(),
         isDefault: z.boolean().optional(),
+        /** Which engine runs Agent runs assigned to this Assistant (ADR-0067 §4, Agent PRD V2). */
+        executor: z.enum(["MASTRA", "LOCAL_CLI"]).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { id, isDefault, ...data } = input;
+      const { id, isDefault, executor, ...data } = input;
       const userId = ctx.session.user.id;
 
       const existing = await getOwnedAssistantOrThrow(ctx.db, id, userId);
@@ -138,6 +158,14 @@ export const assistantRouter = createTRPCRouter({
         // The principal answers to the Assistant's name (ADR-0067).
         if (renamed) {
           await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
+        }
+        // The executor lives on the principal: a QUEUED run already copied the
+        // old value, so the switch applies to the next assignment.
+        if (executor !== undefined && executor !== existing.externalAgent.executor) {
+          await tx.externalAgent.update({
+            where: { id: existing.externalAgentId },
+            data: { executor },
+          });
         }
         return tx.assistant.update({
           where: { id },
@@ -215,6 +243,53 @@ export const assistantRouter = createTRPCRouter({
         await deleteFromBlob(result.orphanedImage).catch(() => undefined);
       }
       return assistant;
+    }),
+
+  /**
+   * Mint a runner key for the Assistant's principal (Agent PRD V2): the
+   * `exp_agent_` credential the local runner presents to `agentRun.claim`.
+   * Same key model and ceiling as `externalAgent.createKey`; the secret is
+   * returned exactly once and only its hash is stored.
+   */
+  createRunnerKey: humanOnlyProcedure
+    .input(z.object({ id: z.string(), name: z.string().trim().min(1).max(100).default("runner") }))
+    .mutation(async ({ input, ctx }) => {
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      const agentId = assistant.externalAgentId;
+
+      const keyCount = await ctx.db.externalAgentKey.count({ where: { agentId } });
+      if (keyCount >= MAX_RUNNER_KEYS) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `An assistant can hold at most ${MAX_RUNNER_KEYS} runner keys — revoke one first`,
+        });
+      }
+
+      const generated = generateExternalAgentKey();
+      const key = await ctx.db.externalAgentKey.create({
+        data: {
+          agentId,
+          name: input.name,
+          keyHash: generated.hash,
+          keyPrefix: generated.displayPrefix,
+        },
+      });
+      // The only moment the secret ever leaves the server.
+      return { keyId: key.id, keyPrefix: key.keyPrefix, secret: generated.secret };
+    }),
+
+  /** Revoke a runner key: row delete, effective on the runner's next request. */
+  revokeRunnerKey: humanOnlyProcedure
+    .input(z.object({ id: z.string(), keyId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      const result = await ctx.db.externalAgentKey.deleteMany({
+        where: { id: input.keyId, agentId: assistant.externalAgentId },
+      });
+      if (result.count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Key not found" });
+      }
+      return { revoked: true as const };
     }),
 
   /** Set one of the calling user's assistants as their workspace default */
