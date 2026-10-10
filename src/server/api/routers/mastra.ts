@@ -1445,7 +1445,7 @@ export const mastraRouter = createTRPCRouter({
       // colleague to it is refused by containment. `createAction` authorises
       // it (`assertCanWriteToWorkspace`: FORBIDDEN for a non-member or a
       // viewer) and a project's own workspace still wins.
-      workspaceId: z.string().optional(),
+      workspaceId: z.string().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;

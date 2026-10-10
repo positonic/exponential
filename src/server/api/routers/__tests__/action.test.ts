@@ -130,7 +130,9 @@ vi.mock("next/server", async (importOriginal) => ({
     void Promise.resolve(cb()).catch(() => undefined);
   },
 }));
-const dispatchMock = vi.fn().mockResolvedValue(undefined);
+const { dispatchMock } = vi.hoisted(() => ({
+  dispatchMock: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("~/server/services/agentRuns/dispatch", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   triggerDispatch: (...args: unknown[]) => dispatchMock(...args),
