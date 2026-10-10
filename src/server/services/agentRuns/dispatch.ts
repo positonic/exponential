@@ -234,10 +234,12 @@ async function runOne(db: PrismaClient, runId: string): Promise<"SUCCEEDED" | "W
     return "WAITING_ON_OWNER";
   }
 
-  // A run that never called finish-run still succeeded: its text is the summary.
+  // A run that never called finish-run still succeeded: its text is the summary
+  // (an empty reply is no summary at all).
+  const text = output.text?.trim();
   await finishRun(db, runId, {
     status: "SUCCEEDED",
-    summary: after.summary ?? (output.text?.trim() || null),
+    summary: after.summary ?? (text && text.length > 0 ? text : null),
     readyToClose: after.readyToClose,
     toolCallCount,
     usage,
@@ -257,8 +259,9 @@ async function finishRun(
     error?: string;
   },
 ): Promise<void> {
-  // Never overwrite a cancel that landed while we were running.
-  await db.agentRun.updateMany({
+  // Never overwrite a cancel that landed while we were running — and when it
+  // did, the cancel already ran the finish hook, so do not run it twice.
+  const result = await db.agentRun.updateMany({
     where: { id: runId, status: { in: ["RUNNING", "QUEUED"] } },
     data: {
       status: data.status,
@@ -271,7 +274,7 @@ async function finishRun(
       ...(data.error !== undefined ? { error: data.error } : {}),
     },
   });
-  await onRunFinished(db, runId);
+  if (result.count === 1) await onRunFinished(db, runId);
 }
 
 /**

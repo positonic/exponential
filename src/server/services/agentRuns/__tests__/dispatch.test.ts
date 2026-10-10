@@ -161,3 +161,35 @@ describe("helpers", () => {
     expect(text).not.toContain("user_context");
   });
 });
+
+describe("finish after a cancel", () => {
+  it("does not run the finish hook again when the status update matched nothing (the cancel already did)", async () => {
+    mockReset(db);
+    finishMock.mockClear();
+    fetchMock.mockReset();
+    db.agentRun.findMany.mockResolvedValue([{ id: RUN }] as never);
+    // Claim succeeds; the finish update later matches 0 rows (run was CANCELLED meanwhile).
+    db.agentRun.updateMany.mockResolvedValueOnce({ count: 1 } as never).mockResolvedValue({ count: 0 } as never);
+    db.agentRun.findUniqueOrThrow.mockResolvedValueOnce(runRow as never);
+    mastraReplies({ error: "boom" }, false, 500);
+
+    await dispatchQueuedRuns(db, new Date());
+
+    expect(finishMock).not.toHaveBeenCalled();
+  });
+
+  it("an empty reply with no finish-run leaves the summary null, not an empty string", async () => {
+    mockReset(db);
+    fetchMock.mockReset();
+    db.agentRun.findMany.mockResolvedValue([{ id: RUN }] as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
+    db.agentRun.findUniqueOrThrow
+      .mockResolvedValueOnce(runRow as never)
+      .mockResolvedValueOnce({ status: "RUNNING", summary: null, readyToClose: false, toolCallCount: 0 } as never);
+    mastraReplies({ text: "   ", steps: [] });
+
+    await dispatchQueuedRuns(db, new Date());
+
+    expect(db.agentRun.updateMany.mock.calls[1]?.[0]).toMatchObject({ data: { status: "SUCCEEDED", summary: null } });
+  });
+});
