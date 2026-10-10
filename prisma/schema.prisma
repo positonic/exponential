@@ -571,6 +571,8 @@ model Workspace {
   leaderboardEntries      LeaderboardEntry[]
   // AI Assistant customization
   assistants              Assistant[]
+  // Positions: who does what (ADR-0068)
+  positions               Position[]
   // Workflow Pipeline relations
   workflowDefinitions     WorkflowDefinition[]
   contentDrafts           ContentDraft[]
@@ -858,10 +860,50 @@ model WorkspaceUser {
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Positions this member holds (ADR-0068). Cascades with the membership.
+  positionHolders PositionHolder[]
 
   @@unique([userId, workspaceId])
   @@index([userId])
   @@index([workspaceId])
+}
+
+/// A named function in a workspace — "Technical Director", "Travel researcher" —
+/// with a Remit (the kinds of work its holders take on), an optional "not
+/// accountable for", and zero or more holders (ADR-0068). Routing data only: a
+/// Position never grants or restricts access; `WorkspaceUser.role` does that.
+model Position {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  /// Trimmed, 1–80 characters, unique per workspace.
+  title             String
+  /// Markdown, 1–2000 characters. Matched by meaning, not as a tag taxonomy.
+  remit             String   @db.Text
+  /// Markdown, up to 2000 characters.
+  notAccountableFor String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  holders   PositionHolder[]
+
+  @@unique([workspaceId, title])
+  @@index([workspaceId])
+}
+
+/// A holder is a `WorkspaceUser` row, not a `User`: "holders are members of this
+/// workspace" is structural, and every membership removal drops the holding
+/// through the FK cascade. Humans, Assistants and External agents alike.
+model PositionHolder {
+  positionId      String
+  workspaceUserId String
+  createdAt       DateTime @default(now())
+
+  position      Position      @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  workspaceUser WorkspaceUser @relation(fields: [workspaceUserId], references: [id], onDelete: Cascade)
+
+  @@id([positionId, workspaceUserId])
+  @@index([workspaceUserId])
 }
 
 model WorkspaceInvitation {

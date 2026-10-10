@@ -16,7 +16,7 @@ import {
 } from "@mantine/core";
 import { IconSearch, IconRobot } from "@tabler/icons-react";
 import { useSession } from "next-auth/react";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
@@ -42,16 +42,8 @@ interface AssignActionModalProps {
   onSelectionChange?: (userIds: string[]) => void;
 }
 
-interface AssignableUser {
-  id: string;
-  name: string | null;
-  email: string | null;
-  image: string | null;
-  /** Real agent principal (ADR-0049 / ADR-0067) — the shadow user of an External agent. */
-  isAgent: boolean;
-  /** Set when the agent is someone's Assistant: whose. */
-  assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
-}
+/** One row of the roster, as the server shapes it (`toAssignableUser`): a derived type, never a hand copy. */
+type AssignableUser = RouterOutputs["action"]["getAssignableUsers"]["assignableUsers"][number];
 
 /** "your assistant" / "Andi's assistant" / "External agent" — the picker's second line for an agent row. */
 function agentSubtitle(user: AssignableUser, viewerId: string | undefined): string {
@@ -192,12 +184,14 @@ export function AssignActionModal({
 
   const assignableUsers: AssignableUser[] = assignableData?.assignableUsers ?? [];
 
-  // Filter users based on search term (an Assistant also matches its owner's name)
+  // Filter users based on search term (an Assistant also matches its owner's
+  // name, and anyone matches the Positions they hold)
   const needle = searchTerm.toLowerCase();
   const filteredUsers = assignableUsers.filter(user =>
     user.name?.toLowerCase().includes(needle) ||
     user.email?.toLowerCase().includes(needle) ||
-    user.assistantOwner?.name?.toLowerCase().includes(needle)
+    user.assistantOwner?.name?.toLowerCase().includes(needle) ||
+    user.positions.some((position) => position.title.toLowerCase().includes(needle))
   );
   const groups = groupAssignableUsers(filteredUsers, viewerId);
 
@@ -340,6 +334,11 @@ export function AssignActionModal({
                               {user.email}
                             </Text>
                           ) : null}
+                          {user.positions.length > 0 && (
+                            <Text size="xs" className="text-text-muted" data-testid="assign-positions">
+                              {user.positions.map((position) => position.title).join(" · ")}
+                            </Text>
+                          )}
                         </div>
                       </Group>
                       <Checkbox

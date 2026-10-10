@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { blankToNull } from "~/server/utils/blankToNull";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
@@ -117,7 +118,7 @@ export const externalAgentRouter = createTRPCRouter({
         return tx.externalAgent.create({
           data: {
             name: input.name,
-            description: input.description,
+            description: blankToNull(input.description),
             ownerId: ctx.session.user.id,
             shadowUserId: shadowUser.id,
           },
@@ -193,7 +194,7 @@ export const externalAgentRouter = createTRPCRouter({
         });
         return tx.externalAgent.update({
           where: { id: agent.id },
-          data: { name: input.name, description: input.description ? input.description : null },
+          data: { name: input.name, description: blankToNull(input.description) },
         });
       });
     }),

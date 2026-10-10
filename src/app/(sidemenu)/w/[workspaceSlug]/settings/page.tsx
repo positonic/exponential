@@ -50,6 +50,7 @@ import {
   IconSend,
   IconBug,
   IconServer,
+  IconAlertTriangle,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -60,6 +61,7 @@ import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
 import { EditMemberRoleModal } from '~/app/_components/EditMemberRoleModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
+import { PositionsSection } from '~/app/_components/PositionsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
 import { MatrixServerSettings } from '~/app/_components/MatrixServerSettings';
@@ -177,6 +179,29 @@ export default function WorkspaceSettingsPage() {
   const keyResultsEnabled =
     workspaceData?.enableKeyResults ?? (workspaceData?.type !== 'personal');
   const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
+
+  // Positions per member (ADR-0068) for the Members table. A personal
+  // workspace has one human and nobody to route to, so the column — and its
+  // warning, which would fire forever — is skipped there along with the query.
+  const isPersonalWorkspace = workspace?.type === 'personal';
+  const { data: positionList } = api.position.list.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId && !!workspace && !isPersonalWorkspace }
+  );
+  const positionTitleById = new Map(
+    (positionList?.positions ?? []).map((position) => [position.id, position.title])
+  );
+  const memberPositions = new Map(
+    (positionList?.members ?? []).map((member) => [
+      member.userId,
+      {
+        titles: member.positionIds
+          .map((id) => positionTitleById.get(id))
+          .filter((title): title is string => !!title),
+        remitGap: member.remitGap,
+      },
+    ])
+  );
 
   const featureSuccess = (message: string) => () => {
     void utils.workspace.getBySlug.invalidate();
@@ -932,17 +957,33 @@ export default function WorkspaceSettingsPage() {
               }
               flush
             >
-              <div className="grid grid-cols-[1fr_140px_auto] px-2 pt-3 text-[13px]">
+              <div
+                className={`grid px-2 pt-3 text-[13px] ${
+                  isPersonalWorkspace
+                    ? 'grid-cols-[1fr_140px_auto]'
+                    : 'grid-cols-[1fr_1fr_140px_auto]'
+                }`}
+              >
                 <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                   Member
                 </div>
+                {!isPersonalWorkspace && (
+                  <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                    Positions
+                  </div>
+                )}
                 <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                   Role
                 </div>
                 <div className="border-b border-border-primary px-3.5 pb-2.5" />
 
                 {workspace.members?.map((member) => (
-                  <div key={member.userId} className="contents group">
+                  <div
+                    key={member.userId}
+                    className="contents group"
+                    data-testid="member-row"
+                    data-user-id={member.userId}
+                  >
                     <div className="flex items-center gap-2.5 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
                       <Avatar src={member.user.image} size="sm" radius="xl">
                         {member.user.name?.charAt(0).toUpperCase() ?? 'U'}
@@ -962,6 +1003,17 @@ export default function WorkspaceSettingsPage() {
                         </div>
                       </div>
                     </div>
+                    {!isPersonalWorkspace && (
+                      <div
+                        className="flex flex-wrap items-center gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated"
+                        data-testid="member-positions"
+                      >
+                        <MemberPositionsCell
+                          held={memberPositions.get(member.userId)}
+                          isAgent={member.user.isAgent}
+                        />
+                      </div>
+                    )}
                     <div className="flex items-center border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
                       <SettingsPill
                         variant={
@@ -1005,6 +1057,17 @@ export default function WorkspaceSettingsPage() {
                 ))}
               </div>
             </SettingsSection>
+
+            {/* Positions (ADR-0068): who does what. A personal workspace has one
+                human and nobody to route to, so neither the section nor the
+                members' Positions column renders there. */}
+            {!isPersonalWorkspace && (
+              <PositionsSection
+                workspaceId={workspace.id}
+                canManage={canManageMembers}
+                members={workspace.members ?? []}
+              />
+            )}
 
             {projectGuests && projectGuests.length > 0 && (
               <SettingsSection
@@ -1871,5 +1934,42 @@ function FeatureRow({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * A member's Positions as pills, or the remit-gap warning (ADR-0068): a human
+ * with no Position, or an agent with neither a Position nor a description.
+ * An agent routed by its own description shows nothing — the description is
+ * routing data, not a label.
+ */
+function MemberPositionsCell({
+  held,
+  isAgent,
+}: {
+  held: { titles: string[]; remitGap: boolean } | undefined;
+  isAgent: boolean;
+}) {
+  if (!held) return null;
+  if (held.remitGap) {
+    const label = isAgent
+      ? "No Position or description — Zoe can't route work here"
+      : "No Position — Zoe can't route work here";
+    return (
+      <Tooltip label={label}>
+        <span className="inline-flex text-brand-warning" data-testid="remit-gap" aria-label={label}>
+          <IconAlertTriangle size={14} />
+        </span>
+      </Tooltip>
+    );
+  }
+  return (
+    <>
+      {held.titles.map((title) => (
+        <SettingsPill key={title} variant="neutral">
+          {title}
+        </SettingsPill>
+      ))}
+    </>
   );
 }

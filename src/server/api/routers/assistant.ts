@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
+import { blankToNull } from "~/server/utils/blankToNull";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
 import {
@@ -47,6 +48,8 @@ const ASSISTANT_PRINCIPAL_INCLUDE = {
       id: true,
       executor: true,
       shadowUserId: true,
+      /** The Assistant's fallback Remit when it holds no Position (ADR-0068 §3). */
+      description: true,
       keys: {
         orderBy: { createdAt: "desc" as const },
         select: { id: true, name: true, keyPrefix: true, createdAt: true, lastUsedAt: true, expiresAt: true },
@@ -133,10 +136,16 @@ export const assistantRouter = createTRPCRouter({
         isDefault: z.boolean().optional(),
         /** Which engine runs Agent runs assigned to this Assistant (ADR-0067 §4, Agent PRD V2). */
         executor: z.enum(["MASTRA", "LOCAL_CLI"]).optional(),
+        /**
+         * What work should be assigned to this Assistant — its fallback Remit
+         * when it holds no Position (ADR-0068 §3). Lives on the principal
+         * (`ExternalAgent.description`), like `executor`.
+         */
+        description: z.string().trim().max(5000).nullable().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { id, isDefault, executor, ...data } = input;
+      const { id, isDefault, executor, description, ...data } = input;
       const userId = ctx.session.user.id;
 
       const existing = await getOwnedAssistantOrThrow(ctx.db, id, userId);
@@ -159,13 +168,18 @@ export const assistantRouter = createTRPCRouter({
         if (renamed) {
           await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
         }
-        // The executor lives on the principal: a QUEUED run already copied the
-        // old value, so the switch applies to the next assignment. The
-        // relation is required (`Assistant.externalAgentId` NOT NULL, ADR-0067).
-        if (executor !== undefined && executor !== existing.externalAgent.executor) {
+        // The executor and the description live on the principal (the
+        // relation is required: `Assistant.externalAgentId` NOT NULL,
+        // ADR-0067). A QUEUED run already copied the old executor, so a
+        // switch applies to the next assignment.
+        const principalData = {
+          ...(executor !== undefined && executor !== existing.externalAgent.executor && { executor }),
+          ...(description !== undefined && { description: blankToNull(description) }),
+        };
+        if (Object.keys(principalData).length > 0) {
           await tx.externalAgent.update({
             where: { id: existing.externalAgentId },
-            data: { executor },
+            data: principalData,
           });
         }
         return tx.assistant.update({

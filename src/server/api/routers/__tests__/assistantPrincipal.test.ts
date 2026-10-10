@@ -174,7 +174,7 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     isDefault: true,
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
-    externalAgent: { id: AGENT_ID, executor: "MASTRA", shadowUserId: SHADOW_USER_ID },
+    externalAgent: { id: AGENT_ID, executor: "MASTRA", shadowUserId: SHADOW_USER_ID, description: null },
   };
 
   beforeEach(() => {
@@ -225,6 +225,35 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     expect(writes).toEqual(["assistant.update"]);
   });
 
+  it("the description is written to the principal in the same transaction (ADR-0068 §3)", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: owned.id, description: "  Researches travel options.  " });
+
+    expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual(["externalAgent.update", "assistant.update"]);
+    expect(dbMock.externalAgent.update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: AGENT_ID },
+      data: { description: "Researches travel options." },
+    });
+    // The Assistant row has no such column; it never receives the field.
+    expect(dbMock.assistant.update.mock.calls[0]?.[0]).toMatchObject({
+      data: expect.not.objectContaining({ description: expect.anything() }),
+    });
+  });
+
+  it("a blank or null description clears the principal's", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: owned.id, description: "   " });
+    await caller.assistant.update({ id: owned.id, description: null });
+
+    expect(dbMock.externalAgent.update.mock.calls.map((c) => c[0].data)).toEqual([
+      { description: null },
+      { description: null },
+    ]);
+  });
+
   it("deleting the Assistant deletes its principal: keys, memberships, agent, shadow user", async () => {
     dbMock.externalAgent.findUnique.mockResolvedValue({
       id: AGENT_ID,
@@ -260,5 +289,19 @@ describe("assistant mutations are human-only (ADR-0049 denylist)", () => {
 
     expect(dbMock.$transaction).not.toHaveBeenCalled();
     expect(dbMock.externalAgent.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses assistant.update (the routing description included) from an agent principal", async () => {
+    const dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    const caller = createMockCaller({ userId: "shadow-of-some-agent", db: dbMock });
+
+    await expect(
+      caller.assistant.update({ id: "assistant-1", description: "Route everything to me" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.assistant.findFirst).not.toHaveBeenCalled();
+    expect(dbMock.externalAgent.update).not.toHaveBeenCalled();
   });
 });

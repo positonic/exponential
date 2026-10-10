@@ -11,6 +11,7 @@ import {
   CopyButton,
   FileButton,
   Group,
+  Input,
   Modal,
   MultiSelect,
   Loader,
@@ -19,7 +20,6 @@ import {
   Table,
   Text,
   TextInput,
-  Textarea,
   Title,
   Tooltip,
   ActionIcon,
@@ -40,6 +40,16 @@ import {
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { api } from '~/trpc/react';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+
+/**
+ * The description is the agent's fallback Remit (ADR-0068 §3): Zoe routes
+ * work to it by this text when the agent holds no Position.
+ */
+const DESCRIPTION_LABEL = 'What work should be assigned to this agent?';
+const DESCRIPTION_HELP = 'Zoe uses this to route tasks when the agent holds no Position.';
+const DESCRIPTION_MAX = 5000;
 
 // tRPC carries the image as base64 JSON. Keep the encoded request comfortably
 // below Vercel's 4.5 MB function-body limit (3 MB becomes ~4 MB as base64).
@@ -338,11 +348,24 @@ export default function ExternalAgentsPage() {
                 </Group>
               )}
             </Group>
-            {agent.description && (
-              <Text size="sm" c="dimmed">
-                {agent.description}
-              </Text>
-            )}
+            <Group gap="xs" align="flex-start" wrap="nowrap">
+              <div className="min-w-0 flex-1">
+                {agent.description ? (
+                  <MarkdownRenderer
+                    content={agent.description}
+                    variant="compact"
+                    className="text-sm text-text-secondary"
+                  />
+                ) : (
+                  !agent.assistantId && (
+                    <Text size="sm" c="dimmed">
+                      No description yet — say what work should be assigned to this agent so
+                      Zoe can route to it.
+                    </Text>
+                  )
+                )}
+              </div>
+            </Group>
 
             <Group gap="xs">
               <Text size="sm" fw={500}>
@@ -463,15 +486,16 @@ export default function ExternalAgentsPage() {
               required
               {...createForm.getInputProps('name')}
             />
-            <Textarea
-              label="Description"
-              placeholder="What does this agent do?"
-              autosize
-              minRows={3}
-              maxRows={12}
-              maxLength={5000}
-              {...createForm.getInputProps('description')}
-            />
+            <Input.Wrapper label={DESCRIPTION_LABEL} description={DESCRIPTION_HELP}>
+              <MarkdownInput
+                value={createForm.values.description}
+                onChange={(next) =>
+                  createForm.setFieldValue('description', next.slice(0, DESCRIPTION_MAX))
+                }
+                placeholder="Triages inbound bug reports and drafts the first reply."
+                minRows={3}
+              />
+            </Input.Wrapper>
             <Group justify="flex-end">
               <Button variant="default" onClick={closeAgentModal}>
                 Cancel

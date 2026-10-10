@@ -35,6 +35,8 @@
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { getWorkspaceMembership } from "./resolvers/workspaceResolver";
+import type { PositionSummary } from "../positions";
+import { blankToNull } from "~/server/utils/blankToNull";
 
 /**
  * Throw unless `assigneeId` may be assigned work inside `workspaceId`.
@@ -119,6 +121,10 @@ export const ASSIGNABLE_USER_SELECT = {
   isAgent: true,
   externalAgentShadow: {
     select: {
+      // The agent's own description: its fallback Remit when it holds no
+      // Position in the roster's workspace (ADR-0068 §3). One column, no
+      // extra query; covers Assistants and plain External agents alike.
+      description: true,
       assistant: {
         select: {
           emoji: true,
@@ -137,15 +143,29 @@ export interface AssignableUser {
   isAgent: boolean;
   /** Set when this user is an Assistant's principal: who it belongs to. */
   assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
+  /**
+   * Positions held in the roster's workspace (ADR-0068). `[]` when none, or
+   * when the roster has no trusted workspace. Routing data, never access.
+   */
+  positions: PositionSummary[];
+  /**
+   * `ExternalAgent.description`, only for an agent principal holding no
+   * Position in this workspace — its fallback Remit (ADR-0068 §3). null for
+   * humans and for agents that hold a Position. Every roster gets the rule
+   * from here; the settings warning applies its twin, `hasRemitGap`, in
+   * services/positions.
+   */
+  agentDescription: string | null;
 }
 
-type AssignableUserRow = {
+export type AssignableUserRow = {
   id: string;
   name: string | null;
   email: string | null;
   image: string | null;
   isAgent: boolean;
   externalAgentShadow: {
+    description: string | null;
     assistant: {
       emoji: string | null;
       createdBy: { id: string; name: string | null };
@@ -153,7 +173,16 @@ type AssignableUserRow = {
   } | null;
 };
 
-export function toAssignableUser(row: AssignableUserRow): AssignableUser {
+/**
+ * `positions` are the Positions this user holds in the workspace the roster
+ * trusts — callers pass `loadPositionsByUser(...)`'s entry for the user, or
+ * nothing when the roster has no workspace. Holdings are per workspace, which
+ * is why they ride alongside the select rather than inside it.
+ */
+export function toAssignableUser(
+  row: AssignableUserRow,
+  positions: PositionSummary[] = [],
+): AssignableUser {
   const assistant = row.externalAgentShadow?.assistant ?? null;
   return {
     id: row.id,
@@ -164,5 +193,8 @@ export function toAssignableUser(row: AssignableUserRow): AssignableUser {
     assistantOwner: assistant
       ? { id: assistant.createdBy.id, name: assistant.createdBy.name, emoji: assistant.emoji }
       : null,
+    positions,
+    agentDescription:
+      row.isAgent && positions.length === 0 ? blankToNull(row.externalAgentShadow?.description) : null,
   };
 }

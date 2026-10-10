@@ -83,6 +83,14 @@ export const FIXTURE = {
   assistantActionName: "Find a venue for the fixture offsite",
   /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
   agentRunActionName: "Draft the fixture offsite agenda",
+  /**
+   * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
+   * modal has a title to show under Aria and the settings page has one row.
+   * The fixture user and the colleague hold none, so their rows warn.
+   */
+  positionTitle: "Travel researcher",
+  positionRemit:
+    "Research and shortlist travel options: flights, hotels near the venue, local transport. Posts options as a comment and asks before anything is booked.",
 } as const;
 
 export interface SeededFixture {
@@ -128,6 +136,10 @@ export interface SeededFixture {
   /** Its twin for the agent-run spec (ADR-0067), reset to unassigned with no runs on each seed. */
   agentRunActionUrl: string;
   agentRunActionName: string;
+  /** The seeded Position (ADR-0068), held by `assistantName` alone on every seed. */
+  positionTitle: string;
+  /** App-relative URL of the workspace settings page (Positions live on its Members section). */
+  workspaceSettingsUrl: string;
   /** The confirmed decision logged against that meeting. */
   decisionId: string;
   /** Its rendered label (`D-0001` on a fresh workspace). */
@@ -422,6 +434,37 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   await db.assistant.update({
     where: { id: colleagueAssistant.id },
     data: { externalAgent: { update: { description: FIXTURE.colleagueAssistantDescription } } },
+  });
+
+  // One Position (ADR-0068), held by Aria. Holders are reset to Aria alone and
+  // any Position a spec created is removed, so the settings spec can create
+  // one and assign a holder on every run.
+  const ariaAssistant = await db.assistant.findFirstOrThrow({
+    where: { workspaceId: workspace.id, createdById: user.id, name: FIXTURE.assistantName },
+    select: { externalAgent: { select: { shadowUserId: true } } },
+  });
+  const ariaMembership = await db.workspaceUser.findUniqueOrThrow({
+    where: {
+      userId_workspaceId: { userId: ariaAssistant.externalAgent.shadowUserId, workspaceId: workspace.id },
+    },
+    select: { id: true },
+  });
+  await db.position.deleteMany({
+    where: { workspaceId: workspace.id, title: { not: FIXTURE.positionTitle } },
+  });
+  const position = await db.position.upsert({
+    where: { workspaceId_title: { workspaceId: workspace.id, title: FIXTURE.positionTitle } },
+    update: { remit: FIXTURE.positionRemit, notAccountableFor: null },
+    create: { workspaceId: workspace.id, title: FIXTURE.positionTitle, remit: FIXTURE.positionRemit },
+    select: { id: true },
+  });
+  await db.positionHolder.deleteMany({
+    where: { positionId: position.id, workspaceUserId: { not: ariaMembership.id } },
+  });
+  await db.positionHolder.upsert({
+    where: { positionId_workspaceUserId: { positionId: position.id, workspaceUserId: ariaMembership.id } },
+    update: {},
+    create: { positionId: position.id, workspaceUserId: ariaMembership.id },
   });
 
   // The actions the specs assign. Re-seeding clears their assignees and
@@ -973,6 +1016,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     assistantActionName: FIXTURE.assistantActionName,
     agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
     agentRunActionName: FIXTURE.agentRunActionName,
+    positionTitle: FIXTURE.positionTitle,
+    workspaceSettingsUrl: `/w/${FIXTURE.workspaceSlug}/settings`,
     ceremonyId: ceremony.id,
     occurrenceId: occurrence.id,
     meetingUrl: `/recording/${meeting.id}`,
