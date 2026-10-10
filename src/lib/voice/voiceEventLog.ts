@@ -31,6 +31,7 @@ export type VoiceEventType =
   | "response.deferred"
   | "response.created"
   | "response.done"
+  | "response.watchdog"
   | "transcript.user"
   | "transcript.assistant"
   | "tool.called"

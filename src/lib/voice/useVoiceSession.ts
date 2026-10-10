@@ -154,6 +154,16 @@ const DISCONNECT_GRACE_MS = 5_000;
 const STALE_TOOL_CALL_MS = 60_000;
 
 /**
+ * How long a locally reserved response slot may wait for the server to confirm
+ * (response.created) or finish (response.done) before we assume the event was
+ * missed and release it. Guards the two places the slot is reserved without a
+ * server ACK in hand: our own response.create, and a
+ * "conversation_already_has_active_response" rejection. Without it, one missed
+ * response.done would leave every later turn deferring forever.
+ */
+const RESPONSE_WATCHDOG_MS = 30_000;
+
+/**
  * sessionStorage marker: "a voice session was live and was NOT deliberately
  * stopped." Survives a page refresh (the one teardown path that can't run
  * `stop()`), so on remount we can offer to resume rather than show silence.
@@ -221,6 +231,13 @@ export function useVoiceSession(
   // conversation (call_id → started-at ms). While non-empty, a committed user
   // turn does NOT get its own response.create — see the committed case.
   const pendingToolCallsRef = useRef<Map<string, number>>(new Map());
+  // A user turn was committed while a tool call was pending and is waiting for
+  // the tool output's response. If that output never comes (stale call pruned),
+  // the recovery path below still answers the turn.
+  const deferredUserTurnRef = useRef(false);
+  const staleToolTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Releases a reserved response slot whose server events never arrived.
+  const responseWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Per-session forensic event log; created in start(), dropped in teardown().
   const eventLogRef = useRef<VoiceEventLog | null>(null);
   // A response.create we wanted to send while a response was active; fired when
@@ -255,6 +272,15 @@ export function useVoiceSession(
     pendingActionIdRef.current = undefined;
     handledCallIdsRef.current.clear();
     pendingToolCallsRef.current.clear();
+    deferredUserTurnRef.current = false;
+    if (staleToolTimerRef.current) {
+      clearTimeout(staleToolTimerRef.current);
+      staleToolTimerRef.current = null;
+    }
+    if (responseWatchdogRef.current) {
+      clearTimeout(responseWatchdogRef.current);
+      responseWatchdogRef.current = null;
+    }
     activeResponseRef.current = false;
     pendingResponseCreateRef.current = false;
     eventLogRef.current?.push("session.ended");
@@ -341,8 +367,43 @@ export function useVoiceSession(
    * request landing before the server's response.created ACK defers instead of
    * racing.
    */
+  const clearResponseWatchdog = useCallback(() => {
+    if (responseWatchdogRef.current) {
+      clearTimeout(responseWatchdogRef.current);
+      responseWatchdogRef.current = null;
+    }
+  }, []);
+
+  // Mutually recursive with requestResponse (the watchdog may need to flush a
+  // deferred request), so both live on refs that are assigned below.
+  const requestResponseRef = useRef<(reason: string) => void>(() => undefined);
+
+  /**
+   * (Re)arm the watchdog on a slot we reserved without a server ACK in hand.
+   * Cleared by response.created / response.done. If it fires, the slot is
+   * released and any deferred request is flushed so the session can't wedge.
+   */
+  const armResponseWatchdog = useCallback(() => {
+    clearResponseWatchdog();
+    responseWatchdogRef.current = setTimeout(() => {
+      responseWatchdogRef.current = null;
+      if (!activeResponseRef.current) return;
+      log("response.watchdog", {
+        action: "released",
+        hadDeferred: pendingResponseCreateRef.current,
+      });
+      activeResponseRef.current = false;
+      if (pendingResponseCreateRef.current) {
+        pendingResponseCreateRef.current = false;
+        requestResponseRef.current("watchdog_recovery");
+      }
+    }, RESPONSE_WATCHDOG_MS);
+  }, [clearResponseWatchdog, log]);
+
   const requestResponse = useCallback(
     (reason: string) => {
+      // Any response we start answers whatever user turn was waiting.
+      deferredUserTurnRef.current = false;
       if (activeResponseRef.current) {
         pendingResponseCreateRef.current = true;
         log("response.deferred", { reason, why: "response_active" });
@@ -351,9 +412,38 @@ export function useVoiceSession(
       activeResponseRef.current = true;
       log("response.requested", { reason });
       send({ type: "response.create" });
+      armResponseWatchdog();
     },
-    [send, log],
+    [send, log, armResponseWatchdog],
   );
+  requestResponseRef.current = requestResponse;
+
+  /**
+   * A user turn was held back because a tool call was pending. Normally the
+   * tool output's response answers it. If instead the pending set drains by
+   * pruning (the dispatch never settled), answer the turn anyway — the model
+   * will say it couldn't get the result rather than leave silence.
+   */
+  const recoverDeferredUserTurn = useCallback(() => {
+    if (!deferredUserTurnRef.current) return;
+    if (hasPendingToolCall()) return;
+    requestResponse("stale_tool_recovery");
+  }, [hasPendingToolCall, requestResponse]);
+
+  /** Schedule recoverDeferredUserTurn for when the oldest pending call goes stale. */
+  const armStaleToolTimer = useCallback(() => {
+    if (staleToolTimerRef.current) clearTimeout(staleToolTimerRef.current);
+    let oldest = Infinity;
+    for (const startedAt of pendingToolCallsRef.current.values()) {
+      if (startedAt < oldest) oldest = startedAt;
+    }
+    if (!Number.isFinite(oldest)) return;
+    const delay = Math.max(0, oldest + STALE_TOOL_CALL_MS - Date.now()) + 50;
+    staleToolTimerRef.current = setTimeout(() => {
+      staleToolTimerRef.current = null;
+      recoverDeferredUserTurn();
+    }, delay);
+  }, [recoverDeferredUserTurn]);
 
   /** Register the tool catalog + router persona on the live session. */
   const configureSession = useCallback(() => {
@@ -494,6 +584,17 @@ export function useVoiceSession(
       });
       // The output is on the conversation: user turns may start responses again.
       pendingToolCallsRef.current.delete(callId);
+      // The model can emit several function calls in one response. Only the
+      // LAST output to land starts the spoken reply, so parallel calls produce
+      // one answer covering all of them rather than one reply per call.
+      if (pendingToolCallsRef.current.size > 0) {
+        log("response.deferred", {
+          reason: "tool_output",
+          why: "other_tools_pending",
+          pendingTools: pendingToolCallsRef.current.size,
+        });
+        return;
+      }
       // Trigger the spoken reply. Any user turn committed while we waited is
       // already in the conversation, so this one response answers it too — with
       // the real result in hand.
@@ -528,6 +629,8 @@ export function useVoiceSession(
           });
           if (toolPending) {
             log("response.deferred", { reason: "user_turn", why: "tool_pending" });
+            deferredUserTurnRef.current = true;
+            armStaleToolTimer();
             break;
           }
           requestResponse("user_turn");
@@ -536,6 +639,8 @@ export function useVoiceSession(
         case "response.created": {
           const resp = isRecord(event.response) ? event.response : undefined;
           log("response.created", { responseId: asString(resp?.id) ?? null });
+          // The server has the response: it will end with response.done.
+          clearResponseWatchdog();
           activeResponseRef.current = true;
           setState("speaking");
           break;
@@ -550,6 +655,7 @@ export function useVoiceSession(
             responseId: asString(resp?.id) ?? null,
             status: asString(resp?.status) ?? null,
           });
+          clearResponseWatchdog();
           activeResponseRef.current = false;
           // Flush a response.create we deferred while this response ran (a tool
           // result or a user turn that landed mid-response).
@@ -618,6 +724,9 @@ export function useVoiceSession(
             // than lost. Not surfaced as a session error: nothing is broken.
             activeResponseRef.current = true;
             pendingResponseCreateRef.current = true;
+            // ...unless that response.done was already missed — then the
+            // watchdog releases the slot and flushes instead of wedging.
+            armResponseWatchdog();
             break;
           }
           // Release the (possibly optimistically reserved) response slot so a
@@ -630,7 +739,16 @@ export function useVoiceSession(
           break;
       }
     },
-    [handleToolCall, armSilenceTimer, log, hasPendingToolCall, requestResponse],
+    [
+      handleToolCall,
+      armSilenceTimer,
+      log,
+      hasPendingToolCall,
+      requestResponse,
+      armStaleToolTimer,
+      clearResponseWatchdog,
+      armResponseWatchdog,
+    ],
   );
 
   const start = useCallback(async () => {
