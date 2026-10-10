@@ -1009,7 +1009,9 @@ export const mastraRouter = createTRPCRouter({
             select: { user: { select: ASSIGNABLE_USER_SELECT } },
           })).map((m) => m.user)
         : [];
-    const members = memberRows.map(toAssignableUser).map((u) => ({
+    // Positions join these members in V2 (Agent PRD D8.4); until then the
+    // mapping runs without a workspace lookup.
+    const members = memberRows.map((row) => toAssignableUser(row)).map((u) => ({
       id: u.id,
       name: u.name,
       isAgent: u.isAgent,

@@ -7,8 +7,9 @@
  * carry are gone, so saving with an Assistant selected is a real assignment:
  * the Assistant's shadow user lands in `ActionAssignee` like any member.
  *
- * Fixture: `Aria` (the fixture user's Assistant), `Max` (the colleague's), and
- * an unassigned action. See dev-docs/AGENT_VISUAL_TESTING.md.
+ * Fixture: `Aria` (the fixture user's Assistant, holding the "Travel
+ * researcher" Position), `Max` (the colleague's), and an unassigned action.
+ * See dev-docs/AGENT_VISUAL_TESTING.md.
  */
 import { test, expect } from "@playwright/test";
 import { loadFixture } from "./fixture-data";
@@ -44,6 +45,10 @@ test.describe("Assign to your Assistant", () => {
     const own = roster.getByTestId("assign-group-own");
     await expect(own.getByText(new RegExp(`^${fixture.assistantName}`))).toBeVisible();
     await expect(own.getByText("your assistant", { exact: true })).toBeVisible();
+    // The Positions a candidate holds sit under their name (ADR-0068) — the
+    // same hint Zoe routes by. Aria holds the fixture Position; nobody else does.
+    await expect(own.getByTestId("assign-positions")).toHaveText(fixture.positionTitle);
+    await expect(roster.getByTestId("assign-positions")).toHaveCount(1);
 
     const agents = roster.getByTestId("assign-group-agents");
     await expect(agents.getByText(new RegExp(`^${fixture.colleagueAssistantName}`))).toBeVisible();

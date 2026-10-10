@@ -166,6 +166,9 @@ describe("action router (mocked)", () => {
     dbMock.$transaction.mockImplementation(async (arg: any) =>
       typeof arg === "function" ? arg(dbMock) : Promise.all(arg),
     );
+    // The roster procedures look up Positions (ADR-0068) for the trusted
+    // workspace; by default nobody holds any.
+    dbMock.positionHolder.findMany.mockResolvedValue([]);
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -907,6 +910,44 @@ describe("action router (mocked)", () => {
         expect.objectContaining({ where: expect.objectContaining({ workspaceId }) }),
       );
       expect(result.assignableUsers.map((u) => u.id).sort()).toEqual([callerId, "u2"]);
+    });
+
+    it("attaches each member's Positions in the trusted workspace (ADR-0068)", async () => {
+      stubMembership(true);
+      dbMock.team.findMany.mockResolvedValue([]);
+      dbMock.workspaceUser.findMany.mockResolvedValue([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { user: { id: "u2", name: "Colleague", email: "u2@test.com", image: null } } as any,
+      ]);
+      dbMock.user.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: callerId, name: "Me", email: "caller-1@test.com", image: null } as any,
+      );
+      dbMock.positionHolder.findMany.mockResolvedValue([
+        {
+          workspaceUser: { userId: "u2" },
+          position: { id: "pos-1", title: "Travel researcher", remit: "Research travel", notAccountableFor: null },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any,
+      ]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.getAssignableUsersForContext({ workspaceId });
+
+      // One lookup, scoped to the workspace the roster trusts and to the
+      // roster's own members.
+      expect(dbMock.positionHolder.findMany).toHaveBeenCalledTimes(1);
+      expect(dbMock.positionHolder.findMany.mock.calls[0]?.[0]).toMatchObject({
+        where: {
+          position: { workspaceId },
+          workspaceUser: { userId: { in: expect.arrayContaining(["u2", callerId]) } },
+        },
+      });
+      const byId = new Map(result.assignableUsers.map((u) => [u.id, u]));
+      expect(byId.get("u2")?.positions).toEqual([
+        { id: "pos-1", title: "Travel researcher", remit: "Research travel", notAccountableFor: null },
+      ]);
+      expect(byId.get(callerId)?.positions).toEqual([]);
     });
 
     it("skips the membership probe when the workspace comes from an authorised project", async () => {

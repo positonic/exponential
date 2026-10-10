@@ -10,7 +10,8 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUser } from "~/server/services/access/assignability";
+import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUserRow } from "~/server/services/access/assignability";
+import { loadPositionsByUser, type PositionSummary } from "~/server/services/positions";
 import { after } from "next/server";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
@@ -1775,7 +1776,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Collect assignable users from multiple sources
-      const userMap = new Map<string, AssignableUser>();
+      const userMap = new Map<string, AssignableUserRow>();
 
       const isRestrictedProject = action.project?.isRestricted ?? false;
 
@@ -1804,7 +1805,7 @@ export const actionRouter = createTRPCRouter({
       if (!isRestrictedProject) {
         userTeams.forEach(team => {
           team.members.forEach(member => {
-            userMap.set(member.user.id, toAssignableUser(member.user));
+            userMap.set(member.user.id, member.user);
           });
         });
       }
@@ -1849,7 +1850,7 @@ export const actionRouter = createTRPCRouter({
           },
         });
         workspaceUsers.forEach(wu => {
-          userMap.set(wu.user.id, toAssignableUser(wu.user));
+          userMap.set(wu.user.id, wu.user);
         });
       }
 
@@ -1864,7 +1865,7 @@ export const actionRouter = createTRPCRouter({
           },
         });
         projectMembers.forEach(pm => {
-          userMap.set(pm.user.id, toAssignableUser(pm.user));
+          userMap.set(pm.user.id, pm.user);
         });
 
         // Always include the project creator (synthetic "Owner" axis).
@@ -1873,7 +1874,7 @@ export const actionRouter = createTRPCRouter({
             where: { id: action.project.createdById },
             select: ASSIGNABLE_USER_SELECT,
           });
-          if (creator) userMap.set(creator.id, toAssignableUser(creator));
+          if (creator) userMap.set(creator.id, creator);
         }
       }
 
@@ -1884,11 +1885,21 @@ export const actionRouter = createTRPCRouter({
           select: ASSIGNABLE_USER_SELECT,
         });
         if (currentUser) {
-          userMap.set(currentUser.id, toAssignableUser(currentUser));
+          userMap.set(currentUser.id, currentUser);
         }
       }
 
-      const assignableUsers = Array.from(userMap.values());
+      // Positions ride on exactly the workspace this procedure already trusts
+      // for its roster (ADR-0068 §5) — never a wider one, so a public-project
+      // visitor cannot read Positions through team-mates who happen to be in
+      // the roster. One extra query; none when there is no such workspace.
+      const rows = Array.from(userMap.values());
+      const positionsByUser = rosterWorkspaceId
+        ? await loadPositionsByUser(ctx.db, rosterWorkspaceId, rows.map((row) => row.id))
+        : new Map<string, PositionSummary[]>();
+      const assignableUsers = rows.map((row) =>
+        toAssignableUser(row, positionsByUser.get(row.id) ?? []),
+      );
 
       return {
         assignableUsers,
@@ -1964,7 +1975,7 @@ export const actionRouter = createTRPCRouter({
 
       const isRestrictedProject = project?.isRestricted ?? false;
 
-      const userMap = new Map<string, AssignableUser>();
+      const userMap = new Map<string, AssignableUserRow>();
 
       const userTeams = await ctx.db.team.findMany({
         where: {
@@ -1983,7 +1994,7 @@ export const actionRouter = createTRPCRouter({
       if (!isRestrictedProject) {
         userTeams.forEach(team => {
           team.members.forEach(member => {
-            userMap.set(member.user.id, toAssignableUser(member.user));
+            userMap.set(member.user.id, member.user);
           });
         });
       }
@@ -1999,7 +2010,7 @@ export const actionRouter = createTRPCRouter({
           },
         });
         workspaceUsers.forEach(wu => {
-          userMap.set(wu.user.id, toAssignableUser(wu.user));
+          userMap.set(wu.user.id, wu.user);
         });
       }
 
@@ -2011,7 +2022,7 @@ export const actionRouter = createTRPCRouter({
           },
         });
         projectMembers.forEach(pm => {
-          userMap.set(pm.user.id, toAssignableUser(pm.user));
+          userMap.set(pm.user.id, pm.user);
         });
 
         const projectRecord = await ctx.db.project.findUnique({
@@ -2023,7 +2034,7 @@ export const actionRouter = createTRPCRouter({
             where: { id: projectRecord.createdById },
             select: ASSIGNABLE_USER_SELECT,
           });
-          if (creator) userMap.set(creator.id, toAssignableUser(creator));
+          if (creator) userMap.set(creator.id, creator);
         }
       }
 
@@ -2033,12 +2044,21 @@ export const actionRouter = createTRPCRouter({
           select: ASSIGNABLE_USER_SELECT,
         });
         if (currentUser) {
-          userMap.set(currentUser.id, toAssignableUser(currentUser));
+          userMap.set(currentUser.id, currentUser);
         }
       }
 
+      // Same rule as getAssignableUsers: Positions attach for the trusted
+      // workspace only, else every user gets `positions: []`.
+      const rows = Array.from(userMap.values());
+      const positionsByUser = effectiveWorkspaceId
+        ? await loadPositionsByUser(ctx.db, effectiveWorkspaceId, rows.map((row) => row.id))
+        : new Map<string, PositionSummary[]>();
+
       return {
-        assignableUsers: Array.from(userMap.values()),
+        assignableUsers: rows.map((row) =>
+          toAssignableUser(row, positionsByUser.get(row.id) ?? []),
+        ),
         actionContext: {
           hasProject: !!project,
           hasTeam: false,

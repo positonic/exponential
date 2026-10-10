@@ -60,6 +60,7 @@ import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
 import { EditMemberRoleModal } from '~/app/_components/EditMemberRoleModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
+import { PositionsSection } from '~/app/_components/PositionsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
 import { MatrixServerSettings } from '~/app/_components/MatrixServerSettings';
@@ -994,6 +995,17 @@ export default function WorkspaceSettingsPage() {
                 ))}
               </div>
             </SettingsSection>
+
+            {/* Positions (ADR-0068): who does what. A personal workspace has one
+                human and nobody to route to, so neither the section nor the
+                members' Positions column renders there. */}
+            {workspace.type !== 'personal' && (
+              <PositionsSection
+                workspaceId={workspaceId!}
+                canManage={canManageMembers}
+                members={workspace.members ?? []}
+              />
+            )}
 
             {projectGuests && projectGuests.length > 0 && (
               <SettingsSection

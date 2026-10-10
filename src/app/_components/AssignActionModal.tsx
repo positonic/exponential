@@ -51,6 +51,8 @@ interface AssignableUser {
   isAgent: boolean;
   /** Set when the agent is someone's Assistant: whose. */
   assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
+  /** Positions held in this roster's workspace (ADR-0068) — the same hint Zoe routes by. */
+  positions: Array<{ id: string; title: string }>;
 }
 
 /** "your assistant" / "Andi's assistant" / "External agent" — the picker's second line for an agent row. */
@@ -192,12 +194,14 @@ export function AssignActionModal({
 
   const assignableUsers: AssignableUser[] = assignableData?.assignableUsers ?? [];
 
-  // Filter users based on search term (an Assistant also matches its owner's name)
+  // Filter users based on search term (an Assistant also matches its owner's
+  // name, and anyone matches the Positions they hold)
   const needle = searchTerm.toLowerCase();
   const filteredUsers = assignableUsers.filter(user =>
     user.name?.toLowerCase().includes(needle) ||
     user.email?.toLowerCase().includes(needle) ||
-    user.assistantOwner?.name?.toLowerCase().includes(needle)
+    user.assistantOwner?.name?.toLowerCase().includes(needle) ||
+    user.positions.some((position) => position.title.toLowerCase().includes(needle))
   );
   const groups = groupAssignableUsers(filteredUsers, viewerId);
 
@@ -340,6 +344,11 @@ export function AssignActionModal({
                               {user.email}
                             </Text>
                           ) : null}
+                          {user.positions.length > 0 && (
+                            <Text size="xs" className="text-text-muted" data-testid="assign-positions">
+                              {user.positions.map((position) => position.title).join(" · ")}
+                            </Text>
+                          )}
                         </div>
                       </Group>
                       <Checkbox
