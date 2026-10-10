@@ -1966,8 +1966,12 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Explicit user-triggered generation re-summarizes through the shared
       // path (overwriteExisting) so the manual button can refresh a summary.
+      // Decision extraction (ADR-0060) is requested too: it only fires on the
+      // first null → summary transition (the on-view auto-generate), never on
+      // a regenerate, and is gated per workspace inside.
       const outcome = await summarizeMeetingRow(ctx.db, session, {
         overwriteExisting: true,
+        extractDecisions: true,
       });
 
       switch (outcome.status) {
@@ -1990,8 +1994,8 @@ export const transcriptionRouter = createTRPCRouter({
         case "created":
           return { id: session.id, summary: outcome.summary ?? null };
         default:
-          // already-had / not-found shouldn't occur here (we just loaded the
-          // row and pass overwriteExisting), but fall back to the stored value.
+          // already-had shouldn't occur here (we just loaded the row and pass
+          // overwriteExisting), but fall back to the stored value.
           return { id: session.id, summary: session.summary };
       }
     }),
@@ -2001,7 +2005,13 @@ export const transcriptionRouter = createTRPCRouter({
   // as the cron (limit 10), scoped to the caller, so a page load fires one
   // server-side batch rather than a burst of per-card client mutations.
   ensureMyMeetingSummaries: protectedProcedure.mutation(async ({ ctx }) => {
-    return runMeetingSummarySweep(ctx.db, { userId: ctx.session.user.id });
+    // tRPC runs under a 60s function limit (vs the cron's 300s), so only the
+    // first half of the run requests decision extraction; later meetings are
+    // still summarized, and their drafts stay recoverable from the manual chip.
+    return runMeetingSummarySweep(ctx.db, {
+      userId: ctx.session.user.id,
+      extractionBudgetMs: 30_000,
+    });
   }),
 
   generateDraftActions: protectedProcedure

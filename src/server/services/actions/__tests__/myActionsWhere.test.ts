@@ -123,7 +123,7 @@ describe("myActionsWhere", () => {
     const at = (day: number, hour = 9) => new Date(2026, 8, day, hour);
     const base = { status: "ACTIVE", projectId: "p1", dueDate: null, scheduledStart: null };
     const rows: Row[] = [
-      // The #838 shape: rescheduled to today, no deadline.
+      // The PR 838 shape: rescheduled to today, no deadline.
       { ...base, id: "scheduled-today", scheduledStart: at(16) },
       { ...base, id: "scheduled-late-tonight", scheduledStart: at(16, 23) },
       { ...base, id: "due-today", dueDate: at(16) },
