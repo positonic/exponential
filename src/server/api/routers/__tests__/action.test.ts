@@ -121,6 +121,18 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
   recordActivity: vi.fn().mockResolvedValue(true),
 }));
 
+// `action.assign` kicks the Agent run dispatcher with `after()` once the
+// response is sent. Outside a request scope `after` throws, so run the
+// callback inline and stub the dispatcher itself (it would call Mastra).
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  after: (cb: () => unknown) => void cb(),
+}));
+const dispatchMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("~/server/services/agentRuns/dispatch", () => ({
+  triggerDispatch: (...args: unknown[]) => dispatchMock(...args),
+}));
+
 // Natural-language parsing is the quick-create caller's concern and has its
 // own tests; here it is a pass-through so the suite can pin what the router
 // does with the parse result.
@@ -1492,6 +1504,51 @@ describe("action router (mocked)", () => {
 
       expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
     });
+
+    // ── agentRunsQueued (Agent PRD D8.2) ──────────────────────────────
+    // Chat Zoe assigns through this same procedure and tells the user whether
+    // work started; the count is the runs this call created, nothing else.
+
+    const assistantShadowId = "assistant-shadow";
+
+    /** The action lives in `workspaceId` and `assistantShadowId` is a member
+     *  there (containment passes) whose External agent is an Assistant. */
+    function stubAssistantInWorkspace(opts?: { kanbanStatus?: string }) {
+      stubUnscopedAction({ workspaceId });
+      if (opts?.kanbanStatus) {
+        dbMock.action.findUnique.mockResolvedValue({
+          id: actionId, name: "Loose end", projectId: null, project: null, teamId: null, team: null,
+          workspaceId, status: "ACTIVE", kanbanStatus: opts.kanbanStatus,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      }
+      dbMock.workspaceUser.findUnique.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { role: "member", workspaceId } as any,
+      );
+      dbMock.actionAssignee.findMany.mockResolvedValue([]);
+      dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
+      dbMock.agentRun.findMany.mockResolvedValue([] as never);
+      dbMock.agentRun.create.mockResolvedValue({ id: "run-1", agentId: "agent-1", executor: "MASTRA" } as never);
+    }
+
+    it("reports the Agent run it queued when an Assistant is newly assigned", async () => {
+      stubAssistantInWorkspace();
+      dispatchMock.mockClear();
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.assign({ actionId, userIds: [assistantShadowId] });
+
+      expect(result.agentRunsQueued).toBe(1);
+      expect(result.id).toBe(actionId);
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
+      expect(dbMock.agentRun.create).toHaveBeenCalledTimes(1);
+      expect(dbMock.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
+        data: { actionId, agentId: "agent-1", requestedById: callerId },
+      });
+      // A MASTRA run is handed to the dispatcher after the response.
+      expect(dispatchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -2427,6 +2484,53 @@ describe("action router (mocked)", () => {
       await expect(
         createGatewayCaller("signal-gateway").mastra.quickCreateAction({ text: "Buy milk" }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+      expect(dbMock.action.create).not.toHaveBeenCalled();
+    });
+
+    // ── workspaceId (Agent PRD D8.3) ──────────────────────────────────
+    // Chat Zoe forwards the chat's workspace so a project-less action lands
+    // where her workspace colleagues can be assigned to it. The write gate is
+    // `createAction`'s own (`assertCanWriteToWorkspace`), not a new one.
+
+    it("mastra.quickCreateAction lands a project-less action in the passed workspace for a member", async () => {
+      dbMock.workspaceUser.findUnique.mockResolvedValue({
+        userId: callerId, workspaceId: "w1", role: "member", joinedAt: new Date(),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.project.findMany.mockResolvedValue([]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Shortlist Madrid hotels", priority: "Quick", dueDate: null, scheduledStart: null, projectId: null, workspaceId: "w1", project: null } as any);
+
+      const result = await createMockCaller({ userId: callerId, db: dbMock }).mastra.quickCreateAction({
+        text: "Shortlist Madrid hotels",
+        workspaceId: "w1",
+      });
+
+      expect(result.success).toBe(true);
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({
+        name: "Shortlist Madrid hotels",
+        workspaceId: "w1",
+        createdById: callerId,
+      });
+      // Project-name matching is scoped to the same workspace.
+      expect(dbMock.project.findMany.mock.calls[0]?.[0]).toMatchObject({
+        where: { workspaceId: "w1" },
+      });
+    });
+
+    it("mastra.quickCreateAction refuses a workspace the caller is not a member of, writing nothing", async () => {
+      dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+      dbMock.teamUser.findFirst.mockResolvedValue(null);
+      dbMock.project.findMany.mockResolvedValue([]);
+
+      await expect(
+        createMockCaller({ userId: callerId, db: dbMock }).mastra.quickCreateAction({
+          text: "Shortlist Madrid hotels",
+          workspaceId: "w-foreign",
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
       expect(dbMock.action.create).not.toHaveBeenCalled();
     });

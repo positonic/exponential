@@ -1432,15 +1432,24 @@ export const mastraRouter = createTRPCRouter({
       // silently clearing the text-parsed date via the precedence logic.
       scheduledStart: z.string().min(1).optional(),
       dueDate: z.string().min(1).optional(),
+      // The chat's workspace (Agent PRD D8.3). Without it an action created
+      // with no project lands in no workspace, and assigning a workspace
+      // colleague to it is refused by containment. `createAction` authorises
+      // it (`assertCanWriteToWorkspace`: FORBIDDEN for a non-member or a
+      // viewer) and a project's own workspace still wins.
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}, workspaceId=${input.workspaceId ?? "none"}`);
 
-      // Use the same parsing logic as action.quickCreate
+      // Use the same parsing logic as action.quickCreate; the workspace
+      // scopes project-name matching to the workspace the chat is in.
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
-      const parsed = await parseActionInput(input.text, userId, ctx.db);
+      const parsed = await parseActionInput(input.text, userId, ctx.db, {
+        workspaceId: input.workspaceId,
+      });
 
       console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, scheduledStart=${String(parsed.scheduledStart ?? "none")}, dueDate=${String(parsed.dueDate ?? "none")}`);
 
@@ -1474,6 +1483,7 @@ export const mastraRouter = createTRPCRouter({
       const created = await createAction(actionWriteDeps(ctx), {
         name: parsed.name,
         projectId: parsed.projectId ?? undefined,
+        workspaceId: input.workspaceId,
         priority: input.priority ?? "Quick",
         status: "ACTIVE",
         scheduledStart: scheduledStart ?? undefined,
