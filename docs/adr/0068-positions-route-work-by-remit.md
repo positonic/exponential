@@ -43,9 +43,9 @@ Three facts shaped the choice:
 5. **One roster shape.** The chat roster and the run agent's `get-run-context` members carry
    the same Position fields, produced by one mapping (`attachPositions` in
    `services/positions`), so a human picking an assignee, chat Zoe, and a running Assistant
-   all route from the same facts. *Landed so far (V1):* both Assign-modal rosters. *Pending
-   (V2, Agent PRD D8.4):* `get-run-context` members and the chat roster, which still map
-   without Positions.
+   all route from the same facts. *Landed:* both Assign-modal rosters (V1) and
+   `get-run-context` members (V2a). *Pending (V2b, Agent PRD D8.4):* the chat roster, which
+   still maps without Positions.
 
 ## Considered alternatives
 
