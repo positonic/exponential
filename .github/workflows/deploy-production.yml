@@ -1,0 +1,167 @@
+name: Deploy production
+
+# Builds the app here and uploads the finished output to Vercel, instead of
+# letting Vercel's Git integration rebuild every merge on its own machines.
+#
+# Why: the Tests workflow already builds every PR on GitHub's runners (free —
+# this repo is public), and then Vercel built the same commit again at
+# $0.028/min on an "enhanced" build machine. Build CPU minutes were 78% of
+# the project's Q3 2026 Vercel bill. `vercel deploy --prebuilt` bills no
+# build minutes, so this moves the production build onto the free side.
+#
+# vercel.json sets git.deploymentEnabled.main = false so the Git integration
+# no longer deploys main itself — otherwise every merge would deploy twice.
+# `develop` (staging) still deploys through the Git integration.
+#
+# Needs the VERCEL_TOKEN repository secret: Vercel → Account → Tokens, scoped
+# to the ground-zero-labs team. VERCEL_ORG_ID / VERCEL_PROJECT_ID below are
+# identifiers, not secrets (they are the contents of .vercel/project.json).
+#
+# To redeploy main without a new commit, run this workflow from the Actions
+# tab (workflow_dispatch) — the dashboard's "Redeploy" button rebuilds from
+# Git, which this project no longer does for main.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, latest wins. GitHub keeps at most one run pending per
+# group: with a burst of merges the in-flight run finishes, intermediate
+# pushes are cancelled, and the newest commit deploys. `cancel-in-progress:
+# false` just keeps a half-done deploy from being killed mid-upload.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_FLuQ5niFRGqEt3VPuTIXt7hg
+  VERCEL_PROJECT_ID: prj_OI1WttXzLtNWlVTcszGDEshTkiNl
+  VERCEL_CLI: vercel@48
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  deploy:
+    name: Build and deploy to Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # A dispatch from any other ref would promote an unmerged branch to
+    # production now that the Git integration no longer deploys main.
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: Production
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Check VERCEL_TOKEN is configured
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [[ -z "${VERCEL_TOKEN}" ]]; then
+            echo "::error::VERCEL_TOKEN repository secret is not set. Production is NOT deploying — add the secret (see the header comment in this workflow) and re-run."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      # Vercel's project setting is Node 22.x; build with the same major so the
+      # output matches what the Git integration produced.
+      - uses: ./.github/actions/npm-install
+        with:
+          node-version: '22'
+
+      # Own key prefix, deliberately NOT the `next-cache-` scheme shared by
+      # cache-warm.yml and the PR Build job: this build runs with the real
+      # production env, and on a public repo a fork PR can restore caches
+      # saved from main. Keeping it separate means nothing a production
+      # build wrote (prerender/fetch cache, inlined values) reaches a PR.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-cache-prod-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**', 'content/**', 'next.config.js', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json', 'sentry.*.config.ts') }}
+          restore-keys: |
+            next-cache-prod-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
+      # Fetches the project settings and the production environment variables
+      # into .vercel/, so `vercel build` sees exactly what a Vercel build would.
+      - name: Pull Vercel project settings and env
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes "$VERCEL_CLI" pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes "$VERCEL_CLI" build --prod --token="$VERCEL_TOKEN"
+
+      # --skip-domain uploads a production-target deployment WITHOUT pointing
+      # the production domains at it. The probe below checks it first; only a
+      # deployment that answers gets promoted, so a build that crashes on
+      # Vercel's runtime never serves www.exponential.im.
+      - name: Upload prebuilt output
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The CLI prints progress to stderr and the deployment URL as the
+          # last line of stdout; take only that and check it is a URL.
+          url=$(npx --yes "$VERCEL_CLI" deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN" | tail -n 1 | tr -d '\r')
+          if [[ ! "${url}" =~ ^https:// ]]; then
+            echo "::error::Could not parse a deployment URL from the Vercel CLI output (got: '${url}')"
+            exit 1
+          fi
+          echo "Uploaded ${url}"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+
+      # Replaces preview-smoke.yml, which listened for the Git integration's
+      # deployment_status events; CLI deploys do not emit those. Probes the
+      # real Vercel-runtime function so a crash that only happens on Vercel
+      # (e.g. PR #100's DOMMatrix bug) fails this run before promotion
+      # instead of 500ing in production unnoticed. The *.vercel.app
+      # deployment URL sits behind Deployment Protection, hence the bypass
+      # header. Without the bypass secret the probes cannot run; the
+      # deployment is then promoted unprobed, as the Git integration did.
+      - name: Smoke-test the deployment
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${VERCEL_AUTOMATION_BYPASS_SECRET}" ]]; then
+            echo "::warning::VERCEL_AUTOMATION_BYPASS_SECRET not set — promoting ${DEPLOYMENT_URL} without probing it"
+            exit 0
+          fi
+          probes=(
+            "tRPC auth.getConfiguredProviders|/api/trpc/auth.getConfiguredProviders?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D"
+            "Landing page|/"
+          )
+          fail=0
+          for probe in "${probes[@]}"; do
+            IFS='|' read -r label path <<<"${probe}"
+            # -L follows the redirect Vercel issues after accepting the bypass.
+            # The final URL must still be on this deployment's host: a
+            # redirect to www.exponential.im would be answered by the build
+            # that is live now, not the one under test.
+            read -r status final < <(curl -sS -L --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{url_effective}' \
+              -H "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
+              "${DEPLOYMENT_URL}${path}") || { status=000; final=""; }
+            if [[ "${final}" != "${DEPLOYMENT_URL}"* ]]; then
+              echo "::error::${label} → left the deployment host (ended at ${final:-no response})"
+              fail=1
+            elif [[ "${status}" =~ ^2 ]]; then
+              echo "ok  ${label} → HTTP ${status}"
+            else
+              echo "::error::${label} → HTTP ${status}"
+              fail=1
+            fi
+          done
+          exit "${fail}"
+
+      - name: Promote to production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        run: npx --yes "$VERCEL_CLI" promote "$DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
