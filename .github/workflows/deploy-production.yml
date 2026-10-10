@@ -29,8 +29,10 @@ on:
 permissions:
   contents: read
 
-# Queue, don't cancel: merges land in bursts and every one should reach
-# production in order. A cancelled run would skip a commit.
+# One deploy at a time, latest wins. GitHub keeps at most one run pending per
+# group: with a burst of merges the in-flight run finishes, intermediate
+# pushes are cancelled, and the newest commit deploys. `cancel-in-progress:
+# false` just keeps a half-done deploy from being killed mid-upload.
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -81,28 +83,41 @@ jobs:
       - name: Pull Vercel project settings and env
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: npx "$VERCEL_CLI" pull --yes --environment=production --token="$VERCEL_TOKEN"
+        run: npx --yes "$VERCEL_CLI" pull --yes --environment=production --token="$VERCEL_TOKEN"
 
       - name: Build
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: npx "$VERCEL_CLI" build --prod --token="$VERCEL_TOKEN"
+        run: npx --yes "$VERCEL_CLI" build --prod --token="$VERCEL_TOKEN"
 
-      - name: Deploy prebuilt output
+      # --skip-domain uploads a production-target deployment WITHOUT pointing
+      # the production domains at it. The probe below checks it first; only a
+      # deployment that answers gets promoted, so a build that crashes on
+      # Vercel's runtime never serves www.exponential.im.
+      - name: Upload prebuilt output
         id: deploy
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          url=$(npx "$VERCEL_CLI" deploy --prebuilt --prod --token="$VERCEL_TOKEN")
-          echo "Deployed ${url}"
+          set -euo pipefail
+          # The CLI prints progress to stderr and the deployment URL as the
+          # last line of stdout; take only that and check it is a URL.
+          url=$(npx --yes "$VERCEL_CLI" deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN" | tail -n 1 | tr -d '\r')
+          if [[ ! "${url}" =~ ^https:// ]]; then
+            echo "::error::Could not parse a deployment URL from the Vercel CLI output (got: '${url}')"
+            exit 1
+          fi
+          echo "Uploaded ${url}"
           echo "url=${url}" >> "$GITHUB_OUTPUT"
 
       # Replaces preview-smoke.yml, which listened for the Git integration's
       # deployment_status events; CLI deploys do not emit those. Probes the
       # real Vercel-runtime function so a crash that only happens on Vercel
-      # (e.g. PR #100's DOMMatrix bug) fails this run instead of 500ing in
-      # production unnoticed. The *.vercel.app deployment URL sits behind
-      # Deployment Protection, hence the bypass header.
+      # (e.g. PR #100's DOMMatrix bug) fails this run before promotion
+      # instead of 500ing in production unnoticed. The *.vercel.app
+      # deployment URL sits behind Deployment Protection, hence the bypass
+      # header. Without the bypass secret the probes cannot run; the
+      # deployment is then promoted unprobed, as the Git integration did.
       - name: Smoke-test the deployment
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
@@ -110,7 +125,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${VERCEL_AUTOMATION_BYPASS_SECRET}" ]]; then
-            echo "::warning::VERCEL_AUTOMATION_BYPASS_SECRET not set — skipping post-deploy probes of ${DEPLOYMENT_URL}"
+            echo "::warning::VERCEL_AUTOMATION_BYPASS_SECRET not set — promoting ${DEPLOYMENT_URL} without probing it"
             exit 0
           fi
           probes=(
@@ -120,14 +135,22 @@ jobs:
           fail=0
           for probe in "${probes[@]}"; do
             IFS='|' read -r label path <<<"${probe}"
+            # -L follows any redirect Vercel issues after accepting the bypass;
+            # only a 2xx at the end counts as served.
             status=$(curl -sS -L --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' \
               -H "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
               "${DEPLOYMENT_URL}${path}") || status=000
-            if [[ "${status}" =~ ^[45] ]] || [[ "${status}" == "000" ]]; then
+            if [[ "${status}" =~ ^2 ]]; then
+              echo "ok  ${label} → HTTP ${status}"
+            else
               echo "::error::${label} → HTTP ${status}"
               fail=1
-            else
-              echo "ok  ${label} → HTTP ${status}"
             fi
           done
           exit "${fail}"
+
+      - name: Promote to production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.url }}
+        run: npx --yes "$VERCEL_CLI" promote "$DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
