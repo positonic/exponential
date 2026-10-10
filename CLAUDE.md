@@ -235,6 +235,7 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 - **Video Processing**: YouTube analysis and transcription support
 - **CRM**: Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import. See `/dev-docs/CRM_ARCHITECTURE.md`
 - **Notifications**: Multi-channel notification system (email, push, WhatsApp). See `/dev-docs/NOTIFICATION_ARCHITECTURE.md`
+- **Agent runs**: assigning an Action to an Assistant starts a hosted run (ADR-0067). See `/dev-docs/AGENT_RUNS.md` before touching `services/agentRuns/`, the `mastra.*` run callbacks, or the Assign modal
 
 ## Directory Structure
 
