@@ -16,6 +16,16 @@
 /** Fallback source for a `channel_summary` row missing a provider in metadata. */
 export const CHANNEL_SOURCE_FALLBACK = "channel";
 
+/**
+ * Entity-type prefix marking a row as GitHub-origin. Shared with the feed's
+ * `source` filter so the read-side `where` clause and this derivation can never
+ * disagree about what counts as GitHub.
+ */
+export const GITHUB_ENTITY_PREFIX = "github";
+
+/** The single source chip all GitHub event types collapse to. */
+export const GITHUB_SOURCE = "github";
+
 export interface ActivitySourceInput {
   entityType: string;
   metadata?: unknown;
@@ -27,10 +37,12 @@ export function deriveActivitySource(event: ActivitySourceInput): string {
     return provider ?? CHANNEL_SOURCE_FALLBACK;
   }
 
-  // GitHub events live in their own table today and are not yet merged into the
-  // feed, but the mapping is spec'd for when they are (one `github` chip).
-  if (event.entityType.startsWith("github")) {
-    return "github";
+  // GitHub events keep their own `GitHubActivity` table (distinct shape + a
+  // second consumer, SprintAnalytics) but also append a `WorkspaceActivityEvent`
+  // so they reach the shared surfaces — see githubFeedEvent.ts. Every entity
+  // type they emit carries this prefix, and they all collapse to one chip.
+  if (event.entityType.startsWith(GITHUB_ENTITY_PREFIX)) {
+    return GITHUB_SOURCE;
   }
 
   return "internal";
