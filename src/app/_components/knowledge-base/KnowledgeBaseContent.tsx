@@ -4,6 +4,7 @@ import {
   Container,
   Title,
   Card,
+  SegmentedControl,
   Text,
   Button,
   Group,
@@ -36,6 +37,9 @@ import {
   IconPin,
   IconPinnedFilled,
   IconInfoCircle,
+  IconBook,
+  IconArchive,
+  IconExternalLink,
 } from '@tabler/icons-react';
 import { useState, useRef } from 'react';
 import Link from 'next/link';
@@ -60,6 +64,16 @@ const contentTypeLabels = {
   note: 'Note',
 };
 
+/** Hostname for a reading-list row, or null when the URL does not parse. */
+function hostnameOf(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
 interface KnowledgeBaseContentProps {
   workspaceId?: string;
   isLoading?: boolean;
@@ -70,6 +84,11 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const [opened, { open, close }] = useDisclosure(false);
   const [activeTab, setActiveTab] = useState<string | null>('resources');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Reading list: a filtered view over Resources by read state. "unread"
+  // is the queue (to_read + reading); "read" is the history.
+  const [readingView, setReadingView] = useState<'unread' | 'read'>('unread');
+  const [quickAdd, setQuickAdd] = useState({ url: '', title: '', note: '' });
 
   // Backfill progress tracking
   const [backfillProgress, setBackfillProgress] = useState<{
@@ -97,6 +116,15 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const { data: resourcesData, isLoading: resourcesLoading, refetch: refetchResources } = api.resource.list.useQuery(
     { limit: 50, workspaceId },
     { enabled: true }
+  );
+
+  const {
+    data: readingData,
+    isLoading: readingLoading,
+    refetch: refetchReading,
+  } = api.resource.list.useQuery(
+    { limit: 100, workspaceId, readStatus: readingView },
+    { enabled: true, placeholderData: keepPreviousData }
   );
 
   // Debounce the typed query so we only search after the user pauses,
@@ -200,6 +228,53 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     },
   });
 
+  const refetchAllResources = () => {
+    void refetchResources();
+    void refetchReading();
+    void refetchStats();
+  };
+
+  const quickAddMutation = api.resource.create.useMutation({
+    onSuccess: () => {
+      refetchAllResources();
+      setQuickAdd({ url: '', title: '', note: '' });
+    },
+  });
+
+  const setReadStatusMutation = api.resource.setReadStatus.useMutation({
+    onSuccess: refetchAllResources,
+  });
+
+  const archiveResourceMutation = api.resource.archive.useMutation({
+    onSuccess: refetchAllResources,
+  });
+
+  const quickAddUrlValid = (() => {
+    try {
+      const parsed = new URL(quickAdd.url.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  })();
+
+  const handleQuickAdd = () => {
+    if (!quickAddUrlValid) return;
+    const url = quickAdd.url.trim();
+    // A bare link has no body, so there is nothing to embed: the Reading
+    // list is findable by title and URL, never by semantic search, until a
+    // URL fetcher exists (follow-up to ticket pink.grape).
+    quickAddMutation.mutate({
+      title: quickAdd.title.trim() || (hostnameOf(url) ?? url),
+      url,
+      description: quickAdd.note.trim() || undefined,
+      contentType: 'bookmark',
+      readStatus: 'to_read',
+      generateEmbeddings: false,
+      workspaceId,
+    });
+  };
+
   const handleBackfill = () => {
     // Start batch processing
     isBackfillingRef.current = true;
@@ -222,6 +297,8 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       description: newResource.description || undefined,
       generateEmbeddings: true,
       workspaceId,
+      // The modal is for reference material you already have, not a queue.
+      readStatus: 'read',
     });
   };
 
@@ -447,10 +524,180 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           <Tabs.Tab value="resources" leftSection={<IconFileText size={16} />}>
             Resources
           </Tabs.Tab>
+          <Tabs.Tab value="reading" leftSection={<IconBook size={16} />}>
+            Reading
+          </Tabs.Tab>
           <Tabs.Tab value="search" leftSection={<IconSearch size={16} />}>
             Search
           </Tabs.Tab>
         </Tabs.List>
+
+        <Tabs.Panel value="reading">
+          <Card className="bg-surface-secondary border-border-primary mb-4" withBorder>
+            <Text size="sm" fw={500} className="text-text-primary mb-2">
+              Save something to read
+            </Text>
+            <Group align="flex-start" gap="sm" wrap="wrap">
+              <TextInput
+                placeholder="https://…"
+                aria-label="URL"
+                value={quickAdd.url}
+                onChange={(e) => setQuickAdd({ ...quickAdd, url: e.currentTarget.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleQuickAdd();
+                }}
+                className="flex-1 min-w-[16rem]"
+                classNames={{ input: 'bg-surface-primary border-border-primary text-text-primary' }}
+                error={quickAdd.url.trim().length > 0 && !quickAddUrlValid ? 'Enter a full http(s) link' : undefined}
+              />
+              <TextInput
+                placeholder="Title (optional)"
+                aria-label="Title"
+                value={quickAdd.title}
+                onChange={(e) => setQuickAdd({ ...quickAdd, title: e.currentTarget.value })}
+                className="flex-1 min-w-[12rem]"
+                classNames={{ input: 'bg-surface-primary border-border-primary text-text-primary' }}
+              />
+              <TextInput
+                placeholder="Note (optional)"
+                aria-label="Note"
+                value={quickAdd.note}
+                onChange={(e) => setQuickAdd({ ...quickAdd, note: e.currentTarget.value })}
+                className="flex-1 min-w-[12rem]"
+                classNames={{ input: 'bg-surface-primary border-border-primary text-text-primary' }}
+              />
+              <Button
+                color="brand"
+                leftSection={<IconPlus size={16} />}
+                onClick={handleQuickAdd}
+                loading={quickAddMutation.isPending}
+                disabled={!quickAddUrlValid}
+              >
+                Save
+              </Button>
+            </Group>
+            <Text size="xs" className="text-text-muted mt-2">
+              Saved links are listed here by title and link. They are not indexed for search until they have content.
+            </Text>
+          </Card>
+
+          <Card className="bg-surface-secondary border-border-primary" withBorder>
+            <Group justify="space-between" mb="md">
+              <SegmentedControl
+                size="xs"
+                value={readingView}
+                onChange={(value) => setReadingView(value as 'unread' | 'read')}
+                data={[
+                  { value: 'unread', label: 'To read' },
+                  { value: 'read', label: 'Read' },
+                ]}
+              />
+              {readingData?.resources && (
+                <Text size="xs" className="text-text-muted">
+                  {readingData.resources.length} {readingData.resources.length === 1 ? 'item' : 'items'}
+                </Text>
+              )}
+            </Group>
+
+            {readingLoading ? (
+              <Stack gap="md">
+                <Skeleton height={40} />
+                <Skeleton height={40} />
+                <Skeleton height={40} />
+              </Stack>
+            ) : readingData?.resources && readingData.resources.length > 0 ? (
+              <Table>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th className="text-text-muted">Title</Table.Th>
+                    <Table.Th className="text-text-muted">Source</Table.Th>
+                    <Table.Th className="text-text-muted">{readingView === 'read' ? 'Read' : 'Saved'}</Table.Th>
+                    <Table.Th className="text-text-muted">Actions</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {readingData.resources.map((resource) => {
+                    const host = hostnameOf(resource.url);
+                    const isRead = resource.readStatus === 'read';
+                    const whenLabel = isRead && resource.readAt
+                      ? new Date(resource.readAt).toLocaleDateString()
+                      : new Date(resource.createdAt).toLocaleDateString();
+                    return (
+                      <Table.Tr key={resource.id}>
+                        <Table.Td>
+                          <div>
+                            {resource.url ? (
+                              <a
+                                href={resource.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-text-primary no-underline hover:underline inline-flex items-center gap-1"
+                              >
+                                <Text size="sm" component="span">{resource.title}</Text>
+                                <IconExternalLink size={12} className="text-text-muted" />
+                              </a>
+                            ) : (
+                              <Text size="sm" className="text-text-primary">{resource.title}</Text>
+                            )}
+                            {resource.description && (
+                              <Text size="xs" className="text-text-muted line-clamp-2 max-w-md">
+                                {resource.description}
+                              </Text>
+                            )}
+                          </div>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" className="text-text-secondary">{host ?? '-'}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" className="text-text-secondary">{whenLabel}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Group gap="xs">
+                            <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
+                              <ActionIcon
+                                variant={isRead ? 'subtle' : 'light'}
+                                color={isRead ? 'gray' : 'brand'}
+                                aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
+                                onClick={() =>
+                                  setReadStatusMutation.mutate({
+                                    id: resource.id,
+                                    readStatus: isRead ? 'to_read' : 'read',
+                                  })
+                                }
+                                loading={setReadStatusMutation.isPending && setReadStatusMutation.variables?.id === resource.id}
+                              >
+                                {isRead ? <IconBook size={16} /> : <IconCheck size={16} />}
+                              </ActionIcon>
+                            </Tooltip>
+                            <Tooltip label="Archive">
+                              <ActionIcon
+                                variant="subtle"
+                                color="gray"
+                                aria-label="Archive"
+                                onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
+                                loading={archiveResourceMutation.isPending && archiveResourceMutation.variables?.id === resource.id}
+                              >
+                                <IconArchive size={16} />
+                              </ActionIcon>
+                            </Tooltip>
+                          </Group>
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            ) : (
+              <Stack align="center" py="xl">
+                <IconBook size={48} className="text-text-muted" />
+                <Text className="text-text-secondary">
+                  {readingView === 'read' ? 'Nothing marked as read yet' : 'Nothing to read. Paste a link above to save one.'}
+                </Text>
+              </Stack>
+            )}
+          </Card>
+        </Tabs.Panel>
 
         <Tabs.Panel value="resources">
           <Card className="bg-surface-secondary border-border-primary" withBorder>

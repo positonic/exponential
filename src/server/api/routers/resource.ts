@@ -16,6 +16,50 @@ const contentTypeEnum = z.enum([
   "note",
 ]);
 
+// Reading list: has the owner consumed this Resource yet? Orthogonal to
+// archivedAt. Indexing follows *content*, never read state — a bare URL
+// saved "to read" has nothing to embed, and marking it read fetches nothing.
+export const readStatusEnum = z.enum(["to_read", "reading", "read"]);
+export type ReadStatus = z.infer<typeof readStatusEnum>;
+
+/**
+ * The data patch for a read-state change. `readAt` records the FIRST time a
+ * resource was marked read and survives a to_read → read → to_read → read
+ * round trip only if the caller never un-read it; un-reading clears it so
+ * the Reading list's "read on" column never shows a stale date.
+ */
+export function readTransition(
+  next: ReadStatus,
+  current: string,
+  currentReadAt: Date | null,
+): { readStatus: ReadStatus; readAt: Date | null } {
+  if (next === "read") {
+    return {
+      readStatus: next,
+      readAt: current === "read" && currentReadAt ? currentReadAt : new Date(),
+    };
+  }
+  return { readStatus: next, readAt: null };
+}
+
+/** The select every list-style endpoint returns for a Resource row. */
+const resourceListSelect = {
+  id: true,
+  title: true,
+  description: true,
+  url: true,
+  contentType: true,
+  wordCount: true,
+  tags: true,
+  pinnedAsContext: true,
+  readStatus: true,
+  readAt: true,
+  createdAt: true,
+  updatedAt: true,
+  archivedAt: true,
+  project: { select: { id: true, name: true } },
+} as const;
+
 export const resourceRouter = createTRPCRouter({
   // Create a new resource
   create: protectedProcedure
@@ -34,6 +78,9 @@ export const resourceRouter = createTRPCRouter({
         projectId: z.string().optional(),
         workspaceId: z.string().optional(),
         generateEmbeddings: z.boolean().default(true),
+        // Defaults to "to_read" so a quick-saved link lands in the Reading
+        // list; callers saving finished reference material pass "read".
+        readStatus: readStatusEnum.default("to_read"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -86,6 +133,8 @@ export const resourceRouter = createTRPCRouter({
           userId,
           projectId: input.projectId,
           workspaceId: input.workspaceId,
+          readStatus: input.readStatus,
+          readAt: input.readStatus === "read" ? new Date() : null,
         },
       });
 
@@ -149,6 +198,9 @@ export const resourceRouter = createTRPCRouter({
         limit: z.number().min(1).max(100).default(20),
         cursor: z.string().optional(), // For pagination
         includeArchived: z.boolean().default(false),
+        // Reading list filter. "unread" = to_read + reading (the Reading
+        // tab); a single status narrows to that status; omitted = all.
+        readStatus: z.union([readStatusEnum, z.literal("unread")]).optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -171,6 +223,11 @@ export const resourceRouter = createTRPCRouter({
         ...(input.workspaceId && { workspaceId: input.workspaceId }),
         ...(input.contentType && { contentType: input.contentType }),
         ...(!input.includeArchived && { archivedAt: null }),
+        ...(input.readStatus === "unread"
+          ? { readStatus: { in: ["to_read", "reading"] } }
+          : input.readStatus
+            ? { readStatus: input.readStatus }
+            : {}),
       };
 
       // Tag filter (if any tag matches)
@@ -194,20 +251,7 @@ export const resourceRouter = createTRPCRouter({
           skip: 1,
         }),
         orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          title: true,
-          description: true,
-          url: true,
-          contentType: true,
-          wordCount: true,
-          tags: true,
-          pinnedAsContext: true,
-          createdAt: true,
-          updatedAt: true,
-          archivedAt: true,
-          project: { select: { id: true, name: true } },
-        },
+        select: resourceListSelect,
       });
 
       let nextCursor: string | undefined;
@@ -231,6 +275,7 @@ export const resourceRouter = createTRPCRouter({
         projectId: z.string().nullable().optional(),
         workspaceId: z.string().nullable().optional(),
         regenerateEmbeddings: z.boolean().default(false),
+        readStatus: readStatusEnum.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -260,7 +305,7 @@ export const resourceRouter = createTRPCRouter({
         }
       }
 
-      const { id, regenerateEmbeddings, ...updateData } = input;
+      const { id, regenerateEmbeddings, readStatus, ...updateData } = input;
 
       // Recalculate word count if content changed
       const wordCount = input.content
@@ -272,6 +317,8 @@ export const resourceRouter = createTRPCRouter({
         data: {
           ...updateData,
           ...(wordCount !== undefined && { wordCount }),
+          ...(readStatus !== undefined &&
+            readTransition(readStatus, existing.readStatus, existing.readAt)),
         },
       });
 
@@ -289,6 +336,29 @@ export const resourceRouter = createTRPCRouter({
       }
 
       return { resource };
+    }),
+
+  // Reading list: move a resource between to_read / reading / read.
+  // Marking read stamps readAt (first time only); un-reading clears it.
+  // Deliberately touches nothing else — no fetch, no embedding.
+  setReadStatus: protectedProcedure
+    .input(z.object({ id: z.string(), readStatus: readStatusEnum }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      const existing = await ctx.db.resource.findFirst({
+        where: { id: input.id, userId },
+        select: { id: true, readStatus: true, readAt: true },
+      });
+      if (!existing) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Resource not found" });
+      }
+
+      return ctx.db.resource.update({
+        where: { id: input.id },
+        data: readTransition(input.readStatus, existing.readStatus, existing.readAt),
+        select: { id: true, readStatus: true, readAt: true },
+      });
     }),
 
   // Archive a resource (soft delete)
