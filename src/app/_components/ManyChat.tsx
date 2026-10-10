@@ -1112,10 +1112,13 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
-  // The Positions import pill: prefill the ask, leave the cursor at the end
-  // so the user pastes their document straight after it.
+  // The Positions import pill: put the ask in front of whatever is already in
+  // the composer (a draft or a pasted document is kept, never replaced) and
+  // leave the cursor right after the ask, where the document goes.
   const handleImportPositions = () => {
-    setInput(IMPORT_POSITIONS_PROMPT);
+    setInput((current) =>
+      current.startsWith(IMPORT_POSITIONS_PROMPT) ? current : `${IMPORT_POSITIONS_PROMPT}${current.trimStart()}`,
+    );
     setShowAgentDropdown(false);
     focusComposerAt(IMPORT_POSITIONS_PROMPT.length);
   };
