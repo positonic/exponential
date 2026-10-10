@@ -36,7 +36,7 @@ interface GenerateOutput {
 export async function dispatchQueuedRuns(
   db: PrismaClient,
   now: Date,
-  options: { onlyRunId?: string } = {},
+  options: { onlyRunId?: string; queuedBefore?: Date } = {},
 ): Promise<DispatchResult> {
   const result: DispatchResult = { claimed: 0, succeeded: [], waiting: [], failed: [] };
   if (!MASTRA_API_URL) {
@@ -49,6 +49,8 @@ export async function dispatchQueuedRuns(
       status: "QUEUED",
       executor: "MASTRA",
       ...(options.onlyRunId ? { id: options.onlyRunId } : {}),
+      // The cron sweep only picks up rows the after() kick has had time to miss.
+      ...(options.queuedBefore ? { createdAt: { lt: options.queuedBefore } } : {}),
     },
     orderBy: { createdAt: "asc" },
     take: BATCH_SIZE,

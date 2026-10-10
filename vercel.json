@@ -54,6 +54,10 @@
     {
       "path": "/api/cron/workspace-updates",
       "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-runs",
+      "schedule": "* * * * *"
     }
   ]
 }
