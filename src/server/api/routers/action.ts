@@ -1540,9 +1540,12 @@ export const actionRouter = createTRPCRouter({
       // Assigning an Assistant starts an Agent run (ADR-0067). One queued row
       // per agent principal, coalesced against a live run; the dispatcher is
       // kicked after the response so this mutation never waits on Mastra.
+      // Only assignees new to the action — re-saving the modal with an already
+      // assigned Assistant (whose run may have finished) starts nothing.
+      const priorSet = new Set(priorIds);
       const runs = await enqueueAgentRunsForAssignees(ctx.db, {
         actionId: input.actionId,
-        userIds: input.userIds,
+        userIds: input.userIds.filter((id) => !priorSet.has(id)),
         requestedById: ctx.session.user.id,
       });
       if (runs.some((r) => r.executor === "MASTRA")) {

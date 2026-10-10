@@ -1149,7 +1149,10 @@ export const mastraRouter = createTRPCRouter({
         where: { id: run.agent.ownerId },
         select: { id: true, name: true },
       });
-      const markdown = `@[${owner.name ?? "Owner"}](${owner.id}) ${input.question}`;
+      // The mention parser reads `@[Name](id)`; brackets or parens in a display
+      // name would break it, so they are stripped from the label only.
+      const label = (owner.name ?? "Owner").replace(/[[\]()]/g, "").trim() || "Owner";
+      const markdown = `@[${label}](${owner.id}) ${input.question}`;
       const comment = await createActionComment(ctx.db, {
         actionId: run.actionId,
         authorId: ctx.session.user.id,

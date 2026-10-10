@@ -7,8 +7,8 @@ import { api, type RouterOutputs } from "~/trpc/react";
 import { AgentRunTranscript } from "./AgentRunTranscript";
 
 const LIVE = new Set(["QUEUED", "RUNNING"]);
-/** ~30 s of catch-up polling before a never-arriving run is given up on. */
-const MAX_CATCH_UP_POLLS = 15;
+/** 30 s of catch-up polling before a never-arriving run is given up on. */
+const CATCH_UP_WINDOW_MS = 30_000;
 
 type Run = RouterOutputs["agentRun"]["listForAction"][number];
 
@@ -65,18 +65,19 @@ export function AgentRunPill({
   // Catch-up polling: the action query may know about a live run this query
   // has not fetched yet. Poll for it a bounded number of times, then give up —
   // a stale activeRunId must never keep the page polling forever.
-  const catchUpAttempts = useRef(0);
+  const catchUpSince = useRef<number | null>(null);
   const { data: runs } = api.agentRun.listForAction.useQuery(
     { actionId },
     {
       refetchInterval: (query) => {
         if (hasLiveRun(query.state.data)) return 2000;
-        const seen = !activeRunId || !!query.state.data?.some((r) => r.id === activeRunId);
+        const seen = !activeRunId || Boolean(query.state.data?.some((r) => r.id === activeRunId));
         if (seen) {
-          catchUpAttempts.current = 0;
+          catchUpSince.current = null;
           return false;
         }
-        return catchUpAttempts.current++ < MAX_CATCH_UP_POLLS ? 2000 : false;
+        catchUpSince.current ??= Date.now();
+        return Date.now() - catchUpSince.current < CATCH_UP_WINDOW_MS ? 2000 : false;
       },
     },
   );

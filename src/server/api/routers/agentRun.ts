@@ -63,6 +63,9 @@ export const agentRunRouter = createTRPCRouter({
         const isOwner = run.agent.ownerId === ctx.session.user.id;
         return {
           ...run,
+          // The raw error (a truncated Mastra response body) is owner-only like
+          // the transcript; everyone else sees the status.
+          error: isOwner ? run.error : null,
           isOwner,
           events: isOwner ? events.filter((e) => e.runId === run.id) : undefined,
         };

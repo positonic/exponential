@@ -188,7 +188,7 @@ describe("agentRun.listForAction", () => {
   let db: DeepMockProxy<PrismaClient>;
   const runRow = {
     id: RUN, status: "SUCCEEDED", executor: "MASTRA", startedAt: null, finishedAt: null, lastEventAt: null,
-    createdAt: new Date(), toolCallCount: 2, summary: "s", readyToClose: false, error: null, requestedById: "owner-1",
+    createdAt: new Date(), toolCallCount: 2, summary: "s", readyToClose: false, error: "Mastra 500: internal", requestedById: "owner-1",
     agent: { id: "agent-1", name: "Aria", ownerId: "owner-1", shadowUser: { id: SHADOW, name: "Aria", image: null }, assistant: { emoji: null } },
   };
 
@@ -206,6 +206,7 @@ describe("agentRun.listForAction", () => {
     const owner = await createMockCaller({ userId: "owner-1", db }).agentRun.listForAction({ actionId: ACTION });
     expect(owner[0]?.isOwner).toBe(true);
     expect(owner[0]?.events).toHaveLength(1);
+    expect(owner[0]?.error).toBe("Mastra 500: internal");
 
     mockReset(db);
     db.action.findUnique.mockResolvedValue({ id: ACTION, createdById: "viewer-1", projectId: null, teamId: null, workspaceId: "ws-1", assignees: [], project: null } as never);
@@ -215,8 +216,8 @@ describe("agentRun.listForAction", () => {
     expect(viewer[0]?.isOwner).toBe(false);
     expect(viewer[0]?.events).toBeUndefined();
     expect(db.agentRunEvent.findMany).not.toHaveBeenCalled();
-    // status, duration fields, tool count and summary are still exposed
-    expect(viewer[0]).toMatchObject({ status: "SUCCEEDED", toolCallCount: 2, summary: "s" });
+    // status, duration fields, tool count and summary are still exposed; the raw error is not
+    expect(viewer[0]).toMatchObject({ status: "SUCCEEDED", toolCallCount: 2, summary: "s", error: null });
   });
 });
 
@@ -252,6 +253,14 @@ describe("mastra.askOwner", () => {
       data: { status: "WAITING_ON_OWNER" },
     });
     expect(result).toMatchObject({ stop: true, status: "WAITING_ON_OWNER", commentId: "c1" });
+  });
+
+  it("strips mention-breaking characters from the owner's display name", async () => {
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "owner-1", name: "James [Ops] (he)" } as never);
+    await runCaller(db).mastra.askOwner({ question: "q?" });
+    expect(db.actionComment.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { content: "@[James Ops he](owner-1) q?" },
+    });
   });
 
   it("refuses without a run token", async () => {
