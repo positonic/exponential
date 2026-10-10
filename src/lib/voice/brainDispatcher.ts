@@ -106,6 +106,9 @@ export async function dispatch(
     controller.abort();
   }, timeoutMs);
 
+  const timeoutError = () =>
+    new BrainDispatchError("transport", `Request timed out after ${timeoutMs}ms`);
+
   let response: Response;
   try {
     response = await fetchImpl(url, {
@@ -115,22 +118,22 @@ export async function dispatch(
       signal: controller.signal,
     });
   } catch (err) {
+    clearTimeout(timer);
+    if (timedOut) throw timeoutError();
     throw new BrainDispatchError(
       "transport",
-      timedOut
-        ? `Request timed out after ${timeoutMs}ms`
-        : err instanceof Error
-          ? err.message
-          : "Network request failed",
+      err instanceof Error ? err.message : "Network request failed",
     );
-  } finally {
-    clearTimeout(timer);
   }
 
+  // The timer stays armed until the body is in hand: headers can arrive and
+  // the body then stall, which is the same hang the timeout exists to end.
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
+    clearTimeout(timer);
+    if (timedOut) throw timeoutError();
     throw new BrainDispatchError(
       "decoding",
       `Malformed response (HTTP ${response.status})`,
@@ -138,6 +141,7 @@ export async function dispatch(
       response.status,
     );
   }
+  clearTimeout(timer);
 
   // tRPC returns a structured error envelope even on non-2xx; prefer it.
   const trpcError = extractTrpcError(payload);
