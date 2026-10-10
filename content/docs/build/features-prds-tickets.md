@@ -70,6 +70,8 @@ claude plugin marketplace add positonic/skills
 claude plugin install syntro-skills@syntrofi
 ```
 
+The `positonic/skills` repository publishes a marketplace named `syntrofi`, which is why the install line ends in `@syntrofi` rather than `@positonic/skills`.
+
 Then, in a Claude Code session inside your repository, run `/setup-syntro-skills` once. It asks which workspace and product the repository belongs to and records the answer for the other skills.
 
 **Plan, in one session:**
