@@ -112,7 +112,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
     expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          entityType: { not: "channel_summary" },
+          entityType: { notIn: ["channel_summary", "ticket_sync_run"] },
           NOT: { entityType: { startsWith: "github" } },
         }),
       }),
