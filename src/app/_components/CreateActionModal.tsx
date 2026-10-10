@@ -73,7 +73,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       const cancelPromises: Promise<void>[] = [
         utils.project.getAll.cancel(),
         utils.action.getAll.cancel(),
-        utils.action.getToday.cancel(),
       ];
       if (newAction.projectId) {
         cancelPromises.push(
@@ -86,7 +85,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       const previousState = {
         projects: utils.project.getAll.getData(),
         actions: utils.action.getAll.getData(),
-        todayActions: utils.action.getToday.getData(),
         projectActions: newAction.projectId
           ? utils.action.getProjectActions.getData({ projectId: newAction.projectId })
           : undefined,
@@ -215,10 +213,9 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       if (!context) return;
 
       // Restore all previous states
-      const { projects, actions, todayActions, projectActions, projectId: ctxProjectId } = context;
+      const { projects, actions, projectActions, projectId: ctxProjectId } = context;
       utils.project.getAll.setData(undefined, projects);
       utils.action.getAll.setData(undefined, actions);
-      utils.action.getToday.setData(undefined, todayActions);
       if (ctxProjectId) {
         utils.action.getProjectActions.setData({ projectId: ctxProjectId }, projectActions);
       }

@@ -1689,6 +1689,10 @@ model TranscriptionSession {
   /// The ceremony occurrence this recording captured (ADR-0059); set by
   /// calendar recurrence id, title alias, or by hand.
   occurrenceId        String?
+  /// When an "Extract outputs" run last completed for this meeting, by hand
+  /// or by the ceremony's auto-extract sweep. Null means not yet extracted;
+  /// the sweep only ever picks up null rows.
+  outputsExtractedAt  DateTime?
 
   // Embedding status tracking for knowledge base
   embeddingStatus String?   @default("none") // none|pending|processing|completed|failed
@@ -2538,6 +2542,11 @@ model Ceremony {
   includeProjects Boolean      @default(true)
   /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
   matrixRoomId    String?
+  /// Run the meeting page's "Extract outputs" (draft actions, decisions and
+  /// open questions) on every recording that attaches to one of this
+  /// ceremony's occurrences, instead of waiting for someone to press the
+  /// button. Drafts only; a person still reviews them (ADR-0007).
+  autoExtractOutputs Boolean   @default(false)
   isActive        Boolean      @default(true)
   /// An ad hoc meeting scheduled from a project (ADR-0059 amendment,
   /// 2026-10-07): no cadence rule, exactly one occurrence, never listed with

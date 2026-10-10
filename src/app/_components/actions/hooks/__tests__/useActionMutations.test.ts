@@ -39,9 +39,6 @@ vi.mock("~/trpc/react", () => ({
           invalidate: invalidates.getAll,
         },
         getToday: {
-          cancel: vi.fn(async () => {}),
-          getData: vi.fn(() => undefined),
-          setData: vi.fn(),
           invalidate: invalidates.getToday,
         },
         getByTranscription: {

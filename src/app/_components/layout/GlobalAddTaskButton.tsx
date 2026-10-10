@@ -74,7 +74,6 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
       const queriesToCancel = [
         utils.project.getAll,
         utils.action.getAll,
-        utils.action.getToday,
       ];
       await Promise.all(queriesToCancel.map((query) => query.cancel()));
 
@@ -82,7 +81,6 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
       const previousState = {
         projects: utils.project.getAll.getData(),
         actions: utils.action.getAll.getData(),
-        todayActions: utils.action.getToday.getData(),
       };
 
       // Create optimistic action
@@ -204,10 +202,9 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
     onError: (err, variables, context) => {
       if (context) {
         // Restore all previous states
-        const { projects, actions, todayActions } = context;
+        const { projects, actions } = context;
         utils.project.getAll.setData(undefined, projects);
         utils.action.getAll.setData(undefined, actions);
-        utils.action.getToday.setData(undefined, todayActions);
       }
 
       // This submission will never reach onSuccess; drop its attachments.
