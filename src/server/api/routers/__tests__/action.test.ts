@@ -1549,6 +1549,75 @@ describe("action router (mocked)", () => {
       // A MASTRA run is handed to the dispatcher after the response.
       expect(dispatchMock).toHaveBeenCalledTimes(1);
     });
+
+    // agentRunsQueued is honest: 0 whenever the enqueue skips. Zoe's "action
+    // these" reply says why nothing started instead of promising work.
+
+    it("reports 0 runs when the assignee is a human", async () => {
+      stubAssistantInWorkspace();
+      dbMock.externalAgent.findMany.mockResolvedValue([] as never);
+      dispatchMock.mockClear();
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.assign({ actionId, userIds: ["user-colleague"] });
+
+      expect(result.agentRunsQueued).toBe(0);
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+      expect(dispatchMock).not.toHaveBeenCalled();
+    });
+
+    it("reports 0 runs when the Assistant was already assigned (re-assigning does not restart it)", async () => {
+      stubAssistantInWorkspace();
+      dbMock.actionAssignee.findMany.mockResolvedValue([{ userId: assistantShadowId }] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.assign({ actionId, userIds: [assistantShadowId] });
+
+      expect(result.agentRunsQueued).toBe(0);
+      // Not even looked up: there is no new assignee to start a run for.
+      expect(dbMock.externalAgent.findMany).not.toHaveBeenCalled();
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+    });
+
+    it("reports 0 runs when the action is parked in BACKLOG", async () => {
+      stubAssistantInWorkspace({ kanbanStatus: "BACKLOG" });
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.assign({ actionId, userIds: [assistantShadowId] });
+
+      expect(result.agentRunsQueued).toBe(0);
+      // The assignment itself still lands; only the run is withheld.
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+    });
+
+    it("reports 0 runs when the Assistant already has a live run on the action", async () => {
+      stubAssistantInWorkspace();
+      dbMock.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.assign({ actionId, userIds: [assistantShadowId] });
+
+      expect(result.agentRunsQueued).toBe(0);
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+    });
+
+    it("reports 0 runs for a plain External agent, which picks the action up itself", async () => {
+      stubAssistantInWorkspace();
+      // `enqueueAgentRunsForAssignees` filters on `assistant: { isNot: null }`,
+      // so a plain External agent's shadow user matches no row.
+      dbMock.externalAgent.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.assign({ actionId, userIds: ["external-agent-shadow"] });
+
+      expect(result.agentRunsQueued).toBe(0);
+      expect(dbMock.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
+        where: { shadowUserId: { in: ["external-agent-shadow"] }, assistant: { isNot: null } },
+      });
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+    });
   });
 
   // ────────────────────────────────────────────────────────────────────
