@@ -112,14 +112,26 @@ async function applicableSubpages(
   page: { id: string; workspaceId: string },
 ) {
   const linked = await collectLinkedPages(db, page);
-  const owned = linked.filter((p) => p.createdById === userId);
+  // The manage decision comes from the centralized resolver per sub-page, not
+  // from `createdById` alone, so this follows whatever "may manage access"
+  // means for a Page (today: its owner) without a second copy of the rule.
+  const manageable = (
+    await Promise.all(
+      linked.map(async (p) => ({
+        page: p,
+        canManage: canManageKnowledgePageAccess(await getKnowledgePageAccess(db, userId, p)),
+      })),
+    )
+  )
+    .filter((entry) => entry.canManage)
+    .map((entry) => entry.page);
   const blocked = await inviteOnlyBlockedIds(
     db,
-    owned.map((p) => p.id),
+    manageable.map((p) => p.id),
   );
   return {
-    targets: owned.filter((p) => !blocked.has(p.id)).map((p) => p.id),
-    skipped: linked.length - owned.length + blocked.size,
+    targets: manageable.filter((p) => !blocked.has(p.id)).map((p) => p.id),
+    skipped: linked.length - manageable.length + blocked.size,
   };
 }
 
@@ -1455,12 +1467,14 @@ export const pageRouter = createTRPCRouter({
       ]);
 
       if (added.length > 0) {
-        void emitNotification({
+        // Fire-and-forget: the invite has landed; a notification failure is
+        // logged by emitNotification itself and must not fail the request.
+        emitNotification({
           category: NOTIFICATION_CATEGORIES.PAGE_SHARED,
           actorUserId: userId,
           subject: { pageId: page.id, invitedUserIds: added },
           db: ctx.db,
-        });
+        }).catch(() => undefined);
       }
       return { added: added.length, updated: already.size };
     }),
