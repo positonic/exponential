@@ -552,6 +552,134 @@ describe("position.coverage", () => {
   });
 });
 
+describe("position.importMany", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  /** The workspace already has "Travel researcher", held by Aria. */
+  function arrangeExisting() {
+    db.position.findMany.mockResolvedValue([
+      {
+        id: POSITION_ID,
+        title: "Travel researcher",
+        holders: [{ workspaceUser: { userId: "aria" } }],
+      },
+    ] as never);
+  }
+
+  function arrangeMembers(userIds: string[]) {
+    db.workspaceUser.findMany.mockResolvedValue(
+      userIds.map((userId) => ({ id: `wu-${userId}`, userId })) as never,
+    );
+  }
+
+  const rows = [
+    // Matches "Travel researcher" case-insensitively; adds Andi.
+    { title: "travel RESEARCHER", remit: "Shortlists hotels", holderUserIds: ["andi"] },
+    { title: "Delivery lead", remit: "Keeps the plan honest", notAccountableFor: "Budget", holderUserIds: ["andi"] },
+  ];
+
+  describe("dry run", () => {
+    it.each<Role>(["owner", "admin"])("%s gets the plan and nothing is written", async (role) => {
+      arrangeCaller(db, role);
+      arrangeMembers(["andi"]);
+      arrangeExisting();
+
+      const result = await caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: true, positions: rows });
+
+      expect(result).toEqual({
+        written: false,
+        results: [
+          { title: "Travel researcher", outcome: "update", holderUserIds: ["aria", "andi"] },
+          { title: "Delivery lead", outcome: "create", holderUserIds: ["andi"] },
+        ],
+      });
+      expect(db.position.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { workspaceId: WORKSPACE_ID } });
+      expectNothingWritten(db);
+    });
+
+    it.each<Role>(["member", "viewer"])("%s → FORBIDDEN, nothing read or written", async (role) => {
+      arrangeCaller(db, role);
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: true, positions: rows }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.position.findMany).not.toHaveBeenCalled();
+      expectNothingWritten(db);
+    });
+
+    it("a holder who is not a member → NOT_FOUND without naming the id, before any plan", async () => {
+      arrangeCaller(db, "owner");
+      arrangeMembers(["andi"]);
+
+      const error = await caller(db)
+        .position.importMany({
+          workspaceId: WORKSPACE_ID,
+          dryRun: true,
+          positions: [{ title: "X", remit: "Y", holderUserIds: ["andi", "stranger-cuid"] }],
+        })
+        .catch((e: unknown) => e);
+
+      expect(error).toMatchObject({ code: "NOT_FOUND" });
+      expect((error as Error).message).not.toContain("stranger-cuid");
+      expect(db.position.findMany).not.toHaveBeenCalled();
+      expectNothingWritten(db);
+    });
+
+    it("the same title twice in one import (any case) → BAD_REQUEST", async () => {
+      arrangeCaller(db, "owner");
+
+      await expect(
+        caller(db).position.importMany({
+          workspaceId: WORKSPACE_ID,
+          dryRun: true,
+          positions: [
+            { title: "Delivery lead", remit: "A", holderUserIds: [] },
+            { title: " delivery LEAD", remit: "B", holderUserIds: [] },
+          ],
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expectNothingWritten(db);
+    });
+
+    it("an empty import → BAD_REQUEST", async () => {
+      arrangeCaller(db, "owner");
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: true, positions: [] }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+  });
+
+  it("is refused for an agent principal (isAgent: true), even an owner by role", async () => {
+    arrangeCaller(db, "owner", { isAgent: true });
+
+    await expect(
+      caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: true, positions: rows }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.position.findMany).not.toHaveBeenCalled();
+    expectNothingWritten(db);
+  });
+
+  it("is refused for an agent-key token before any principal lookup", async () => {
+    arrangeCaller(db, "owner");
+
+    await expect(
+      caller(db, { tokenType: "agent-key" }).position.importMany({
+        workspaceId: WORKSPACE_ID,
+        dryRun: false,
+        positions: rows,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.user.findUnique).not.toHaveBeenCalled();
+    expectNothingWritten(db);
+  });
+});
+
 describe("position writes are human-only (ADR-0049 denylist)", () => {
   let db: DeepMockProxy<PrismaClient>;
 

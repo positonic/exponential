@@ -200,3 +200,95 @@ export async function loadPositionCoverage(
     coveredCount,
   };
 }
+
+/** One row of a Positions import, as Zoe drafted it (Agent PRD D10). */
+export interface PositionImportRow {
+  title: string;
+  remit: string;
+  notAccountableFor?: string;
+  holderUserIds: string[];
+}
+
+/** A Position already in the workspace, as the import matches against it. */
+export interface ExistingPositionForImport {
+  id: string;
+  title: string;
+  holderUserIds: string[];
+}
+
+export type PlannedPositionImport =
+  | {
+      outcome: "create";
+      title: string;
+      remit: string;
+      notAccountableFor: string | null;
+      /** Every holder of the new Position. */
+      holderUserIds: string[];
+    }
+  | {
+      outcome: "update";
+      positionId: string;
+      /** The stored title: an import matches case-insensitively and never renames. */
+      title: string;
+      remit: string;
+      notAccountableFor: string | null;
+      /** Every holder after the import: the existing ones, then the added ones. */
+      holderUserIds: string[];
+      /** Only the holders the import adds — the rows to write. */
+      addedHolderUserIds: string[];
+    };
+
+/** The key titles are matched on: trimmed, case-folded. */
+export function positionTitleKey(title: string): string {
+  return title.trim().toLowerCase();
+}
+
+/**
+ * Plan an import (Agent PRD D3, `position.importMany`). Pure, so the dry run
+ * and the real run cannot disagree about what happens.
+ *
+ * Upsert by title, matched case-insensitively within the workspace: a new
+ * title creates; a matching one replaces its Remit and "not accountable for"
+ * (the document is the source of truth for the Positions it names) and
+ * **adds** holders. An import never removes a holder — that is a settings
+ * action. Results are in input order. The caller rejects duplicate titles in
+ * the input before planning.
+ *
+ * Titles are unique per workspace case-sensitively, so "Travel" and "travel"
+ * can both exist; an import then updates the exact-case match, else the
+ * first in title order.
+ */
+export function planPositionImport(
+  existing: ExistingPositionForImport[],
+  rows: PositionImportRow[],
+): PlannedPositionImport[] {
+  const byKey = new Map<string, ExistingPositionForImport>();
+  for (const position of [...existing].sort((a, b) => a.title.localeCompare(b.title))) {
+    const key = positionTitleKey(position.title);
+    if (!byKey.has(key)) byKey.set(key, position);
+  }
+
+  return rows.map((row) => {
+    const title = row.title.trim();
+    const notAccountableFor = row.notAccountableFor?.trim() ? row.notAccountableFor.trim() : null;
+    const importedHolders = [...new Set(row.holderUserIds)];
+    const match =
+      existing.find((position) => position.title === title) ?? byKey.get(positionTitleKey(title));
+
+    if (!match) {
+      return { outcome: "create", title, remit: row.remit, notAccountableFor, holderUserIds: importedHolders };
+    }
+
+    const current = new Set(match.holderUserIds);
+    const addedHolderUserIds = importedHolders.filter((userId) => !current.has(userId));
+    return {
+      outcome: "update",
+      positionId: match.id,
+      title: match.title,
+      remit: row.remit,
+      notAccountableFor,
+      holderUserIds: [...match.holderUserIds, ...addedHolderUserIds],
+      addedHolderUserIds,
+    };
+  });
+}

@@ -7,7 +7,9 @@ import {
   assertCanEditPosition,
   hasRemitGap,
   loadPositionCoverage,
+  planPositionImport,
   POSITION_SUMMARY_SELECT,
+  positionTitleKey,
   shouldOfferPositionImport,
 } from "~/server/services/positions";
 
@@ -109,6 +111,52 @@ async function resolveHolderMemberships(
   }
   return memberships.map((membership) => membership.id);
 }
+
+/**
+ * Like `resolveHolderMemberships`, keyed by userId so an import can map each
+ * row's holders. Same NOT_FOUND rule: a miss never names the id.
+ */
+async function mapHolderMemberships(
+  db: PrismaClient,
+  workspaceId: string,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return new Map();
+  const memberships = await db.workspaceUser.findMany({
+    where: { workspaceId, userId: { in: unique } },
+    select: { id: true, userId: true },
+  });
+  if (memberships.length !== unique.length) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Member not found in this workspace" });
+  }
+  return new Map(memberships.map((membership) => [membership.userId, membership.id]));
+}
+
+/** The workspace's Positions with their holders' userIds, for an import to match against. */
+async function loadPositionsForImport(db: PrismaClient | Prisma.TransactionClient, workspaceId: string) {
+  const positions = await db.position.findMany({
+    where: { workspaceId },
+    orderBy: { title: "asc" },
+    select: {
+      id: true,
+      title: true,
+      holders: { select: { workspaceUser: { select: { userId: true } } } },
+    },
+  });
+  return positions.map((position) => ({
+    id: position.id,
+    title: position.title,
+    holderUserIds: position.holders.map((holder) => holder.workspaceUser.userId),
+  }));
+}
+
+const importRowSchema = z.object({
+  title: titleSchema,
+  remit: remitSchema,
+  notAccountableFor: notAccountableForSchema.optional(),
+  holderUserIds: holderUserIdsSchema,
+});
 
 export const positionRouter = createTRPCRouter({
   /**
@@ -274,6 +322,57 @@ export const positionRouter = createTRPCRouter({
       // Holders cascade (FK).
       await ctx.db.position.delete({ where: { id: input.positionId } });
       return { id: input.positionId };
+    }),
+
+  /**
+   * Bring in a set of Positions at once — Zoe's import of a roles &
+   * responsibilities document (Agent PRD D3/D10). Owner/admin, human-only.
+   *
+   * Upsert by title, matched case-insensitively on the trimmed title within
+   * the workspace (`planPositionImport`). Every holder must be a member,
+   * checked before anything is planned. `dryRun: true` validates and returns
+   * the plan without writing, so Zoe can show a draft and ask first.
+   *
+   * Returns `{ written, results }`, results in input order, each with the
+   * Position's holders as they stand after the import.
+   */
+  importMany: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        dryRun: z.boolean(),
+        positions: z.array(importRowSchema).min(1).max(50),
+      }),
+    )
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      const seen = new Set<string>();
+      for (const row of input.positions) {
+        const key = positionTitleKey(row.title);
+        if (seen.has(key)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `"${row.title}" appears more than once in this import`,
+          });
+        }
+        seen.add(key);
+      }
+
+      await mapHolderMemberships(
+        ctx.db,
+        input.workspaceId,
+        input.positions.flatMap((row) => row.holderUserIds),
+      );
+
+      const present = (plan: ReturnType<typeof planPositionImport>) =>
+        plan.map(({ title, outcome, holderUserIds }) => ({ title, outcome, holderUserIds }));
+
+      if (input.dryRun) {
+        const plan = planPositionImport(await loadPositionsForImport(ctx.db, input.workspaceId), input.positions);
+        return { written: false, results: present(plan) };
+      }
+
+      throw new TRPCError({ code: "NOT_IMPLEMENTED", message: "Only a dry run is supported yet" });
     }),
 
   /** Replace the holder set. Same member check and NOT_FOUND rule as `create`. */
