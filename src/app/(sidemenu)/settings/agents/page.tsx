@@ -87,6 +87,12 @@ export default function ExternalAgentsPage() {
     createForm.reset();
   };
 
+  const openNew = () => {
+    setEditAgentId(null);
+    createForm.reset();
+    openCreate();
+  };
+
   const openEdit = (agent: { id: string; name: string; description: string | null }) => {
     setEditAgentId(agent.id);
     createForm.setValues({ name: agent.name, description: agent.description ?? '' });
@@ -241,7 +247,7 @@ export default function ExternalAgentsPage() {
             as its own principal — its work is attributed to the agent, not to you.
           </Text>
         </div>
-        <Button leftSection={<IconPlus size={16} />} onClick={openCreate}>
+        <Button leftSection={<IconPlus size={16} />} onClick={openNew}>
           New agent
         </Button>
       </Group>
