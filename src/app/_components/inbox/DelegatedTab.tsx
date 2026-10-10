@@ -129,7 +129,7 @@ export function DelegatedTab() {
   }
 
   const { counts } = data;
-  if (counts.live + counts.waiting + counts.unreviewed + data.reviewed.length === 0) {
+  if (counts.live + counts.waiting + counts.unreviewed + counts.reviewed === 0) {
     return (
       <section className="wsa-card">
         <p className="wsa-feed__empty">
@@ -188,7 +188,7 @@ export function DelegatedTab() {
         ))}
       </Section>
 
-      <Section label="Reviewed this week" shown={data.reviewed.length} total={data.reviewed.length}>
+      <Section label="Reviewed this week" shown={data.reviewed.length} total={counts.reviewed}>
         {data.reviewed.map((run) => (
           <Row
             key={run.id}

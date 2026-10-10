@@ -6,12 +6,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
+import { buildActionAccessWhere } from "~/server/services/access";
 import {
+  TERMINAL_RUN_STATUSES,
   countDelegated,
   delegatedRunsWhere,
   liveDelegatedWhere,
   listDelegated,
   reviewDelegatedRun,
+  reviewedDelegatedWhere,
   unreviewedDelegatedWhere,
   waitingDelegatedWhere,
 } from "../delegated";
@@ -20,8 +23,17 @@ const USER = "u1";
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 
 describe("delegated WHERE builders", () => {
-  it("scopes to runs I requested or my own Assistant performed", () => {
-    expect(delegatedRunsWhere(USER)).toEqual({ OR: [{ requestedById: USER }, { agent: { ownerId: USER } }] });
+  it("scopes to runs I requested or my own Assistant performed — on actions I can still read", () => {
+    expect(delegatedRunsWhere(USER)).toEqual({
+      AND: [
+        { OR: [{ requestedById: USER }, { agent: { ownerId: USER } }] },
+        { action: buildActionAccessWhere(USER) },
+      ],
+    });
+  });
+
+  it("the terminal set is derived: every status that is neither live nor waiting", () => {
+    expect([...TERMINAL_RUN_STATUSES].sort()).toEqual(["CANCELLED", "FAILED", "SUCCEEDED", "TIMED_OUT"]);
   });
 
   it("live = the live set; waiting = WAITING_ON_OWNER; unreviewed = terminal and not reviewed", () => {
@@ -34,7 +46,7 @@ describe("delegated WHERE builders", () => {
     expect(unreviewedDelegatedWhere(USER)).toEqual({
       AND: [
         delegatedRunsWhere(USER),
-        { status: { in: ["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"] } },
+        { status: { in: [...TERMINAL_RUN_STATUSES] } },
         { reviewedAt: null },
       ],
     });
@@ -44,16 +56,19 @@ describe("delegated WHERE builders", () => {
 describe("countDelegated", () => {
   beforeEach(() => mockReset(db));
 
-  it("attention = waiting + unreviewed, never live", async () => {
+  it("attention = waiting + unreviewed, never live; reviewed is a real count", async () => {
     db.agentRun.count
       .mockResolvedValueOnce(3 as never) // live
       .mockResolvedValueOnce(1 as never) // waiting
-      .mockResolvedValueOnce(2 as never); // unreviewed
-    expect(await countDelegated(db, USER)).toEqual({ live: 3, waiting: 1, unreviewed: 2, attention: 3 });
+      .mockResolvedValueOnce(2 as never) // unreviewed
+      .mockResolvedValueOnce(25 as never); // reviewed this week
+    const now = new Date("2026-10-10T12:00:00Z");
+    expect(await countDelegated(db, USER, now)).toEqual({ live: 3, waiting: 1, unreviewed: 2, reviewed: 25, attention: 3 });
     expect(db.agentRun.count.mock.calls.map((c) => c[0]?.where)).toEqual([
       liveDelegatedWhere(USER),
       waitingDelegatedWhere(USER),
       unreviewedDelegatedWhere(USER),
+      reviewedDelegatedWhere(USER, now),
     ]);
   });
 });

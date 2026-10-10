@@ -1,5 +1,6 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { AgentRunStatus, type Prisma, type PrismaClient } from "@prisma/client";
 import { LIVE_RUN_STATUSES } from "~/server/services/agentRuns/constants";
+import { buildActionAccessWhere } from "~/server/services/access";
 
 /**
  * The Inbox's **Delegated** tab (ADR-0067, Agent PRD D10/D11): actions handed
@@ -17,12 +18,25 @@ export const DELEGATED_ROW_CAP = 20;
 /** Reviewed results stay visible this long so the user can find what just cleared. */
 export const REVIEWED_WINDOW_DAYS = 7;
 
-/** Runs the viewer may see on Delegated: they asked for it, or it is their Assistant's. */
+/**
+ * Runs the viewer may see on Delegated: they asked for it, or it is their
+ * Assistant's — AND they can still read the action. Ownership of the run is
+ * not a read grant: someone who left the workspace keeps no view of the
+ * action's name, project or the Assistant's summary through this tab.
+ */
 export function delegatedRunsWhere(userId: string): Prisma.AgentRunWhereInput {
   return {
-    OR: [{ requestedById: userId }, { agent: { ownerId: userId } }],
+    AND: [
+      { OR: [{ requestedById: userId }, { agent: { ownerId: userId } }] },
+      { action: buildActionAccessWhere(userId) },
+    ],
   };
 }
+
+/** Every status that is neither live nor waiting: a result to review. Derived, so a new status cannot vanish from the tab. */
+export const TERMINAL_RUN_STATUSES: readonly AgentRunStatus[] = Object.values(AgentRunStatus).filter(
+  (status) => !LIVE_RUN_STATUSES.includes(status) && status !== "WAITING_ON_OWNER",
+);
 
 export function liveDelegatedWhere(userId: string): Prisma.AgentRunWhereInput {
   return { AND: [delegatedRunsWhere(userId), { status: { in: [...LIVE_RUN_STATUSES] } }] };
@@ -37,7 +51,7 @@ export function unreviewedDelegatedWhere(userId: string): Prisma.AgentRunWhereIn
   return {
     AND: [
       delegatedRunsWhere(userId),
-      { status: { in: ["SUCCEEDED", "FAILED", "TIMED_OUT", "CANCELLED"] } },
+      { status: { in: [...TERMINAL_RUN_STATUSES] } },
       { reviewedAt: null },
     ],
   };
@@ -56,17 +70,24 @@ export interface DelegatedCounts {
   live: number;
   waiting: number;
   unreviewed: number;
-  /** What the sidebar badge adds: waiting + unreviewed, never live. */
+  /** Reviewed within the window — the tab's last group. */
+  reviewed: number;
+  /**
+   * What needs the viewer on this tab: waiting + unreviewed, never live.
+   * The sidebar badge adds only `unreviewed`: a waiting run is already
+   * counted once through Waiting on me (assistant questions).
+   */
   attention: number;
 }
 
-export async function countDelegated(db: PrismaClient, userId: string): Promise<DelegatedCounts> {
-  const [live, waiting, unreviewed] = await Promise.all([
+export async function countDelegated(db: PrismaClient, userId: string, now: Date = new Date()): Promise<DelegatedCounts> {
+  const [live, waiting, unreviewed, reviewed] = await Promise.all([
     db.agentRun.count({ where: liveDelegatedWhere(userId) }),
     db.agentRun.count({ where: waitingDelegatedWhere(userId) }),
     db.agentRun.count({ where: unreviewedDelegatedWhere(userId) }),
+    db.agentRun.count({ where: reviewedDelegatedWhere(userId, now) }),
   ]);
-  return { live, waiting, unreviewed, attention: waiting + unreviewed };
+  return { live, waiting, unreviewed, reviewed, attention: waiting + unreviewed };
 }
 
 const delegatedRowSelect = {
@@ -133,7 +154,7 @@ function shapeRow(row: DelegatedRow, userId: string) {
 export async function listDelegated(db: PrismaClient, userId: string, now: Date) {
   const order = [{ createdAt: "desc" as const }, { id: "desc" as const }];
   const [counts, live, waiting, unreviewed, reviewed] = await Promise.all([
-    countDelegated(db, userId),
+    countDelegated(db, userId, now),
     db.agentRun.findMany({ where: liveDelegatedWhere(userId), orderBy: order, take: DELEGATED_ROW_CAP, select: delegatedRowSelect }),
     db.agentRun.findMany({ where: waitingDelegatedWhere(userId), orderBy: order, take: DELEGATED_ROW_CAP, select: delegatedRowSelect }),
     db.agentRun.findMany({ where: unreviewedDelegatedWhere(userId), orderBy: order, take: DELEGATED_ROW_CAP, select: delegatedRowSelect }),
