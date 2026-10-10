@@ -90,7 +90,7 @@ permissions:
   checks: read
 
 env:
-  # Dry run: decide and post the PR comment, but never merge.
+  # Set to 'true' to post the verdict as a PR comment without merging.
   DRY_RUN: 'false'
 
 jobs:
