@@ -45,6 +45,7 @@ import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 import { useActionActivity } from "~/hooks/useActionActivity";
 import { useWorkspaceMentionCandidates } from "~/hooks/useWorkspaceMentionCandidates";
 import { AssignActionModal } from "./AssignActionModal";
+import { AgentRunPill } from "./actions/AgentRunPill";
 import { DeadlinePicker } from "./DeadlinePicker";
 import { UnifiedDatePicker } from "./UnifiedDatePicker";
 import { TagSelector } from "./TagSelector";
@@ -435,6 +436,9 @@ export function ActionDetailContent({
         )}
 
         <Divider className="border-border-primary" mb="lg" />
+
+        {/* Agent run (ADR-0067): what the assigned Assistant is doing or did */}
+        <AgentRunPill actionId={actionId} />
 
         {/* Activity / Discussion */}
         <div>

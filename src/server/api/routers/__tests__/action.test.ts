@@ -1286,6 +1286,8 @@ describe("action router (mocked)", () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         { id: actionId } as any,
       );
+      // No assignee is an agent principal, so assignment starts no Agent run (ADR-0067).
+      dbMock.externalAgent.findMany.mockResolvedValue([] as never);
     }
 
     it("refuses an arbitrary user id, which used to leak their email back", async () => {

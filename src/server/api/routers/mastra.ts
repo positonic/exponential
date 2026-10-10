@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
+import { requireLiveRunForCaller } from "~/server/services/agentRuns/callbacks";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -921,6 +922,34 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Get all user goals across all projects
+  // ─── Agent run callbacks (ADR-0067, Agent PRD D5) ──────────────────────────
+  // Called by the `assistantRunAgent` run tools with the run JWT. The run is
+  // the token's `runId` claim (ctx.agentRunId); the app writes the run state.
+
+  /**
+   * finish-run: the run's public summary and whether the action is ready for
+   * the owner to close. Status is finalised by the dispatcher once the Mastra
+   * call returns, so a late or duplicate call cannot flip a cancelled run.
+   */
+  finishRun: protectedProcedure
+    .input(z.object({ summary: z.string().min(1), readyToClose: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await ctx.db.agentRun.update({
+        where: { id: run.id },
+        data: {
+          summary: input.summary,
+          readyToClose: input.readyToClose,
+          lastEventAt: new Date(),
+        },
+      });
+      return { finished: true as const };
+    }),
+
   getAllGoals: protectedProcedure
     .query(async ({ ctx }) => {
       console.log('🎯 [MASTRA DEBUG] getAllGoals called');

@@ -11,6 +11,9 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUser } from "~/server/services/access/assignability";
+import { after } from "next/server";
+import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -1526,6 +1529,18 @@ export const actionRouter = createTRPCRouter({
         }).catch((err: unknown) => {
           console.error("[projectActivity] assign:", err);
         });
+      }
+
+      // Assigning an Assistant starts an Agent run (ADR-0067). One queued row
+      // per agent principal, coalesced against a live run; the dispatcher is
+      // kicked after the response so this mutation never waits on Mastra.
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: input.actionId,
+        userIds: input.userIds,
+        requestedById: ctx.session.user.id,
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
       }
 
       // Unified notification pipeline (ADR-0045): emit an Assignment notification.
