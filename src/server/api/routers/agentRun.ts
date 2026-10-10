@@ -171,6 +171,10 @@ export const agentRunRouter = createTRPCRouter({
           select: { id: true },
         });
         if (!next) return null;
+        // Build the brief before the guarded write: a failure here (a deleted
+        // action, a bad row) must leave the run QUEUED for the next claim,
+        // never stranded RUNNING until the sweep times it out.
+        const { run, system, brief } = await loadRunBrief(ctx.db, next.id, { closing: LOCAL_RUNNER_CLOSING });
         const now = new Date();
         const claimed = await ctx.db.agentRun.updateMany({
           where: { id: next.id, status: "QUEUED" },
@@ -178,12 +182,20 @@ export const agentRunRouter = createTRPCRouter({
         });
         if (claimed.count !== 1) continue;
 
-        const { run, system, brief } = await loadRunBrief(ctx.db, next.id, { closing: LOCAL_RUNNER_CLOSING });
-        await appendRunEvent(ctx.db, {
-          runId: run.id,
-          kind: "status",
-          payload: { status: "RUNNING", claimedBy: input.runnerId },
-        });
+        try {
+          await appendRunEvent(ctx.db, {
+            runId: run.id,
+            kind: "status",
+            payload: { status: "RUNNING", claimedBy: input.runnerId },
+          });
+        } catch (err) {
+          // The runner never sees this claim: hand the row back to the queue.
+          await ctx.db.agentRun.updateMany({
+            where: { id: run.id, status: "RUNNING", claimedBy: input.runnerId },
+            data: { status: "QUEUED", startedAt: null, lastEventAt: null, claimedBy: null },
+          });
+          throw err;
+        }
         return {
           id: run.id,
           actionId: run.actionId,
@@ -224,11 +236,13 @@ export const agentRunRouter = createTRPCRouter({
         runnerId: input.runnerId,
       });
       const now = new Date();
-      await ctx.db.agentRun.updateMany({
+      const updated = await ctx.db.agentRun.updateMany({
         where: { id: run.id, status: "RUNNING" },
         data: { lastEventAt: now },
       });
-      return { ok: true as const, lastEventAt: now };
+      // `ok: false` means the run left RUNNING between the read and the write
+      // (a cancel landed): the runner should stop now, not at its next call.
+      return { ok: updated.count === 1, lastEventAt: now };
     }),
 
   /**
@@ -303,6 +317,22 @@ export const agentRunRouter = createTRPCRouter({
       const summary = input.summary?.trim();
 
       if (input.status === "WAITING_ON_OWNER") {
+        // Park the row first, guarded on RUNNING: a cancel that landed
+        // meanwhile wins, and then no mention and no transcript entry is
+        // written for a CANCELLED run.
+        const updated = await ctx.db.agentRun.updateMany({
+          where: { id: run.id, status: "RUNNING" },
+          data: {
+            status: "WAITING_ON_OWNER",
+            finishedAt: now,
+            lastEventAt: now,
+            ...(summary ? { summary } : {}),
+            ...(input.usage !== undefined ? { usage: input.usage as never } : {}),
+          },
+        });
+        if (updated.count !== 1) {
+          return { finished: false, status: "WAITING_ON_OWNER" as const, commentId: null };
+        }
         const owner = await ctx.db.user.findUniqueOrThrow({
           where: { id: agent.ownerId },
           select: { id: true, name: true },
@@ -320,17 +350,7 @@ export const agentRunRouter = createTRPCRouter({
           kind: "tool_call",
           payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question!.slice(0, 200) },
         });
-        const updated = await ctx.db.agentRun.updateMany({
-          where: { id: run.id, status: "RUNNING" },
-          data: {
-            status: "WAITING_ON_OWNER",
-            finishedAt: now,
-            lastEventAt: now,
-            ...(summary ? { summary } : {}),
-            ...(input.usage !== undefined ? { usage: input.usage as never } : {}),
-          },
-        });
-        return { finished: updated.count === 1, status: "WAITING_ON_OWNER" as const, commentId: comment.id };
+        return { finished: true, status: "WAITING_ON_OWNER" as const, commentId: comment.id };
       }
 
       const updated = await ctx.db.agentRun.updateMany({

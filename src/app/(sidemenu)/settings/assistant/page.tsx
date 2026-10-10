@@ -328,7 +328,7 @@ export default function AssistantSettingsPage() {
               label="Runs on"
               description="Hosted runs in Exponential's cloud. A local runner is a process on your own machine that claims runs with a runner key."
               data={EXECUTOR_OPTIONS}
-              value={assistant.externalAgent?.executor ?? 'MASTRA'}
+              value={assistant.externalAgent.executor}
               onChange={(value) => {
                 if (value === 'MASTRA' || value === 'LOCAL_CLI') {
                   executorMutation.mutate({ id: assistant.id, executor: value });
@@ -339,7 +339,7 @@ export default function AssistantSettingsPage() {
               data-testid="assistant-executor"
             />
 
-            {assistant.externalAgent?.executor === 'LOCAL_CLI' && (
+            {assistant.externalAgent.executor === 'LOCAL_CLI' && (
               <Stack gap="sm" mt="md">
                 <Group justify="space-between" align="center">
                   <div>
@@ -380,13 +380,13 @@ export default function AssistantSettingsPage() {
                   </Alert>
                 )}
 
-                {(assistant.externalAgent?.keys ?? []).length === 0 ? (
+                {assistant.externalAgent.keys.length === 0 ? (
                   <Text size="xs" c="dimmed">
                     No runner keys yet. Runs assigned to {assistant.name} will wait for a runner until one claims them.
                   </Text>
                 ) : (
                   <Stack gap={4}>
-                    {assistant.externalAgent?.keys.map((key) => (
+                    {assistant.externalAgent.keys.map((key) => (
                       <Group key={key.id} justify="space-between" wrap="nowrap">
                         <Group gap="xs" wrap="nowrap">
                           <Code>{key.keyPrefix}</Code>

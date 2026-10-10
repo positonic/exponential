@@ -167,9 +167,28 @@ describe("agentRun.claim", () => {
 
   it("a second runner racing for the same row gets nothing", async () => {
     db.agentRun.findFirst.mockResolvedValueOnce({ id: RUN } as never).mockResolvedValue(null as never);
+    db.agentRun.findUniqueOrThrow.mockResolvedValue(briefRow as never);
     db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
     expect(await runner(db).agentRun.claim({ runnerId: "other" })).toBeNull();
-    expect(db.agentRun.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(db.agentRunEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("a brief that cannot be built leaves the run QUEUED — the guarded write never happens", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: RUN } as never);
+    db.agentRun.findUniqueOrThrow.mockRejectedValue(new Error("action gone"));
+    await expect(runner(db).agentRun.claim({ runnerId: RUNNER })).rejects.toThrow("action gone");
+    expect(db.agentRun.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a status event that fails after the claim hands the row back to the queue", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: RUN } as never);
+    db.agentRun.findUniqueOrThrow.mockResolvedValue(briefRow as never);
+    db.agentRunEvent.create.mockRejectedValue(new Error("db down"));
+    await expect(runner(db).agentRun.claim({ runnerId: RUNNER })).rejects.toThrow("db down");
+    expect(db.agentRun.updateMany.mock.calls[1]?.[0]).toMatchObject({
+      where: { id: RUN, status: "RUNNING", claimedBy: RUNNER },
+      data: { status: "QUEUED", claimedBy: null, startedAt: null },
+    });
   });
 });
 
@@ -197,6 +216,13 @@ describe("agentRun.heartbeat / appendEvents / finish resolve the run through the
       where: { id: RUN, status: "RUNNING" },
       data: { lastEventAt: expect.any(Date) },
     });
+  });
+
+  it("heartbeat reports ok: false when the run left RUNNING between the read and the write", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: RUN, status: "RUNNING", actionId: ACTION, claimedBy: RUNNER, toolCallCount: 0 } as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
+    const result = await runner(db).agentRun.heartbeat({ runId: RUN, runnerId: RUNNER });
+    expect(result.ok).toBe(false);
   });
 
   it("appendEvents is idempotent on seq and counts only new tool_calls", async () => {
@@ -274,6 +300,18 @@ describe("agentRun.heartbeat / appendEvents / finish resolve the run through the
     });
     expect(result).toEqual({ finished: true, status: "WAITING_ON_OWNER", commentId: "c1" });
     expect(finishMock).not.toHaveBeenCalled();
+    // The guarded status write comes first: nothing is posted for a run that was cancelled meanwhile.
+    expect(db.agentRun.updateMany.mock.invocationCallOrder[0]).toBeLessThan(db.actionComment.create.mock.invocationCallOrder[0]!);
+  });
+
+  it("finish WAITING_ON_OWNER after a cancel landed posts no mention and no transcript entry", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: RUN, status: "RUNNING", actionId: ACTION, claimedBy: RUNNER, toolCallCount: 1 } as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
+    const result = await runner(db).agentRun.finish({ runId: RUN, status: "WAITING_ON_OWNER", question: "12 or 19 Nov?" });
+    expect(result).toEqual({ finished: false, status: "WAITING_ON_OWNER", commentId: null });
+    expect(db.actionComment.create).not.toHaveBeenCalled();
+    expect(db.agentRunEvent.create).not.toHaveBeenCalled();
+    expect(mentionMock).not.toHaveBeenCalled();
   });
 
   it("WAITING_ON_OWNER without a question is rejected before any write", async () => {

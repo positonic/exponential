@@ -160,7 +160,8 @@ export const assistantRouter = createTRPCRouter({
           await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
         }
         // The executor lives on the principal: a QUEUED run already copied the
-        // old value, so the switch applies to the next assignment.
+        // old value, so the switch applies to the next assignment. The
+        // relation is required (`Assistant.externalAgentId` NOT NULL, ADR-0067).
         if (executor !== undefined && executor !== existing.externalAgent.executor) {
           await tx.externalAgent.update({
             where: { id: existing.externalAgentId },
