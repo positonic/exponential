@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned, resumeWaitingRunsOnOwnerReply } from "../enqueue";
 
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
@@ -68,6 +68,21 @@ describe("enqueueAgentRunsForAssignees", () => {
     expect(db.agentRun.findMany.mock.calls[0]?.[0]).toMatchObject({
       where: { status: { in: ["QUEUED", "RUNNING"] } },
     });
+  });
+
+  it("treats a unique-index collision on insert as coalescing (the race the read cannot see)", async () => {
+    db.agentRun.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "test" }) as never,
+    );
+    const runs = await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
+    expect(runs).toEqual([]);
+  });
+
+  it("propagates any other insert error", async () => {
+    db.agentRun.create.mockRejectedValue(new Error("db down") as never);
+    await expect(
+      enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" }),
+    ).rejects.toThrow("db down");
   });
 
   it.each([

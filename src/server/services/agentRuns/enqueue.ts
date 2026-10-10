@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { LIVE_RUN_STATUSES, NO_RUN_KANBAN_STATES } from "./constants";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -55,18 +55,42 @@ export async function enqueueAgentRunsForAssignees(
   const created: Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }> = [];
   for (const agent of agents) {
     if (busy.has(agent.id)) continue;
-    const run = await db.agentRun.create({
-      data: {
-        actionId: input.actionId,
-        agentId: agent.id,
-        requestedById: input.requestedById,
-        executor: agent.executor,
-      },
-      select: { id: true, agentId: true, executor: true },
+    const run = await createRunOrCoalesce(db, {
+      actionId: input.actionId,
+      agentId: agent.id,
+      requestedById: input.requestedById,
+      executor: agent.executor,
     });
-    created.push(run);
+    if (run) created.push(run);
   }
   return created;
+}
+
+/**
+ * Insert a run, or return null when another writer won the race: the partial
+ * unique index `AgentRun_live_action_agent_key` (one live run per action and
+ * agent) turns the second concurrent insert into a P2002, which is exactly the
+ * coalescing the read above approximates. Any other error propagates.
+ */
+async function createRunOrCoalesce(
+  db: Db,
+  data: {
+    actionId: string;
+    agentId: string;
+    requestedById: string | null;
+    executor: "MASTRA" | "LOCAL_CLI";
+    predecessorId?: string;
+    wakeCommentId?: string;
+  },
+): Promise<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" } | null> {
+  try {
+    return await db.agentRun.create({ data, select: { id: true, agentId: true, executor: true } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -120,18 +144,15 @@ export async function resumeWaitingRunsOnOwnerReply(
       select: { id: true, status: true },
     });
     if (!latest || latest.status !== "WAITING_ON_OWNER") continue;
-    const run = await db.agentRun.create({
-      data: {
-        actionId: input.actionId,
-        agentId: agent.id,
-        requestedById: input.authorId,
-        executor: agent.executor,
-        predecessorId: latest.id,
-        wakeCommentId: input.commentId,
-      },
-      select: { id: true, agentId: true, executor: true },
+    const run = await createRunOrCoalesce(db, {
+      actionId: input.actionId,
+      agentId: agent.id,
+      requestedById: input.authorId,
+      executor: agent.executor,
+      predecessorId: latest.id,
+      wakeCommentId: input.commentId,
     });
-    created.push(run);
+    if (run) created.push(run);
   }
   return created;
 }

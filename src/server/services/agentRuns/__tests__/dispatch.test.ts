@@ -136,6 +136,32 @@ describe("dispatchQueuedRuns", () => {
     });
   });
 
+  it("a run cancelled while Mastra worked is reported as cancelled, not succeeded, and not finished again", async () => {
+    mockReset(db);
+    finishMock.mockClear();
+    fetchMock.mockReset();
+    db.agentRun.findMany.mockResolvedValue([{ id: RUN }] as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
+    db.agentRun.findUniqueOrThrow
+      .mockResolvedValueOnce(runRow as never)
+      .mockResolvedValueOnce({ status: "CANCELLED", summary: null, readyToClose: false, toolCallCount: 0 } as never);
+    mastraReplies({ text: "late result" });
+
+    const result = await dispatchQueuedRuns(db, new Date());
+
+    expect(result.cancelled).toEqual([RUN]);
+    expect(result.succeeded).toEqual([]);
+    expect(db.agentRun.updateMany).toHaveBeenCalledTimes(1); // the claim only
+    expect(finishMock).not.toHaveBeenCalled();
+  });
+
+  it("bounds the Mastra call with a timeout inside the function budget", async () => {
+    mastraReplies({ text: "ok" });
+    await dispatchQueuedRuns(db, new Date());
+    const init = fetchMock.mock.calls[0]?.[1] as { signal?: AbortSignal };
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it("a second dispatcher that loses the claim does nothing", async () => {
     db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
 

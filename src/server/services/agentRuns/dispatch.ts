@@ -15,13 +15,22 @@ import { onRunFinished } from "./finish";
  */
 
 const MASTRA_API_URL = process.env.MASTRA_API_URL;
-const BATCH_SIZE = 5;
+/**
+ * One run per invocation: the kick after an assign dispatches that assign's
+ * run, the minute cron drains the rest one at a time, and a single hung
+ * Mastra call can never push the function past `maxDuration` and leave
+ * claimed rows stranded as RUNNING.
+ */
+const BATCH_SIZE = 1;
 const RUN_JWT_MINUTES = 30;
+/** Hard ceiling on the Mastra call, inside the route's `maxDuration = 300`. */
+export const MASTRA_CALL_TIMEOUT_MS = 270_000;
 
 export interface DispatchResult {
   claimed: number;
   succeeded: string[];
   waiting: string[];
+  cancelled: string[];
   failed: Array<{ id: string; error: string }>;
 }
 
@@ -39,7 +48,7 @@ export async function dispatchQueuedRuns(
   now: Date,
   options: { onlyRunId?: string; queuedBefore?: Date } = {},
 ): Promise<DispatchResult> {
-  const result: DispatchResult = { claimed: 0, succeeded: [], waiting: [], failed: [] };
+  const result: DispatchResult = { claimed: 0, succeeded: [], waiting: [], cancelled: [], failed: [] };
   if (!MASTRA_API_URL) {
     console.warn("[agentRuns] MASTRA_API_URL not set; skipping dispatch");
     return result;
@@ -71,6 +80,7 @@ export async function dispatchQueuedRuns(
     try {
       const outcome = await runOne(db, id);
       if (outcome === "WAITING_ON_OWNER") result.waiting.push(id);
+      else if (outcome === "CANCELLED") result.cancelled.push(id);
       else result.succeeded.push(id);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -137,7 +147,10 @@ export function countToolCalls(output: GenerateOutput): number {
   return Array.isArray(output.toolCalls) ? output.toolCalls.length : 0;
 }
 
-async function runOne(db: PrismaClient, runId: string): Promise<"SUCCEEDED" | "WAITING_ON_OWNER"> {
+async function runOne(
+  db: PrismaClient,
+  runId: string,
+): Promise<"SUCCEEDED" | "WAITING_ON_OWNER" | "CANCELLED"> {
   const run = await db.agentRun.findUniqueOrThrow({
     where: { id: runId },
     include: {
@@ -193,6 +206,7 @@ async function runOne(db: PrismaClient, runId: string): Promise<"SUCCEEDED" | "W
 
   const res = await fetch(`${MASTRA_API_URL}/api/agents/assistantRunAgent/generate`, {
     method: "POST",
+    signal: AbortSignal.timeout(MASTRA_CALL_TIMEOUT_MS),
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
     body: JSON.stringify({
       messages,
@@ -221,7 +235,9 @@ async function runOne(db: PrismaClient, runId: string): Promise<"SUCCEEDED" | "W
     where: { id: runId },
     select: { status: true, summary: true, readyToClose: true, toolCallCount: true },
   });
-  if (after.status === "CANCELLED") return "SUCCEEDED";
+  // A human cancelled while Mastra was working: the cancel already finished
+  // the row and ran the finish hook; the late result is discarded.
+  if (after.status === "CANCELLED") return "CANCELLED";
 
   const toolCallCount = Math.max(after.toolCallCount, countToolCalls(output));
   const usage = output.usage === undefined ? undefined : (output.usage as object);
