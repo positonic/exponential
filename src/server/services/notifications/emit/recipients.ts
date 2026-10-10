@@ -17,6 +17,15 @@ export async function resolveRecipients(
     case NOTIFICATION_CATEGORIES.MENTION:
       // Mention → parsed, membership-filtered mentioned users.
       return resolveMentionRecipients(input);
+    case NOTIFICATION_CATEGORIES.AGENT_RUN: {
+      // Agent run → whoever assigned it and the Assistant's owner, once each.
+      const run = await input.db.agentRun.findUnique({
+        where: { id: input.subject.runId },
+        select: { requestedById: true, agent: { select: { ownerId: true } } },
+      });
+      if (!run) return [];
+      return Array.from(new Set([run.requestedById, run.agent.ownerId].filter((id): id is string => !!id)));
+    }
     case NOTIFICATION_CATEGORIES.DUE_DATE:
       // Due-date → the single owner the cron computed the crossing for.
       return Promise.resolve([input.subject.ownerUserId]);

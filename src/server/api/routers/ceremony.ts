@@ -19,7 +19,7 @@ import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAg
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony } from "~/server/services/ceremonies/access";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   draftMyUpdate,
   getMyUpdate,
@@ -121,6 +121,8 @@ const ceremonyFieldsSchema = z.object({
   agendaTemplate: z.array(agendaSectionSchema).default([]),
   /** Append the linked-projects section to every generated agenda (see `autoSections`). */
   includeProjects: z.boolean().default(true),
+  /** Run "Extract outputs" on every recording that attaches to an occurrence (see `meetings/autoExtractOutputs`). */
+  autoExtractOutputs: z.boolean().default(false),
   matrixRoomId: z.string().nullish(),
 });
 
@@ -166,6 +168,7 @@ const ceremonySummarySelect = {
   productId: true,
   teamId: true,
   includeProjects: true,
+  autoExtractOutputs: true,
   projects: { select: { projectId: true } },
   owner: { select: { id: true, name: true, email: true, image: true } },
   _count: { select: { occurrences: true, participants: true } },
@@ -423,6 +426,12 @@ export const ceremonyRouter = createTRPCRouter({
       // Newest first overall: upcoming (furthest first) then past (most recent first).
       const occurrences = [...upcoming.reverse(), ...past];
 
+      // Whether the caller may edit the definition — the bar `update` enforces
+      // (`requireWorkspaceMembership("edit")`), resolved through the access
+      // service so the page never hand-rolls a role list.
+      const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+      const canEdit = canEditWorkspaceContent(membership?.role ?? null);
+
       // Meeting visibility (ADR-0014): resolve which linked recordings the
       // caller may see; the rest are returned as existence-only stubs.
       const meetingIds = occurrences.flatMap((o) => o.recordedMeetings.map((m) => m.id));
@@ -436,6 +445,7 @@ export const ceremonyRouter = createTRPCRouter({
 
       return {
         ...ceremony,
+        canEdit,
         occurrences: occurrences.map((o) => ({
           ...o,
           recordedMeetings: o.recordedMeetings.map((m) => {

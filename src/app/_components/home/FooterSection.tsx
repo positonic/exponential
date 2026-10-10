@@ -4,7 +4,7 @@ import { IconBrandTwitter, IconBrandGithub, IconBrandLinkedin } from "@tabler/ic
 import { LogoDisplay } from "../layout/LogoDisplay";
 import { themes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
-import { PRODUCT_NAME } from "~/lib/brand";
+import { PRODUCT_NAME, SOCIAL_PROFILES } from "~/lib/brand";
 
 interface FooterSectionProps {
   id?: string;
@@ -12,9 +12,11 @@ interface FooterSectionProps {
 
 const footerLinks = {
   product: [
-    { label: "Features", href: "#features" },
-    { label: "How It Works", href: "#how-it-works" },
-    { label: "Pricing", href: "#pricing" },
+    // Root-relative so the links work from every page that renders the footer.
+    { label: "Features", href: "/#features" },
+    { label: "How It Works", href: "/#how-it-works" },
+    { label: "Pricing", href: "/#pricing" },
+    { label: "Claude integration", href: "/features/integrations/claude" },
   ],
   company: [
     { label: "Learn", href: "/learn" },
@@ -28,9 +30,9 @@ const footerLinks = {
 };
 
 const socialLinks = [
-  { icon: IconBrandTwitter, href: "https://x.com/be_exponential", label: "Twitter" },
-  { icon: IconBrandGithub, href: "https://github.com/positonic/exponential", label: "GitHub" },
-  { icon: IconBrandLinkedin, href: "https://www.linkedin.com/company/108621153/admin/dashboard/", label: "LinkedIn" },
+  { icon: IconBrandTwitter, href: SOCIAL_PROFILES.x, label: "Twitter" },
+  { icon: IconBrandGithub, href: SOCIAL_PROFILES.github, label: "GitHub" },
+  { icon: IconBrandLinkedin, href: SOCIAL_PROFILES.linkedin, label: "LinkedIn" },
 ];
 
 export function FooterSection({ id }: FooterSectionProps) {

@@ -115,6 +115,7 @@ export function ActionRow({
         isOverdue={isOverdue}
         onToggle={handleComplete}
         ariaLabel={`Mark ${plainName} as complete`}
+        isRunning={(action.agentRuns?.length ?? 0) > 0}
       />
       <div className={styles.body}>
         <div className={styles.title}>

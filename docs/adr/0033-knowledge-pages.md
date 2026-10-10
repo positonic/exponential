@@ -3,7 +3,7 @@
 ## Status
 
 Accepted — 2026-06-25. The "no separate private/personal-page concept" clause is superseded by
-[ADR-0067](0067-invite-only-pages.md) (invite-only pages).
+[ADR-0069](0069-invite-only-pages.md) (invite-only pages).
 
 ## Context
 

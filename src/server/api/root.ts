@@ -37,6 +37,7 @@ import { matrixServerRouter } from "./routers/matrixServer";
 import { matrixRoomRouter } from "./routers/matrixRoom";
 import { notificationRouter } from "./routers/notification";
 import { inboxRouter } from "./routers/inbox";
+import { agentRunRouter } from "./routers/agentRun";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
@@ -49,6 +50,7 @@ import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
 import { externalAgentRouter } from "./routers/externalAgent";
+import { positionRouter } from "./routers/position";
 import { resourceRouter } from "./routers/resource";
 import { knowledgeChunkRouter } from "./routers/knowledgeChunk";
 import { transcriptionSessionParticipantRouter } from "./routers/transcriptionSessionParticipant";
@@ -140,8 +142,10 @@ export const appRouter = createTRPCRouter({
   matrixServer: matrixServerRouter,
   matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
+  position: positionRouter,
   notification: notificationRouter,
   inbox: inboxRouter,
+  agentRun: agentRunRouter,
   pushSubscription: pushSubscriptionRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,

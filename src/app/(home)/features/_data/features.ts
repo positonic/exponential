@@ -217,9 +217,12 @@ export const features: FeatureData[] = [
     icon: "👥",
   },
   {
-    slug: "weekly-planning",
-    category: `${PRODUCT_NAME}'s Weekly Planning`,
-    title: "Weekly Planning",
+    // Was /features/weekly-planning: next.config.js redirects the old URL.
+    // Renamed because "Weekly Planning" and the personal "Weekly Plan" page
+    // above competed for the same search.
+    slug: "team-weekly-review",
+    category: `${PRODUCT_NAME}'s Team Weekly Review`,
+    title: "Team Weekly Review",
     headline: "See what everyone's doing.",
     description:
       "Team visibility without the status meetings. See weekly commitments, current focus, and progress across your team—all in one view.",

@@ -13,6 +13,7 @@ import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { PageProjectPicker } from '~/app/_components/pages/PageProjectPicker';
+import { PageDetailsModal } from '~/app/_components/pages/PageDetailsModal';
 import { UpdateReviewBanner } from '~/app/_components/pages/UpdateReviewBanner';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
 import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
@@ -103,6 +104,7 @@ function PageEditorContent({
     key: FULL_WIDTH_STORAGE_KEY,
     defaultValue: false,
   });
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const widthClass = fullWidth ? 'w-full' : 'mx-auto w-full max-w-3xl';
   const utils = api.useUtils();
   const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
@@ -188,7 +190,7 @@ function PageEditorContent({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
-          <div className="mt-1">
+          <div className="mt-1 flex items-center gap-2">
             <PageProjectPicker
               pageId={page.id}
               workspaceId={page.workspaceId}
@@ -196,7 +198,23 @@ function PageEditorContent({
               project={page.project}
               editable={page.canEdit}
             />
+            {page.canEdit ? (
+              <button
+                type="button"
+                className="rounded px-1 py-0.5 text-xs text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                onClick={() => setDetailsOpen(true)}
+                data-testid="page-move-workspace"
+              >
+                Move…
+              </button>
+            ) : null}
           </div>
+          <PageDetailsModal
+            page={detailsOpen ? page : null}
+            workspaceSlug={workspaceSlug}
+            followMove
+            onClose={() => setDetailsOpen(false)}
+          />
         </div>
         <div className="flex items-center gap-2">
           <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>

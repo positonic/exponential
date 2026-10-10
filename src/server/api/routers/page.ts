@@ -57,7 +57,7 @@ const INVITE_BATCH_LIMIT = 50;
 const inviteRoleSchema = z.enum(["viewer", "editor"]);
 
 /**
- * Pages that can't be made invite-only (ADR-0067): a Workspace update's body
+ * Pages that can't be made invite-only (ADR-0069): a Workspace update's body
  * and a ceremony occurrence's notes canvas are shared surfaces by design —
  * reviewers and ceremony participants must keep reaching them.
  */
@@ -218,7 +218,7 @@ type PageForAccess = {
 };
 
 /**
- * Publishing gate (ADR-0038 + ADR-0067): edit access, and on an invite-only
+ * Publishing gate (ADR-0038 + ADR-0069): edit access, and on an invite-only
  * page the owner alone — publishing is the widest possible share, so an
  * invited editor must not be able to do it.
  */
@@ -296,7 +296,7 @@ async function canPlacePage(
 /**
  * Where a duplicate of `row` lands, or null when the caller can't place it.
  * An ordinary page keeps its placement (so the copy has the same visibility).
- * An invite-only page's copy stays invite-only (ADR-0067) — its project grants
+ * An invite-only page's copy stays invite-only (ADR-0069) — its project grants
  * nothing — so it keeps the project when the caller may place there and
  * otherwise lands project-less in the same workspace.
  */
@@ -1142,7 +1142,7 @@ export const pageRouter = createTRPCRouter({
    * create (so the copy lands with identical visibility — same project /
    * workspace, per ADR-0038). Copies content and the search toggle; the copy
    * is owned by the duplicator and never inherits publish state. An
-   * invite-only page's copy stays invite-only with no invitees (ADR-0067); see
+   * invite-only page's copy stays invite-only with no invitees (ADR-0069); see
    * {@link copyPlacement} for where it lands.
    *
    * With `withSubpages`, the whole sub-tree is copied (ADR-0039): BFS the
@@ -1286,7 +1286,7 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * The page's invite-only state and invitees (ADR-0067), for the Share
+   * The page's invite-only state and invitees (ADR-0069), for the Share
    * popover. Any viewer may read it — on an invite-only page the invitees are
    * exactly the people who can see it. `canManage` (owner only) drives whether
    * the controls render; `subpagesToApply` counts the owner's own linked
@@ -1351,7 +1351,7 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * Turn invite-only on or off (owner only, ADR-0067). On: the page is visible
+   * Turn invite-only on or off (owner only, ADR-0069). On: the page is visible
    * to the owner and its invitees only. Off: back to project/workspace
    * visibility. Invitee rows are kept either way, so switching back restores
    * the list.
@@ -1375,7 +1375,7 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * Invite workspace members to an invite-only page (owner only, ADR-0067).
+   * Invite workspace members to an invite-only page (owner only, ADR-0069).
    * Everyone must belong to the page's workspace — no guests in v1. Re-inviting
    * someone updates their role; only people new to the page are notified.
    */
@@ -1486,7 +1486,7 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * One-off "Apply to sub-pages" (ADR-0067: sub-pages keep their own access,
+   * One-off "Apply to sub-pages" (ADR-0069: sub-pages keep their own access,
    * nothing is inherited live). From an invite-only page only: makes the
    * linked sub-pages the caller owns invite-only too and invites this page's
    * invitees to them. Additive — a sub-page's own invitees are kept, and
@@ -1539,6 +1539,72 @@ export const pageRouter = createTRPCRouter({
         ]);
       }
       return { updated: targets.length, skipped };
+    }),
+
+  /**
+   * Re-home a Page: move it to another workspace and/or project in one step
+   * (same-workspace project changes can also go through `update`). The caller
+   * must be able to edit the page and to place a page in the target scope.
+   * Page links are same-workspace only (ADR-0039), so a cross-workspace move
+   * detaches the page from its parent and sub-pages — the links' index rows
+   * are dropped; the `pageLink` nodes in the docs remain as plain links.
+   */
+  move: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        workspaceId: z.string(),
+        projectId: z.string().nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "edit");
+      await assertCanPlacePage(ctx.db, userId, input.workspaceId, input.projectId);
+
+      const crossWorkspace = input.workspaceId !== page.workspaceId;
+      if (crossWorkspace) {
+        const anchors = await ctx.db.knowledgePage.findUniqueOrThrow({
+          where: { id: input.id },
+          select: {
+            ceremonyOccurrence: { select: { id: true } },
+            workspaceUpdate: { select: { id: true } },
+            _count: { select: { features: true } },
+          },
+        });
+        if (
+          anchors.ceremonyOccurrence ||
+          anchors.workspaceUpdate ||
+          anchors._count.features > 0
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This page belongs to a ceremony, workspace update or feature and can't leave its workspace",
+          });
+        }
+      }
+
+      await ctx.db.$transaction(async (tx) => {
+        await tx.knowledgePage.update({
+          where: { id: input.id },
+          data: { workspaceId: input.workspaceId, projectId: input.projectId },
+        });
+        if (crossWorkspace) {
+          await tx.pageLink.deleteMany({
+            where: { OR: [{ fromPageId: input.id }, { toPageId: input.id }] },
+          });
+        }
+      });
+      // Search chunks are scoped by the page's placement — re-index.
+      getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(input.id);
+
+      const workspace = await ctx.db.workspace.findUniqueOrThrow({
+        where: { id: input.workspaceId },
+        select: { slug: true },
+      });
+      return { id: input.id, workspaceSlug: workspace.slug };
     }),
 
   delete: protectedProcedure

@@ -16,9 +16,10 @@ export const BADGE_EXCLUDED_CATEGORIES = [NOTIFICATION_CATEGORIES.SUMMARY];
 
 /**
  * The inbox's attention counts: unread notifications (less
- * {@link BADGE_EXCLUDED_CATEGORIES}) and "Waiting on me". Their sum is the
- * sidebar's Inbox badge — things that need you — while the unsorted-actions
- * count lives on the inbox's Actions tab.
+ * {@link BADGE_EXCLUDED_CATEGORIES}), "Waiting on me", and unreviewed
+ * Delegated results (never live runs; waiting runs are already in Waiting on
+ * me). Their sum is the sidebar's Inbox badge — things that need you — while the
+ * unsorted-actions count lives on the inbox's Actions tab.
  *
  * Counts only, never rows, since the badge renders on every page. Three
  * things keep them current:
@@ -35,6 +36,8 @@ export const BADGE_EXCLUDED_CATEGORIES = [NOTIFICATION_CATEGORIES.SUMMARY];
 export function useInboxCounts(): {
   notifications: number | undefined;
   waiting: number | undefined;
+  /** The Delegated tab's count: waiting on you + finished and unreviewed. Never live runs. */
+  delegated: number | undefined;
   total: number | undefined;
   isError: boolean;
 } {
@@ -53,22 +56,33 @@ export function useInboxCounts(): {
     { startOfToday },
     queryOptions,
   );
+  // Delegated (ADR-0067): no polling — a run finishing emits a notification,
+  // and the unread poll above already keeps the badge moving; mutations
+  // (assign, review, cancel) refetch it like the others.
+  const delegated = api.inbox.delegatedCounts.useQuery(undefined, queryOptions);
 
   useRefetchAfterMutations([
     getQueryKey(api.notification.unreadCount),
     getQueryKey(api.inbox.waitingOnMeCounts),
     getQueryKey(api.inbox.waitingOnMe),
+    getQueryKey(api.inbox.delegatedCounts),
+    getQueryKey(api.inbox.delegated),
   ]);
 
   const notifications = unread.data;
   const waitingTotal = waiting.data?.total;
+  const delegatedAttention = delegated.data?.attention;
+  // The badge adds only unreviewed results: a run waiting on its owner is
+  // already counted once through Waiting on me (assistant questions).
+  const delegatedUnreviewed = delegated.data?.unreviewed;
   return {
     notifications,
     waiting: waitingTotal,
+    delegated: delegatedAttention,
     total:
-      notifications === undefined && waitingTotal === undefined
+      notifications === undefined && waitingTotal === undefined && delegatedUnreviewed === undefined
         ? undefined
-        : (notifications ?? 0) + (waitingTotal ?? 0),
-    isError: unread.isError && waiting.isError,
+        : (notifications ?? 0) + (waitingTotal ?? 0) + (delegatedUnreviewed ?? 0),
+    isError: unread.isError && waiting.isError && delegated.isError,
   };
 }

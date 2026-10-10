@@ -74,6 +74,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
               db,
               session: agentSession,
               tokenType: 'agent-key' as string | undefined,
+              agentRunId: undefined as string | undefined,
               ...opts,
             };
           }
@@ -84,6 +85,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           db,
           session: null,
           tokenType: undefined as string | undefined,
+          agentRunId: undefined as string | undefined,
           ...opts,
         };
       }
@@ -97,6 +99,8 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           name?: string;
           picture?: string;
           tokenType?: string;
+          /** Agent-run JWTs carry the run they act for (ADR-0067). */
+          runId?: string;
           exp?: number;
           iat?: number;
           nbf?: number;      // Not before timestamp
@@ -173,6 +177,10 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
             // Surface the JWT token type so procedures can attribute writes to
             // the calling surface (e.g. Action.source for chat gateways).
             tokenType: decoded.tokenType,
+            // The Agent run this token was minted for (agent-context JWTs
+            // from the dispatcher). Run tools address their run through
+            // this claim, never through tool input.
+            agentRunId: decoded.tokenType === 'agent-context' ? decoded.runId : undefined,
             ...opts,
           };
         }
@@ -189,6 +197,7 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     db,
     session,
     tokenType: undefined as string | undefined,
+    agentRunId: undefined as string | undefined,
     ...opts,
   };
 };

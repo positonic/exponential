@@ -1,0 +1,96 @@
+name: E2E
+
+# Playwright suite (e2e/*.spec.ts) against a real Postgres and `next dev`,
+# nightly on main plus on demand. Deliberately OFF the PR critical path: it is
+# not a required check and never will be in this shape — twenty specs with
+# cold Turbopack route compiles take a while, which is fine for a nightly run.
+# See dev-docs/AGENT_VISUAL_TESTING.md for how the suite seeds and signs in.
+#
+# Everything here is a dummy/test value. The repo is public and logs are
+# world-readable: never put a real secret in this file.
+#
+# Run by hand:   gh workflow run e2e.yml --ref <branch>
+
+on:
+  schedule:
+    # 03:17 UTC nightly, against main (scheduled runs use the default branch).
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: exponential_e2e
+        ports:
+          - 5435:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # scripts/dev-fixture/env.ts loads .env/.env.local without overriding
+      # existing env, refuses non-local DB hosts and NODE_ENV=production, and
+      # throws unless DATABASE_URL and AUTH_SECRET are set — so plain job env
+      # is enough. The minted session cookie is only valid against a server
+      # sharing this AUTH_SECRET.
+      DATABASE_URL: postgresql://test:test@localhost:5435/exponential_e2e
+      AUTH_SECRET: e2e-secret-for-ci
+      AUTH_TRUST_HOST: 'true'
+      SKIP_ENV_VALIDATION: 'true'
+      # Lets the fixture seed an encrypted contact email so the
+      # schedule-meeting spec runs instead of skipping itself. Test key only
+      # (same value src/test/integration-setup.ts uses).
+      DATABASE_ENCRYPTION_KEY: MMeRcJFimqp98NsQ5i2cawtF4LbcftnfiCNJWLhO/YQ=
+      # Belt and braces: playwright.config.ts already sets this on the server
+      # it boots, and there is no real Postmark key here anyway.
+      EMAIL_DELIVERY_DISABLED: '1'
+      # Dummies for modules that check at import time (same set as the Build
+      # job's smoke test). No real API call is made.
+      AUTH_DISCORD_ID: e2e-discord-id
+      AUTH_DISCORD_SECRET: e2e-discord-secret
+      OPENAI_API_KEY: sk-e2e-dummy
+      AUTH_POSTMARK_KEY: e2e-dummy
+      MASTRA_API_URL: http://localhost:4111
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/npm-install
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # global-setup seeds the dev-fixture workspace but does not migrate.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Run E2E suite
+        run: npm run test:e2e
+
+      # failure() alone would miss a job that hit timeout-minutes (that
+      # counts as cancelled), which is exactly when the report matters most.
+      - name: Upload Playwright report
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            e2e/.results
+          retention-days: 7
+          if-no-files-found: ignore

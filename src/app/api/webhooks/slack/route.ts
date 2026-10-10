@@ -1028,6 +1028,7 @@ async function chatWithZoeUsingTRPC(
       db,
       session: mockSession,
       tokenType: undefined,
+      agentRunId: undefined,
       headers: new Headers() // Mock headers for server-side call
     });
 

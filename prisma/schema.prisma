@@ -316,6 +316,8 @@ model User {
   isAgent                     Boolean                           @default(false)
   ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
   externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
+  agentRunsRequested          AgentRun[]                        @relation("AgentRunRequestedBy")
+  agentRunsReviewed           AgentRun[]                        @relation("AgentRunReviewedBy")
   // Ceremonies (ADR-0059)
   ownedCeremonies             Ceremony[]                        @relation("CeremonyOwner")
   createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
@@ -358,13 +360,105 @@ model ExternalAgent {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Which engine executes Agent runs assigned to this principal (ADR-0067).
+  executor     AgentExecutor @default(MASTRA)
+
   owner      User               @relation("ExternalAgentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   shadowUser User               @relation("ExternalAgentShadowUser", fields: [shadowUserId], references: [id], onDelete: Cascade)
   keys       ExternalAgentKey[]
   /// Time entries this agent wrote on its owner's behalf (ADR-0061).
   timeEntries TimeEntry[]       @relation("TimeEntryAuthorAgent")
+  /// Present when this row is an Assistant's principal (ADR-0067). Such rows are
+  /// managed from Settings → Assistant, not the External agents page.
+  assistant   Assistant?
+  /// Agent runs this principal performed (ADR-0067).
+  agentRuns   AgentRun[]
 
   @@index([ownerId])
+}
+
+/// Engine that executes an Agent run for an ExternalAgent (ADR-0067).
+/// MASTRA = hosted Mastra executor; LOCAL_CLI = `exponential runner` on the
+/// owner's machine (V2 — the value exists so every row carries one).
+enum AgentExecutor {
+  MASTRA
+  LOCAL_CLI
+}
+
+/// One attempt by an agent principal to progress one Action, started by
+/// assigning the Action to it (ADR-0067, Agent PRD D2). Status machine:
+/// QUEUED → RUNNING → {SUCCEEDED | FAILED | WAITING_ON_OWNER | TIMED_OUT};
+/// QUEUED → CANCELLED; RUNNING → CANCELLED (flag only — the dispatcher checks
+/// before every write). WAITING_ON_OWNER is terminal for the row; a resume is
+/// a new row with `predecessorId`. Live set = {QUEUED, RUNNING}.
+model AgentRun {
+  id            String         @id @default(cuid())
+  actionId      String
+  /// The principal (ExternalAgent.id); its shadow user does the writes.
+  agentId       String
+  /// Human who assigned; null when an agent reassigned.
+  requestedById String?
+  executor      AgentExecutor
+  status        AgentRunStatus @default(QUEUED)
+  /// Owner reply that resumed a WAITING_ON_OWNER predecessor.
+  wakeCommentId String?
+  /// The run this one resumes.
+  predecessorId String?
+  /// V2 runner id; null for MASTRA.
+  claimedBy     String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  /// Heartbeat; touched on every event append.
+  lastEventAt   DateTime?
+  toolCallCount Int            @default(0)
+  /// Public — written by the agent knowing everyone with action access reads it.
+  summary       String?        @db.Text
+  readyToClose  Boolean        @default(false)
+  error         String?
+  usage         Json?
+  /// Delegated row cleared.
+  reviewedAt    DateTime?
+  reviewedById  String?
+  createdAt     DateTime       @default(now())
+
+  action      Action         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  agent       ExternalAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  requestedBy User?          @relation("AgentRunRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy  User?          @relation("AgentRunReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  predecessor AgentRun?      @relation("AgentRunResume", fields: [predecessorId], references: [id], onDelete: SetNull)
+  successors  AgentRun[]     @relation("AgentRunResume")
+  events      AgentRunEvent[]
+
+  @@index([actionId, createdAt])
+  @@index([agentId, status])
+  @@index([requestedById, reviewedAt])
+  @@index([status, lastEventAt])
+}
+
+/// Append-only event log of a run, written by the app on every tool callback
+/// (never streamed from Mastra). `seq` is monotonic per run.
+model AgentRunEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  seq       Int
+  /// "status" | "tool_call" | "tool_result" | "text" | "log" | "error"
+  kind      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  WAITING_ON_OWNER
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  TIMED_OUT
 }
 
 /// Opaque credential for an ExternalAgent: SHA-256 hash of an `exp_agent_…` secret,
@@ -479,6 +573,8 @@ model Workspace {
   leaderboardEntries      LeaderboardEntry[]
   // AI Assistant customization
   assistants              Assistant[]
+  // Positions: who does what (ADR-0068)
+  positions               Position[]
   // Workflow Pipeline relations
   workflowDefinitions     WorkflowDefinition[]
   contentDrafts           ContentDraft[]
@@ -766,10 +862,50 @@ model WorkspaceUser {
 
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Positions this member holds (ADR-0068). Cascades with the membership.
+  positionHolders PositionHolder[]
 
   @@unique([userId, workspaceId])
   @@index([userId])
   @@index([workspaceId])
+}
+
+/// A named function in a workspace — "Technical Director", "Travel researcher" —
+/// with a Remit (the kinds of work its holders take on), an optional "not
+/// accountable for", and zero or more holders (ADR-0068). Routing data only: a
+/// Position never grants or restricts access; `WorkspaceUser.role` does that.
+model Position {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  /// Trimmed, 1–80 characters, unique per workspace.
+  title             String
+  /// Markdown, 1–2000 characters. Matched by meaning, not as a tag taxonomy.
+  remit             String   @db.Text
+  /// Markdown, up to 2000 characters.
+  notAccountableFor String?  @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  holders   PositionHolder[]
+
+  @@unique([workspaceId, title])
+  @@index([workspaceId])
+}
+
+/// A holder is a `WorkspaceUser` row, not a `User`: "holders are members of this
+/// workspace" is structural, and every membership removal drops the holding
+/// through the FK cascade. Humans, Assistants and External agents alike.
+model PositionHolder {
+  positionId      String
+  workspaceUserId String
+  createdAt       DateTime @default(now())
+
+  position      Position      @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  workspaceUser WorkspaceUser @relation(fields: [workspaceUserId], references: [id], onDelete: Cascade)
+
+  @@id([positionId, workspaceUserId])
+  @@index([workspaceUserId])
 }
 
 model WorkspaceInvitation {
@@ -980,6 +1116,8 @@ model Action {
   parentChunk          Action?                     @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks          Action[]                    @relation("ActionChunks")
   syncs                ActionSync[]
+  /// Agent runs that worked (or are working) this action (ADR-0067).
+  agentRuns            AgentRun[]
   depsOut              ActionDependency[]          @relation("ActionDepsOut")
   depsIn               ActionDependency[]          @relation("ActionDepsIn")
   assignees            ActionAssignee[]
@@ -1595,6 +1733,10 @@ model TranscriptionSession {
   /// The ceremony occurrence this recording captured (ADR-0059); set by
   /// calendar recurrence id, title alias, or by hand.
   occurrenceId        String?
+  /// When an "Extract outputs" run last completed for this meeting, by hand
+  /// or by the ceremony's auto-extract sweep. Null means not yet extracted;
+  /// the sweep only ever picks up null rows.
+  outputsExtractedAt  DateTime?
 
   // Embedding status tracking for knowledge base
   embeddingStatus String?   @default("none") // none|pending|processing|completed|failed
@@ -2444,6 +2586,11 @@ model Ceremony {
   includeProjects Boolean      @default(true)
   /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
   matrixRoomId    String?
+  /// Run the meeting page's "Extract outputs" (draft actions, decisions and
+  /// open questions) on every recording that attaches to one of this
+  /// ceremony's occurrences, instead of waiting for someone to press the
+  /// button. Drafts only; a person still reviews them (ADR-0007).
+  autoExtractOutputs Boolean   @default(false)
   isActive        Boolean      @default(true)
   /// An ad hoc meeting scheduled from a project (ADR-0059 amendment,
   /// 2026-10-07): no cadence rule, exactly one occurrence, never listed with
@@ -3248,6 +3395,13 @@ model Resource {
   // Agent context injection
   pinnedAsContext Boolean @default(false)
 
+  // Reading list: whether the owner has consumed this Resource yet.
+  // "to_read" | "reading" | "read". Orthogonal to archivedAt (archived =
+  // out of the list, read = consumed). Rows that pre-date the column were
+  // backfilled to "read" — they were saved as reference, not as a queue.
+  readStatus String    @default("to_read")
+  readAt     DateTime?
+
   // Timestamps
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -3259,6 +3413,7 @@ model Resource {
   workspace Workspace? @relation(fields: [workspaceId], references: [id])
 
   @@index([userId])
+  @@index([userId, readStatus])
   @@index([projectId])
   @@index([workspaceId])
   @@index([contentType])
@@ -3335,7 +3490,7 @@ model KnowledgePage {
   publicSlug       String?
   publicSeoIndexed Boolean   @default(false)
   publishedAt      DateTime?
-  // Invite-only (ADR-0067): visible to the owner and `members` only — project
+  // Invite-only (ADR-0069): visible to the owner and `members` only — project
   // placement and workspace membership grant nothing, and there is no
   // workspace-admin escape hatch. Only the owner changes this or the invitees.
   isInviteOnly     Boolean   @default(false)
@@ -3350,7 +3505,7 @@ model KnowledgePage {
   createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
   comments  KnowledgePageComment[]
-  /// People invited to an invite-only page (ADR-0067). Ignored unless `isInviteOnly`.
+  /// People invited to an invite-only page (ADR-0069). Ignored unless `isInviteOnly`.
   members   KnowledgePageMember[]
   /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
   ceremonyOccurrence CeremonyOccurrence?
@@ -3366,7 +3521,7 @@ model KnowledgePage {
   @@index([createdById])
 }
 
-/// A workspace member invited to an invite-only Page (ADR-0067). `role` is
+/// A workspace member invited to an invite-only Page (ADR-0069). `role` is
 /// "viewer" | "editor". Access also requires the invitee to still belong to the
 /// page's workspace, so leaving the workspace revokes it without touching rows.
 model KnowledgePageMember {
@@ -4318,11 +4473,16 @@ model Assistant {
   instructions String?  @db.Text // Operating instructions
   userContext  String?  @db.Text // About the user/team
   isDefault    Boolean  @default(false)
+  /// The Assistant's principal — an owned ExternalAgent with a shadow user and a
+  /// workspace membership, which is what makes it an assignee (ADR-0067).
+  /// Required: the migration backfills every existing row before setting NOT NULL.
+  externalAgentId String   @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy     User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+  externalAgent ExternalAgent  @relation(fields: [externalAgentId], references: [id], onDelete: Cascade)
   contentDrafts ContentDraft[]
 
   @@index([workspaceId])

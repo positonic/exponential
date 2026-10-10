@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { db } from "~/server/db";
@@ -34,7 +35,14 @@ export async function GET(_request: NextRequest) {
     const authHeader = headersList.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
 
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    // Fail closed: a missing CRON_SECRET must not open this route to anyone.
+    if (!cronSecret) {
+      console.error("[Cron] daily-plan-reminder: CRON_SECRET is not configured — refusing to run");
+      return NextResponse.json({ error: "CRON_SECRET is not configured" }, { status: 503 });
+    }
+    const expected = Buffer.from(`Bearer ${cronSecret}`);
+    const provided = Buffer.from(authHeader ?? "");
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

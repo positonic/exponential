@@ -99,11 +99,19 @@ const config = {
   },
 
   async redirects() {
-    return Object.entries(docsRedirects).map(([source, destination]) => ({
-      source,
-      destination,
-      permanent: true,
-    }));
+    return [
+      ...Object.entries(docsRedirects).map(([source, destination]) => ({
+        source,
+        destination,
+        permanent: true,
+      })),
+      // Renamed so it stops competing with /features/weekly-plan in search.
+      {
+        source: "/features/weekly-planning",
+        destination: "/features/team-weekly-review",
+        permanent: true,
+      },
+    ];
   },
 
   async headers() {

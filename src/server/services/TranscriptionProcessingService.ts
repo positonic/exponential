@@ -47,6 +47,17 @@ export interface GenerateDraftActionsOptions {
 export interface ExtractMeetingOutputsResult {
   actions: DraftTranscriptionActionsResult;
   decisions: Omit<DraftDecisionsResult, "actionItems">;
+  /** True when both halves got through and the meeting was stamped `outputsExtractedAt`. */
+  extracted: boolean;
+}
+
+export interface ExtractMeetingOutputsOptions {
+  /**
+   * Who asked. `manual` is the button on the meeting page; `auto_extract`
+   * is the ceremony sweep (`meetings/autoExtractOutputs`), where nobody is
+   * looking so the decision drafts notify the meeting owner.
+   */
+  trigger?: "manual" | "auto_extract";
 }
 
 /**
@@ -354,13 +365,29 @@ export class TranscriptionProcessingService {
    */
   static async extractMeetingOutputs(
     transcriptionId: string,
-    userId: string
+    userId: string,
+    options: ExtractMeetingOutputsOptions = {}
   ): Promise<ExtractMeetingOutputsResult> {
-    const { actionItems, ...decisions } = await this.generateDraftDecisions(transcriptionId, userId);
+    const { actionItems, ...decisions } = await this.generateDraftDecisions(transcriptionId, userId, {
+      trigger: options.trigger ?? "manual",
+    });
     const actions = await this.generateDraftActions(transcriptionId, userId, {
       transcriptActionItems: actionItems,
     });
-    return { actions, decisions };
+    // The run counts as done once both halves got through (including the
+    // "already drafted" short-circuits): the stamp is what keeps the
+    // ceremony sweep from reading the same meeting again. A half that
+    // failed leaves it unset, so the sweep retries and the half that landed
+    // short-circuits on its drafts; the sweep stamps the failures a retry
+    // cannot fix itself.
+    const extracted = actions.success && decisions.success;
+    if (extracted) {
+      await db.transcriptionSession.update({
+        where: { id: transcriptionId },
+        data: { outputsExtractedAt: new Date() },
+      });
+    }
+    return { actions, decisions, extracted };
   }
 
   /**

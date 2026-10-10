@@ -108,7 +108,8 @@ restriction for view.
 Resolver: `resolvers/transcriptionResolver.ts` — the single source of truth
 for Meeting visibility (see also `CONTEXT.md` "Meeting visibility"). Use
 `buildTranscriptionAccessWhere(userId)` for every bulk/aggregate read
-(meetings list, weekly stats, related-meeting search) and
+(meetings list, weekly stats, related-meeting search, knowledge-chunk
+semantic search via `KnowledgeService.search`'s `transcriptionViewerId`) and
 `getTranscriptionAccess` + `canViewTranscription`/`canEditTranscription`
 for per-row checks. Never write inline meeting permission logic in routers.
 

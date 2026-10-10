@@ -7,6 +7,7 @@ import {
   IconClockExclamation,
   IconFlag,
   IconMicrophone,
+  IconRobot,
   IconTicket,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
@@ -118,7 +119,7 @@ export function WaitingOnMeTab() {
       <section className="wsa-card">
         <p className="wsa-feed__empty">
           Nothing is waiting on you — no open decisions, drafts to review, QA
-          tickets or overdue actions.
+          tickets, overdue actions or questions from your assistant.
         </p>
       </section>
     );
@@ -126,6 +127,28 @@ export function WaitingOnMeTab() {
 
   return (
     <section className="wsa-card">
+      <Section
+        label="Your assistant asked"
+        shown={data.assistantQuestions.length}
+        total={counts.assistantQuestions}
+      >
+        {data.assistantQuestions.map((q) => (
+          <Row
+            key={q.id}
+            href={q.action.workspace ? `/w/${q.action.workspace.slug}/actions/${q.action.id}` : '/inbox?tab=delegated'}
+            icon={<IconRobot size={14} stroke={1.75} />}
+            label={toPlainText(q.action.name)}
+            sub={withWorkspace(q.action.workspace, `${q.assistantName} is waiting for your reply on the action`)}
+            meta={
+              <>
+                <span className="wsa-item__chip wsa-item__chip--warn">waiting</span>
+                {compactAge(q.askedAt)}
+              </>
+            }
+          />
+        ))}
+      </Section>
+
       <Section label="Decisions" shown={data.decisions.length} total={counts.decisions}>
         {data.decisions.map((decision) => (
           <Row

@@ -3,9 +3,9 @@
 import { useInboxCounts } from "~/hooks/useInboxCounts";
 
 /**
- * The sidebar's Inbox badge: unread notifications plus "Waiting on me" — the
- * things that need you. Unsorted actions are counted on the inbox's Actions
- * tab instead.
+ * The sidebar's Inbox badge: unread notifications, "Waiting on me", and
+ * Delegated results needing you (never live runs) — the things that need you.
+ * Unsorted actions are counted on the inbox's Actions tab instead.
  */
 export function InboxCount() {
   const { total, isError } = useInboxCounts();

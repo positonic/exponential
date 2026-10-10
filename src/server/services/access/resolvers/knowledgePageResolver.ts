@@ -12,7 +12,7 @@
  * - It has no project and they are a member of its workspace (any role may
  *   view; edit requires a non-viewer role).
  *
- * An **invite-only** Page (ADR-0067) replaces the last two paths entirely: it
+ * An **invite-only** Page (ADR-0069) replaces the last two paths entirely: it
  * is visible to its owner and its invitees (`KnowledgePageMember`) who still
  * belong to its workspace — nobody else, workspace owners/admins included.
  * Project placement grants nothing. Invitee role "editor" may edit; "viewer"
@@ -33,7 +33,7 @@ import {
   filterWorkspaceMembers,
 } from "./workspaceResolver";
 
-/** An invitee's role on an invite-only Page (ADR-0067). */
+/** An invitee's role on an invite-only Page (ADR-0069). */
 export type KnowledgePageInviteRole = "viewer" | "editor";
 
 export function isKnowledgePageInviteRole(
@@ -44,7 +44,7 @@ export function isKnowledgePageInviteRole(
 
 export interface KnowledgePageAccessInfo {
   isOwner: boolean;
-  /** Invite-only page: only the owner and invitees get in (ADR-0067). */
+  /** Invite-only page: only the owner and invitees get in (ADR-0069). */
   isInviteOnly: boolean;
   /**
    * The caller's invite role on an invite-only page — null when not invited,
@@ -145,7 +145,7 @@ export function canEditKnowledgePage(access: KnowledgePageAccessInfo): boolean {
 
 /**
  * Who may change a page's sharing — its invite-only mode and its invitees, and
- * publish an invite-only page to the web (ADR-0067). The owner alone, so an
+ * publish an invite-only page to the web (ADR-0069). The owner alone, so an
  * invited editor can never widen a page they were let into.
  */
 export function canManageKnowledgePageAccess(

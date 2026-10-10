@@ -11,6 +11,7 @@ import {
   CopyButton,
   FileButton,
   Group,
+  Input,
   Modal,
   MultiSelect,
   Loader,
@@ -19,7 +20,6 @@ import {
   Table,
   Text,
   TextInput,
-  Textarea,
   Title,
   Tooltip,
   ActionIcon,
@@ -33,11 +33,23 @@ import {
   IconCopy,
   IconCamera,
   IconKey,
+  IconPencil,
   IconPlus,
   IconRobotFace,
   IconTrash,
 } from '@tabler/icons-react';
+import Link from 'next/link';
 import { api } from '~/trpc/react';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+
+/**
+ * The description is the agent's fallback Remit (ADR-0068 §3): Zoe routes
+ * work to it by this text when the agent holds no Position.
+ */
+const DESCRIPTION_LABEL = 'What work should be assigned to this agent?';
+const DESCRIPTION_HELP = 'Zoe uses this to route tasks when the agent holds no Position.';
+const DESCRIPTION_MAX = 5000;
 
 // tRPC carries the image as base64 JSON. Keep the encoded request comfortably
 // below Vercel's 4.5 MB function-body limit (3 MB becomes ~4 MB as base64).
@@ -75,6 +87,35 @@ export default function ExternalAgentsPage() {
     },
     onError: (error) =>
       notifications.show({ title: 'Could not create agent', message: error.message, color: 'red' }),
+  });
+
+  const [editAgentId, setEditAgentId] = useState<string | null>(null);
+
+  const closeAgentModal = () => {
+    closeCreate();
+    setEditAgentId(null);
+    createForm.reset();
+  };
+
+  const openNew = () => {
+    setEditAgentId(null);
+    createForm.reset();
+    openCreate();
+  };
+
+  const openEdit = (agent: { id: string; name: string; description: string | null }) => {
+    setEditAgentId(agent.id);
+    createForm.setValues({ name: agent.name, description: agent.description ?? '' });
+    openCreate();
+  };
+
+  const updateAgent = api.externalAgent.update.useMutation({
+    onSuccess: async () => {
+      closeAgentModal();
+      await invalidate();
+    },
+    onError: (error) =>
+      notifications.show({ title: 'Could not update agent', message: error.message, color: 'red' }),
   });
 
   const deleteAgent = api.externalAgent.delete.useMutation({
@@ -216,7 +257,7 @@ export default function ExternalAgentsPage() {
             as its own principal — its work is attributed to the agent, not to you.
           </Text>
         </div>
-        <Button leftSection={<IconPlus size={16} />} onClick={openCreate}>
+        <Button leftSection={<IconPlus size={16} />} onClick={openNew}>
           New agent
         </Button>
       </Group>
@@ -273,25 +314,58 @@ export default function ExternalAgentsPage() {
                 </div>
                 <Text fw={600}>{agent.name}</Text>
                 <Badge variant="light" size="sm">
-                  agent
+                  {agent.assistantId ? "assistant" : "agent"}
                 </Badge>
               </Group>
-              <Tooltip label="Delete agent (keys and workspace access are removed)">
-                <ActionIcon
-                  variant="subtle"
-                  color="red"
-                  onClick={() => deleteAgent.mutate({ agentId: agent.id })}
-                  loading={deleteAgent.isPending}
-                >
-                  <IconTrash size={16} />
-                </ActionIcon>
-              </Tooltip>
+              {agent.assistantId ? (
+                <Tooltip label="Your Assistant's principal — rename or delete it from Settings → Assistant">
+                  <Button
+                    component={Link}
+                    href="/settings/assistant"
+                    size="compact-xs"
+                    variant="subtle"
+                  >
+                    Manage in Assistant settings
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Group gap={4} wrap="nowrap">
+                <Tooltip label="Edit agent">
+                  <ActionIcon variant="subtle" onClick={() => openEdit(agent)}>
+                    <IconPencil size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Delete agent (keys and workspace access are removed)">
+                  <ActionIcon
+                    variant="subtle"
+                    color="red"
+                    onClick={() => deleteAgent.mutate({ agentId: agent.id })}
+                    loading={deleteAgent.isPending}
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Tooltip>
+                </Group>
+              )}
             </Group>
-            {agent.description && (
-              <Text size="sm" c="dimmed">
-                {agent.description}
-              </Text>
-            )}
+            <Group gap="xs" align="flex-start" wrap="nowrap">
+              <div className="min-w-0 flex-1">
+                {agent.description ? (
+                  <MarkdownRenderer
+                    content={agent.description}
+                    variant="compact"
+                    className="text-sm text-text-secondary"
+                  />
+                ) : (
+                  !agent.assistantId && (
+                    <Text size="sm" c="dimmed">
+                      No description yet — say what work should be assigned to this agent so
+                      Zoe can route to it.
+                    </Text>
+                  )
+                )}
+              </div>
+            </Group>
 
             <Group gap="xs">
               <Text size="sm" fw={500}>
@@ -393,8 +467,18 @@ export default function ExternalAgentsPage() {
       ))}
 
       {/* Create agent */}
-      <Modal opened={createOpened} onClose={closeCreate} title="New external agent">
-        <form onSubmit={createForm.onSubmit((values) => createAgent.mutate(values))}>
+      <Modal
+        opened={createOpened}
+        onClose={closeAgentModal}
+        title={editAgentId ? 'Edit external agent' : 'New external agent'}
+      >
+        <form
+          onSubmit={createForm.onSubmit((values) =>
+            editAgentId
+              ? updateAgent.mutate({ agentId: editAgentId, ...values })
+              : createAgent.mutate(values),
+          )}
+        >
           <Stack>
             <TextInput
               label="Name"
@@ -402,17 +486,22 @@ export default function ExternalAgentsPage() {
               required
               {...createForm.getInputProps('name')}
             />
-            <Textarea
-              label="Description"
-              placeholder="What does this agent do?"
-              {...createForm.getInputProps('description')}
-            />
+            <Input.Wrapper label={DESCRIPTION_LABEL} description={DESCRIPTION_HELP}>
+              <MarkdownInput
+                value={createForm.values.description}
+                onChange={(next) =>
+                  createForm.setFieldValue('description', next.slice(0, DESCRIPTION_MAX))
+                }
+                placeholder="Triages inbound bug reports and drafts the first reply."
+                minRows={3}
+              />
+            </Input.Wrapper>
             <Group justify="flex-end">
-              <Button variant="default" onClick={closeCreate}>
+              <Button variant="default" onClick={closeAgentModal}>
                 Cancel
               </Button>
-              <Button type="submit" loading={createAgent.isPending}>
-                Create
+              <Button type="submit" loading={createAgent.isPending || updateAgent.isPending}>
+                {editAgentId ? 'Save' : 'Create'}
               </Button>
             </Group>
           </Stack>

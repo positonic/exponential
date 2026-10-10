@@ -34,7 +34,7 @@ interface PageInvitesProps {
 }
 
 /**
- * The Share popover's invite-only controls (ADR-0067). The owner gets the
+ * The Share popover's invite-only controls (ADR-0069). The owner gets the
  * invite-only switch, the invite picker (workspace members only), the invitee
  * list with role changes and removal, and a one-off "Apply to sub-pages".
  * Everyone else sees nothing here — the audience block above already shows

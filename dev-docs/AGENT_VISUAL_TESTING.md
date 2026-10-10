@@ -121,11 +121,22 @@ Everything hangs off the fixture workspace; to remove it, delete the
 `dev-fixture` workspace (cascades to product/feature/tickets) and the
 `dev-fixture@exponential.test` user.
 
+## In CI
+
+`.github/workflows/e2e.yml` runs the suite nightly against `main` and on
+demand (`gh workflow run e2e.yml --ref <branch>`): a `pgvector` Postgres
+service, `prisma migrate deploy`, `playwright install --with-deps chromium`,
+then `npm run test:e2e` with dummy env (`DATABASE_URL` on localhost, a dummy
+`AUTH_SECRET`, a test `DATABASE_ENCRYPTION_KEY`). It boots `next dev --turbo`
+like a local run, so cold route compiles make it slow — acceptable for a
+nightly. It is **not** a required check and is not on the PR path; the
+Playwright HTML report and `e2e/.results` are uploaded as an artifact on
+failure.
+
 ## Not built (yet)
 
-- **CI wiring**: needs a Postgres service/testcontainer + `next build` +
-  `playwright install` in the workflow. The suite is CI-shaped already
-  (`forbidOnly`, retries, github reporter) — this is deliberate scope for a
-  follow-up PR.
+- **A PR smoke subset**: a handful of fast specs (e.g. `route-gating`,
+  `command-palette`, `topbar-crumb`) tagged and run on PRs, still non-required.
+  Worth doing once the nightly has been green for a couple of weeks.
 - **Pixel-diff gating** (`toHaveScreenshot`): add selectively once the suite
   has been stable for a while, if at all.

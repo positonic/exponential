@@ -49,9 +49,10 @@ export interface GenerateDraftDecisionsOptions {
    * Who asked. `manual` is a person on the meeting page or in the drawer
    * (they see the drafts at once, so they are the notification's actor and
    * are not told); `post_summary` is the opt-in hook after a summary lands
-   * (nobody is looking, so the owner is notified).
+   * and `auto_extract` the ceremony's auto-extract sweep (nobody is looking
+   * in either case, so the owner is notified).
    */
-  trigger?: "manual" | "post_summary";
+  trigger?: "manual" | "post_summary" | "auto_extract";
 }
 
 export interface DraftDecisionsResult {

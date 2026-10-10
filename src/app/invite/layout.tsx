@@ -18,6 +18,8 @@ export const metadata: Metadata = {
   title: `${themes[domain].branding.title} - Workspace Invitation`,
   description: 'Accept a workspace invitation',
   icons: themes[domain].branding.icons,
+  // Token pages are private to whoever holds the link.
+  robots: { index: false, follow: false },
 };
 
 export default async function InviteLayout({

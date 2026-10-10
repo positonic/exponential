@@ -15,7 +15,8 @@ import {
   TextInput
 } from "@mantine/core";
 import { IconSearch, IconRobot } from "@tabler/icons-react";
-import { api } from "~/trpc/react";
+import { useSession } from "next-auth/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
@@ -41,12 +42,37 @@ interface AssignActionModalProps {
   onSelectionChange?: (userIds: string[]) => void;
 }
 
-interface AssignableUser {
-  id: string;
-  name: string | null;
-  email: string | null;
-  image: string | null;
-  isAIAgent?: boolean;
+/** One row of the roster, as the server shapes it (`toAssignableUser`): a derived type, never a hand copy. */
+type AssignableUser = RouterOutputs["action"]["getAssignableUsers"]["assignableUsers"][number];
+
+/** "your assistant" / "Andi's assistant" / "External agent" — the picker's second line for an agent row. */
+function agentSubtitle(user: AssignableUser, viewerId: string | undefined): string {
+  if (!user.assistantOwner) return "External agent";
+  if (viewerId && user.assistantOwner.id === viewerId) return "your assistant";
+  const owner = user.assistantOwner.name?.trim();
+  return owner ? `${owner}'s assistant` : "a teammate's assistant";
+}
+
+/**
+ * The roster in picker order (ADR-0067): your own Assistant pinned first, then
+ * teammates' Assistants (and any other agents) labelled by owner, then people.
+ * One roster from the server, three groups here — membership is already real,
+ * so nothing is filtered, only arranged.
+ */
+function groupAssignableUsers(users: AssignableUser[], viewerId: string | undefined) {
+  const own: AssignableUser[] = [];
+  const agents: AssignableUser[] = [];
+  const people: AssignableUser[] = [];
+  for (const user of users) {
+    if (!user.isAgent) people.push(user);
+    else if (viewerId && user.assistantOwner?.id === viewerId) own.push(user);
+    else agents.push(user);
+  }
+  return [
+    { key: "own", label: "Your assistant", users: own },
+    { key: "agents", label: "Assistants", users: agents },
+    { key: "people", label: "People", users: people },
+  ].filter((group) => group.users.length > 0);
 }
 
 export function AssignActionModal({
@@ -60,6 +86,8 @@ export function AssignActionModal({
   onSelectionChange,
 }: AssignActionModalProps) {
   const isCreateMode = !actionId;
+  const { data: session } = useSession();
+  const viewerId = session?.user?.id;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     new Set(currentAssignees.map(a => a.user.id))
@@ -100,6 +128,11 @@ export function AssignActionModal({
   const assignMutation = api.action.assign.useMutation({
     onSuccess: () => {
       // Invalidate relevant queries to refresh the UI
+      if (actionId) {
+        void utils.action.getById.invalidate({ id: actionId });
+        // Assigning an Assistant starts an Agent run (ADR-0067).
+        void utils.agentRun.listForAction.invalidate({ actionId });
+      }
       void utils.action.getAll.invalidate();
       void utils.action.getProjectActions.invalidate();
       void utils.action.getKanbanActions.invalidate();
@@ -125,6 +158,10 @@ export function AssignActionModal({
   const unassignMutation = api.action.unassign.useMutation({
     onSuccess: () => {
       // Invalidate relevant queries to refresh the UI
+      if (actionId) {
+        void utils.action.getById.invalidate({ id: actionId });
+        void utils.agentRun.listForAction.invalidate({ actionId });
+      }
       void utils.action.getAll.invalidate();
       void utils.action.getProjectActions.invalidate();
       void utils.action.getKanbanActions.invalidate();
@@ -145,33 +182,18 @@ export function AssignActionModal({
     },
   });
 
-  const assignableUsers = assignableData?.assignableUsers || [];
+  const assignableUsers: AssignableUser[] = assignableData?.assignableUsers ?? [];
 
-  // Create combined list including AI agents (simulated for now)
-  const allUsers: AssignableUser[] = [
-    ...assignableUsers,
-    // Add some AI agents for demo
-    {
-      id: "ai-assistant-1",
-      name: "AI Assistant",
-      email: "ai@company.com",
-      image: null,
-      isAIAgent: true,
-    },
-    {
-      id: "ai-reviewer-1", 
-      name: "AI Code Reviewer",
-      email: "reviewer@company.com",
-      image: null,
-      isAIAgent: true,
-    }
-  ];
-
-  // Filter users based on search term
-  const filteredUsers = allUsers.filter(user =>
-    user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filter users based on search term (an Assistant also matches its owner's
+  // name, and anyone matches the Positions they hold)
+  const needle = searchTerm.toLowerCase();
+  const filteredUsers = assignableUsers.filter(user =>
+    user.name?.toLowerCase().includes(needle) ||
+    user.email?.toLowerCase().includes(needle) ||
+    user.assistantOwner?.name?.toLowerCase().includes(needle) ||
+    user.positions.some((position) => position.title.toLowerCase().includes(needle))
   );
+  const groups = groupAssignableUsers(filteredUsers, viewerId);
 
   const handleUserToggle = (userId: string) => {
     const newSelected = new Set(selectedUserIds);
@@ -187,14 +209,13 @@ export function AssignActionModal({
     // Create mode: bubble selection to parent; assignment happens after the
     // action is persisted by the parent's create mutation.
     if (isCreateMode) {
-      const ids = Array.from(selectedUserIds).filter(id => !id.startsWith('ai-'));
-      onSelectionChange?.(ids);
+      onSelectionChange?.(Array.from(selectedUserIds));
       onClose();
       return;
     }
 
     const currentIds = new Set(currentAssignees.map(a => a.user.id));
-    const toAssign = Array.from(selectedUserIds).filter(id => !currentIds.has(id) && !id.startsWith('ai-'));
+    const toAssign = Array.from(selectedUserIds).filter(id => !currentIds.has(id));
     const toUnassign = Array.from(currentIds).filter(id => !selectedUserIds.has(id));
 
     try {
@@ -211,16 +232,6 @@ export function AssignActionModal({
         await assignMutation.mutateAsync({
           actionId,
           userIds: toAssign,
-        });
-      }
-
-      // Handle AI agents separately (for demo purposes)
-      const aiAgents = Array.from(selectedUserIds).filter(id => id.startsWith('ai-'));
-      if (aiAgents.length > 0) {
-        notifications.show({
-          title: "AI Assignment",
-          message: "AI agent assignments would be handled by the AI system",
-          color: "blue",
         });
       }
 
@@ -250,7 +261,7 @@ export function AssignActionModal({
         </div>
 
         <TextInput
-          placeholder="Search team members..."
+          placeholder="Search people and assistants..."
           leftSection={<IconSearch size={16} />}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.currentTarget.value)}
@@ -262,61 +273,87 @@ export function AssignActionModal({
               <Loader size="sm" />
             </Group>
           ) : (
-            <Stack gap="xs">
-              {filteredUsers.map((user) => (
-                <Group
-                  key={user.id}
-                  justify="space-between"
-                  p="sm"
-                  className="hover:bg-surface-hover rounded-md cursor-pointer"
-                  onClick={() => handleUserToggle(user.id)}
-                >
-                  <Group gap="sm">
-                    <Avatar
-                      size="md"
-                      src={user.image}
-                      radius="xl"
-                      styles={{
-                        root: {
-                          backgroundColor: !user.image ? 
-                            (user.isAIAgent ? 'var(--mantine-color-blue-6)' : getAvatarColor(getColorSeed(user.name, user.email))) : 
-                            undefined,
-                          color: !user.image ? 
-                            (user.isAIAgent ? 'white' : getTextColor(getAvatarColor(getColorSeed(user.name, user.email)))) : 
-                            undefined,
-                          fontWeight: !user.image ? 600 : undefined,
-                          fontSize: '14px',
-                        }
-                      }}
+            <Stack gap="xs" data-testid="assign-roster">
+              {groups.map((group) => (
+                <Stack key={group.key} gap={4} data-testid={`assign-group-${group.key}`}>
+                  <Text size="xs" fw={600} tt="uppercase" className="text-text-muted" px="sm" pt="xs">
+                    {group.label}
+                  </Text>
+                  {group.users.map((user) => (
+
+                    <Group
+                      key={user.id}
+                      justify="space-between"
+                      p="sm"
+                      className="hover:bg-surface-hover rounded-md cursor-pointer"
+                      onClick={() => handleUserToggle(user.id)}
                     >
-                      {user.isAIAgent ? (
-                        <IconRobot size={16} />
-                      ) : !user.image ? (
-                        getInitial(user.name, user.email)
-                      ) : null}
-                    </Avatar>
-                    <div>
-                      <Text size="sm" fw={500}>
-                        {user.name || user.email}
-                        {user.isAIAgent && (
-                          <Badge size="xs" variant="light" color="blue" ml="xs">
-                            AI
-                          </Badge>
-                        )}
-                      </Text>
-                      {user.name && user.email && (
-                        <Text size="xs" c="dimmed">
-                          {user.email}
-                        </Text>
-                      )}
-                    </div>
-                  </Group>
-                  <Checkbox
-                    checked={selectedUserIds.has(user.id)}
-                    onChange={() => handleUserToggle(user.id)}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </Group>
+                      <Group gap="sm">
+                        <Avatar
+                          size="md"
+                          src={user.image}
+                          radius="xl"
+                          styles={{
+                            root: {
+                              backgroundColor: !user.image ? 
+                                (user.isAgent ? 'var(--color-brand-primary)' : getAvatarColor(getColorSeed(user.name, user.email))) : 
+                                undefined,
+                              color: !user.image ? 
+                                (user.isAgent ? 'var(--color-text-inverse)' : getTextColor(getAvatarColor(getColorSeed(user.name, user.email)))) : 
+                                undefined,
+                              fontWeight: !user.image ? 600 : undefined,
+                              fontSize: '14px',
+                            }
+                          }}
+                        >
+                          {user.isAgent && !user.image ? (
+                            user.assistantOwner?.emoji ? (
+                              <span aria-hidden>{user.assistantOwner.emoji}</span>
+                            ) : (
+                              <IconRobot size={16} />
+                            )
+                          ) : !user.image ? (
+                            getInitial(user.name, user.email)
+                          ) : null}
+                        </Avatar>
+                        <div>
+                          <Text size="sm" fw={500}>
+                            {user.name || user.email}
+                            {user.isAgent && (
+                              <Badge size="xs" variant="light" color="blue" ml="xs">
+                                {user.assistantOwner ? "Assistant" : "Agent"}
+                              </Badge>
+                            )}
+                          </Text>
+                          {user.isAgent ? (
+                            <Text size="xs" c="dimmed">
+                              {agentSubtitle(user, viewerId)}
+                            </Text>
+                          ) : user.name && user.email ? (
+                            <Text size="xs" c="dimmed">
+                              {user.email}
+                            </Text>
+                          ) : null}
+                          {user.positions.length > 0 && (
+                            <Text size="xs" className="text-text-muted" data-testid="assign-positions">
+                              {user.positions.map((position) => position.title).join(" · ")}
+                            </Text>
+                          )}
+                        </div>
+                      </Group>
+                      <Checkbox
+                        checked={selectedUserIds.has(user.id)}
+                        onChange={() => handleUserToggle(user.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </Group>
+                  ))}
+                  {group.key === "own" && (
+                    <Text size="xs" className="text-text-muted" px="sm" pb="xs">
+                      Assigning an action to your assistant hands it the work: it researches, delegates, or does it inside Exponential and asks you when stuck.
+                    </Text>
+                  )}
+                </Stack>
               ))}
 
               {filteredUsers.length === 0 && (

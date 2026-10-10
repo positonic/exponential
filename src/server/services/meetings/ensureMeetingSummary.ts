@@ -53,9 +53,7 @@ export type EnsureMeetingSummaryStatus =
   /** Summarization isn't configured (missing OPENAI_API_KEY). */
   | "not-configured"
   /** The model call failed (billing, rate limit, timeout, bad output). */
-  | "failed"
-  /** The meeting row could not be found. */
-  | "not-found";
+  | "failed";
 
 export interface EnsureMeetingSummaryResult {
   status: EnsureMeetingSummaryStatus;
@@ -77,12 +75,14 @@ export interface SummarizeMeetingOptions {
   overwriteExisting?: boolean;
   /**
    * Run post-summary decision extraction (Decisions V2, ADR-0060) once the
-   * first summary lands. Off by default and deliberately NOT set by the cron
-   * sweep: that path summarises up to 10 meetings in one 300s function, and
-   * chaining a chunked extraction onto each would blow the budget — while
-   * the sweep's `summary: null` selector means a meeting summarised just
-   * before the kill is never revisited, so the extraction would be lost
-   * silently and for good. Single-meeting callers may opt in.
+   * first summary lands. Off by default so a bare call stays a pure
+   * summarize; both production callers (the sweep and the manual
+   * `generateSummary` mutation) set it, and the workspace gate inside
+   * decides whether anything actually runs. It only ever fires on the
+   * null → summary transition, so a re-summarize with `overwriteExisting`
+   * never re-extracts. If the sweep's 300s budget kills a run mid-extraction
+   * the summary is already persisted and the drafts are recoverable from
+   * the summary tab's "Extract decisions" chip.
    */
   extractDecisions?: boolean;
 }
@@ -214,38 +214,4 @@ export async function summarizeMeetingRow(
   }
 
   return { status: "created", summary: summaryJson, eventEmitted };
-}
-
-/**
- * Fetch a meeting by id and ensure it has a summary. The by-id wrapper for
- * single-meeting callers (the manual mutation, the on-view detail trigger).
- * Returns `not-found` when the id doesn't resolve.
- *
- * Decision extraction defaults ON here and OFF in the batch sweep: this path
- * handles one meeting with a person waiting, so a partial failure is visible
- * and re-triggerable from the summary tab's "Extract decisions" chip.
- */
-export async function ensureMeetingSummary(
-  db: PrismaClient,
-  meetingId: string,
-  options: SummarizeMeetingOptions = {},
-): Promise<EnsureMeetingSummaryResult> {
-  const meeting = await db.transcriptionSession.findUnique({
-    where: { id: meetingId },
-    select: {
-      id: true,
-      title: true,
-      transcription: true,
-      summary: true,
-      workspaceId: true,
-      userId: true,
-      occurrenceId: true,
-    },
-  });
-
-  if (!meeting) {
-    return { status: "not-found", eventEmitted: false };
-  }
-
-  return summarizeMeetingRow(db, meeting, { extractDecisions: true, ...options });
 }

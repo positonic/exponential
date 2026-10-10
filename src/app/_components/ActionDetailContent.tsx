@@ -8,6 +8,7 @@ import {
   Textarea,
   Select,
   Badge,
+  Loader,
   Group,
   Stack,
   ActionIcon,
@@ -45,6 +46,7 @@ import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 import { useActionActivity } from "~/hooks/useActionActivity";
 import { useWorkspaceMentionCandidates } from "~/hooks/useWorkspaceMentionCandidates";
 import { AssignActionModal } from "./AssignActionModal";
+import { AgentRunPill } from "./actions/AgentRunPill";
 import { DeadlinePicker } from "./DeadlinePicker";
 import { UnifiedDatePicker } from "./UnifiedDatePicker";
 import { TagSelector } from "./TagSelector";
@@ -308,9 +310,16 @@ export function ActionDetailContent({
           </Breadcrumbs>
         </Group>
 
-        {/* Status Badge */}
+        {/* Status Badge — a spinning ring while an Assistant's run is live (ADR-0067) */}
         <Group mb="md">
-          {action.kanbanStatus && (
+          {action.activeRun ? (
+            <Group gap={6} data-testid="action-running-ring">
+              <Loader size={14} />
+              <Text size="xs" className="text-text-secondary">
+                {action.activeRun.agent.name} is working
+              </Text>
+            </Group>
+          ) : action.kanbanStatus && (
             <Badge color={statusColor} variant="light" size="sm">
               {KANBAN_STATUS_OPTIONS.find(
                 (s) => s.value === action.kanbanStatus,
@@ -435,6 +444,9 @@ export function ActionDetailContent({
         )}
 
         <Divider className="border-border-primary" mb="lg" />
+
+        {/* Agent run (ADR-0067): what the assigned Assistant is doing or did */}
+        <AgentRunPill actionId={actionId} activeRunId={action.activeRun?.id ?? null} />
 
         {/* Activity / Discussion */}
         <div>

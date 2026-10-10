@@ -4,7 +4,7 @@ description: Connect third-party AI agents to Exponential as first-class team me
 icon: IconRobotFace
 order: 2
 sidebarTitle: External agents
-updated: 2026-09-28
+updated: 2026-10-10
 ---
 
 External agents let you connect autonomous AI software — [Hermes Agent](https://hermes-agent.nousresearch.com/), MCP clients, custom scripts, anything that can send an HTTP request — to Exponential **as its own identity**, not as you. When your agent creates an action, the action says the *agent* created it, and the workspace's activity feed and members list show it with an **agent** badge. This is different from Zoe, who works *with* you in a conversation and acts as you with your confirmation.
@@ -66,6 +66,9 @@ Agents are personal — each belongs to the user who created it, and its access 
 
 **Does this replace API tokens?**
 No. [API tokens](/docs/developers/api-tokens) act as you and are right for webhooks and personal automation. Use an external agent when software should have its own identity and audit trail.
+
+**I assigned an action to my external agent — does Exponential run it?**
+No. An external agent is software you run; it polls for the actions assigned to it (`exponential actions list` with its key) and works them itself, commenting and changing status as it goes. Exponential starts a hosted run only when you assign your built-in [assistant](/docs/zoe/assistant-runs), which has no software of its own. The two never overlap: the same assignment is either yours to pick up or the assistant's to run.
 
 **How do I see what an agent did?**
 Actions it created list the agent as creator, and the workspace activity feed shows its entries with an **agent** chip.

@@ -50,6 +50,10 @@ import {
   VOICE_TOOL_CATALOG,
   VOICE_ROUTER_INSTRUCTIONS,
 } from "~/lib/voice/voiceToolCatalog";
+import {
+  toActionsTaken,
+  VOICE_EVENT_LOG_CAPACITY,
+} from "~/lib/voice/voiceEventLog";
 
 /** The session entry-intent (ADR 0001 "mode"). */
 const modeSchema = z.enum(["capture", "daily-brief"]).optional();
@@ -364,6 +368,13 @@ export const voiceRouter = createTRPCRouter({
    * to the decoupled Realtime transcript events. Coarse-tool turns run no agent,
    * so for them this is the SOLE writer and must stay. Revisit if recall
    * degrades. See ADR-0006 and brainPassthrough.askExponential.
+   *
+   * Every assistant turn is logged to AiInteractionHistory, paired or not. A
+   * continuation — zoe speaking again after a tool result with no new user
+   * utterance in between — is the normal shape of a tool-backed answer, and
+   * dropping it (as the old `userMessage` gate did) lost exactly the turns the
+   * event log is there to explain. Such a row has an empty `userMessage`; the
+   * history views render only its assistant bubble.
    */
   persistTurn: publicProcedure
     .input(
@@ -377,6 +388,25 @@ export const voiceRouter = createTRPCRouter({
         // to Mastra memory and the turn stays invisible to metrics + rating.
         userMessage: z.string().optional(),
         responseTime: z.number().int().nonnegative().optional(),
+        // The Realtime events since the previous assistant turn (tool calls and
+        // their latency, response ids, deferral decisions), from the client's
+        // voiceEventLog. Stored as `actionsTaken` so an incident like
+        // "zoe fabricated, then corrected herself" is reconstructible.
+        events: z
+          .array(
+            z.object({
+              t: z.number().int().nonnegative(),
+              type: z.string().max(64),
+              detail: z
+                .record(
+                  z.string().max(64),
+                  z.union([z.string().max(512), z.number(), z.boolean(), z.null()]),
+                )
+                .optional(),
+            }),
+          )
+          .max(VOICE_EVENT_LOG_CAPACITY)
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -410,16 +440,27 @@ export const voiceRouter = createTRPCRouter({
         throw err;
       }
 
-      // Log the completed exchange to AiInteractionHistory so voice turns appear
-      // in metrics and can carry a rateable interactionId. Best-effort: a logging
-      // failure must never break the live voice session, so we swallow errors.
+      // Log the spoken assistant turn to AiInteractionHistory so voice turns
+      // appear in metrics and can carry a rateable interactionId. Best-effort: a
+      // logging failure must never break the live voice session, so we swallow
+      // errors.
       let interactionId: string | undefined;
-      if (input.role === "assistant" && input.userMessage?.trim()) {
+      if (input.role === "assistant") {
+        const events = input.events ?? [];
+        const toolsUsed = Array.from(
+          new Set(
+            events
+              .filter((e) => e.type === "tool.called")
+              .map((e) => e.detail?.name)
+              .filter((n): n is string => typeof n === "string"),
+          ),
+        );
         try {
           interactionId = await getAiInteractionLogger(ctx.db).logInteraction({
             platform: "voice",
             systemUserId: userId,
-            userMessage: input.userMessage,
+            // Empty for a continuation turn (see the procedure doc above).
+            userMessage: input.userMessage?.trim() ?? "",
             aiResponse: input.text,
             agentName: "Zoe",
             model: "openai-realtime",
@@ -429,6 +470,8 @@ export const voiceRouter = createTRPCRouter({
             ...(input.responseTime !== undefined
               ? { responseTime: input.responseTime }
               : {}),
+            ...(events.length ? { actionsTaken: toActionsTaken(events) } : {}),
+            ...(toolsUsed.length ? { toolsUsed } : {}),
             messageType: "voice",
           });
         } catch (err) {

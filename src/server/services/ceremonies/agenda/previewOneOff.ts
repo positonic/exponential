@@ -81,6 +81,7 @@ export async function previewOneOffAgenda(
     agendaTemplate: [],
     // Matches the booking: a one-off carries only its ticked sections.
     includeProjects: false,
+    autoExtractOutputs: false,
     matrixRoomId: null,
     isActive: true,
     isOneOff: true,

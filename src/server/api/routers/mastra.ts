@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
+import { requireLiveRunForCaller } from "~/server/services/agentRuns/callbacks";
+import { appendRunEvent } from "~/server/services/agentRuns/events";
+import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { createActionComment } from "~/server/services/actions/comments";
+import { assertAssignableUsers } from "~/server/services/actions/containment";
+import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
+import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -921,6 +929,254 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Get all user goals across all projects
+  // ─── Agent run callbacks (ADR-0067, Agent PRD D5) ──────────────────────────
+  // Called by the `assistantRunAgent` run tools with the run JWT. The run is
+  // the token's `runId` claim (ctx.agentRunId); the app writes the run state.
+
+  /**
+   * finish-run: the run's public summary and whether the action is ready for
+   * the owner to close. Status is finalised by the dispatcher once the Mastra
+   * call returns, so a late or duplicate call cannot flip a cancelled run.
+   */
+  finishRun: protectedProcedure
+    .input(z.object({ summary: z.string().min(1), readyToClose: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await ctx.db.agentRun.update({
+        where: { id: run.id },
+        data: {
+          summary: input.summary,
+          readyToClose: input.readyToClose,
+          lastEventAt: new Date(),
+        },
+      });
+      return { finished: true as const };
+    }),
+
+  /**
+   * get-run-context: the brief, assignees, members (for delegation), recent
+   * comments, the owner, and — on a resume — the predecessor's summary and the
+   * owner's reply. A pure read.
+   */
+  getRunContext: protectedProcedure.query(async ({ ctx }) => {
+    const run = await requireLiveRunForCaller(ctx.db, {
+      agentRunId: ctx.agentRunId,
+      tokenType: ctx.tokenType,
+      userId: ctx.session.user.id,
+    });
+    const [action, full, owner] = await Promise.all([
+      ctx.db.action.findUniqueOrThrow({
+        where: { id: run.actionId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          workspaceId: true,
+          projectId: true,
+          project: { select: { id: true, name: true, workspaceId: true } },
+          assignees: { select: { user: { select: { id: true, name: true, isAgent: true } } } },
+          comments: {
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            select: { id: true, content: true, createdAt: true, author: { select: { name: true } } },
+          },
+        },
+      }),
+      ctx.db.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { wakeCommentId: true, predecessor: { select: { summary: true } } },
+      }),
+      ctx.db.user.findUniqueOrThrow({ where: { id: run.agent.ownerId }, select: { id: true, name: true } }),
+    ]);
+
+    // Members the run may delegate to: the project's members, else the
+    // action's workspace members — the same set the Assign modal offers.
+    const memberRows = action.projectId
+      ? (await ctx.db.projectMember.findMany({
+          where: { projectId: action.projectId },
+          select: { user: { select: ASSIGNABLE_USER_SELECT } },
+        })).map((m) => m.user)
+      : action.workspaceId
+        ? (await ctx.db.workspaceUser.findMany({
+            where: { workspaceId: action.workspaceId },
+            select: { user: { select: ASSIGNABLE_USER_SELECT } },
+          })).map((m) => m.user)
+        : [];
+    // Positions join these members in V2 (Agent PRD D8.4); until then the
+    // mapping runs without a workspace lookup.
+    const members = memberRows.map((row) => toAssignableUser(row)).map((u) => ({
+      id: u.id,
+      name: u.name,
+      isAgent: u.isAgent,
+      assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
+    }));
+
+    const wakeComment = full.wakeCommentId
+      ? await ctx.db.actionComment.findUnique({ where: { id: full.wakeCommentId }, select: { content: true } })
+      : null;
+
+    // A query (GET, retryable) writes nothing: the read is not logged as an
+    // event; tool counts are reconciled from Mastra's steps by the dispatcher.
+
+    return {
+      action: {
+        id: action.id,
+        name: action.name,
+        description: action.description,
+        status: action.status,
+        priority: action.priority,
+        dueDate: action.dueDate ? action.dueDate.toISOString() : null,
+        project: action.project ? { id: action.project.id, name: action.project.name } : null,
+        workspaceId: action.workspaceId ?? action.project?.workspaceId ?? null,
+      },
+      assignees: action.assignees.map((a) => ({ id: a.user.id, name: a.user.name, isAgent: a.user.isAgent })),
+      members,
+      comments: action.comments.reverse().map((c) => ({
+        id: c.id,
+        authorName: c.author.name,
+        markdown: c.content,
+        createdAt: c.createdAt.toISOString(),
+      })),
+      owner,
+      predecessor: full.predecessor
+        ? { summary: full.predecessor.summary, wakeComment: wakeComment?.content ?? null }
+        : null,
+    };
+  }),
+
+  /** report-progress: a transcript line, owner-visible only, nobody notified. */
+  reportProgress: protectedProcedure
+    .input(z.object({ text: z.string().min(1).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await appendRunEvent(ctx.db, { runId: run.id, kind: "text", payload: { text: input.text } });
+      return { ok: true as const };
+    }),
+
+  /** comment-on-action: a real comment, authored by the Assistant's shadow user. */
+  commentOnAction: protectedProcedure
+    .input(z.object({ markdown: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: input.markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "comment-on-action", commentId: comment.id, snippet: input.markdown.slice(0, 200) },
+      });
+      return { commentId: comment.id };
+    }),
+
+  /**
+   * reassign-action: add a person or another Assistant as an assignee, under
+   * the same containment rule as the human Assign modal. Another Assistant
+   * gets its own run (requestedById null — an agent reassigned).
+   */
+  reassignAction: protectedProcedure
+    .input(z.object({ userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const action = await ctx.db.action.findUniqueOrThrow({
+        where: { id: run.actionId },
+        select: { projectId: true, teamId: true, workspaceId: true },
+      });
+      // Delegation (ADR-0049/0067): the Assistant may assign exactly whom its
+      // owner could, so the containment check runs as the owner, not as the
+      // shadow user, whose own memberships are a subset granted for this job.
+      await assertAssignableUsers(ctx.db, run.agent.ownerId, action, [input.userId]);
+      await ctx.db.actionAssignee.createMany({
+        data: [{ actionId: run.actionId, userId: input.userId }],
+        skipDuplicates: true,
+      });
+      const target = await ctx.db.user.findUniqueOrThrow({
+        where: { id: input.userId },
+        select: { id: true, name: true, isAgent: true },
+      });
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: run.actionId,
+        userIds: [input.userId],
+        requestedById: null,
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "reassign-action", userId: target.id, name: target.name, isAgent: target.isAgent },
+      });
+      return { assigned: target };
+    }),
+
+  /**
+   * ask-owner: a comment mentioning the owner (so it lands as a Mention under
+   * Waiting on me) and the run moves to WAITING_ON_OWNER — terminal for this
+   * row; the owner's reply on the action starts a resume run (D6). The tool
+   * returns a stop instruction the prompt tells the agent to honour; the
+   * dispatcher sees the status when the Mastra call returns and records the
+   * wall-clock without finishing.
+   */
+  askOwner: protectedProcedure
+    .input(z.object({ question: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const owner = await ctx.db.user.findUniqueOrThrow({
+        where: { id: run.agent.ownerId },
+        select: { id: true, name: true },
+      });
+      // The mention parser reads `@[Name](id)`; brackets or parens in a display
+      // name would break it, so they are stripped from the label only.
+      const label = (owner.name ?? "Owner").replace(/[[\]()]/g, "").trim() || "Owner";
+      const markdown = `@[${label}](${owner.id}) ${input.question}`;
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question.slice(0, 200) },
+      });
+      // Guard on RUNNING so a cancel that landed meanwhile wins.
+      await ctx.db.agentRun.updateMany({
+        where: { id: run.id, status: "RUNNING" },
+        data: { status: "WAITING_ON_OWNER", lastEventAt: new Date() },
+      });
+      return {
+        stop: true as const,
+        status: "WAITING_ON_OWNER" as const,
+        commentId: comment.id,
+      };
+    }),
+
   getAllGoals: protectedProcedure
     .query(async ({ ctx }) => {
       console.log('🎯 [MASTRA DEBUG] getAllGoals called');
@@ -1441,8 +1697,9 @@ export const mastraRouter = createTRPCRouter({
         const searchResults = await knowledgeService.search(input.query, {
           workspaceId: input.workspaceId,
           userId,
-          // Own chunks are own pages today; keep page access explicit anyway.
+          // Own chunks are own pages/meetings today; keep access explicit anyway.
           pageViewerId: userId,
+          transcriptionViewerId: userId,
           projectId: input.projectId,
           sourceTypes: input.sourceTypes,
           limit: input.topK,
@@ -2093,126 +2350,6 @@ export const mastraRouter = createTRPCRouter({
         baseUrl,
         isProduction: baseUrl.includes('vercel.app') || !baseUrl.includes('localhost'),
       };
-    }),
-
-  // AI Next Best Step - Get a gentle suggestion for what to focus on
-  getNextBestStep: protectedProcedure
-    .input(
-      z.object({
-        context: z.object({
-          pendingActionsCount: z.number(),
-          overdueActionsCount: z.number(),
-          calendarEventsCount: z.number(),
-          completedHabitsCount: z.number(),
-          totalHabitsCount: z.number(),
-          staleProjectIds: z.array(z.string()),
-          dayOfWeek: z.string(),
-          isMonday: z.boolean(),
-          isSunday: z.boolean(),
-        }),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const { context } = input;
-
-      // Build a gentle, non-judgmental prompt
-      const promptParts = [
-        `You are a supportive productivity assistant. Based on today's context (${context.dayOfWeek}), suggest ONE gentle, optional action that might help the user feel successful today.`,
-        "",
-        "Today's context:",
-        `- ${context.pendingActionsCount} action${context.pendingActionsCount !== 1 ? "s" : ""} scheduled for today`,
-        context.overdueActionsCount > 0
-          ? `- ${context.overdueActionsCount} action${context.overdueActionsCount !== 1 ? "s" : ""} from earlier days (no judgment - just information)`
-          : null,
-        `- ${context.calendarEventsCount} calendar event${context.calendarEventsCount !== 1 ? "s" : ""} today`,
-        `- Habits: ${context.completedHabitsCount}/${context.totalHabitsCount} completed`,
-        context.staleProjectIds.length > 0
-          ? `- ${context.staleProjectIds.length} project${context.staleProjectIds.length !== 1 ? "s" : ""} haven't had recent activity`
-          : null,
-        context.isMonday ? "- It's Monday - start of a fresh week" : null,
-        context.isSunday ? "- It's Sunday - a good day for reflection or light planning" : null,
-        "",
-        "Guidelines for your response:",
-        "- Keep it to 1-2 sentences maximum",
-        "- Use warm, supportive language",
-        "- Focus on what might feel good to accomplish, not what 'should' be done",
-        "- Never use guilt, pressure, or 'should have' language",
-        "- If the day looks clear, suggest something restorative or intentional",
-        "- Make the suggestion feel optional, not urgent",
-      ].filter(Boolean);
-
-      const prompt = promptParts.join("\n");
-
-      try {
-        // Generate JWT for agent authentication
-        const agentJWT = generateAgentJWT(ctx.session.user, 30);
-
-        // Call the ash agent for a gentle suggestion
-        const res = await fetch(
-          `${MASTRA_API_URL}/api/agents/ashAgent/generate`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...mastraAuthHeaders(agentJWT) },
-            body: JSON.stringify({
-              messages: [{ role: "user", content: prompt }],
-              requestContext: {
-                authToken: agentJWT,
-                userId: ctx.session.user.id,
-                userEmail: ctx.session.user.email,
-                todoAppBaseUrl:
-                  process.env.TODO_APP_BASE_URL ??
-                  process.env.NEXTAUTH_URL ??
-                  "http://localhost:3000",
-              },
-            }),
-          }
-        );
-
-        const text = await res.text();
-
-        if (!res.ok) {
-          console.error(
-            `[getNextBestStep] Mastra generate failed with status ${res.status}: ${text}`
-          );
-          // Return a fallback suggestion instead of throwing
-          return {
-            suggestion: getFallbackSuggestion(context),
-            source: "fallback",
-          };
-        }
-
-        try {
-          const responseData = JSON.parse(text);
-          const suggestion =
-            responseData.text ??
-            responseData.content ??
-            (typeof responseData === "string" ? responseData : null);
-
-          if (suggestion) {
-            return { suggestion, source: "ai" };
-          }
-
-          return {
-            suggestion: getFallbackSuggestion(context),
-            source: "fallback",
-          };
-        } catch {
-          // If response is plain text
-          if (text && text.length < 500) {
-            return { suggestion: text, source: "ai" };
-          }
-          return {
-            suggestion: getFallbackSuggestion(context),
-            source: "fallback",
-          };
-        }
-      } catch (error) {
-        console.error("[getNextBestStep] Error calling Mastra:", error);
-        return {
-          suggestion: getFallbackSuggestion(context),
-          source: "fallback",
-        };
-      }
     }),
 
   // Calendar Endpoints for Mastra agents
@@ -4979,46 +5116,6 @@ export const mastraRouter = createTRPCRouter({
       return { removed: result.count > 0 };
     }),
 });
-
-// Helper function for fallback AI suggestions
-function getFallbackSuggestion(context: {
-  pendingActionsCount: number;
-  overdueActionsCount: number;
-  calendarEventsCount: number;
-  completedHabitsCount: number;
-  totalHabitsCount: number;
-  staleProjectIds: string[];
-  isMonday: boolean;
-  isSunday: boolean;
-}): string {
-  // Provide contextual fallback suggestions when AI is unavailable
-  if (context.pendingActionsCount === 0 && context.calendarEventsCount === 0) {
-    return "Your day looks open. This might be a good time for something restorative or a project you've been curious about.";
-  }
-
-  if (context.isSunday) {
-    return "Sundays can be great for light reflection. What went well this week that you'd like to continue?";
-  }
-
-  if (context.pendingActionsCount > 0) {
-    return "You have some actions lined up for today. Starting with the one that feels most approachable can build nice momentum.";
-  }
-
-  // Ordered AFTER the actions branch deliberately. This used to be gated on
-  // `isMonday && weeklyOutcomesCount === 0` — "it's Monday and you haven't
-  // planned the week yet". Outcomes are gone, so that signal is too; keeping
-  // the branch above would fire on every Monday and swallow the more specific
-  // suggestions below it. A loaded Monday now gets the actions nudge instead.
-  if (context.isMonday) {
-    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
-  }
-
-  if (context.completedHabitsCount < context.totalHabitsCount) {
-    return "You're making progress on your habits. Keep going at your own pace.";
-  }
-
-  return "Take a moment to appreciate what you've already accomplished. Small wins matter.";
-}
 
 // Helper functions for meeting insights extraction
 function determineContextType(content: string): 'decision' | 'action_item' | 'deadline' | 'blocker' | 'discussion' | 'update' {

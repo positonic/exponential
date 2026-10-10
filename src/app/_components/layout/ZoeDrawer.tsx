@@ -195,8 +195,10 @@ export function ZoeDrawer() {
   );
   useEffect(() => {
     if (conversationHistory && loadingConversationId) {
+      // A voice continuation (zoe speaking again after a tool result) is logged
+      // with an empty userMessage — render only the assistant bubble for it.
       const msgs: ChatMessage[] = conversationHistory.flatMap((h) => [
-        { type: "human" as const, content: h.userMessage },
+        ...(h.userMessage ? [{ type: "human" as const, content: h.userMessage }] : []),
         { type: "ai" as const, content: h.aiResponse, agentName: h.agentName ?? undefined },
       ]);
       loadConversation(loadingConversationId, msgs);

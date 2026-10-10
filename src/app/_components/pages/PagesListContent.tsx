@@ -30,6 +30,7 @@ import {
   IconFilter,
   IconFolder,
   IconLetterCase,
+  IconPencil,
   IconPlus,
   IconSearch,
   IconStar,
@@ -50,6 +51,7 @@ import {
   type FilterField,
   type FilterState,
 } from '~/types/filter';
+import { PageDetailsModal } from './PageDetailsModal';
 import styles from './PagesList.module.css';
 
 interface PagesListContentProps {
@@ -118,6 +120,7 @@ export function PagesListContent({
   const [filters, setFilters] = useState<FilterState>({});
   const [filterRowOpen, setFilterRowOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PageRow | null>(null);
+  const [editing, setEditing] = useState<PageRow | null>(null);
 
   usePageSearchHotkey(searchRef);
 
@@ -518,6 +521,12 @@ export function PagesListContent({
                       {!readOnly && (
                         <>
                           <Menu.Item
+                            leftSection={<IconPencil size={14} />}
+                            onClick={() => setEditing(page)}
+                          >
+                            Edit details…
+                          </Menu.Item>
+                          <Menu.Item
                             leftSection={<IconCopy size={14} />}
                             disabled={duplicatePage.isPending}
                             onClick={() => duplicatePage.mutate({ id: page.id })}
@@ -551,6 +560,12 @@ export function PagesListContent({
           })
         )}
       </div>
+
+      <PageDetailsModal
+        page={editing ? { ...editing, workspaceId } : null}
+        workspaceSlug={workspaceSlug}
+        onClose={() => setEditing(null)}
+      />
 
       <Modal
         opened={pendingDelete !== null}

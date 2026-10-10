@@ -16,6 +16,10 @@ import { defineConfig, devices } from "@playwright/test";
 // that checkout's server instead of this one.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 
+// Shared with e2e/fixture-data.ts (kept literal there — specs do not import the config).
+const E2E_MASTRA_STUB_URL = "http://127.0.0.1:4199";
+const E2E_CRON_SECRET = "e2e-cron-secret";
+
 export default defineConfig({
   testDir: "./e2e",
   // e2e/perf/ has its own config (production build, one worker).
@@ -46,6 +50,14 @@ export default defineConfig({
     // every send whatever the key source (env or a workspace integration).
     // It only reaches a server Playwright starts — a reused one must be
     // started with EMAIL_DELIVERY_DISABLED=1 (AGENT_VISUAL_TESTING.md).
-    env: { EMAIL_DELIVERY_DISABLED: "1" },
+    env: {
+      EMAIL_DELIVERY_DISABLED: "1",
+      // Agent runs (ADR-0067) never reach a real Mastra from a spec: the
+      // assign-to-assistant spec runs a stub on this port, and any other
+      // spec that trips a run just fails the dispatch quietly. The cron
+      // secret is fixed so a spec can kick the dispatcher deterministically.
+      MASTRA_API_URL: E2E_MASTRA_STUB_URL,
+      CRON_SECRET: E2E_CRON_SECRET,
+    },
   },
 });

@@ -8,7 +8,10 @@ import {
   Group,
   Avatar,
   Text,
+  Anchor,
 } from "@mantine/core";
+import Link from "next/link";
+import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { notifications } from "@mantine/notifications";
 import { IconDeviceFloppy } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -22,6 +25,9 @@ interface EditMemberRoleModalMember {
   email: string | null;
   image: string | null;
   role: string;
+  isAgent?: boolean;
+  /** The agent's own description — global to the agent, not per workspace. */
+  agentDescription?: string | null;
 }
 
 interface EditMemberRoleModalProps {
@@ -117,6 +123,29 @@ export function EditMemberRoleModal({
                 )}
               </Stack>
             </Group>
+          )}
+
+          {member?.isAgent && (
+            <Stack gap={4}>
+              <Text size="sm" fw={500} className="text-text-secondary">
+                Agent description
+              </Text>
+              {member.agentDescription ? (
+                <div className="max-h-48 overflow-y-auto rounded border border-border-primary bg-surface-primary px-3 py-2">
+                  <MarkdownRenderer content={member.agentDescription} variant="compact" />
+                </div>
+              ) : (
+                <Text size="sm" className="text-text-muted">
+                  No description yet.
+                </Text>
+              )}
+              <Text size="xs" className="text-text-muted">
+                Shared across every workspace this agent belongs to.{" "}
+                <Anchor component={Link} href="/settings/agents" size="xs">
+                  Edit on the Agents page
+                </Anchor>
+              </Text>
+            </Stack>
           )}
 
           <Select

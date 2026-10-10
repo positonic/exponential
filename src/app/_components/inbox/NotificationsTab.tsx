@@ -21,6 +21,7 @@ import {
   IconMicrophone,
   IconNews,
   IconSparkles,
+  IconRobot,
   IconUserCheck,
   type Icon,
 } from '@tabler/icons-react';
@@ -48,6 +49,7 @@ const CATEGORY_DISPLAY: Record<NotificationCategory, { label: string; icon: Icon
   [NOTIFICATION_CATEGORIES.SUMMARY]: { label: 'Summaries', icon: IconNews },
   [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { label: 'Updates to review', icon: IconSparkles },
   [NOTIFICATION_CATEGORIES.PAGE_SHARED]: { label: 'Shared pages', icon: IconFileText },
+  [NOTIFICATION_CATEGORIES.AGENT_RUN]: { label: 'Assistant runs', icon: IconRobot },
 };
 
 const CATEGORY_OPTIONS = [

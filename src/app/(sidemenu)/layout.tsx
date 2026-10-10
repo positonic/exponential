@@ -1,14 +1,7 @@
 import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
-import { Inter } from 'next/font/google';
-
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['700', '800', '900'],
-  display: 'swap',
-  variable: '--font-inter',
-});
+import { inter } from '~/lib/fonts';
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import '@mantine/core/styles.css';

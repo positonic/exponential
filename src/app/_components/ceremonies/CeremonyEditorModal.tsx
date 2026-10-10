@@ -69,6 +69,8 @@ interface FormState {
   agendaTemplate: AgendaSectionTemplate[];
   /** Append the linked-projects section to every generated agenda. */
   includeProjects: boolean;
+  /** Run "Extract outputs" on every recording that attaches to an occurrence. */
+  autoExtractOutputs: boolean;
   isActive: boolean;
   matrixRoomId: string | null;
 }
@@ -108,6 +110,7 @@ function emptyForm(): FormState {
     projectIds: [],
     agendaTemplate: [],
     includeProjects: true,
+    autoExtractOutputs: false,
     isActive: true,
     matrixRoomId: null,
   };
@@ -170,6 +173,7 @@ function fromCeremony(c: CeremonyDetail): FormState {
     projectIds: c.projects.map((p) => p.projectId),
     agendaTemplate: readAgendaTemplate(c.agendaTemplate),
     includeProjects: c.includeProjects,
+    autoExtractOutputs: c.autoExtractOutputs,
     isActive: c.isActive,
     matrixRoomId: c.matrixRoomId,
   };
@@ -323,6 +327,7 @@ export function CeremonyEditorModal({
       projectIds: form.projectIds,
       agendaTemplate: form.agendaTemplate,
       includeProjects: form.includeProjects,
+      autoExtractOutputs: form.autoExtractOutputs,
       matrixRoomId: form.matrixRoomId,
     };
     if (ceremonyId) update.mutate({ ...payload, id: ceremonyId, isActive: form.isActive });
@@ -486,6 +491,13 @@ export function CeremonyEditorModal({
             checked={form.includeProjects}
             onChange={(e) => set("includeProjects", e.currentTarget.checked)}
             data-testid="ceremony-include-projects"
+          />
+          <Switch
+            label="Extract outputs automatically"
+            description="Every recording that attaches to one of this ceremony's occurrences gets its actions, decisions and open questions drafted within about half an hour of landing, as if someone had pressed Extract outputs on the meeting page. Drafts still need a person to review them."
+            checked={form.autoExtractOutputs}
+            onChange={(e) => set("autoExtractOutputs", e.currentTarget.checked)}
+            data-testid="ceremony-auto-extract-outputs"
           />
 
           {matrixServers.length > 1 && (

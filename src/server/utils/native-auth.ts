@@ -52,6 +52,15 @@ export const TAURI_REDIRECT_URI = "exponential-beta://auth/callback";
 export const VOICE_REDIRECT_URI = "exponential-voice://auth/callback";
 
 /**
+ * Syntrofi's self-hosted LiveKit Meet (talk.syntro.fi). Its "Connect
+ * Exponential" button runs this same PKCE flow in a popup so a meeting can be
+ * filed into a workspace / project / ceremony the signed-in person can see.
+ * Unlike the custom schemes above this is an https URL, so the code lands on a
+ * server — PKCE still binds it to the verifier Meet holds in its own cookie.
+ */
+export const MEET_REDIRECT_URI = "https://talk.syntro.fi/api/exponential/callback";
+
+/**
  * Every redirect target we will ever emit. Deliberately a closed set of exact
  * strings: `mintAuthCode` binds the chosen URI into the signed code and the
  * redeem path re-validates it, so this predicate is the only thing standing
@@ -61,6 +70,7 @@ export const ALLOWED_REDIRECT_URIS: readonly string[] = [
   NATIVE_REDIRECT_URI,
   TAURI_REDIRECT_URI,
   VOICE_REDIRECT_URI,
+  MEET_REDIRECT_URI,
 ];
 
 /** Signed, httpOnly cookie carrying the PKCE request across the NextAuth login bounce. */

@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { blankToNull } from "~/server/utils/blankToNull";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
+import { deleteExternalAgentPrincipal } from "~/server/services/assistant/principal";
 
 /**
  * External-agent management (ADR-0049).
@@ -33,7 +35,10 @@ async function requireOwnedAgent(
 ) {
   const agent = await db.externalAgent.findFirst({
     where: { id: agentId, ownerId },
-    include: { shadowUser: { select: { id: true, image: true } } },
+    include: {
+      shadowUser: { select: { id: true, image: true } },
+      assistant: { select: { id: true } },
+    },
   });
   if (!agent) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
@@ -70,6 +75,10 @@ export const externalAgentRouter = createTRPCRouter({
             },
           },
         },
+        // An Assistant's principal (ADR-0067) is managed from Settings →
+        // Assistant; the list labels it rather than hiding it, so the owner can
+        // still see its keys and memberships here.
+        assistant: { select: { id: true } },
       },
     });
 
@@ -79,6 +88,7 @@ export const externalAgentRouter = createTRPCRouter({
       description: agent.description,
       createdAt: agent.createdAt,
       shadowUserId: agent.shadowUserId,
+      assistantId: agent.assistant?.id ?? null,
       avatarUrl: agent.shadowUser.image,
       keys: agent.keys,
       workspaces: agent.shadowUser.workspaceMemberships.map((m) => ({
@@ -94,7 +104,7 @@ export const externalAgentRouter = createTRPCRouter({
     .input(
       z.object({
         name: z.string().trim().min(1).max(100),
-        description: z.string().trim().max(500).optional(),
+        description: z.string().trim().max(5000).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -108,7 +118,7 @@ export const externalAgentRouter = createTRPCRouter({
         return tx.externalAgent.create({
           data: {
             name: input.name,
-            description: input.description,
+            description: blankToNull(input.description),
             ownerId: ctx.session.user.id,
             shadowUserId: shadowUser.id,
           },
@@ -157,39 +167,62 @@ export const externalAgentRouter = createTRPCRouter({
       return { avatarUrl: updatedUser.image };
     }),
 
+  update: humanOnlyProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        name: z.string().trim().min(1).max(100),
+        description: z.string().trim().max(5000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+
+      // An Assistant's principal is renamed from Settings → Assistant (ADR-0067).
+      if (agent.assistant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This agent is your Assistant — edit it from Settings → Assistant instead",
+        });
+      }
+
+      return ctx.db.$transaction(async (tx) => {
+        // The shadow user carries the agent's name into comments and assignments.
+        await tx.user.update({
+          where: { id: agent.shadowUserId },
+          data: { name: input.name },
+        });
+        return tx.externalAgent.update({
+          where: { id: agent.id },
+          data: { name: input.name, description: blankToNull(input.description) },
+        });
+      });
+    }),
+
   delete: humanOnlyProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
 
-      // Credentials and memberships always die with the agent.
-      await ctx.db.$transaction([
-        ctx.db.externalAgentKey.deleteMany({ where: { agentId: agent.id } }),
-        ctx.db.workspaceUser.deleteMany({ where: { userId: agent.shadowUserId } }),
-        ctx.db.externalAgent.delete({ where: { id: agent.id } }),
-      ]);
+      // An Assistant's principal lives and dies with the Assistant (ADR-0067):
+      // deleting it here would leave an Assistant that cannot be assigned.
+      if (agent.assistant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This agent is your Assistant — delete it from Settings → Assistant instead",
+        });
+      }
 
-      // The shadow user row is removed only when nothing references it: if the
-      // agent authored content (Action.createdById etc.), the restricted FKs
-      // block deletion and we keep the row — inert (no keys, no memberships,
-      // no login) but preserving historical attribution.
-      try {
-        await ctx.db.user.delete({ where: { id: agent.shadowUserId } });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          (error.code === "P2003" || error.code === "P2014")
-        ) {
-          return { success: true, shadowUserRetained: true };
-        }
-        throw error;
+      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
+      if (result.shadowUserRetained) {
+        return { success: true, shadowUserRetained: true };
       }
 
       // A retained shadow user still needs its image for historical
       // attribution. Once the row is gone, the blob is unreachable and can be
       // cleaned up without affecting deletion if storage is temporarily down.
-      if (agent.shadowUser.image) {
-        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
+      if (result.orphanedImage) {
+        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
       }
       return { success: true, shadowUserRetained: false };
     }),

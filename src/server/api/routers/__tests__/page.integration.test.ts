@@ -628,7 +628,7 @@ describe("page router", () => {
     });
   });
 
-  describe("invite-only pages (ADR-0067)", () => {
+  describe("invite-only pages (ADR-0069)", () => {
     /** A workspace with an owner (who is also the page author), an admin, a
      * member who gets invited, a member who doesn't, and an outsider. */
     async function setup(slug: string) {

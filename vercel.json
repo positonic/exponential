@@ -2,6 +2,13 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "regions": ["sfo1"],
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "develop": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/daily-plan-reminder",
@@ -14,6 +21,10 @@
     {
       "path": "/api/cron/auto-summarize-meetings",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-extract-meeting-outputs",
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/run-scheduled-automations",
@@ -54,6 +65,10 @@
     {
       "path": "/api/cron/workspace-updates",
       "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-runs",
+      "schedule": "* * * * *"
     }
   ]
 }

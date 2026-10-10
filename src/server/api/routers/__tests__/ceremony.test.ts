@@ -304,6 +304,19 @@ describe("ceremony router", () => {
       expect(where).toHaveProperty("OR");
       expect(where.id).toEqual({ in: ["m-visible", "m-hidden"] });
     });
+
+    it("reports whether the caller may edit the definition, from the workspace role", async () => {
+      db.ceremony.findFirst.mockResolvedValue({ id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", participants: [] } as never);
+      db.ceremonyOccurrence.findMany.mockResolvedValue([] as never);
+
+      withWorkspaceRole(db, "member");
+      expect((await caller(db).ceremony.get({ workspaceId: WORKSPACE_ID, id: "cer-1" })).canEdit).toBe(true);
+
+      // A viewer may read the page but the switch stays off for them: the
+      // same bar `update` enforces, resolved by the access service.
+      withWorkspaceRole(db, "viewer");
+      expect((await caller(db).ceremony.get({ workspaceId: WORKSPACE_ID, id: "cer-1" })).canEdit).toBe(false);
+    });
   });
 
   describe("attachMeeting / detachMeeting", () => {

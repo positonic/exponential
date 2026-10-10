@@ -10,6 +10,12 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { ASSIGNABLE_USER_SELECT, type AssignableUserRow } from "~/server/services/access/assignability";
+import { attachPositions } from "~/server/services/positions";
+import { after } from "next/server";
+import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -125,6 +131,7 @@ export const actionRouter = createTRPCRouter({
       include: {
         project: true,
         syncs: true, // Include ActionSync records to show sync status
+        ...activeRunInclude,
         assignees: {
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
@@ -161,6 +168,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           project: true,
           syncs: true,
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -188,7 +196,7 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      return { ...action, ...deriveActionBlocked(action) };
+      return { ...withActiveRun(action), ...deriveActionBlocked(action) };
     }),
 
   /**
@@ -344,6 +352,7 @@ export const actionRouter = createTRPCRouter({
           // duplicated N times per response. Select only what rows render.
           project: { select: { id: true, name: true, slug: true, workspaceId: true } },
           syncs: true, // Include ActionSync records to show sync status
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -432,6 +441,7 @@ export const actionRouter = createTRPCRouter({
         where: whereClause,
         include: {
           project: true,
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -687,6 +697,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -1527,6 +1538,21 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
+      // Assigning an Assistant starts an Agent run (ADR-0067). One queued row
+      // per agent principal, coalesced against a live run; the dispatcher is
+      // kicked after the response so this mutation never waits on Mastra.
+      // Only assignees new to the action — re-saving the modal with an already
+      // assigned Assistant (whose run may have finished) starts nothing.
+      const priorSet = new Set(priorIds);
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: input.actionId,
+        userIds: input.userIds.filter((id) => !priorSet.has(id)),
+        requestedById: ctx.session.user.id,
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
+
       // Unified notification pipeline (ADR-0045): emit an Assignment notification.
       // Resolves recipients + enabled channels, persists a durable Notification
       // record, and delivers best-effort synchronously; the cron worker retries
@@ -1601,6 +1627,13 @@ export const actionRouter = createTRPCRouter({
           actionId: input.actionId,
           userId: { in: input.userIds },
         },
+      });
+
+      // Unassigning an Assistant cancels its queued run; a running one is
+      // left to finish (ADR-0067, Agent PRD D3).
+      await cancelQueuedRunsForUnassigned(ctx.db, {
+        actionId: input.actionId,
+        userIds: input.userIds,
       });
 
       if (action.projectId && nextIds.length !== priorIds.length) {
@@ -1681,6 +1714,25 @@ export const actionRouter = createTRPCRouter({
         skipDuplicates: true,
       });
 
+      // Same hook as `assign`: an Assistant among the assignees gets one run
+      // per action, coalesced against live runs (ADR-0067). One principal
+      // lookup up front so a human-only bulk assign costs nothing extra.
+      const agentAssignees = await ctx.db.externalAgent.count({
+        where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
+      });
+      if (agentAssignees > 0) {
+        let kick = false;
+        for (const action of actions) {
+          const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+            actionId: action.id,
+            userIds: input.userIds,
+            requestedById: ctx.session.user.id,
+          });
+          if (runs.some((r) => r.executor === "MASTRA")) kick = true;
+        }
+        if (kick) after(() => triggerDispatch());
+      }
+
       return {
         count: assignments.length,
         message: `Assigned ${input.userIds.length} user${input.userIds.length === 1 ? '' : 's'} to ${input.actionIds.length} action${input.actionIds.length === 1 ? '' : 's'}`,
@@ -1724,7 +1776,7 @@ export const actionRouter = createTRPCRouter({
       }
 
       // Collect assignable users from multiple sources
-      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+      const userMap = new Map<string, AssignableUserRow>();
 
       const isRestrictedProject = action.project?.isRestricted ?? false;
 
@@ -1743,7 +1795,7 @@ export const actionRouter = createTRPCRouter({
           members: {
             include: {
               user: {
-                select: { id: true, name: true, email: true, image: true },
+                select: ASSIGNABLE_USER_SELECT,
               },
             },
           },
@@ -1767,17 +1819,33 @@ export const actionRouter = createTRPCRouter({
       //    action ids for public projects are published by the unauthenticated
       //    /api/bounties feed. Public visibility grants the project, never the
       //    workspace roster behind it.
-      if (action.project?.workspaceId && access.isProjectInsider) {
+      //
+      //    An action with a workspace but no project (a loose workspace
+      //    action) takes its roster from its own workspace instead — the same
+      //    set `canAssignToUnscopedAction` accepts — gated on the caller's own
+      //    membership there, since view access alone does not prove it.
+      let rosterWorkspaceId: string | null = null;
+      if (action.project?.workspaceId) {
+        if (access.isProjectInsider) rosterWorkspaceId = action.project.workspaceId;
+      } else if (action.workspaceId) {
+        const callerMembership = await getWorkspaceMembership(
+          ctx.db,
+          ctx.session.user.id,
+          action.workspaceId,
+        );
+        if (callerMembership) rosterWorkspaceId = action.workspaceId;
+      }
+      if (rosterWorkspaceId) {
         const workspaceUsers = await ctx.db.workspaceUser.findMany({
           where: {
-            workspaceId: action.project.workspaceId,
+            workspaceId: rosterWorkspaceId,
             ...(isRestrictedProject
               ? { role: { in: ["owner", "admin"] } }
               : {}),
           },
           include: {
             user: {
-              select: { id: true, name: true, email: true, image: true },
+              select: ASSIGNABLE_USER_SELECT,
             },
           },
         });
@@ -1792,7 +1860,7 @@ export const actionRouter = createTRPCRouter({
           where: { projectId: action.projectId },
           include: {
             user: {
-              select: { id: true, name: true, email: true, image: true },
+              select: ASSIGNABLE_USER_SELECT,
             },
           },
         });
@@ -1804,7 +1872,7 @@ export const actionRouter = createTRPCRouter({
         if (action.project?.createdById && !userMap.has(action.project.createdById)) {
           const creator = await ctx.db.user.findUnique({
             where: { id: action.project.createdById },
-            select: { id: true, name: true, email: true, image: true },
+            select: ASSIGNABLE_USER_SELECT,
           });
           if (creator) userMap.set(creator.id, creator);
         }
@@ -1814,14 +1882,22 @@ export const actionRouter = createTRPCRouter({
       if (!userMap.has(ctx.session.user.id)) {
         const currentUser = await ctx.db.user.findUnique({
           where: { id: ctx.session.user.id },
-          select: { id: true, name: true, email: true, image: true },
+          select: ASSIGNABLE_USER_SELECT,
         });
         if (currentUser) {
           userMap.set(currentUser.id, currentUser);
         }
       }
 
-      const assignableUsers = Array.from(userMap.values());
+      // Positions ride on exactly the workspace this procedure already trusts
+      // for its roster (ADR-0068 §5) — never a wider one, so a public-project
+      // visitor cannot read Positions through team-mates who happen to be in
+      // the roster. One extra query; none when there is no such workspace.
+      const assignableUsers = await attachPositions(
+        ctx.db,
+        rosterWorkspaceId,
+        Array.from(userMap.values()),
+      );
 
       return {
         assignableUsers,
@@ -1897,7 +1973,7 @@ export const actionRouter = createTRPCRouter({
 
       const isRestrictedProject = project?.isRestricted ?? false;
 
-      const userMap = new Map<string, { id: string; name: string | null; email: string | null; image: string | null }>();
+      const userMap = new Map<string, AssignableUserRow>();
 
       const userTeams = await ctx.db.team.findMany({
         where: {
@@ -1907,7 +1983,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           members: {
             include: {
-              user: { select: { id: true, name: true, email: true, image: true } },
+              user: { select: ASSIGNABLE_USER_SELECT },
             },
           },
         },
@@ -1928,7 +2004,7 @@ export const actionRouter = createTRPCRouter({
             ...(isRestrictedProject ? { role: { in: ["owner", "admin"] } } : {}),
           },
           include: {
-            user: { select: { id: true, name: true, email: true, image: true } },
+            user: { select: ASSIGNABLE_USER_SELECT },
           },
         });
         workspaceUsers.forEach(wu => {
@@ -1940,7 +2016,7 @@ export const actionRouter = createTRPCRouter({
         const projectMembers = await ctx.db.projectMember.findMany({
           where: { projectId: project.id },
           include: {
-            user: { select: { id: true, name: true, email: true, image: true } },
+            user: { select: ASSIGNABLE_USER_SELECT },
           },
         });
         projectMembers.forEach(pm => {
@@ -1954,7 +2030,7 @@ export const actionRouter = createTRPCRouter({
         if (projectRecord?.createdById && !userMap.has(projectRecord.createdById)) {
           const creator = await ctx.db.user.findUnique({
             where: { id: projectRecord.createdById },
-            select: { id: true, name: true, email: true, image: true },
+            select: ASSIGNABLE_USER_SELECT,
           });
           if (creator) userMap.set(creator.id, creator);
         }
@@ -1963,15 +2039,23 @@ export const actionRouter = createTRPCRouter({
       if (!userMap.has(ctx.session.user.id)) {
         const currentUser = await ctx.db.user.findUnique({
           where: { id: ctx.session.user.id },
-          select: { id: true, name: true, email: true, image: true },
+          select: ASSIGNABLE_USER_SELECT,
         });
         if (currentUser) {
           userMap.set(currentUser.id, currentUser);
         }
       }
 
+      // Same rule as getAssignableUsers: Positions attach for the trusted
+      // workspace only, else every user gets `positions: []`.
+      const assignableUsers = await attachPositions(
+        ctx.db,
+        effectiveWorkspaceId,
+        Array.from(userMap.values()),
+      );
+
       return {
-        assignableUsers: Array.from(userMap.values()),
+        assignableUsers,
         actionContext: {
           hasProject: !!project,
           hasTeam: false,

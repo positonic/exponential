@@ -114,7 +114,7 @@ export function PageShareMenu({
     onError: (e) => onError(e, "Could not publish linked pages"),
   });
   // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
-  // An invite-only page publishes only by its owner (ADR-0067) — an invited
+  // An invite-only page publishes only by its owner (ADR-0069) — an invited
   // editor sees the switch locked. Shares the cache with PageInvites.
   const sharing = api.page.sharing.useQuery({ id: pageId });
   const publishLocked =

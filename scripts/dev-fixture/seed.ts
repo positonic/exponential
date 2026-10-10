@@ -17,6 +17,7 @@
 import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { encryptString } from "../../src/server/utils/encryption";
+import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
 
 export const FIXTURE = {
   userEmail: "dev-fixture@exponential.test",
@@ -71,6 +72,25 @@ export const FIXTURE = {
   /** A workspace tag, so the create-action modals' tag picker has something to pick. */
   tagName: "Fixture label",
   tagSlug: "fixture-label",
+  /**
+   * Assistants as assignees (ADR-0067): the fixture user's own Assistant, the
+   * colleague's, and an unassigned action to hand to one from the Assign modal.
+   */
+  assistantName: "Aria",
+  /** The colleague's agent carries a description so the Edit Role modal has one to show. */
+  colleagueAssistantDescription: "Drafts **agendas** and summarises long threads for the fixture team.",
+  colleagueAssistantName: "Max",
+  assistantActionName: "Find a venue for the fixture offsite",
+  /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
+  agentRunActionName: "Draft the fixture offsite agenda",
+  /**
+   * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
+   * modal has a title to show under Aria and the settings page has one row.
+   * The fixture user and the colleague hold none, so their rows warn.
+   */
+  positionTitle: "Travel researcher",
+  positionRemit:
+    "Research and shortlist travel options: flights, hotels near the venue, local transport. Posts options as a comment and asks before anything is booked.",
 } as const;
 
 export interface SeededFixture {
@@ -105,6 +125,21 @@ export interface SeededFixture {
   /** A workspace tag the create-action modals can attach. */
   tagId: string;
   tagName: string;
+  /** The fixture user's Assistant and the colleague's, both members of the workspace. */
+  assistantName: string;
+  colleagueAssistantName: string;
+  /** The colleague's agent description (global to the agent, shown read-only in Edit Role). */
+  colleagueAssistantDescription: string;
+  /** App-relative URL of the unassigned action the Assign-to-Assistant spec hands over. */
+  assistantActionUrl: string;
+  assistantActionName: string;
+  /** Its twin for the agent-run spec (ADR-0067), reset to unassigned with no runs on each seed. */
+  agentRunActionUrl: string;
+  agentRunActionName: string;
+  /** The seeded Position (ADR-0068), held by `assistantName` alone on every seed. */
+  positionTitle: string;
+  /** App-relative URL of the workspace settings page (Positions live on its Members section). */
+  workspaceSettingsUrl: string;
   /** The confirmed decision logged against that meeting. */
   decisionId: string;
   /** Its rendered label (`D-0001` on a fresh workspace). */
@@ -361,6 +396,98 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "member" },
     create: { userId: colleague.id, workspaceId: workspace.id, role: "member" },
   });
+  // One Assistant each for the fixture user and the colleague, so the Assign
+  // modal has "your assistant" to pin first and a teammate's to group below.
+  // Each Assistant owns an External agent whose shadow user is a workspace
+  // member (ADR-0067) — created through the same service `assistant.create`
+  // uses, so the fixture can never drift from the product path.
+  async function ensureAssistant(ownerId: string, name: string) {
+    const existing = await db.assistant.findFirst({
+      where: { workspaceId: workspace.id, createdById: ownerId, name },
+      select: { id: true },
+    });
+    if (existing) return existing;
+    return db.$transaction(async (tx) => {
+      const { externalAgentId } = await createAssistantPrincipal(tx, {
+        name,
+        ownerId,
+        workspaceId: workspace.id,
+      });
+      return tx.assistant.create({
+        data: {
+          name,
+          emoji: "✨",
+          personality: `${name} is warm, direct and allergic to filler.`,
+          workspaceId: workspace.id,
+          createdById: ownerId,
+          isDefault: true,
+          externalAgentId,
+        },
+        select: { id: true },
+      });
+    });
+  }
+  await ensureAssistant(user.id, FIXTURE.assistantName);
+  const colleagueAssistant = await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
+  // The agent's own description (on its ExternalAgent row, not per workspace)
+  // is what the workspace Edit Role modal shows for an agent member.
+  await db.assistant.update({
+    where: { id: colleagueAssistant.id },
+    data: { externalAgent: { update: { description: FIXTURE.colleagueAssistantDescription } } },
+  });
+
+  // One Position (ADR-0068), held by Aria. Holders are reset to Aria alone and
+  // any Position a spec created is removed, so the settings spec can create
+  // one and assign a holder on every run.
+  const ariaAssistant = await db.assistant.findFirstOrThrow({
+    where: { workspaceId: workspace.id, createdById: user.id, name: FIXTURE.assistantName },
+    select: { externalAgent: { select: { shadowUserId: true } } },
+  });
+  const ariaMembership = await db.workspaceUser.findUniqueOrThrow({
+    where: {
+      userId_workspaceId: { userId: ariaAssistant.externalAgent.shadowUserId, workspaceId: workspace.id },
+    },
+    select: { id: true },
+  });
+  await db.position.deleteMany({
+    where: { workspaceId: workspace.id, title: { not: FIXTURE.positionTitle } },
+  });
+  const position = await db.position.upsert({
+    where: { workspaceId_title: { workspaceId: workspace.id, title: FIXTURE.positionTitle } },
+    update: { remit: FIXTURE.positionRemit, notAccountableFor: null },
+    create: { workspaceId: workspace.id, title: FIXTURE.positionTitle, remit: FIXTURE.positionRemit },
+    select: { id: true },
+  });
+  await db.positionHolder.deleteMany({
+    where: { positionId: position.id, workspaceUserId: { not: ariaMembership.id } },
+  });
+  await db.positionHolder.upsert({
+    where: { positionId_workspaceUserId: { positionId: position.id, workspaceUserId: ariaMembership.id } },
+    update: {},
+    create: { positionId: position.id, workspaceUserId: ariaMembership.id },
+  });
+
+  // The actions the specs assign. Re-seeding clears their assignees and
+  // Agent runs so each spec starts from "Unassigned" and a fresh run rather
+  // than coalescing onto a leftover one.
+  async function ensureUnassignedAction(name: string) {
+    let action = await db.action.findFirst({
+      where: { workspaceId: workspace.id, name },
+      select: { id: true },
+    });
+    if (!action) {
+      action = await db.action.create({
+        data: { name, workspaceId: workspace.id, createdById: user.id, status: "ACTIVE", priority: "Quick" },
+        select: { id: true },
+      });
+    }
+    await db.actionAssignee.deleteMany({ where: { actionId: action.id } });
+    await db.agentRun.deleteMany({ where: { actionId: action.id } });
+    return action;
+  }
+  const assistantAction = await ensureUnassignedAction(FIXTURE.assistantActionName);
+  const agentRunAction = await ensureUnassignedAction(FIXTURE.agentRunActionName);
+
   // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
   // in development; without it the contact is seeded email-less (the app
   // couldn't store one either) and the scheduling spec skips itself, rather
@@ -882,6 +1009,15 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   return {
     tagId: tag.id,
     tagName: FIXTURE.tagName,
+    assistantName: FIXTURE.assistantName,
+    colleagueAssistantName: FIXTURE.colleagueAssistantName,
+    colleagueAssistantDescription: FIXTURE.colleagueAssistantDescription,
+    assistantActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${assistantAction.id}`,
+    assistantActionName: FIXTURE.assistantActionName,
+    agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
+    agentRunActionName: FIXTURE.agentRunActionName,
+    positionTitle: FIXTURE.positionTitle,
+    workspaceSettingsUrl: `/w/${FIXTURE.workspaceSlug}/settings`,
     ceremonyId: ceremony.id,
     occurrenceId: occurrence.id,
     meetingUrl: `/recording/${meeting.id}`,
