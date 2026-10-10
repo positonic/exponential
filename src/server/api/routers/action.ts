@@ -1711,17 +1711,23 @@ export const actionRouter = createTRPCRouter({
       });
 
       // Same hook as `assign`: an Assistant among the assignees gets one run
-      // per action, coalesced against live runs (ADR-0067).
-      let kick = false;
-      for (const action of actions) {
-        const runs = await enqueueAgentRunsForAssignees(ctx.db, {
-          actionId: action.id,
-          userIds: input.userIds,
-          requestedById: ctx.session.user.id,
-        });
-        if (runs.some((r) => r.executor === "MASTRA")) kick = true;
+      // per action, coalesced against live runs (ADR-0067). One principal
+      // lookup up front so a human-only bulk assign costs nothing extra.
+      const agentAssignees = await ctx.db.externalAgent.count({
+        where: { shadowUserId: { in: input.userIds } },
+      });
+      if (agentAssignees > 0) {
+        let kick = false;
+        for (const action of actions) {
+          const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+            actionId: action.id,
+            userIds: input.userIds,
+            requestedById: ctx.session.user.id,
+          });
+          if (runs.some((r) => r.executor === "MASTRA")) kick = true;
+        }
+        if (kick) after(() => triggerDispatch());
       }
-      if (kick) after(() => triggerDispatch());
 
       return {
         count: assignments.length,

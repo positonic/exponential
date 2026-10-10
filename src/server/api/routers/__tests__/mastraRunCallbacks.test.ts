@@ -226,3 +226,24 @@ describe("mastra.askOwner", () => {
     expect(db.actionComment.create).not.toHaveBeenCalled();
   });
 });
+
+describe("mastra.getRunContext", () => {
+  it("is a pure read: no run event is written", async () => {
+    const db = getDbMock();
+    mockReset(db);
+    db.agentRun.findFirst.mockResolvedValue(liveRun as never);
+    db.action.findUniqueOrThrow.mockResolvedValue({
+      id: ACTION, name: "Find a venue", description: null, status: "ACTIVE", priority: null, dueDate: null,
+      workspaceId: "ws-1", projectId: null, project: null, assignees: [], comments: [],
+    } as never);
+    db.agentRun.findUniqueOrThrow.mockResolvedValue({ wakeCommentId: null, predecessor: null } as never);
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "owner-1", name: "James" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([] as never);
+
+    const ctx = await runCaller(db).mastra.getRunContext();
+
+    expect(ctx.action.id).toBe(ACTION);
+    expect(ctx.owner).toEqual({ id: "owner-1", name: "James" });
+    expect(db.agentRunEvent.create).not.toHaveBeenCalled();
+  });
+});

@@ -960,7 +960,7 @@ export const mastraRouter = createTRPCRouter({
   /**
    * get-run-context: the brief, assignees, members (for delegation), recent
    * comments, the owner, and — on a resume — the predecessor's summary and the
-   * owner's reply. Logged as a tool_call so the transcript starts with it.
+   * owner's reply. A pure read.
    */
   getRunContext: protectedProcedure.query(async ({ ctx }) => {
     const run = await requireLiveRunForCaller(ctx.db, {
@@ -1020,7 +1020,8 @@ export const mastraRouter = createTRPCRouter({
       ? await ctx.db.actionComment.findUnique({ where: { id: full.wakeCommentId }, select: { content: true } })
       : null;
 
-    await appendRunEvent(ctx.db, { runId: run.id, kind: "tool_call", payload: { tool: "get-run-context" } });
+    // A query (GET, retryable) writes nothing: the read is not logged as an
+    // event; tool counts are reconciled from Mastra's steps by the dispatcher.
 
     return {
       action: {
