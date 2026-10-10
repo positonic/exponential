@@ -133,7 +133,7 @@ export function WorkspaceShippingTimeline() {
       {data?.isUnconfigured ? (
         <Alert
           icon={<IconAlertTriangle size={16} />}
-          color="yellow"
+          color="var(--color-brand-warning)"
           title="No repositories connected"
         >
           This workspace isn&apos;t tracking any GitHub repositories, so nothing
@@ -182,7 +182,10 @@ export function WorkspaceShippingTimeline() {
       ) : null}
 
       {groups.length === 0 && !data?.isUnconfigured ? (
-        <Alert color="gray" icon={<IconBrandGithub size={16} />}>
+        <Alert
+          color="var(--color-text-muted)"
+          icon={<IconBrandGithub size={16} />}
+        >
           Nothing recorded in this period. If work did ship, the webhook may not
           be reaching this workspace — check Recent Deliveries on the GitHub App.
         </Alert>
@@ -219,12 +222,20 @@ export function WorkspaceShippingTimeline() {
                     {format(group.date, 'EEEE, d MMMM yyyy')}
                   </Text>
                   {merged.length > 0 ? (
-                    <Badge size="xs" variant="light" color="green">
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color="var(--color-brand-success)"
+                    >
                       {merged.length} merged
                     </Badge>
                   ) : null}
                   {commits.length > 0 ? (
-                    <Badge size="xs" variant="light" color="gray">
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color="var(--color-text-muted)"
+                    >
                       {commits.length}{' '}
                       {commits.length === 1 ? 'commit' : 'commits'}
                     </Badge>
