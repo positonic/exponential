@@ -10,6 +10,7 @@
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { getWorkspaceMembership, hasMinimumWorkspaceRole } from "../access";
+import { blankToNull } from "~/server/utils/blankToNull";
 import { toAssignableUser, type AssignableUser, type AssignableUserRow } from "../access/assignability";
 
 export interface PositionSummary {
@@ -306,8 +307,8 @@ export function planPositionImport(
   return rows.map((row) => {
     const title = row.title.trim();
     // undefined: the row says nothing; null: the row clears it.
-    const stated = row.notAccountableFor?.trim();
-    const statedNotAccountableFor = stated === undefined ? undefined : stated.length > 0 ? stated : null;
+    const statedNotAccountableFor =
+      row.notAccountableFor === undefined ? undefined : blankToNull(row.notAccountableFor);
     const importedHolders = [...new Set(row.holderUserIds)];
     const match =
       existing.find((position) => position.title === title) ?? byKey.get(positionTitleKey(title));

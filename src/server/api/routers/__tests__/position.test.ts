@@ -867,7 +867,7 @@ describe("position.importMany", () => {
     it("a title created concurrently since the plan was read → CONFLICT", async () => {
       arrangeCaller(db, "owner");
       arrangeTxMembers(["andi"]);
-      tx.position.create.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));
+      tx.position.create.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002", meta: { target: ["workspaceId", "title"] } }));
 
       await expect(
         caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),

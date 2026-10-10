@@ -505,9 +505,9 @@ export const positionRouter = createTRPCRouter({
         );
         return { written: true, results: present(plan) };
       } catch (error) {
-        // A Position created under the same title since the plan was read.
-        if (isUniqueViolation(error)) throw DUPLICATE_TITLE();
-        throw error;
+        // A Position created under the same title since the plan was read, or
+        // a holder removed mid-write: the same answers as create/setHolders.
+        rethrowPositionWrite(error);
       }
     }),
 
