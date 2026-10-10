@@ -556,7 +556,7 @@ describe("transcription router (mocked) — saveTranscription notes", () => {
 
   function updateData() {
     const call = dbMock.transcriptionSession.update.mock.calls[0]?.[0] as
-      | { data: { transcription: string; notes?: string } }
+      | { data: { transcription: string; notes?: string; embeddingStatus?: string } }
       | undefined;
     return call?.data;
   }
@@ -601,6 +601,14 @@ describe("transcription router (mocked) — saveTranscription notes", () => {
     // Replace semantics: the update sets notes to exactly the new value, never
     // appending to "old notes".
     expect(updateData()?.notes).toBe("edited notes");
+  });
+
+  it("marks the meeting pending so the embedding sweep re-indexes it", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.saveTranscription({ id: "sess1", transcription: "more" });
+
+    expect(updateData()).toHaveProperty("embeddingStatus", "pending");
   });
 });
 

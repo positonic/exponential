@@ -287,11 +287,14 @@ export class FirefliesSyncService {
               continue;
             }
             
-            // Update existing non-archived
+            // Update existing non-archived. A changed transcript makes the
+            // Knowledge index stale; the embedding sweep picks up `pending`.
+            const transcriptChanged = existingSession.transcription !== sessionData.transcription;
             transcriptionSession = await db.transcriptionSession.update({
               where: { sessionId: transcript.id },
               data: {
                 ...sessionData,
+                ...(transcriptChanged ? { embeddingStatus: 'pending' } : {}),
                 updatedAt: new Date(),
               }
             });

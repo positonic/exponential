@@ -488,9 +488,12 @@ export const transcriptionRouter = createTRPCRouter({
           : input.transcription;
 
       // Update with the combined transcription, and replace notes only when the
-      // caller provided them (absent → leave existing notes untouched).
-      const updateData: { transcription: string; notes?: string } = {
+      // caller provided them (absent → leave existing notes untouched). The
+      // transcript changed, so the Knowledge index is stale: `pending` hands the
+      // Meeting to the embedding sweep once the recording goes quiet.
+      const updateData: { transcription: string; notes?: string; embeddingStatus: string } = {
         transcription: updatedTranscription,
+        embeddingStatus: "pending",
       };
       if (input.notes !== undefined) {
         updateData.notes = input.notes;
@@ -720,6 +723,8 @@ export const transcriptionRouter = createTRPCRouter({
         where: { id: input.id },
         data: {
           transcription: input.transcription,
+          // Re-index in Knowledge on the next embedding sweep.
+          embeddingStatus: "pending",
           updatedAt: new Date(),
         },
       });
