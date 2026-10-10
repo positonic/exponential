@@ -2,9 +2,8 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
-import { emitActionCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
+import { createActionComment } from "~/server/services/actions/comments";
 import { deleteFromBlob } from "~/lib/blob";
-import { recordActivity } from "~/server/services/activity/recordActivity";
 
 function hasViewAccess(access: {
   isCreator: boolean;
@@ -59,50 +58,12 @@ export const actionCommentRouter = createTRPCRouter({
         });
       }
 
-      const comment = await ctx.db.actionComment.create({
-        data: {
-          actionId: input.actionId,
-          authorId: ctx.session.user.id,
-          content: input.content,
-        },
-        include: {
-          author: { select: { id: true, name: true, image: true } },
-        },
-      });
-
-      // T7: workspace activity feed instrumentation. Resolve workspaceId via
-      // the parent action (workspaceId lives on Action, optionally via Project).
-      const parentAction = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: {
-          workspaceId: true,
-          project: { select: { workspaceId: true } },
-        },
-      });
-      const activityWorkspaceId =
-        parentAction?.workspaceId ?? parentAction?.project?.workspaceId ?? null;
-      if (activityWorkspaceId) {
-        await recordActivity(ctx.db, {
-          workspaceId: activityWorkspaceId,
-          userId: ctx.session.user.id,
-          entityType: "action_comment",
-          entityId: comment.id,
-          action: "created",
-          metadata: {
-            actionId: input.actionId,
-            snippet: input.content.slice(0, 120),
-          },
-        }).catch(() => {
-          /* instrumentation failure is non-fatal */
-        });
-      }
-
-      // Fire-and-forget mention notifications via the unified pipeline (ADR-0045)
-      void emitActionCommentMention(ctx.db, {
+      // Shared with the Agent-run tool (ADR-0067): one comment path, same
+      // activity event and mention notifications, whoever the author is.
+      const comment = await createActionComment(ctx.db, {
         actionId: input.actionId,
-        commentId: comment.id,
-        commentContent: input.content,
-        commentAuthorId: ctx.session.user.id,
+        authorId: ctx.session.user.id,
+        content: input.content,
       });
 
       return comment;

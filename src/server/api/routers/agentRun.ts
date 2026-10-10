@@ -47,9 +47,42 @@ export const agentRunRouter = createTRPCRouter({
           },
         },
       });
-      return runs.map((run) => ({
-        ...run,
-        isOwner: run.agent.ownerId === ctx.session.user.id,
-      }));
+      // The transcript is owner-only, selected server-side: a non-owner's
+      // response never carries events, so there is nothing to filter on the client.
+      const ownedRunIds = runs.filter((r) => r.agent.ownerId === ctx.session.user.id).map((r) => r.id);
+      const events = ownedRunIds.length
+        ? await ctx.db.agentRunEvent.findMany({
+            where: { runId: { in: ownedRunIds } },
+            orderBy: { seq: "asc" },
+            select: { id: true, runId: true, seq: true, kind: true, payload: true, createdAt: true },
+          })
+        : [];
+      return runs.map((run) => {
+        const isOwner = run.agent.ownerId === ctx.session.user.id;
+        return {
+          ...run,
+          isOwner,
+          events: isOwner ? events.filter((e) => e.runId === run.id) : undefined,
+        };
+      });
+    }),
+
+  /** One run's events after `afterSeq` — owner only — for an incremental transcript poll. */
+  get: protectedProcedure
+    .input(z.object({ runId: z.string(), afterSeq: z.number().int().min(0).default(0) }))
+    .query(async ({ ctx, input }) => {
+      const run = await ctx.db.agentRun.findFirst({
+        where: { id: input.runId, agent: { ownerId: ctx.session.user.id } },
+        select: { id: true, status: true, toolCallCount: true, summary: true, finishedAt: true },
+      });
+      if (!run) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Run not found" });
+      }
+      const events = await ctx.db.agentRunEvent.findMany({
+        where: { runId: run.id, seq: { gt: input.afterSeq } },
+        orderBy: { seq: "asc" },
+        select: { id: true, seq: true, kind: true, payload: true, createdAt: true },
+      });
+      return { ...run, events };
     }),
 });

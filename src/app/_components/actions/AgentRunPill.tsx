@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Group, Loader, Text, Tooltip } from "@mantine/core";
 import { IconRobot } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { AgentRunTranscript } from "./AgentRunTranscript";
 
 const LIVE = new Set(["QUEUED", "RUNNING"]);
 
@@ -92,6 +93,7 @@ export function AgentRunPill({ actionId }: { actionId: string }) {
           : `${name} · ${verb} ${elapsed} · ${tools}`;
 
   return (
+    <div>
     <Tooltip label={latest.error ?? latest.summary ?? copy} multiline maw={360} disabled={!latest.error && !latest.summary}>
       <Group
         gap="xs"
@@ -108,5 +110,7 @@ export function AgentRunPill({ actionId }: { actionId: string }) {
         </Text>
       </Group>
     </Tooltip>
+    <AgentRunTranscript run={latest} live={live} />
+    </div>
   );
 }
