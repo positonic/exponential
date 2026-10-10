@@ -13,6 +13,10 @@ import { computeCalibration, isCalibrated } from "~/server/services/calibrationG
 import { parseSetupState } from "./welcome";
 import { buildCalibrationPairs } from "~/server/services/calibrationGateService";
 import { JUDGE_VERSION } from "~/server/services/AgentEvalService";
+import {
+  backfillKnowledgeIndex,
+  getKnowledgeIndexStats,
+} from "~/server/services/knowledgeIndexAdmin";
 
 // `tokenUsage` is written via `JSON.stringify(...)` in AiInteractionLogger,
 // so Prisma returns it as a string. Older rows (or rows written via Prisma
@@ -651,4 +655,29 @@ export const adminRouter = createTRPCRouter({
       errors: result.errors,
     };
   }),
+
+  /**
+   * Platform-wide knowledge index coverage: indexed vs pending transcriptions
+   * and resources, chunk counts per source type, and orphan chunks whose
+   * source row no longer exists.
+   */
+  getKnowledgeIndexStats: adminProcedure.query(async ({ ctx }) => {
+    return getKnowledgeIndexStats(ctx.db);
+  }),
+
+  /**
+   * Embed one batch of transcriptions that have text but no chunks, across
+   * all users. The client loops, passing every attempted id back as
+   * `excludeIds`, until `remaining` is 0 or a batch attempts nothing.
+   */
+  backfillKnowledgeIndex: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(20).default(5),
+        excludeIds: z.array(z.string()).max(10000).default([]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return backfillKnowledgeIndex(ctx.db, input);
+    }),
 });
