@@ -12,6 +12,11 @@ name: E2E
 # Run by hand:   gh workflow run e2e.yml --ref <branch>
 
 on:
+  # TEMPORARY, removed in the next commit: a workflow_dispatch-only workflow
+  # cannot be dispatched until GitHub has registered it, which needs one run
+  # from somewhere. This push trigger gives it that run on the PR branch.
+  push:
+    branches: [claude/ci-flakes-pull-request-208ba3]
   schedule:
     # 03:17 UTC nightly, against main (scheduled runs use the default branch).
     - cron: '17 3 * * *'
