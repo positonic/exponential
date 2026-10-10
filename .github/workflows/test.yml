@@ -32,11 +32,7 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npx tsc --noEmit
       - run: npx next lint
 
@@ -45,11 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npm run test
         env:
           SKIP_ENV_VALIDATION: true
@@ -64,13 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-        env:
-          SKIP_ENV_VALIDATION: true
+      - uses: ./.github/actions/npm-install
       - run: npm run docs:check
 
   # The Tauri shell's Rust tests. Worth its own job rather than being left to
@@ -145,11 +131,7 @@ jobs:
       SKIP_ENV_VALIDATION: true
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - name: Apply all migrations from scratch
         run: npx prisma migrate deploy
       - name: Verify no pending migrations / drift
@@ -181,11 +163,7 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npx prisma migrate deploy
       - run: npm run test:integration
 
@@ -202,11 +180,7 @@ jobs:
       MASTRA_API_URL: http://localhost:4111
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
+      - uses: ./.github/actions/npm-install
       - run: npm run build
 
       # Smoke-test the built artifact: boot `next start` and probe a handful

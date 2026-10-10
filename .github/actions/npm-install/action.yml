@@ -1,0 +1,34 @@
+name: Install npm dependencies
+description: >-
+  Restores node_modules from the Actions cache and runs `npm ci` only on a miss.
+  `npm ci` deletes node_modules before installing, so the install step MUST be
+  skipped on a hit or the cache is pointless. Skipping the install also skips
+  the `postinstall` (`prisma generate`), which is why the cache key hashes
+  prisma/schema.prisma as well as package-lock.json: the generated client is
+  inside the cached node_modules and goes stale only when one of those changes.
+  On a hit setup-node's own npm download cache is skipped too — nothing would
+  read it.
+
+inputs:
+  node-version:
+    description: Node.js major version
+    required: false
+    default: '20'
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: node_modules
+        key: node-modules-${{ runner.os }}-node${{ inputs.node-version }}-${{ hashFiles('package-lock.json', 'prisma/schema.prisma') }}
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: ${{ steps.cache.outputs.cache-hit != 'true' && 'npm' || '' }}
+
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: npm ci
