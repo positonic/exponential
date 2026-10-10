@@ -48,6 +48,9 @@ jobs:
     name: Build and deploy to Vercel
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # A dispatch from any other ref would promote an unmerged branch to
+    # production now that the Git integration no longer deploys main.
+    if: github.ref == 'refs/heads/main'
     environment:
       name: Production
       url: ${{ steps.deploy.outputs.url }}
@@ -69,14 +72,17 @@ jobs:
         with:
           node-version: '22'
 
-      # Same key scheme as cache-warm.yml and the Build job in test.yml, so
-      # the compiler cache carries over between runs on main.
+      # Own key prefix, deliberately NOT the `next-cache-` scheme shared by
+      # cache-warm.yml and the PR Build job: this build runs with the real
+      # production env, and on a public repo a fork PR can restore caches
+      # saved from main. Keeping it separate means nothing a production
+      # build wrote (prerender/fetch cache, inlined values) reaches a PR.
       - uses: actions/cache@v4
         with:
           path: .next/cache
-          key: next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**', 'content/**', 'next.config.js', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json', 'sentry.*.config.ts') }}
+          key: next-cache-prod-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**', 'content/**', 'next.config.js', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json', 'sentry.*.config.ts') }}
           restore-keys: |
-            next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+            next-cache-prod-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
 
       # Fetches the project settings and the production environment variables
       # into .vercel/, so `vercel build` sees exactly what a Vercel build would.
@@ -135,12 +141,17 @@ jobs:
           fail=0
           for probe in "${probes[@]}"; do
             IFS='|' read -r label path <<<"${probe}"
-            # -L follows any redirect Vercel issues after accepting the bypass;
-            # only a 2xx at the end counts as served.
-            status=$(curl -sS -L --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' \
+            # -L follows the redirect Vercel issues after accepting the bypass.
+            # The final URL must still be on this deployment's host: a
+            # redirect to www.exponential.im would be answered by the build
+            # that is live now, not the one under test.
+            read -r status final < <(curl -sS -L --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code} %{url_effective}' \
               -H "x-vercel-protection-bypass: ${VERCEL_AUTOMATION_BYPASS_SECRET}" \
-              "${DEPLOYMENT_URL}${path}") || status=000
-            if [[ "${status}" =~ ^2 ]]; then
+              "${DEPLOYMENT_URL}${path}") || { status=000; final=""; }
+            if [[ "${final}" != "${DEPLOYMENT_URL}"* ]]; then
+              echo "::error::${label} → left the deployment host (ended at ${final:-no response})"
+              fail=1
+            elif [[ "${status}" =~ ^2 ]]; then
               echo "ok  ${label} → HTTP ${status}"
             else
               echo "::error::${label} → HTTP ${status}"
