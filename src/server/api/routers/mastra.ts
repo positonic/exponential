@@ -1101,7 +1101,10 @@ export const mastraRouter = createTRPCRouter({
         where: { id: run.actionId },
         select: { projectId: true, teamId: true, workspaceId: true },
       });
-      await assertAssignableUsers(ctx.db, ctx.session.user.id, action, [input.userId]);
+      // Delegation (ADR-0049/0067): the Assistant may assign exactly whom its
+      // owner could, so the containment check runs as the owner, not as the
+      // shadow user, whose own memberships are a subset granted for this job.
+      await assertAssignableUsers(ctx.db, run.agent.ownerId, action, [input.userId]);
       await ctx.db.actionAssignee.createMany({
         data: [{ actionId: run.actionId, userId: input.userId }],
         skipDuplicates: true,

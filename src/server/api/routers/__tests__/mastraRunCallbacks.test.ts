@@ -41,6 +41,11 @@ vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   after: (cb: () => unknown) => void cb(),
 }));
+const containmentMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("~/server/services/actions/containment", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  assertAssignableUsers: (...args: unknown[]) => containmentMock(...args),
+}));
 const mentionMock = vi.fn();
 vi.mock("~/server/services/notifications/emit/mentionAdapters", () => ({
   emitActionCommentMention: (...args: unknown[]) => mentionMock(...args),
@@ -113,6 +118,35 @@ describe("mastra run callbacks", () => {
     await expect(runCaller(db, { tokenType: "agent-key", agentRunId: undefined }).mastra.reportProgress({ text: "x" }))
       .rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(db.agentRunEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses an ordinary human session even when it carries a runId", async () => {
+    // A web session has no token type; a stray runId claim must not open the callbacks.
+    await expect(runCaller(db, { tokenType: undefined, agentRunId: RUN, userId: "owner-1" }).mastra.commentOnAction({ markdown: "x" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    // An agent-key principal (another External agent) with a runId is refused too.
+    await expect(runCaller(db, { tokenType: "agent-key", agentRunId: RUN }).mastra.finishRun({ summary: "x", readyToClose: true }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.actionComment.create).not.toHaveBeenCalled();
+    expect(db.agentRun.update).not.toHaveBeenCalled();
+  });
+
+  it("reassignAction checks containment as the owner, not as the shadow user", async () => {
+    containmentMock.mockClear();
+    db.action.findUniqueOrThrow.mockResolvedValue({ projectId: null, teamId: null, workspaceId: "ws-1" } as never);
+    db.actionAssignee.createMany.mockResolvedValue({ count: 1 } as never);
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "u2", name: "Andi", isAgent: false } as never);
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+
+    await runCaller(db).mastra.reassignAction({ userId: "u2" });
+
+    // Delegation: the permission subject is the owner (ADR-0049/0067).
+    expect(containmentMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "owner-1",
+      { projectId: null, teamId: null, workspaceId: "ws-1" },
+      ["u2"],
+    );
   });
 
   it("refuses a run that is not the caller's, and a run that is no longer live", async () => {
