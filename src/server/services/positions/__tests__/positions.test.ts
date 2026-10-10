@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import { mockDeep } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { hasRemitGap, loadPositionsByUser } from "..";
+import { hasRemitGap, loadPositionCoverage, loadPositionsByUser, shouldOfferPositionImport } from "..";
 
 describe("hasRemitGap", () => {
   it.each([
@@ -62,5 +62,70 @@ describe("loadPositionsByUser", () => {
     expect(byUser.get("u2")?.map((p) => p.title)).toEqual(["Technical Director"]);
     // Holding nothing means absent, so callers default to [].
     expect(byUser.has("u3")).toBe(false);
+  });
+});
+
+describe("shouldOfferPositionImport", () => {
+  it.each([
+    { case: "team, nobody covered", isPersonal: false, memberCount: 3, eligibleCount: 3, coveredCount: 0, expected: true },
+    { case: "team, under half covered", isPersonal: false, memberCount: 4, eligibleCount: 4, coveredCount: 1, expected: true },
+    { case: "team, exactly half covered", isPersonal: false, memberCount: 4, eligibleCount: 4, coveredCount: 2, expected: false },
+    { case: "team, over half covered", isPersonal: false, memberCount: 3, eligibleCount: 3, coveredCount: 2, expected: false },
+    { case: "team of one", isPersonal: false, memberCount: 1, eligibleCount: 1, coveredCount: 0, expected: false },
+    { case: "personal workspace", isPersonal: true, memberCount: 3, eligibleCount: 3, coveredCount: 0, expected: false },
+    // Plain External agents count as members but not in the ratio: two humans,
+    // one covered, plus three uncovered plain agents → exactly half, no pill.
+    { case: "plain External agents excluded from the ratio", isPersonal: false, memberCount: 5, eligibleCount: 2, coveredCount: 1, expected: false },
+    // One human plus a plain External agent is two members but one eligible.
+    { case: "one human and a plain agent", isPersonal: false, memberCount: 2, eligibleCount: 1, coveredCount: 0, expected: true },
+  ])("$case → $expected", ({ expected, case: _case, ...coverage }) => {
+    expect(shouldOfferPositionImport(coverage)).toBe(expected);
+  });
+});
+
+describe("loadPositionCoverage", () => {
+  const human = (covered: boolean) => ({
+    user: { isAgent: false, externalAgentShadow: null },
+    positionHolders: covered ? [{ positionId: "p1" }] : [],
+  });
+  const assistant = (covered: boolean) => ({
+    user: { isAgent: true, externalAgentShadow: { assistant: { id: "a1" } } },
+    positionHolders: covered ? [{ positionId: "p1" }] : [],
+  });
+  const plainAgent = (covered: boolean) => ({
+    user: { isAgent: true, externalAgentShadow: { assistant: null } },
+    positionHolders: covered ? [{ positionId: "p1" }] : [],
+  });
+
+  it("counts every member, but only humans and Assistants as eligible", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.workspace.findUnique.mockResolvedValue({ type: "team" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([
+      human(true),
+      human(false),
+      assistant(true),
+      assistant(false),
+      plainAgent(true),
+      plainAgent(false),
+    ] as never);
+
+    const coverage = await loadPositionCoverage(db, "ws-1");
+
+    expect(coverage).toEqual({ isPersonal: false, memberCount: 6, eligibleCount: 4, coveredCount: 2 });
+    // Holdings are scoped to this workspace's Positions.
+    expect(db.workspaceUser.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { workspaceId: "ws-1" },
+      select: { positionHolders: { where: { position: { workspaceId: "ws-1" } } } },
+    });
+  });
+
+  it("flags a personal workspace", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.workspace.findUnique.mockResolvedValue({ type: "personal" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([human(false)] as never);
+
+    const coverage = await loadPositionCoverage(db, "ws-1");
+
+    expect(coverage).toEqual({ isPersonal: true, memberCount: 1, eligibleCount: 1, coveredCount: 0 });
   });
 });

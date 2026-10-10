@@ -3,7 +3,13 @@ import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
-import { assertCanEditPosition, hasRemitGap, POSITION_SUMMARY_SELECT } from "~/server/services/positions";
+import {
+  assertCanEditPosition,
+  hasRemitGap,
+  loadPositionCoverage,
+  POSITION_SUMMARY_SELECT,
+  shouldOfferPositionImport,
+} from "~/server/services/positions";
 
 /**
  * Positions (ADR-0068): who does what in a workspace, for humans and agents
@@ -147,6 +153,24 @@ export const positionRouter = createTRPCRouter({
             agentDescription: member.user.externalAgentShadow?.description ?? null,
           }),
         })),
+      };
+    }),
+
+  /**
+   * Should the chat offer "Import roles & responsibilities" here? A read for
+   * any member — the pill shows to everyone (Agent PRD D12), and the import
+   * itself is what needs owner/admin.
+   */
+  coverage: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const coverage = await loadPositionCoverage(ctx.db, input.workspaceId);
+      return {
+        offerImport: shouldOfferPositionImport(coverage),
+        memberCount: coverage.memberCount,
+        eligibleCount: coverage.eligibleCount,
+        coveredCount: coverage.coveredCount,
       };
     }),
 

@@ -473,6 +473,85 @@ describe("position.list", () => {
   });
 });
 
+describe("position.coverage", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  const member = (opts: { isAgent?: boolean; assistant?: boolean; covered?: boolean } = {}) => ({
+    user: {
+      isAgent: opts.isAgent ?? false,
+      externalAgentShadow: opts.isAgent ? { assistant: opts.assistant ? { id: "a" } : null } : null,
+    },
+    positionHolders: opts.covered ? [{ positionId: POSITION_ID }] : [],
+  });
+
+  it("offers the import in a team workspace where fewer than half hold a Position", async () => {
+    // A viewer can read it: the pill shows to every member (Agent PRD D12).
+    arrangeCaller(db, "viewer");
+    db.workspace.findUnique.mockResolvedValue({ type: "team" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([
+      member(),
+      member(),
+      member({ isAgent: true, assistant: true, covered: true }),
+      // A plain External agent is a member but not in the ratio.
+      member({ isAgent: true }),
+    ] as never);
+
+    const result = await caller(db).position.coverage({ workspaceId: WORKSPACE_ID });
+
+    expect(result).toEqual({ offerImport: true, memberCount: 4, eligibleCount: 3, coveredCount: 1 });
+  });
+
+  it("stops offering once half of the humans and Assistants hold a Position", async () => {
+    arrangeCaller(db, "owner");
+    db.workspace.findUnique.mockResolvedValue({ type: "team" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([
+      member({ covered: true }),
+      member(),
+      member({ isAgent: true, assistant: true, covered: true }),
+      member({ isAgent: true, assistant: true }),
+    ] as never);
+
+    const result = await caller(db).position.coverage({ workspaceId: WORKSPACE_ID });
+
+    expect(result).toEqual({ offerImport: false, memberCount: 4, eligibleCount: 4, coveredCount: 2 });
+  });
+
+  it("never offers it in a personal workspace", async () => {
+    arrangeCaller(db, "owner");
+    db.workspace.findUnique.mockResolvedValue({ type: "personal" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([member(), member({ isAgent: true, assistant: true })] as never);
+
+    const result = await caller(db).position.coverage({ workspaceId: WORKSPACE_ID });
+
+    expect(result.offerImport).toBe(false);
+  });
+
+  it("never offers it to a workspace of one", async () => {
+    arrangeCaller(db, "owner");
+    db.workspace.findUnique.mockResolvedValue({ type: "team" } as never);
+    db.workspaceUser.findMany.mockResolvedValue([member()] as never);
+
+    const result = await caller(db).position.coverage({ workspaceId: WORKSPACE_ID });
+
+    expect(result).toEqual({ offerImport: false, memberCount: 1, eligibleCount: 1, coveredCount: 0 });
+  });
+
+  it("refuses a non-member without reading the workspace", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.teamUser.findFirst.mockResolvedValue(null);
+
+    await expect(caller(db).position.coverage({ workspaceId: WORKSPACE_ID })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("position writes are human-only (ADR-0049 denylist)", () => {
   let db: DeepMockProxy<PrismaClient>;
 

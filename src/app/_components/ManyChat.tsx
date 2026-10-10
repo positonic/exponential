@@ -47,6 +47,7 @@ import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdo
 import { failureCopy } from '~/lib/chat/failureCopy';
 import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 import { LocalWikiFirstRun } from './LocalWikiFirstRun';
+import { PositionsImportPill, IMPORT_POSITIONS_PROMPT } from './PositionsImportPill';
 
 // Module-level constants to avoid re-creation on every render
 const VIDEO_PATTERN = /\[Video ([a-zA-Z0-9_-]+)\]/g;
@@ -1106,6 +1107,20 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
+  // The Positions import pill: prefill the ask, leave the cursor at the end
+  // so the user pastes their document straight after it.
+  const handleImportPositions = () => {
+    setInput(IMPORT_POSITIONS_PROMPT);
+    setShowAgentDropdown(false);
+    setTimeout(() => {
+      if (inputRef.current) {
+        const end = IMPORT_POSITIONS_PROMPT.length;
+        inputRef.current.focus();
+        inputRef.current.setSelectionRange(end, end);
+      }
+    }, 0);
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1653,6 +1668,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
               <Text size="xs" c="red">{voice.lastError}</Text>
             ) : null}
           </div>
+        )}
+        {workspaceId && !localWikiSelected && (
+          // Keyed so a workspace switch remounts it with that workspace's state.
+          // Not for the local wiki agent: only Zoe can run the import.
+          <PositionsImportPill
+            key={workspaceId}
+            workspaceId={workspaceId}
+            onImport={handleImportPositions}
+          />
         )}
         <form onSubmit={handleSubmit}>
           <div className="relative">

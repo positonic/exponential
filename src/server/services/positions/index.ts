@@ -128,3 +128,75 @@ export async function assertCanEditPosition(
     }
   }
 }
+
+/**
+ * The counts behind the chat's "Import roles & responsibilities" pill
+ * (Agent PRD D11).
+ */
+export interface PositionCoverage {
+  isPersonal: boolean;
+  /** `WorkspaceUser` rows of the workspace, of any kind. */
+  memberCount: number;
+  /** Humans plus Assistant principals. Plain External agents are not counted. */
+  eligibleCount: number;
+  /** Eligible members holding at least one Position in the workspace. */
+  coveredCount: number;
+}
+
+/**
+ * Should the chat nudge this workspace to import its Positions? Only in a
+ * team workspace with two or more members where fewer than half of the
+ * humans and Assistants hold a Position. Never in a personal workspace: it
+ * has one human, so there is nobody to route to.
+ */
+export function shouldOfferPositionImport(coverage: PositionCoverage): boolean {
+  return (
+    !coverage.isPersonal &&
+    coverage.memberCount >= 2 &&
+    coverage.coveredCount * 2 < coverage.eligibleCount
+  );
+}
+
+/** Read the workspace's `PositionCoverage`. Two queries, run together. */
+export async function loadPositionCoverage(
+  db: PrismaClient | Prisma.TransactionClient,
+  workspaceId: string,
+): Promise<PositionCoverage> {
+  const [workspace, members] = await Promise.all([
+    db.workspace.findUnique({ where: { id: workspaceId }, select: { type: true } }),
+    db.workspaceUser.findMany({
+      where: { workspaceId },
+      select: {
+        user: {
+          select: {
+            isAgent: true,
+            // An Assistant is an External agent with an Assistant row (ADR-0067).
+            externalAgentShadow: { select: { assistant: { select: { id: true } } } },
+          },
+        },
+        // One holding is enough to count as covered.
+        positionHolders: {
+          where: { position: { workspaceId } },
+          select: { positionId: true },
+          take: 1,
+        },
+      },
+    }),
+  ]);
+
+  let eligibleCount = 0;
+  let coveredCount = 0;
+  for (const member of members) {
+    const isEligible = !member.user.isAgent || !!member.user.externalAgentShadow?.assistant;
+    if (!isEligible) continue;
+    eligibleCount += 1;
+    if (member.positionHolders.length > 0) coveredCount += 1;
+  }
+
+  return {
+    isPersonal: workspace?.type === "personal",
+    memberCount: members.length,
+    eligibleCount,
+    coveredCount,
+  };
+}
