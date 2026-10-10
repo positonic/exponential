@@ -231,10 +231,12 @@ export function useVoiceSession(
   // conversation (call_id → started-at ms). While non-empty, a committed user
   // turn does NOT get its own response.create — see the committed case.
   const pendingToolCallsRef = useRef<Map<string, number>>(new Map());
-  // A user turn was committed while a tool call was pending and is waiting for
-  // the tool output's response. If that output never comes (stale call pruned),
-  // the recovery path below still answers the turn.
-  const deferredUserTurnRef = useRef(false);
+  // A response is owed but was held back because a tool call was pending —
+  // for a committed user turn, or for a tool output whose reply was deferred
+  // behind an active response that then called another tool. Normally the
+  // pending tool's output starts that response; if the call never settles
+  // (pruned as stale), the recovery path below starts it anyway.
+  const owedResponseRef = useRef(false);
   const staleToolTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Releases a reserved response slot whose server events never arrived.
   const responseWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -272,7 +274,7 @@ export function useVoiceSession(
     pendingActionIdRef.current = undefined;
     handledCallIdsRef.current.clear();
     pendingToolCallsRef.current.clear();
-    deferredUserTurnRef.current = false;
+    owedResponseRef.current = false;
     if (staleToolTimerRef.current) {
       clearTimeout(staleToolTimerRef.current);
       staleToolTimerRef.current = null;
@@ -374,9 +376,9 @@ export function useVoiceSession(
     }
   }, []);
 
-  // Mutually recursive with requestResponse (the watchdog may need to flush a
-  // deferred request), so both live on refs that are assigned below.
-  const requestResponseRef = useRef<(reason: string) => void>(() => undefined);
+  // The watchdog may need to flush a deferred request, and flushDeferred is
+  // defined after it (it depends on the tool gate), so it is reached via a ref.
+  const flushDeferredRef = useRef<(reason: string) => void>(() => undefined);
 
   /**
    * (Re)arm the watchdog on a slot we reserved without a server ACK in hand.
@@ -393,17 +395,14 @@ export function useVoiceSession(
         hadDeferred: pendingResponseCreateRef.current,
       });
       activeResponseRef.current = false;
-      if (pendingResponseCreateRef.current) {
-        pendingResponseCreateRef.current = false;
-        requestResponseRef.current("watchdog_recovery");
-      }
+      flushDeferredRef.current("watchdog_recovery");
     }, RESPONSE_WATCHDOG_MS);
   }, [clearResponseWatchdog, log]);
 
   const requestResponse = useCallback(
     (reason: string) => {
       // Any response we start answers whatever user turn was waiting.
-      deferredUserTurnRef.current = false;
+      owedResponseRef.current = false;
       if (activeResponseRef.current) {
         pendingResponseCreateRef.current = true;
         log("response.deferred", { reason, why: "response_active" });
@@ -416,34 +415,72 @@ export function useVoiceSession(
     },
     [send, log, armResponseWatchdog],
   );
-  requestResponseRef.current = requestResponse;
 
   /**
-   * A user turn was held back because a tool call was pending. Normally the
-   * tool output's response answers it. If instead the pending set drains by
-   * pruning (the dispatch never settled), answer the turn anyway — the model
-   * will say it couldn't get the result rather than leave silence.
+   * A response is owed (see owedResponseRef) and was held back behind a pending
+   * tool call. Normally that tool's output starts it. If instead the pending set
+   * drains by pruning (the dispatch never settled), start it anyway — with
+   * whatever outputs did land in context, the model speaks those and says the
+   * rest didn't come back, rather than leaving silence.
    */
-  const recoverDeferredUserTurn = useCallback(() => {
-    if (!deferredUserTurnRef.current) return;
+  const recoverOwedResponse = useCallback(() => {
+    if (!owedResponseRef.current) return;
+    // hasPendingToolCall prunes stale entries as a side effect, so a call that
+    // never returns is removed here rather than blocking recovery forever.
     if (hasPendingToolCall()) return;
     requestResponse("stale_tool_recovery");
   }, [hasPendingToolCall, requestResponse]);
 
-  /** Schedule recoverDeferredUserTurn for when the oldest pending call goes stale. */
+  /**
+   * Schedule recoverOwedResponse for when the oldest LIVE pending call goes
+   * stale. Re-arms itself while a response is still owed and live calls remain,
+   * so a second hung call can't strand it after the first fires. Pruning first
+   * means `oldest` is never an already-stale entry, so the delay is always a
+   * real wait and the timer can't spin.
+   */
   const armStaleToolTimer = useCallback(() => {
     if (staleToolTimerRef.current) clearTimeout(staleToolTimerRef.current);
-    let oldest = Infinity;
-    for (const startedAt of pendingToolCallsRef.current.values()) {
-      if (startedAt < oldest) oldest = startedAt;
-    }
-    if (!Number.isFinite(oldest)) return;
-    const delay = Math.max(0, oldest + STALE_TOOL_CALL_MS - Date.now()) + 50;
-    staleToolTimerRef.current = setTimeout(() => {
-      staleToolTimerRef.current = null;
-      recoverDeferredUserTurn();
-    }, delay);
-  }, [recoverDeferredUserTurn]);
+    const arm = () => {
+      if (!hasPendingToolCall()) return; // pruned; nothing live to wait for
+      let oldest = Infinity;
+      for (const startedAt of pendingToolCallsRef.current.values()) {
+        if (startedAt < oldest) oldest = startedAt;
+      }
+      const delay = Math.max(0, oldest + STALE_TOOL_CALL_MS - Date.now()) + 50;
+      staleToolTimerRef.current = setTimeout(() => {
+        staleToolTimerRef.current = null;
+        recoverOwedResponse();
+        if (owedResponseRef.current) arm();
+      }, delay);
+    };
+    arm();
+  }, [hasPendingToolCall, recoverOwedResponse]);
+
+  /**
+   * Send a response.create that was deferred behind an active response — but
+   * only if no tool call is pending. The active response may itself have
+   * emitted a function call; flushing before its output lands would have the
+   * model answer from nothing, the very bug this hook exists to prevent. In
+   * that case the response stays owed and the tool output's response covers
+   * it — whether the deferred request came from a user turn or from an
+   * earlier tool output, the one response that follows voices everything that
+   * is now in context.
+   */
+  const flushDeferred = useCallback(
+    (reason: string) => {
+      if (!pendingResponseCreateRef.current) return;
+      pendingResponseCreateRef.current = false;
+      if (hasPendingToolCall()) {
+        log("response.deferred", { reason, why: "tool_pending" });
+        owedResponseRef.current = true;
+        armStaleToolTimer();
+        return;
+      }
+      requestResponse(reason);
+    },
+    [hasPendingToolCall, log, armStaleToolTimer, requestResponse],
+  );
+  flushDeferredRef.current = flushDeferred;
 
   /** Register the tool catalog + router persona on the live session. */
   const configureSession = useCallback(() => {
@@ -629,7 +666,7 @@ export function useVoiceSession(
           });
           if (toolPending) {
             log("response.deferred", { reason: "user_turn", why: "tool_pending" });
-            deferredUserTurnRef.current = true;
+            owedResponseRef.current = true;
             armStaleToolTimer();
             break;
           }
@@ -658,11 +695,9 @@ export function useVoiceSession(
           clearResponseWatchdog();
           activeResponseRef.current = false;
           // Flush a response.create we deferred while this response ran (a tool
-          // result or a user turn that landed mid-response).
-          if (pendingResponseCreateRef.current) {
-            pendingResponseCreateRef.current = false;
-            requestResponse("flush_deferred");
-          }
+          // result or a user turn that landed mid-response) — gated on pending
+          // tools inside flushDeferred.
+          flushDeferred("flush_deferred");
           setState("listening");
           break;
         }
@@ -731,7 +766,11 @@ export function useVoiceSession(
           }
           // Release the (possibly optimistically reserved) response slot so a
           // failed response.create can't wedge the gate shut for the session.
+          clearResponseWatchdog();
           activeResponseRef.current = false;
+          // A failed response emits no response.done, so a request deferred
+          // behind it would otherwise wait for a later turn — flush it now.
+          flushDeferred("flush_after_error");
           setLastError(message);
           break;
         }
@@ -748,6 +787,7 @@ export function useVoiceSession(
       armStaleToolTimer,
       clearResponseWatchdog,
       armResponseWatchdog,
+      flushDeferred,
     ],
   );
 
