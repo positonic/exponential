@@ -253,7 +253,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const linkDraftValid = isHttpUrl(linkDraft);
 
   const handleSaveLink = () => {
-    if (!linkDraftValid) return;
+    if (!linkDraftValid || saveLinkMutation.isPending) return;
     const url = linkDraft.trim();
     // A bare link has no body, so there is nothing to embed: the Reading
     // list is findable by title and URL, never by semantic search, until a
@@ -419,7 +419,10 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           placeholder="Paste a link and press Enter"
           aria-label="Link to read later"
           value={linkDraft}
-          onChange={(e) => setLinkDraft(e.currentTarget.value)}
+          onChange={(e) => {
+            setLinkDraft(e.currentTarget.value);
+            if (saveLinkMutation.isError) saveLinkMutation.reset();
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleSaveLink();
             if (e.key === 'Escape') {
@@ -427,7 +430,13 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               setLinkDraft('');
             }
           }}
-          error={linkDraft.trim() && !linkDraftValid ? 'Enter a full http(s) URL' : undefined}
+          error={
+            linkDraft.trim() && !linkDraftValid
+              ? 'Enter a full http(s) URL'
+              : saveLinkMutation.isError
+                ? "Couldn't save the link. Try again."
+                : undefined
+          }
           disabled={saveLinkMutation.isPending}
           leftSection={<IconLink size={14} stroke={1.75} />}
           rightSection={
