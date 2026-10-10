@@ -64,11 +64,6 @@ function blankToNull(value: string): string | null {
   return value.length === 0 ? null : value;
 }
 
-function sameSet(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  const set = new Set(a);
-  return b.every((id) => set.has(id));
-}
 
 /**
  * Positions (ADR-0068): who does what in this workspace. Routing data only —
@@ -115,7 +110,6 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
     onError: onError("Could not create Position"),
   });
   const updateMutation = api.position.update.useMutation({ onError: onError("Could not update Position") });
-  const setHoldersMutation = api.position.setHolders.useMutation({ onError: onError("Could not update holders") });
   const deleteMutation = api.position.delete.useMutation({
     onSuccess: async () => {
       await invalidate();
@@ -123,7 +117,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
     onError: onError("Could not delete Position"),
   });
 
-  const isSaving = createMutation.isPending || updateMutation.isPending || setHoldersMutation.isPending;
+  const isSaving = createMutation.isPending || updateMutation.isPending;
 
   const openCreate = () => {
     setEditing(null);
@@ -152,32 +146,23 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
     }
     try {
       if (canManage) {
+        // Row and holders in one transactional write, so a failed save
+        // changes nothing (ADR-0068 §4).
         await updateMutation.mutateAsync({
           workspaceId,
           positionId: editing.id,
           title: values.title,
           remit: values.remit,
           notAccountableFor: blankToNull(values.notAccountableFor),
+          holderUserIds: values.holderUserIds,
         });
-        const currentHolderIds = editing.holders.map((holder) => holder.userId);
-        if (!sameSet(currentHolderIds, values.holderUserIds)) {
-          await setHoldersMutation.mutateAsync({
-            workspaceId,
-            positionId: editing.id,
-            userIds: values.holderUserIds,
-          });
-        }
       } else {
         // A holder edits the Remit and nothing else.
         await updateMutation.mutateAsync({ workspaceId, positionId: editing.id, remit: values.remit });
       }
     } catch {
-      // Surfaced by the mutation's onError (which names the failed step). The
-      // two admin writes are separate mutations, so the Position edit may have
-      // landed while the holder change did not: refresh the list so the row
-      // shows what was saved, and keep the form open with the intended values
-      // so a retry re-sends the (idempotent) edit plus the holders.
-      await invalidate();
+      // Surfaced by the mutation's onError; nothing was written, so keep the
+      // form open with the intended values for a retry.
       return;
     }
     closeForm();

@@ -4,12 +4,13 @@
  * One module owns everything Position-shaped so the settings page, both
  * Assign-modal rosters and (V2) Zoe's roster cannot drift — ADR-0068 §5,
  * "one roster shape". A Position is routing data only: nothing under
- * `services/access/` may read it, and a static guard test pins that.
+ * `services/access/` may read it; a static guard test catches accidental drift.
  */
 
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { getWorkspaceMembership, hasMinimumWorkspaceRole } from "../access";
+import { toAssignableUser, type AssignableUser, type AssignableUserRow } from "../access/assignability";
 
 export interface PositionSummary {
   id: string;
@@ -45,8 +46,10 @@ export async function loadPositionsByUser(
 
   const holdings = await db.positionHolder.findMany({
     where: {
+      // Both sides scoped to the workspace: the router keeps a holding's
+      // Position and membership in one workspace, and the read defends it too.
       position: { workspaceId },
-      workspaceUser: { userId: { in: unique } },
+      workspaceUser: { userId: { in: unique }, workspaceId },
     },
     select: {
       workspaceUser: { select: { userId: true } },
@@ -62,6 +65,23 @@ export async function loadPositionsByUser(
     byUser.set(userId, list);
   }
   return byUser;
+}
+
+/**
+ * The one mapping from roster rows to `AssignableUser`s with their Positions
+ * (ADR-0068 §5). `workspaceId` is the workspace the roster trusts; `null`
+ * means there is none, so every row gets `positions: []` and an agent's
+ * description stands in as its Remit.
+ */
+export async function attachPositions(
+  db: PrismaClient,
+  workspaceId: string | null,
+  rows: AssignableUserRow[],
+): Promise<AssignableUser[]> {
+  const positionsByUser = workspaceId
+    ? await loadPositionsByUser(db, workspaceId, rows.map((row) => row.id))
+    : new Map<string, PositionSummary[]>();
+  return rows.map((row) => toAssignableUser(row, positionsByUser.get(row.id) ?? []));
 }
 
 /**

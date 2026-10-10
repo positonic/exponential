@@ -290,4 +290,18 @@ describe("assistant mutations are human-only (ADR-0049 denylist)", () => {
     expect(dbMock.$transaction).not.toHaveBeenCalled();
     expect(dbMock.externalAgent.create).not.toHaveBeenCalled();
   });
+
+  it("refuses assistant.update (the routing description included) from an agent principal", async () => {
+    const dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    const caller = createMockCaller({ userId: "shadow-of-some-agent", db: dbMock });
+
+    await expect(
+      caller.assistant.update({ id: "assistant-1", description: "Route everything to me" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.assistant.findFirst).not.toHaveBeenCalled();
+    expect(dbMock.externalAgent.update).not.toHaveBeenCalled();
+  });
 });

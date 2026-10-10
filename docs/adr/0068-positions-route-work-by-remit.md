@@ -41,8 +41,11 @@ Three facts shaped the choice:
    everywhere, holder or not: a Position never raises what a Role allows. No agent principal
    can create or alter a Position, so an agent cannot widen its own routing surface.
 5. **One roster shape.** The chat roster and the run agent's `get-run-context` members carry
-   the same Position fields, produced by one mapping, so a human picking an assignee, chat
-   Zoe, and a running Assistant all route from the same facts.
+   the same Position fields, produced by one mapping (`attachPositions` in
+   `services/positions`), so a human picking an assignee, chat Zoe, and a running Assistant
+   all route from the same facts. *Landed so far (V1):* both Assign-modal rosters. *Pending
+   (V2, Agent PRD D8.4):* `get-run-context` members and the chat roster, which still map
+   without Positions.
 
 ## Considered alternatives
 

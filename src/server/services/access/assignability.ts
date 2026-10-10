@@ -36,6 +36,7 @@ import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { getWorkspaceMembership } from "./resolvers/workspaceResolver";
 import type { PositionSummary } from "../positions";
+import { blankToNull } from "~/server/utils/blankToNull";
 
 /**
  * Throw unless `assigneeId` may be assigned work inside `workspaceId`.
@@ -194,8 +195,6 @@ export function toAssignableUser(
       : null,
     positions,
     agentDescription:
-      row.isAgent && positions.length === 0
-        ? (row.externalAgentShadow?.description ?? null)
-        : null,
+      row.isAgent && positions.length === 0 ? blankToNull(row.externalAgentShadow?.description) : null,
   };
 }

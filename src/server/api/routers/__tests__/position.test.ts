@@ -189,7 +189,7 @@ describe("position.create", () => {
 
   it("a duplicate title → CONFLICT", async () => {
     arrangeCaller(db, "owner");
-    db.position.create.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));
+    db.position.create.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002", meta: { target: ["workspaceId", "title"] } }));
 
     await expect(
       caller(db).position.create({ workspaceId: WORKSPACE_ID, title: "Travel researcher", remit: "Y" }),
@@ -285,6 +285,69 @@ describe("position.update", () => {
     expectNothingWritten(db);
   });
 
+  it("admin replaces the holder set with the row edit in one transaction", async () => {
+    arrangeCaller(db, "admin");
+    db.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) => cb(db)) as never);
+    db.workspaceUser.findMany.mockResolvedValue([{ id: "wu-aria" }] as never);
+    db.positionHolder.deleteMany.mockResolvedValue({ count: 1 } as never);
+    db.positionHolder.createMany.mockResolvedValue({ count: 1 } as never);
+
+    const result = await caller(db).position.update({
+      workspaceId: WORKSPACE_ID,
+      positionId: POSITION_ID,
+      title: "Travel lead",
+      holderUserIds: ["aria", "aria"],
+    });
+
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.positionHolder.deleteMany).toHaveBeenCalledWith({ where: { positionId: POSITION_ID } });
+    expect(db.positionHolder.createMany).toHaveBeenCalledWith({
+      data: [{ positionId: POSITION_ID, workspaceUserId: "wu-aria" }],
+    });
+    expect(db.position.update.mock.calls[0]?.[0]).toMatchObject({ data: { title: "Travel lead" } });
+    expect(result).toMatchObject({ id: POSITION_ID });
+  });
+
+  it("a holder sending holderUserIds → FORBIDDEN, nothing written", async () => {
+    arrangeCaller(db, "member");
+    db.positionHolder.findFirst.mockResolvedValue({ positionId: POSITION_ID } as never);
+
+    await expect(
+      caller(db).position.update({
+        workspaceId: WORKSPACE_ID,
+        positionId: POSITION_ID,
+        remit: "Sharper",
+        holderUserIds: ["aria"],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("a holder removed from the workspace mid-write → NOT_FOUND, not a 500", async () => {
+    arrangeCaller(db, "owner");
+    db.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) => cb(db)) as never);
+    db.workspaceUser.findMany.mockResolvedValue([{ id: "wu-aria" }] as never);
+    db.positionHolder.deleteMany.mockResolvedValue({ count: 0 } as never);
+    db.positionHolder.createMany.mockRejectedValue(
+      Object.assign(new Error("FK"), { code: "P2003", meta: { field_name: "PositionHolder_workspaceUserId_fkey" } }),
+    );
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, holderUserIds: ["aria"] }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND", message: "Member not found in this workspace" });
+  });
+
+  it("a unique violation that is not the title is not reported as a duplicate title", async () => {
+    arrangeCaller(db, "owner");
+    db.position.update.mockRejectedValue(
+      Object.assign(new Error("unique"), { code: "P2002", meta: { target: ["positionId", "workspaceUserId"] } }),
+    );
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, title: "X" }),
+    ).rejects.not.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("a positionId from another workspace → NOT_FOUND, even for an owner", async () => {
     arrangeCaller(db, "owner");
     arrangePosition(db, OTHER_WORKSPACE_ID);
@@ -306,7 +369,7 @@ describe("position.update", () => {
 
   it("renaming onto an existing title → CONFLICT", async () => {
     arrangeCaller(db, "owner");
-    db.position.update.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));
+    db.position.update.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002", meta: { target: ["workspaceId", "title"] } }));
 
     await expect(
       caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, title: "Taken" }),
@@ -436,6 +499,17 @@ describe("position.list", () => {
       code: "FORBIDDEN",
     });
     expect(db.position.findMany).not.toHaveBeenCalled();
+  });
+
+  it("a viewer reads the list: Positions are routing data, not a write", async () => {
+    arrangeCaller(db, "viewer");
+    db.position.findMany.mockResolvedValue([] as never);
+    db.workspaceUser.findMany.mockResolvedValue([] as never);
+
+    await expect(caller(db).position.list({ workspaceId: WORKSPACE_ID })).resolves.toMatchObject({
+      positions: [],
+      members: [],
+    });
   });
 
   it("returns Positions with holders, and a remitGap per member", async () => {

@@ -37,7 +37,7 @@ const USER_CONTEXT_PLACEHOLDER = `Example: I'm a startup founder working on a Sa
 
 /** The Assistant's fallback Remit when it holds no Position (ADR-0068 §3). */
 const DESCRIPTION_PLACEHOLDER = `Example: Research and shortlist options — venues, travel, suppliers — and post them as a comment with a recommendation. Does not book or pay.`;
-const DESCRIPTION_MAX = 500;
+const DESCRIPTION_MAX = 5000;
 
 /** Which engine runs Agent runs assigned to the Assistant (ADR-0067 §4, Agent PRD V2). */
 const EXECUTOR_OPTIONS = [

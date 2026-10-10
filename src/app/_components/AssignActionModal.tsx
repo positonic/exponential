@@ -16,7 +16,7 @@ import {
 } from "@mantine/core";
 import { IconSearch, IconRobot } from "@tabler/icons-react";
 import { useSession } from "next-auth/react";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
@@ -42,20 +42,8 @@ interface AssignActionModalProps {
   onSelectionChange?: (userIds: string[]) => void;
 }
 
-interface AssignableUser {
-  id: string;
-  name: string | null;
-  email: string | null;
-  image: string | null;
-  /** Real agent principal (ADR-0049 / ADR-0067) — the shadow user of an External agent. */
-  isAgent: boolean;
-  /** Set when the agent is someone's Assistant: whose. */
-  assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
-  /** Positions held in this roster's workspace (ADR-0068) — the same hint Zoe routes by. */
-  positions: Array<{ id: string; title: string }>;
-  /** An agent's fallback Remit when it holds no Position: routing data for Zoe, not a label here. */
-  agentDescription: string | null;
-}
+/** One row of the roster, as the server shapes it (`toAssignableUser`): a derived type, never a hand copy. */
+type AssignableUser = RouterOutputs["action"]["getAssignableUsers"]["assignableUsers"][number];
 
 /** "your assistant" / "Andi's assistant" / "External agent" — the picker's second line for an agent row. */
 function agentSubtitle(user: AssignableUser, viewerId: string | undefined): string {

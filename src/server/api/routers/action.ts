@@ -10,8 +10,8 @@ import { parseActionInput } from "~/server/services/parsing";
 import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUserRow } from "~/server/services/access/assignability";
-import { loadPositionsByUser, type PositionSummary } from "~/server/services/positions";
+import { ASSIGNABLE_USER_SELECT, type AssignableUserRow } from "~/server/services/access/assignability";
+import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
@@ -1893,12 +1893,10 @@ export const actionRouter = createTRPCRouter({
       // for its roster (ADR-0068 §5) — never a wider one, so a public-project
       // visitor cannot read Positions through team-mates who happen to be in
       // the roster. One extra query; none when there is no such workspace.
-      const rows = Array.from(userMap.values());
-      const positionsByUser = rosterWorkspaceId
-        ? await loadPositionsByUser(ctx.db, rosterWorkspaceId, rows.map((row) => row.id))
-        : new Map<string, PositionSummary[]>();
-      const assignableUsers = rows.map((row) =>
-        toAssignableUser(row, positionsByUser.get(row.id) ?? []),
+      const assignableUsers = await attachPositions(
+        ctx.db,
+        rosterWorkspaceId,
+        Array.from(userMap.values()),
       );
 
       return {
@@ -2050,15 +2048,14 @@ export const actionRouter = createTRPCRouter({
 
       // Same rule as getAssignableUsers: Positions attach for the trusted
       // workspace only, else every user gets `positions: []`.
-      const rows = Array.from(userMap.values());
-      const positionsByUser = effectiveWorkspaceId
-        ? await loadPositionsByUser(ctx.db, effectiveWorkspaceId, rows.map((row) => row.id))
-        : new Map<string, PositionSummary[]>();
+      const assignableUsers = await attachPositions(
+        ctx.db,
+        effectiveWorkspaceId,
+        Array.from(userMap.values()),
+      );
 
       return {
-        assignableUsers: rows.map((row) =>
-          toAssignableUser(row, positionsByUser.get(row.id) ?? []),
-        ),
+        assignableUsers,
         actionContext: {
           hasProject: !!project,
           hasTeam: false,

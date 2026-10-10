@@ -1,6 +1,10 @@
 /**
  * Guard: access control is a function of Role alone (ADR-0068 §2).
  *
+ * A static scan, so it catches drift by accident (a relation read slipped
+ * into a select, a loader imported for convenience), not a determined bypass;
+ * the rule itself is the review contract.
+ *
  * A Position never grants or restricts anything, so nothing under
  * `services/access/` may read `Position` / `PositionHolder` or call into the
  * positions module. `assignability.ts` is the one file allowed to *name* the
@@ -18,7 +22,7 @@ function sourceFiles(dir: string): string[] {
     const full = join(dir, name);
     if (name === "__tests__") return [];
     if (statSync(full).isDirectory()) return sourceFiles(full);
-    return name.endsWith(".ts") ? [full] : [];
+    return /\.tsx?$/.test(name) ? [full] : [];
   });
 }
 

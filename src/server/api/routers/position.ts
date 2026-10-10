@@ -4,6 +4,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { assertCanEditPosition, hasRemitGap, POSITION_SUMMARY_SELECT } from "~/server/services/positions";
+import { blankToNull } from "~/server/utils/blankToNull";
 
 /**
  * Positions (ADR-0068): who does what in a workspace, for humans and agents
@@ -55,17 +56,39 @@ function presentPosition(position: PositionWithHolders) {
   };
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    !!error &&
-    typeof error === "object" &&
-    "code" in error &&
-    (error as { code?: string }).code === "P2002"
-  );
+function prismaErrorCode(error: unknown): string | null {
+  return !!error && typeof error === "object" && "code" in error
+    ? ((error as { code?: unknown }).code as string | null) ?? null
+    : null;
+}
+
+/** P2002 on the `(workspaceId, title)` unique, and no other unique. */
+function isDuplicateTitle(error: unknown): boolean {
+  if (prismaErrorCode(error) !== "P2002") return false;
+  const target = (error as { meta?: { target?: unknown } }).meta?.target;
+  return Array.isArray(target) ? target.includes("title") : typeof target === "string" && target.includes("title");
+}
+
+/**
+ * P2003: a holder's `WorkspaceUser` row vanished between the membership check
+ * and the write (the member was removed concurrently). The write rolled back;
+ * answer as the check would have.
+ */
+function isMissingHolderMembership(error: unknown): boolean {
+  return prismaErrorCode(error) === "P2003";
 }
 
 const DUPLICATE_TITLE = () =>
   new TRPCError({ code: "CONFLICT", message: "A Position with this title already exists" });
+const HOLDER_NOT_MEMBER = () =>
+  new TRPCError({ code: "NOT_FOUND", message: "Member not found in this workspace" });
+
+/** Map a failed Position write to its tRPC error, or rethrow. */
+function rethrowPositionWrite(error: unknown): never {
+  if (isDuplicateTitle(error)) throw DUPLICATE_TITLE();
+  if (isMissingHolderMembership(error)) throw HOLDER_NOT_MEMBER();
+  throw error;
+}
 
 /** The Position, or NOT_FOUND when it is missing or belongs to another workspace. */
 async function requirePositionInWorkspace(
@@ -100,7 +123,7 @@ async function resolveHolderMemberships(
     select: { id: true },
   });
   if (memberships.length !== unique.length) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Member not found in this workspace" });
+    throw HOLDER_NOT_MEMBER();
   }
   return memberships.map((membership) => membership.id);
 }
@@ -176,7 +199,7 @@ export const positionRouter = createTRPCRouter({
             workspaceId: input.workspaceId,
             title: input.title,
             remit: input.remit,
-            notAccountableFor: input.notAccountableFor?.length ? input.notAccountableFor : null,
+            notAccountableFor: blankToNull(input.notAccountableFor),
             holders: {
               create: workspaceUserIds.map((workspaceUserId) => ({ workspaceUserId })),
             },
@@ -185,15 +208,16 @@ export const positionRouter = createTRPCRouter({
         });
         return presentPosition(created);
       } catch (error) {
-        if (isUniqueViolation(error)) throw DUPLICATE_TITLE();
-        throw error;
+        rethrowPositionWrite(error);
       }
     }),
 
   /**
-   * Title and "not accountable for" need owner/admin; the Remit needs
-   * owner/admin or that the caller holds this Position. The decision is
-   * `assertCanEditPosition` in services/positions — one place, not per router.
+   * Title, "not accountable for" and the holder set need owner/admin; the
+   * Remit needs owner/admin or that the caller holds this Position. The
+   * decision is `assertCanEditPosition` in services/positions — one place,
+   * not per router. Row and holders are written in one transaction, so an
+   * admin's edit never lands half-way (the same guarantee `create` gives).
    */
   update: humanOnlyProcedure
     .input(
@@ -203,11 +227,17 @@ export const positionRouter = createTRPCRouter({
         title: titleSchema.optional(),
         remit: remitSchema.optional(),
         notAccountableFor: notAccountableForSchema.nullable().optional(),
+        /** When present, replaces the holder set (owner/admin only). */
+        holderUserIds: holderUserIdsSchema.optional(),
       })
       // An update that edits nothing would pass neither gate below and still
       // run a mutation as any viewer; refuse it before authorization.
       .refine(
-        (input) => input.title !== undefined || input.remit !== undefined || input.notAccountableFor !== undefined,
+        (input) =>
+          input.title !== undefined ||
+          input.remit !== undefined ||
+          input.notAccountableFor !== undefined ||
+          input.holderUserIds !== undefined,
         { message: "Nothing to update" },
       ),
     )
@@ -219,27 +249,51 @@ export const positionRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         positionId: input.positionId,
         edits: {
-          titleOrScope: input.title !== undefined || input.notAccountableFor !== undefined,
+          titleOrScope:
+            input.title !== undefined ||
+            input.notAccountableFor !== undefined ||
+            input.holderUserIds !== undefined,
           remit: input.remit !== undefined,
         },
       });
+      const workspaceUserIds =
+        input.holderUserIds !== undefined
+          ? await resolveHolderMemberships(ctx.db, input.workspaceId, input.holderUserIds)
+          : null;
+
+      const data: Prisma.PositionUpdateInput = {
+        ...(input.title !== undefined && { title: input.title }),
+        ...(input.remit !== undefined && { remit: input.remit }),
+        ...(input.notAccountableFor !== undefined && {
+          notAccountableFor: blankToNull(input.notAccountableFor),
+        }),
+      };
 
       try {
-        const updated = await ctx.db.position.update({
-          where: { id: input.positionId },
-          data: {
-            ...(input.title !== undefined && { title: input.title }),
-            ...(input.remit !== undefined && { remit: input.remit }),
-            ...(input.notAccountableFor !== undefined && {
-              notAccountableFor: input.notAccountableFor?.length ? input.notAccountableFor : null,
-            }),
-          },
-          select: POSITION_WITH_HOLDERS_SELECT,
+        if (workspaceUserIds === null) {
+          const updated = await ctx.db.position.update({
+            where: { id: input.positionId },
+            data,
+            select: POSITION_WITH_HOLDERS_SELECT,
+          });
+          return presentPosition(updated);
+        }
+        const updated = await ctx.db.$transaction(async (tx) => {
+          await tx.positionHolder.deleteMany({ where: { positionId: input.positionId } });
+          if (workspaceUserIds.length > 0) {
+            await tx.positionHolder.createMany({
+              data: workspaceUserIds.map((workspaceUserId) => ({ positionId: input.positionId, workspaceUserId })),
+            });
+          }
+          return tx.position.update({
+            where: { id: input.positionId },
+            data,
+            select: POSITION_WITH_HOLDERS_SELECT,
+          });
         });
         return presentPosition(updated);
       } catch (error) {
-        if (isUniqueViolation(error)) throw DUPLICATE_TITLE();
-        throw error;
+        rethrowPositionWrite(error);
       }
     }),
 
@@ -267,18 +321,22 @@ export const positionRouter = createTRPCRouter({
       await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
       const workspaceUserIds = await resolveHolderMemberships(ctx.db, input.workspaceId, input.userIds);
 
-      const updated = await ctx.db.$transaction(async (tx) => {
-        await tx.positionHolder.deleteMany({ where: { positionId: input.positionId } });
-        if (workspaceUserIds.length > 0) {
-          await tx.positionHolder.createMany({
-            data: workspaceUserIds.map((workspaceUserId) => ({ positionId: input.positionId, workspaceUserId })),
+      try {
+        const updated = await ctx.db.$transaction(async (tx) => {
+          await tx.positionHolder.deleteMany({ where: { positionId: input.positionId } });
+          if (workspaceUserIds.length > 0) {
+            await tx.positionHolder.createMany({
+              data: workspaceUserIds.map((workspaceUserId) => ({ positionId: input.positionId, workspaceUserId })),
+            });
+          }
+          return tx.position.findUniqueOrThrow({
+            where: { id: input.positionId },
+            select: POSITION_WITH_HOLDERS_SELECT,
           });
-        }
-        return tx.position.findUniqueOrThrow({
-          where: { id: input.positionId },
-          select: POSITION_WITH_HOLDERS_SELECT,
         });
-      });
-      return presentPosition(updated);
+        return presentPosition(updated);
+      } catch (error) {
+        rethrowPositionWrite(error);
+      }
     }),
 });

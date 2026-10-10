@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
+import { blankToNull } from "~/server/utils/blankToNull";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
 import {
@@ -140,7 +141,7 @@ export const assistantRouter = createTRPCRouter({
          * when it holds no Position (ADR-0068 §3). Lives on the principal
          * (`ExternalAgent.description`), like `executor`.
          */
-        description: z.string().trim().max(500).nullable().optional(),
+        description: z.string().trim().max(5000).nullable().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -173,7 +174,7 @@ export const assistantRouter = createTRPCRouter({
         // switch applies to the next assignment.
         const principalData = {
           ...(executor !== undefined && executor !== existing.externalAgent.executor && { executor }),
-          ...(description !== undefined && { description: description?.length ? description : null }),
+          ...(description !== undefined && { description: blankToNull(description) }),
         };
         if (Object.keys(principalData).length > 0) {
           await tx.externalAgent.update({
