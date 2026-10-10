@@ -19,6 +19,8 @@ export const NOTIFICATION_CATEGORIES = {
   AGENDA_READY: "agenda_ready",
   /** A Workspace update draft (or a quiet-week notice) awaits its reviewers. */
   UPDATE_REVIEW: "update_review",
+  /** An Agent run finished or stopped on an action you handed to an Assistant (ADR-0067). */
+  AGENT_RUN: "agent_run",
 } as const;
 
 export type NotificationCategory =
@@ -77,6 +79,7 @@ export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
   NOTIFICATION_CATEGORIES.AGENDA_READY,
   NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+  NOTIFICATION_CATEGORIES.AGENT_RUN,
 ] as const;
 
 /** All channels, in stable delivery / matrix-column order. */
@@ -114,4 +117,5 @@ export const DEFAULT_MATRIX: Record<
   // Update review: the draft goes to the reviewer's Matrix DM (when paired) and
   // email, so it can be read where it arrives and approved from its link.
   [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { push: true, email: true, matrix: true, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.AGENT_RUN]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
 };

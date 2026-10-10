@@ -7,6 +7,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
+
+// The finish hook (notification, activity, time entry) is covered by finish.test.ts.
+const finishMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("../finish", () => ({ onRunFinished: (...args: unknown[]) => finishMock(...args) }));
 import jwt from "jsonwebtoken";
 
 vi.hoisted(() => {

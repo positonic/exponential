@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { generateJWT } from "~/server/utils/jwt";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { onRunFinished } from "./finish";
 
 /**
  * The hosted executor (ADR-0067, Agent PRD D4). Claims one QUEUED run at a
@@ -270,6 +271,7 @@ async function finishRun(
       ...(data.error !== undefined ? { error: data.error } : {}),
     },
   });
+  await onRunFinished(db, runId);
 }
 
 /**

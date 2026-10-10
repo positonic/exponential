@@ -8,6 +8,19 @@ import type { NotificationCategory } from "./constants";
  * matching arm to the {@link EmitNotificationInput} union.
  */
 
+/**
+ * Agent run (ADR-0067): a run on an action finished (summary ready for review)
+ * or stopped (failed, timed out). Recipients are the human who assigned and
+ * the Assistant's owner; the actor is the Assistant's shadow user, so a
+ * self-notification never happens. A question to the owner is NOT this
+ * category — it travels as a Mention through the comment path.
+ */
+export interface AgentRunSubject {
+  runId: string;
+  actionId: string;
+  outcome: "finished" | "stopped";
+}
+
 /** Assignment (V1): the action and the users just assigned to it. */
 export interface AssignmentSubject {
   actionId: string;
@@ -172,6 +185,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.UPDATE_REVIEW;
       subject: UpdateReviewSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.AGENT_RUN;
+      subject: AgentRunSubject;
     }
 );
 

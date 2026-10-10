@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { getActionAccess, canViewAction, buildActionEditWhere } from "~/server/services/access";
 import { appendRunEvent } from "~/server/services/agentRuns/events";
+import { onRunFinished } from "~/server/services/agentRuns/finish";
 
 /**
  * Agent runs as seen by humans (ADR-0067, Agent PRD D10). Everyone who can
@@ -99,6 +100,7 @@ export const agentRunRouter = createTRPCRouter({
           kind: "status",
           payload: { status: "CANCELLED", by: ctx.session.user.id, was: run.status },
         });
+        await onRunFinished(ctx.db, run.id);
       }
       return { cancelled: updated.count === 1, was: run.status };
     }),

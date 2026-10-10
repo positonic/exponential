@@ -7,6 +7,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
+// The finish hook (notification, activity, time entry) is covered by finish.test.ts.
+const finishMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("../finish", () => ({ onRunFinished: (...args: unknown[]) => finishMock(...args) }));
+
 vi.hoisted(() => {
   process.env.AUTH_SECRET ??= "test-secret-for-unit-tests";
   process.env.MASTRA_API_URL = "http://mastra.test:4111";
@@ -64,5 +68,20 @@ describe("sweepAgentRuns", () => {
       executor: "MASTRA",
       createdAt: { lt: new Date(NOW.getTime() - 60 * 1000) },
     });
+  });
+});
+
+describe("sweep → finish hook", () => {
+  it("runs the finish hook for each timed-out run", async () => {
+    mockReset(db);
+    finishMock.mockClear();
+    db.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) => cb(db)) as never);
+    db.agentRunEvent.aggregate.mockResolvedValue({ _max: { seq: 0 } } as never);
+    db.agentRunEvent.create.mockResolvedValue({ id: "ev", seq: 1 } as never);
+    db.agentRun.update.mockResolvedValue({} as never);
+    db.agentRun.findMany.mockResolvedValueOnce([{ id: "stale-1" }] as never).mockResolvedValueOnce([] as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
+    await sweepAgentRuns(db, NOW);
+    expect(finishMock).toHaveBeenCalledWith(db, "stale-1");
   });
 });

@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { QUEUED_RETRY_AFTER_MS, RUN_HEARTBEAT_TIMEOUT_MS } from "./constants";
 import { dispatchQueuedRuns, type DispatchResult } from "./dispatch";
 import { appendRunEvent } from "./events";
+import { onRunFinished } from "./finish";
 
 export interface SweepResult {
   timedOut: string[];
@@ -50,6 +51,7 @@ export async function sweepAgentRuns(db: PrismaClient, now: Date): Promise<Sweep
     if (result.count === 1) {
       timedOut.push(id);
       await appendRunEvent(db, { runId: id, kind: "status", payload: { status: "TIMED_OUT" } });
+      await onRunFinished(db, id);
     }
   }
 
