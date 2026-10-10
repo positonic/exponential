@@ -50,6 +50,7 @@ import {
   IconSend,
   IconBug,
   IconServer,
+  IconAlertTriangle,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -176,6 +177,29 @@ export default function WorkspaceSettingsPage() {
   const keyResultsEnabled =
     workspaceData?.enableKeyResults ?? (workspaceData?.type !== 'personal');
   const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
+
+  // Positions per member (ADR-0068) for the Members table. A personal
+  // workspace has one human and nobody to route to, so the column — and its
+  // warning, which would fire forever — is skipped there along with the query.
+  const isPersonalWorkspace = workspace?.type === 'personal';
+  const { data: positionList } = api.position.list.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: !!workspaceId && !!workspace && !isPersonalWorkspace }
+  );
+  const positionTitleById = new Map(
+    (positionList?.positions ?? []).map((position) => [position.id, position.title])
+  );
+  const memberPositions = new Map(
+    (positionList?.members ?? []).map((member) => [
+      member.userId,
+      {
+        titles: member.positionIds
+          .map((id) => positionTitleById.get(id))
+          .filter((title): title is string => !!title),
+        remitGap: member.remitGap,
+      },
+    ])
+  );
 
   const featureSuccess = (message: string) => () => {
     void utils.workspace.getBySlug.invalidate();
@@ -923,17 +947,33 @@ export default function WorkspaceSettingsPage() {
               }
               flush
             >
-              <div className="grid grid-cols-[1fr_140px_auto] px-2 pt-3 text-[13px]">
+              <div
+                className={`grid px-2 pt-3 text-[13px] ${
+                  isPersonalWorkspace
+                    ? 'grid-cols-[1fr_140px_auto]'
+                    : 'grid-cols-[1fr_1fr_140px_auto]'
+                }`}
+              >
                 <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                   Member
                 </div>
+                {!isPersonalWorkspace && (
+                  <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                    Positions
+                  </div>
+                )}
                 <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                   Role
                 </div>
                 <div className="border-b border-border-primary px-3.5 pb-2.5" />
 
                 {workspace.members?.map((member) => (
-                  <div key={member.userId} className="contents group">
+                  <div
+                    key={member.userId}
+                    className="contents group"
+                    data-testid="member-row"
+                    data-user-id={member.userId}
+                  >
                     <div className="flex items-center gap-2.5 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
                       <Avatar src={member.user.image} size="sm" radius="xl">
                         {member.user.name?.charAt(0).toUpperCase() ?? 'U'}
@@ -953,6 +993,45 @@ export default function WorkspaceSettingsPage() {
                         </div>
                       </div>
                     </div>
+                    {!isPersonalWorkspace && (
+                      <div
+                        className="flex flex-wrap items-center gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated"
+                        data-testid="member-positions"
+                      >
+                        {(() => {
+                          const held = memberPositions.get(member.userId);
+                          if (!held) return null;
+                          if (held.remitGap) {
+                            return (
+                              <Tooltip
+                                label={
+                                  member.user.isAgent
+                                    ? "No Position or description — Zoe can't route work here"
+                                    : "No Position — Zoe can't route work here"
+                                }
+                              >
+                                <span
+                                  className="inline-flex items-center gap-1 text-[11.5px] text-brand-warning"
+                                  data-testid="remit-gap"
+                                >
+                                  <IconAlertTriangle size={14} aria-hidden="true" />
+                                  No Position
+                                </span>
+                              </Tooltip>
+                            );
+                          }
+                          if (held.titles.length === 0) {
+                            // An agent routed by its own description (ADR-0068 §3).
+                            return <span className="text-[11.5px] text-text-muted">By description</span>;
+                          }
+                          return held.titles.map((title) => (
+                            <SettingsPill key={title} variant="neutral">
+                              {title}
+                            </SettingsPill>
+                          ));
+                        })()}
+                      </div>
+                    )}
                     <div className="flex items-center border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
                       <SettingsPill
                         variant={
@@ -999,7 +1078,7 @@ export default function WorkspaceSettingsPage() {
             {/* Positions (ADR-0068): who does what. A personal workspace has one
                 human and nobody to route to, so neither the section nor the
                 members' Positions column renders there. */}
-            {workspace.type !== 'personal' && (
+            {!isPersonalWorkspace && (
               <PositionsSection
                 workspaceId={workspaceId!}
                 canManage={canManageMembers}
