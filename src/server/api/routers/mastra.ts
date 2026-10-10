@@ -7,6 +7,7 @@ import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { createActionComment } from "~/server/services/actions/comments";
 import { assertAssignableUsers } from "~/server/services/actions/containment";
 import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
+import { loadPositionsByUser, type PositionSummary } from "~/server/services/positions";
 import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
@@ -1009,14 +1010,25 @@ export const mastraRouter = createTRPCRouter({
             select: { user: { select: ASSIGNABLE_USER_SELECT } },
           })).map((m) => m.user)
         : [];
-    // Positions join these members in V2 (Agent PRD D8.4); until then the
-    // mapping runs without a workspace lookup.
-    const members = memberRows.map((row) => toAssignableUser(row)).map((u) => ({
-      id: u.id,
-      name: u.name,
-      isAgent: u.isAgent,
-      assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
-    }));
+    // Positions ride along so the run can delegate by Remit (ADR-0068, Agent
+    // PRD D8.4): the same `toAssignableUser` + `loadPositionsByUser` mapping
+    // the Assign modal's rosters use, scoped to the action's workspace. With
+    // no workspace there is nothing to look up and every member gets `[]`.
+    // Routing data only — the member set and containment are unchanged.
+    const rosterWorkspaceId = action.workspaceId ?? action.project?.workspaceId ?? null;
+    const positionsByUser = rosterWorkspaceId
+      ? await loadPositionsByUser(ctx.db, rosterWorkspaceId, memberRows.map((row) => row.id))
+      : new Map<string, PositionSummary[]>();
+    const members = memberRows
+      .map((row) => toAssignableUser(row, positionsByUser.get(row.id) ?? []))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        isAgent: u.isAgent,
+        assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
+        positions: u.positions,
+        agentDescription: u.agentDescription,
+      }));
 
     const wakeComment = full.wakeCommentId
       ? await ctx.db.actionComment.findUnique({ where: { id: full.wakeCommentId }, select: { content: true } })
@@ -1432,15 +1444,24 @@ export const mastraRouter = createTRPCRouter({
       // silently clearing the text-parsed date via the precedence logic.
       scheduledStart: z.string().min(1).optional(),
       dueDate: z.string().min(1).optional(),
+      // The chat's workspace (Agent PRD D8.3). Without it an action created
+      // with no project lands in no workspace, and assigning a workspace
+      // colleague to it is refused by containment. `createAction` authorises
+      // it (`assertCanWriteToWorkspace`: FORBIDDEN for a non-member or a
+      // viewer) and a project's own workspace still wins.
+      workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}, workspaceId=${input.workspaceId ?? "none"}`);
 
-      // Use the same parsing logic as action.quickCreate
+      // Use the same parsing logic as action.quickCreate; the workspace
+      // scopes project-name matching to the workspace the chat is in.
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
-      const parsed = await parseActionInput(input.text, userId, ctx.db);
+      const parsed = await parseActionInput(input.text, userId, ctx.db, {
+        workspaceId: input.workspaceId,
+      });
 
       console.log(`🎯 [tRPC quickCreateAction] PARSED: name="${parsed.name}", parsedProjectId=${parsed.projectId ?? "none"}, scheduledStart=${String(parsed.scheduledStart ?? "none")}, dueDate=${String(parsed.dueDate ?? "none")}`);
 
@@ -1474,6 +1495,7 @@ export const mastraRouter = createTRPCRouter({
       const created = await createAction(actionWriteDeps(ctx), {
         name: parsed.name,
         projectId: parsed.projectId ?? undefined,
+        workspaceId: input.workspaceId,
         priority: input.priority ?? "Quick",
         status: "ACTIVE",
         scheduledStart: scheduledStart ?? undefined,

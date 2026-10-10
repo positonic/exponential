@@ -289,4 +289,99 @@ describe("mastra.getRunContext", () => {
     expect(ctx.owner).toEqual({ id: "owner-1", name: "James" });
     expect(db.agentRunEvent.create).not.toHaveBeenCalled();
   });
+
+  // ── Positions on members (ADR-0068, Agent PRD D8.4) ─────────────────
+  // The run delegates by Remit: members carry the Positions they hold in the
+  // action's workspace, and an agent with none carries its description as a
+  // fallback Remit. Same mapping as the Assign modal's rosters; the member
+  // set itself is unchanged.
+
+  const humanRow = { id: "u-human", name: "Andi", email: "andi@x.test", image: null, isAgent: false, externalAgentShadow: null };
+  const assistantRow = {
+    id: "u-aria", name: "Aria", email: null, image: null, isAgent: true,
+    externalAgentShadow: { description: "Research travel options", assistant: { emoji: null, createdBy: { id: "owner-1", name: "James" } } },
+  };
+  const plainAgentRow = {
+    id: "u-bot", name: "Hermes", email: null, image: null, isAgent: true,
+    externalAgentShadow: { description: "Files Sentry bugs", assistant: null },
+  };
+  const travelResearcher = { id: "pos-1", title: "Travel researcher", remit: "Research travel", notAccountableFor: "Booking" };
+
+  function stubRunContextRead(db: DeepMockProxy<PrismaClient>, action: Record<string, unknown>) {
+    mockReset(db);
+    db.agentRun.findFirst.mockResolvedValue(liveRun as never);
+    db.action.findUniqueOrThrow.mockResolvedValue({
+      id: ACTION, name: "Find a venue", description: null, status: "ACTIVE", priority: null, dueDate: null,
+      assignees: [], comments: [], ...action,
+    } as never);
+    db.agentRun.findUniqueOrThrow.mockResolvedValue({ wakeCommentId: null, predecessor: null } as never);
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "owner-1", name: "James" } as never);
+  }
+
+  it("members carry the Positions held in the action's workspace, and agentDescription only for an agent with none", async () => {
+    const db = getDbMock();
+    stubRunContextRead(db, { workspaceId: "ws-1", projectId: null, project: null });
+    db.workspaceUser.findMany.mockResolvedValue(
+      [{ user: humanRow }, { user: assistantRow }, { user: plainAgentRow }] as never,
+    );
+    db.positionHolder.findMany.mockResolvedValue([
+      { workspaceUser: { userId: "u-aria" }, position: travelResearcher },
+    ] as never);
+
+    const ctx = await runCaller(db).mastra.getRunContext();
+
+    // One lookup, scoped to the action's workspace and to these members.
+    expect(db.positionHolder.findMany).toHaveBeenCalledTimes(1);
+    expect(db.positionHolder.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { position: { workspaceId: "ws-1" }, workspaceUser: { userId: { in: ["u-human", "u-aria", "u-bot"] } } },
+    });
+    expect(ctx.members).toEqual([
+      { id: "u-human", name: "Andi", isAgent: false, assistantOwner: null, positions: [], agentDescription: null },
+      {
+        id: "u-aria", name: "Aria", isAgent: true, assistantOwner: { id: "owner-1", name: "James" },
+        positions: [travelResearcher],
+        // Holds a Position, so the description is not its Remit.
+        agentDescription: null,
+      },
+      { id: "u-bot", name: "Hermes", isAgent: true, assistantOwner: null, positions: [], agentDescription: "Files Sentry bugs" },
+    ]);
+    expect(db.agentRunEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("uses the project's workspace for a project action, reading project members", async () => {
+    const db = getDbMock();
+    stubRunContextRead(db, {
+      workspaceId: null, projectId: "p-1", project: { id: "p-1", name: "Madrid trip", workspaceId: "ws-2" },
+    });
+    db.projectMember.findMany.mockResolvedValue([{ user: humanRow }] as never);
+    db.positionHolder.findMany.mockResolvedValue([
+      { workspaceUser: { userId: "u-human" }, position: travelResearcher },
+    ] as never);
+
+    const ctx = await runCaller(db).mastra.getRunContext();
+
+    expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
+    expect(db.positionHolder.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { position: { workspaceId: "ws-2" } },
+    });
+    expect(ctx.members).toEqual([
+      { id: "u-human", name: "Andi", isAgent: false, assistantOwner: null, positions: [travelResearcher], agentDescription: null },
+    ]);
+  });
+
+  it("gives every member positions: [] and looks nothing up when the action has no workspace", async () => {
+    const db = getDbMock();
+    stubRunContextRead(db, {
+      workspaceId: null, projectId: "p-personal", project: { id: "p-personal", name: "Personal", workspaceId: null },
+    });
+    db.projectMember.findMany.mockResolvedValue([{ user: humanRow }, { user: plainAgentRow }] as never);
+
+    const ctx = await runCaller(db).mastra.getRunContext();
+
+    expect(db.positionHolder.findMany).not.toHaveBeenCalled();
+    expect(ctx.members.map((m) => [m.id, m.positions, m.agentDescription])).toEqual([
+      ["u-human", [], null],
+      ["u-bot", [], "Files Sentry bugs"],
+    ]);
+  });
 });
