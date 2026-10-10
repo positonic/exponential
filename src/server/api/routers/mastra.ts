@@ -7,6 +7,7 @@ import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { createActionComment } from "~/server/services/actions/comments";
 import { assertAssignableUsers } from "~/server/services/actions/containment";
 import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
+import { loadPositionsByUser } from "~/server/services/positions";
 import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
@@ -1009,14 +1010,25 @@ export const mastraRouter = createTRPCRouter({
             select: { user: { select: ASSIGNABLE_USER_SELECT } },
           })).map((m) => m.user)
         : [];
-    // Positions join these members in V2 (Agent PRD D8.4); until then the
-    // mapping runs without a workspace lookup.
-    const members = memberRows.map((row) => toAssignableUser(row)).map((u) => ({
-      id: u.id,
-      name: u.name,
-      isAgent: u.isAgent,
-      assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
-    }));
+    // Positions ride along so the run can delegate by Remit (ADR-0068, Agent
+    // PRD D8.4): the same `toAssignableUser` + `loadPositionsByUser` mapping
+    // the Assign modal's rosters use, scoped to the action's workspace. With
+    // no workspace there is nothing to look up and every member gets `[]`.
+    // Routing data only — the member set and containment are unchanged.
+    const rosterWorkspaceId = action.workspaceId ?? action.project?.workspaceId ?? null;
+    const positionsByUser = rosterWorkspaceId
+      ? await loadPositionsByUser(ctx.db, rosterWorkspaceId, memberRows.map((row) => row.id))
+      : new Map<string, never[]>();
+    const members = memberRows
+      .map((row) => toAssignableUser(row, positionsByUser.get(row.id)))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        isAgent: u.isAgent,
+        assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
+        positions: u.positions,
+        agentDescription: u.agentDescription,
+      }));
 
     const wakeComment = full.wakeCommentId
       ? await ctx.db.actionComment.findUnique({ where: { id: full.wakeCommentId }, select: { content: true } })
