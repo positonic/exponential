@@ -33,6 +33,7 @@ import {
   IconCopy,
   IconCamera,
   IconKey,
+  IconPencil,
   IconPlus,
   IconRobotFace,
   IconTrash,
@@ -76,6 +77,29 @@ export default function ExternalAgentsPage() {
     },
     onError: (error) =>
       notifications.show({ title: 'Could not create agent', message: error.message, color: 'red' }),
+  });
+
+  const [editAgentId, setEditAgentId] = useState<string | null>(null);
+
+  const closeAgentModal = () => {
+    closeCreate();
+    setEditAgentId(null);
+    createForm.reset();
+  };
+
+  const openEdit = (agent: { id: string; name: string; description: string | null }) => {
+    setEditAgentId(agent.id);
+    createForm.setValues({ name: agent.name, description: agent.description ?? '' });
+    openCreate();
+  };
+
+  const updateAgent = api.externalAgent.update.useMutation({
+    onSuccess: async () => {
+      closeAgentModal();
+      await invalidate();
+    },
+    onError: (error) =>
+      notifications.show({ title: 'Could not update agent', message: error.message, color: 'red' }),
   });
 
   const deleteAgent = api.externalAgent.delete.useMutation({
@@ -289,6 +313,12 @@ export default function ExternalAgentsPage() {
                   </Button>
                 </Tooltip>
               ) : (
+                <Group gap={4} wrap="nowrap">
+                <Tooltip label="Edit agent">
+                  <ActionIcon variant="subtle" onClick={() => openEdit(agent)}>
+                    <IconPencil size={16} />
+                  </ActionIcon>
+                </Tooltip>
                 <Tooltip label="Delete agent (keys and workspace access are removed)">
                   <ActionIcon
                     variant="subtle"
@@ -299,6 +329,7 @@ export default function ExternalAgentsPage() {
                     <IconTrash size={16} />
                   </ActionIcon>
                 </Tooltip>
+                </Group>
               )}
             </Group>
             {agent.description && (
@@ -407,8 +438,18 @@ export default function ExternalAgentsPage() {
       ))}
 
       {/* Create agent */}
-      <Modal opened={createOpened} onClose={closeCreate} title="New external agent">
-        <form onSubmit={createForm.onSubmit((values) => createAgent.mutate(values))}>
+      <Modal
+        opened={createOpened}
+        onClose={closeAgentModal}
+        title={editAgentId ? 'Edit external agent' : 'New external agent'}
+      >
+        <form
+          onSubmit={createForm.onSubmit((values) =>
+            editAgentId
+              ? updateAgent.mutate({ agentId: editAgentId, ...values })
+              : createAgent.mutate(values),
+          )}
+        >
           <Stack>
             <TextInput
               label="Name"
@@ -419,14 +460,18 @@ export default function ExternalAgentsPage() {
             <Textarea
               label="Description"
               placeholder="What does this agent do?"
+              autosize
+              minRows={3}
+              maxRows={12}
+              maxLength={5000}
               {...createForm.getInputProps('description')}
             />
             <Group justify="flex-end">
-              <Button variant="default" onClick={closeCreate}>
+              <Button variant="default" onClick={closeAgentModal}>
                 Cancel
               </Button>
-              <Button type="submit" loading={createAgent.isPending}>
-                Create
+              <Button type="submit" loading={createAgent.isPending || updateAgent.isPending}>
+                {editAgentId ? 'Save' : 'Create'}
               </Button>
             </Group>
           </Stack>
