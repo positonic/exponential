@@ -71,6 +71,29 @@ export async function getWorkspaceMembership(
 }
 
 /**
+ * Batch form of {@link getWorkspaceMembership}'s yes/no: which of `userIds`
+ * belong to the workspace, directly or via a team linked to it.
+ */
+export async function filterWorkspaceMembers(
+  db: PrismaClient,
+  workspaceId: string,
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const [direct, viaTeam] = await Promise.all([
+    db.workspaceUser.findMany({
+      where: { workspaceId, userId: { in: userIds } },
+      select: { userId: true },
+    }),
+    db.teamUser.findMany({
+      where: { team: { workspaceId }, userId: { in: userIds } },
+      select: { userId: true },
+    }),
+  ]);
+  return new Set([...direct, ...viaTeam].map((m) => m.userId));
+}
+
+/**
  * Build a Prisma WHERE clause that matches workspaces the user can access,
  * either via direct WorkspaceUser membership or via team membership.
  *

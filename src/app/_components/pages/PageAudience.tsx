@@ -68,7 +68,11 @@ export function PageAudience({ pageId, workspaceId, canEdit }: PageAudienceProps
   let headline: string;
   let detail: string;
   let note: string | null = null;
-  if (!project) {
+  if (audience.isInviteOnly) {
+    icon = <IconLock size={16} />;
+    headline = "Only people invited";
+    detail = `Invite-only · ${peopleCount}`;
+  } else if (!project) {
     icon = <IconBuilding size={16} />;
     headline = `Everyone in ${workspaceName}`;
     detail = peopleCount;
@@ -112,7 +116,9 @@ export function PageAudience({ pageId, workspaceId, canEdit }: PageAudienceProps
             </Text>
           </div>
         </Group>
-        {canEdit ? (
+        {/* On an invite-only page the project grants nothing, so moving it
+            doesn't change who can see it — no "Change…" here. */}
+        {canEdit && !audience.isInviteOnly ? (
           <MeetingProjectPicker
             projects={placement.options}
             value={project?.id ?? null}

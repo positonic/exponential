@@ -207,6 +207,11 @@ export const pageCommentRouter = createTRPCRouter({
           message: "Comment not found or not yours",
         });
       }
+      // Authorship isn't enough: someone removed from a page (e.g. an
+      // invite-only page's former invitee) can't keep editing comments on it.
+      // Deleting their own comment stays allowed.
+      const page = await loadPageForAccess(ctx.db, existing.pageId);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
       const updated = await ctx.db.knowledgePageComment.update({
         where: { id: input.commentId },
         data: { body: input.body },

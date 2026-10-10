@@ -67,6 +67,7 @@ export {
 // Resolvers (for direct use when needed)
 export {
   getWorkspaceMembership,
+  filterWorkspaceMembers,
   assertWorkspaceRole,
   assertWorkspaceMembership,
   assertWorkspaceWriteRole,
@@ -119,10 +120,13 @@ export {
   canEditKnowledgePage,
   buildKnowledgePageAccessWhere,
   listKnowledgePageViewers,
+  canManageKnowledgePageAccess,
+  isKnowledgePageInviteRole,
 } from "./resolvers/knowledgePageResolver";
 export type {
   KnowledgePageAccessInfo,
   KnowledgePageViewer,
+  KnowledgePageInviteRole,
 } from "./resolvers/knowledgePageResolver";
 
 // Cross-workspace link guards (epic/feature/cycle/scope foreign keys)
