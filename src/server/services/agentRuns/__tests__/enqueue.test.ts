@@ -37,6 +37,13 @@ describe("enqueueAgentRunsForAssignees", () => {
     });
   });
 
+  it("only an Assistant's principal gets a run — plain External agents keep picking actions up themselves", async () => {
+    await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
+    expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { shadowUserId: { in: [SHADOW] }, assistant: { isNot: null } },
+    });
+  });
+
   it("creates nothing when no assignee is an agent principal", async () => {
     db.externalAgent.findMany.mockResolvedValue([] as never);
     const runs = await enqueueAgentRunsForAssignees(db, {

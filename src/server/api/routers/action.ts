@@ -1714,7 +1714,7 @@ export const actionRouter = createTRPCRouter({
       // per action, coalesced against live runs (ADR-0067). One principal
       // lookup up front so a human-only bulk assign costs nothing extra.
       const agentAssignees = await ctx.db.externalAgent.count({
-        where: { shadowUserId: { in: input.userIds } },
+        where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
       });
       if (agentAssignees > 0) {
         let kick = false;

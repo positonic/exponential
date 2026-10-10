@@ -23,8 +23,13 @@ export async function enqueueAgentRunsForAssignees(
 ): Promise<Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }>> {
   if (input.userIds.length === 0) return [];
 
+  // V1: only an Assistant's principal gets a hosted run. A plain External
+  // agent (Hermes-class software, a Grok Bot, …) keeps today's contract — it
+  // sees the assignment notification and picks the action up itself — so the
+  // dispatcher never does the same work in parallel with it. V2's local
+  // runner widens this to `executor = LOCAL_CLI` agents that claim runs.
   const agents = await db.externalAgent.findMany({
-    where: { shadowUserId: { in: input.userIds } },
+    where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
     select: { id: true, executor: true },
   });
   if (agents.length === 0) return [];
@@ -102,7 +107,7 @@ export async function resumeWaitingRunsOnOwnerReply(
   input: { actionId: string; authorId: string; commentId: string },
 ): Promise<Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }>> {
   const agents = await db.externalAgent.findMany({
-    where: { ownerId: input.authorId },
+    where: { ownerId: input.authorId, assistant: { isNot: null } },
     select: { id: true, executor: true },
   });
   if (!agents?.length) return [];
