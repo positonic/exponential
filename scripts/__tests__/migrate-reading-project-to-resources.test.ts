@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftFromAction, splitUrl } from "../migrate-reading-project-to-resources";
+import { cleanText, draftFromAction, splitUrl } from "../migrate-reading-project-to-resources";
 
 const base = {
   id: "a1",
@@ -75,3 +75,38 @@ describe("draftFromAction", () => {
     expect(draftFromAction({ ...base, name: "x" }).createdAt).toEqual(base.createdAt);
   });
 });
+
+describe("cleanText", () => {
+  it("strips anchor markup and decodes entities, including double-encoded ones", () => {
+    expect(cleanText('<a href="">Mesh LLM: distributed AI &amp; iroh</a>')).toBe("Mesh LLM: distributed AI & iroh");
+    expect(cleanText('venus on X: &amp;quot;How to Build&amp;quot; / X')).toBe('venus on X: "How to Build" / X');
+  });
+
+  it("drops a tab unread counter, at the start or after a 'prefix: ' separator", () => {
+    expect(cleanText("(3) DAN KOE on X")).toBe("DAN KOE on X");
+    expect(cleanText("Read: (3) DAN KOE on X")).toBe("Read: DAN KOE on X");
+    expect(cleanText("Section (3) of the act")).toBe("Section (3) of the act");
+  });
+});
+
+describe("draftFromAction with browser-pasted names", () => {
+  it("titles the resource by the cleaned anchor text, not the markup", () => {
+    const d = draftFromAction({
+      ...base,
+      name: '<a href="">What is Ngit? - Soapbox Blog</a>',
+      description: "https://soapbox.pub/blog/what-is-ngit",
+    });
+    expect(d.title).toBe("What is Ngit? - Soapbox Blog");
+    expect(d.description).toBeNull();
+    expect(d.url).toBe("https://soapbox.pub/blog/what-is-ngit");
+  });
+
+  it("keeps a user prefix like 'Read:' and cleans the quoted X title", () => {
+    const d = draftFromAction({
+      ...base,
+      name: 'Read: The Art Of Strategic Thinking: <a href="">(3) DAN KOE on X: &amp;quot;The Art&amp;quot; / X</a> https://x.com/thedankoe/status/1',
+    });
+    expect(d.title).toBe('Read: The Art Of Strategic Thinking: DAN KOE on X: "The Art" / X');
+  });
+});
+
