@@ -6,7 +6,13 @@ import { describe, it, expect } from "vitest";
 import { mockDeep } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { hasRemitGap, loadPositionCoverage, loadPositionsByUser, shouldOfferPositionImport } from "..";
+import {
+  hasRemitGap,
+  loadPositionCoverage,
+  loadPositionsByUser,
+  planPositionImport,
+  shouldOfferPositionImport,
+} from "..";
 
 describe("hasRemitGap", () => {
   it.each([
@@ -127,5 +133,94 @@ describe("loadPositionCoverage", () => {
     const coverage = await loadPositionCoverage(db, "ws-1");
 
     expect(coverage).toEqual({ isPersonal: true, memberCount: 1, eligibleCount: 1, coveredCount: 0 });
+  });
+});
+
+describe("planPositionImport", () => {
+  const existing = [
+    { id: "p-travel", title: "Travel researcher", holderUserIds: ["aria"] },
+    { id: "p-delivery", title: "Delivery lead", holderUserIds: [] },
+  ];
+
+  it("creates a new title with its holders, de-duplicated", () => {
+    const plan = planPositionImport(existing, [
+      { title: "  Technical Director ", remit: "Owns the architecture", holderUserIds: ["andi", "andi"] },
+    ]);
+
+    expect(plan).toEqual([
+      {
+        outcome: "create",
+        title: "Technical Director",
+        remit: "Owns the architecture",
+        notAccountableFor: null,
+        holderUserIds: ["andi"],
+      },
+    ]);
+  });
+
+  it("matches an existing title case-insensitively, keeps its stored title, replaces the prose and only adds holders", () => {
+    const plan = planPositionImport(existing, [
+      {
+        title: "TRAVEL RESEARCHER",
+        remit: "Shortlists hotels and flights",
+        notAccountableFor: "Booking",
+        // aria already holds it; andi is new. Nobody is removed.
+        holderUserIds: ["andi", "aria"],
+      },
+    ]);
+
+    expect(plan).toEqual([
+      {
+        outcome: "update",
+        positionId: "p-travel",
+        title: "Travel researcher",
+        remit: "Shortlists hotels and flights",
+        notAccountableFor: "Booking",
+        holderUserIds: ["aria", "andi"],
+        addedHolderUserIds: ["andi"],
+      },
+    ]);
+  });
+
+  it("an update with no holders keeps the existing ones and adds none", () => {
+    const [row] = planPositionImport(existing, [{ title: "travel researcher", remit: "R", holderUserIds: [] }]);
+
+    expect(row).toMatchObject({ outcome: "update", holderUserIds: ["aria"], addedHolderUserIds: [] });
+  });
+
+  it("an omitted or blank not-accountable-for clears it", () => {
+    const plan = planPositionImport(existing, [
+      { title: "Delivery lead", remit: "R", holderUserIds: [] },
+      { title: "New one", remit: "R", notAccountableFor: "   ", holderUserIds: [] },
+    ]);
+
+    expect(plan.map((row) => row.notAccountableFor)).toEqual([null, null]);
+  });
+
+  it("prefers the exact-case match when titles differ only by case, else the first in title order", () => {
+    const cased = [
+      { id: "p-lower", title: "travel", holderUserIds: [] },
+      { id: "p-upper", title: "Travel", holderUserIds: [] },
+    ];
+
+    const [exact] = planPositionImport(cased, [{ title: "travel", remit: "R", holderUserIds: [] }]);
+    const [folded] = planPositionImport(cased, [{ title: "TRAVEL", remit: "R", holderUserIds: [] }]);
+
+    expect(exact).toMatchObject({ outcome: "update", positionId: "p-lower" });
+    expect(folded).toMatchObject({ outcome: "update", positionId: [...cased].sort((a, b) => a.title.localeCompare(b.title))[0]!.id });
+  });
+
+  it("keeps input order across creates and updates", () => {
+    const plan = planPositionImport(existing, [
+      { title: "Zeta", remit: "R", holderUserIds: [] },
+      { title: "delivery lead", remit: "R", holderUserIds: [] },
+      { title: "Alpha", remit: "R", holderUserIds: [] },
+    ]);
+
+    expect(plan.map((row) => [row.title, row.outcome])).toEqual([
+      ["Zeta", "create"],
+      ["Delivery lead", "update"],
+      ["Alpha", "create"],
+    ]);
   });
 });
