@@ -2193,19 +2193,8 @@ export const workspaceRouter = createTRPCRouter({
         repoFullName: z.string().optional(),
       }),
     )
+    .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
-      const membership = await getWorkspaceMembership(
-        ctx.db,
-        ctx.session.user.id,
-        input.workspaceId,
-      );
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You are not a member of this workspace",
-        });
-      }
-
       return getWorkspaceTimeline(ctx.db, {
         workspaceId: input.workspaceId,
         days: input.days,
