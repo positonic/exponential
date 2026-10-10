@@ -36,9 +36,10 @@ Three facts shaped the choice:
    remains the only input to access control. The "Edit Role" modal is not reused for this.
 3. **Remit is free text matched by meaning**, not a tag taxonomy. An External agent's own
    description is its fallback Remit when it holds no Position.
-4. **Writes are human-only.** Owners and admins manage Positions and holders; a holder may
-   edit the Remit of a Position they hold. No agent principal can create or alter a Position,
-   so an agent cannot widen its own routing surface.
+4. **Writes are human-only.** Owners and admins manage Positions and holders; a holder who is
+   at least a `member` may edit the Remit of a Position they hold. A `viewer` is read-only
+   everywhere, holder or not: a Position never raises what a Role allows. No agent principal
+   can create or alter a Position, so an agent cannot widen its own routing surface.
 5. **One roster shape.** The chat roster and the run agent's `get-run-context` members carry
    the same Position fields, produced by one mapping, so a human picking an assignee, chat
    Zoe, and a running Assistant all route from the same facts.

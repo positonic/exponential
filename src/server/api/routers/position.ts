@@ -13,7 +13,8 @@ import { assertCanEditPosition, hasRemitGap, POSITION_SUMMARY_SELECT } from "~/s
  * Every write is `humanOnlyProcedure` (ADR-0049 denylist): no agent principal
  * can give itself or another agent a Position, however it authenticated.
  * Owners and admins (`manage_members`) create, rename, delete and set holders;
- * a holder may edit the Remit of a Position they hold (`update`).
+ * a holder who is at least a `member` may edit the Remit of a Position they
+ * hold (`update`); a viewer is read-only even as a holder.
  *
  * Every procedure takes `workspaceId` so `requireWorkspaceMembership` gates
  * it, and a `positionId` from another workspace answers NOT_FOUND — no

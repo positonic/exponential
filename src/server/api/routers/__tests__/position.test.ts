@@ -238,13 +238,16 @@ describe("position.update", () => {
     expect(db.position.update.mock.calls[0]?.[0]).toMatchObject({ data: { remit: "Sharper" } });
   });
 
-  it("a holder who is a viewer edits the Remit too — the gate is holding it (Agent PRD D12)", async () => {
+  it("a holder who is a viewer → FORBIDDEN: viewers stay read-only even as holders (ADR-0068 §4)", async () => {
     arrangeCaller(db, "viewer");
     db.positionHolder.findFirst.mockResolvedValue({ positionId: POSITION_ID } as never);
 
-    await caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" });
-
-    expect(db.position.update).toHaveBeenCalledTimes(1);
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // The role floor refuses before the holder lookup runs.
+    expect(db.positionHolder.findFirst).not.toHaveBeenCalled();
+    expectNothingWritten(db);
   });
 
   it("a member who does not hold it → FORBIDDEN, nothing written", async () => {

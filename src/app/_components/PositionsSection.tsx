@@ -19,6 +19,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconBriefcase, IconPencil, IconPlus, IconRobotFace, IconTrash } from "@tabler/icons-react";
 import { useSession } from "next-auth/react";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { SettingsSection } from "~/app/_components/settings/SettingsShell";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
@@ -81,14 +82,18 @@ function sameSet(a: string[], b: string[]): boolean {
 export function PositionsSection({ workspaceId, canManage, members }: PositionsSectionProps) {
   const utils = api.useUtils();
   const { data: session } = useSession();
+  const { userRole } = useWorkspace();
   const viewerId = session?.user?.id;
   const { data, isLoading } = api.position.list.useQuery({ workspaceId });
   const [formOpened, { open: openForm, close: closeForm }] = useDisclosure(false);
   const [editing, setEditing] = useState<PositionRow | null>(null);
 
   const positions = data?.positions ?? [];
+  // A holder edits the Remit only from `member` up (ADR-0068 §4); a viewer is
+  // read-only even as a holder, so do not offer an edit the server refuses.
+  const holderMayEdit = userRole === "owner" || userRole === "admin" || userRole === "member";
   const heldByViewer = new Set(
-    data?.members.find((member) => member.userId === viewerId)?.positionIds ?? [],
+    holderMayEdit ? data?.members.find((member) => member.userId === viewerId)?.positionIds ?? [] : [],
   );
 
   const invalidate = async () => {
@@ -112,7 +117,9 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
   const updateMutation = api.position.update.useMutation({ onError: onError("Could not update Position") });
   const setHoldersMutation = api.position.setHolders.useMutation({ onError: onError("Could not update holders") });
   const deleteMutation = api.position.delete.useMutation({
-    onSuccess: async () => invalidate(),
+    onSuccess: async () => {
+      await invalidate();
+    },
     onError: onError("Could not delete Position"),
   });
 

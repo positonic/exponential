@@ -84,8 +84,11 @@ export function hasRemitGap(member: {
 /**
  * Who may edit which part of a Position (ADR-0068 §4), decided in one place:
  * title and "not accountable for" need a workspace owner or admin; the Remit
- * needs owner/admin OR that the caller holds the Position — the gate is
- * "holds it", so a viewer who holds one may edit its Remit (Agent PRD D12).
+ * needs owner/admin OR that the caller holds the Position AND is at least a
+ * `member`. A viewer stays read-only everywhere, even as a holder: Agent PRD
+ * D12 left this open with "allowed" as the default and "tighten if viewers
+ * should stay read-only" as the alternative; the house invariant (workspace
+ * membership never implies write rights) decides it, and ADR-0068 §4 records it.
  *
  * The Role comes from the centralized access resolver, where team-based
  * access resolves to `member`: never an admin, and with no `WorkspaceUser` row
@@ -113,6 +116,13 @@ export async function assertCanEditPosition(
     });
   }
   if (input.edits.remit) {
+    // Role floor first, so a viewer never reaches the holder lookup.
+    if (!membership || !hasMinimumWorkspaceRole(membership.role, "member")) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Only a workspace owner or admin, or a holder of this Position, can edit its Remit",
+      });
+    }
     const holding = await db.positionHolder.findFirst({
       where: {
         positionId: input.positionId,
