@@ -196,10 +196,36 @@ describe("resource router — reading list (mocked)", () => {
       const where = dbMock.resource.findMany.mock.calls[0]![0]!.where!;
       expect(where).toMatchObject({
         userId: callerId,
-        workspaceId: "w1",
+        AND: [{ OR: [{ workspaceId: "w1" }, { workspaceId: null }] }],
         archivedAt: null,
         readStatus: { in: ["to_read", "reading"] },
       });
+    });
+
+    it("a workspace view keeps the caller's no-workspace rows alongside a title search", async () => {
+      dbMock.resource.findMany.mockResolvedValue([]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.list({ workspaceId: "w1", search: "pricing" });
+
+      const where = dbMock.resource.findMany.mock.calls[0]![0]!.where!;
+      expect(where.AND).toEqual([{ OR: [{ workspaceId: "w1" }, { workspaceId: null }] }]);
+      expect(where.OR).toEqual([
+        { title: { contains: "pricing", mode: "insensitive" } },
+        { description: { contains: "pricing", mode: "insensitive" } },
+      ]);
+      expect(where).not.toHaveProperty("workspaceId");
+    });
+
+    it("without a workspace, lists every workspace's rows for the caller", async () => {
+      dbMock.resource.findMany.mockResolvedValue([]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.list({});
+
+      const where = dbMock.resource.findMany.mock.calls[0]![0]!.where!;
+      expect(where).not.toHaveProperty("workspaceId");
+      expect(where).not.toHaveProperty("AND");
     });
 
     it("a single status narrows to that status; omitted applies no read filter", async () => {
