@@ -218,14 +218,14 @@ export function ActionDetailContent({
 
   if (isLoading) {
     return (
-      <div className="flex h-full">
+      <div className="flex h-full flex-col lg:flex-row">
         <div className="flex-1 p-8">
           <Skeleton height={32} width={200} mb="lg" />
           <Skeleton height={40} mb="md" />
           <Skeleton height={100} mb="lg" />
           <Skeleton height={200} />
         </div>
-        <div className="w-80 border-l border-border-primary p-6">
+        <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-border-primary p-6">
           <Skeleton height={24} width={120} mb="lg" />
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} height={36} mb="md" />
@@ -258,9 +258,9 @@ export function ActionDetailContent({
 
   return (
     <>
-    <div className="flex h-[calc(100vh-60px)]">
+    <div className="flex min-h-0 flex-col lg:h-[calc(100vh-60px)] lg:flex-row">
       {/* Left Panel - Main Content */}
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div className="flex-1 min-w-0 px-4 py-6 lg:overflow-y-auto lg:px-8">
         {/* Breadcrumb + Back */}
         <Group gap="md" mb="lg">
           <ActionIcon
@@ -475,7 +475,7 @@ export function ActionDetailContent({
       </div>
 
       {/* Right Panel - Properties Sidebar */}
-      <div className="w-80 border-l border-border-primary overflow-y-auto p-6 bg-surface-secondary/30">
+      <div className="w-full shrink-0 border-t border-border-primary p-6 bg-surface-secondary/30 lg:w-80 lg:border-t-0 lg:border-l lg:overflow-y-auto">
         <Text
           className="text-text-muted uppercase tracking-wider font-semibold"
           size="xs"
