@@ -13,6 +13,16 @@ on:
   pull_request:
     branches: [main, develop]
 
+# A new push to a PR cancels that PR's still-running suite: only the newest
+# commit can be merged, so the older run's verdict is worthless and its
+# job-minutes are wasted. The gate (pr-agent-automerge.yml) only acts on
+# workflow_run events whose conclusion is `success`, so a cancelled run never
+# reaches it. cancel-in-progress is gated on the event name so that if a
+# non-PR trigger is ever added again, runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint-and-typecheck:
     name: Lint & Typecheck
