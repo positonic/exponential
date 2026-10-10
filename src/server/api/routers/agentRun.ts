@@ -7,6 +7,7 @@ import { onRunFinished } from "~/server/services/agentRuns/finish";
 import { requireAgentKeyPrincipal, requireClaimedRunForRunner } from "~/server/services/agentRuns/callbacks";
 import { loadRunBrief, LOCAL_RUNNER_CLOSING } from "~/server/services/agentRuns/dispatch";
 import { createActionComment } from "~/server/services/actions/comments";
+import { isWaitingForRunner } from "~/server/services/agentRuns/presentation";
 
 /** How many times `claim` retries when another runner wins the row it picked. */
 const CLAIM_ATTEMPTS = 3;
@@ -71,6 +72,7 @@ export const agentRunRouter = createTRPCRouter({
             select: { id: true, runId: true, seq: true, kind: true, payload: true, createdAt: true },
           })
         : [];
+      const now = new Date();
       return runs.map((run) => {
         const isOwner = run.agent.ownerId === ctx.session.user.id;
         return {
@@ -79,6 +81,9 @@ export const agentRunRouter = createTRPCRouter({
           // the transcript; everyone else sees the status.
           error: isOwner ? run.error : null,
           isOwner,
+          // A LOCAL_CLI run nobody has claimed for ten minutes (V2); derived
+          // here so the pill and the Delegated tab read one rule.
+          waitingForRunner: isWaitingForRunner(run, now),
           events: isOwner ? events.filter((e) => e.runId === run.id) : undefined,
         };
       });

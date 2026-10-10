@@ -85,6 +85,8 @@ curl -s -X POST "$BASE/api/trpc/agentRun.finish" -H "Authorization: Bearer $KEY"
   -d '{"json":{"runId":"<id>","runnerId":"james-mbp","status":"SUCCEEDED","summary":"Booked the venue.","readyToClose":true}}'
 ```
 
+**Waiting for a runner.** A `LOCAL_CLI` run still `QUEUED` ten minutes after `createdAt` (`WAITING_FOR_RUNNER_AFTER_MS`, `constants.ts`) is *waiting for a runner*: the owner's machine is not polling, or its key was revoked. This is a derived presentation state, not a status — `isWaitingForRunner(run, now)` in `services/agentRuns/presentation.ts` is the one rule, `agentRun.listForAction` exposes it as the boolean `waitingForRunner` on every row, and `AgentRunPill` renders "Aria · Waiting for a runner" with the robot icon instead of the spinner (the run is still live: Cancel applies and the next `claim` picks it up). The Delegated tab consumes the same flag. Nothing times such a run out: the sweep's timeout targets `RUNNING` rows and its retry dispatch filters `executor: "MASTRA"`, so a `LOCAL_CLI` queue entry waits until a runner claims it or a human cancels or unassigns.
+
 The pill, the transcript and the Delegated tab read the same `AgentRun` rows, so a curl-driven run renders exactly like a hosted one. Tests: `routers/__tests__/agentRunRunner.test.ts` (guards, claim race, idempotent append, all three finish shapes, and the claim → append → finish tracer ending in `listForAction`), `services/agentRuns/__tests__/events.test.ts` (`appendRunEvents`).
 
 ## Security invariants (do not loosen)
@@ -98,7 +100,7 @@ The pill, the transcript and the Delegated tab read the same `AgentRun` rows, so
 
 ## UI
 
-- `actions/AgentRunPill.tsx` above the Activity section of `ActionDetailContent`: "Aria · Working 1m · called 3 tools" (polls `agentRun.listForAction` every 2 s while live, plus a bounded catch-up poll when the action already reports a live run), "Worked for … · called N tools" / "Stopped after …" / "Waiting on owner" after; Cancel while live; the summary (or error) on hover; `AgentRunTranscript` (owner only, collapsible, tool → verb label map).
+- `actions/AgentRunPill.tsx` above the Activity section of `ActionDetailContent`: "Aria · Working 1m · called 3 tools" (polls `agentRun.listForAction` every 2 s while live, plus a bounded catch-up poll when the action already reports a live run), "Worked for … · called N tools" / "Stopped after …" / "Waiting on owner" after, "Waiting for a runner" (no spinner) for an unclaimed `LOCAL_CLI` run; Cancel while live; the summary (or error) on hover; `AgentRunTranscript` (owner only, collapsible, tool → verb label map).
 - `PriorityCheckbox.isRunning` renders a spinning ring in place of the priority dot in every list row (`ActionRow` passes `agentRuns.length > 0`); the detail page swaps the status badge for a loader and "<Assistant> is working".
 - Inbox **Delegated** tab, Waiting-on-me fold-in and the badge rule live in ticket V1d (teal.bass); `agent_run` notifications already appear under Notifications and the channel matrix.
 
@@ -110,7 +112,7 @@ The pill, the transcript and the Delegated tab read the same `AgentRun` rows, so
 
 ## Testing
 
-- Unit (mocked Prisma): `services/agentRuns/__tests__/*` (enqueue/coalescing/resume, dispatch claim + JWT + finish, events seq, sweep, finish hook, include), `routers/__tests__/mastraRunCallbacks.test.ts`, `agentRunCancel.test.ts`, `notifications/emit/__tests__/agentRunNotification.test.ts`.
+- Unit (mocked Prisma): `services/agentRuns/__tests__/*` (enqueue/coalescing/resume, dispatch claim + JWT + finish, events seq + runner batches, sweep, finish hook, include, `presentation` for waiting-for-runner), `routers/__tests__/mastraRunCallbacks.test.ts`, `agentRunCancel.test.ts`, `agentRunRunner.test.ts` (V2 runner surface), `agentRunListForAction.test.ts`, `notifications/emit/__tests__/agentRunNotification.test.ts`.
 - E2E: `e2e/agent-run.spec.ts` runs a Mastra **stub** on port 4199 (the Playwright dev server is started with `MASTRA_API_URL` pointing at it and `CRON_SECRET=e2e-cron-secret`, see `playwright.config.ts`), assigns the fixture Assistant, kicks the dispatcher, and asserts the ring, the pill flip, the stub's `reportProgress` callback and the transcript. `e2e/assign-to-assistant.spec.ts` covers the picker.
 - Not covered automatically: a run against a real Mastra.
 
