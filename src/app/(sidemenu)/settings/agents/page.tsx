@@ -513,9 +513,10 @@ export default function ExternalAgentsPage() {
               loading={updateAgent.isPending}
               onClick={() => {
                 if (editAgentId) {
+                  const trimmed = editDescription.trim();
                   updateAgent.mutate({
                     agentId: editAgentId,
-                    description: editDescription.trim() || null,
+                    description: trimmed === '' ? null : trimmed,
                   });
                 }
               }}

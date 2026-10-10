@@ -161,6 +161,7 @@ export default function AssistantSettingsPage() {
       return;
     }
 
+    const trimmedDescription = description.trim();
     if (assistant) {
       updateMutation.mutate({
         id: assistant.id,
@@ -169,7 +170,7 @@ export default function AssistantSettingsPage() {
         personality: personality.trim(),
         instructions: instructions.trim() || null,
         userContext: userContext.trim() || null,
-        description: description.trim() || null,
+        description: trimmedDescription === '' ? null : trimmedDescription,
       });
     } else {
       createMutation.mutate({

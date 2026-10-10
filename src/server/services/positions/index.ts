@@ -7,7 +7,9 @@
  * `services/access/` may read it, and a static guard test pins that.
  */
 
+import { TRPCError } from "@trpc/server";
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { getWorkspaceMembership, hasMinimumWorkspaceRole } from "../access";
 
 export interface PositionSummary {
   id: string;
@@ -77,4 +79,52 @@ export function hasRemitGap(member: {
   if (member.positionCount > 0) return false;
   if (!member.isAgent) return true;
   return !member.agentDescription?.trim();
+}
+
+/**
+ * Who may edit which part of a Position (ADR-0068 §4), decided in one place:
+ * title and "not accountable for" need a workspace owner or admin; the Remit
+ * needs owner/admin OR that the caller holds the Position — the gate is
+ * "holds it", so a viewer who holds one may edit its Remit (Agent PRD D12).
+ *
+ * The Role comes from the centralized access resolver, where team-based
+ * access resolves to `member`: never an admin, and with no `WorkspaceUser` row
+ * it can hold nothing either. Throws FORBIDDEN; this is routing data, so the
+ * decision lives here rather than in `services/access/`, which never reads a
+ * Position.
+ */
+export async function assertCanEditPosition(
+  db: PrismaClient,
+  input: {
+    userId: string;
+    workspaceId: string;
+    positionId: string;
+    edits: { titleOrScope: boolean; remit: boolean };
+  },
+): Promise<void> {
+  const membership = await getWorkspaceMembership(db, input.userId, input.workspaceId);
+  const isAdmin = !!membership && hasMinimumWorkspaceRole(membership.role, "admin");
+  if (isAdmin) return;
+
+  if (input.edits.titleOrScope) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only a workspace owner or admin can rename a Position or change what it is not accountable for",
+    });
+  }
+  if (input.edits.remit) {
+    const holding = await db.positionHolder.findFirst({
+      where: {
+        positionId: input.positionId,
+        workspaceUser: { userId: input.userId, workspaceId: input.workspaceId },
+      },
+      select: { positionId: true },
+    });
+    if (!holding) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Only a workspace owner or admin, or a holder of this Position, can edit its Remit",
+      });
+    }
+  }
 }

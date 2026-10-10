@@ -3,8 +3,7 @@ import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
-import { getWorkspaceMembership, hasMinimumWorkspaceRole } from "~/server/services/access";
-import { hasRemitGap, POSITION_SUMMARY_SELECT } from "~/server/services/positions";
+import { assertCanEditPosition, hasRemitGap, POSITION_SUMMARY_SELECT } from "~/server/services/positions";
 
 /**
  * Positions (ADR-0068): who does what in a workspace, for humans and agents
@@ -191,12 +190,9 @@ export const positionRouter = createTRPCRouter({
     }),
 
   /**
-   * Title and "not accountable for" need owner/admin. The Remit needs
-   * owner/admin OR that the caller holds this Position — the gate is "holds
-   * it", so a viewer who holds one may edit its Remit (Agent PRD D12). The
-   * role comes from the centralized resolver, where team-based access
-   * resolves to `member`: never an admin, and with no `WorkspaceUser` row it
-   * can hold nothing either.
+   * Title and "not accountable for" need owner/admin; the Remit needs
+   * owner/admin or that the caller holds this Position. The decision is
+   * `assertCanEditPosition` in services/positions — one place, not per router.
    */
   update: humanOnlyProcedure
     .input(
@@ -217,32 +213,15 @@ export const positionRouter = createTRPCRouter({
     .use(requireWorkspaceMembership("view"))
     .mutation(async ({ ctx, input }) => {
       await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
-
-      const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
-      const isAdmin = !!membership && hasMinimumWorkspaceRole(membership.role, "admin");
-
-      const editsTitleOrScope = input.title !== undefined || input.notAccountableFor !== undefined;
-      if (editsTitleOrScope && !isAdmin) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only a workspace owner or admin can rename a Position or change what it is not accountable for",
-        });
-      }
-      if (input.remit !== undefined && !isAdmin) {
-        const holding = await ctx.db.positionHolder.findFirst({
-          where: {
-            positionId: input.positionId,
-            workspaceUser: { userId: ctx.session.user.id, workspaceId: input.workspaceId },
-          },
-          select: { positionId: true },
-        });
-        if (!holding) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Only a workspace owner or admin, or a holder of this Position, can edit its Remit",
-          });
-        }
-      }
+      await assertCanEditPosition(ctx.db, {
+        userId: ctx.session.user.id,
+        workspaceId: input.workspaceId,
+        positionId: input.positionId,
+        edits: {
+          titleOrScope: input.title !== undefined || input.notAccountableFor !== undefined,
+          remit: input.remit !== undefined,
+        },
+      });
 
       try {
         const updated = await ctx.db.position.update({

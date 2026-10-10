@@ -58,6 +58,11 @@ function memberLabel(member: PositionsSectionMember): string {
   return member.user.name ?? member.user.email ?? member.userId;
 }
 
+/** An empty optional field is "none", not an empty string. */
+function blankToNull(value: string): string | null {
+  return value.length === 0 ? null : value;
+}
+
 function sameSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   const set = new Set(a);
@@ -133,7 +138,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
         workspaceId,
         title: values.title,
         remit: values.remit,
-        notAccountableFor: values.notAccountableFor || undefined,
+        notAccountableFor: blankToNull(values.notAccountableFor) ?? undefined,
         holderUserIds: values.holderUserIds,
       });
       return;
@@ -145,7 +150,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
           positionId: editing.id,
           title: values.title,
           remit: values.remit,
-          notAccountableFor: values.notAccountableFor || null,
+          notAccountableFor: blankToNull(values.notAccountableFor),
         });
         const currentHolderIds = editing.holders.map((holder) => holder.userId);
         if (!sameSet(currentHolderIds, values.holderUserIds)) {
