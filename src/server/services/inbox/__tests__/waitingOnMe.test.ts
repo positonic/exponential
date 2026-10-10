@@ -16,6 +16,7 @@ import {
   listWaitingOnMe,
   meetingsWithDraftsToReviewWhere,
   qaTicketsWaitingOnMeWhere,
+  assistantQuestionsWaitingOnMeWhere,
 } from "../waitingOnMe";
 
 const USER = "u1";
@@ -51,6 +52,55 @@ describe("waiting-on-me WHERE builders", () => {
   });
 });
 
+describe("assistant questions (ADR-0067)", () => {
+  it("my Assistants' latest runs that are waiting on me — not yet resumed", () => {
+    expect(assistantQuestionsWaitingOnMeWhere(USER)).toEqual({
+      status: "WAITING_ON_OWNER",
+      agent: { ownerId: USER },
+      successors: { none: {} },
+    });
+  });
+
+  it("lists them with the assistant's name and the action, oldest question first", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.decision.count.mockResolvedValue(0);
+    db.transcriptionSession.count.mockResolvedValue(0);
+    db.ticket.count.mockResolvedValue(0);
+    db.action.count.mockResolvedValue(0);
+    db.agentRun.count.mockResolvedValue(1);
+    db.decision.findMany.mockResolvedValue([] as never);
+    db.transcriptionSession.findMany.mockResolvedValue([] as never);
+    db.ticket.findMany.mockResolvedValue([] as never);
+    db.action.findMany.mockResolvedValue([] as never);
+    db.gitHubActivity.findMany.mockResolvedValue([] as never);
+    db.agentRun.findMany.mockResolvedValue([
+      {
+        id: "run-1",
+        lastEventAt: new Date("2026-10-10T09:00:00Z"),
+        createdAt: new Date("2026-10-10T08:00:00Z"),
+        agent: { name: "Aria", assistant: { emoji: "✨" } },
+        action: { id: "a1", name: "Pick the offsite date", workspace: null, project: { name: "Offsite", workspace: { slug: "acme", name: "Acme" } } },
+      },
+    ] as never);
+
+    const result = await listWaitingOnMe(db, USER, TODAY);
+
+    expect(db.agentRun.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: assistantQuestionsWaitingOnMeWhere(USER),
+      orderBy: [{ lastEventAt: "asc" }, { id: "asc" }],
+    });
+    expect(result.counts.assistantQuestions).toBe(1);
+    expect(result.assistantQuestions).toEqual([
+      {
+        id: "run-1",
+        askedAt: new Date("2026-10-10T09:00:00Z"),
+        assistantName: "✨ Aria",
+        action: { id: "a1", name: "Pick the offsite date", projectName: "Offsite", workspace: { slug: "acme", name: "Acme" } },
+      },
+    ]);
+  });
+});
+
 describe("buildDecisionAccessWhereAcrossWorkspaces", () => {
   it("keeps the resolver's rules but drops the single-workspace scope", () => {
     const where = buildDecisionAccessWhereAcrossWorkspaces(USER);
@@ -73,6 +123,7 @@ describe("countWaitingOnMe", () => {
     db.transcriptionSession.count.mockResolvedValue(1);
     db.ticket.count.mockResolvedValue(3);
     db.action.count.mockResolvedValue(4);
+    db.agentRun.count.mockResolvedValue(5);
 
     const counts = await countWaitingOnMe(db, USER, TODAY);
 
@@ -81,7 +132,8 @@ describe("countWaitingOnMe", () => {
       draftReviews: 1,
       qaTickets: 3,
       overdueActions: 4,
-      total: 10,
+      assistantQuestions: 5,
+      total: 15,
     });
     // Overdue is anchored to the viewer's midnight as passed in, not "now".
     const where = db.action.count.mock.calls[0]![0]!.where!;
@@ -100,6 +152,8 @@ describe("listWaitingOnMe", () => {
     db.transcriptionSession.count.mockResolvedValue(0);
     db.ticket.count.mockResolvedValue(0);
     db.action.count.mockResolvedValue(0);
+    db.agentRun.count.mockResolvedValue(0);
+    db.agentRun.findMany.mockResolvedValue([] as never);
     db.decision.findMany.mockResolvedValue([] as never);
     db.transcriptionSession.findMany.mockResolvedValue([] as never);
     db.ticket.findMany.mockResolvedValue([] as never);

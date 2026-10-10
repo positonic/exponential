@@ -9,7 +9,7 @@ import { formatDecisionLabel } from "~/lib/decision-label";
 
 /**
  * The inbox's "Waiting on me" tab: everything across the user's workspaces
- * that is blocked on them to act. Four kinds, each with its own WHERE
+ * that is blocked on them to act. Five kinds, each with its own WHERE
  * builder so the list and the sidebar badge count the same set:
  *
  * - **Decisions** still OPEN or PROPOSED that the user owns or is a decider
@@ -111,11 +111,26 @@ export async function mergedPrLookup(
   return (t) => !!t.prUrl && merged.has(`${t.workspaceId} ${t.prUrl}`);
 }
 
+/**
+ * Assistant questions (ADR-0067): the latest run of one of MY Assistants on an
+ * action is waiting on me — it asked by comment and paused. "Latest" means no
+ * resume run has been created from it (`successors: none`); my reply on the
+ * action creates one and the question leaves this list.
+ */
+export function assistantQuestionsWaitingOnMeWhere(userId: string): Prisma.AgentRunWhereInput {
+  return {
+    status: "WAITING_ON_OWNER",
+    agent: { ownerId: userId },
+    successors: { none: {} },
+  };
+}
+
 export interface WaitingOnMeCounts {
   decisions: number;
   draftReviews: number;
   qaTickets: number;
   overdueActions: number;
+  assistantQuestions: number;
   total: number;
 }
 
@@ -125,7 +140,7 @@ export async function countWaitingOnMe(
   userId: string,
   startOfToday: Date,
 ): Promise<WaitingOnMeCounts> {
-  const [decisions, draftReviews, qaTickets, overdueActions] =
+  const [decisions, draftReviews, qaTickets, overdueActions, assistantQuestions] =
     await Promise.all([
       db.decision.count({ where: decisionsAwaitingMeWhere(userId) }),
       db.transcriptionSession.count({
@@ -133,13 +148,15 @@ export async function countWaitingOnMe(
       }),
       db.ticket.count({ where: qaTicketsWaitingOnMeWhere(userId) }),
       db.action.count({ where: myOverdueActionsWhere(userId, startOfToday) }),
+      db.agentRun.count({ where: assistantQuestionsWaitingOnMeWhere(userId) }),
     ]);
   return {
     decisions,
     draftReviews,
     qaTickets,
     overdueActions,
-    total: decisions + draftReviews + qaTickets + overdueActions,
+    assistantQuestions,
+    total: decisions + draftReviews + qaTickets + overdueActions + assistantQuestions,
   };
 }
 
@@ -149,7 +166,7 @@ export async function listWaitingOnMe(
   userId: string,
   startOfToday: Date,
 ) {
-  const [counts, decisionRows, meetingRows, ticketRows, actionRows] =
+  const [counts, decisionRows, meetingRows, ticketRows, actionRows, questionRows] =
     await Promise.all([
       countWaitingOnMe(db, userId, startOfToday),
       db.decision.findMany({
@@ -231,6 +248,26 @@ export async function listWaitingOnMe(
           workspace: { select: { slug: true, name: true } },
         },
       }),
+      db.agentRun.findMany({
+        where: assistantQuestionsWaitingOnMeWhere(userId),
+        // Oldest question first — it has waited longest.
+        orderBy: [{ lastEventAt: "asc" }, { id: "asc" }],
+        take: WAITING_ROW_CAP,
+        select: {
+          id: true,
+          lastEventAt: true,
+          createdAt: true,
+          agent: { select: { name: true, assistant: { select: { emoji: true } } } },
+          action: {
+            select: {
+              id: true,
+              name: true,
+              workspace: { select: { slug: true, name: true } },
+              project: { select: { name: true, workspace: { select: { slug: true, name: true } } } },
+            },
+          },
+        },
+      }),
     ]);
 
   const isMerged = await mergedPrLookup(
@@ -271,6 +308,17 @@ export async function listWaitingOnMe(
       dueDate: a.dueDate,
       projectName: a.project?.name ?? null,
       workspace: a.workspace ?? a.project?.workspace ?? null,
+    })),
+    assistantQuestions: questionRows.map((r) => ({
+      id: r.id,
+      askedAt: r.lastEventAt ?? r.createdAt,
+      assistantName: r.agent.assistant?.emoji ? `${r.agent.assistant.emoji} ${r.agent.name}` : r.agent.name,
+      action: {
+        id: r.action.id,
+        name: r.action.name,
+        projectName: r.action.project?.name ?? null,
+        workspace: r.action.workspace ?? r.action.project?.workspace ?? null,
+      },
     })),
   };
 }
