@@ -197,6 +197,205 @@ describe("position.create", () => {
   });
 });
 
+describe("position.update", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    arrangePosition(db);
+    db.position.update.mockResolvedValue(createdPosition as never);
+  });
+
+  it.each<Role>(["owner", "admin"])("%s edits title, remit and not-accountable-for", async (role) => {
+    arrangeCaller(db, role);
+
+    await caller(db).position.update({
+      workspaceId: WORKSPACE_ID,
+      positionId: POSITION_ID,
+      title: "Travel lead",
+      remit: "New remit",
+      notAccountableFor: "",
+    });
+
+    expect(db.position.update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: POSITION_ID },
+      data: { title: "Travel lead", remit: "New remit", notAccountableFor: null },
+    });
+    // An admin never needs to hold the Position.
+    expect(db.positionHolder.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("a holder who is a plain member edits the Remit", async () => {
+    arrangeCaller(db, "member");
+    db.positionHolder.findUnique.mockResolvedValue({ positionId: POSITION_ID } as never);
+
+    await caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" });
+
+    expect(db.positionHolder.findUnique.mock.calls[0]?.[0]).toMatchObject({
+      where: { positionId_workspaceUserId: { positionId: POSITION_ID, workspaceUserId: `wu-${USER_ID}` } },
+    });
+    expect(db.position.update.mock.calls[0]?.[0]).toMatchObject({ data: { remit: "Sharper" } });
+  });
+
+  it("a holder who is a viewer edits the Remit too — the gate is holding it (Agent PRD D12)", async () => {
+    arrangeCaller(db, "viewer");
+    db.positionHolder.findUnique.mockResolvedValue({ positionId: POSITION_ID } as never);
+
+    await caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" });
+
+    expect(db.position.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("a member who does not hold it → FORBIDDEN, nothing written", async () => {
+    arrangeCaller(db, "member");
+    db.positionHolder.findUnique.mockResolvedValue(null);
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Sharper" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it.each([
+    { field: "title", input: { title: "Renamed" } },
+    { field: "notAccountableFor", input: { notAccountableFor: "Booking" } },
+  ])("a holder changing $field → FORBIDDEN, nothing written", async ({ input }) => {
+    arrangeCaller(db, "member");
+    db.positionHolder.findUnique.mockResolvedValue({ positionId: POSITION_ID } as never);
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, ...input }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("a positionId from another workspace → NOT_FOUND, even for an owner", async () => {
+    arrangeCaller(db, "owner");
+    arrangePosition(db, OTHER_WORKSPACE_ID);
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, title: "X" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expectNothingWritten(db);
+  });
+
+  it("renaming onto an existing title → CONFLICT", async () => {
+    arrangeCaller(db, "owner");
+    db.position.update.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, title: "Taken" }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("position.delete", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    arrangePosition(db);
+    db.position.delete.mockResolvedValue({ id: POSITION_ID } as never);
+  });
+
+  it("owner deletes; holders cascade", async () => {
+    arrangeCaller(db, "owner");
+
+    const result = await caller(db).position.delete({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID });
+
+    expect(result).toEqual({ id: POSITION_ID });
+    expect(db.position.delete).toHaveBeenCalledWith({ where: { id: POSITION_ID } });
+  });
+
+  it("member → FORBIDDEN, nothing written", async () => {
+    arrangeCaller(db, "member");
+
+    await expect(
+      caller(db).position.delete({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("a positionId from another workspace → NOT_FOUND", async () => {
+    arrangeCaller(db, "owner");
+    arrangePosition(db, OTHER_WORKSPACE_ID);
+
+    await expect(
+      caller(db).position.delete({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expectNothingWritten(db);
+  });
+});
+
+describe("position.setHolders", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    arrangePosition(db);
+    db.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) => cb(db)) as never);
+    db.positionHolder.deleteMany.mockResolvedValue({ count: 1 } as never);
+    db.positionHolder.createMany.mockResolvedValue({ count: 2 } as never);
+    db.position.findUniqueOrThrow.mockResolvedValue(createdPosition as never);
+  });
+
+  it("admin replaces the holder set in one transaction", async () => {
+    arrangeCaller(db, "admin");
+    db.workspaceUser.findMany.mockResolvedValue([{ id: "wu-aria" }, { id: "wu-andi" }] as never);
+
+    const result = await caller(db).position.setHolders({
+      workspaceId: WORKSPACE_ID,
+      positionId: POSITION_ID,
+      userIds: ["aria", "andi", "aria"],
+    });
+
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(db.positionHolder.deleteMany).toHaveBeenCalledWith({ where: { positionId: POSITION_ID } });
+    expect(db.positionHolder.createMany).toHaveBeenCalledWith({
+      data: [
+        { positionId: POSITION_ID, workspaceUserId: "wu-aria" },
+        { positionId: POSITION_ID, workspaceUserId: "wu-andi" },
+      ],
+    });
+    expect(result).toMatchObject({ id: POSITION_ID, holders: [{ id: "aria" }] });
+  });
+
+  it("an empty set leaves the Position vacant without a createMany", async () => {
+    arrangeCaller(db, "owner");
+
+    await caller(db).position.setHolders({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, userIds: [] });
+
+    expect(db.positionHolder.deleteMany).toHaveBeenCalledTimes(1);
+    expect(db.positionHolder.createMany).not.toHaveBeenCalled();
+    expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
+  });
+
+  it("member → FORBIDDEN, nothing written", async () => {
+    arrangeCaller(db, "member");
+
+    await expect(
+      caller(db).position.setHolders({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, userIds: ["aria"] }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("a holder who is not a member → NOT_FOUND without the id, nothing written", async () => {
+    arrangeCaller(db, "owner");
+    db.workspaceUser.findMany.mockResolvedValue([] as never);
+
+    const error = await caller(db)
+      .position.setHolders({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, userIds: ["stranger-cuid"] })
+      .catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ code: "NOT_FOUND" });
+    expect((error as Error).message).not.toContain("stranger-cuid");
+    expectNothingWritten(db);
+  });
+});
+
 describe("position.list", () => {
   let db: DeepMockProxy<PrismaClient>;
 
@@ -267,6 +466,27 @@ describe("position writes are human-only (ADR-0049 denylist)", () => {
   it("create from an agent principal (isAgent: true) → FORBIDDEN, nothing written", async () => {
     await expect(
       caller(db).position.create({ workspaceId: WORKSPACE_ID, title: "X", remit: "Y" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("update from an agent principal → FORBIDDEN, nothing written", async () => {
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, remit: "Y" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("delete from an agent principal → FORBIDDEN, nothing written", async () => {
+    await expect(
+      caller(db).position.delete({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expectNothingWritten(db);
+  });
+
+  it("setHolders from an agent principal → FORBIDDEN, nothing written", async () => {
+    await expect(
+      caller(db).position.setHolders({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID, userIds: [USER_ID] }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expectNothingWritten(db);
   });

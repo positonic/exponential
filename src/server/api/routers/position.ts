@@ -58,6 +58,22 @@ function isUniqueViolation(error: unknown): boolean {
 const DUPLICATE_TITLE = () =>
   new TRPCError({ code: "CONFLICT", message: "A Position with this title already exists" });
 
+/** The Position, or NOT_FOUND when it is missing or belongs to another workspace. */
+async function requirePositionInWorkspace(
+  db: PrismaClient,
+  positionId: string,
+  workspaceId: string,
+) {
+  const position = await db.position.findUnique({
+    where: { id: positionId },
+    select: { id: true, workspaceId: true },
+  });
+  if (!position || position.workspaceId !== workspaceId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Position not found" });
+  }
+  return position;
+}
+
 /**
  * Map holder userIds to their `WorkspaceUser` rows in `workspaceId`. Every
  * holder must be a member; a miss is NOT_FOUND and never names the id (the
@@ -163,5 +179,114 @@ export const positionRouter = createTRPCRouter({
         if (isUniqueViolation(error)) throw DUPLICATE_TITLE();
         throw error;
       }
+    }),
+
+  /**
+   * Title and "not accountable for" need owner/admin. The Remit needs
+   * owner/admin OR that the caller holds this Position — the gate is "holds
+   * it", so a viewer who holds one may edit its Remit (Agent PRD D12). The
+   * role is the caller's direct `WorkspaceUser.role`: a team-synthesized
+   * `member` (no row) is never an admin and can hold nothing.
+   */
+  update: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        positionId: z.string(),
+        title: titleSchema.optional(),
+        remit: remitSchema.optional(),
+        notAccountableFor: notAccountableForSchema.nullable().optional(),
+      }),
+    )
+    .use(requireWorkspaceMembership("view"))
+    .mutation(async ({ ctx, input }) => {
+      await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
+
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: { userId_workspaceId: { userId: ctx.session.user.id, workspaceId: input.workspaceId } },
+        select: { id: true, role: true },
+      });
+      const isAdmin = membership?.role === "owner" || membership?.role === "admin";
+
+      const editsTitleOrScope = input.title !== undefined || input.notAccountableFor !== undefined;
+      if (editsTitleOrScope && !isAdmin) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only a workspace owner or admin can rename a Position or change what it is not accountable for",
+        });
+      }
+      if (input.remit !== undefined && !isAdmin) {
+        const holding = membership
+          ? await ctx.db.positionHolder.findUnique({
+              where: {
+                positionId_workspaceUserId: { positionId: input.positionId, workspaceUserId: membership.id },
+              },
+              select: { positionId: true },
+            })
+          : null;
+        if (!holding) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only a workspace owner or admin, or a holder of this Position, can edit its Remit",
+          });
+        }
+      }
+
+      try {
+        const updated = await ctx.db.position.update({
+          where: { id: input.positionId },
+          data: {
+            ...(input.title !== undefined && { title: input.title }),
+            ...(input.remit !== undefined && { remit: input.remit }),
+            ...(input.notAccountableFor !== undefined && {
+              notAccountableFor: input.notAccountableFor?.length ? input.notAccountableFor : null,
+            }),
+          },
+          select: POSITION_WITH_HOLDERS_SELECT,
+        });
+        return presentPosition(updated);
+      } catch (error) {
+        if (isUniqueViolation(error)) throw DUPLICATE_TITLE();
+        throw error;
+      }
+    }),
+
+  delete: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), positionId: z.string() }))
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
+      // Holders cascade (FK).
+      await ctx.db.position.delete({ where: { id: input.positionId } });
+      return { id: input.positionId };
+    }),
+
+  /** Replace the holder set. Same member check and NOT_FOUND rule as `create`. */
+  setHolders: humanOnlyProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        positionId: z.string(),
+        userIds: holderUserIdsSchema,
+      }),
+    )
+    .use(requireWorkspaceMembership("manage_members"))
+    .mutation(async ({ ctx, input }) => {
+      await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
+      const workspaceUserIds = await resolveHolderMemberships(ctx.db, input.workspaceId, input.userIds);
+
+      const updated = await ctx.db.$transaction(async (tx) => {
+        await tx.positionHolder.deleteMany({ where: { positionId: input.positionId } });
+        if (workspaceUserIds.length > 0) {
+          await tx.positionHolder.createMany({
+            data: workspaceUserIds.map((workspaceUserId) => ({ positionId: input.positionId, workspaceUserId })),
+          });
+        }
+        return tx.position.findUniqueOrThrow({
+          where: { id: input.positionId },
+          select: POSITION_WITH_HOLDERS_SELECT,
+        });
+      });
+      return presentPosition(updated);
     }),
 });
