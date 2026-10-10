@@ -32,3 +32,52 @@ export async function requireLiveRunForCaller(
   }
   return run;
 }
+
+/**
+ * The External agent a local runner acts for (Agent PRD V2, D2): the caller
+ * must have authenticated with an `exp_agent_` key, so the session user is the
+ * agent's shadow user. A web session or an `agent-context` run token is
+ * refused — the runner surface is for the owner's own machine only.
+ */
+export async function requireAgentKeyPrincipal(
+  db: PrismaClient,
+  ctx: { tokenType?: string; userId: string },
+) {
+  if (ctx.tokenType !== "agent-key") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Runner procedures require an agent key" });
+  }
+  const agent = await db.externalAgent.findUnique({
+    where: { shadowUserId: ctx.userId },
+    select: { id: true, ownerId: true, shadowUserId: true, executor: true },
+  });
+  if (!agent) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
+  }
+  return agent;
+}
+
+/**
+ * The run a runner's `heartbeat` / `appendEvents` / `finish` acts on. Resolved
+ * through the caller's own agent — a `runId` alone is never trusted — and
+ * must still be RUNNING and claimed by this runner (or by nobody, for a row
+ * the hosted dispatcher never stamps).
+ */
+export async function requireClaimedRunForRunner(
+  db: PrismaClient,
+  input: { agentId: string; runId: string; runnerId?: string },
+) {
+  const run = await db.agentRun.findFirst({
+    where: { id: input.runId, agentId: input.agentId },
+    select: { id: true, status: true, actionId: true, claimedBy: true, toolCallCount: true },
+  });
+  if (!run) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Run not found" });
+  }
+  if (run.status !== "RUNNING") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Run is ${run.status}` });
+  }
+  if (input.runnerId && run.claimedBy && run.claimedBy !== input.runnerId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Run is claimed by another runner" });
+  }
+  return run;
+}

@@ -15,3 +15,10 @@ export const RUN_HEARTBEAT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** A QUEUED row older than this is picked up by the cron sweep even if `after()` never fired. */
 export const QUEUED_RETRY_AFTER_MS = 60 * 1000;
+
+/**
+ * A LOCAL_CLI run still QUEUED this long after creation is "waiting for a
+ * runner" (Agent PRD V2): nobody on the owner's machine has claimed it. A
+ * presentation state, not a status — the row stays QUEUED and claimable.
+ */
+export const WAITING_FOR_RUNNER_AFTER_MS = 10 * 60 * 1000;

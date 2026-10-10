@@ -34,3 +34,50 @@ export async function appendRunEvent(
     return event;
   });
 }
+
+export interface RunnerEventInput {
+  seq: number;
+  kind: AgentRunEventKind;
+  payload: Prisma.InputJsonValue;
+}
+
+/**
+ * Append a batch of events a local runner numbered itself (Agent PRD V2). The
+ * runner owns `seq` for its run, so a retried batch is idempotent: rows whose
+ * seq already exists are skipped (`createMany` + `skipDuplicates` on
+ * `@@unique([runId, seq])`), and `toolCallCount` grows only by the
+ * `tool_call` events that were actually new. Any batch — even one that was
+ * entirely a replay — is still the run's heartbeat.
+ */
+export async function appendRunEvents(
+  db: PrismaClient,
+  input: { runId: string; events: RunnerEventInput[] },
+): Promise<{ inserted: number; newToolCalls: number }> {
+  if (input.events.length === 0) {
+    await db.agentRun.update({ where: { id: input.runId }, data: { lastEventAt: new Date() } });
+    return { inserted: 0, newToolCalls: 0 };
+  }
+  return db.$transaction(async (tx) => {
+    const existing = await tx.agentRunEvent.findMany({
+      where: { runId: input.runId, seq: { in: input.events.map((e) => e.seq) } },
+      select: { seq: true },
+    });
+    const seen = new Set(existing.map((e) => e.seq));
+    const fresh = input.events.filter((e) => !seen.has(e.seq));
+    const result = fresh.length
+      ? await tx.agentRunEvent.createMany({
+          data: fresh.map((e) => ({ runId: input.runId, seq: e.seq, kind: e.kind, payload: e.payload })),
+          skipDuplicates: true,
+        })
+      : { count: 0 };
+    const newToolCalls = fresh.filter((e) => e.kind === "tool_call").length;
+    await tx.agentRun.update({
+      where: { id: input.runId },
+      data: {
+        lastEventAt: new Date(),
+        ...(newToolCalls > 0 ? { toolCallCount: { increment: newToolCalls } } : {}),
+      },
+    });
+    return { inserted: result.count, newToolCalls };
+  });
+}

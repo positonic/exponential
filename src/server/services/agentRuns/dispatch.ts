@@ -120,6 +120,8 @@ export function buildActionBrief(input: {
   requesterName: string | null;
   predecessorSummary: string | null;
   wakeComment: string | null;
+  /** The last line; defaults to the hosted run tools' protocol. */
+  closing?: string;
 }): string {
   const lines = [
     `You have been assigned the action "${input.action.name}" (id ${input.action.id})` +
@@ -135,22 +137,25 @@ export function buildActionBrief(input: {
   if (input.wakeComment) {
     lines.push(`Your owner replied:\n${input.wakeComment}`);
   }
-  lines.push("Start with get-run-context, do the work, and end with finish-run (or ask-owner if you are stuck).");
+  lines.push(
+    input.closing ??
+      "Start with get-run-context, do the work, and end with finish-run (or ask-owner if you are stuck).",
+  );
   return lines.filter(Boolean).join("\n\n");
 }
 
-/** Count tool calls across the agent's steps (provider-side tools included). */
-export function countToolCalls(output: GenerateOutput): number {
-  if (Array.isArray(output.steps) && output.steps.length > 0) {
-    return output.steps.reduce((n, step) => n + (Array.isArray(step.toolCalls) ? step.toolCalls.length : 0), 0);
-  }
-  return Array.isArray(output.toolCalls) ? output.toolCalls.length : 0;
-}
+/** The closing line a local runner's brief ends with: the runner reports through `agentRun.finish`. */
+export const LOCAL_RUNNER_CLOSING =
+  "Do the work, then finish with a short public summary and whether the action is ready to close " +
+  "(or a question for your owner if you are stuck).";
 
-async function runOne(
-  db: PrismaClient,
-  runId: string,
-): Promise<"SUCCEEDED" | "WAITING_ON_OWNER" | "CANCELLED"> {
+/**
+ * Everything an executor needs to start a run: the run row with its action,
+ * agent, requester and predecessor, the persona system message and the brief.
+ * Shared by the hosted dispatcher and `agentRun.claim` (V2) so a local runner
+ * works from exactly the brief Mastra would have.
+ */
+export async function loadRunBrief(db: PrismaClient, runId: string, options: { closing?: string } = {}) {
   const run = await db.agentRun.findUniqueOrThrow({
     where: { id: runId },
     include: {
@@ -173,6 +178,42 @@ async function runOne(
     ? await db.actionComment.findUnique({ where: { id: run.wakeCommentId }, select: { content: true } })
     : null;
 
+  const persona = run.agent.assistant ?? {
+    name: run.agent.name,
+    emoji: null,
+    personality: "",
+    instructions: null,
+    userContext: null,
+  };
+
+  return {
+    run,
+    system: buildPersonaMessage(persona),
+    brief: buildActionBrief({
+      action: run.action,
+      ownerName: run.agent.owner.name,
+      requesterName: run.requestedBy?.name ?? null,
+      predecessorSummary: run.predecessor?.summary ?? null,
+      wakeComment: wakeComment?.content ?? null,
+      closing: options.closing,
+    }),
+  };
+}
+
+/** Count tool calls across the agent's steps (provider-side tools included). */
+export function countToolCalls(output: GenerateOutput): number {
+  if (Array.isArray(output.steps) && output.steps.length > 0) {
+    return output.steps.reduce((n, step) => n + (Array.isArray(step.toolCalls) ? step.toolCalls.length : 0), 0);
+  }
+  return Array.isArray(output.toolCalls) ? output.toolCalls.length : 0;
+}
+
+async function runOne(
+  db: PrismaClient,
+  runId: string,
+): Promise<"SUCCEEDED" | "WAITING_ON_OWNER" | "CANCELLED"> {
+  const { run, system, brief } = await loadRunBrief(db, runId);
+
   const shadow = run.agent.shadowUser;
   // The run acts as the Assistant's own principal: every write the callbacks
   // make attributes to the shadow user. `runId` is a claim on this token, so
@@ -182,26 +223,9 @@ async function runOne(
     { tokenType: "agent-context", expiryMinutes: RUN_JWT_MINUTES, extraClaims: { runId: run.id } },
   );
 
-  const persona = run.agent.assistant ?? {
-    name: run.agent.name,
-    emoji: null,
-    personality: "",
-    instructions: null,
-    userContext: null,
-  };
-
   const messages = [
-    { role: "system", content: buildPersonaMessage(persona) },
-    {
-      role: "user",
-      content: buildActionBrief({
-        action: run.action,
-        ownerName: run.agent.owner.name,
-        requesterName: run.requestedBy?.name ?? null,
-        predecessorSummary: run.predecessor?.summary ?? null,
-        wakeComment: wakeComment?.content ?? null,
-      }),
-    },
+    { role: "system", content: system },
+    { role: "user", content: brief },
   ];
 
   const res = await fetch(`${MASTRA_API_URL}/api/agents/assistantRunAgent/generate`, {

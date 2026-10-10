@@ -25,10 +25,13 @@ function formatDuration(ms: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function verbFor(run: Run): "Working" | "Worked for" | "Stopped" | "Waiting on owner" | "Queued" {
+function verbFor(
+  run: Run,
+): "Working" | "Worked for" | "Stopped" | "Waiting on owner" | "Queued" | "Waiting for a runner" {
   switch (run.status) {
     case "QUEUED":
-      return "Queued";
+      // A LOCAL_CLI run nobody has claimed for ten minutes (server-derived, V2).
+      return run.waitingForRunner ? "Waiting for a runner" : "Queued";
     case "RUNNING":
       return "Working";
     case "SUCCEEDED":
@@ -113,9 +116,13 @@ export function AgentRunPill({
     : latest.agent.name;
   const tools = `called ${latest.toolCallCount} tool${latest.toolCallCount === 1 ? "" : "s"}`;
 
+  // Still live (the row is claimable and Cancel applies), but nothing is
+  // moving — so no spinner, which would promise progress that is not coming.
+  const showSpinner = live && verb !== "Waiting for a runner";
+
   const copy =
-    verb === "Queued"
-      ? `${name} · Queued`
+    verb === "Queued" || verb === "Waiting for a runner"
+      ? `${name} · ${verb}`
       : verb === "Waiting on owner"
         ? `${name} · Waiting on owner · ${tools}`
         : verb === "Stopped"
@@ -133,8 +140,9 @@ export function AgentRunPill({
         className="inline-flex rounded-full border border-border-primary bg-surface-secondary"
         data-testid="agent-run-pill"
         data-status={latest.status}
+        data-waiting-for-runner={latest.waitingForRunner ? "true" : undefined}
       >
-        {live ? <Loader size={14} /> : <IconRobot size={14} className="text-text-muted" />}
+        {showSpinner ? <Loader size={14} /> : <IconRobot size={14} className="text-text-muted" />}
         <Text size="sm" className="text-text-primary">
           {copy}
         </Text>
