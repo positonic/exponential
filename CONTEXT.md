@@ -590,6 +590,20 @@ _Avoid_: Onboarding (the retired wizard, and reserved for CRM partner onboarding
 The single onboarding email a `User` ever receives — sent **once, after the first successful sign-in on any provider** (fired from `events.createUser`, so "created" *is* "first login" by construction), never at code-request time. It carries the pitch (Daily Planning first, then the go-deeper bullets) that the **Sign-in code** email deliberately does *not*: the code email is minimal and **workspace-agnostic** so the code survives preview panes, and all persuasion waits until the person is actually in. One shared body with a **variant frame**: an invited user's subject and heading name the **first accepted invited workspace**, and the opening names the inviter ("{inviter} added you to {workspace} — you're in.", a sibling phrasing of the in-app invited Welcome-flow copy — the strings are not shared); an organic signup gets "Thanks for signing up". Tailoring is **deterministic only** — the one dynamic slot in the body names the chat tool the workspace demonstrably uses (Matrix only if the workspace has a registered Matrix server, Slack by default) — never a per-workspace blurb and never AI-written prose. Strictly first-login: an *existing* user invited to a workspace gets the invite email only, and a user invited to several workspaces before first login gets one email tailored to the first (their default workspace). Replaces the OAuth-only `sendWelcomeEmail` and the long welcome-with-code email. _Build status: shipped._
 _Avoid_: Onboarding email (collides with CRM partner onboarding), drip / sequence (it is a single send), welcome-with-code (the retired pattern of burying the code under the pitch).
 
+### Workspace membership
+
+**Role**:
+A workspace member's permission tier — `owner`, `admin`, `member` or `viewer` on `WorkspaceUser.role` (and the narrower tiers on team and project membership). It says what a member may do, never what work they take on; that is their **Position**.
+_Avoid_: Job role, title (those are a Position), responsibilities (a Remit).
+
+**Position**:
+A named function in a workspace (decided 2026-10-10) — "Technical Director", "Delivery lead", "Travel researcher" — with a **Remit**, an optional "not accountable for", and one or more **holders**, who are workspace members of any kind: humans, **Assistants** and **External agents** alike. One member may hold several Positions; a Position may be held by several members. Positions are how work is routed: Zoe matches a task against Remits and assigns a holder. A member or agent holding no Position is flagged on the workspace's Members settings so the gap is visible. Scoped to one workspace; the same person holds different Positions in different workspaces.
+_Avoid_: Role (the permission tier), title, hat, job, responsibility (that is the Remit, not the Position).
+
+**Remit**:
+A Position's short, free-text statement of the kinds of work its holders take on in that workspace. Written for matching by meaning, not as a tag taxonomy; an External agent's own description serves as its fallback Remit when it holds no Position.
+_Avoid_: Responsibilities, description (the agent's self-description is not a Remit), skills, capabilities.
+
 ### Identity & device auth
 
 > Human sign-in methods come in two shapes, and the distinction is load-bearing: **provider-backed** (an `Account` row, written by the NextAuth adapter — Google, Discord, Notion, and the emailed **Sign-in code**) and **secret-backed** (a **Password credential**, in its own table). "Account" is reserved for the former; a password is never an Account ([ADR-0055](docs/adr/0055-password-credential-in-its-own-table.md)).
