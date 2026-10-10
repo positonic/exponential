@@ -7,7 +7,7 @@ import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { createActionComment } from "~/server/services/actions/comments";
 import { assertAssignableUsers } from "~/server/services/actions/containment";
 import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
-import { loadPositionsByUser } from "~/server/services/positions";
+import { loadPositionsByUser, type PositionSummary } from "~/server/services/positions";
 import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
@@ -1018,9 +1018,9 @@ export const mastraRouter = createTRPCRouter({
     const rosterWorkspaceId = action.workspaceId ?? action.project?.workspaceId ?? null;
     const positionsByUser = rosterWorkspaceId
       ? await loadPositionsByUser(ctx.db, rosterWorkspaceId, memberRows.map((row) => row.id))
-      : new Map<string, never[]>();
+      : new Map<string, PositionSummary[]>();
     const members = memberRows
-      .map((row) => toAssignableUser(row, positionsByUser.get(row.id)))
+      .map((row) => toAssignableUser(row, positionsByUser.get(row.id) ?? []))
       .map((u) => ({
         id: u.id,
         name: u.name,
