@@ -707,9 +707,15 @@ describe("position.importMany", () => {
       tx.positionHolder.createMany.mockResolvedValue({ count: 1 } as never);
     });
 
+    function arrangeTxMembers(userIds: string[]) {
+      tx.workspaceUser.findMany.mockResolvedValue(
+        userIds.map((userId) => ({ id: `wu-${userId}`, userId })) as never,
+      );
+    }
+
     it("creates new titles, updates matches and only adds holders, all in one transaction", async () => {
       arrangeCaller(db, "owner");
-      arrangeMembers(["andi"]);
+      arrangeTxMembers(["andi"]);
 
       const result = await caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows });
 
@@ -758,7 +764,7 @@ describe("position.importMany", () => {
 
     it("re-importing holders who already hold the Position adds no rows", async () => {
       arrangeCaller(db, "admin");
-      arrangeMembers(["aria"]);
+      arrangeTxMembers(["aria"]);
 
       await caller(db).position.importMany({
         workspaceId: WORKSPACE_ID,
@@ -772,7 +778,7 @@ describe("position.importMany", () => {
 
     it("a failing write fails the whole import (the transaction rolls back)", async () => {
       arrangeCaller(db, "owner");
-      arrangeMembers(["andi"]);
+      arrangeTxMembers(["andi"]);
       tx.position.create.mockRejectedValue(new Error("connection reset"));
 
       await expect(
@@ -783,7 +789,7 @@ describe("position.importMany", () => {
 
     it("a title created concurrently since the plan was read → CONFLICT", async () => {
       arrangeCaller(db, "owner");
-      arrangeMembers(["andi"]);
+      arrangeTxMembers(["andi"]);
       tx.position.create.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));
 
       await expect(
@@ -801,14 +807,18 @@ describe("position.importMany", () => {
       expect(tx.position.create).not.toHaveBeenCalled();
     });
 
-    it("a holder who is not a member → NOT_FOUND, nothing written", async () => {
+    it("a holder who is not a member → NOT_FOUND, checked inside the transaction before any write", async () => {
       arrangeCaller(db, "owner");
-      arrangeMembers([]);
+      arrangeTxMembers([]);
 
       await expect(
         caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: false, positions: rows }),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
-      expectNothingWritten(db);
+      expect(tx.workspaceUser.findMany).toHaveBeenCalledTimes(1);
+      expect(tx.position.findMany).not.toHaveBeenCalled();
+      expect(tx.position.create).not.toHaveBeenCalled();
+      expect(tx.position.update).not.toHaveBeenCalled();
+      expect(tx.positionHolder.createMany).not.toHaveBeenCalled();
     });
 
     it("an agent principal (isAgent: true) is refused, nothing written", async () => {
