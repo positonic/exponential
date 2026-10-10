@@ -25,9 +25,12 @@ on:
 permissions:
   contents: read
 
+# Queue rather than cancel: actions/cache only saves when the job succeeds, so
+# cancelling a warm run on the next push would leave main's scope unseeded
+# during a burst of merges (four pushes landed within a minute on 2026-10-09).
 concurrency:
   group: ${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   warm:
