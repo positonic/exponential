@@ -160,7 +160,12 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
         await updateMutation.mutateAsync({ workspaceId, positionId: editing.id, remit: values.remit });
       }
     } catch {
-      // Surfaced by the mutation's onError; keep the form open to retry.
+      // Surfaced by the mutation's onError (which names the failed step). The
+      // two admin writes are separate mutations, so the Position edit may have
+      // landed while the holder change did not: refresh the list so the row
+      // shows what was saved, and keep the form open with the intended values
+      // so a retry re-sends the (idempotent) edit plus the holders.
+      await invalidate();
       return;
     }
     closeForm();

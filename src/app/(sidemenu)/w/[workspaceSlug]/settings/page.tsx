@@ -1052,7 +1052,7 @@ export default function WorkspaceSettingsPage() {
                 members' Positions column renders there. */}
             {!isPersonalWorkspace && (
               <PositionsSection
-                workspaceId={workspaceId!}
+                workspaceId={workspace.id}
                 canManage={canManageMembers}
                 members={workspace.members ?? []}
               />

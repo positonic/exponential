@@ -292,6 +292,15 @@ describe("position.update", () => {
     expectNothingWritten(db);
   });
 
+  it("a payload that edits nothing → BAD_REQUEST, so a viewer cannot reach the write", async () => {
+    arrangeCaller(db, "viewer");
+
+    await expect(
+      caller(db).position.update({ workspaceId: WORKSPACE_ID, positionId: POSITION_ID }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expectNothingWritten(db);
+  });
+
   it("renaming onto an existing title → CONFLICT", async () => {
     arrangeCaller(db, "owner");
     db.position.update.mockRejectedValue(Object.assign(new Error("Unique constraint"), { code: "P2002" }));

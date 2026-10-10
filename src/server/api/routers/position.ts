@@ -206,7 +206,13 @@ export const positionRouter = createTRPCRouter({
         title: titleSchema.optional(),
         remit: remitSchema.optional(),
         notAccountableFor: notAccountableForSchema.nullable().optional(),
-      }),
+      })
+      // An update that edits nothing would pass neither gate below and still
+      // run a mutation as any viewer; refuse it before authorization.
+      .refine(
+        (input) => input.title !== undefined || input.remit !== undefined || input.notAccountableFor !== undefined,
+        { message: "Nothing to update" },
+      ),
     )
     .use(requireWorkspaceMembership("view"))
     .mutation(async ({ ctx, input }) => {
