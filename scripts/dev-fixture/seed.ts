@@ -392,6 +392,16 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "member" },
     create: { userId: colleague.id, workspaceId: workspace.id, role: "member" },
   });
+  // The colleague is also a member of the other workspace, which holds no
+  // Positions: two humans, none covered, so the chat's Positions import pill
+  // qualifies there on every run (the pill spec). Nothing writes Positions
+  // in that workspace, unlike `dev-fixture`, where the settings spec adds one.
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: colleague.id, workspaceId: otherWorkspace.id } },
+    update: { role: "member" },
+    create: { userId: colleague.id, workspaceId: otherWorkspace.id, role: "member" },
+  });
+  await db.position.deleteMany({ where: { workspaceId: otherWorkspace.id } });
   // One Assistant each for the fixture user and the colleague, so the Assign
   // modal has "your assistant" to pin first and a teammate's to group below.
   // Each Assistant owns an External agent whose shadow user is a workspace
