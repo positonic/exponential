@@ -121,7 +121,7 @@ async function requirePositionInWorkspace(
  * same rule as `assignability.ts`, so this cannot confirm foreign CUIDs).
  */
 async function findHolderMemberships(
-  db: PrismaClient,
+  db: PrismaClient | Prisma.TransactionClient,
   workspaceId: string,
   userIds: string[],
 ): Promise<Array<{ id: string; userId: string }>> {
@@ -149,7 +149,7 @@ async function resolveHolderMemberships(
 
 /** The holders' `WorkspaceUser` ids keyed by userId, so an import can map each row's holders. */
 async function mapHolderMemberships(
-  db: PrismaClient,
+  db: PrismaClient | Prisma.TransactionClient,
   workspaceId: string,
   userIds: string[],
 ): Promise<Map<string, string>> {
@@ -435,18 +435,7 @@ export const positionRouter = createTRPCRouter({
         seen.add(key);
       }
 
-      const memberships = await mapHolderMemberships(
-        ctx.db,
-        input.workspaceId,
-        input.positions.flatMap((row) => row.holderUserIds),
-      );
-      const workspaceUserIdOf = (userId: string) => {
-        const workspaceUserId = memberships.get(userId);
-        if (!workspaceUserId) {
-          throw HOLDER_NOT_MEMBER();
-        }
-        return workspaceUserId;
-      };
+      const holderUserIds = input.positions.flatMap((row) => row.holderUserIds);
 
       const present = (plan: ReturnType<typeof planPositionImport>) =>
         plan.map(({ title, outcome, notAccountableFor, holderUserIds }) => ({
@@ -457,15 +446,25 @@ export const positionRouter = createTRPCRouter({
         }));
 
       if (input.dryRun) {
+        await mapHolderMemberships(ctx.db, input.workspaceId, holderUserIds);
         const plan = planPositionImport(await loadPositionsForImport(ctx.db, input.workspaceId), input.positions);
         return { written: false, results: present(plan) };
       }
 
-      // All or nothing: the plan is re-read and written inside one
-      // transaction, so a concurrent edit cannot leave half an import.
+      // All or nothing: memberships and the plan are read and written inside
+      // one transaction, so a concurrent edit cannot leave half an import and
+      // a holder removed meanwhile is a NOT_FOUND, not a foreign-key error.
       try {
         const plan = await ctx.db.$transaction(
           async (tx) => {
+            const memberships = await mapHolderMemberships(tx, input.workspaceId, holderUserIds);
+            const workspaceUserIdOf = (userId: string) => {
+              const workspaceUserId = memberships.get(userId);
+              if (!workspaceUserId) {
+                throw HOLDER_NOT_MEMBER();
+              }
+              return workspaceUserId;
+            };
             const planned = planPositionImport(await loadPositionsForImport(tx, input.workspaceId), input.positions);
             for (const row of planned) {
               if (row.outcome === "create") {
