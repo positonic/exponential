@@ -12,7 +12,7 @@ import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUser } from "~/server/services/access/assignability";
 import { after } from "next/server";
-import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
+import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
@@ -1625,6 +1625,13 @@ export const actionRouter = createTRPCRouter({
         },
       });
 
+      // Unassigning an Assistant cancels its queued run; a running one is
+      // left to finish (ADR-0067, Agent PRD D3).
+      await cancelQueuedRunsForUnassigned(ctx.db, {
+        actionId: input.actionId,
+        userIds: input.userIds,
+      });
+
       if (action.projectId && nextIds.length !== priorIds.length) {
         void logActionDiffActivities(ctx.db, {
           projectId: action.projectId,
@@ -1702,6 +1709,19 @@ export const actionRouter = createTRPCRouter({
         data: assignments,
         skipDuplicates: true,
       });
+
+      // Same hook as `assign`: an Assistant among the assignees gets one run
+      // per action, coalesced against live runs (ADR-0067).
+      let kick = false;
+      for (const action of actions) {
+        const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+          actionId: action.id,
+          userIds: input.userIds,
+          requestedById: ctx.session.user.id,
+        });
+        if (runs.some((r) => r.executor === "MASTRA")) kick = true;
+      }
+      if (kick) after(() => triggerDispatch());
 
       return {
         count: assignments.length,

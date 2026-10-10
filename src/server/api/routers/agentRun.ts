@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { getActionAccess, canViewAction } from "~/server/services/access";
+import { getActionAccess, canViewAction, buildActionEditWhere } from "~/server/services/access";
+import { appendRunEvent } from "~/server/services/agentRuns/events";
 
 /**
  * Agent runs as seen by humans (ADR-0067, Agent PRD D10). Everyone who can
@@ -65,6 +66,41 @@ export const agentRunRouter = createTRPCRouter({
           events: isOwner ? events.filter((e) => e.runId === run.id) : undefined,
         };
       });
+    }),
+
+  /**
+   * Cancel a live run from the Action page (Agent PRD D7). Anyone who may edit
+   * the action may cancel. QUEUED → CANCELLED outright; RUNNING → CANCELLED
+   * as a flag: the callbacks refuse a non-RUNNING run and the dispatcher
+   * never overwrites a cancel, so late results are discarded. The in-flight
+   * Mastra call itself is not aborted (accepted; maxSteps bounds it).
+   */
+  cancel: protectedProcedure
+    .input(z.object({ runId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await ctx.db.agentRun.findFirst({
+        where: {
+          id: input.runId,
+          status: { in: ["QUEUED", "RUNNING"] },
+          action: buildActionEditWhere(ctx.session.user.id),
+        },
+        select: { id: true, status: true },
+      });
+      if (!run) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Live run not found" });
+      }
+      const updated = await ctx.db.agentRun.updateMany({
+        where: { id: run.id, status: run.status },
+        data: { status: "CANCELLED", finishedAt: new Date(), lastEventAt: new Date() },
+      });
+      if (updated.count === 1) {
+        await appendRunEvent(ctx.db, {
+          runId: run.id,
+          kind: "status",
+          payload: { status: "CANCELLED", by: ctx.session.user.id, was: run.status },
+        });
+      }
+      return { cancelled: updated.count === 1, was: run.status };
     }),
 
   /** One run's events after `afterSeq` — owner only — for an incremental transcript poll. */

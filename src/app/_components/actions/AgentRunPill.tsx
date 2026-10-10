@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Group, Loader, Text, Tooltip } from "@mantine/core";
+import { Button, Group, Loader, Text, Tooltip } from "@mantine/core";
 import { IconRobot } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { AgentRunTranscript } from "./AgentRunTranscript";
@@ -47,6 +47,12 @@ function verbFor(run: Run): "Working" | "Worked for" | "Stopped" | "Waiting on o
  */
 export function AgentRunPill({ actionId }: { actionId: string }) {
   const utils = api.useUtils();
+  const cancel = api.agentRun.cancel.useMutation({
+    onSuccess: () => {
+      void utils.agentRun.listForAction.invalidate({ actionId });
+      void utils.action.getById.invalidate({ id: actionId });
+    },
+  });
   const { data: runs } = api.agentRun.listForAction.useQuery(
     { actionId },
     { refetchInterval: (query) => (hasLiveRun(query.state.data) ? 2000 : false) },
@@ -108,6 +114,18 @@ export function AgentRunPill({ actionId }: { actionId: string }) {
         <Text size="sm" className="text-text-primary">
           {copy}
         </Text>
+        {live && (
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="gray"
+            loading={cancel.isPending}
+            onClick={() => cancel.mutate({ runId: latest.id })}
+            data-testid="agent-run-cancel"
+          >
+            Cancel
+          </Button>
+        )}
       </Group>
     </Tooltip>
     <AgentRunTranscript run={latest} live={live} />
