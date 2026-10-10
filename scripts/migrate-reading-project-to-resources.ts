@@ -8,7 +8,10 @@
  * each Action in such a project into a `Resource` and then completes the
  * project so it stops showing up in reviews:
  *
- *   - title        = the action's name (with any URL stripped out)
+ *   - title        = the action's name, with any URL stripped out, HTML tags
+ *                    removed, entities decoded (names pasted from a browser
+ *                    arrive as `<a href="">Title</a>` with `&quot;`), and a
+ *                    "(3) " tab notification counter dropped
  *   - url          = the first http(s) link found in the name or description
  *   - description  = whatever text remains after the URL is removed
  *   - contentType  = "bookmark" when a URL was found, else "note"
@@ -22,10 +25,13 @@
  * --apply would create the Resources again, so the script refuses when the
  * project is already COMPLETED.
  *
+ * `--only-links` leaves actions with no URL where they are (a "Call mom" filed
+ * in the wrong project is not reading material); they are listed as skipped.
+ *
  * Dry run (default, read-only — prints the mapping):
- *   npx tsx scripts/migrate-reading-project-to-resources.ts --project <cuid|slug>
+ *   npx tsx scripts/migrate-reading-project-to-resources.ts --project <cuid|slug> [--only-links]
  * Apply:
- *   npx tsx scripts/migrate-reading-project-to-resources.ts --project <cuid|slug> --apply
+ *   npx tsx scripts/migrate-reading-project-to-resources.ts --project <cuid|slug> [--only-links] --apply
  */
 
 import path from 'node:path';
@@ -52,6 +58,33 @@ export interface ResourceDraft {
 
 const URL_RE = /https?:\/\/[^\s<>()"']+/i;
 
+const ENTITIES: Record<string, string> = {
+  '&quot;': '"',
+  '&#39;': "'",
+  '&apos;': "'",
+  '&lt;': '<',
+  '&gt;': '>',
+  '&nbsp;': ' ',
+  '&amp;': '&', // last, so "&amp;quot;" decodes in two passes below
+};
+
+/**
+ * Turn browser-pasted markup into plain text: decode entities (twice, since
+ * "&amp;quot;" is common), strip tags, drop a leading "(3) " unread counter,
+ * collapse whitespace.
+ */
+export function cleanText(text: string): string {
+  let out = text;
+  for (let pass = 0; pass < 2; pass++) {
+    out = out.replace(/&(quot|#39|apos|lt|gt|nbsp|amp);/g, (m) => ENTITIES[m] ?? m);
+  }
+  return out
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/(^|:\s+)\(\d+\)\s*/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 /** Pull the first http(s) link out of a string, returning it and the rest. */
 export function splitUrl(text: string): { url: string | null; rest: string } {
   const match = URL_RE.exec(text);
@@ -70,8 +103,9 @@ export function draftFromAction(action: ActionRow): ResourceDraft {
   const fromDescription = splitUrl(action.description ?? '');
   const url = fromName.url ?? fromDescription.url;
 
-  const title = fromName.rest || (url ? hostnameOf(url) ?? url : action.name.trim());
-  const leftoverDescription = fromDescription.rest;
+  const cleanedName = cleanText(fromName.rest);
+  const title = cleanedName || (url ? hostnameOf(url) ?? url : cleanText(action.name));
+  const leftoverDescription = cleanText(fromDescription.rest);
 
   const isDone = action.status === 'COMPLETED';
   return {
@@ -112,6 +146,7 @@ export async function main(): Promise<void> {
   const { db } = await import('../src/server/db');
 
   const APPLY = process.argv.includes('--apply');
+  const ONLY_LINKS = process.argv.includes('--only-links');
   const PROJECT = argValue('--project');
   if (!PROJECT) {
     console.error(
@@ -139,9 +174,12 @@ export async function main(): Promise<void> {
     orderBy: { createdAt: 'asc' },
   });
 
-  const drafts = actions.map(draftFromAction);
+  const allDrafts = actions.map(draftFromAction);
+  const skipped = ONLY_LINKS ? allDrafts.filter((d) => !d.url) : [];
+  const drafts = ONLY_LINKS ? allDrafts.filter((d) => d.url) : allDrafts;
   console.log(
-    `${APPLY ? 'Migrating' : 'Dry run:'} project "${project.name}" (${project.slug}) — ${drafts.length} actions → resources`,
+    `${APPLY ? 'Migrating' : 'Dry run:'} project "${project.name}" (${project.slug}) — ${drafts.length} actions → resources` +
+      (skipped.length ? ` (${skipped.length} without a link left in place)` : ''),
   );
   for (const d of drafts) {
     console.log(
@@ -150,6 +188,7 @@ export async function main(): Promise<void> {
   }
   const unread = drafts.filter((d) => d.readStatus === 'to_read').length;
   console.log(`  ${unread} to read, ${drafts.length - unread} read.`);
+  for (const d of skipped) console.log(`  [skipped] ${d.title} (no link — stays on the project)`);
 
   if (!APPLY) {
     console.log('Re-run with --apply to write.');
