@@ -125,6 +125,38 @@ export const externalAgentRouter = createTRPCRouter({
       });
     }),
 
+  /**
+   * The description is the agent's fallback Remit (ADR-0068 §3): what work
+   * should be routed to it when it holds no Position. Editable after creation
+   * by the owner. An Assistant's principal is edited from Settings →
+   * Assistant, where the same field lives on `assistant.update`.
+   */
+  update: humanOnlyProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        description: z.string().trim().max(500).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+
+      if (agent.assistant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This agent is your Assistant — edit it from Settings → Assistant instead",
+        });
+      }
+
+      const description = input.description?.length ? input.description : null;
+      const updated = await ctx.db.externalAgent.update({
+        where: { id: agent.id },
+        data: { description },
+        select: { id: true, description: true },
+      });
+      return updated;
+    }),
+
   uploadAvatar: humanOnlyProcedure
     .input(
       z.object({
