@@ -86,7 +86,7 @@ export class EmbeddingTriggerService {
    */
   triggerTranscriptionEmbedding(transcriptionId: string): void {
     // Fire and forget - don't await
-    this.processTranscriptionEmbedding(transcriptionId).catch((error) => {
+    this.embedTranscriptionNow(transcriptionId).catch((error) => {
       console.error(
         `[EmbeddingTriggerService] Background embedding failed for ${transcriptionId}:`,
         error
@@ -95,12 +95,14 @@ export class EmbeddingTriggerService {
   }
 
   /**
-   * Internal method that actually processes the embedding.
+   * Embed a transcription inline and resolve with its final status. Used
+   * directly by the meeting embedding sweep, which must finish its work inside
+   * the cron request rather than fire-and-forget.
    * Updates status at each stage for observability.
    */
-  private async processTranscriptionEmbedding(
+  async embedTranscriptionNow(
     transcriptionId: string
-  ): Promise<void> {
+  ): Promise<EmbeddingStatus> {
     const knowledgeService = getKnowledgeService(this.db);
 
     // 1. Mark as processing
@@ -117,7 +119,7 @@ export class EmbeddingTriggerService {
         "failed",
         "Transcription not found"
       );
-      return;
+      return "failed";
     }
 
     if (!transcription.transcription) {
@@ -126,7 +128,7 @@ export class EmbeddingTriggerService {
       console.log(
         `[EmbeddingTriggerService] Transcription ${transcriptionId} has no content, skipping embedding`
       );
-      return;
+      return "completed";
     }
 
     // 3. Create source adapter and embed
@@ -144,6 +146,7 @@ export class EmbeddingTriggerService {
       console.log(
         `[EmbeddingTriggerService] Successfully embedded transcription ${transcriptionId}: ${result.chunkCount} chunks`
       );
+      return "completed";
     } else {
       await this.updateEmbeddingStatus(
         transcriptionId,
@@ -153,6 +156,7 @@ export class EmbeddingTriggerService {
       console.error(
         `[EmbeddingTriggerService] Failed to embed transcription ${transcriptionId}: ${result.error}`
       );
+      return "failed";
     }
   }
 

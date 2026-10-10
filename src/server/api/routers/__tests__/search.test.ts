@@ -89,6 +89,14 @@ vi.mock("~/lib/blob", () => ({
   uploadToBlob: vi.fn().mockResolvedValue({ url: "blob://test" }),
 }));
 
+// KnowledgeService stub: `search.knowledge` exercises real router logic but
+// never reaches OpenAI or pgvector.
+const { mockKnowledgeSearch } = vi.hoisted(() => ({ mockKnowledgeSearch: vi.fn() }));
+vi.mock("~/server/services/KnowledgeService", () => ({
+  KnowledgeService: class MockKnowledgeService {},
+  getKnowledgeService: vi.fn(() => ({ search: mockKnowledgeSearch })),
+}));
+
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
 import {
@@ -231,5 +239,94 @@ describe("search router — global (mocked)", () => {
 
     expect(dbMock.goal.findMany).not.toHaveBeenCalled();
     expect(res.results.filter((r) => r.type === "goal")).toEqual([]);
+  });
+});
+
+describe("search router — knowledge (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  const chunk = (
+    sourceType: "transcription" | "resource" | "document" | "page",
+    sourceId: string,
+    similarity: number,
+    extra: { url?: string; title?: string; content?: string } = {},
+  ) => ({
+    id: `c-${sourceId}-${similarity}`,
+    content: extra.content ?? `content of ${sourceId}`,
+    sourceType,
+    sourceId,
+    chunkIndex: 0,
+    similarity,
+    sourceTitle: extra.title ?? `Title ${sourceId}`,
+    sourceMeta: { url: extra.url },
+  });
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    mockKnowledgeSearch.mockReset();
+    mockKnowledgeSearch.mockResolvedValue([]);
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { userId: callerId, workspaceId, role: "member" } as any,
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.workspace.findUnique.mockResolvedValue({ slug: "clear" } as any);
+  });
+
+  it("searches with the Knowledge Base page's scoping: own chunks, access re-checked", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.search.knowledge({ query: "pricing", workspaceId, limit: 5 });
+
+    expect(mockKnowledgeSearch).toHaveBeenCalledWith("pricing", {
+      workspaceId,
+      userId: callerId,
+      pageViewerId: callerId,
+      transcriptionViewerId: callerId,
+      limit: 20,
+    });
+  });
+
+  it("returns nothing, without embedding, for a non-member", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(null);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.search.knowledge({ query: "pricing", workspaceId });
+
+    expect(res.results).toEqual([]);
+    expect(mockKnowledgeSearch).not.toHaveBeenCalled();
+  });
+
+  it("keeps each source's best chunk, routes it, and drops weak or routeless hits", async () => {
+    mockKnowledgeSearch.mockResolvedValue([
+      chunk("transcription", "m1", 0.62, { content: "We agreed  on\n tiered pricing" }),
+      chunk("transcription", "m1", 0.55),
+      chunk("page", "p1", 0.5),
+      chunk("resource", "r1", 0.45, { url: "https://example.com/post" }),
+      chunk("resource", "r2", 0.44, { url: "javascript:alert(1)" }),
+      chunk("document", "d1", 0.4),
+      chunk("page", "p2", 0.2),
+    ]);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.search.knowledge({ query: "pricing", workspaceId });
+
+    expect(res.results.map((r) => [r.sourceType, r.sourceId, r.url, r.external])).toEqual([
+      ["transcription", "m1", "/recording/m1", false],
+      ["page", "p1", "/w/clear/pages/p1", false],
+      ["resource", "r1", "https://example.com/post", true],
+    ]);
+    expect(res.results[0]?.snippet).toBe("We agreed on tiered pricing");
+  });
+
+  it("degrades to no results when the embedding call fails", async () => {
+    mockKnowledgeSearch.mockRejectedValue(new Error("openai down"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.search.knowledge({ query: "pricing", workspaceId });
+
+    expect(res.results).toEqual([]);
   });
 });

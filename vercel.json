@@ -27,6 +27,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/embed-meetings",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/run-scheduled-automations",
       "schedule": "0 * * * *"
     },
