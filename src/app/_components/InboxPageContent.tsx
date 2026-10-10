@@ -1,11 +1,12 @@
 "use client";
 
 import { Badge, Tabs, Text, Title } from "@mantine/core";
-import { IconBell, IconHourglass, IconListCheck } from "@tabler/icons-react";
+import { IconBell, IconHourglass, IconListCheck, IconRobot } from "@tabler/icons-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { DocsHelpLink } from "~/app/_components/docs/DocsHelpLink";
 import { NotificationsTab } from "~/app/_components/inbox/NotificationsTab";
 import { WaitingOnMeTab } from "~/app/_components/inbox/WaitingOnMeTab";
+import { DelegatedTab } from "~/app/_components/inbox/DelegatedTab";
 import { useInboxCounts } from "~/hooks/useInboxCounts";
 import { api } from "~/trpc/react";
 import { useSidebarActionCounts } from "~/hooks/useSidebarActionCounts";
@@ -14,7 +15,7 @@ import { Actions } from "./Actions";
 // "Needs your attention" card.
 import "~/app/_components/home/activity/activity-home.css";
 
-const TABS = ["notifications", "waiting", "actions"] as const;
+const TABS = ["notifications", "waiting", "delegated", "actions"] as const;
 type InboxTab = (typeof TABS)[number];
 
 function parseTab(value: string | null): InboxTab {
@@ -24,6 +25,7 @@ function parseTab(value: string | null): InboxTab {
 const SUBTITLES: Record<InboxTab, string> = {
   notifications: "Assignments, mentions, due dates and meeting updates",
   waiting: "Decisions, reviews, QA tickets and overdue actions that need you",
+  delegated: "Actions your assistant is working on or has finished for you",
   actions: "Actions without a date or project assigned",
 };
 
@@ -38,8 +40,9 @@ function TabCount({ count }: { count: number | undefined }) {
 
 /**
  * `/inbox` — one place to clear what needs you, across every workspace.
- * Three tabs, each cleared its own way: Notifications (read them), Waiting on
- * me (act on them), Actions (give them a date or project). The tab lives in
+ * Four tabs, each cleared its own way: Notifications (read them), Waiting on
+ * me (act on them), Delegated (review what your assistant did, ADR-0067),
+ * Actions (give them a date or project). The tab lives in
  * `?tab=`; Notifications is the default. The "My activity" history is
  * deliberately not here — it never clears — it's the "Mine" filter on
  * `/activity`.
@@ -52,7 +55,7 @@ export function InboxPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tab = parseTab(searchParams.get("tab"));
-  const { waiting } = useInboxCounts();
+  const { waiting, delegated } = useInboxCounts();
   // Every unread notification, summaries included — the tab counts what its
   // Unread list shows; only the sidebar badge leaves summaries out.
   const { data: notifications } = api.notification.unreadCount.useQuery();
@@ -99,6 +102,13 @@ export function InboxPageContent() {
             Waiting on me
           </Tabs.Tab>
           <Tabs.Tab
+            value="delegated"
+            leftSection={<IconRobot size={16} />}
+            rightSection={<TabCount count={delegated} />}
+          >
+            Delegated
+          </Tabs.Tab>
+          <Tabs.Tab
             value="actions"
             leftSection={<IconListCheck size={16} />}
             rightSection={<TabCount count={inboxCount} />}
@@ -112,6 +122,9 @@ export function InboxPageContent() {
         </Tabs.Panel>
         <Tabs.Panel value="waiting">
           <WaitingOnMeTab />
+        </Tabs.Panel>
+        <Tabs.Panel value="delegated">
+          <DelegatedTab />
         </Tabs.Panel>
         <Tabs.Panel value="actions">
           <Actions viewName="inbox" />

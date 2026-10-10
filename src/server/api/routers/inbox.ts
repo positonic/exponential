@@ -4,6 +4,7 @@ import {
   countWaitingOnMe,
   listWaitingOnMe,
 } from "~/server/services/inbox/waitingOnMe";
+import { countDelegated, listDelegated } from "~/server/services/inbox/delegated";
 
 /**
  * The `/inbox` page's "Waiting on me" tab (see `services/inbox/waitingOnMe`).
@@ -29,4 +30,19 @@ export const inboxRouter = createTRPCRouter({
     .query(({ ctx, input }) =>
       countWaitingOnMe(ctx.db, ctx.session.user.id, input.startOfToday),
     ),
+
+  /**
+   * The Delegated tab (ADR-0067): actions handed to an Assistant with their
+   * latest run — live, waiting on the owner, finished-unreviewed, and the
+   * last week's reviewed. Scoped to runs the viewer requested or their own
+   * Assistant performed (`services/inbox/delegated`).
+   */
+  delegated: protectedProcedure.query(({ ctx }) =>
+    listDelegated(ctx.db, ctx.session.user.id, new Date()),
+  ),
+
+  /** Counts only; `attention` (waiting + unreviewed, never live) feeds the badge. */
+  delegatedCounts: protectedProcedure.query(({ ctx }) =>
+    countDelegated(ctx.db, ctx.session.user.id),
+  ),
 });
