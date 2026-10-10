@@ -193,7 +193,7 @@ export const externalAgentRouter = createTRPCRouter({
         });
         return tx.externalAgent.update({
           where: { id: agent.id },
-          data: { name: input.name, description: input.description ?? null },
+          data: { name: input.name, description: input.description ? input.description : null },
         });
       });
     }),
