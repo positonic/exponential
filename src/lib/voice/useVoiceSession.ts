@@ -20,8 +20,18 @@
  *      router can resolve what the user is referring to;
  *   7. forwards model tool calls through brainDispatcher and voices the result.
  *
- * Server VAD (the Realtime default) drives turn-taking and barge-in. Per the
- * PRD this transport module is validated by dogfooding, not unit tests.
+ * Turn-taking: server VAD detects speech and barge-in, but it does NOT create
+ * responses (`create_response: false`). The client owns `response.create`, and
+ * sends one on `input_audio_buffer.committed` UNLESS a tool call is still
+ * waiting on the brain — in which case the committed turn waits for the tool
+ * output's own response.create and gets answered with real data. Without this
+ * gate the model answered a mid-wait "okay" from nothing, then contradicted
+ * itself when the result landed (ticket humble.basin).
+ *
+ * Every Realtime event of note is pushed to a `voiceEventLog`; the slice since
+ * the previous assistant turn is handed to `onAssistantTranscript` so the caller
+ * can persist it with the turn (AiInteractionHistory.actionsTaken). Per the PRD
+ * this transport module is validated by dogfooding, not unit tests.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -34,6 +44,13 @@ import {
   VOICE_ROUTER_INSTRUCTIONS,
   type RealtimeToolDescriptor,
 } from "~/lib/voice/voiceToolCatalog";
+import {
+  createVoiceEventLog,
+  excerpt,
+  type VoiceEvent,
+  type VoiceEventLog,
+  type VoiceEventType,
+} from "~/lib/voice/voiceEventLog";
 
 /** OpenAI Realtime WebRTC SDP-exchange endpoint (GA). */
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
@@ -60,6 +77,12 @@ export interface VoiceSessionMint {
   routerInstructions?: string;
 }
 
+/** Forensic context handed along with a committed assistant transcript. */
+export interface VoiceTurnMeta {
+  /** Realtime events since the previous assistant transcript (tool calls, timings, response ids). */
+  events: VoiceEvent[];
+}
+
 export interface UseVoiceSessionOptions {
   /** Mint a voice session (cookie-authed). Usually `api.voice.createSession.mutateAsync`. */
   createSession: () => Promise<VoiceSessionMint>;
@@ -69,8 +92,11 @@ export interface UseVoiceSessionOptions {
   onServerEvent?: (event: RealtimeServerEvent) => void;
   /** A committed user utterance transcript (one per finished user turn). */
   onUserTranscript?: (text: string) => void;
-  /** A committed assistant spoken transcript (one per finished zoe turn). */
-  onAssistantTranscript?: (text: string) => void;
+  /**
+   * A committed assistant spoken transcript (one per finished zoe turn), with
+   * the Realtime events that led to it so the caller can persist the audit trail.
+   */
+  onAssistantTranscript?: (text: string, meta: VoiceTurnMeta) => void;
   /**
    * Snapshot of the on-screen chat thread, seeded into the Realtime session as
    * one demoted context item the moment the data channel opens (see
@@ -118,6 +144,24 @@ const DEFAULT_END_ON_SILENCE_MS = 25_000;
  * is terminal and ends immediately.
  */
 const DISCONNECT_GRACE_MS = 5_000;
+
+/**
+ * A tool call still "pending" after this long is treated as lost for turn-gating
+ * purposes, so a hung dispatch can't leave the user talking to silence. Sits
+ * above the brain's own 45s generate cap (brainPassthrough.GENERATE_TIMEOUT_MS)
+ * plus transport slack; the dispatch normally rejects well before this.
+ */
+const STALE_TOOL_CALL_MS = 60_000;
+
+/**
+ * How long a locally reserved response slot may wait for the server to confirm
+ * (response.created) or finish (response.done) before we assume the event was
+ * missed and release it. Guards the two places the slot is reserved without a
+ * server ACK in hand: our own response.create, and a
+ * "conversation_already_has_active_response" rejection. Without it, one missed
+ * response.done would leave every later turn deferring forever.
+ */
+const RESPONSE_WATCHDOG_MS = 30_000;
 
 /**
  * sessionStorage marker: "a voice session was live and was NOT deliberately
@@ -183,6 +227,19 @@ export function useVoiceSession(
   // Whether a model response is currently in flight. The Realtime API rejects a
   // response.create while one is active, so we gate/defer ours on this.
   const activeResponseRef = useRef(false);
+  // Tool calls dispatched to the brain whose output is not yet on the
+  // conversation (call_id → started-at ms). While non-empty, a committed user
+  // turn does NOT get its own response.create — see the committed case.
+  const pendingToolCallsRef = useRef<Map<string, number>>(new Map());
+  // A user turn was committed while a tool call was pending and is waiting for
+  // the tool output's response. If that output never comes (stale call pruned),
+  // the recovery path below still answers the turn.
+  const deferredUserTurnRef = useRef(false);
+  const staleToolTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Releases a reserved response slot whose server events never arrived.
+  const responseWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-session forensic event log; created in start(), dropped in teardown().
+  const eventLogRef = useRef<VoiceEventLog | null>(null);
   // A response.create we wanted to send while a response was active; fired when
   // the active response completes.
   const pendingResponseCreateRef = useRef(false);
@@ -214,8 +271,20 @@ export function useVoiceSession(
     sessionConfigRef.current = null;
     pendingActionIdRef.current = undefined;
     handledCallIdsRef.current.clear();
+    pendingToolCallsRef.current.clear();
+    deferredUserTurnRef.current = false;
+    if (staleToolTimerRef.current) {
+      clearTimeout(staleToolTimerRef.current);
+      staleToolTimerRef.current = null;
+    }
+    if (responseWatchdogRef.current) {
+      clearTimeout(responseWatchdogRef.current);
+      responseWatchdogRef.current = null;
+    }
     activeResponseRef.current = false;
     pendingResponseCreateRef.current = false;
+    eventLogRef.current?.push("session.ended");
+    eventLogRef.current = null;
   }, []);
 
   /**
@@ -267,6 +336,115 @@ export function useVoiceSession(
     if (dc && dc.readyState === "open") dc.send(JSON.stringify(event));
   }, []);
 
+  /** Record a forensic event on the current session's log (no-op when idle). */
+  const log = useCallback(
+    (type: VoiceEventType, detail?: VoiceEvent["detail"]) => {
+      eventLogRef.current?.push(type, detail);
+    },
+    [],
+  );
+
+  /**
+   * Is a tool call still waiting on the brain? Prunes entries older than
+   * STALE_TOOL_CALL_MS so a dispatch that never settles can't gate turns forever.
+   */
+  const hasPendingToolCall = useCallback((): boolean => {
+    const pending = pendingToolCallsRef.current;
+    const now = Date.now();
+    for (const [callId, startedAt] of pending) {
+      if (now - startedAt > STALE_TOOL_CALL_MS) {
+        pending.delete(callId);
+        log("tool.error", { callId, error: "stale_pending_pruned", durationMs: now - startedAt });
+      }
+    }
+    return pending.size > 0;
+  }, [log]);
+
+  /**
+   * The ONLY place a response.create is sent. The API rejects a response.create
+   * while one is active, so if a response is in flight we defer and flush on its
+   * response.done. The slot is reserved locally BEFORE sending so a second
+   * request landing before the server's response.created ACK defers instead of
+   * racing.
+   */
+  const clearResponseWatchdog = useCallback(() => {
+    if (responseWatchdogRef.current) {
+      clearTimeout(responseWatchdogRef.current);
+      responseWatchdogRef.current = null;
+    }
+  }, []);
+
+  // Mutually recursive with requestResponse (the watchdog may need to flush a
+  // deferred request), so both live on refs that are assigned below.
+  const requestResponseRef = useRef<(reason: string) => void>(() => undefined);
+
+  /**
+   * (Re)arm the watchdog on a slot we reserved without a server ACK in hand.
+   * Cleared by response.created / response.done. If it fires, the slot is
+   * released and any deferred request is flushed so the session can't wedge.
+   */
+  const armResponseWatchdog = useCallback(() => {
+    clearResponseWatchdog();
+    responseWatchdogRef.current = setTimeout(() => {
+      responseWatchdogRef.current = null;
+      if (!activeResponseRef.current) return;
+      log("response.watchdog", {
+        action: "released",
+        hadDeferred: pendingResponseCreateRef.current,
+      });
+      activeResponseRef.current = false;
+      if (pendingResponseCreateRef.current) {
+        pendingResponseCreateRef.current = false;
+        requestResponseRef.current("watchdog_recovery");
+      }
+    }, RESPONSE_WATCHDOG_MS);
+  }, [clearResponseWatchdog, log]);
+
+  const requestResponse = useCallback(
+    (reason: string) => {
+      // Any response we start answers whatever user turn was waiting.
+      deferredUserTurnRef.current = false;
+      if (activeResponseRef.current) {
+        pendingResponseCreateRef.current = true;
+        log("response.deferred", { reason, why: "response_active" });
+        return;
+      }
+      activeResponseRef.current = true;
+      log("response.requested", { reason });
+      send({ type: "response.create" });
+      armResponseWatchdog();
+    },
+    [send, log, armResponseWatchdog],
+  );
+  requestResponseRef.current = requestResponse;
+
+  /**
+   * A user turn was held back because a tool call was pending. Normally the
+   * tool output's response answers it. If instead the pending set drains by
+   * pruning (the dispatch never settled), answer the turn anyway — the model
+   * will say it couldn't get the result rather than leave silence.
+   */
+  const recoverDeferredUserTurn = useCallback(() => {
+    if (!deferredUserTurnRef.current) return;
+    if (hasPendingToolCall()) return;
+    requestResponse("stale_tool_recovery");
+  }, [hasPendingToolCall, requestResponse]);
+
+  /** Schedule recoverDeferredUserTurn for when the oldest pending call goes stale. */
+  const armStaleToolTimer = useCallback(() => {
+    if (staleToolTimerRef.current) clearTimeout(staleToolTimerRef.current);
+    let oldest = Infinity;
+    for (const startedAt of pendingToolCallsRef.current.values()) {
+      if (startedAt < oldest) oldest = startedAt;
+    }
+    if (!Number.isFinite(oldest)) return;
+    const delay = Math.max(0, oldest + STALE_TOOL_CALL_MS - Date.now()) + 50;
+    staleToolTimerRef.current = setTimeout(() => {
+      staleToolTimerRef.current = null;
+      recoverDeferredUserTurn();
+    }, delay);
+  }, [recoverDeferredUserTurn]);
+
   /** Register the tool catalog + router persona on the live session. */
   const configureSession = useCallback(() => {
     // Prefer what the server issued for THIS session (ADR-0005) so the persona
@@ -285,10 +463,30 @@ export function useVoiceSession(
         // `onUserTranscript` never fires and the spoken user turn never renders
         // (the assistant reply is transcribed by default, which is why only its
         // side showed up). The capability is also bound at mint time server-side.
-        audio: { input: { transcription: { model: "whisper-1" } } },
+        audio: {
+          input: {
+            transcription: { model: "whisper-1" },
+            // Server VAD still detects speech and interrupts zoe on barge-in, but
+            // the CLIENT decides when a response starts (see the
+            // input_audio_buffer.committed case). With the default
+            // create_response:true the server started a response on every
+            // committed utterance, including an "okay" said while a tool call
+            // was still waiting on the brain — and the model answered from
+            // nothing (ticket humble.basin).
+            turn_detection: {
+              type: "server_vad",
+              create_response: false,
+              interrupt_response: true,
+            },
+          },
+        },
       },
     });
-  }, [send]);
+    log("session.configured", {
+      source: config ? "mint" : "bundled",
+      tools: (config?.tools ?? VOICE_TOOL_CATALOG).length,
+    });
+  }, [send, log]);
 
   /**
    * Seed the fresh session with the on-screen thread, as ONE demoted context
@@ -299,6 +497,7 @@ export function useVoiceSession(
   const seedConversation = useCallback(() => {
     const text = optionsRef.current.seedContext?.();
     if (!text) return;
+    log("session.seeded", { chars: text.length });
     send({
       type: "conversation.item.create",
       item: {
@@ -307,7 +506,7 @@ export function useVoiceSession(
         content: [{ type: "input_text", text }],
       },
     });
-  }, [send]);
+  }, [send, log]);
 
   /** Forward a model tool call to the brain and feed the result back. */
   const handleToolCall = useCallback(
@@ -317,9 +516,21 @@ export function useVoiceSession(
       // The same tool call surfaces on two events; only dispatch it once.
       if (handledCallIdsRef.current.has(callId)) return;
       handledCallIdsRef.current.add(callId);
+      // While this call has no output on the conversation, a committed user
+      // turn must NOT start a response — the model would answer from nothing.
+      // Cleared below once the function_call_output has been sent.
+      const startedAt = Date.now();
+      pendingToolCallsRef.current.set(callId, startedAt);
 
       const parsed = parseToolArgs(rawArgs);
       const args = toolArgsFor(name, parsed);
+      log("tool.called", {
+        name,
+        callId,
+        phrase: excerpt(parsed.phrase),
+        ...(parsed.focus ? { focus: parsed.focus } : {}),
+        ...(parsed.confirm ? { confirm: true } : {}),
+      });
       const input: BrainDispatchInput = {
         toolName: name,
         voiceSessionToken: token,
@@ -336,15 +547,29 @@ export function useVoiceSession(
           baseUrl: optionsRef.current.baseUrl,
         });
         output = result;
+        log("tool.result", {
+          name,
+          callId,
+          durationMs: Date.now() - startedAt,
+          needsConfirmation: result.needsConfirmation === true,
+          speakable: excerpt(result.speakable),
+        });
         // Remember a pending completion so the next confirm pins to it.
         pendingActionIdRef.current = result.needsConfirmation
           ? pendingActionIdOf(result.structured)
           : undefined;
       } catch (err) {
+        const message = err instanceof Error ? err.message : "dispatch_failed";
+        log("tool.error", {
+          name,
+          callId,
+          durationMs: Date.now() - startedAt,
+          error: excerpt(message),
+        });
         output = {
           speakable:
             "Sorry, something went wrong reaching the assistant. Try again?",
-          error: err instanceof Error ? err.message : "dispatch_failed",
+          error: message,
         };
       }
 
@@ -357,18 +582,25 @@ export function useVoiceSession(
           output: JSON.stringify(output),
         },
       });
-      // Trigger the spoken reply — but never while a response is still active
-      // (the API rejects that). Defer until the in-flight response completes.
-      // Reserve the slot locally BEFORE sending so a second tool completion that
-      // lands before the server's response.created ACK defers instead of racing.
-      if (activeResponseRef.current) {
-        pendingResponseCreateRef.current = true;
-      } else {
-        activeResponseRef.current = true;
-        send({ type: "response.create" });
+      // The output is on the conversation: user turns may start responses again.
+      pendingToolCallsRef.current.delete(callId);
+      // The model can emit several function calls in one response. Only the
+      // LAST output to land starts the spoken reply, so parallel calls produce
+      // one answer covering all of them rather than one reply per call.
+      if (pendingToolCallsRef.current.size > 0) {
+        log("response.deferred", {
+          reason: "tool_output",
+          why: "other_tools_pending",
+          pendingTools: pendingToolCallsRef.current.size,
+        });
+        return;
       }
+      // Trigger the spoken reply. Any user turn committed while we waited is
+      // already in the conversation, so this one response answers it too — with
+      // the real result in hand.
+      requestResponse("tool_output");
     },
-    [send],
+    [send, log, requestResponse],
   );
 
   /** Route a single Realtime server event: state transitions + tool calls. */
@@ -380,40 +612,86 @@ export function useVoiceSession(
 
       switch (event.type) {
         case "input_audio_buffer.speech_started":
+          log("speech.started");
           setState("listening");
           break;
-        case "response.created":
+        case "input_audio_buffer.committed": {
+          // Server VAD closed a user turn. Because the session runs with
+          // create_response:false, nothing happens unless WE ask — and we don't
+          // while a tool call is still waiting on the brain: the model has no
+          // result to speak yet, and the tool output's own response.create will
+          // answer this turn with real data when it lands.
+          const itemId = asString(event.item_id) ?? null;
+          const toolPending = hasPendingToolCall();
+          log("speech.committed", {
+            itemId,
+            pendingTools: pendingToolCallsRef.current.size,
+          });
+          if (toolPending) {
+            log("response.deferred", { reason: "user_turn", why: "tool_pending" });
+            deferredUserTurnRef.current = true;
+            armStaleToolTimer();
+            break;
+          }
+          requestResponse("user_turn");
+          break;
+        }
+        case "response.created": {
+          const resp = isRecord(event.response) ? event.response : undefined;
+          log("response.created", { responseId: asString(resp?.id) ?? null });
+          // The server has the response: it will end with response.done.
+          clearResponseWatchdog();
           activeResponseRef.current = true;
           setState("speaking");
           break;
+        }
         case "response.output_audio.delta":
         case "output_audio_buffer.started":
           setState("speaking");
           break;
-        case "response.done":
+        case "response.done": {
+          const resp = isRecord(event.response) ? event.response : undefined;
+          log("response.done", {
+            responseId: asString(resp?.id) ?? null,
+            status: asString(resp?.status) ?? null,
+          });
+          clearResponseWatchdog();
           activeResponseRef.current = false;
-          // Flush a tool-result reply we deferred while this response ran.
-          // Re-reserve the slot before sending so a completion arriving before
-          // the next response.created ACK doesn't also fire response.create.
+          // Flush a response.create we deferred while this response ran (a tool
+          // result or a user turn that landed mid-response).
           if (pendingResponseCreateRef.current) {
             pendingResponseCreateRef.current = false;
-            activeResponseRef.current = true;
-            send({ type: "response.create" });
+            requestResponse("flush_deferred");
           }
           setState("listening");
           break;
+        }
         case "output_audio_buffer.stopped":
           setState("listening");
           break;
         case "conversation.item.input_audio_transcription.completed": {
           const text = asString(event.transcript)?.trim();
+          log("transcript.user", {
+            itemId: asString(event.item_id) ?? null,
+            text: excerpt(text),
+          });
           if (text) optionsRef.current.onUserTranscript?.(text);
           break;
         }
         case "response.output_audio_transcript.done":
         case "response.audio_transcript.done": {
           const text = asString(event.transcript)?.trim();
-          if (text) optionsRef.current.onAssistantTranscript?.(text);
+          log("transcript.assistant", {
+            responseId: asString(event.response_id) ?? null,
+            text: excerpt(text),
+          });
+          if (text) {
+            // Hand over everything since the previous assistant turn — the tool
+            // round-trip, the deferrals, the response ids — so the caller can
+            // persist how this reply came to be said.
+            const events = eventLogRef.current?.drain() ?? [];
+            optionsRef.current.onAssistantTranscript?.(text, { events });
+          }
           break;
         }
         case "response.function_call_arguments.done": {
@@ -435,17 +713,42 @@ export function useVoiceSession(
           }
           break;
         }
-        case "error":
+        case "error": {
+          const message = describeServerError(event);
+          const code = isRecord(event.error) ? asString(event.error.code) : undefined;
+          log("server.error", { code: code ?? null, message: excerpt(message) });
+          if (code === "conversation_already_has_active_response") {
+            // Our response.create raced a response the server already had in
+            // flight. Keep the slot marked busy and re-queue, so the turn that
+            // asked for it is answered on that response's response.done rather
+            // than lost. Not surfaced as a session error: nothing is broken.
+            activeResponseRef.current = true;
+            pendingResponseCreateRef.current = true;
+            // ...unless that response.done was already missed — then the
+            // watchdog releases the slot and flushes instead of wedging.
+            armResponseWatchdog();
+            break;
+          }
           // Release the (possibly optimistically reserved) response slot so a
           // failed response.create can't wedge the gate shut for the session.
           activeResponseRef.current = false;
-          setLastError(describeServerError(event));
+          setLastError(message);
           break;
+        }
         default:
           break;
       }
     },
-    [handleToolCall, armSilenceTimer, send],
+    [
+      handleToolCall,
+      armSilenceTimer,
+      log,
+      hasPendingToolCall,
+      requestResponse,
+      armStaleToolTimer,
+      clearResponseWatchdog,
+      armResponseWatchdog,
+    ],
   );
 
   const start = useCallback(async () => {
@@ -455,6 +758,14 @@ export function useVoiceSession(
     // Starting (or resuming) clears the resume affordance — we're acting on it.
     setNeedsResume(false);
     setState("connecting");
+    // Fresh forensic log per session. Mirrored to the console outside
+    // production so a dogfooding session can be read live in devtools.
+    eventLogRef.current = createVoiceEventLog({
+      echo:
+        process.env.NODE_ENV !== "production"
+          ? (e) => console.debug("[voice]", e.t, e.type, e.detail ?? "")
+          : undefined,
+    });
 
     let mic: MediaStream;
     try {

@@ -62,7 +62,18 @@ export interface BrainDispatcherOptions {
   baseUrl?: string;
   /** Injectable fetch (tests / non-browser environments); defaults to global. */
   fetchImpl?: typeof fetch;
+  /**
+   * Abort the request after this long. A dispatch MUST settle: while one is
+   * outstanding the voice session holds back the user's turns (see
+   * useVoiceSession's committed gate), so a request that never returns would
+   * mean silence. Default sits above the server's own 45s generate cap plus
+   * the tRPC function's wall so the server-side fallback normally wins.
+   */
+  timeoutMs?: number;
 }
+
+/** Default {@link BrainDispatcherOptions.timeoutMs}. */
+export const DEFAULT_DISPATCH_TIMEOUT_MS = 55_000;
 
 /**
  * Forward one coarse-tool call to the brain and return its `DispatchResult`.
@@ -87,18 +98,33 @@ export async function dispatch(
     },
   });
 
+  const timeoutMs = options.timeoutMs ?? DEFAULT_DISPATCH_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
   let response: Response;
   try {
     response = await fetchImpl(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
+      signal: controller.signal,
     });
   } catch (err) {
     throw new BrainDispatchError(
       "transport",
-      err instanceof Error ? err.message : "Network request failed",
+      timedOut
+        ? `Request timed out after ${timeoutMs}ms`
+        : err instanceof Error
+          ? err.message
+          : "Network request failed",
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   let payload: unknown;

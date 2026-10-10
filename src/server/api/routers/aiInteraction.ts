@@ -367,6 +367,7 @@ export const aiInteractionRouter = createTRPCRouter({
         select: {
           conversationId: true,
           userMessage: true,
+          aiResponse: true,
           createdAt: true,
           agentName: true,
         },
@@ -393,9 +394,14 @@ export const aiInteractionRouter = createTRPCRouter({
             l => l.conversationId === conv.conversationId
           )?._max.createdAt;
 
+          // A voice continuation row (zoe speaking again after a tool result,
+          // see voice.persistTurn) has an empty userMessage; title from the
+          // reply instead so the conversation isn't listed blank.
+          const titleSource =
+            conv.userMessage.length > 0 ? conv.userMessage : conv.aiResponse;
           return {
             conversationId: conv.conversationId!,
-            title: conv.userMessage.slice(0, 50) + (conv.userMessage.length > 50 ? '...' : ''),
+            title: titleSource.slice(0, 50) + (titleSource.length > 50 ? '...' : ''),
             createdAt: conv.createdAt,
             lastActivity: lastActivity ?? conv.createdAt,
             agentName: conv.agentName,
