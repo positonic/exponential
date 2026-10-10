@@ -41,12 +41,16 @@ export function PageDetailsModal({
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
 
+  // Seed the form once per opened page — keyed on the id, not the object, so
+  // a list refetch (new object identity) doesn't wipe what's being typed.
+  const pageId = page?.id ?? null;
   useEffect(() => {
     if (!page) return;
     setTitle(page.title);
     setWorkspaceId(page.workspaceId);
     setProjectId(page.project?.id ?? NO_PROJECT);
-  }, [page]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId]);
 
   const { data: workspaces = [] } = api.workspace.list.useQuery(undefined, { enabled: opened });
   const { data: projects = [], isLoading: projectsLoading } =
