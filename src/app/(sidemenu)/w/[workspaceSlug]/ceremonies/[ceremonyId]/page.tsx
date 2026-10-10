@@ -72,7 +72,7 @@ function ProseBlock({ title, content }: { title: string; content: string | null 
 }
 
 export default function CeremonyPage() {
-  const { workspace, workspaceId, isLoading, userRole } = useWorkspace();
+  const { workspace, workspaceId, isLoading } = useWorkspace();
   const params = useParams<{ ceremonyId: string; workspaceSlug: string }>();
   const utils = api.useUtils();
 
@@ -82,9 +82,8 @@ export default function CeremonyPage() {
   );
 
   // The one definition setting edited in place here: the rest live in the
-  // editor under Settings → Ceremonies. `ceremony.update` gates at `edit`
-  // (member and up), the same bar as the editor.
-  const canEdit = userRole === "owner" || userRole === "admin" || userRole === "member";
+  // editor under Settings → Ceremonies. Whether the caller may flip it comes
+  // from the server (`ceremony.get` → `canEdit`), the same bar `update` enforces.
   const updateAutoExtract = api.ceremony.update.useMutation({
     onSuccess: async (res) => {
       await utils.ceremony.get.invalidate();
@@ -249,7 +248,7 @@ export default function CeremonyPage() {
               label="Extract outputs automatically"
               description="Every recording that attaches to one of this ceremony's occurrences gets its actions, decisions and open questions drafted, as if someone had pressed Extract outputs on the meeting page. Drafts still need a person to review them."
               checked={ceremony.autoExtractOutputs}
-              disabled={!canEdit || updateAutoExtract.isPending}
+              disabled={!ceremony.canEdit || updateAutoExtract.isPending}
               onChange={(e) =>
                 workspaceId &&
                 updateAutoExtract.mutate({ workspaceId, id: ceremony.id, autoExtractOutputs: e.currentTarget.checked })
