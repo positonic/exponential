@@ -181,6 +181,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/npm-install
+
+      # Warm Next.js's compiler cache (.next/cache). Build sets the run's
+      # wall-clock, and the webpack cache is the main lever on it. The exact
+      # key hashes the lockfile plus the build inputs; the restore key falls
+      # back to the newest cache for the same lockfile, so a PR reuses the
+      # cache of whatever built last and only recompiles what changed.
+      # next/font/local writes nothing here, but next/font/google used to
+      # store fetched fonts in it — that fetch is gone (fonts are vendored),
+      # not merely cached.
+      - uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'public/**', 'content/**', 'next.config.js', 'tailwind.config.ts', 'postcss.config.js', 'tsconfig.json', 'sentry.*.config.ts') }}
+          restore-keys: |
+            next-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+
       - run: npm run build
 
       # Smoke-test the built artifact: boot `next start` and probe a handful
