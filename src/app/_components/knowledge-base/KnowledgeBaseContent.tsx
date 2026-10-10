@@ -371,7 +371,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
             <div key={`${result.sourceType}:${result.sourceId}`} className={styles.row}>
               <RowMain href={href} external={isExternal}>
                 <Icon size={14} stroke={1.75} className={styles.rowIcon} />
-                <span className={styles.rowTitle}>{result.sourceTitle || 'Untitled'}</span>
+                <span className={styles.rowTitle}>{result.sourceTitle.trim() ? result.sourceTitle : 'Untitled'}</span>
                 <span className={styles.rowSnippet}>{result.content}</span>
               </RowMain>
               <span className={styles.rowLabel}>{label}</span>
