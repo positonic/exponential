@@ -84,6 +84,55 @@ export async function buildContent(
         dedupeKey: `assignment:${actionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.AGENT_RUN: {
+      const { runId, actionId, outcome } = input.subject;
+      const [run, ws] = await Promise.all([
+        db.agentRun.findUnique({
+          where: { id: runId },
+          select: {
+            summary: true,
+            error: true,
+            status: true,
+            readyToClose: true,
+            agent: { select: { name: true } },
+            action: { select: { name: true } },
+          },
+        }),
+        resolveActionWorkspace(db, actionId),
+      ]);
+      if (!run || !ws) return null;
+
+      const assistant = run.agent.name;
+      const title =
+        outcome === "finished"
+          ? `${assistant} finished: ${run.action.name}`
+          : `${assistant} stopped: ${run.action.name}`;
+      const message =
+        outcome === "finished"
+          ? (run.summary ?? (run.readyToClose ? "Ready for you to confirm." : "Done — review the result."))
+          : (run.error ?? `Run ${run.status.toLowerCase().replace("_", " ")}.`);
+
+      return {
+        category: NOTIFICATION_CATEGORIES.AGENT_RUN,
+        title,
+        message,
+        deeplink: `/w/${ws.workspaceSlug}/actions/${actionId}`,
+        metadata: {
+          runId,
+          actionId,
+          outcome,
+          readyToClose: run.readyToClose,
+          workspaceId: ws.workspaceId,
+          workspaceSlug: ws.workspaceSlug,
+          workspaceName: ws.workspaceName,
+          assistantName: assistant,
+        },
+        workspaceId: ws.workspaceId,
+        // One notification per run per recipient; owner == requester collapses
+        // on the (dedupeKey, userId) unique index.
+        dedupeKey: `agent_run:${runId}:${recipientId}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.DUE_DATE: {
       const { actionId, actionName, offsetMinutes, workspaceSlug, workspaceId } =
         input.subject;

@@ -79,6 +79,8 @@ export const FIXTURE = {
   assistantName: "Aria",
   colleagueAssistantName: "Max",
   assistantActionName: "Find a venue for the fixture offsite",
+  /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
+  agentRunActionName: "Draft the fixture offsite agenda",
 } as const;
 
 export interface SeededFixture {
@@ -119,6 +121,9 @@ export interface SeededFixture {
   /** App-relative URL of the unassigned action the Assign-to-Assistant spec hands over. */
   assistantActionUrl: string;
   assistantActionName: string;
+  /** Its twin for the agent-run spec (ADR-0067), reset to unassigned with no runs on each seed. */
+  agentRunActionUrl: string;
+  agentRunActionName: string;
   /** The confirmed decision logged against that meeting. */
   decisionId: string;
   /** Its rendered label (`D-0001` on a fresh workspace). */
@@ -409,25 +414,26 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   await ensureAssistant(user.id, FIXTURE.assistantName);
   await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
 
-  // The action the spec assigns. Re-seeding clears its assignees so the spec
-  // always starts from "Unassigned".
-  let assistantAction = await db.action.findFirst({
-    where: { workspaceId: workspace.id, name: FIXTURE.assistantActionName },
-    select: { id: true },
-  });
-  if (!assistantAction) {
-    assistantAction = await db.action.create({
-      data: {
-        name: FIXTURE.assistantActionName,
-        workspaceId: workspace.id,
-        createdById: user.id,
-        status: "ACTIVE",
-        priority: "Quick",
-      },
+  // The actions the specs assign. Re-seeding clears their assignees and
+  // Agent runs so each spec starts from "Unassigned" and a fresh run rather
+  // than coalescing onto a leftover one.
+  async function ensureUnassignedAction(name: string) {
+    let action = await db.action.findFirst({
+      where: { workspaceId: workspace.id, name },
       select: { id: true },
     });
+    if (!action) {
+      action = await db.action.create({
+        data: { name, workspaceId: workspace.id, createdById: user.id, status: "ACTIVE", priority: "Quick" },
+        select: { id: true },
+      });
+    }
+    await db.actionAssignee.deleteMany({ where: { actionId: action.id } });
+    await db.agentRun.deleteMany({ where: { actionId: action.id } });
+    return action;
   }
-  await db.actionAssignee.deleteMany({ where: { actionId: assistantAction.id } });
+  const assistantAction = await ensureUnassignedAction(FIXTURE.assistantActionName);
+  const agentRunAction = await ensureUnassignedAction(FIXTURE.agentRunActionName);
 
   // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
   // in development; without it the contact is seeded email-less (the app
@@ -954,6 +960,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     colleagueAssistantName: FIXTURE.colleagueAssistantName,
     assistantActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${assistantAction.id}`,
     assistantActionName: FIXTURE.assistantActionName,
+    agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
+    agentRunActionName: FIXTURE.agentRunActionName,
     ceremonyId: ceremony.id,
     occurrenceId: occurrence.id,
     meetingUrl: `/recording/${meeting.id}`,

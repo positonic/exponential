@@ -11,6 +11,10 @@ import { ScoringService } from "~/server/services/ScoringService";
 import { startOfDay } from "date-fns";
 import { findUserByEmailInWorkspace, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { ASSIGNABLE_USER_SELECT, toAssignableUser, type AssignableUser } from "~/server/services/access/assignability";
+import { after } from "next/server";
+import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -126,6 +130,7 @@ export const actionRouter = createTRPCRouter({
       include: {
         project: true,
         syncs: true, // Include ActionSync records to show sync status
+        ...activeRunInclude,
         assignees: {
           include: { user: { select: { id: true, name: true, email: true, image: true } } },
         },
@@ -162,6 +167,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           project: true,
           syncs: true,
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -189,7 +195,7 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
-      return { ...action, ...deriveActionBlocked(action) };
+      return { ...withActiveRun(action), ...deriveActionBlocked(action) };
     }),
 
   /**
@@ -345,6 +351,7 @@ export const actionRouter = createTRPCRouter({
           // duplicated N times per response. Select only what rows render.
           project: { select: { id: true, name: true, slug: true, workspaceId: true } },
           syncs: true, // Include ActionSync records to show sync status
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -433,6 +440,7 @@ export const actionRouter = createTRPCRouter({
         where: whereClause,
         include: {
           project: true,
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -688,6 +696,7 @@ export const actionRouter = createTRPCRouter({
         include: {
           project: true,
           syncs: true, // Include ActionSync records to show sync status
+          ...activeRunInclude,
           assignees: {
             include: { user: { select: { id: true, name: true, email: true, image: true } } },
           },
@@ -1528,6 +1537,21 @@ export const actionRouter = createTRPCRouter({
         });
       }
 
+      // Assigning an Assistant starts an Agent run (ADR-0067). One queued row
+      // per agent principal, coalesced against a live run; the dispatcher is
+      // kicked after the response so this mutation never waits on Mastra.
+      // Only assignees new to the action — re-saving the modal with an already
+      // assigned Assistant (whose run may have finished) starts nothing.
+      const priorSet = new Set(priorIds);
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: input.actionId,
+        userIds: input.userIds.filter((id) => !priorSet.has(id)),
+        requestedById: ctx.session.user.id,
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
+
       // Unified notification pipeline (ADR-0045): emit an Assignment notification.
       // Resolves recipients + enabled channels, persists a durable Notification
       // record, and delivers best-effort synchronously; the cron worker retries
@@ -1602,6 +1626,13 @@ export const actionRouter = createTRPCRouter({
           actionId: input.actionId,
           userId: { in: input.userIds },
         },
+      });
+
+      // Unassigning an Assistant cancels its queued run; a running one is
+      // left to finish (ADR-0067, Agent PRD D3).
+      await cancelQueuedRunsForUnassigned(ctx.db, {
+        actionId: input.actionId,
+        userIds: input.userIds,
       });
 
       if (action.projectId && nextIds.length !== priorIds.length) {
@@ -1681,6 +1712,25 @@ export const actionRouter = createTRPCRouter({
         data: assignments,
         skipDuplicates: true,
       });
+
+      // Same hook as `assign`: an Assistant among the assignees gets one run
+      // per action, coalesced against live runs (ADR-0067). One principal
+      // lookup up front so a human-only bulk assign costs nothing extra.
+      const agentAssignees = await ctx.db.externalAgent.count({
+        where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
+      });
+      if (agentAssignees > 0) {
+        let kick = false;
+        for (const action of actions) {
+          const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+            actionId: action.id,
+            userIds: input.userIds,
+            requestedById: ctx.session.user.id,
+          });
+          if (runs.some((r) => r.executor === "MASTRA")) kick = true;
+        }
+        if (kick) after(() => triggerDispatch());
+      }
 
       return {
         count: assignments.length,

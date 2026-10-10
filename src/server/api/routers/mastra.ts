@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
+import { requireLiveRunForCaller } from "~/server/services/agentRuns/callbacks";
+import { appendRunEvent } from "~/server/services/agentRuns/events";
+import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { createActionComment } from "~/server/services/actions/comments";
+import { assertAssignableUsers } from "~/server/services/actions/containment";
+import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
+import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -921,6 +929,252 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Get all user goals across all projects
+  // ─── Agent run callbacks (ADR-0067, Agent PRD D5) ──────────────────────────
+  // Called by the `assistantRunAgent` run tools with the run JWT. The run is
+  // the token's `runId` claim (ctx.agentRunId); the app writes the run state.
+
+  /**
+   * finish-run: the run's public summary and whether the action is ready for
+   * the owner to close. Status is finalised by the dispatcher once the Mastra
+   * call returns, so a late or duplicate call cannot flip a cancelled run.
+   */
+  finishRun: protectedProcedure
+    .input(z.object({ summary: z.string().min(1), readyToClose: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await ctx.db.agentRun.update({
+        where: { id: run.id },
+        data: {
+          summary: input.summary,
+          readyToClose: input.readyToClose,
+          lastEventAt: new Date(),
+        },
+      });
+      return { finished: true as const };
+    }),
+
+  /**
+   * get-run-context: the brief, assignees, members (for delegation), recent
+   * comments, the owner, and — on a resume — the predecessor's summary and the
+   * owner's reply. A pure read.
+   */
+  getRunContext: protectedProcedure.query(async ({ ctx }) => {
+    const run = await requireLiveRunForCaller(ctx.db, {
+      agentRunId: ctx.agentRunId,
+      tokenType: ctx.tokenType,
+      userId: ctx.session.user.id,
+    });
+    const [action, full, owner] = await Promise.all([
+      ctx.db.action.findUniqueOrThrow({
+        where: { id: run.actionId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          workspaceId: true,
+          projectId: true,
+          project: { select: { id: true, name: true, workspaceId: true } },
+          assignees: { select: { user: { select: { id: true, name: true, isAgent: true } } } },
+          comments: {
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            select: { id: true, content: true, createdAt: true, author: { select: { name: true } } },
+          },
+        },
+      }),
+      ctx.db.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { wakeCommentId: true, predecessor: { select: { summary: true } } },
+      }),
+      ctx.db.user.findUniqueOrThrow({ where: { id: run.agent.ownerId }, select: { id: true, name: true } }),
+    ]);
+
+    // Members the run may delegate to: the project's members, else the
+    // action's workspace members — the same set the Assign modal offers.
+    const memberRows = action.projectId
+      ? (await ctx.db.projectMember.findMany({
+          where: { projectId: action.projectId },
+          select: { user: { select: ASSIGNABLE_USER_SELECT } },
+        })).map((m) => m.user)
+      : action.workspaceId
+        ? (await ctx.db.workspaceUser.findMany({
+            where: { workspaceId: action.workspaceId },
+            select: { user: { select: ASSIGNABLE_USER_SELECT } },
+          })).map((m) => m.user)
+        : [];
+    const members = memberRows.map(toAssignableUser).map((u) => ({
+      id: u.id,
+      name: u.name,
+      isAgent: u.isAgent,
+      assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
+    }));
+
+    const wakeComment = full.wakeCommentId
+      ? await ctx.db.actionComment.findUnique({ where: { id: full.wakeCommentId }, select: { content: true } })
+      : null;
+
+    // A query (GET, retryable) writes nothing: the read is not logged as an
+    // event; tool counts are reconciled from Mastra's steps by the dispatcher.
+
+    return {
+      action: {
+        id: action.id,
+        name: action.name,
+        description: action.description,
+        status: action.status,
+        priority: action.priority,
+        dueDate: action.dueDate ? action.dueDate.toISOString() : null,
+        project: action.project ? { id: action.project.id, name: action.project.name } : null,
+        workspaceId: action.workspaceId ?? action.project?.workspaceId ?? null,
+      },
+      assignees: action.assignees.map((a) => ({ id: a.user.id, name: a.user.name, isAgent: a.user.isAgent })),
+      members,
+      comments: action.comments.reverse().map((c) => ({
+        id: c.id,
+        authorName: c.author.name,
+        markdown: c.content,
+        createdAt: c.createdAt.toISOString(),
+      })),
+      owner,
+      predecessor: full.predecessor
+        ? { summary: full.predecessor.summary, wakeComment: wakeComment?.content ?? null }
+        : null,
+    };
+  }),
+
+  /** report-progress: a transcript line, owner-visible only, nobody notified. */
+  reportProgress: protectedProcedure
+    .input(z.object({ text: z.string().min(1).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await appendRunEvent(ctx.db, { runId: run.id, kind: "text", payload: { text: input.text } });
+      return { ok: true as const };
+    }),
+
+  /** comment-on-action: a real comment, authored by the Assistant's shadow user. */
+  commentOnAction: protectedProcedure
+    .input(z.object({ markdown: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: input.markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "comment-on-action", commentId: comment.id, snippet: input.markdown.slice(0, 200) },
+      });
+      return { commentId: comment.id };
+    }),
+
+  /**
+   * reassign-action: add a person or another Assistant as an assignee, under
+   * the same containment rule as the human Assign modal. Another Assistant
+   * gets its own run (requestedById null — an agent reassigned).
+   */
+  reassignAction: protectedProcedure
+    .input(z.object({ userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const action = await ctx.db.action.findUniqueOrThrow({
+        where: { id: run.actionId },
+        select: { projectId: true, teamId: true, workspaceId: true },
+      });
+      // Delegation (ADR-0049/0067): the Assistant may assign exactly whom its
+      // owner could, so the containment check runs as the owner, not as the
+      // shadow user, whose own memberships are a subset granted for this job.
+      await assertAssignableUsers(ctx.db, run.agent.ownerId, action, [input.userId]);
+      await ctx.db.actionAssignee.createMany({
+        data: [{ actionId: run.actionId, userId: input.userId }],
+        skipDuplicates: true,
+      });
+      const target = await ctx.db.user.findUniqueOrThrow({
+        where: { id: input.userId },
+        select: { id: true, name: true, isAgent: true },
+      });
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: run.actionId,
+        userIds: [input.userId],
+        requestedById: null,
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "reassign-action", userId: target.id, name: target.name, isAgent: target.isAgent },
+      });
+      return { assigned: target };
+    }),
+
+  /**
+   * ask-owner: a comment mentioning the owner (so it lands as a Mention under
+   * Waiting on me) and the run moves to WAITING_ON_OWNER — terminal for this
+   * row; the owner's reply on the action starts a resume run (D6). The tool
+   * returns a stop instruction the prompt tells the agent to honour; the
+   * dispatcher sees the status when the Mastra call returns and records the
+   * wall-clock without finishing.
+   */
+  askOwner: protectedProcedure
+    .input(z.object({ question: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const owner = await ctx.db.user.findUniqueOrThrow({
+        where: { id: run.agent.ownerId },
+        select: { id: true, name: true },
+      });
+      // The mention parser reads `@[Name](id)`; brackets or parens in a display
+      // name would break it, so they are stripped from the label only.
+      const label = (owner.name ?? "Owner").replace(/[[\]()]/g, "").trim() || "Owner";
+      const markdown = `@[${label}](${owner.id}) ${input.question}`;
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question.slice(0, 200) },
+      });
+      // Guard on RUNNING so a cancel that landed meanwhile wins.
+      await ctx.db.agentRun.updateMany({
+        where: { id: run.id, status: "RUNNING" },
+        data: { status: "WAITING_ON_OWNER", lastEventAt: new Date() },
+      });
+      return {
+        stop: true as const,
+        status: "WAITING_ON_OWNER" as const,
+        commentId: comment.id,
+      };
+    }),
+
   getAllGoals: protectedProcedure
     .query(async ({ ctx }) => {
       console.log('🎯 [MASTRA DEBUG] getAllGoals called');

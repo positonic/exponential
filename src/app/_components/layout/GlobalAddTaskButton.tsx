@@ -146,6 +146,8 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
         bountyExternalUrl: null,
         ticketId: null,
         epic: null,
+        // A just-created action has no Agent run yet (ADR-0067).
+        agentRuns: [],
         project: newAction.projectId
           ? (previousState.projects?.find((p) => p.id === newAction.projectId) ??
             null)

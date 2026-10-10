@@ -314,6 +314,8 @@ model User {
   isAgent                     Boolean                           @default(false)
   ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
   externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
+  agentRunsRequested          AgentRun[]                        @relation("AgentRunRequestedBy")
+  agentRunsReviewed           AgentRun[]                        @relation("AgentRunReviewedBy")
   // Ceremonies (ADR-0059)
   ownedCeremonies             Ceremony[]                        @relation("CeremonyOwner")
   createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
@@ -367,6 +369,8 @@ model ExternalAgent {
   /// Present when this row is an Assistant's principal (ADR-0067). Such rows are
   /// managed from Settings → Assistant, not the External agents page.
   assistant   Assistant?
+  /// Agent runs this principal performed (ADR-0067).
+  agentRuns   AgentRun[]
 
   @@index([ownerId])
 }
@@ -377,6 +381,82 @@ model ExternalAgent {
 enum AgentExecutor {
   MASTRA
   LOCAL_CLI
+}
+
+/// One attempt by an agent principal to progress one Action, started by
+/// assigning the Action to it (ADR-0067, Agent PRD D2). Status machine:
+/// QUEUED → RUNNING → {SUCCEEDED | FAILED | WAITING_ON_OWNER | TIMED_OUT};
+/// QUEUED → CANCELLED; RUNNING → CANCELLED (flag only — the dispatcher checks
+/// before every write). WAITING_ON_OWNER is terminal for the row; a resume is
+/// a new row with `predecessorId`. Live set = {QUEUED, RUNNING}.
+model AgentRun {
+  id            String         @id @default(cuid())
+  actionId      String
+  /// The principal (ExternalAgent.id); its shadow user does the writes.
+  agentId       String
+  /// Human who assigned; null when an agent reassigned.
+  requestedById String?
+  executor      AgentExecutor
+  status        AgentRunStatus @default(QUEUED)
+  /// Owner reply that resumed a WAITING_ON_OWNER predecessor.
+  wakeCommentId String?
+  /// The run this one resumes.
+  predecessorId String?
+  /// V2 runner id; null for MASTRA.
+  claimedBy     String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  /// Heartbeat; touched on every event append.
+  lastEventAt   DateTime?
+  toolCallCount Int            @default(0)
+  /// Public — written by the agent knowing everyone with action access reads it.
+  summary       String?        @db.Text
+  readyToClose  Boolean        @default(false)
+  error         String?
+  usage         Json?
+  /// Delegated row cleared.
+  reviewedAt    DateTime?
+  reviewedById  String?
+  createdAt     DateTime       @default(now())
+
+  action      Action         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  agent       ExternalAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  requestedBy User?          @relation("AgentRunRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy  User?          @relation("AgentRunReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  predecessor AgentRun?      @relation("AgentRunResume", fields: [predecessorId], references: [id], onDelete: SetNull)
+  successors  AgentRun[]     @relation("AgentRunResume")
+  events      AgentRunEvent[]
+
+  @@index([actionId, createdAt])
+  @@index([agentId, status])
+  @@index([requestedById, reviewedAt])
+  @@index([status, lastEventAt])
+}
+
+/// Append-only event log of a run, written by the app on every tool callback
+/// (never streamed from Mastra). `seq` is monotonic per run.
+model AgentRunEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  seq       Int
+  /// "status" | "tool_call" | "tool_result" | "text" | "log" | "error"
+  kind      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  WAITING_ON_OWNER
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  TIMED_OUT
 }
 
 /// Opaque credential for an ExternalAgent: SHA-256 hash of an `exp_agent_…` secret,
@@ -992,6 +1072,8 @@ model Action {
   parentChunk          Action?                     @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks          Action[]                    @relation("ActionChunks")
   syncs                ActionSync[]
+  /// Agent runs that worked (or are working) this action (ADR-0067).
+  agentRuns            AgentRun[]
   depsOut              ActionDependency[]          @relation("ActionDepsOut")
   depsIn               ActionDependency[]          @relation("ActionDepsIn")
   assignees            ActionAssignee[]

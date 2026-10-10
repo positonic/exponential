@@ -8,6 +8,7 @@ import { env } from "~/env";
  */
 export type ActivityAction =
   | "created"
+  | "failed"
   | "updated"
   | "status_changed"
   | "completed"
@@ -34,6 +35,7 @@ export type ActivityAction =
  */
 export type ActivityEntityType =
   | "action"
+  | "agent_run"
   | "action_comment"
   | "ticket"
   | "ticket_comment"
