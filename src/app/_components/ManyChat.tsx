@@ -1083,6 +1083,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }
   };
 
+  // Focus the composer with the cursor at `position`, after React has
+  // committed the new input value.
+  const focusComposerAt = (position: number) => {
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.setSelectionRange(position, position);
+      }
+    }, 0);
+  };
+
   // Handle agent selection from dropdown
   const selectAgent = (agent: { id: string; name: string }) => {
     if (!inputRef.current) return;
@@ -1097,13 +1108,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       setShowAgentDropdown(false);
       
       // Focus back to input
-      setTimeout(() => {
-        if (inputRef.current) {
-          const newPosition = lastAtIndex + agent.name.length + 2;
-          inputRef.current.focus();
-          inputRef.current.setSelectionRange(newPosition, newPosition);
-        }
-      }, 0);
+      focusComposerAt(lastAtIndex + agent.name.length + 2);
     }
   };
 
@@ -1112,13 +1117,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const handleImportPositions = () => {
     setInput(IMPORT_POSITIONS_PROMPT);
     setShowAgentDropdown(false);
-    setTimeout(() => {
-      if (inputRef.current) {
-        const end = IMPORT_POSITIONS_PROMPT.length;
-        inputRef.current.focus();
-        inputRef.current.setSelectionRange(end, end);
-      }
-    }, 0);
+    focusComposerAt(IMPORT_POSITIONS_PROMPT.length);
   };
 
   const startRecording = async () => {

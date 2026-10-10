@@ -96,34 +96,13 @@ async function requirePositionInWorkspace(
  * holder must be a member; a miss is NOT_FOUND and never names the id (the
  * same rule as `assignability.ts`, so this cannot confirm foreign CUIDs).
  */
-async function resolveHolderMemberships(
+async function findHolderMemberships(
   db: PrismaClient,
   workspaceId: string,
   userIds: string[],
-): Promise<string[]> {
+): Promise<Array<{ id: string; userId: string }>> {
   const unique = [...new Set(userIds)];
   if (unique.length === 0) return [];
-  const memberships = await db.workspaceUser.findMany({
-    where: { workspaceId, userId: { in: unique } },
-    select: { id: true },
-  });
-  if (memberships.length !== unique.length) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Member not found in this workspace" });
-  }
-  return memberships.map((membership) => membership.id);
-}
-
-/**
- * Like `resolveHolderMemberships`, keyed by userId so an import can map each
- * row's holders. Same NOT_FOUND rule: a miss never names the id.
- */
-async function mapHolderMemberships(
-  db: PrismaClient,
-  workspaceId: string,
-  userIds: string[],
-): Promise<Map<string, string>> {
-  const unique = [...new Set(userIds)];
-  if (unique.length === 0) return new Map();
   const memberships = await db.workspaceUser.findMany({
     where: { workspaceId, userId: { in: unique } },
     select: { id: true, userId: true },
@@ -131,6 +110,26 @@ async function mapHolderMemberships(
   if (memberships.length !== unique.length) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Member not found in this workspace" });
   }
+  return memberships;
+}
+
+/** The holders' `WorkspaceUser` ids, for `create` and `setHolders`. */
+async function resolveHolderMemberships(
+  db: PrismaClient,
+  workspaceId: string,
+  userIds: string[],
+): Promise<string[]> {
+  const memberships = await findHolderMemberships(db, workspaceId, userIds);
+  return memberships.map((membership) => membership.id);
+}
+
+/** The holders' `WorkspaceUser` ids keyed by userId, so an import can map each row's holders. */
+async function mapHolderMemberships(
+  db: PrismaClient,
+  workspaceId: string,
+  userIds: string[],
+): Promise<Map<string, string>> {
+  const memberships = await findHolderMemberships(db, workspaceId, userIds);
   return new Map(memberships.map((membership) => [membership.userId, membership.id]));
 }
 
@@ -142,15 +141,24 @@ async function loadPositionsForImport(db: PrismaClient | Prisma.TransactionClien
     select: {
       id: true,
       title: true,
+      notAccountableFor: true,
       holders: { select: { workspaceUser: { select: { userId: true } } } },
     },
   });
   return positions.map((position) => ({
     id: position.id,
     title: position.title,
+    notAccountableFor: position.notAccountableFor,
     holderUserIds: position.holders.map((holder) => holder.workspaceUser.userId),
   }));
 }
+
+/**
+ * Distinct holder ids across one import. Each row's list is already capped at
+ * 50, but an import flattens every row into one membership lookup, so the
+ * `IN` clause gets its own bound.
+ */
+const MAX_IMPORT_HOLDER_IDS = 200;
 
 const importRowSchema = z.object({
   title: titleSchema,
@@ -335,15 +343,27 @@ export const positionRouter = createTRPCRouter({
    * the plan without writing, so Zoe can show a draft and ask first; a real
    * run writes the same plan in one transaction, all or nothing.
    *
+   * A row that omits `notAccountableFor` keeps the stored value on an
+   * update; an empty string clears it. At most 200 distinct holders per
+   * import.
+   *
    * Returns `{ written, results }`, results in input order, each with the
-   * Position's holders as they stand after the import.
+   * Position's `notAccountableFor` and holders as they stand after the
+   * import, so the draft shows what will change.
    */
   importMany: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
         dryRun: z.boolean(),
-        positions: z.array(importRowSchema).min(1).max(50),
+        positions: z
+          .array(importRowSchema)
+          .min(1)
+          .max(50)
+          .refine(
+            (rows) => new Set(rows.flatMap((row) => row.holderUserIds)).size <= MAX_IMPORT_HOLDER_IDS,
+            { message: `An import can name at most ${MAX_IMPORT_HOLDER_IDS} distinct holders` },
+          ),
       }),
     )
     .use(requireWorkspaceMembership("manage_members"))
@@ -374,7 +394,12 @@ export const positionRouter = createTRPCRouter({
       };
 
       const present = (plan: ReturnType<typeof planPositionImport>) =>
-        plan.map(({ title, outcome, holderUserIds }) => ({ title, outcome, holderUserIds }));
+        plan.map(({ title, outcome, notAccountableFor, holderUserIds }) => ({
+          title,
+          outcome,
+          notAccountableFor,
+          holderUserIds,
+        }));
 
       if (input.dryRun) {
         const plan = planPositionImport(await loadPositionsForImport(ctx.db, input.workspaceId), input.positions);

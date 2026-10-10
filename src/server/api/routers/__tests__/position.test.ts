@@ -566,6 +566,7 @@ describe("position.importMany", () => {
       {
         id: POSITION_ID,
         title: "Travel researcher",
+        notAccountableFor: "Booking",
         holders: [{ workspaceUser: { userId: "aria" } }],
       },
     ] as never);
@@ -578,7 +579,8 @@ describe("position.importMany", () => {
   }
 
   const rows = [
-    // Matches "Travel researcher" case-insensitively; adds Andi.
+    // Matches "Travel researcher" case-insensitively; adds Andi; says nothing
+    // about not-accountable-for, so "Booking" is kept.
     { title: "travel RESEARCHER", remit: "Shortlists hotels", holderUserIds: ["andi"] },
     { title: "Delivery lead", remit: "Keeps the plan honest", notAccountableFor: "Budget", holderUserIds: ["andi"] },
   ];
@@ -594,8 +596,8 @@ describe("position.importMany", () => {
       expect(result).toEqual({
         written: false,
         results: [
-          { title: "Travel researcher", outcome: "update", holderUserIds: ["aria", "andi"] },
-          { title: "Delivery lead", outcome: "create", holderUserIds: ["andi"] },
+          { title: "Travel researcher", outcome: "update", notAccountableFor: "Booking", holderUserIds: ["aria", "andi"] },
+          { title: "Delivery lead", outcome: "create", notAccountableFor: "Budget", holderUserIds: ["andi"] },
         ],
       });
       expect(db.position.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { workspaceId: WORKSPACE_ID } });
@@ -646,6 +648,36 @@ describe("position.importMany", () => {
       expectNothingWritten(db);
     });
 
+    it("more than 200 distinct holders across the import → BAD_REQUEST, nothing read", async () => {
+      arrangeCaller(db, "owner");
+      const positions = Array.from({ length: 5 }, (_, row) => ({
+        title: `Position ${row}`,
+        remit: "R",
+        holderUserIds: Array.from({ length: 41 }, (_, i) => `user-${row}-${i}`),
+      }));
+
+      await expect(
+        caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: true, positions }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
+    });
+
+    it("the same holders repeated across rows count once towards the cap", async () => {
+      arrangeCaller(db, "owner");
+      const holders = Array.from({ length: 50 }, (_, i) => `user-${i}`);
+      arrangeMembers(holders);
+      db.position.findMany.mockResolvedValue([] as never);
+      const positions = Array.from({ length: 5 }, (_, row) => ({
+        title: `Position ${row}`,
+        remit: "R",
+        holderUserIds: holders,
+      }));
+
+      const result = await caller(db).position.importMany({ workspaceId: WORKSPACE_ID, dryRun: true, positions });
+
+      expect(result.results).toHaveLength(5);
+    });
+
     it("an empty import → BAD_REQUEST", async () => {
       arrangeCaller(db, "owner");
 
@@ -663,7 +695,12 @@ describe("position.importMany", () => {
       tx = mockDeep<PrismaClient>();
       db.$transaction.mockImplementation(((cb: (client: unknown) => unknown) => cb(tx)) as never);
       tx.position.findMany.mockResolvedValue([
-        { id: POSITION_ID, title: "Travel researcher", holders: [{ workspaceUser: { userId: "aria" } }] },
+        {
+          id: POSITION_ID,
+          title: "Travel researcher",
+          notAccountableFor: "Booking",
+          holders: [{ workspaceUser: { userId: "aria" } }],
+        },
       ] as never);
       tx.position.create.mockResolvedValue({ id: "pos-new" } as never);
       tx.position.update.mockResolvedValue({ id: POSITION_ID } as never);
@@ -679,8 +716,8 @@ describe("position.importMany", () => {
       expect(result).toEqual({
         written: true,
         results: [
-          { title: "Travel researcher", outcome: "update", holderUserIds: ["aria", "andi"] },
-          { title: "Delivery lead", outcome: "create", holderUserIds: ["andi"] },
+          { title: "Travel researcher", outcome: "update", notAccountableFor: "Booking", holderUserIds: ["aria", "andi"] },
+          { title: "Delivery lead", outcome: "create", notAccountableFor: "Budget", holderUserIds: ["andi"] },
         ],
       });
       expect(db.$transaction).toHaveBeenCalledTimes(1);
@@ -688,10 +725,11 @@ describe("position.importMany", () => {
       expect(tx.position.findMany).toHaveBeenCalledTimes(1);
       expect(db.position.findMany).not.toHaveBeenCalled();
 
-      // The match keeps its title; its Remit and exclusions are replaced.
+      // The match keeps its title and, since the row omits it, its exclusions;
+      // its Remit is replaced.
       expect(tx.position.update).toHaveBeenCalledWith({
         where: { id: POSITION_ID },
-        data: { remit: "Shortlists hotels", notAccountableFor: null },
+        data: { remit: "Shortlists hotels", notAccountableFor: "Booking" },
         select: { id: true },
       });
       // Andi is added beside Aria; nothing is removed.

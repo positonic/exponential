@@ -82,8 +82,10 @@ describe("shouldOfferPositionImport", () => {
     // Plain External agents count as members but not in the ratio: two humans,
     // one covered, plus three uncovered plain agents → exactly half, no pill.
     { case: "plain External agents excluded from the ratio", isPersonal: false, memberCount: 5, eligibleCount: 2, coveredCount: 1, expected: false },
-    // One human plus a plain External agent is two members but one eligible.
-    { case: "one human and a plain agent", isPersonal: false, memberCount: 2, eligibleCount: 1, coveredCount: 0, expected: true },
+    // One human plus a plain External agent is two members but one eligible:
+    // nobody to route to, so no pill.
+    { case: "one human and a plain agent", isPersonal: false, memberCount: 2, eligibleCount: 1, coveredCount: 0, expected: false },
+    { case: "one human and an Assistant", isPersonal: false, memberCount: 2, eligibleCount: 2, coveredCount: 0, expected: true },
   ])("$case → $expected", ({ expected, case: _case, ...coverage }) => {
     expect(shouldOfferPositionImport(coverage)).toBe(expected);
   });
@@ -138,8 +140,8 @@ describe("loadPositionCoverage", () => {
 
 describe("planPositionImport", () => {
   const existing = [
-    { id: "p-travel", title: "Travel researcher", holderUserIds: ["aria"] },
-    { id: "p-delivery", title: "Delivery lead", holderUserIds: [] },
+    { id: "p-travel", title: "Travel researcher", notAccountableFor: null, holderUserIds: ["aria"] },
+    { id: "p-delivery", title: "Delivery lead", notAccountableFor: "Budget", holderUserIds: [] },
   ];
 
   it("creates a new title with its holders, de-duplicated", () => {
@@ -188,10 +190,32 @@ describe("planPositionImport", () => {
     expect(row).toMatchObject({ outcome: "update", holderUserIds: ["aria"], addedHolderUserIds: [] });
   });
 
-  it("an omitted or blank not-accountable-for clears it", () => {
+  it("an update that omits not-accountable-for keeps the stored value", () => {
+    const [row] = planPositionImport(existing, [{ title: "Delivery lead", remit: "R", holderUserIds: [] }]);
+
+    expect(row).toMatchObject({ outcome: "update", notAccountableFor: "Budget" });
+  });
+
+  it.each(["", "   "])("an update with not-accountable-for %j clears it", (notAccountableFor) => {
+    const [row] = planPositionImport(existing, [
+      { title: "Delivery lead", remit: "R", notAccountableFor, holderUserIds: [] },
+    ]);
+
+    expect(row).toMatchObject({ outcome: "update", notAccountableFor: null });
+  });
+
+  it("an update that states not-accountable-for replaces it", () => {
+    const [row] = planPositionImport(existing, [
+      { title: "Delivery lead", remit: "R", notAccountableFor: " Hiring ", holderUserIds: [] },
+    ]);
+
+    expect(row).toMatchObject({ outcome: "update", notAccountableFor: "Hiring" });
+  });
+
+  it("a create with no or blank not-accountable-for stores null", () => {
     const plan = planPositionImport(existing, [
-      { title: "Delivery lead", remit: "R", holderUserIds: [] },
-      { title: "New one", remit: "R", notAccountableFor: "   ", holderUserIds: [] },
+      { title: "New one", remit: "R", holderUserIds: [] },
+      { title: "Another", remit: "R", notAccountableFor: "  ", holderUserIds: [] },
     ]);
 
     expect(plan.map((row) => row.notAccountableFor)).toEqual([null, null]);
@@ -199,8 +223,8 @@ describe("planPositionImport", () => {
 
   it("prefers the exact-case match when titles differ only by case, else the first in title order", () => {
     const cased = [
-      { id: "p-lower", title: "travel", holderUserIds: [] },
-      { id: "p-upper", title: "Travel", holderUserIds: [] },
+      { id: "p-lower", title: "travel", notAccountableFor: null, holderUserIds: [] },
+      { id: "p-upper", title: "Travel", notAccountableFor: null, holderUserIds: [] },
     ];
 
     const [exact] = planPositionImport(cased, [{ title: "travel", remit: "R", holderUserIds: [] }]);

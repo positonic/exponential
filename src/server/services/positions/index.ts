@@ -145,14 +145,15 @@ export interface PositionCoverage {
 
 /**
  * Should the chat nudge this workspace to import its Positions? Only in a
- * team workspace with two or more members where fewer than half of the
- * humans and Assistants hold a Position. Never in a personal workspace: it
- * has one human, so there is nobody to route to.
+ * team workspace with two or more humans and Assistants, fewer than half of
+ * whom hold a Position. A plain External agent never counts towards the
+ * two: one human beside a plain agent has nobody to route work to, the same
+ * reason a personal workspace never qualifies.
  */
 export function shouldOfferPositionImport(coverage: PositionCoverage): boolean {
   return (
     !coverage.isPersonal &&
-    coverage.memberCount >= 2 &&
+    coverage.eligibleCount >= 2 &&
     coverage.coveredCount * 2 < coverage.eligibleCount
   );
 }
@@ -205,6 +206,7 @@ export async function loadPositionCoverage(
 export interface PositionImportRow {
   title: string;
   remit: string;
+  /** Omitted keeps the stored value on an update; an empty string clears it. */
   notAccountableFor?: string;
   holderUserIds: string[];
 }
@@ -213,6 +215,7 @@ export interface PositionImportRow {
 export interface ExistingPositionForImport {
   id: string;
   title: string;
+  notAccountableFor: string | null;
   holderUserIds: string[];
 }
 
@@ -221,6 +224,7 @@ export type PlannedPositionImport =
       outcome: "create";
       title: string;
       remit: string;
+      /** The value the Position will have. */
       notAccountableFor: string | null;
       /** Every holder of the new Position. */
       holderUserIds: string[];
@@ -231,6 +235,7 @@ export type PlannedPositionImport =
       /** The stored title: an import matches case-insensitively and never renames. */
       title: string;
       remit: string;
+      /** The value after the import: kept when the row omits it, cleared by "". */
       notAccountableFor: string | null;
       /** Every holder after the import: the existing ones, then the added ones. */
       holderUserIds: string[];
@@ -248,11 +253,11 @@ export function positionTitleKey(title: string): string {
  * and the real run cannot disagree about what happens.
  *
  * Upsert by title, matched case-insensitively within the workspace: a new
- * title creates; a matching one replaces its Remit and "not accountable for"
- * (the document is the source of truth for the Positions it names) and
- * **adds** holders. An import never removes a holder — that is a settings
- * action. Results are in input order. The caller rejects duplicate titles in
- * the input before planning.
+ * title creates; a matching one replaces its Remit, keeps its "not
+ * accountable for" unless the row states one (an empty string clears it),
+ * and **adds** holders. An import never removes a holder — that is a
+ * settings action. Results are in input order. The caller rejects duplicate
+ * titles in the input before planning.
  *
  * Titles are unique per workspace case-sensitively, so "Travel" and "travel"
  * can both exist; an import then updates the exact-case match, else the
@@ -270,13 +275,21 @@ export function planPositionImport(
 
   return rows.map((row) => {
     const title = row.title.trim();
-    const notAccountableFor = row.notAccountableFor?.trim() ? row.notAccountableFor.trim() : null;
+    // undefined: the row says nothing; null: the row clears it.
+    const stated = row.notAccountableFor?.trim();
+    const statedNotAccountableFor = stated === undefined ? undefined : stated.length > 0 ? stated : null;
     const importedHolders = [...new Set(row.holderUserIds)];
     const match =
       existing.find((position) => position.title === title) ?? byKey.get(positionTitleKey(title));
 
     if (!match) {
-      return { outcome: "create", title, remit: row.remit, notAccountableFor, holderUserIds: importedHolders };
+      return {
+        outcome: "create",
+        title,
+        remit: row.remit,
+        notAccountableFor: statedNotAccountableFor ?? null,
+        holderUserIds: importedHolders,
+      };
     }
 
     const current = new Set(match.holderUserIds);
@@ -286,7 +299,8 @@ export function planPositionImport(
       positionId: match.id,
       title: match.title,
       remit: row.remit,
-      notAccountableFor,
+      notAccountableFor:
+        statedNotAccountableFor === undefined ? match.notAccountableFor : statedNotAccountableFor,
       holderUserIds: [...match.holderUserIds, ...addedHolderUserIds],
       addedHolderUserIds,
     };
