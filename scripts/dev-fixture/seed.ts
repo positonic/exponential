@@ -428,6 +428,9 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     });
   }
   await db.actionAssignee.deleteMany({ where: { actionId: assistantAction.id } });
+  // ...and its Agent runs, so re-assigning the Assistant starts a fresh run
+  // instead of coalescing onto a leftover one.
+  await db.agentRun.deleteMany({ where: { actionId: assistantAction.id } });
 
   // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
   // in development; without it the contact is seeded email-less (the app
