@@ -1,10 +1,17 @@
 name: Tests
 
+# PR-only on purpose. PRs are squash-merged only after every required check has
+# passed on the PR itself, so re-running the suite on `push` to main repeated
+# work that had already passed. Branch protection has `strict: false`, so a PR
+# can merge without being rebased on the latest main and two PRs could in theory
+# conflict semantically; in the 30 days to 2026-10-10 (228 push runs) that never
+# happened — all 7 push failures were the next/font Google Fonts fetch flake,
+# fixed by vendoring the font. `Build` also wouldn't catch a type-level conflict
+# (next.config sets typescript.ignoreBuildErrors). The only typecheck in CI is
+# `Lint & Typecheck`, which runs on the PR.
 on:
   pull_request:
     branches: [main, develop]
-  push:
-    branches: [main]
 
 jobs:
   lint-and-typecheck:
@@ -75,9 +82,7 @@ jobs:
       - id: changes
         name: Did anything in src-tauri change?
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -q '^src-tauri/'; then
+          if git diff --name-only "origin/${{ github.base_ref }}"...HEAD | grep -q '^src-tauri/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
