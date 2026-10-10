@@ -53,6 +53,14 @@ const prosemirrorDoc = z.record(z.string(), z.unknown());
 
 /** Most people one `page.invite` call may add. */
 const INVITE_BATCH_LIMIT = 50;
+/** Rows per `createMany` when "Apply to sub-pages" fans invitees out over sub-pages. */
+const SUBPAGE_INVITE_ROWS_PER_STATEMENT = 500;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 const inviteRoleSchema = z.enum(["viewer", "editor"]);
 
@@ -1514,6 +1522,20 @@ export const pageRouter = createTRPCRouter({
           select: { userId: true, role: true },
         }),
       ]);
+      // Invitee rows outlive leaving the workspace (they grant nothing until
+      // the person is back). Copy only current members, as `invite` admits only
+      // current members: someone who left must not regain access to sub-pages
+      // the owner never knowingly shared by rejoining later.
+      const stillMembers = await filterWorkspaceMembers(
+        ctx.db,
+        page.workspaceId,
+        invites.map((i) => i.userId),
+      );
+      const rows = targets.flatMap((pageId) =>
+        invites
+          .filter((i) => stillMembers.has(i.userId))
+          .map((i) => ({ pageId, userId: i.userId, role: i.role, invitedById: userId })),
+      );
 
       if (targets.length > 0) {
         await ctx.db.$transaction([
@@ -1521,21 +1543,11 @@ export const pageRouter = createTRPCRouter({
             where: { id: { in: targets } },
             data: { isInviteOnly: true },
           }),
-          ...(invites.length
-            ? [
-                ctx.db.knowledgePageMember.createMany({
-                  data: targets.flatMap((pageId) =>
-                    invites.map((i) => ({
-                      pageId,
-                      userId: i.userId,
-                      role: i.role,
-                      invitedById: userId,
-                    })),
-                  ),
-                  skipDuplicates: true,
-                }),
-              ]
-            : []),
+          // Targets are capped by LINKED_PAGES_LIMIT; invitees are not, so the
+          // product is written in bounded statements inside the one transaction.
+          ...chunk(rows, SUBPAGE_INVITE_ROWS_PER_STATEMENT).map((data) =>
+            ctx.db.knowledgePageMember.createMany({ data, skipDuplicates: true }),
+          ),
         ]);
       }
       return { updated: targets.length, skipped };

@@ -848,5 +848,29 @@ describe("page router", () => {
       );
       expect(theirsAfter.isInviteOnly).toBe(false);
     });
+
+    it("does not copy an invitee who has since left the workspace to sub-pages", async () => {
+      const { author, invitee, ws, page } = await setup("pg-io-subpages-left");
+      const leaver = await createUser(db);
+      await addWorkspaceMember(db, ws.id, leaver.id, "member");
+      const mine = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        title: "Mine",
+      });
+      await db.knowledgePage.update({ where: { id: page.id }, data: { bodyDoc: linkDoc(mine.id) } });
+      await syncPageLinks(db, page.id, linkDoc(mine.id));
+
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [invitee.id, leaver.id], role: "viewer" });
+      await db.workspaceUser.deleteMany({ where: { workspaceId: ws.id, userId: leaver.id } });
+
+      await expect(caller.page.applySharingToSubpages({ id: page.id })).resolves.toEqual({
+        updated: 1,
+        skipped: 0,
+      });
+      const members = await db.knowledgePageMember.findMany({ where: { pageId: mine.id } });
+      expect(members.map((m) => m.userId)).toEqual([invitee.id]);
+    });
   });
 });
