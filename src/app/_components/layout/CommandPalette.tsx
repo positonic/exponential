@@ -38,6 +38,7 @@ import {
   IconUser,
   IconBuilding,
   IconNotebook,
+  IconLink,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
@@ -52,6 +53,7 @@ type Mode = 'all' | 'projects' | 'tasks' | 'goals' | 'ai';
 
 type SearchResult = RouterOutputs['search']['global']['results'][number];
 type SearchType = SearchResult['type'];
+type KnowledgeResult = RouterOutputs['search']['knowledge']['results'][number];
 
 const MODES: { id: Mode; label: string; icon: React.ElementType }[] = [
   { id: 'all', label: 'All', icon: IconSparkles },
@@ -128,6 +130,21 @@ const MIN_SEARCH_LENGTH = 2;
 // limit so one source can't crowd out the other.
 const WIKI_RESULT_LIMIT = 5;
 
+// Knowledge Base search is semantic: it matches what a meeting or page *says*,
+// not just its title. Each search costs an embedding call, so it waits for a
+// real word and for typing to pause, rather than firing on every keystroke
+// like the title search does.
+const KNOWLEDGE_MIN_SEARCH_LENGTH = 3;
+const KNOWLEDGE_DEBOUNCE_MS = 400;
+const KNOWLEDGE_RESULT_LIMIT = 5;
+
+const KNOWLEDGE_SOURCES: Record<KnowledgeResult['sourceType'], { label: string; icon: React.ElementType }> = {
+  transcription: { label: 'Meeting', icon: IconCalendarEvent },
+  page: { label: 'Page', icon: IconBook2 },
+  resource: { label: 'Resource', icon: IconLink },
+  document: { label: 'Document', icon: IconBook2 },
+};
+
 /** One local wiki page, ready to render as a palette row. */
 type WikiRow = { path: string; title: string; line?: string };
 
@@ -146,6 +163,10 @@ type PaletteRow = {
   href: string;
   /** Navigation rows are tinted; entity results stay muted. */
   accent: boolean;
+  /** A muted second line, e.g. the passage a Knowledge hit matched on. */
+  detail?: string;
+  /** Opens `href` in a new tab instead of routing inside the app. */
+  external?: boolean;
   /** Position in the flat result list, for keyboard highlighting. */
   index: number;
 };
@@ -210,6 +231,22 @@ export function CommandPalette() {
       // instead of blanking the list on every keystroke.
       placeholderData: (previous) => previous,
       staleTime: 30_000,
+    },
+  );
+
+  // The Knowledge Base, searched by meaning. Its index is workspace-scoped by
+  // design (KnowledgeService refuses unscoped searches), so it runs only for
+  // the workspace you are in — and steps aside when "All workspaces" is ticked
+  // rather than quietly searching just one of them.
+  const [knowledgeQuery] = useDebouncedValue(trimmedQuery, KNOWLEDGE_DEBOUNCE_MS);
+  const knowledgeWorkspaceId = allWorkspaces ? null : workspaceId ?? null;
+  const knowledgeEnabled = isOpen && mode === 'all' && !!knowledgeWorkspaceId;
+  const { data: knowledgeData, isFetching: knowledgeFetching } = api.search.knowledge.useQuery(
+    { query: knowledgeQuery, workspaceId: knowledgeWorkspaceId ?? '', limit: KNOWLEDGE_RESULT_LIMIT },
+    {
+      enabled: knowledgeEnabled && knowledgeQuery.length >= KNOWLEDGE_MIN_SEARCH_LENGTH,
+      placeholderData: (previous) => previous,
+      staleTime: 60_000,
     },
   );
 
@@ -364,6 +401,16 @@ export function CommandPalette() {
       : [];
   }, [searchData, trimmedQuery, searchWorkspaceId]);
 
+  // Same hold-while-typing rule as the title results above.
+  const shownKnowledge = useMemo(() => {
+    if (!knowledgeEnabled || !knowledgeData) return [];
+    if (knowledgeData.workspaceId !== knowledgeWorkspaceId) return [];
+    if (trimmedQuery.length < KNOWLEDGE_MIN_SEARCH_LENGTH) return [];
+    return trimmedQuery.toLowerCase().startsWith(knowledgeData.query.toLowerCase())
+      ? knowledgeData.results
+      : [];
+  }, [knowledgeEnabled, knowledgeData, knowledgeWorkspaceId, trimmedQuery]);
+
   const resultsByType = useMemo(() => {
     const allowed = mode === 'ai' ? null : MODE_TYPES[mode];
     const byType = new Map<SearchType, SearchResult[]>();
@@ -450,6 +497,31 @@ export function CommandPalette() {
       });
     }
 
+    // Knowledge hits follow the title matches: they are what you find when the
+    // words you remember are in a meeting or page, not in its name. A source
+    // already listed above by title isn't repeated.
+    const listedHrefs = new Set(sections.flatMap((section) => section.rows.map((r) => r.href)));
+    const knowledgeRows = shownKnowledge.filter((hit) => !listedHrefs.has(hit.url));
+    if (knowledgeRows.length > 0) {
+      sections.push({
+        key: 'knowledge',
+        heading: 'Knowledge',
+        rows: knowledgeRows.map((hit) => {
+          const source = KNOWLEDGE_SOURCES[hit.sourceType];
+          return row({
+            key: `knowledge-${hit.sourceType}-${hit.sourceId}`,
+            label: hit.title,
+            sub: source.label,
+            icon: source.icon,
+            href: hit.url,
+            accent: false,
+            detail: hit.snippet,
+            external: hit.external,
+          });
+        }),
+      });
+    }
+
     // Local wiki pages sit after the server's results rather than among them:
     // they come from a different place entirely, and saying so is the point.
     if (wikiRows.length > 0) {
@@ -491,7 +563,7 @@ export function CommandPalette() {
     }
 
     return sections;
-  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, wikiRows, workspaceId]);
+  }, [filteredPages, currentWorkspaceNav, otherWorkspaceNav, resultsByType, shownKnowledge, wikiRows, workspaceId]);
 
   const allResults = useMemo(
     () => resultSections.flatMap((section) => section.rows),
@@ -501,8 +573,15 @@ export function CommandPalette() {
   // True from the first searchable keystroke until results for that exact
   // query land, so a slow search never flashes "No matches" — and a query too
   // short to search never flashes a skeleton for a request that won't be made.
+  // The Knowledge search counts too while it is still due to answer, or a query
+  // whose only hits are inside meetings would flash "No matches" first.
+  const isSearchingKnowledge =
+    knowledgeEnabled &&
+    q.length >= KNOWLEDGE_MIN_SEARCH_LENGTH &&
+    (knowledgeQuery !== trimmedQuery || knowledgeFetching);
   const isSearching =
-    q.length >= MIN_SEARCH_LENGTH && (debouncedQuery !== trimmedQuery || searchFetching);
+    q.length >= MIN_SEARCH_LENGTH &&
+    (debouncedQuery !== trimmedQuery || searchFetching || isSearchingKnowledge);
 
   const showSkeleton = isSearching && allResults.length === 0;
   const showNoResults =
@@ -514,6 +593,18 @@ export function CommandPalette() {
       router.push(path);
     },
     [close, router],
+  );
+
+  const activate = useCallback(
+    (row: PaletteRow) => {
+      if (row.external) {
+        close();
+        window.open(row.href, '_blank', 'noopener,noreferrer');
+      } else {
+        navigate(row.href);
+      }
+    },
+    [close, navigate],
   );
 
   const handleAskZoe = useCallback(() => {
@@ -535,13 +626,13 @@ export function CommandPalette() {
         );
       } else if (e.key === 'Enter') {
         if (highlightedIndex !== null && allResults[highlightedIndex]) {
-          navigate(allResults[highlightedIndex].href);
+          activate(allResults[highlightedIndex]);
         } else if (q.length > 0) {
           handleAskZoe();
         }
       }
     },
-    [highlightedIndex, allResults, q, close, navigate, handleAskZoe],
+    [highlightedIndex, allResults, q, close, activate, handleAskZoe],
   );
 
   // Switching filter chips or search scope rebuilds the list, so a held index
@@ -568,7 +659,7 @@ export function CommandPalette() {
         className={styles.resultRow}
         data-palette-index={row.index}
         data-highlighted={highlightedIndex === row.index ? 'true' : 'false'}
-        onClick={() => navigate(row.href)}
+        onClick={() => activate(row)}
       >
         <Icon
           size={14}
@@ -578,18 +669,32 @@ export function CommandPalette() {
             flexShrink: 0,
           }}
         />
-        <Text
-          size="sm"
-          style={{
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            color: 'var(--color-text-primary)',
-          }}
-        >
-          {row.label}
-        </Text>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Text
+            size="sm"
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            {row.label}
+          </Text>
+          {row.detail && (
+            <Text
+              size="xs"
+              style={{
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              {row.detail}
+            </Text>
+          )}
+        </div>
         <Text size="xs" style={{ color: 'var(--color-text-muted)', flexShrink: 0 }}>
           {row.sub}
         </Text>

@@ -117,6 +117,29 @@ For Railway/Supabase/Neon, pgvector is pre-installed. Just run the migration.
 | `mastra.backfillTranscriptionEmbeddings` | mutation | Generate embeddings for existing transcriptions |
 | `mastra.getEmbeddingStats` | query | Get statistics on embedding coverage |
 
+### Global search (`api.search.*`)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `search.knowledge` | query | Semantic search for the Cmd+K palette's **Knowledge** section — same scoping as `queryMeetingContext`, best chunk per source, similarity ≥ 0.3, routes each hit (meeting, page, or a resource's http(s) URL) |
+
+## How Meetings get indexed
+
+Every ingest path converges on the **embedding sweep** (`services/meetings/meetingEmbeddingSweep.ts`,
+cron `/api/cron/embed-meetings`, every 15 min). Each run:
+
+1. Re-stamps `workspaceId`/`projectId` on transcript chunks whose Meeting has since moved.
+   Chunks copy scope when written and search filters on the chunk's own `workspaceId`, so
+   a Meeting that landed workspace-less (all Fireflies imports do) was unsearchable until this.
+2. Embeds up to 25 placed, unarchived Meetings with a non-empty transcript that have been
+   quiet for 10 minutes and are either never embedded (no chunks), marked `pending`, or stuck
+   in `processing` for over an hour.
+
+Transcript writes mark the Meeting `embeddingStatus = 'pending'`: the device recorder's
+`saveTranscription`, `updateTranscription`, and a Fireflies re-sync whose text changed. The
+Fireflies webhook still embeds immediately as a fast path. `failed` rows are not retried
+automatically — use **Index Now** on the Knowledge Base page.
+
 ## KnowledgeService
 
 The `KnowledgeService` (`src/server/services/KnowledgeService.ts`) provides core functionality:
@@ -327,6 +350,8 @@ In the **Resources** tab:
 | `src/server/services/KnowledgeService.ts` | Chunking, embedding, search service |
 | `src/server/api/routers/resource.ts` | Resource CRUD endpoints |
 | `src/server/api/routers/mastra.ts` | `queryMeetingContext`, backfill, stats endpoints |
+| `src/server/api/routers/search.ts` | `search.knowledge` (Cmd+K Knowledge section) |
+| `src/server/services/meetings/meetingEmbeddingSweep.ts` | Meeting embedding sweep (cron) |
 | `src/app/(sidemenu)/w/[workspaceSlug]/knowledge-base/page.tsx` | Knowledge Base UI |
 
 ## Migration Notes

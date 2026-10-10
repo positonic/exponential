@@ -13,6 +13,7 @@ import {
 } from "~/server/services/access";
 import { stripHtml } from "~/lib/utils";
 import { shortIdSearchWhere, ticketUrlId } from "~/lib/fun-ids";
+import { getKnowledgeService } from "~/server/services/KnowledgeService";
 
 /**
  * Global search — the server-side equivalent of the Cmd+K palette
@@ -469,6 +470,44 @@ async function searchProducts({ db, userId, q, workspaceId, limit }: SearchArgs)
   }));
 }
 
+/** One Knowledge Base hit: the best-matching chunk of one indexed source. */
+export interface KnowledgeSearchResult {
+  sourceType: "transcription" | "resource" | "document" | "page";
+  sourceId: string;
+  title: string;
+  /** The matching chunk, whitespace-collapsed and cut to a one-line preview. */
+  snippet: string;
+  similarity: number;
+  /** In-app route, or the source's own URL when `external`. */
+  url: string;
+  external: boolean;
+}
+
+const knowledgeSearchInput = z.object({
+  // Semantic matching on one or two letters returns noise, and every call
+  // pays for an embedding — so the bar is higher than the title search's.
+  query: z.string().trim().min(3).max(200),
+  workspaceId: z.string(),
+  /** Max sources returned (each source contributes its best chunk). */
+  limit: z.number().int().min(1).max(20).default(5),
+});
+
+// Nearest-neighbour search always returns *something*; below this cosine
+// similarity a chunk is unrelated to the query. Same cut-off the agent's
+// semantic search defaults to (knowledgeChunk.semanticSearch).
+const KNOWLEDGE_MIN_SIMILARITY = 0.3;
+
+// Several chunks of one long transcript often outrank everything else, so
+// fetch extra and keep each source's best chunk.
+const KNOWLEDGE_CHUNKS_PER_RESULT = 4;
+
+const SNIPPET_LENGTH = 140;
+
+function snippetOf(content: string): string {
+  const flat = content.replace(/\s+/g, " ").trim();
+  return flat.length > SNIPPET_LENGTH ? `${flat.slice(0, SNIPPET_LENGTH - 1)}…` : flat;
+}
+
 export const searchRouter = createTRPCRouter({
   global: protectedProcedure.input(searchInput).query(async ({ ctx, input }) => {
     const args: SearchArgs = {
@@ -504,5 +543,79 @@ export const searchRouter = createTRPCRouter({
       workspaceId: input.workspaceId ?? null,
       results: groups.flat(),
     };
+  }),
+
+  /**
+   * Semantic search over the workspace's Knowledge Base — the same index and
+   * the same scoping as the Knowledge Base page's Search tab
+   * (mastra.queryMeetingContext): the caller's own indexed meetings,
+   * resources, documents and pages, with meeting and page access re-checked
+   * per source. Kept apart from `global` because it costs an embedding call
+   * and is slower; the palette runs it alongside the title search.
+   *
+   * Never throws for an embedding/vector failure — the palette treats this as
+   * an optional extra section, so a failure degrades to no results.
+   */
+  knowledge: protectedProcedure.input(knowledgeSearchInput).query(async ({ ctx, input }) => {
+    const userId = ctx.session.user.id;
+    const empty = { query: input.query, workspaceId: input.workspaceId, results: [] as KnowledgeSearchResult[] };
+
+    const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+    if (!membership) return empty;
+    const workspace = await ctx.db.workspace.findUnique({
+      where: { id: input.workspaceId },
+      select: { slug: true },
+    });
+    if (!workspace) return empty;
+
+    let chunks;
+    try {
+      chunks = await getKnowledgeService(ctx.db).search(input.query, {
+        workspaceId: input.workspaceId,
+        userId,
+        pageViewerId: userId,
+        transcriptionViewerId: userId,
+        limit: input.limit * KNOWLEDGE_CHUNKS_PER_RESULT,
+      });
+    } catch (error) {
+      console.error("[search.knowledge] Knowledge search failed:", error);
+      return empty;
+    }
+
+    const seen = new Set<string>();
+    const results: KnowledgeSearchResult[] = [];
+    // Chunks arrive nearest-first, so the first chunk of each source is its best.
+    for (const chunk of chunks) {
+      if (chunk.similarity < KNOWLEDGE_MIN_SIMILARITY) break;
+      const key = `${chunk.sourceType}:${chunk.sourceId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      let url: string | null = null;
+      let external = false;
+      if (chunk.sourceType === "transcription") url = `/recording/${chunk.sourceId}`;
+      else if (chunk.sourceType === "page") url = `/w/${workspace.slug}/pages/${chunk.sourceId}`;
+      // Resource URLs are user-supplied; only ever hand back web links, never
+      // a `javascript:` or other scheme the palette would open.
+      else if (chunk.sourceMeta?.url && /^https?:\/\//i.test(chunk.sourceMeta.url)) {
+        url = chunk.sourceMeta.url;
+        external = true;
+      }
+      // Notes and uploaded documents have no page of their own yet.
+      if (!url) continue;
+
+      results.push({
+        sourceType: chunk.sourceType,
+        sourceId: chunk.sourceId,
+        title: chunk.sourceTitle ?? "Untitled",
+        snippet: snippetOf(chunk.content),
+        similarity: chunk.similarity,
+        url,
+        external,
+      });
+      if (results.length >= input.limit) break;
+    }
+
+    return { ...empty, results };
   }),
 });
