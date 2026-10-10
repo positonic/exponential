@@ -2,6 +2,13 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "regions": ["sfo1"],
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "develop": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/daily-plan-reminder",
