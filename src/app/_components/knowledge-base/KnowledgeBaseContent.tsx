@@ -3,50 +3,46 @@
 import {
   Container,
   Title,
-  Card,
-  SegmentedControl,
   Text,
   Button,
   Group,
   Stack,
   Skeleton,
-  Badge,
-  Table,
+  SimpleGrid,
   ActionIcon,
   Tooltip,
-  Progress,
   TextInput,
   Textarea,
   Select,
   Modal,
-  Tabs,
-  Alert,
+  UnstyledButton,
 } from '@mantine/core';
 import {
-  IconDatabase,
-  IconRefresh,
-  IconTrash,
-  IconPlus,
   IconSearch,
+  IconSparkles,
+  IconMicrophone,
   IconFileText,
+  IconBook,
   IconLink,
   IconBookmark,
   IconNote,
-  IconAlertCircle,
+  IconPlus,
   IconCheck,
+  IconArrowBackUp,
+  IconArchive,
+  IconTrash,
   IconPin,
   IconPinnedFilled,
   IconInfoCircle,
-  IconBook,
-  IconArchive,
-  IconExternalLink,
+  IconX,
 } from '@tabler/icons-react';
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
+import styles from './KnowledgeBaseContent.module.css';
 
 const contentTypeIcons = {
   web_page: IconLink,
@@ -57,14 +53,30 @@ const contentTypeIcons = {
 };
 
 const contentTypeLabels = {
-  web_page: 'Web Page',
+  web_page: 'Web page',
   document: 'Document',
   pdf: 'PDF',
   bookmark: 'Bookmark',
   note: 'Note',
 };
 
-/** Hostname for a reading-list row, or null when the URL does not parse. */
+type ContentType = keyof typeof contentTypeLabels;
+
+// Search filter chips. Each maps to the Knowledge index source types it
+// covers; uploaded documents sit with Resources (both are saved, not authored).
+type Filter = 'all' | 'meetings' | 'pages' | 'resources';
+type SourceType = 'transcription' | 'page' | 'resource' | 'document';
+
+const FILTERS: { id: Filter; label: string; icon: React.ElementType; sourceTypes?: SourceType[] }[] = [
+  { id: 'all', label: 'All', icon: IconSparkles },
+  { id: 'meetings', label: 'Meetings', icon: IconMicrophone, sourceTypes: ['transcription'] },
+  { id: 'pages', label: 'Pages', icon: IconFileText, sourceTypes: ['page'] },
+  { id: 'resources', label: 'Resources', icon: IconBook, sourceTypes: ['resource', 'document'] },
+];
+
+const LIST_LIMIT = 8;
+
+/** Hostname for a row's label, or null when the URL does not parse. */
 function hostnameOf(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -74,70 +86,118 @@ function hostnameOf(url: string | null | undefined): string | null {
   }
 }
 
+function shortDate(date: Date | string): string {
+  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The row's title: a link when there is somewhere to go (external URLs open
+ * in a new tab), plain text otherwise — notes without a URL have no detail
+ * page yet.
+ */
+function RowMain({
+  href,
+  external,
+  children,
+}: {
+  href: string | null;
+  external?: boolean;
+  children: React.ReactNode;
+}) {
+  if (!href) return <div className={styles.rowMain}>{children}</div>;
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={styles.rowMain}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className={styles.rowMain}>
+      {children}
+    </Link>
+  );
+}
+
+function RowSkeletons() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} height={30} mb={8} radius="sm" />
+      ))}
+    </>
+  );
+}
+
 interface KnowledgeBaseContentProps {
   workspaceId?: string;
   isLoading?: boolean;
 }
 
 export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }: KnowledgeBaseContentProps) {
-  const { workspaceSlug } = useWorkspace();
+  const { workspace, workspaceSlug } = useWorkspace();
   const [opened, { open, close }] = useDisclosure(false);
-  const [activeTab, setActiveTab] = useState<string | null>('resources');
   const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
 
   // Reading list: a filtered view over Resources by read state. "unread"
   // is the queue (to_read + reading); "read" is the history.
   const [readingView, setReadingView] = useState<'unread' | 'read'>('unread');
-  const [quickAdd, setQuickAdd] = useState({ url: '', title: '', note: '' });
-
-  // Backfill progress tracking
-  const [backfillProgress, setBackfillProgress] = useState<{
-    isRunning: boolean;
-    totalProcessed: number;
-    totalFailed: number;
-  }>({ isRunning: false, totalProcessed: 0, totalFailed: 0 });
-  const isBackfillingRef = useRef(false);
+  const [isSavingLink, setIsSavingLink] = useState(false);
+  const [linkDraft, setLinkDraft] = useState('');
 
   // Form state for new resource
   const [newResource, setNewResource] = useState({
     title: '',
     url: '',
     content: '',
-    contentType: 'web_page' as const,
+    contentType: 'web_page' as ContentType,
     description: '',
   });
 
   // Queries
-  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = api.mastra.getEmbeddingStats.useQuery(
-    { workspaceId },
-    { enabled: true }
-  );
-
-  const { data: resourcesData, isLoading: resourcesLoading, refetch: refetchResources } = api.resource.list.useQuery(
-    { limit: 50, workspaceId },
-    { enabled: true }
-  );
+  const {
+    data: recentData,
+    isLoading: recentLoading,
+    refetch: refetchRecent,
+  } = api.resource.list.useQuery({ limit: LIST_LIMIT, workspaceId });
 
   const {
     data: readingData,
     isLoading: readingLoading,
     refetch: refetchReading,
   } = api.resource.list.useQuery(
-    { limit: 100, workspaceId, readStatus: readingView },
-    // Only fetch while the Reading tab is showing; a mutation's refetch is a
-    // no-op while hidden and the query refires on the next tab switch.
-    { enabled: activeTab === 'reading', placeholderData: keepPreviousData }
+    { limit: LIST_LIMIT, workspaceId, readStatus: readingView },
+    { placeholderData: keepPreviousData }
   );
 
   // Debounce the typed query so we only search after the user pauses,
   // and use placeholderData so previous results stay visible during refetch
   // (prevents the results region from collapsing on every keystroke).
   const [debouncedQuery] = useDebouncedValue(searchQuery, 300);
+  const isSearching = debouncedQuery.trim().length > 2;
   // workspaceId is required by queryMeetingContext (server-side guard).
   // Only enable the query once we know which workspace to scope to.
-  const searchEnabled = debouncedQuery.length > 2 && Boolean(workspaceId);
+  const searchEnabled = isSearching && Boolean(workspaceId);
+  const activeFilter = FILTERS.find((f) => f.id === filter);
   const searchQueryResult = api.mastra.queryMeetingContext.useQuery(
-    { query: debouncedQuery, topK: 10, workspaceId: workspaceId ?? "" },
+    {
+      query: debouncedQuery,
+      // Results are chunks; ask for more than we show so de-duplicating to
+      // one row per source still leaves a full list.
+      topK: 24,
+      workspaceId: workspaceId ?? '',
+      sourceTypes: activeFilter?.sourceTypes,
+    },
     {
       enabled: searchEnabled,
       placeholderData: keepPreviousData,
@@ -146,60 +206,14 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   );
 
   // Mutations
-  const backfillMutation = api.mastra.backfillTranscriptionEmbeddings.useMutation({
-    onSuccess: async (data) => {
-      console.log('[Backfill] Batch complete:', {
-        processed: data.processed,
-        successful: data.successful,
-        failed: data.failed,
-        isBackfillingRef: isBackfillingRef.current,
-      });
-
-      // Update progress
-      setBackfillProgress(prev => ({
-        ...prev,
-        totalProcessed: prev.totalProcessed + data.successful,
-        totalFailed: prev.totalFailed + data.failed,
-      }));
-
-      // Refetch stats to check if more remain
-      const result = await refetchStats();
-      const pending = result.data?.transcriptions.pendingEmbeddings ?? 0;
-
-      console.log('[Backfill] Stats refreshed:', {
-        pending,
-        isBackfillingRef: isBackfillingRef.current,
-        shouldContinue: isBackfillingRef.current && pending > 0 && data.processed > 0,
-      });
-
-      // If still running and more pending, continue processing
-      if (isBackfillingRef.current && pending > 0 && data.processed > 0) {
-        console.log('[Backfill] Scheduling next batch in 500ms...');
-        // Small delay to avoid hammering the API
-        setTimeout(() => {
-          console.log('[Backfill] Starting next batch...');
-          backfillMutation.mutate({ limit: 1, skipExisting: true });
-        }, 500);
-      } else {
-        console.log('[Backfill] Stopping:', {
-          reason: !isBackfillingRef.current ? 'user stopped' : pending === 0 ? 'no more pending' : 'no items processed',
-        });
-        // Done - reset state
-        isBackfillingRef.current = false;
-        setBackfillProgress(prev => ({ ...prev, isRunning: false }));
-      }
-    },
-    onError: (error) => {
-      console.error('[Backfill] Error:', error);
-      isBackfillingRef.current = false;
-      setBackfillProgress(prev => ({ ...prev, isRunning: false }));
-    },
-  });
+  const refetchAllResources = () => {
+    void refetchRecent();
+    void refetchReading();
+  };
 
   const createResourceMutation = api.resource.create.useMutation({
     onSuccess: () => {
-      void refetchResources();
-      void refetchStats();
+      refetchAllResources();
       close();
       setNewResource({
         title: '',
@@ -211,36 +225,21 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     },
   });
 
-  const deleteResourceMutation = api.resource.delete.useMutation({
+  const saveLinkMutation = api.resource.create.useMutation({
     onSuccess: () => {
-      void refetchResources();
-      void refetchStats();
+      refetchAllResources();
+      setLinkDraft('');
+      setIsSavingLink(false);
+      setReadingView('unread');
     },
   });
 
-  const regenerateEmbeddingsMutation = api.resource.regenerateEmbeddings.useMutation({
-    onSuccess: () => {
-      void refetchStats();
-    },
+  const deleteResourceMutation = api.resource.delete.useMutation({
+    onSuccess: refetchAllResources,
   });
 
   const setPinnedMutation = api.resource.setPinned.useMutation({
-    onSuccess: () => {
-      void refetchResources();
-    },
-  });
-
-  const refetchAllResources = () => {
-    void refetchResources();
-    void refetchReading();
-    void refetchStats();
-  };
-
-  const quickAddMutation = api.resource.create.useMutation({
-    onSuccess: () => {
-      refetchAllResources();
-      setQuickAdd({ url: '', title: '', note: '' });
-    },
+    onSuccess: refetchAllResources,
   });
 
   const setReadStatusMutation = api.resource.setReadStatus.useMutation({
@@ -251,42 +250,22 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     onSuccess: refetchAllResources,
   });
 
-  const quickAddUrlValid = (() => {
-    try {
-      const parsed = new URL(quickAdd.url.trim());
-      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-    } catch {
-      return false;
-    }
-  })();
+  const linkDraftValid = isHttpUrl(linkDraft);
 
-  const handleQuickAdd = () => {
-    if (!quickAddUrlValid) return;
-    const url = quickAdd.url.trim();
+  const handleSaveLink = () => {
+    if (!linkDraftValid) return;
+    const url = linkDraft.trim();
     // A bare link has no body, so there is nothing to embed: the Reading
     // list is findable by title and URL, never by semantic search, until a
     // URL fetcher exists (follow-up to ticket pink.grape).
-    quickAddMutation.mutate({
-      title: quickAdd.title.trim() || (hostnameOf(url) ?? url),
+    saveLinkMutation.mutate({
+      title: hostnameOf(url) ?? url,
       url,
-      description: quickAdd.note.trim() || undefined,
       contentType: 'bookmark',
       readStatus: 'to_read',
       generateEmbeddings: false,
       workspaceId,
     });
-  };
-
-  const handleBackfill = () => {
-    // Start batch processing
-    isBackfillingRef.current = true;
-    setBackfillProgress({ isRunning: true, totalProcessed: 0, totalFailed: 0 });
-    backfillMutation.mutate({ limit: 1, skipExisting: true });
-  };
-
-  const handleStopBackfill = () => {
-    isBackfillingRef.current = false;
-    setBackfillProgress(prev => ({ ...prev, isRunning: false }));
   };
 
   const handleCreateResource = () => {
@@ -312,613 +291,389 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
 
   if (externalLoading) {
     return (
-      <Container size="lg" className="py-8">
-        <Skeleton height={40} width={300} mb="xl" />
-        <Skeleton height={200} mb="lg" />
-        <Skeleton height={400} />
+      <Container size="sm" className="py-16">
+        <Skeleton height={40} width={360} mx="auto" mb="xl" />
+        <Skeleton height={58} mb="lg" />
+        <Skeleton height={300} />
       </Container>
     );
   }
 
-  const transcriptionProgress = stats
-    ? (stats.transcriptions.withEmbeddings / Math.max(stats.transcriptions.total, 1)) * 100
-    : 0;
-  const resourceProgress = stats
-    ? (stats.resources.withEmbeddings / Math.max(stats.resources.total, 1)) * 100
-    : 0;
+  const eyebrow = workspace?.name ? `${workspace.name} · Knowledge` : 'Knowledge · All workspaces';
 
-  const subtitle = workspaceId
-    ? 'Manage documents, web pages, and meeting transcriptions for this workspace'
-    : 'Manage documents, web pages, and meeting transcriptions across all workspaces';
+  const visibilityNote = workspaceId
+    ? 'Only you see what you save here. Search covers this workspace: your meetings, the pages you can open, and your resources.'
+    : 'Only you see what you save here. Open a workspace to search its meetings and pages.';
 
-  const permissionsTooltipLabel = workspaceId
-    ? "You only see your own content scoped to this workspace. Legacy items that pre-date workspace assignment are also included. Other workspace members' content is not visible to you."
-    : "You only see your own content. Results span every workspace you belong to — switch into a workspace to filter.";
+  // One row per source: the first (most relevant) chunk wins.
+  // The keyword fallback returns a narrower shape (no url/contentType) and
+  // may contain nulls; normalise to one row type.
+  const seenSources = new Set<string>();
+  const searchResults = (searchQueryResult.data?.results ?? [])
+    .flatMap((result) =>
+      result
+        ? [{
+            ...result,
+            url: 'url' in result ? result.url : undefined,
+            contentType: 'contentType' in result ? result.contentType : undefined,
+          }]
+        : [],
+    )
+    .filter((result) => {
+      const key = `${result.sourceType}:${result.sourceId}`;
+      if (seenSources.has(key)) return false;
+      seenSources.add(key);
+      return true;
+    })
+    .slice(0, 12);
 
-  return (
-    <Container size="lg" className="py-8">
-      <Group justify="space-between" mb="md">
-        <div>
-          <Group gap="xs" align="center">
-            <Title order={1} className="text-3xl font-bold text-text-primary">
-              Knowledge Base
-            </Title>
-            <Tooltip label={permissionsTooltipLabel} multiline w={320} withArrow>
-              <ActionIcon variant="subtle" color="gray" size="lg" aria-label="How permissions work">
-                <IconInfoCircle size={18} />
-              </ActionIcon>
-            </Tooltip>
-          </Group>
-          <Text className="text-text-secondary mt-1">
-            {subtitle}
-          </Text>
-        </div>
-        <Button leftSection={<IconPlus size={16} />} color="brand" onClick={open}>
-          Add Resource
-        </Button>
-      </Group>
+  const readingRows = readingData?.resources ?? [];
+  const recentRows = recentData?.resources ?? [];
 
-      <Alert
-        icon={<IconInfoCircle size={16} />}
-        color="blue"
-        variant="light"
-        mb="xl"
-        className="border-border-primary"
-      >
-        <Text size="sm" className="text-text-primary">
-          The Knowledge Base indexes your meeting transcriptions and saved resources (web pages,
-          notes, documents) so you can search them by meaning, not just keywords. Search runs
-          semantic similarity over stored embeddings; if that fails, it falls back to a basic
-          keyword match across transcripts.
-        </Text>
-        <Text size="xs" className="text-text-muted mt-2">
-          What it does: full-text + semantic search, pin resources for AI agent context, backfill embeddings for old meetings.
-          What it doesn&apos;t do: edit transcripts in-place, preview internal notes (links open the source URL only), or share results with other users.
-        </Text>
-      </Alert>
+  const renderSearchResults = () => {
+    if (!workspaceId) {
+      return <div className={styles.empty}>Open a workspace to search its knowledge.</div>;
+    }
+    if (searchQueryResult.isLoading) return <RowSkeletons />;
+    if (searchResults.length === 0) {
+      return searchQueryResult.isFetching ? (
+        <RowSkeletons />
+      ) : (
+        <div className={styles.empty}>No matches for &ldquo;{debouncedQuery}&rdquo;.</div>
+      );
+    }
+    return (
+      <div style={{ opacity: searchQueryResult.isFetching ? 0.6 : 1, transition: 'opacity 150ms ease' }}>
+        {searchResults.map((result) => {
+          const contentType = result.contentType as ContentType | undefined;
+          const isExternal = result.sourceType === 'resource' && !!result.url;
+          // Meetings → recording page; Pages → the page; Resources → their
+          // source URL. Notes without a URL have no detail page yet.
+          const href =
+            result.sourceType === 'transcription'
+              ? `/recording/${result.sourceId}`
+              : result.sourceType === 'page'
+                ? (workspaceSlug ? `/w/${workspaceSlug}/pages/${result.sourceId}` : null)
+                : (result.url ?? null);
+          const Icon =
+            result.sourceType === 'transcription'
+              ? IconMicrophone
+              : result.sourceType === 'page'
+                ? IconFileText
+                : (contentType ? contentTypeIcons[contentType] : undefined) ?? IconBook;
+          const label =
+            result.sourceType === 'transcription'
+              ? `Meeting${result.meetingDate ? ` · ${shortDate(result.meetingDate)}` : ''}`
+              : result.sourceType === 'page'
+                ? 'Page'
+                : (contentType ? contentTypeLabels[contentType] : undefined) ?? 'Resource';
+          return (
+            <div key={`${result.sourceType}:${result.sourceId}`} className={styles.row}>
+              <RowMain href={href} external={isExternal}>
+                <Icon size={14} stroke={1.75} className={styles.rowIcon} />
+                <span className={styles.rowTitle}>{result.sourceTitle || 'Untitled'}</span>
+                <span className={styles.rowSnippet}>{result.content}</span>
+              </RowMain>
+              <span className={styles.rowLabel}>{label}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" mb="xs">
-            <Text className="text-text-muted text-sm">Transcriptions</Text>
-            <IconDatabase size={20} className="text-text-muted" />
-          </Group>
-          {statsLoading ? (
-            <Skeleton height={24} />
-          ) : (
-            <>
-              <Text className="text-2xl font-bold text-text-primary">
-                {stats?.transcriptions.withEmbeddings ?? 0} / {stats?.transcriptions.total ?? 0}
-              </Text>
-              <Progress value={transcriptionProgress} size="sm" color="brand" mt="xs" />
-              <Text size="xs" className="text-text-muted mt-1">
-                {stats?.transcriptions.pendingEmbeddings ?? 0} pending
-              </Text>
-            </>
-          )}
-        </Card>
-
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" mb="xs">
-            <Text className="text-text-muted text-sm">Resources</Text>
-            <IconFileText size={20} className="text-text-muted" />
-          </Group>
-          {statsLoading ? (
-            <Skeleton height={24} />
-          ) : (
-            <>
-              <Text className="text-2xl font-bold text-text-primary">
-                {stats?.resources.withEmbeddings ?? 0} / {stats?.resources.total ?? 0}
-              </Text>
-              <Progress value={resourceProgress} size="sm" color="blue" mt="xs" />
-              <Text size="xs" className="text-text-muted mt-1">
-                {stats?.resources.pendingEmbeddings ?? 0} pending
-              </Text>
-            </>
-          )}
-        </Card>
-
-        <Card className="bg-surface-secondary border-border-primary" withBorder>
-          <Group justify="space-between" mb="xs">
-            <Text className="text-text-muted text-sm">Total Chunks</Text>
-            <IconDatabase size={20} className="text-text-muted" />
-          </Group>
-          {statsLoading ? (
-            <Skeleton height={24} />
-          ) : (
-            <Text className="text-2xl font-bold text-text-primary">
-              {stats?.totalChunks ?? 0}
-            </Text>
-          )}
-          <Text size="xs" className="text-text-muted mt-3">
-            Searchable text segments
-          </Text>
-        </Card>
+  const renderReadingColumn = () => (
+    <div>
+      <div className={styles.colHeading}>
+        <span>{readingView === 'unread' ? 'Up next to read' : 'Read'}</span>
+        <Group gap={12} wrap="nowrap">
+          <button
+            type="button"
+            className={styles.headingAction}
+            data-active={readingView === 'read'}
+            onClick={() => setReadingView(readingView === 'unread' ? 'read' : 'unread')}
+          >
+            {readingView === 'unread' ? 'History' : 'Up next'}
+          </button>
+          <button
+            type="button"
+            className={styles.headingAction}
+            onClick={() => setIsSavingLink((v) => !v)}
+          >
+            <IconPlus size={12} stroke={2} />
+            Save link
+          </button>
+        </Group>
       </div>
 
-      {/* Backfill Alert - Show when pending and not currently running */}
-      {stats && stats.transcriptions.pendingEmbeddings > 0 && !backfillProgress.isRunning && (
-        <Alert
-          icon={<IconAlertCircle size={16} />}
-          color="yellow"
-          className="mb-6"
-          title="Transcriptions need indexing"
-        >
-          <Group justify="space-between" align="center">
-            <Text size="sm">
-              {stats.transcriptions.pendingEmbeddings} transcriptions haven&apos;t been indexed for semantic search yet.
-            </Text>
-            <Button
-              size="xs"
-              leftSection={<IconRefresh size={14} />}
-              onClick={handleBackfill}
-            >
-              Index All
-            </Button>
-          </Group>
-        </Alert>
-      )}
-
-      {/* Backfill Progress - Show during processing */}
-      {backfillProgress.isRunning && (
-        <Alert
-          icon={<IconRefresh size={16} className="animate-spin" />}
-          color="blue"
-          className="mb-6"
-          title="Indexing in progress..."
-        >
-          <Stack gap="xs">
-            <Group justify="space-between" align="center">
-              <Stack gap={2}>
-                <Text size="sm">
-                  Processed {backfillProgress.totalProcessed} transcriptions
-                  {backfillProgress.totalFailed > 0 && ` (${backfillProgress.totalFailed} failed)`}
-                  {stats && ` • ${stats.transcriptions.pendingEmbeddings} remaining`}
-                </Text>
-                <Text size="xs" className="text-blue-400 h-4">
-                  {backfillMutation.isPending
-                    ? `Embedding transcription ${backfillProgress.totalProcessed + backfillProgress.totalFailed + 1}...`
-                    : 'Preparing next transcription...'}
-                </Text>
-              </Stack>
-              <Button
-                size="xs"
-                variant="subtle"
-                color="gray"
-                onClick={handleStopBackfill}
-              >
-                Stop
-              </Button>
-            </Group>
-            {stats && (
-              <Progress
-                value={(backfillProgress.totalProcessed / (backfillProgress.totalProcessed + stats.transcriptions.pendingEmbeddings)) * 100}
-                size="sm"
-                color="blue"
-                animated
-              />
-            )}
-          </Stack>
-        </Alert>
-      )}
-
-      {/* Backfill Results - Show when completed (not running and has processed) */}
-      {!backfillProgress.isRunning && backfillProgress.totalProcessed > 0 && (
-        <Alert
-          icon={<IconCheck size={16} />}
-          color="green"
-          className="mb-6"
-          title="Indexing Complete"
-          withCloseButton
-          onClose={() => setBackfillProgress({ isRunning: false, totalProcessed: 0, totalFailed: 0 })}
-        >
-          <Text size="sm">
-            Processed {backfillProgress.totalProcessed} transcriptions.
-            {backfillProgress.totalFailed > 0 && ` (${backfillProgress.totalFailed} failed)`}
-          </Text>
-        </Alert>
-      )}
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onChange={setActiveTab}>
-        <Tabs.List className="mb-4">
-          <Tabs.Tab value="resources" leftSection={<IconFileText size={16} />}>
-            Resources
-          </Tabs.Tab>
-          <Tabs.Tab value="reading" leftSection={<IconBook size={16} />}>
-            Reading
-          </Tabs.Tab>
-          <Tabs.Tab value="search" leftSection={<IconSearch size={16} />}>
-            Search
-          </Tabs.Tab>
-        </Tabs.List>
-
-        <Tabs.Panel value="reading">
-          <Card className="bg-surface-secondary border-border-primary mb-4" withBorder>
-            <Text size="sm" fw={500} className="text-text-primary mb-2">
-              Save something to read
-            </Text>
-            <Group align="flex-start" gap="sm" wrap="wrap">
-              <TextInput
-                placeholder="https://…"
-                aria-label="URL"
-                value={quickAdd.url}
-                onChange={(e) => setQuickAdd({ ...quickAdd, url: e.currentTarget.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleQuickAdd();
-                }}
-                className="flex-1 min-w-[16rem]"
-                classNames={{ input: 'bg-surface-primary border-border-primary text-text-primary' }}
-                error={quickAdd.url.trim().length > 0 && !quickAddUrlValid ? 'Enter a full http(s) link' : undefined}
-              />
-              <TextInput
-                placeholder="Title (optional)"
-                aria-label="Title"
-                value={quickAdd.title}
-                onChange={(e) => setQuickAdd({ ...quickAdd, title: e.currentTarget.value })}
-                className="flex-1 min-w-[12rem]"
-                classNames={{ input: 'bg-surface-primary border-border-primary text-text-primary' }}
-              />
-              <TextInput
-                placeholder="Note (optional)"
-                aria-label="Note"
-                value={quickAdd.note}
-                onChange={(e) => setQuickAdd({ ...quickAdd, note: e.currentTarget.value })}
-                className="flex-1 min-w-[12rem]"
-                classNames={{ input: 'bg-surface-primary border-border-primary text-text-primary' }}
-              />
-              <Button
-                color="brand"
-                leftSection={<IconPlus size={16} />}
-                onClick={handleQuickAdd}
-                loading={quickAddMutation.isPending}
-                disabled={!quickAddUrlValid}
-              >
-                Save
-              </Button>
-            </Group>
-            <Text size="xs" className="text-text-muted mt-2">
-              Saved links are listed here by title and link. They are not indexed for search until they have content.
-            </Text>
-          </Card>
-
-          <Card className="bg-surface-secondary border-border-primary" withBorder>
-            <Group justify="space-between" mb="md">
-              <SegmentedControl
-                size="xs"
-                value={readingView}
-                onChange={(value) => setReadingView(value as 'unread' | 'read')}
-                data={[
-                  { value: 'unread', label: 'To read' },
-                  { value: 'read', label: 'Read' },
-                ]}
-              />
-              {readingData?.resources && (
-                <Text size="xs" className="text-text-muted">
-                  {readingData.resources.length} {readingData.resources.length === 1 ? 'item' : 'items'}
-                </Text>
-              )}
-            </Group>
-
-            {readingLoading ? (
-              <Stack gap="md">
-                <Skeleton height={40} />
-                <Skeleton height={40} />
-                <Skeleton height={40} />
-              </Stack>
-            ) : readingData?.resources && readingData.resources.length > 0 ? (
-              <Table>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th className="text-text-muted">Title</Table.Th>
-                    <Table.Th className="text-text-muted">Source</Table.Th>
-                    <Table.Th className="text-text-muted">{readingView === 'read' ? 'Read' : 'Saved'}</Table.Th>
-                    <Table.Th className="text-text-muted">Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {readingData.resources.map((resource) => {
-                    const host = hostnameOf(resource.url);
-                    const isRead = resource.readStatus === 'read';
-                    const whenLabel = isRead && resource.readAt
-                      ? new Date(resource.readAt).toLocaleDateString()
-                      : new Date(resource.createdAt).toLocaleDateString();
-                    return (
-                      <Table.Tr key={resource.id}>
-                        <Table.Td>
-                          <div>
-                            {resource.url ? (
-                              <a
-                                href={resource.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-text-primary no-underline hover:underline inline-flex items-center gap-1"
-                              >
-                                <Text size="sm" component="span">{resource.title}</Text>
-                                <IconExternalLink size={12} className="text-text-muted" />
-                              </a>
-                            ) : (
-                              <Text size="sm" className="text-text-primary">{resource.title}</Text>
-                            )}
-                            {resource.description && (
-                              <Text size="xs" className="text-text-muted line-clamp-2 max-w-md">
-                                {resource.description}
-                              </Text>
-                            )}
-                          </div>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" className="text-text-secondary">{host ?? '-'}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" className="text-text-secondary">{whenLabel}</Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs">
-                            <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
-                              <ActionIcon
-                                variant={isRead ? 'subtle' : 'light'}
-                                color={isRead ? 'gray' : 'brand'}
-                                aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
-                                onClick={() =>
-                                  setReadStatusMutation.mutate({
-                                    id: resource.id,
-                                    readStatus: isRead ? 'to_read' : 'read',
-                                  })
-                                }
-                                loading={setReadStatusMutation.isPending && setReadStatusMutation.variables?.id === resource.id}
-                              >
-                                {isRead ? <IconBook size={16} /> : <IconCheck size={16} />}
-                              </ActionIcon>
-                            </Tooltip>
-                            <Tooltip label="Archive">
-                              <ActionIcon
-                                variant="subtle"
-                                color="gray"
-                                aria-label="Archive"
-                                onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
-                                loading={archiveResourceMutation.isPending && archiveResourceMutation.variables?.id === resource.id}
-                              >
-                                <IconArchive size={16} />
-                              </ActionIcon>
-                            </Tooltip>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            ) : (
-              <Stack align="center" py="xl">
-                <IconBook size={48} className="text-text-muted" />
-                <Text className="text-text-secondary">
-                  {readingView === 'read' ? 'Nothing marked as read yet' : 'Nothing to read. Paste a link above to save one.'}
-                </Text>
-              </Stack>
-            )}
-          </Card>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="resources">
-          <Card className="bg-surface-secondary border-border-primary" withBorder>
-            {resourcesLoading ? (
-              <Stack gap="md">
-                <Skeleton height={40} />
-                <Skeleton height={40} />
-                <Skeleton height={40} />
-              </Stack>
-            ) : resourcesData?.resources && resourcesData.resources.length > 0 ? (
-              <Table>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th className="text-text-muted">Title</Table.Th>
-                    <Table.Th className="text-text-muted">Type</Table.Th>
-                    <Table.Th className="text-text-muted">Words</Table.Th>
-                    <Table.Th className="text-text-muted">Context</Table.Th>
-                    <Table.Th className="text-text-muted">Created</Table.Th>
-                    <Table.Th className="text-text-muted">Actions</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {resourcesData.resources.map((resource) => {
-                    const TypeIcon = contentTypeIcons[resource.contentType as keyof typeof contentTypeIcons] ?? IconFileText;
-                    return (
-                      <Table.Tr key={resource.id}>
-                        <Table.Td>
-                          <Group gap="sm">
-                            <TypeIcon size={16} className="text-text-muted" />
-                            <div>
-                              <Text size="sm" className="text-text-primary">
-                                {resource.title}
-                              </Text>
-                              {resource.url && (
-                                <Text size="xs" className="text-text-muted truncate max-w-xs">
-                                  {resource.url}
-                                </Text>
-                              )}
-                            </div>
-                          </Group>
-                        </Table.Td>
-                        <Table.Td>
-                          <Badge variant="light" size="sm">
-                            {contentTypeLabels[resource.contentType as keyof typeof contentTypeLabels] ?? resource.contentType}
-                          </Badge>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" className="text-text-secondary">
-                            {resource.wordCount ?? '-'}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Tooltip label={resource.pinnedAsContext ? 'Always injected into agent chat' : 'Pin to inject into every agent chat'}>
-                            <ActionIcon
-                              variant={resource.pinnedAsContext ? 'filled' : 'subtle'}
-                              color={resource.pinnedAsContext ? 'brand' : 'gray'}
-                              onClick={() => setPinnedMutation.mutate({ id: resource.id, pinned: !resource.pinnedAsContext })}
-                              loading={setPinnedMutation.isPending}
-                            >
-                              {resource.pinnedAsContext ? <IconPinnedFilled size={16} /> : <IconPin size={16} />}
-                            </ActionIcon>
-                          </Tooltip>
-                        </Table.Td>
-                        <Table.Td>
-                          <Text size="sm" className="text-text-secondary">
-                            {new Date(resource.createdAt).toLocaleDateString()}
-                          </Text>
-                        </Table.Td>
-                        <Table.Td>
-                          <Group gap="xs">
-                            <Tooltip label="Regenerate embeddings">
-                              <ActionIcon
-                                variant="subtle"
-                                onClick={() => regenerateEmbeddingsMutation.mutate({ id: resource.id })}
-                                loading={regenerateEmbeddingsMutation.isPending}
-                              >
-                                <IconRefresh size={16} />
-                              </ActionIcon>
-                            </Tooltip>
-                            <Tooltip label="Delete">
-                              <ActionIcon
-                                variant="subtle"
-                                color="red"
-                                onClick={() => handleDeleteResource(resource.id)}
-                                loading={deleteResourceMutation.isPending}
-                              >
-                                <IconTrash size={16} />
-                              </ActionIcon>
-                            </Tooltip>
-                          </Group>
-                        </Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            ) : (
-              <Stack align="center" py="xl">
-                <IconDatabase size={48} className="text-text-muted" />
-                <Text className="text-text-secondary">No resources yet</Text>
-                <Button variant="light" leftSection={<IconPlus size={16} />} onClick={open}>
-                  Add your first resource
-                </Button>
-              </Stack>
-            )}
-          </Card>
-        </Tabs.Panel>
-
-        <Tabs.Panel value="search">
-          <Card className="bg-surface-secondary border-border-primary" withBorder>
-            <TextInput
-              placeholder="Search transcriptions and resources..."
-              leftSection={<IconSearch size={16} />}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.currentTarget.value)}
-              className="mb-4"
-              classNames={{
-                input: 'bg-surface-primary border-border-primary text-text-primary',
+      {isSavingLink && (
+        <TextInput
+          autoFocus
+          size="sm"
+          mb={6}
+          placeholder="Paste a link and press Enter"
+          aria-label="Link to read later"
+          value={linkDraft}
+          onChange={(e) => setLinkDraft(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveLink();
+            if (e.key === 'Escape') {
+              setIsSavingLink(false);
+              setLinkDraft('');
+            }
+          }}
+          error={linkDraft.trim() && !linkDraftValid ? 'Enter a full http(s) URL' : undefined}
+          disabled={saveLinkMutation.isPending}
+          leftSection={<IconLink size={14} stroke={1.75} />}
+          rightSection={
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label="Cancel"
+              onClick={() => {
+                setIsSavingLink(false);
+                setLinkDraft('');
               }}
-            />
+            >
+              <IconX size={14} />
+            </ActionIcon>
+          }
+        />
+      )}
 
-            {searchEnabled && searchQueryResult.isLoading ? (
-              <Stack gap="md">
-                <Skeleton height={60} />
-                <Skeleton height={60} />
-                <Skeleton height={60} />
-              </Stack>
-            ) : searchQueryResult.data?.results && searchQueryResult.data.results.length > 0 ? (
-              <Stack gap="md" style={{ opacity: searchQueryResult.isFetching ? 0.6 : 1, transition: 'opacity 150ms ease' }}>
-                {searchQueryResult.data.results.map((result, idx) => {
-                  if (!result) return null;
-                  const contentType = 'contentType' in result ? result.contentType : undefined;
-                  // Transcriptions → internal recording detail page.
-                  // Resources → external source URL when present (web pages, bookmarks).
-                  // Notes/documents without a URL stay non-clickable for now (no detail page yet).
-                  const href =
-                    result.sourceType === 'transcription'
-                      ? `/recording/${result.sourceId}`
-                      : result.sourceType === 'page'
-                        ? (workspaceSlug
-                            ? `/w/${workspaceSlug}/pages/${result.sourceId}`
-                            : null)
-                        : (result.url ?? null);
-                  const isExternal = result.sourceType === 'resource' && !!result.url;
+      {readingLoading ? (
+        <RowSkeletons />
+      ) : readingRows.length === 0 ? (
+        <div className={styles.empty}>
+          {readingView === 'unread'
+            ? 'Nothing queued. Save a link to read it later.'
+            : 'Nothing marked as read yet.'}
+        </div>
+      ) : (
+        readingRows.map((resource) => {
+          const isRead = resource.readStatus === 'read';
+          const host = hostnameOf(resource.url);
+          return (
+            <div key={resource.id} className={styles.row}>
+              <RowMain href={resource.url} external>
+                <IconBookmark size={14} stroke={1.75} className={styles.rowIcon} />
+                <span className={styles.rowTitle}>{resource.title}</span>
+              </RowMain>
+              <span className={styles.rowLabel}>
+                {isRead && resource.readAt
+                  ? `Read ${shortDate(resource.readAt)}`
+                  : host && host !== resource.title
+                    ? host
+                    : `Saved ${shortDate(resource.createdAt)}`}
+              </span>
+              <div className={styles.rowActions}>
+                <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
+                    onClick={() =>
+                      setReadStatusMutation.mutate({ id: resource.id, readStatus: isRead ? 'to_read' : 'read' })
+                    }
+                  >
+                    {isRead ? <IconArrowBackUp size={14} /> : <IconCheck size={14} />}
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Archive">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label="Archive"
+                    onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
+                  >
+                    <IconArchive size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
 
-                  const card = (
-                    <Card
-                      className={`bg-surface-primary border-border-primary ${href ? 'hover:bg-surface-hover hover:border-border-focus transition-colors cursor-pointer' : ''}`}
-                      withBorder
-                      p="sm"
-                    >
-                      <Group justify="space-between" mb="xs">
-                        <Group gap="xs">
-                          <Badge size="sm" variant="light" color={result.sourceType === 'transcription' ? 'blue' : result.sourceType === 'page' ? 'violet' : 'green'}>
-                            {result.sourceType === 'transcription' ? 'Meeting' : result.sourceType === 'page' ? 'Page' : (contentType ?? 'Resource')}
-                          </Badge>
-                          {result.sourceTitle && (
-                            <Text size="xs" className="text-text-muted">
-                              {result.sourceTitle}
-                            </Text>
-                          )}
-                          {isExternal && <IconLink size={12} className="text-text-muted" />}
-                        </Group>
-                        <Text size="xs" className="text-text-muted">
-                          {((result.relevanceScore ?? 0) * 100).toFixed(1)}% match
-                        </Text>
-                      </Group>
-                      <Text size="sm" className="text-text-primary line-clamp-3">
-                        {result.content}
-                      </Text>
-                      {result.meetingDate && (
-                        <Text size="xs" className="text-text-muted mt-1">
-                          {new Date(result.meetingDate).toLocaleDateString()}
-                        </Text>
-                      )}
-                    </Card>
-                  );
+  const renderRecentColumn = () => (
+    <div>
+      <div className={styles.colHeading}>
+        <span>Recently added</span>
+        <button type="button" className={styles.headingAction} onClick={open}>
+          <IconPlus size={12} stroke={2} />
+          Add
+        </button>
+      </div>
 
-                  if (!href) {
-                    return <div key={idx}>{card}</div>;
-                  }
-                  if (isExternal) {
-                    return (
-                      <a
-                        key={idx}
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block no-underline text-inherit"
-                      >
-                        {card}
-                      </a>
-                    );
-                  }
-                  return (
-                    <Link key={idx} href={href} className="block no-underline text-inherit">
-                      {card}
-                    </Link>
-                  );
-                })}
-              </Stack>
-            ) : searchEnabled && !searchQueryResult.isFetching ? (
-              <Text className="text-text-secondary text-center py-4">
-                No results found for &quot;{debouncedQuery}&quot;
-              </Text>
-            ) : (
-              <Text className="text-text-muted text-center py-4">
-                Enter at least 3 characters to search transcriptions and resources
-              </Text>
-            )}
-          </Card>
-        </Tabs.Panel>
-      </Tabs>
+      {recentLoading ? (
+        <RowSkeletons />
+      ) : recentRows.length === 0 ? (
+        <div className={styles.empty}>Nothing saved yet. Add a note, document or web page.</div>
+      ) : (
+        recentRows.map((resource) => {
+          const contentType = resource.contentType as ContentType;
+          const Icon = contentTypeIcons[contentType] ?? IconFileText;
+          return (
+            <div key={resource.id} className={styles.row}>
+              <RowMain href={resource.url} external>
+                <Icon size={14} stroke={1.75} className={styles.rowIcon} />
+                <span className={styles.rowTitle}>{resource.title}</span>
+                {resource.pinnedAsContext && (
+                  <Tooltip label="Pinned: added to every agent chat">
+                    <IconPinnedFilled size={12} style={{ color: 'var(--brand-400)', flexShrink: 0 }} />
+                  </Tooltip>
+                )}
+              </RowMain>
+              <span className={styles.rowLabel}>
+                {contentTypeLabels[contentType] ?? resource.contentType} · {shortDate(resource.createdAt)}
+              </span>
+              <div className={styles.rowActions}>
+                <Tooltip label={resource.pinnedAsContext ? 'Unpin from agent chats' : 'Pin to every agent chat'}>
+                  <ActionIcon
+                    variant="subtle"
+                    color={resource.pinnedAsContext ? 'brand' : 'gray'}
+                    size="sm"
+                    aria-label={resource.pinnedAsContext ? 'Unpin' : 'Pin'}
+                    onClick={() =>
+                      setPinnedMutation.mutate({ id: resource.id, pinned: !resource.pinnedAsContext })
+                    }
+                  >
+                    {resource.pinnedAsContext ? <IconPinnedFilled size={14} /> : <IconPin size={14} />}
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Delete">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label="Delete"
+                    onClick={() => handleDeleteResource(resource.id)}
+                  >
+                    <IconTrash size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+
+  return (
+    <div className={styles.stage}>
+      <Text
+        size="xs"
+        tt="uppercase"
+        style={{
+          letterSpacing: '0.04em',
+          color: 'var(--color-text-muted)',
+          marginBottom: 20,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {eyebrow}
+        <Tooltip label={visibilityNote} multiline w={300} withArrow>
+          <IconInfoCircle
+            size={13}
+            stroke={1.75}
+            aria-label="Who can see this"
+            style={{ flexShrink: 0, cursor: 'help' }}
+          />
+        </Tooltip>
+      </Text>
+
+      <Title
+        order={1}
+        ta="center"
+        style={{
+          fontSize: 38,
+          fontWeight: 500,
+          letterSpacing: '-0.02em',
+          marginBottom: 28,
+          color: 'var(--color-text-primary)',
+        }}
+      >
+        What do you want to <span style={{ color: 'var(--brand-400)' }}>find?</span>
+      </Title>
+
+      <div className={styles.inputWrap}>
+        <TextInput
+          placeholder="Search meetings, pages and resources…"
+          aria-label="Search knowledge"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setSearchQuery('');
+          }}
+          leftSection={
+            <IconSearch size={18} stroke={1.75} style={{ color: 'var(--color-text-muted)' }} />
+          }
+          rightSection={
+            searchQuery ? (
+              <ActionIcon variant="subtle" color="gray" aria-label="Clear search" onClick={() => setSearchQuery('')}>
+                <IconX size={16} />
+              </ActionIcon>
+            ) : null
+          }
+          classNames={{ input: styles.input }}
+          styles={{
+            input: {
+              height: 58,
+              borderRadius: 14,
+              fontSize: 16,
+              paddingLeft: 52,
+              backgroundColor: 'var(--color-bg-secondary)',
+              borderColor: 'var(--color-border-primary)',
+              color: 'var(--color-text-primary)',
+            },
+          }}
+        />
+      </div>
+
+      <Group gap={6} mt={16} justify="center" wrap="wrap">
+        {FILTERS.map(({ id, label, icon: Icon }) => (
+          <UnstyledButton
+            key={id}
+            className={styles.chip}
+            data-active={filter === id}
+            aria-pressed={filter === id}
+            onClick={() => setFilter(id)}
+          >
+            <Icon size={12} stroke={1.75} />
+            {label}
+          </UnstyledButton>
+        ))}
+      </Group>
+
+      <Container size={860} w="100%" mt={56} px={0}>
+        {isSearching ? (
+          <div>
+            <div className={styles.colHeading}>
+              <span>Results</span>
+            </div>
+            {renderSearchResults()}
+          </div>
+        ) : (
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={32}>
+            {renderReadingColumn()}
+            {renderRecentColumn()}
+          </SimpleGrid>
+        )}
+      </Container>
 
       {/* Add Resource Modal */}
       <Modal
         opened={opened}
         onClose={close}
-        title="Add Resource"
+        title="Add to knowledge"
         size="lg"
         classNames={{
           header: 'bg-surface-secondary border-b border-border-primary',
@@ -942,13 +697,13 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           <Select
             label="Type"
             data={[
-              { value: 'web_page', label: 'Web Page' },
+              { value: 'web_page', label: 'Web page' },
               { value: 'document', label: 'Document' },
               { value: 'note', label: 'Note' },
               { value: 'bookmark', label: 'Bookmark' },
             ]}
             value={newResource.contentType}
-            onChange={(value) => setNewResource({ ...newResource, contentType: value as 'web_page' })}
+            onChange={(value) => setNewResource({ ...newResource, contentType: (value ?? 'web_page') as ContentType })}
             classNames={{
               input: 'bg-surface-primary border-border-primary text-text-primary',
               label: 'text-text-secondary',
@@ -981,6 +736,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
 
           <Textarea
             label="Content"
+            description="Pasted content is indexed, so search can find it by meaning."
             placeholder="Paste or type content here..."
             minRows={6}
             value={newResource.content}
@@ -1001,11 +757,11 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               loading={createResourceMutation.isPending}
               disabled={!newResource.title}
             >
-              Add Resource
+              Add
             </Button>
           </Group>
         </Stack>
       </Modal>
-    </Container>
+    </div>
   );
 }
