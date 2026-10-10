@@ -54,7 +54,7 @@ While a run is live, re-assigning does nothing. Once it has finished, assign aga
 A run that stops reporting for five minutes is marked **Stopped**; you are notified and can assign again.
 
 **Where do I see everything my assistant is working on?**
-A **Delegated** tab in the Inbox listing live, waiting and finished runs is coming next; until then, each action's page shows its own run.
+Open [Inbox → Delegated](/inbox?tab=delegated). It lists what your assistant is working on, what it is waiting on you for, and what it has finished — with **Mark done** and **Dismiss** on each finished row. Questions it asked you also appear under **Waiting on me**. The Inbox badge counts waiting and unreviewed results, never runs that are still working.
 
 **Does the assistant see my private things?**
 It sees what you see and acts within your permissions. Its transcript is visible only to you.

@@ -60,7 +60,7 @@ Assistant 1──1 ExternalAgent 1──1 User(isAgent)        (ADR-0067: the pr
 
 - `actions/AgentRunPill.tsx` above the Activity section of `ActionDetailContent`: "Aria · Working 1m · called 3 tools" (polls `agentRun.listForAction` every 2 s while live, plus a bounded catch-up poll when the action already reports a live run), "Worked for … · called N tools" / "Stopped after …" / "Waiting on owner" after; Cancel while live; the summary (or error) on hover; `AgentRunTranscript` (owner only, collapsible, tool → verb label map).
 - `PriorityCheckbox.isRunning` renders a spinning ring in place of the priority dot in every list row (`ActionRow` passes `agentRuns.length > 0`); the detail page swaps the status badge for a loader and "<Assistant> is working".
-- Inbox **Delegated** tab, Waiting-on-me fold-in and the badge rule live in ticket V1d (teal.bass); `agent_run` notifications already appear under Notifications and the channel matrix.
+- Inbox **Delegated** tab (`inbox/DelegatedTab.tsx`, `services/inbox/delegated.ts`): runs the viewer requested or their own Assistant performed, grouped Working / Waiting on you / Finished / Reviewed this week, one WHERE builder per group shared by count and rows. Finished rows carry **Mark done** (completes the action as the human via `applyActionUpdate`, then stamps `reviewedAt`) and **Dismiss** (stamps only). The sidebar badge adds `attention = waiting + unreviewed` and never live runs (`useInboxCounts`). **Waiting on me** gains a fifth kind, assistant questions (`assistantQuestionsWaitingOnMeWhere`: my Assistant's latest run is `WAITING_ON_OWNER` and has no successor). `agent_run` notifications appear under Notifications and the channel matrix.
 
 ## Operations
 
