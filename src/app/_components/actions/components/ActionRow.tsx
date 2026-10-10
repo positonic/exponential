@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Tooltip } from "@mantine/core";
 import { IconCalendar, IconClock, IconSparkles } from "@tabler/icons-react";
 import { HTMLContent } from "../../HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
+import { ScheduledIndicator } from "../../shared/ScheduledIndicator";
 import { ActiveTimerIndicator } from "../../ActiveTimerIndicator";
 import { TagBadgeList } from "../../TagBadge";
+import { BlockedBadge } from "../../BlockedBadge";
 import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
 import type { Action } from "~/lib/actions/types";
 import { PriorityCheckbox } from "./PriorityCheckbox";
@@ -23,6 +25,8 @@ interface ActionRowProps {
   isOverdue?: boolean;
   /** Relative age shown on overdue rows, e.g. "due 3d ago". Replaces the bare clock time. */
   overdueLabel?: string;
+  /** Hide the project chip when the list already belongs to one project. */
+  showProject?: boolean;
   bulkMode?: boolean;
   bulkSelected?: boolean;
   onBulkToggle?: (id: string) => void;
@@ -40,6 +44,7 @@ export function ActionRow({
   action,
   isOverdue = false,
   overdueLabel,
+  showProject = true,
   bulkMode = false,
   bulkSelected = false,
   onBulkToggle,
@@ -62,7 +67,6 @@ export function ActionRow({
     : null;
   const due = action.dueDate ? new Date(action.dueDate) : null;
   const timeSource = scheduled ?? due;
-  const duration = (action as Action & { duration?: number | null }).duration;
 
   const tags = action.tags?.map((t) => t.tag) ?? [];
 
@@ -89,6 +93,10 @@ export function ActionRow({
     .filter(Boolean)
     .join(" ");
 
+  // An accessible name is a string, so it carries the text of a legacy-HTML
+  // Action name rather than the markup the title renders.
+  const plainName = toPlainText(action.name) || "Untitled";
+
   return (
     <div className={className} onClick={handleRowClick}>
       {bulkMode && (
@@ -98,7 +106,7 @@ export function ActionRow({
           checked={bulkSelected}
           onChange={() => onBulkToggle?.(action.id)}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Select ${action.name}`}
+          aria-label={`Select ${plainName}`}
         />
       )}
       <PriorityCheckbox
@@ -106,7 +114,8 @@ export function ActionRow({
         status={action.status}
         isOverdue={isOverdue}
         onToggle={handleComplete}
-        ariaLabel={`Mark ${action.name} as complete`}
+        ariaLabel={`Mark ${plainName} as complete`}
+        isRunning={(action.agentRuns?.length ?? 0) > 0}
       />
       <div className={styles.body}>
         <div className={styles.title}>
@@ -132,27 +141,25 @@ export function ActionRow({
                   {formatAprDay(due)}
                 </span>
               )}
-              {scheduled && (
-                <Tooltip
-                  label={`Scheduled${duration ? ` for ${duration} min` : ""}`}
-                  withArrow
-                >
-                  <span className={styles.chip}>
-                    <IconClock size={10} />
-                    {formatClockTime(scheduled)}
-                  </span>
-                </Tooltip>
-              )}
+              <ScheduledIndicator
+                action={action}
+                className={styles.chip}
+                unscheduledClassName={styles.chipUnscheduled}
+                iconSize={10}
+              />
             </>
           )}
-          <ProjectChip
-            projectId={action.projectId ?? null}
-            projectName={projectName}
-          />
+          {showProject && (
+            <ProjectChip
+              projectId={action.projectId ?? null}
+              projectName={projectName}
+            />
+          )}
           <SyncStatusIndicator action={action} />
           {tags.length > 0 && (
             <TagBadgeList tags={tags} maxDisplay={2} size="xs" />
           )}
+          <BlockedBadge status={action.status} depsOut={action.depsOut} size="xs" />
           <RowCreatorBadge
             createdBy={action.createdBy}
             createdById={action.createdById}

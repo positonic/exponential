@@ -36,9 +36,17 @@ export const CommentResolution = Extension.create({
             const decorations: Decoration[] = [];
             state.doc.descendants((node, pos) => {
               if (!node.isText) return;
-              const mark = node.marks.find((m) => m.type.name === "comment");
-              const threadId = mark?.attrs.threadId as string | undefined;
-              if (mark && threadId && resolved.has(threadId)) {
+              // Overlapping threads nest their mark spans around one text node,
+              // and the CSS hides every highlight span containing this
+              // decoration — so decorate only text whose threads are ALL
+              // resolved, or an open thread's highlight would vanish too.
+              const threadIds = node.marks
+                .filter((m) => m.type.name === "comment")
+                .map((m) => m.attrs.threadId as string | undefined);
+              if (
+                threadIds.length > 0 &&
+                threadIds.every((id) => id != null && resolved.has(id))
+              ) {
                 decorations.push(
                   Decoration.inline(pos, pos + node.nodeSize, {
                     class: "prd-comment-resolved",

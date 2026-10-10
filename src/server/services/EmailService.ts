@@ -13,8 +13,27 @@ import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { db } from "~/server/db";
 import { getDecryptedKey } from "~/server/utils/credentialHelper";
+import {
+  formatSignInCode,
+  SIGN_IN_CODE_TTL_MINUTES,
+} from "~/lib/signInCode";
 
 const POSTMARK_API_URL = "https://api.postmarkapp.com/email";
+
+/**
+ * Escape a value before interpolating it into an email's HTML body.
+ *
+ * Workspace and person names are attacker-writable text that lands in someone
+ * else's inbox, where injected markup reads as part of a legitimate email.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 interface PostmarkConfig {
   apiKey: string | null;
@@ -80,6 +99,13 @@ export async function resolvePostmark(
 // Source of truth is `colorTokens.light.brand.primary` in `src/styles/colors.ts`.
 const EMAIL_BRAND_COLOR = colorTokens.light.brand.primary;
 
+interface EmailAttachment {
+  Name: string;
+  /** Base64-encoded file content. */
+  Content: string;
+  ContentType: string;
+}
+
 interface SendEmailParams {
   to: string;
   subject: string;
@@ -90,9 +116,26 @@ interface SendEmailParams {
    * preferred over the env default. Omit for pre-login / non-workspace emails.
    */
   workspaceId?: string;
+  /** Postmark Attachments array — e.g. an iCalendar invite. */
+  attachments?: EmailAttachment[];
 }
 
-async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendEmailParams): Promise<void> {
+/**
+ * Test-only kill switch: with `EMAIL_DELIVERY_DISABLED` set, nothing is ever
+ * delivered — whatever key the environment carries and whatever Postmark
+ * integration a workspace has. The e2e server runs with it, so a spec that
+ * books a meeting can never email real calendar invites. Sends fail, which
+ * every caller already treats as non-fatal.
+ */
+export function isEmailDeliveryDisabled(): boolean {
+  const flag = process.env.EMAIL_DELIVERY_DISABLED;
+  return flag === "1" || flag === "true";
+}
+
+async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachments }: SendEmailParams): Promise<void> {
+  if (isEmailDeliveryDisabled()) {
+    throw new Error("Email delivery is disabled (EMAIL_DELIVERY_DISABLED)");
+  }
   const { apiKey, from } = await resolvePostmark(workspaceId);
 
   if (!apiKey) {
@@ -101,6 +144,11 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendE
     );
     throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
   }
+
+  // Subjects can carry user-authored text (workspace, project, person names).
+  // Postmark's JSON API builds the MIME itself, but strip header-control
+  // characters anyway so no caller can ever smuggle CR/LF into a header.
+  const safeSubject = subject.replace(/[\r\n\0]/g, " ");
 
   const response = await fetch(POSTMARK_API_URL, {
     method: "POST",
@@ -112,10 +160,11 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendE
     body: JSON.stringify({
       From: from,
       To: to,
-      Subject: subject,
+      Subject: safeSubject,
       HtmlBody: htmlBody,
       TextBody: textBody,
       MessageStream: "outbound",
+      ...(attachments && attachments.length > 0 ? { Attachments: attachments } : {}),
     }),
   });
 
@@ -127,13 +176,17 @@ async function sendEmail({ to, subject, htmlBody, textBody, workspaceId }: SendE
 }
 
 /**
- * Send magic link sign-in email (for returning users)
+ * Send the Sign-in code email (for returning users).
+ *
+ * Contains no link, deliberately — see
+ * [ADR-0056](../../../docs/adr/0056-sign-in-codes-replace-magic-links.md).
+ * Corporate mail scanners follow URLs in email and the token is single-use, so
+ * a link here gets spent before the human ever clicks it.
  */
-export async function sendMagicLinkEmail(
+export async function sendSignInCodeEmail(
   email: string,
-  url: string
+  code: string
 ): Promise<void> {
-  const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
 
   const htmlBody = `
@@ -164,31 +217,23 @@ export async function sendMagicLinkEmail(
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                Click the button below to securely access your account.
+                Enter this code on the sign-in page to access your account.
               </p>
 
-              <!-- CTA Button -->
+              <!-- Sign-in code -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${url}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                      Sign In
-                    </a>
+                    <div style="display: inline-block; padding: 16px 32px; background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; letter-spacing: 4px; color: #111827;">
+                      ${formatSignInCode(code)}
+                    </div>
                   </td>
                 </tr>
               </table>
 
-              <!-- Fallback Link -->
-              <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
-                Or copy and paste this link into your browser:
-              </p>
-              <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${url}
-              </p>
-
               <!-- Expiration Notice -->
               <p style="margin: 0; padding: 12px 16px; background-color: #f3f4f6; border-radius: 6px; font-size: 13px; color: #6b7280;">
-                This link expires in 24 hours.
+                This code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
               </p>
             </td>
           </tr>
@@ -212,36 +257,39 @@ export async function sendMagicLinkEmail(
   const textBody = `
 Sign in to ${appName}
 
-Click the link below to securely access your account:
-${url}
+Enter this code on the sign-in page to access your account:
 
-This link expires in 24 hours.
+${formatSignInCode(code)}
+
+This code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
 
 Didn't request this? You can safely ignore this email.
 `.trim();
 
   await sendEmail({
     to: email,
-    subject: `Your sign-in link for ${appName}`,
+    subject: `Your sign-in code for ${appName}`,
     htmlBody,
     textBody,
   });
 }
 
 /**
- * Generate the welcome email HTML content (shared between magic link and OAuth flows)
+ * Send the Sign-in code email for a brand-new email address (first sign-in).
+ *
+ * Deliberately as minimal as the returning-user variant above — greeting, code,
+ * expiry, nothing else — so the code is visible in preview panes and
+ * notification banners. All onboarding content waits for the **Welcome email**
+ * (`sendFirstLoginWelcomeEmail`), sent after the first successful sign-in.
+ * Workspace-agnostic on purpose: an invitee already received the invite email
+ * naming the workspace, and this path must not grow DB lookups for flavor text.
+ * Carries a code rather than a link — see ADR-0056.
  */
-function generateWelcomeEmailContent(options: {
-  brandColor: string;
-  appName: string;
-  appUrl: string;
-  ctaUrl: string;
-  ctaText: string;
-  showExpiration?: boolean;
-  greeting: string;
-}): { htmlBody: string; textBody: string } {
-  const { brandColor, appName, appUrl, ctaUrl, ctaText, showExpiration, greeting } = options;
-  const dailyPlannerUrl = `${appUrl}/daily-plan`;
+export async function sendWelcomeWithSignInCodeEmail(
+  email: string,
+  code: string
+): Promise<void> {
+  const appName = PRODUCT_NAME;
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -257,11 +305,11 @@ function generateWelcomeEmailContent(options: {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
     <tr>
       <td align="center" style="padding: 40px 20px;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
-              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #111827;">
+              <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
                 Welcome to ${appName}
               </h1>
             </td>
@@ -271,10 +319,176 @@ function generateWelcomeEmailContent(options: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${greeting}
+                Hi there,
+              </p>
+              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                Sign in &amp; start planning — enter this code on the sign-in page:
+              </p>
+
+              <!-- Sign-in code -->
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center" style="padding: 8px 0 24px;">
+                    <div style="display: inline-block; padding: 16px 32px; background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 28px; font-weight: 600; letter-spacing: 4px; color: #111827;">
+                      ${formatSignInCode(code)}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Expiration Notice -->
+              <p style="margin: 0; padding: 12px 16px; background-color: #f3f4f6; border-radius: 6px; font-size: 13px; color: #6b7280;">
+                This sign-in code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 24px 32px 32px;">
+              <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
+                Didn't request this? You can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`.trim();
+
+  const textBody = `
+Welcome to ${appName}
+
+Hi there,
+
+Sign in & start planning — enter this code on the sign-in page:
+
+${formatSignInCode(code)}
+
+This sign-in code expires in ${SIGN_IN_CODE_TTL_MINUTES} minutes.
+
+Didn't request this? You can safely ignore this email.
+`.trim();
+
+  await sendEmail({
+    to: email,
+    subject: `Welcome to ${appName} — your sign-in code`,
+    htmlBody,
+    textBody,
+  });
+}
+
+/** Invited-workspace frame for the Welcome email. */
+export interface FirstLoginWelcomeInvited {
+  workspaceName: string;
+  /** Inviter's display name; null renders a nameless "You've been added" opening. */
+  inviterName: string | null;
+}
+
+export interface FirstLoginWelcomeParams {
+  to: string;
+  name?: string | null;
+  invited?: FirstLoginWelcomeInvited;
+  chatTools?: { slack: boolean; matrix: boolean };
+}
+
+/**
+ * Build the **Welcome email** — the single onboarding email a user ever
+ * receives, fired once from `events.createUser` after the first successful
+ * sign-in on any provider. Replaces both the OAuth-only welcome and the long
+ * welcome-with-code email: the sign-in code emails stay minimal, and the pitch
+ * waits until the person is actually in (see CONTEXT.md, "Welcome email").
+ *
+ * One shared body with a variant frame: with `invited` set, the frame names
+ * the first accepted invited workspace (subject and heading) and the inviter
+ * (opening line). Tailoring is deterministic only — `chatTools` decides which
+ * chat tool the task-layer bullet names (Matrix only when the invited
+ * workspace demonstrably uses it; Slack is the default, including for organic
+ * signups).
+ *
+ * Pure content builder, no I/O — exported so the branch matrix
+ * (invited × inviter × chatTools × name) is unit-testable without a Postmark
+ * stub. `sendFirstLoginWelcomeEmail` below is the thin send wrapper.
+ */
+export function buildFirstLoginWelcomeEmail(params: FirstLoginWelcomeParams): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { name, invited, chatTools } = params;
+  const brandColor = EMAIL_BRAND_COLOR;
+  const appName = PRODUCT_NAME;
+  // NEXTAUTH_URL is commonly configured with a trailing slash; strip it so
+  // the CTA link isn't `https://host//daily-plan`.
+  const appUrl = (process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv()).replace(/\/+$/, "");
+  const dailyPlannerUrl = `${appUrl}/daily-plan`;
+
+  const chatToolPhrase = chatTools?.matrix
+    ? chatTools.slack
+      ? "Slack or Matrix"
+      : "Matrix"
+    : "Slack";
+
+  // `??` alone would let a whitespace-only stored name through and render
+  // "Hi  ," — treat blank as missing (same guard as `resolveInvitedContext`).
+  const trimmedName = name?.trim();
+  const greetingHtml = trimmedName ? `Hi ${escapeHtml(trimmedName)},` : "Hi there,";
+  const greetingText = trimmedName ? `Hi ${trimmedName},` : "Hi there,";
+
+  const heading = invited
+    ? `You've joined ${invited.workspaceName}`
+    : `Welcome to ${appName}`;
+
+  const openingHtml = invited
+    ? invited.inviterName
+      ? `<strong>${escapeHtml(invited.inviterName)}</strong> added you to <strong>${escapeHtml(invited.workspaceName)}</strong> — you're in.`
+      : `You've been added to <strong>${escapeHtml(invited.workspaceName)}</strong> — you're in.`
+    : `Thanks for signing up for ${appName}.`;
+  const openingText = invited
+    ? invited.inviterName
+      ? `${invited.inviterName} added you to ${invited.workspaceName} — you're in.`
+      : `You've been added to ${invited.workspaceName} — you're in.`
+    : `Thanks for signing up for ${appName}.`;
+
+  const subject = invited
+    ? `Welcome to ${invited.workspaceName} on ${appName}`
+    : `Welcome to ${appName} — here's the only thing you need to do`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>${escapeHtml(heading)}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 32px 32px 24px; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 600; color: #111827;">
+                ${escapeHtml(heading)}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding: 0 32px;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+                ${greetingHtml}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                Thanks for signing up for ${appName}.
+                ${openingHtml}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
                 I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
@@ -292,7 +506,7 @@ function generateWelcomeEmailContent(options: {
               <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
                 Today, do one thing:
               </p>
-              <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
                 Open ${appName} and go through <a href="${dailyPlannerUrl}" style="color: ${brandColor}; text-decoration: none;">Daily Planning</a>. In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
               </p>
 
@@ -300,19 +514,12 @@ function generateWelcomeEmailContent(options: {
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                      ${ctaText}
+                    <a href="${dailyPlannerUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                      Start today's plan
                     </a>
                   </td>
                 </tr>
               </table>
-
-              ${showExpiration ? `
-              <!-- Expiration Notice -->
-              <p style="margin: 0 0 24px; padding: 12px 16px; background-color: #fef3c7; border-radius: 6px; font-size: 13px; color: #92400e;">
-                This sign-in link expires in 24 hours.
-              </p>
-              ` : ''}
 
               <!-- After that section -->
               <div style="padding: 20px; background-color: #f3f4f6; border-radius: 6px; margin-bottom: 24px;">
@@ -320,22 +527,15 @@ function generateWelcomeEmailContent(options: {
                   After that, if you want to go deeper:
                 </p>
                 <ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8; color: #4b5563;">
-                  <li><strong>Let AI handle your task layer.</strong> Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.</li>
-                  <li><strong>Set outcomes, not tasks.</strong> What result do you want this week? ${appName} works backward from there.</li>
+                  <li><strong>Let AI handle your task layer.</strong> Connect a meeting, voice note, or ${chatToolPhrase} thread. Watch it become actions automatically.</li>
+                  <li><strong>Set personal goals and goals for the projects you're working on, not tasks.</strong> What result do you want this week? ${appName} works backward from there.</li>
                   <li><strong>Run a weekly plan.</strong> Five minutes to see which projects are healthy and which need attention.</li>
-                  <li><strong>Connect your tools.</strong> Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.</li>
+                  <li><strong>Connect your tools.</strong> Slack, Notion, GitHub, Google Calendar. One workspace with a single page which tells you what you should work on today - instead of six browser tabs!</li>
                 </ul>
               </div>
 
-              <!-- What it won't do -->
-              <p style="margin: 0 0 8px; font-size: 15px; font-weight: 600; color: #111827;">
-                What ${appName} won't do:
-              </p>
-              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                It won't magically organize your life while you scroll Twitter. You'll need to show up once a day, look at what matters, and decide what to focus on.
-              </p>
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                The AI handles execution. You handle intent. That's the deal.
+                AI handles execution. You handle intent. That's the deal.
               </p>
             </td>
           </tr>
@@ -360,11 +560,11 @@ function generateWelcomeEmailContent(options: {
 `.trim();
 
   const textBody = `
-Welcome to ${appName}
+${heading}
 
-${greeting}
+${greetingText}
 
-Thanks for signing up for ${appName}.
+${openingText}
 
 I'm not going to pretend you need to watch 12 tutorial videos and set up the "perfect workflow" before you can use it. That's procrastination dressed up as productivity.
 
@@ -376,27 +576,21 @@ TODAY, DO ONE THING:
 
 Open ${appName} and go through Daily Planning (${dailyPlannerUrl}). In a few minutes, you'll connect your day's work to actual outcomes—not just tasks to check off.
 
-${ctaText}: ${ctaUrl}
-${showExpiration ? '\nThis sign-in link expires in 24 hours.\n' : ''}
 ---
 
 AFTER THAT, IF YOU WANT TO GO DEEPER:
 
-• Let AI handle your task layer. Connect a meeting, voice note, or Slack thread. Watch it become actions automatically.
+• Let AI handle your task layer. Connect a meeting, voice note, or ${chatToolPhrase} thread. Watch it become actions automatically.
 
-• Set outcomes, not tasks. What result do you want this week? ${appName} works backward from there.
+• Set personal goals and goals for the projects you're working on, not tasks. What result do you want this week? ${appName} works backward from there.
 
 • Run a weekly plan. Five minutes to see which projects are healthy and which need attention.
 
-• Connect your tools. Slack, Notion, GitHub, Google Calendar. One workspace instead of six browser tabs.
+• Connect your tools. Slack, Notion, GitHub, Google Calendar. One workspace with a single page which tells you what you should work on today - instead of six browser tabs!
 
 ---
 
-WHAT ${appName.toUpperCase()} WON'T DO:
-
-It won't magically organize your life while you scroll Twitter. You'll need to show up once a day, look at what matters, and decide what to focus on.
-
-The AI handles execution. You handle intent. That's the deal.
+AI handles execution. You handle intent. That's the deal.
 
 ---
 
@@ -405,77 +599,15 @@ I'll check in with ideas on getting the most from ${appName}. Reply anytime—I 
 — James
 `.trim();
 
-  return { htmlBody, textBody };
+  return { subject, htmlBody, textBody };
 }
 
-/**
- * Send welcome email with embedded magic link (for new users signing up via email)
- */
-export async function sendWelcomeWithMagicLinkEmail(
-  email: string,
-  magicLinkUrl: string
+/** Send the Welcome email — thin wrapper over the pure builder above. */
+export async function sendFirstLoginWelcomeEmail(
+  params: FirstLoginWelcomeParams
 ): Promise<void> {
-  const brandColor = EMAIL_BRAND_COLOR;
-  const appName = PRODUCT_NAME;
-  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
-
-  const { htmlBody, textBody } = generateWelcomeEmailContent({
-    brandColor,
-    appName,
-    appUrl,
-    ctaUrl: magicLinkUrl,
-    ctaText: "Sign In & Start Planning",
-    showExpiration: true,
-    greeting: "Hi there,",
-  });
-
-  await sendEmail({
-    to: email,
-    subject: `Welcome to ${appName} — here's the only thing you need to do`,
-    htmlBody,
-    textBody,
-  });
-}
-
-/**
- * Send welcome email to new users (for OAuth sign-ups)
- */
-export async function sendWelcomeEmail(
-  email: string,
-  name?: string | null,
-  authProvider?: string
-): Promise<void> {
-  const brandColor = EMAIL_BRAND_COLOR;
-  const appName = PRODUCT_NAME;
-  const appUrl = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
-  const signInUrl = `${appUrl}/signin`;
-
-  const greeting = name ? `Hi ${name},` : "Hi there,";
-
-  // Determine CTA based on auth provider
-  let ctaText = "Go to Dashboard";
-  if (authProvider === "google") {
-    ctaText = "Sign in with Google";
-  } else if (authProvider === "discord") {
-    ctaText = "Sign in with Discord";
-  }
-
-  const { htmlBody, textBody } = generateWelcomeEmailContent({
-    brandColor,
-    appName,
-    appUrl,
-    ctaUrl: signInUrl,
-    ctaText,
-    showExpiration: false,
-    greeting,
-  });
-
-  await sendEmail({
-    to: email,
-    subject: `Welcome to ${appName} — here's the only thing you need to do`,
-    htmlBody,
-    textBody,
-  });
+  const { subject, htmlBody, textBody } = buildFirstLoginWelcomeEmail(params);
+  await sendEmail({ to: params.to, subject, htmlBody, textBody });
 }
 
 /**
@@ -587,18 +719,25 @@ If you weren't expecting this invitation, you can safely ignore this email.
 
 /**
  * Send a notification email to an existing user who has just been added to a workspace.
- * Unlike the invitation email, the recipient already has an account, so the CTA links
- * them straight into the workspace rather than to a sign-up flow.
+ * Unlike the invitation email, the recipient already has an account. The CTA still goes
+ * through the /invite/<token> landing page (not the bare workspace URL): they're usually
+ * signed out where they read email, and the landing page prefills their address and
+ * offers a one-click sign-in code instead of an anonymous /signin wall.
  */
 export async function sendWorkspaceMemberAddedEmail(params: {
   to: string;
   workspaceName: string;
   inviterName: string;
-  workspaceUrl: string;
+  ctaUrl: string;
 }): Promise<void> {
-  const { to, workspaceName, inviterName, workspaceUrl } = params;
+  const { to, workspaceName, inviterName, ctaUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
+  // Names come from whoever did the adding; the address is validated but still
+  // interpolated into markup. Escape everything that reaches the HTML body.
+  const safeTo = escapeHtml(to);
+  const safeWorkspaceName = escapeHtml(workspaceName);
+  const safeInviterName = escapeHtml(inviterName);
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -608,7 +747,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
-  <title>You've been added to ${workspaceName} on ${appName}</title>
+  <title>You've been added to ${safeWorkspaceName} on ${appName}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
@@ -619,7 +758,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
               <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
-                You've been added to ${workspaceName}
+                You've been added to ${safeWorkspaceName}
               </h1>
             </td>
           </tr>
@@ -628,26 +767,30 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${inviterName}</strong> has added you to the <strong>${workspaceName}</strong> workspace on ${appName}.
+                <strong>${safeInviterName}</strong> has added you to the <strong>${safeWorkspaceName}</strong> workspace on ${appName}.
               </p>
 
               <!-- CTA Button -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${workspaceUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${ctaUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       Open Workspace
                     </a>
                   </td>
                 </tr>
               </table>
 
+              <p style="margin: 0 0 24px; font-size: 13px; line-height: 1.6; color: #6b7280;">
+                If you're not signed in on this device, sign in as <strong>${safeTo}</strong> — we'll email you a short sign-in code, or use Google or Microsoft.
+              </p>
+
               <!-- Fallback Link -->
               <p style="margin: 0 0 8px; font-size: 13px; color: #6b7280;">
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${workspaceUrl}
+                ${ctaUrl}
               </p>
             </td>
           </tr>
@@ -656,7 +799,7 @@ export async function sendWorkspaceMemberAddedEmail(params: {
           <tr>
             <td style="padding: 24px 32px 32px;">
               <p style="margin: 0; font-size: 13px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
+                If you weren't expecting to be added to this workspace, you can ignore this email or contact ${safeInviterName} to be removed.
               </p>
             </td>
           </tr>
@@ -673,7 +816,9 @@ You've been added to ${workspaceName}
 
 ${inviterName} has added you to the ${workspaceName} workspace on ${appName}.
 
-Open the workspace: ${workspaceUrl}
+Open the workspace: ${ctaUrl}
+
+If you're not signed in on this device, sign in as ${to} — we'll email you a short sign-in code, or use Google or Microsoft.
 
 If you weren't expecting to be added to this workspace, you can ignore this email or contact ${inviterName} to be removed.
 `.trim();
@@ -688,6 +833,10 @@ If you weren't expecting to be added to this workspace, you can ignore this emai
 
 /**
  * Generate the notification footer HTML shared by assignment and mention emails
+ *
+ * `workspaceName` is attacker-writable text and the two settings URLs land in
+ * `href` attributes, so both are escaped in the HTML half. The text half is
+ * left raw — plain text has no markup to break out of.
  */
 function generateNotificationFooter(params: {
   workspaceName: string;
@@ -701,12 +850,12 @@ function generateNotificationFooter(params: {
           <tr>
             <td style="padding: 24px 32px 32px;">
               <p style="margin: 0 0 8px; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 24px;">
-                You're receiving this because email notifications are enabled for the <strong>${workspaceName}</strong> workspace.
+                You're receiving this because email notifications are enabled for the <strong>${escapeHtml(workspaceName)}</strong> workspace.
               </p>
               <p style="margin: 0; font-size: 12px; color: #9ca3af;">
-                <a href="${personalSettingsUrl}" style="color: #6b7280; text-decoration: underline;">Manage your notification preferences</a>
+                <a href="${escapeHtml(personalSettingsUrl)}" style="color: #6b7280; text-decoration: underline;">Manage your notification preferences</a>
                 &nbsp;&middot;&nbsp;
-                <a href="${workspaceSettingsUrl}" style="color: #6b7280; text-decoration: underline;">Workspace notification settings</a>
+                <a href="${escapeHtml(workspaceSettingsUrl)}" style="color: #6b7280; text-decoration: underline;">Workspace notification settings</a>
               </p>
             </td>
           </tr>`;
@@ -719,10 +868,7 @@ Workspace notification settings: ${workspaceSettingsUrl}`;
   return { html, text };
 }
 
-/**
- * Send email notification when a user is assigned to an action
- */
-export async function sendAssignmentNotificationEmail(params: {
+export interface AssignmentNotificationParams {
   to: string;
   assigneeName: string;
   assignerName: string;
@@ -732,12 +878,42 @@ export async function sendAssignmentNotificationEmail(params: {
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
   workspaceId?: string;
-}): Promise<void> {
-  const { to, assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
+}
+
+/**
+ * Build the assignment notification email — sent when someone assigns the
+ * recipient to an action.
+ *
+ * The assigner's display name, the action's name and the workspace name are all
+ * attacker-writable text landing in someone else's inbox, so they are escaped
+ * for the HTML body along with the action URL that goes into `href`. The
+ * plain-text body and the subject stay unescaped — there is no markup to break
+ * out of, and `sendEmail` strips CR/LF from subjects.
+ *
+ * Pure content builder, no I/O — exported so the escaping is unit-testable
+ * without a Postmark stub. `sendAssignmentNotificationEmail` below is the thin
+ * send wrapper.
+ */
+export function buildAssignmentNotificationEmail(
+  params: AssignmentNotificationParams
+): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { assigneeName, assignerName, actionName, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = assigneeName ? `Hi ${assigneeName},` : "Hi there,";
+
+  const safeGreeting = assigneeName
+    ? `Hi ${escapeHtml(assigneeName)},`
+    : "Hi there,";
+  const safeAssignerName = escapeHtml(assignerName);
+  const safeActionName = escapeHtml(actionName);
+  const safeWorkspaceName = escapeHtml(workspaceName);
+  const safeActionUrl = escapeHtml(actionUrl);
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -767,17 +943,17 @@ export async function sendAssignmentNotificationEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${greeting}
+                ${safeGreeting}
               </p>
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${assignerName}</strong> assigned you to <strong>${actionName}</strong> in ${workspaceName}.
+                <strong>${safeAssignerName}</strong> assigned you to <strong>${safeActionName}</strong> in ${safeWorkspaceName}.
               </p>
 
               <!-- CTA Button -->
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${safeActionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       View Action
                     </a>
                   </td>
@@ -789,7 +965,7 @@ export async function sendAssignmentNotificationEmail(params: {
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${actionUrl}
+                ${safeActionUrl}
               </p>
             </td>
           </tr>
@@ -815,21 +991,32 @@ View Action: ${actionUrl}
 ${footer.text}
 `.trim();
 
-  await sendEmail({
-    to,
+  return {
     subject: `[${appName}] You've been assigned to: ${actionName}`,
     htmlBody,
     textBody,
-    workspaceId,
-  });
+  };
 }
 
 /**
- * Generic, category-agnostic notification email used by the unified dispatch
- * Email channel (ADR-0045). Renders a title, a message line, and an optional CTA
- * button; includes the workspace footer when workspace context is supplied.
+ * Send email notification when a user is assigned to an action — thin wrapper
+ * over the pure builder above.
  */
-export async function sendNotificationEmail(params: {
+export async function sendAssignmentNotificationEmail(
+  params: AssignmentNotificationParams
+): Promise<void> {
+  const { subject, htmlBody, textBody } =
+    buildAssignmentNotificationEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId: params.workspaceId,
+  });
+}
+
+export interface NotificationEmailParams {
   to: string;
   title: string;
   message: string;
@@ -838,16 +1025,87 @@ export async function sendNotificationEmail(params: {
   personalSettingsUrl?: string;
   workspaceSettingsUrl?: string;
   workspaceId?: string;
-}): Promise<void> {
+  /**
+   * Optional markdown rendering of `message` (the notification's
+   * `metadata.markdown`, ADR-0059). When present the HTML body renders it —
+   * links as linked text, `**bold**` as bold — while the plain-text body keeps
+   * `message` with its bare URLs.
+   */
+  markdown?: string;
+}
+
+// One level of balanced brackets in the label ("[Bug] Login fails") and of
+// balanced parentheses in the URL (Wikipedia-style), as CommonMark allows.
+const MARKDOWN_LINK = /\[((?:[^[\]]|\[[^[\]]*\])*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
+const MARKDOWN_BOLD = /\*\*(.+?)\*\*/g;
+const EMAIL_SAFE_HREF = /^(https?:|mailto:)/i;
+
+function boldToHtml(escaped: string): string {
+  return escaped.replace(MARKDOWN_BOLD, "<strong>$1</strong>");
+}
+
+/**
+ * Render the small markdown subset notification digests use — `**bold**`,
+ * `[label](url)` links, `- ` bullets and line breaks — as email HTML.
+ *
+ * The markdown carries user-authored text (action names are themselves
+ * markdown), so every line is escaped before any markup is added. Only
+ * http(s) and mailto links become anchors; anything else (`javascript:` …)
+ * renders as its label. Bold is applied to the text and link labels only,
+ * never inside an `href`.
+ */
+function markdownToEmailHtml(markdown: string): string {
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      // split() with two capture groups yields [text, label, href, text, …].
+      const parts = escapeHtml(line.replace(/^- /, "• ")).split(MARKDOWN_LINK);
+      let html = "";
+      for (let i = 0; i < parts.length; i += 3) {
+        html += boldToHtml(parts[i] ?? "");
+        if (i + 2 >= parts.length) continue;
+        const label = boldToHtml(parts[i + 1] ?? "");
+        const href = parts[i + 2] ?? "";
+        html += EMAIL_SAFE_HREF.test(href)
+          ? `<a href="${href}" target="_blank" style="color: ${EMAIL_BRAND_COLOR}; text-decoration: underline;">${label}</a>`
+          : label;
+      }
+      return html;
+    })
+    .join("<br>");
+}
+
+/**
+ * Build the generic, category-agnostic notification email used by the unified
+ * dispatch Email channel (ADR-0045). Renders a title, a message line, and an
+ * optional CTA button; includes the workspace footer when workspace context is
+ * supplied.
+ *
+ * The title and message come straight off the `NotificationPayload`, which
+ * emitters build from user-authored project / action / comment names and
+ * content, so both are attacker-writable text landing in someone else's inbox.
+ * They are escaped for the HTML body along with the action URL, which lands in
+ * an `href` attribute. The plain-text body and the subject stay unescaped —
+ * there is no markup to break out of, and `sendEmail` strips CR/LF from
+ * subjects.
+ *
+ * Pure content builder, no I/O — exported so the escaping is unit-testable
+ * without a Postmark stub. `sendNotificationEmail` below is the thin send
+ * wrapper.
+ */
+export function buildNotificationEmail(params: NotificationEmailParams): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
   const {
-    to,
     title,
     message,
     actionUrl,
     workspaceName,
     personalSettingsUrl,
     workspaceSettingsUrl,
-    workspaceId,
+    markdown,
   } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
@@ -857,12 +1115,22 @@ export async function sendNotificationEmail(params: {
       ? generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl })
       : { html: "", text: "" };
 
-  const ctaHtml = actionUrl
+  const safeTitle = escapeHtml(title);
+  const safeActionUrl = actionUrl ? escapeHtml(actionUrl) : undefined;
+  // A notification message can be multi-line prose, so escape first and only
+  // then turn the newlines into markup — otherwise it collapses into one
+  // run-on line. A markdown variant, when supplied, gets linked text instead
+  // of bare URLs.
+  const safeMessage = markdown
+    ? markdownToEmailHtml(markdown)
+    : escapeHtml(message).replace(/\r?\n/g, "<br>");
+
+  const ctaHtml = safeActionUrl
     ? `
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${safeActionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       View in ${appName}
                     </a>
                   </td>
@@ -873,7 +1141,7 @@ export async function sendNotificationEmail(params: {
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${actionUrl}
+                ${safeActionUrl}
               </p>`
     : "";
 
@@ -885,7 +1153,7 @@ export async function sendNotificationEmail(params: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
-  <title>${title}</title>
+  <title>${safeTitle}</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="min-width: 100%; background-color: #f9fafb;">
@@ -895,14 +1163,14 @@ export async function sendNotificationEmail(params: {
           <tr>
             <td style="padding: 32px 32px 24px; text-align: center;">
               <h1 style="margin: 0; font-size: 20px; font-weight: 600; color: #111827;">
-                ${title}
+                ${safeTitle}
               </h1>
             </td>
           </tr>
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${message}
+                ${safeMessage}
               </p>
               ${ctaHtml}
             </td>
@@ -924,19 +1192,31 @@ ${actionUrl ? `\nView in ${appName}: ${actionUrl}\n` : ""}
 ${footer.text}
 `.trim();
 
-  await sendEmail({
-    to,
+  return {
     subject: `[${appName}] ${title}`,
     htmlBody,
     textBody,
-    workspaceId,
-  });
+  };
 }
 
 /**
- * Send email notification when a user is mentioned in a comment
+ * Send the generic notification email — thin wrapper over the pure builder
+ * above.
  */
-export async function sendMentionNotificationEmail(params: {
+export async function sendNotificationEmail(
+  params: NotificationEmailParams
+): Promise<void> {
+  const { subject, htmlBody, textBody } = buildNotificationEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId: params.workspaceId,
+  });
+}
+
+export interface MentionNotificationParams {
   to: string;
   mentionedName: string;
   authorName: string;
@@ -947,12 +1227,45 @@ export async function sendMentionNotificationEmail(params: {
   personalSettingsUrl: string;
   workspaceSettingsUrl: string;
   workspaceId?: string;
-}): Promise<void> {
-  const { to, mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl, workspaceId } = params;
+}
+
+/**
+ * Build the mention notification email — sent when someone @mentions the
+ * recipient in a comment.
+ *
+ * Everything interpolated here is attacker-writable: the author's display name,
+ * the commented-on action's name, and above all the comment preview, which is
+ * raw text the mentioning user typed. All of it is escaped for the HTML body,
+ * including the URLs that land in `href` attributes. The plain-text body and
+ * the subject stay unescaped — there is no markup to break out of, and
+ * `sendEmail` strips CR/LF from subjects.
+ *
+ * Pure content builder, no I/O — exported so the escaping is unit-testable
+ * without a Postmark stub. `sendMentionNotificationEmail` below is the thin
+ * send wrapper.
+ */
+export function buildMentionNotificationEmail(
+  params: MentionNotificationParams
+): {
+  subject: string;
+  htmlBody: string;
+  textBody: string;
+} {
+  const { mentionedName, authorName, actionName, commentPreview, actionUrl, workspaceName, personalSettingsUrl, workspaceSettingsUrl } = params;
   const brandColor = EMAIL_BRAND_COLOR;
   const appName = PRODUCT_NAME;
   const footer = generateNotificationFooter({ workspaceName, personalSettingsUrl, workspaceSettingsUrl });
   const greeting = mentionedName ? `Hi ${mentionedName},` : "Hi there,";
+
+  const safeGreeting = mentionedName
+    ? `Hi ${escapeHtml(mentionedName)},`
+    : "Hi there,";
+  const safeAuthorName = escapeHtml(authorName);
+  const safeActionName = escapeHtml(actionName);
+  const safeActionUrl = escapeHtml(actionUrl);
+  // A comment is multi-line prose, so escape first and only then turn the
+  // newlines into markup — otherwise the preview collapses into one run-on line.
+  const safeCommentPreview = escapeHtml(commentPreview).replace(/\r?\n/g, "<br>");
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -982,16 +1295,16 @@ export async function sendMentionNotificationEmail(params: {
           <tr>
             <td style="padding: 0 32px;">
               <p style="margin: 0 0 8px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                ${greeting}
+                ${safeGreeting}
               </p>
               <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #4b5563;">
-                <strong>${authorName}</strong> mentioned you in a comment on <strong>${actionName}</strong>:
+                <strong>${safeAuthorName}</strong> mentioned you in a comment on <strong>${safeActionName}</strong>:
               </p>
 
               <!-- Comment Preview -->
               <div style="margin: 0 0 24px; padding: 12px 16px; background-color: #f3f4f6; border-left: 3px solid ${brandColor}; border-radius: 0 6px 6px 0;">
                 <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #4b5563; font-style: italic;">
-                  "${commentPreview}"
+                  "${safeCommentPreview}"
                 </p>
               </div>
 
@@ -999,7 +1312,7 @@ export async function sendMentionNotificationEmail(params: {
               <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                 <tr>
                   <td align="center" style="padding: 8px 0 24px;">
-                    <a href="${actionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                    <a href="${safeActionUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: ${brandColor}; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
                       View Comment
                     </a>
                   </td>
@@ -1011,7 +1324,7 @@ export async function sendMentionNotificationEmail(params: {
                 Or copy and paste this link into your browser:
               </p>
               <p style="margin: 0 0 24px; font-size: 12px; color: #9ca3af; word-break: break-all;">
-                ${actionUrl}
+                ${safeActionUrl}
               </p>
             </td>
           </tr>
@@ -1039,12 +1352,27 @@ View Comment: ${actionUrl}
 ${footer.text}
 `.trim();
 
-  await sendEmail({
-    to,
+  return {
     subject: `[${appName}] ${authorName} mentioned you in: ${actionName}`,
     htmlBody,
     textBody,
-    workspaceId,
+  };
+}
+
+/**
+ * Send email notification when a user is mentioned in a comment — thin wrapper
+ * over the pure builder above.
+ */
+export async function sendMentionNotificationEmail(
+  params: MentionNotificationParams
+): Promise<void> {
+  const { subject, htmlBody, textBody } = buildMentionNotificationEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId: params.workspaceId,
   });
 }
 
@@ -1131,6 +1459,11 @@ function escapeDigestHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/** For values inside a double-quoted attribute (hrefs): text escaping plus quotes. */
+function escapeEmailAttr(s: string): string {
+  return escapeDigestHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /**
  * Renders + sends a "What Shipped Today" Broadcast digest email. The body leads
  * with the AI prose summary, then the structured per-category list; the footer
@@ -1210,10 +1543,212 @@ Unsubscribe: ${params.unsubscribeUrl}`;
   return { subject: params.subject, htmlBody, textBody };
 }
 
+/**
+ * Build a Workspace update email: the approved update's already-sanitized HTML
+ * (rendered from the approval snapshot by the shared document schema and the
+ * published-Page sanitizer), framed with the workspace name, a "read on the
+ * web" link when the update is public, and the mandatory one-click
+ * unsubscribe. Colours come from the design tokens. Pure, so the framing and
+ * escaping are unit-testable without a Postmark stub.
+ */
+export function buildWorkspaceUpdateEmail(params: {
+  subject: string;
+  /** Sanitized HTML of the approved body. */
+  bodyHtml: string;
+  /** Plain-text fallback (the approved Markdown). */
+  bodyText: string;
+  workspaceName: string;
+  unsubscribeUrl: string;
+  webUrl?: string | null;
+  greetingName?: string | null;
+}): { subject: string; htmlBody: string; textBody: string } {
+  const t = colorTokens.light;
+  const greeting = params.greetingName ? `Hi ${escapeDigestHtml(params.greetingName)},` : "Hi,";
+  const webLink = params.webUrl
+    ? `<p style="margin: 0 0 16px; font-size: 13px;"><a href="${escapeEmailAttr(params.webUrl)}" style="color: ${EMAIL_BRAND_COLOR};">Read this update on the web</a></p>`
+    : "";
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: ${t.text.primary}; line-height: 1.6; background-color: ${t.background.secondary};">
+    <div style="max-width: 640px; margin: 0 auto; background-color: ${t.background.primary}; border: 1px solid ${t.border.primary}; border-radius: 8px; padding: 24px;">
+      <p style="margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: ${t.text.muted};">${escapeDigestHtml(params.workspaceName)} update</p>
+      <h1 style="margin: 0 0 16px; font-size: 22px; color: ${t.text.primary};">${escapeDigestHtml(params.subject)}</h1>
+      <p style="margin: 0 0 8px;">${greeting}</p>
+      ${webLink}
+      <div>${params.bodyHtml}</div>
+      <hr style="border: none; border-top: 1px solid ${t.border.primary}; margin: 24px 0;" />
+      <p style="font-size: 12px; color: ${t.text.muted};">
+        You are receiving this because you subscribed to updates from ${escapeDigestHtml(params.workspaceName)}.
+        <a href="${escapeEmailAttr(params.unsubscribeUrl)}" style="color: ${t.text.muted};">Unsubscribe</a>.
+      </p>
+    </div>
+  </body>
+</html>`;
+
+  const textBody = `${params.subject}
+
+${params.greetingName ? `Hi ${params.greetingName},` : "Hi,"}
+${params.webUrl ? `\nRead on the web: ${params.webUrl}\n` : ""}
+${params.bodyText}
+
+—
+You are receiving this because you subscribed to updates from ${params.workspaceName}.
+Unsubscribe: ${params.unsubscribeUrl}`;
+
+  return { subject: params.subject, htmlBody, textBody };
+}
+
+/** Render + send a Workspace update email; returns what was sent for the CRM log. */
+export async function sendWorkspaceUpdateEmail(
+  params: Parameters<typeof buildWorkspaceUpdateEmail>[0] & { to: string; workspaceId?: string },
+): Promise<{ subject: string; htmlBody: string; textBody: string }> {
+  const rendered = buildWorkspaceUpdateEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject: rendered.subject,
+    htmlBody: rendered.htmlBody,
+    textBody: rendered.textBody,
+    workspaceId: params.workspaceId,
+  });
+  return rendered;
+}
+
+/**
+ * The double-opt-in email for a workspace's update newsletter: one button that
+ * confirms the signup. Says plainly what happens if they ignore it, since the
+ * address was typed by whoever filled the form, not necessarily its owner.
+ */
+export function buildUpdateSubscribeConfirmEmail(params: {
+  workspaceName: string;
+  confirmUrl: string;
+}): { subject: string; htmlBody: string; textBody: string } {
+  const t = colorTokens.light;
+  const name = escapeDigestHtml(params.workspaceName);
+  const url = escapeEmailAttr(params.confirmUrl);
+  const subject = `Confirm your subscription to ${params.workspaceName} updates`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <body style="margin: 0; padding: 24px; font-family: Arial, Helvetica, sans-serif; color: ${t.text.primary}; line-height: 1.6; background-color: ${t.background.secondary};">
+    <div style="max-width: 560px; margin: 0 auto; background-color: ${t.background.primary}; border: 1px solid ${t.border.primary}; border-radius: 8px; padding: 24px;">
+      <h1 style="margin: 0 0 16px; font-size: 20px; color: ${t.text.primary};">Confirm your subscription</h1>
+      <p style="margin: 0 0 16px;">Someone, hopefully you, asked to get ${name} updates at this address. Confirm and you'll get a short update when there's news.</p>
+      <p style="margin: 0 0 24px;"><a href="${url}" style="display: inline-block; padding: 10px 18px; background-color: ${EMAIL_BRAND_COLOR}; color: ${t.background.primary}; text-decoration: none; border-radius: 6px; font-weight: bold;">Confirm subscription</a></p>
+      <p style="margin: 0; font-size: 12px; color: ${t.text.muted};">If you didn't ask for this, ignore this email and you won't be subscribed. The link expires in 7 days.</p>
+    </div>
+  </body>
+</html>`;
+
+  const textBody = `Confirm your subscription
+
+Someone, hopefully you, asked to get ${params.workspaceName} updates at this address. Confirm and you'll get a short update when there's news:
+
+${params.confirmUrl}
+
+If you didn't ask for this, ignore this email and you won't be subscribed. The link expires in 7 days.`;
+
+  return { subject, htmlBody, textBody };
+}
+
+export async function sendUpdateSubscribeConfirmEmail(params: {
+  to: string;
+  workspaceName: string;
+  confirmUrl: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const rendered = buildUpdateSubscribeConfirmEmail(params);
+  await sendEmail({
+    to: params.to,
+    subject: rendered.subject,
+    htmlBody: rendered.htmlBody,
+    textBody: rendered.textBody,
+    workspaceId: params.workspaceId,
+  });
+}
+
+/**
+ * Send a meeting invite (or cancellation) with the iCalendar payload as a
+ * Postmark attachment. The .ics IS the write path to the attendee's real
+ * calendar — Outlook and Gmail render METHOD:REQUEST natively with
+ * Accept/Decline, and METHOD:CANCEL against the same UID removes it.
+ */
+export async function sendMeetingInviteEmail(params: {
+  to: string;
+  method: "REQUEST" | "CANCEL";
+  meetingTitle: string;
+  organizerName: string;
+  startsAt: Date;
+  endsAt: Date;
+  location?: string | null;
+  /** What the meeting is for (plain text), printed under When/Where. */
+  description?: string | null;
+  /** Absolute link to the meeting's page in Exponential (its agenda and notes). */
+  url?: string | null;
+  icsContent: string;
+  workspaceId?: string;
+}): Promise<void> {
+  const { to, method, meetingTitle, organizerName, startsAt, endsAt, location, description, url, icsContent, workspaceId } = params;
+
+  const cancelled = method === "CANCEL";
+  const subject = cancelled
+    ? `Cancelled: ${meetingTitle}`
+    : `Invitation: ${meetingTitle}`;
+  const when = `${startsAt.toUTCString()} – ${endsAt.toUTCString()}`;
+
+  const textBody = [
+    cancelled
+      ? `${organizerName} cancelled the meeting "${meetingTitle}".`
+      : `${organizerName} invited you to "${meetingTitle}".`,
+    ``,
+    `When: ${when}`,
+    ...(location ? [`Where: ${location}`] : []),
+    ...(description ? [``, description] : []),
+    ...(url ? [``, `Agenda and notes: ${url}`] : []),
+    ``,
+    cancelled
+      ? `The attached calendar file removes the event from your calendar.`
+      : `Open the attached calendar file or use your mail client's Accept/Decline buttons to respond.`,
+  ].join("\n");
+
+  const htmlBody = `
+    <div style="font-family: sans-serif; max-width: 560px;">
+      <h2 style="color: ${EMAIL_BRAND_COLOR};">${cancelled ? "Meeting cancelled" : "Meeting invitation"}</h2>
+      <p>${escapeHtml(organizerName)} ${cancelled ? "cancelled" : "invited you to"} <strong>${escapeHtml(meetingTitle)}</strong>.</p>
+      <p><strong>When:</strong> ${when}</p>
+      ${location ? `<p><strong>Where:</strong> ${escapeHtml(location)}</p>` : ""}
+      ${description ? `<p style="white-space: pre-line;">${escapeHtml(description)}</p>` : ""}
+      ${url ? `<p><a href="${escapeHtml(url)}">Agenda and notes</a></p>` : ""}
+      <p style="color: #4b5563;">${
+        cancelled
+          ? "The attached calendar file removes the event from your calendar."
+          : "Your mail client should offer Accept / Decline directly; otherwise open the attached invite."
+      }</p>
+    </div>
+  `;
+
+  await sendEmail({
+    to,
+    subject,
+    htmlBody,
+    textBody,
+    workspaceId,
+    attachments: [
+      {
+        Name: "invite.ics",
+        Content: Buffer.from(icsContent, "utf8").toString("base64"),
+        ContentType: `text/calendar; charset=utf-8; method=${method}`,
+      },
+    ],
+  });
+}
+
 export const EmailService = {
-  sendMagicLinkEmail,
-  sendWelcomeEmail,
-  sendWelcomeWithMagicLinkEmail,
+  sendSignInCodeEmail,
+  sendWelcomeWithSignInCodeEmail,
+  sendFirstLoginWelcomeEmail,
   sendTeamInvitationEmail,
   sendWorkspaceMemberAddedEmail,
   sendAssignmentNotificationEmail,
@@ -1221,4 +1756,7 @@ export const EmailService = {
   sendCrmOnboardingWelcomeEmail,
   sendCrmAutomationEmail,
   sendBroadcastDigestEmail,
+  sendWorkspaceUpdateEmail,
+  sendUpdateSubscribeConfirmEmail,
+  sendMeetingInviteEmail,
 };

@@ -35,7 +35,7 @@ export function FeatureTicketsSection({
   /** Base href of the product's ticket pages (`.../products/<slug>/tickets`). */
   ticketsPath: string;
 }) {
-  const { data: tickets, isLoading } = api.product.ticket.list.useQuery(
+  const { data: tickets, isLoading } = api.product.ticket.listSummaries.useQuery(
     { productId, featureId },
     { enabled: !!productId && !!featureId },
   );

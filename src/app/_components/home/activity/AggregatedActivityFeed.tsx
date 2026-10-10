@@ -7,6 +7,11 @@ import { useEffect, useState } from 'react';
 import { api } from '~/trpc/react';
 import { ActivityRow, type FeedRowEvent } from './activityRow';
 import { SourceSwitcher } from './SourceSwitcher';
+import {
+  ActorSwitcher,
+  parseActivityActor,
+  type ActivityActor,
+} from './ActorSwitcher';
 import { WeeklyWorkDigestPanel } from './WeeklyWorkDigestPanel';
 
 import './activity-home.css';
@@ -30,6 +35,7 @@ export function AggregatedActivityFeed() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const source = searchParams.get('source') ?? 'all';
+  const actor = parseActivityActor(searchParams.get('who'));
 
   const [cursor, setCursor] = useState<string | null>(null);
   const [accumulated, setAccumulated] = useState<FeedRowEvent[]>([]);
@@ -37,21 +43,25 @@ export function AggregatedActivityFeed() {
   useEffect(() => {
     setCursor(null);
     setAccumulated([]);
-  }, [source]);
+  }, [source, actor]);
 
   const { data, isLoading } = api.workspace.getMyActivityFeed.useQuery({
     cursor: cursor ?? undefined,
     limit: PAGE_SIZE,
     source,
+    mine: actor === 'mine',
   });
 
-  function setSource(next: string) {
+  // Each filter lives in the URL; its default value is left out of it.
+  function setParam(key: string, next: string, defaultValue: string) {
     const params = new URLSearchParams(searchParams.toString());
-    if (next === 'all') params.delete('source');
-    else params.set('source', next);
+    if (next === defaultValue) params.delete(key);
+    else params.set(key, next);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
   }
+  const setSource = (next: string) => setParam('source', next, 'all');
+  const setActor = (next: ActivityActor) => setParam('who', next, 'everyone');
 
   const fresh: FeedRowEvent[] = (data?.events ?? []).map((e) => ({
     ...e,
@@ -100,7 +110,7 @@ export function AggregatedActivityFeed() {
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconClipboardList size={14} stroke={1.8} />
-              Workspace activity
+              {actor === 'mine' ? 'Your activity' : 'Workspace activity'}
               {data ? (
                 <span className="wsa-card__count">
                   {display.length}
@@ -108,6 +118,7 @@ export function AggregatedActivityFeed() {
                 </span>
               ) : null}
             </h2>
+            <ActorSwitcher value={actor} onChange={setActor} />
           </div>
 
           <SourceSwitcher
@@ -138,6 +149,11 @@ export function AggregatedActivityFeed() {
                 </div>
               ))}
             </Stack>
+          ) : isEmpty && actor === 'mine' ? (
+            <p className="wsa-feed__empty">
+              Nothing from you yet{source === 'all' ? '' : ' in this source'}.
+              What you create, update, complete, or comment on shows up here.
+            </p>
           ) : isEmpty ? (
             <p className="wsa-feed__empty">
               No activity yet. Events show up here when you create, update,

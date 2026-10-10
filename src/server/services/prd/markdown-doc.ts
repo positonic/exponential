@@ -3,7 +3,7 @@ import "server-only";
 import type { JSONContent } from "@tiptap/core";
 import { Window } from "happy-dom";
 
-import { markdownToDoc } from "~/lib/prd/codec";
+import { docToMarkdown, markdownToDoc } from "~/lib/prd/codec";
 
 /**
  * Server-side Markdown → ProseMirror JSON, for API writes that carry only the
@@ -113,13 +113,26 @@ function withDom<T>(fn: () => T): T {
 /**
  * Convert a Markdown `description` into the canonical `descriptionDoc` form.
  * Same output as the client's lazy migration ({@link markdownToDoc}) — it *is*
- * that function, run under a throwaway DOM. Comment marks cannot survive (the
- * Markdown projection never carried them), so callers rewriting an existing
- * doc orphan any anchored comment threads — the same trade-off as a full-body
- * rewrite in the editor.
+ * that function, run under a throwaway DOM. The Markdown projection never
+ * carried comment marks, so the result has none; callers rewriting an existing
+ * doc carry them across with `withCarriedCommentMarks`
+ * (`~/server/services/prd/anchor-comment`).
  */
 export function markdownToDocServer(
   markdown: string | null | undefined,
 ): JSONContent {
   return withDom(() => markdownToDoc(markdown));
+}
+
+/**
+ * The reverse projection, ProseMirror JSON → Markdown, for server writers
+ * that assemble a doc themselves (ceremony notes seeding and the post-capture
+ * append) and must store the Markdown `body` the same way the editor would.
+ * Deriving the projection from the doc, rather than concatenating Markdown
+ * strings, keeps the two representations in step (ADR-0024).
+ */
+export function docToMarkdownServer(
+  doc: JSONContent | null | undefined,
+): string {
+  return withDom(() => docToMarkdown(doc));
 }

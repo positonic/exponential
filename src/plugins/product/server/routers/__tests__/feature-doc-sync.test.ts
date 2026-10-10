@@ -96,6 +96,8 @@ vi.mock("~/lib/blob", () => ({
 
 // ── Imports of code under test (must come AFTER vi.mock calls) ───────
 import { createMockCaller } from "~/test/trpc-helpers";
+import type { JSONContent } from "@tiptap/core";
+import { collectAnchoredThreadIds } from "~/lib/prd/thread-reconciliation";
 
 const callerId = "user-1";
 const workspaceId = "ws-1";
@@ -112,7 +114,7 @@ function stubFeatureAccess(dbMock: DeepMockProxy<PrismaClient>) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any,
   );
-  // assertWorkspaceMember's membership probe.
+  // assertWorkspaceAccess's membership probe.
   dbMock.workspaceUser.findUnique.mockResolvedValue(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     { role: "member", workspaceId } as any,
@@ -158,6 +160,49 @@ describe("feature.update — Markdown-only description sync (mocked)", () => {
     };
     expect(doc.type).toBe("doc");
     expect(doc.content.map((n) => n.type)).toEqual(["heading", "taskList"]);
+  });
+
+  it("carries comment marks across the rewrite wherever their text survived", async () => {
+    const marked = (text: string, threadId: string) => ({
+      type: "text",
+      text,
+      marks: [{ type: "comment", attrs: { threadId } }],
+    });
+    dbMock.feature.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        id: featureId,
+        productId: "prod-1",
+        product: { workspaceId },
+        description: "old",
+        descriptionDoc: {
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "It can change the view (" },
+                marked("Agent navigation", "kept"),
+                { type: "text", text: ") but " },
+                marked("a sentence the agent cut", "cut"),
+                { type: "text", text: "." },
+              ],
+            },
+          ],
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    );
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.feature.update({
+      id: featureId,
+      description: "A new intro.\n\nIt can change the view (Agent navigation, always undoable).",
+    });
+
+    expect(collectAnchoredThreadIds(updateData(dbMock)?.descriptionDoc as JSONContent)).toEqual(
+      new Set(["kept"]),
+    );
   });
 
   it("skips the doc rewrite when the incoming Markdown is unchanged", async () => {

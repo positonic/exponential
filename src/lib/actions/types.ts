@@ -8,22 +8,29 @@ type ActionWithSyncs = RouterOutputs["action"]["getAll"][number];
  * Compatible with these tRPC queries (which return supersets of this shape):
  *   - action.getAll
  *   - action.getById
- *   - action.getProjectActions
+ *   - action.getProjectActions (its `project` is a slimmed
+ *     {id, name, slug, workspaceId} select rather than the full row)
  *   - action.getByTranscription
  *
- * The `createdBy`, `lists`, `epic`, `tags`, and `syncs` fields are optional
+ * The `createdBy`, `lists`, `epic`, `tags`, `syncs` and blocker fields are optional
  * because not every query selects them; consumers should treat them as
  * possibly-undefined.
  */
 export type Action = Omit<
   ActionWithSyncs,
-  "createdBy" | "lists" | "epic" | "tags" | "syncs"
+  "createdBy" | "lists" | "epic" | "tags" | "syncs" | "depsOut" | "openBlockerCount" | "isBlocked" | "agentRuns"
 > & {
   createdBy?: ActionWithSyncs["createdBy"] | null;
+  /** The live Agent run (at most one) on queries that include it (ADR-0067); drives the title spinner. */
+  agentRuns?: ActionWithSyncs["agentRuns"];
   lists?: ActionWithSyncs["lists"];
   epic?: ActionWithSyncs["epic"] | null;
   tags?: ActionWithSyncs["tags"];
   syncs?: ActionWithSyncs["syncs"];
+  /** Blockers (`ActionDependency` edges) and the state derived from them; absent on queries that do not include them. */
+  depsOut?: ActionWithSyncs["depsOut"];
+  openBlockerCount?: number;
+  isBlocked?: boolean;
 };
 
 /**

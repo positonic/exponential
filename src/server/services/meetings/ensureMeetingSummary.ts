@@ -6,10 +6,14 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { markOccurrenceCaptured } from "~/server/services/ceremonies/agenda/items";
+import { summaryToMarkdown } from "~/server/services/ceremonies/notesSeed";
 import {
   extractReadableTranscript,
   MAX_SUMMARY_TRANSCRIPT_CHARS,
 } from "~/server/services/meetings/extractReadableTranscript";
+import { isPostSummaryDecisionExtractionEnabled } from "~/server/services/decisions/postSummaryExtraction";
+import { generateDraftDecisions } from "~/server/services/decisions/generateDraftDecisions";
 
 /**
  * The one place a meeting transcript becomes a persisted summary.
@@ -35,6 +39,8 @@ export interface SummarizableMeetingRow {
   summary: string | null;
   workspaceId: string | null;
   userId: string | null;
+  /** The ceremony occurrence this recording captured (ADR-0059), when known. */
+  occurrenceId?: string | null;
 }
 
 export type EnsureMeetingSummaryStatus =
@@ -46,8 +52,8 @@ export type EnsureMeetingSummaryStatus =
   | "no-transcript"
   /** Summarization isn't configured (missing OPENAI_API_KEY). */
   | "not-configured"
-  /** The meeting row could not be found. */
-  | "not-found";
+  /** The model call failed (billing, rate limit, timeout, bad output). */
+  | "failed";
 
 export interface EnsureMeetingSummaryResult {
   status: EnsureMeetingSummaryStatus;
@@ -55,6 +61,8 @@ export interface EnsureMeetingSummaryResult {
   summary?: string;
   /** True when a `meeting`/`summarized` activity event was written. */
   eventEmitted: boolean;
+  /** Why the model call failed, present when status is `failed`. */
+  error?: string;
 }
 
 export interface SummarizeMeetingOptions {
@@ -65,12 +73,25 @@ export interface SummarizeMeetingOptions {
    * a summary a user may have hand-edited.
    */
   overwriteExisting?: boolean;
+  /**
+   * Run post-summary decision extraction (Decisions V2, ADR-0060) once the
+   * first summary lands. Off by default so a bare call stays a pure
+   * summarize; both production callers (the sweep and the manual
+   * `generateSummary` mutation) set it, and the workspace gate inside
+   * decides whether anything actually runs. It only ever fires on the
+   * null → summary transition, so a re-summarize with `overwriteExisting`
+   * never re-extracts. If the sweep's 300s budget kills a run mid-extraction
+   * the summary is already persisted and the drafts are recoverable from
+   * the summary tab's "Extract decisions" chip.
+   */
+  extractDecisions?: boolean;
 }
 
 /**
  * Summarize an already-fetched meeting row and persist the result. Never throws
- * for per-meeting failures (transcript empty, LLM error) — those resolve to a
- * status the caller can act on — so a single bad transcript can't sink a batch.
+ * for per-meeting failures (transcript empty → `no-transcript`, LLM error →
+ * `failed`) — those resolve to a status the caller can act on — so a single bad
+ * transcript can't sink a batch.
  *
  * Access control is the CALLER's responsibility: this is a trusted server-side
  * primitive (the cron sweep has no user to authorize against).
@@ -103,12 +124,13 @@ export async function summarizeMeetingRow(
     if (error instanceof SummarizationNotConfiguredError) {
       return { status: "not-configured", eventEmitted: false };
     }
+    const message = error instanceof Error ? error.message : String(error);
     console.error(
       "[ensureMeetingSummary] failed to summarize meeting",
       meeting.id,
-      error instanceof Error ? error.message : String(error),
+      message,
     );
-    return { status: "no-transcript", eventEmitted: false };
+    return { status: "failed", eventEmitted: false, error: message };
   }
 
   // Conditional persist guards against a concurrent writer having filled
@@ -161,34 +183,35 @@ export async function summarizeMeetingRow(
     });
   }
 
-  return { status: "created", summary: summaryJson, eventEmitted };
-}
-
-/**
- * Fetch a meeting by id and ensure it has a summary. The by-id wrapper for
- * single-meeting callers (the manual mutation, the on-view detail trigger).
- * Returns `not-found` when the id doesn't resolve.
- */
-export async function ensureMeetingSummary(
-  db: PrismaClient,
-  meetingId: string,
-  options: SummarizeMeetingOptions = {},
-): Promise<EnsureMeetingSummaryResult> {
-  const meeting = await db.transcriptionSession.findUnique({
-    where: { id: meetingId },
-    select: {
-      id: true,
-      title: true,
-      transcription: true,
-      summary: true,
-      workspaceId: true,
-      userId: true,
-    },
-  });
-
-  if (!meeting) {
-    return { status: "not-found", eventEmitted: false };
+  // A summarised recording means its ceremony occurrence was captured
+  // (ADR-0059): move the occurrence on and carry unresolved agenda items
+  // into the next one. Same first-summary transition, so it never repeats.
+  if (meeting.occurrenceId) {
+    await markOccurrenceCaptured(db, meeting.occurrenceId, { summaryMarkdown: summaryToMarkdown(summaryJson) });
   }
 
-  return summarizeMeetingRow(db, meeting, options);
+  // Opt-in twice over (Decisions V2, ADR-0060): the caller must ask for it
+  // AND the workspace must be enabled. Same null → value transition as the
+  // event and the notification, so it never re-runs on a re-summarize; the
+  // service itself short-circuits on existing drafts. Awaited rather than
+  // void'd so it survives a serverless response ending; a failure here never
+  // fails the summary, and the service reports it to Sentry.
+  if (
+    options.extractDecisions &&
+    meeting.workspaceId &&
+    meeting.userId &&
+    isPostSummaryDecisionExtractionEnabled(meeting.workspaceId)
+  ) {
+    try {
+      await generateDraftDecisions(db, meeting.id, meeting.userId, { trigger: "post_summary" });
+    } catch (error) {
+      console.error(
+        "[ensureMeetingSummary] post-summary decision extraction failed",
+        meeting.id,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  return { status: "created", summary: summaryJson, eventEmitted };
 }

@@ -3,16 +3,52 @@
 import Image from "next/image";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getDesktopBridge } from "~/lib/platform";
+import { AuthMarketingPanel } from "~/app/_components/auth/AuthMarketingPanel";
+import {
+  normalizeSignInEmail,
+  SEND_FAILED_MESSAGE,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from "~/lib/signInCode";
 import "~/styles/auth-surface.css";
 
+/**
+ * Turn an Auth.js `?error=` code into something a person can act on.
+ *
+ * Worth having rather than failing silently: `Verification` is what a mistyped
+ * or expired **Sign-in code** produces, and before this the user was bounced to
+ * a blank sign-in form with no explanation — indistinguishable from the app
+ * being broken.
+ *
+ * Only the codes in Auth.js's `clientErrors` set arrive here intact; everything
+ * else — including a failed send, which is `EmailSignInError` internally — is
+ * flattened to `Configuration` before it reaches the browser. So a failed send
+ * is caught at the call site instead, where we still know what happened.
+ */
+function signInErrorMessage(error: string | null): string | null {
+  switch (error) {
+    case null:
+      return null;
+    case "Verification":
+      return "That sign-in code is incorrect, has expired, or has already been used. Request a new one below.";
+    case "AccessDenied":
+      return "That account doesn't have access. Try a different one, or contact support.";
+    default:
+      return "Something went wrong signing you in. Please try again.";
+  }
+}
+
 export function SignInLandingPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/home";
+  const [sendError, setSendError] = useState<string | null>(null);
+  const errorMessage = sendError ?? signInErrorMessage(searchParams.get("error"));
 
   const [email, setEmail] = useState("");
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
@@ -38,15 +74,43 @@ export function SignInLandingPage() {
     }
 
     setPendingProvider(provider);
+    setSendError(null);
+    // `router.push` resolves before the new route paints, so clearing the
+    // pending flag unconditionally in `finally` re-enables the button mid
+    // navigation. One more click there sends a second code and — since codes
+    // now retire their predecessors — silently kills the one already in the
+    // user's inbox. Stay disabled when we're on our way out.
+    let navigating = false;
     try {
       if (provider === "postmark") {
         if (!email) return;
-        await signIn("postmark", { email, callbackUrl });
+        // We email a code rather than a link (ADR-0056), so we drive the
+        // navigation ourselves instead of letting NextAuth redirect: the verify
+        // page needs the identifier to redeem the code against, and it must be
+        // normalized the same way Auth.js stored it.
+        const identifier = normalizeSignInEmail(email);
+        const result = await signIn("postmark", {
+          email: identifier,
+          callbackUrl,
+          redirect: false,
+        });
+        // Driving the navigation ourselves means we own the failure case too:
+        // don't tell someone to check their inbox for an email that never left.
+        if (result?.error) {
+          setSendError(SEND_FAILED_MESSAGE);
+          return;
+        }
+        // Only after the send actually succeeded, so a failed attempt can't
+        // leave the verify page primed for a code that was never issued.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, callbackUrl);
+        navigating = true;
+        router.push("/auth/verify-request");
       } else {
         await signIn(provider, { callbackUrl });
       }
     } finally {
-      setPendingProvider(null);
+      if (!navigating) setPendingProvider(null);
     }
   };
 
@@ -91,6 +155,12 @@ export function SignInLandingPage() {
               Where humans and AI build together. Sign in with your work account
               to continue to your workspace — or create one from scratch.
             </p>
+
+            {errorMessage && (
+              <p className="auth-error" role="alert">
+                {errorMessage}
+              </p>
+            )}
 
             <div className="providers">
               {providers?.google && (
@@ -143,7 +213,7 @@ export function SignInLandingPage() {
 
             <div className="or-div">
               <span className="or-div__line" />
-              <span className="or-div__txt">or email a magic link</span>
+              <span className="or-div__txt">or email a sign-in code</span>
               <span className="or-div__line" />
             </div>
 
@@ -166,7 +236,7 @@ export function SignInLandingPage() {
                 type="submit"
                 disabled={isBusy || !email}
               >
-                <span>Send me a magic link</span>
+                <span>Send me a sign-in code</span>
                 <ArrowRightGlyph />
               </button>
             </form>
@@ -192,141 +262,7 @@ export function SignInLandingPage() {
           </div>
         </section>
 
-        <aside className="auth-right">
-          <div className="auth-right__inner">
-            <div className="marketing-eyebrow">
-              <span className="marketing-eyebrow__line" />
-              <span>Inside {PRODUCT_NAME}</span>
-            </div>
-
-            <h2 className="marketing-head">
-              A live look at what teams are{" "}
-              <em>shipping this week</em>.
-            </h2>
-
-            <p className="marketing-sub">
-              Rituals, projects, OKRs and meetings — woven into a single home
-              the team already uses every day. Sign in to see the real thing.
-            </p>
-
-            <div className="snap" aria-hidden="true">
-              <div className="snap__bar">
-                <div className="snap__dot" />
-                <div className="snap__dot" />
-                <div className="snap__dot" />
-                <div className="snap__crumb">
-                  your-workspace / <b>today</b>
-                </div>
-              </div>
-              <div className="snap__body">
-                <div className="snap-greeting">Your workspace · Week 17</div>
-                <h3 className="snap-title">
-                  Shipping this week.{" "}
-                  <em>3 rituals, 2 launches.</em>
-                </h3>
-
-                <div className="snap-metrics">
-                  <div className="snap-metric">
-                    <div className="snap-metric__label">
-                      <span
-                        className="snap-metric__dot"
-                        style={{ background: "var(--brand-400)" }}
-                      />
-                      Focus
-                    </div>
-                    <div className="snap-metric__value">2h 40m</div>
-                    <div className="snap-metric__meta">Protected block</div>
-                  </div>
-                  <div className="snap-metric">
-                    <div className="snap-metric__label">
-                      <span
-                        className="snap-metric__dot"
-                        style={{ background: "var(--accent-okr)" }}
-                      />
-                      OKR
-                    </div>
-                    <div className="snap-metric__value">68%</div>
-                    <div className="snap-metric__meta">On track · Q2</div>
-                  </div>
-                  <div className="snap-metric">
-                    <div className="snap-metric__label">
-                      <span
-                        className="snap-metric__dot"
-                        style={{ background: "var(--accent-meetings)" }}
-                      />
-                      Meetings
-                    </div>
-                    <div className="snap-metric__value">3</div>
-                    <div className="snap-metric__meta">1 async draft</div>
-                  </div>
-                </div>
-
-                <div className="snap-list">
-                  <div className="snap-row done">
-                    <span className="snap-check done" />
-                    <span className="snap-row__label">
-                      Review KR-2 movement from last week
-                    </span>
-                    <span className="snap-row__tag">ritual</span>
-                  </div>
-                  <div className="snap-row">
-                    <span className="snap-check" />
-                    <span className="snap-row__label">
-                      Ship onboarding redesign to staging
-                    </span>
-                    <span className="snap-row__tag">#orbit</span>
-                  </div>
-                  <div className="snap-row">
-                    <span className="snap-check" />
-                    <span className="snap-row__label">
-                      1:1 with the team · draft talking points
-                    </span>
-                    <span className="snap-row__tag">14:00</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="feats">
-              <Feat
-                title="Weekly rituals"
-                sub="Planning, review and retro baked into your calendar — not another Notion doc."
-                icon={<ClockGlyph />}
-              />
-              <Feat
-                title="Living OKRs"
-                sub="Key results that update themselves from the work you're already doing."
-                icon={<TrendGlyph />}
-              />
-              <Feat
-                title="Project orbits"
-                sub="Every task, note and decision in a single, searchable timeline."
-                icon={<ListGlyph />}
-              />
-              <Feat
-                title="Zoe, your copilot"
-                sub="Drafts your plan, reviews your week, and answers across every doc."
-                icon={<StarGlyph />}
-              />
-            </div>
-
-            <div className="marketing-foot">
-              <div className="marketing-foot__group">
-                <CheckGlyph />
-                <span>SOC 2 · SAML SSO</span>
-              </div>
-              <div
-                className="marketing-foot__group"
-                style={{ marginLeft: "auto" }}
-              >
-                <span>
-                  Where humans and AI{" "}
-                  <b>build together</b>
-                </span>
-              </div>
-            </div>
-          </div>
-        </aside>
+        <AuthMarketingPanel />
       </div>
     </div>
   );
@@ -337,26 +273,6 @@ export function SignInLandingPage() {
  * (Google / Microsoft / Discord logos read brand colors from CSS variables
  * declared under .auth-surface in globals.css — no hex in this file.)
  * ========================================================================== */
-
-function Feat({
-  title,
-  sub,
-  icon,
-}: {
-  title: string;
-  sub: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="feat">
-      <div className="feat__mark">{icon}</div>
-      <div className="feat__body">
-        <div className="feat__title">{title}</div>
-        <div className="feat__sub">{sub}</div>
-      </div>
-    </div>
-  );
-}
 
 function ChevGlyph() {
   return (
@@ -406,93 +322,6 @@ function ChatGlyph() {
       strokeLinejoin="round"
     >
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  );
-}
-
-function CheckGlyph() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="var(--accent-crm)"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M20 7L9 18l-5-5" />
-    </svg>
-  );
-}
-
-function ClockGlyph() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  );
-}
-
-function TrendGlyph() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12l4-4 4 4 6-6 4 4" />
-      <path d="M3 20h18" />
-    </svg>
-  );
-}
-
-function ListGlyph() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M4 7h16M4 12h10M4 17h16" />
-    </svg>
-  );
-}
-
-function StarGlyph() {
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z" />
     </svg>
   );
 }

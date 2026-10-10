@@ -15,6 +15,7 @@ import {
   IconRefresh,
   IconRobotFace,
   IconStatusChange,
+  IconTrash,
   IconTrophy,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
@@ -29,6 +30,7 @@ export const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
   commented: IconMessageCircle,
   milestone: IconTrophy,
   tracked: IconClock,
+  deleted: IconTrash,
   channel_summary: IconMessages,
   github: IconBrandGithub,
   shipped: IconGitMerge,
@@ -190,6 +192,8 @@ export interface FeedRowEvent {
   actor: { id: string; name: string | null; image: string | null; isAgent?: boolean } | null;
   workspace: { id: string; name: string; slug: string } | null;
   source: string;
+  /** OKR drawer target (`objective:{id}` / `keyResult:{id}`); null otherwise. */
+  drawerParam?: string | null;
   channel: {
     provider: string;
     displayName: string | null;
@@ -385,6 +389,24 @@ export function ActivityRow({
     );
   }
 
+  // OKR rows deep-link to the goals-page drawer. tab=okrs is required — the
+  // drawer only mounts inside the OKRs tab panel, and the page defaults to
+  // the Goals tab. Stale ids fail gracefully — parseDrawerParam rejects
+  // malformed values and the drawer stays closed.
+  const drawerHref =
+    slug && event.drawerParam
+      ? `/w/${slug}/goals?tab=okrs&drawer=${encodeURIComponent(event.drawerParam)}`
+      : null;
+
+  const sentence = (
+    <Sentence
+      template={event.hint.template}
+      actor={actorName}
+      entityRef={event.entityRef}
+      actorIsAgent={event.actor?.isAgent ?? false}
+    />
+  );
+
   return (
     <div className="wsa-feed__row" data-kind={event.hint.iconKind}>
       <div
@@ -399,12 +421,13 @@ export function ActivityRow({
         )}
       </div>
       <div className="wsa-feed__body">
-        <Sentence
-          template={event.hint.template}
-          actor={actorName}
-          entityRef={event.entityRef}
-          actorIsAgent={event.actor?.isAgent ?? false}
-        />
+        {drawerHref ? (
+          <Link href={drawerHref} className="wsa-feed__drawer-link">
+            {sentence}
+          </Link>
+        ) : (
+          sentence
+        )}
         {meta}
       </div>
       <span

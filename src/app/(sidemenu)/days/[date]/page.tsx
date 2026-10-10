@@ -11,7 +11,6 @@ export default async function DayPage({ params }: PageProps) {
   const { date } = await params;
   const startOfDayDate = startOfDay(new Date(date));
   const day = await api.day.getByDate({ date: startOfDayDate });
-  console.log('day', day);
   if (!day) return <StartupRoutineForm />;
 
   // Use day.notes directly since Journal model was removed

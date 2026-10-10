@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_STATUS_MAP,
+  linkedTicketNumbers,
   mapPoints,
   mapPriority,
   mapStatus,
@@ -193,5 +194,56 @@ describe("normalizeName / DEFAULT_STATUS_MAP invariants", () => {
     for (const key of Object.keys(DEFAULT_STATUS_MAP)) {
       expect(normalizeName(key)).toBe(key);
     }
+  });
+});
+
+describe("linkedTicketNumbers", () => {
+  const product = { workspaceSlug: "ws", productSlug: "clear" };
+
+  it("reads the ticket number from an exact ticket URL, on any host", () => {
+    expect(
+      linkedTicketNumbers(
+        [
+          "https://www.exponential.im/w/ws/products/clear/tickets/612",
+          "http://localhost:3000/w/ws/products/clear/tickets/611/?tab=comments#c1",
+        ],
+        product,
+      ),
+    ).toEqual([611, 612]);
+  });
+
+  it("dedupes repeated links to the same ticket", () => {
+    const url = "https://www.exponential.im/w/ws/products/clear/tickets/612";
+    expect(linkedTicketNumbers([url, url], product)).toEqual([612]);
+  });
+
+  it("ignores other products, other workspaces, non-ticket pages and junk", () => {
+    expect(
+      linkedTicketNumbers(
+        [
+          "https://www.exponential.im/w/ws/products/other/tickets/612",
+          "https://www.exponential.im/w/elsewhere/products/clear/tickets/612",
+          "https://www.exponential.im/w/ws/products/clear/tickets",
+          "https://www.exponential.im/w/ws/products/clear/tickets/612/edit",
+          "https://www.notion.so/3db5043895cf813ebc94fbc7059f930b",
+          "CLEAR-612",
+          "not a url",
+        ],
+        product,
+      ),
+    ).toEqual([]);
+  });
+
+  it("skips malformed encodings and numbers too big to be a ticket, without throwing", () => {
+    expect(
+      linkedTicketNumbers(
+        [
+          "https://example.com/w/%zz/products/clear/tickets/612",
+          "https://example.com/w/ws/products/clear/tickets/99999999999999999999",
+          "https://example.com/w/ws/products/clear/tickets/7",
+        ],
+        product,
+      ),
+    ).toEqual([7]);
   });
 });

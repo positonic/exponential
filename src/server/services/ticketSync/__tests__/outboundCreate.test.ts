@@ -77,15 +77,33 @@ describe("buildBodyBlocks", () => {
   });
 
   it("chunks a very long paragraph under Notion's rich-text limit", () => {
+    // Post-ivory.pike: one paragraph BLOCK whose rich_text is chunked into
+    // multiple spans (the renderer keeps semantic blocks intact).
     const long = "a".repeat(5000);
     const blocks = buildBodyBlocks(long, "https://x/t/1") as Array<{
       type: string;
       paragraph?: { rich_text: { text: { content: string } }[] };
     }>;
     const paras = blocks.filter((b) => b.type === "paragraph");
-    expect(paras.length).toBeGreaterThan(1);
-    for (const p of paras) {
-      expect(p.paragraph!.rich_text[0]!.text.content.length).toBeLessThanOrEqual(1900);
+    expect(paras.length).toBe(1);
+    const spans = paras[0]!.paragraph!.rich_text;
+    expect(spans.length).toBeGreaterThan(1);
+    for (const span of spans) {
+      expect(span.text.content.length).toBeLessThanOrEqual(1900);
     }
+  });
+
+  it("renders Markdown bodies as real blocks (heading + code), not literal text", () => {
+    const blocks = buildBodyBlocks(
+      "## Problem\n\nThe `token` expires.\n\n```python\nraise X\n```",
+      "https://x/t/1",
+    ) as Array<{ type: string }>;
+    expect(blocks[0]!.type).toBe("callout");
+    expect(blocks.map((b) => b.type)).toEqual([
+      "callout",
+      "heading_2",
+      "paragraph",
+      "code",
+    ]);
   });
 });

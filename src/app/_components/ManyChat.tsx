@@ -27,6 +27,7 @@ import { ToolActivity } from './agent/ToolActivity';
 import { ThinkingStatus } from './agent/ThinkingStatus';
 import { DraftActionsReviewCard } from './DraftActionsReviewCard';
 import { DraftFeaturesReviewCard } from './DraftFeaturesReviewCard';
+import { DraftDecisionsReviewCard } from './decisions/DraftDecisionsReviewCard';
 import { useAgentModal, type ChatMessage, type PageContext } from '~/providers/AgentModalProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { trimByTokenBudget } from '~/lib/trim-conversation';
@@ -407,6 +408,9 @@ const MessageList = memo(function MessageList({ messages, conversationId, isStre
                   {message.card?.kind === 'draft-features' && (
                     <DraftFeaturesReviewCard transcriptionId={message.card.transcriptionId} />
                   )}
+                  {message.card?.kind === 'draft-decisions' && (
+                    <DraftDecisionsReviewCard transcriptionId={message.card.transcriptionId} />
+                  )}
                   {message.interactionId && (
                     <AgentMessageFeedback
                       aiInteractionId={message.interactionId}
@@ -556,7 +560,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
       - Status: ${goalStatus || 'Unknown'}
       - Current health: ${goalHealth || 'no-update'}
       🎯 ACTIONS:
-      - When creating actions or outcomes, link to this goal where appropriate
+      - When creating actions, link to this goal where appropriate
       - When asked about progress, refer to this goal's description and why
       - When posting an Objective update whose health is unclear, default to this Current health so the status badge does not silently change
     ` : '';
@@ -584,7 +588,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
                   - Context shows current/recent data only - use tools for historical/complete data
                   - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights, firefliesCheckExisting, firefliesTestApiKey, firefliesCreateIntegration, firefliesGenerateWebhookToken, firefliesGetWebhookUrl
-                  - For project goals and outcomes: use get_project_context tool with the project ID
+                  - For project goals: use get_project_context tool with the project ID
                   - If authentication fails, inform user and suggest checking token validity
 
                   🔧 FIREFLIES INTEGRATION WIZARD:
@@ -1012,14 +1016,17 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   }, [initialInput]);
 
   // Auto-submit when the drawer opens with a pending prompt seeded from
-  // another surface (e.g. the home-page Zoe input). Runs once per open.
+  // another surface (e.g. the home-page Zoe input). Runs once per open. Waits
+  // for the conversation thread: ZoeDrawer mounts this component on its first
+  // open, so a prompt that opens the drawer can arrive before
+  // startConversation above has returned.
   const didSeedRef = useRef(false);
   useEffect(() => {
     if (!isOpen) {
       didSeedRef.current = false;
       return;
     }
-    if (!pendingPrompt || didSeedRef.current) return;
+    if (!pendingPrompt || !conversationId || didSeedRef.current) return;
     didSeedRef.current = true;
     const seeded = pendingPrompt;
     const seededContext = pendingContext ?? undefined;
@@ -1030,7 +1037,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
     }, 0);
     // handleSubmit intentionally omitted — it's a stable closure over current state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, pendingPrompt, pendingContext, consumePendingPrompt]);
+  }, [isOpen, pendingPrompt, pendingContext, consumePendingPrompt, conversationId]);
 
   // Handle input changes and autocomplete
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

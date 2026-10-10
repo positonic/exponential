@@ -1,9 +1,20 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadPageForAccess, ensurePageAccess } from "./page";
 import { sendPageMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
+import {
+  getKnowledgePageAccess,
+  canEditKnowledgePage,
+} from "~/server/services/access";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+} from "~/server/services/prd/anchor-comment";
 
 const authorSelect = {
   id: true,
@@ -12,12 +23,18 @@ const authorSelect = {
 } as const;
 
 /**
- * Comments on a Knowledge Page — the flat doc-level feed under the page body
- * (mirrors featureComment's feature-level feed). Bodies are Markdown
- * (ADR-0017). View access is the commenting gate: anyone a page is shared
- * with can join its discussion; read-only viewers can still comment, matching
- * how feature comments admit every workspace member. Editing and deleting are
- * author-only.
+ * Comments on a Knowledge Page. Two flavours share one table, exactly as
+ * featureComment does for PRDs:
+ *
+ *  - **doc-level** (`threadId` null) — the flat Activity feed under the body.
+ *  - **anchored** (`threadId` set) — pinned to a `comment` mark in
+ *    `KnowledgePage.bodyDoc`; `quotedText` snapshots the highlighted span so an
+ *    orphaned thread still renders, and `resolvedAt` settles it without deleting.
+ *
+ * Bodies are Markdown (ADR-0017). View access is the commenting gate: anyone a
+ * page is shared with can join its discussion; read-only viewers can still
+ * comment, matching how feature comments admit every workspace member. Editing
+ * and deleting are author-only.
  */
 export const pageCommentRouter = createTRPCRouter({
   list: protectedProcedure
@@ -37,7 +54,14 @@ export const pageCommentRouter = createTRPCRouter({
     .input(
       z.object({
         pageId: z.string(),
+        // Set to anchor the comment to a `comment` mark in the page body;
+        // omitted for the flat doc-level Activity feed.
+        threadId: z.string().min(1).optional(),
         body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+        quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `bodyDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -47,7 +71,9 @@ export const pageCommentRouter = createTRPCRouter({
       const comment = await ctx.db.knowledgePageComment.create({
         data: {
           pageId: input.pageId,
+          threadId: input.threadId,
           body: input.body,
+          quotedText: input.quotedText,
           createdById: ctx.session.user.id,
         },
         include: { createdBy: { select: authorSelect } },
@@ -60,7 +86,107 @@ export const pageCommentRouter = createTRPCRouter({
         commentAuthorId: ctx.session.user.id,
       });
 
+      // Viewers may comment but not edit the body, so only an editor's
+      // thread writes its mark into the doc.
+      const canEdit =
+        !!input.threadId &&
+        canEditKnowledgePage(
+          await getKnowledgePageAccess(ctx.db, ctx.session.user.id, page),
+        );
+      const anchor =
+        input.threadId && canEdit
+          ? await anchorThreadInStoredDoc({
+              area: "pageComment.create",
+              threadId: input.threadId,
+              quotedText: input.quotedText,
+              anchor: input.anchor,
+              read: async () => {
+                const row = await ctx.db.knowledgePage.findUnique({
+                  where: { id: input.pageId },
+                  select: { bodyDoc: true, docVersion: true },
+                });
+                return row && {
+                  doc: row.bodyDoc as JSONContent | null,
+                  docVersion: row.docVersion,
+                };
+              },
+              write: (doc, expectedVersion) =>
+                writePageBodyIfVersion(ctx.db, {
+                  pageId: input.pageId,
+                  expectedVersion,
+                  doc,
+                }),
+            })
+          : NOT_ANCHORED;
+
+      return { ...comment, anchor };
+    }),
+
+  reply: protectedProcedure
+    .input(
+      z.object({
+        parentId: z.string(),
+        body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parent = await ctx.db.knowledgePageComment.findUnique({
+        where: { id: input.parentId },
+        select: { pageId: true, threadId: true, parentId: true },
+      });
+      if (!parent) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      const page = await loadPageForAccess(ctx.db, parent.pageId);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+
+      const comment = await ctx.db.knowledgePageComment.create({
+        data: {
+          pageId: parent.pageId,
+          threadId: parent.threadId,
+          // Keep threads one level deep: a reply to a reply still hangs off the root.
+          parentId: parent.parentId ?? input.parentId,
+          body: input.body,
+          createdById: ctx.session.user.id,
+        },
+        include: { createdBy: { select: authorSelect } },
+      });
+
+      void sendPageMentionNotifications(ctx.db, {
+        pageId: parent.pageId,
+        commentContent: input.body,
+        commentAuthorId: ctx.session.user.id,
+      });
+
       return comment;
+    }),
+
+  // resolve/unresolve share the view-level commenting gate deliberately
+  // (Google-Docs semantics: whoever can join a discussion can settle it, and
+  // unresolve makes it fully reversible) — same parity featureComment has
+  // between commenting and resolving.
+  resolve: protectedProcedure
+    .input(z.object({ pageId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.pageId);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      await ctx.db.knowledgePageComment.updateMany({
+        where: { pageId: input.pageId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  unresolve: protectedProcedure
+    .input(z.object({ pageId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.pageId);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      await ctx.db.knowledgePageComment.updateMany({
+        where: { pageId: input.pageId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: null },
+      });
+      return { success: true };
     }),
 
   update: protectedProcedure

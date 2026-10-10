@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
+import { requireLiveRunForCaller } from "~/server/services/agentRuns/callbacks";
+import { appendRunEvent } from "~/server/services/agentRuns/events";
+import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
+import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
+import { createActionComment } from "~/server/services/actions/comments";
+import { assertAssignableUsers } from "~/server/services/actions/containment";
+import { ASSIGNABLE_USER_SELECT, toAssignableUser } from "~/server/services/access/assignability";
+import { after } from "next/server";
 import OpenAI from "openai";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
@@ -7,7 +15,8 @@ import { PRIORITY_VALUES } from "~/types/priority";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
-import { deriveActionSource } from "~/server/utils/actionSource";
+import { resolveAgentActionSource } from "~/server/utils/actionSource";
+import { actionWriteDeps, applyActionUpdate, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
@@ -22,10 +31,11 @@ import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { buildMeetingTranscriptionsWhere } from "~/server/services/meetings/meetingTranscriptionsWhere";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
-import { loadProductWithAccess, assertWorkspaceMember } from "~/plugins/product/server/routers/product";
+import { loadProductWithAccess, assertWorkspaceAccess } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { matchCycle, wouldCreateCycle } from "~/plugins/product/server/services/ticketDependencies";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
@@ -422,10 +432,15 @@ export const mastraRouter = createTRPCRouter({
       // Generate JWT token for agent authentication
       const agentJWT = generateAgentJWT(ctx.session.user, 30);
 
-      // If an assistantId is provided, fetch the custom personality and inject it
+      // If an assistantId is provided, fetch the custom personality and inject it.
+      // `assistantId` is client-supplied, and the row's personality/instructions/
+      // userContext are injected verbatim into the system prompt below — so scope
+      // the lookup to the caller's own assistants (mirrors the streaming route,
+      // see "scope assistants to their owner", PR 536). An id belonging to anyone
+      // else simply doesn't resolve, and the request falls through to `agentId`.
       if (input.assistantId) {
-        const assistant = await ctx.db.assistant.findUnique({
-          where: { id: input.assistantId },
+        const assistant = await ctx.db.assistant.findFirst({
+          where: { id: input.assistantId, createdById: ctx.session.user.id },
         });
 
         if (assistant) {
@@ -914,6 +929,252 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Get all user goals across all projects
+  // ─── Agent run callbacks (ADR-0067, Agent PRD D5) ──────────────────────────
+  // Called by the `assistantRunAgent` run tools with the run JWT. The run is
+  // the token's `runId` claim (ctx.agentRunId); the app writes the run state.
+
+  /**
+   * finish-run: the run's public summary and whether the action is ready for
+   * the owner to close. Status is finalised by the dispatcher once the Mastra
+   * call returns, so a late or duplicate call cannot flip a cancelled run.
+   */
+  finishRun: protectedProcedure
+    .input(z.object({ summary: z.string().min(1), readyToClose: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await ctx.db.agentRun.update({
+        where: { id: run.id },
+        data: {
+          summary: input.summary,
+          readyToClose: input.readyToClose,
+          lastEventAt: new Date(),
+        },
+      });
+      return { finished: true as const };
+    }),
+
+  /**
+   * get-run-context: the brief, assignees, members (for delegation), recent
+   * comments, the owner, and — on a resume — the predecessor's summary and the
+   * owner's reply. A pure read.
+   */
+  getRunContext: protectedProcedure.query(async ({ ctx }) => {
+    const run = await requireLiveRunForCaller(ctx.db, {
+      agentRunId: ctx.agentRunId,
+      tokenType: ctx.tokenType,
+      userId: ctx.session.user.id,
+    });
+    const [action, full, owner] = await Promise.all([
+      ctx.db.action.findUniqueOrThrow({
+        where: { id: run.actionId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          workspaceId: true,
+          projectId: true,
+          project: { select: { id: true, name: true, workspaceId: true } },
+          assignees: { select: { user: { select: { id: true, name: true, isAgent: true } } } },
+          comments: {
+            orderBy: { createdAt: "desc" },
+            take: 20,
+            select: { id: true, content: true, createdAt: true, author: { select: { name: true } } },
+          },
+        },
+      }),
+      ctx.db.agentRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { wakeCommentId: true, predecessor: { select: { summary: true } } },
+      }),
+      ctx.db.user.findUniqueOrThrow({ where: { id: run.agent.ownerId }, select: { id: true, name: true } }),
+    ]);
+
+    // Members the run may delegate to: the project's members, else the
+    // action's workspace members — the same set the Assign modal offers.
+    const memberRows = action.projectId
+      ? (await ctx.db.projectMember.findMany({
+          where: { projectId: action.projectId },
+          select: { user: { select: ASSIGNABLE_USER_SELECT } },
+        })).map((m) => m.user)
+      : action.workspaceId
+        ? (await ctx.db.workspaceUser.findMany({
+            where: { workspaceId: action.workspaceId },
+            select: { user: { select: ASSIGNABLE_USER_SELECT } },
+          })).map((m) => m.user)
+        : [];
+    const members = memberRows.map(toAssignableUser).map((u) => ({
+      id: u.id,
+      name: u.name,
+      isAgent: u.isAgent,
+      assistantOwner: u.assistantOwner ? { id: u.assistantOwner.id, name: u.assistantOwner.name } : null,
+    }));
+
+    const wakeComment = full.wakeCommentId
+      ? await ctx.db.actionComment.findUnique({ where: { id: full.wakeCommentId }, select: { content: true } })
+      : null;
+
+    // A query (GET, retryable) writes nothing: the read is not logged as an
+    // event; tool counts are reconciled from Mastra's steps by the dispatcher.
+
+    return {
+      action: {
+        id: action.id,
+        name: action.name,
+        description: action.description,
+        status: action.status,
+        priority: action.priority,
+        dueDate: action.dueDate ? action.dueDate.toISOString() : null,
+        project: action.project ? { id: action.project.id, name: action.project.name } : null,
+        workspaceId: action.workspaceId ?? action.project?.workspaceId ?? null,
+      },
+      assignees: action.assignees.map((a) => ({ id: a.user.id, name: a.user.name, isAgent: a.user.isAgent })),
+      members,
+      comments: action.comments.reverse().map((c) => ({
+        id: c.id,
+        authorName: c.author.name,
+        markdown: c.content,
+        createdAt: c.createdAt.toISOString(),
+      })),
+      owner,
+      predecessor: full.predecessor
+        ? { summary: full.predecessor.summary, wakeComment: wakeComment?.content ?? null }
+        : null,
+    };
+  }),
+
+  /** report-progress: a transcript line, owner-visible only, nobody notified. */
+  reportProgress: protectedProcedure
+    .input(z.object({ text: z.string().min(1).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      await appendRunEvent(ctx.db, { runId: run.id, kind: "text", payload: { text: input.text } });
+      return { ok: true as const };
+    }),
+
+  /** comment-on-action: a real comment, authored by the Assistant's shadow user. */
+  commentOnAction: protectedProcedure
+    .input(z.object({ markdown: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: input.markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "comment-on-action", commentId: comment.id, snippet: input.markdown.slice(0, 200) },
+      });
+      return { commentId: comment.id };
+    }),
+
+  /**
+   * reassign-action: add a person or another Assistant as an assignee, under
+   * the same containment rule as the human Assign modal. Another Assistant
+   * gets its own run (requestedById null — an agent reassigned).
+   */
+  reassignAction: protectedProcedure
+    .input(z.object({ userId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const action = await ctx.db.action.findUniqueOrThrow({
+        where: { id: run.actionId },
+        select: { projectId: true, teamId: true, workspaceId: true },
+      });
+      // Delegation (ADR-0049/0067): the Assistant may assign exactly whom its
+      // owner could, so the containment check runs as the owner, not as the
+      // shadow user, whose own memberships are a subset granted for this job.
+      await assertAssignableUsers(ctx.db, run.agent.ownerId, action, [input.userId]);
+      await ctx.db.actionAssignee.createMany({
+        data: [{ actionId: run.actionId, userId: input.userId }],
+        skipDuplicates: true,
+      });
+      const target = await ctx.db.user.findUniqueOrThrow({
+        where: { id: input.userId },
+        select: { id: true, name: true, isAgent: true },
+      });
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: run.actionId,
+        userIds: [input.userId],
+        requestedById: null,
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "reassign-action", userId: target.id, name: target.name, isAgent: target.isAgent },
+      });
+      return { assigned: target };
+    }),
+
+  /**
+   * ask-owner: a comment mentioning the owner (so it lands as a Mention under
+   * Waiting on me) and the run moves to WAITING_ON_OWNER — terminal for this
+   * row; the owner's reply on the action starts a resume run (D6). The tool
+   * returns a stop instruction the prompt tells the agent to honour; the
+   * dispatcher sees the status when the Mastra call returns and records the
+   * wall-clock without finishing.
+   */
+  askOwner: protectedProcedure
+    .input(z.object({ question: z.string().min(1).max(10000) }))
+    .mutation(async ({ ctx, input }) => {
+      const run = await requireLiveRunForCaller(ctx.db, {
+        agentRunId: ctx.agentRunId,
+        tokenType: ctx.tokenType,
+        userId: ctx.session.user.id,
+      });
+      const owner = await ctx.db.user.findUniqueOrThrow({
+        where: { id: run.agent.ownerId },
+        select: { id: true, name: true },
+      });
+      // The mention parser reads `@[Name](id)`; brackets or parens in a display
+      // name would break it, so they are stripped from the label only.
+      const label = (owner.name ?? "Owner").replace(/[[\]()]/g, "").trim() || "Owner";
+      const markdown = `@[${label}](${owner.id}) ${input.question}`;
+      const comment = await createActionComment(ctx.db, {
+        actionId: run.actionId,
+        authorId: ctx.session.user.id,
+        content: markdown,
+      });
+      await appendRunEvent(ctx.db, {
+        runId: run.id,
+        kind: "tool_call",
+        payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question.slice(0, 200) },
+      });
+      // Guard on RUNNING so a cancel that landed meanwhile wins.
+      await ctx.db.agentRun.updateMany({
+        where: { id: run.id, status: "RUNNING" },
+        data: { status: "WAITING_ON_OWNER", lastEventAt: new Date() },
+      });
+      return {
+        stop: true as const,
+        status: "WAITING_ON_OWNER" as const,
+        commentId: comment.id,
+      };
+    }),
+
   getAllGoals: protectedProcedure
     .query(async ({ ctx }) => {
       console.log('🎯 [MASTRA DEBUG] getAllGoals called');
@@ -931,14 +1192,6 @@ export const mastraRouter = createTRPCRouter({
               status: true,
             }
           },
-          outcomes: {
-            select: {
-              id: true,
-              description: true,
-              type: true,
-              dueDate: true,
-            }
-          }
         },
         orderBy: [
           { lifeDomainId: 'asc' },
@@ -961,12 +1214,6 @@ export const mastraRouter = createTRPCRouter({
             id: project.id,
             name: project.name,
             status: project.status,
-          })),
-          outcomes: goal.outcomes.map(outcome => ({
-            id: outcome.id,
-            description: outcome.description,
-            type: outcome.type ?? 'daily',
-            dueDate: outcome.dueDate ? outcome.dueDate.toISOString() : null,
           })),
         })),
         total: goals.length,
@@ -1013,7 +1260,6 @@ export const mastraRouter = createTRPCRouter({
               lifeDomain: true
             }
           },
-          outcomes: true,
           projectMembers: true,
         }
       });
@@ -1054,12 +1300,6 @@ export const mastraRouter = createTRPCRouter({
             title: goal.lifeDomain.title,
             description: goal.lifeDomain.description,
           } : null,
-        })),
-        outcomes: project.outcomes.map(outcome => ({
-          id: outcome.id,
-          description: outcome.description,
-          type: outcome.type ?? 'daily',
-          dueDate: outcome.dueDate?.toISOString(),
         })),
         teamMembers: project.projectMembers.map((member: any) => ({
           id: member.id,
@@ -1134,39 +1374,28 @@ export const mastraRouter = createTRPCRouter({
       name: z.string().min(1),
       description: z.string().optional(),
       priority: z.enum(PRIORITY_VALUES),
-      dueDate: z.string().optional(), // ISO string
+      dueDate: z.string().min(1).optional(), // ISO string — deadline
+      scheduledStart: z.string().min(1).optional(), // ISO string — do-date (the day the user plans to DO it; what /today keys on)
     }))
     .mutation(async ({ ctx, input }) => {
       // Use authenticated user's ID from session
       const userId = ctx.session.user.id;
 
-      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate || "none"}, userId=${userId}`);
+      console.log(`🔧 [tRPC createAction] RECEIVED: projectId=${input.projectId}, name="${input.name}", priority=${input.priority}, dueDate=${input.dueDate ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, userId=${userId}`);
 
-      // Verify user has access to this project via all access paths
-      const access = await getProjectAccess(ctx.db, userId, input.projectId);
-      if (!hasProjectAccess(access)) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Project not found or access denied'
-        });
-      }
-
-      // Inherit workspaceId from the target project
-      const mastraProject = await ctx.db.project.findUnique({
-        where: { id: input.projectId },
-        select: { workspaceId: true },
-      });
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: input.name,
-          description: input.description,
-          priority: input.priority,
-          dueDate: input.dueDate ? new Date(input.dueDate) : null,
-          projectId: input.projectId,
-          createdById: userId,
-          workspaceId: mastraProject?.workspaceId ?? null,
-        },
+      // The write is the Action module's: it gates on project EDIT access
+      // (ADR-0016 — Zoe can do exactly what the user's own hands can; the
+      // old view-access gate here let an agent create in a project the user
+      // could only look at), takes the project's workspace, seeds the kanban
+      // column and records the activity event.
+      const action = await createAction(actionWriteDeps(ctx), {
+        name: input.name,
+        description: input.description,
+        priority: input.priority,
+        dueDate: parseAgentDate(input.dueDate, "dueDate") ?? undefined,
+        scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart") ?? undefined,
+        projectId: input.projectId,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
 
       console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);
@@ -1179,6 +1408,7 @@ export const mastraRouter = createTRPCRouter({
           status: action.status,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
           projectId: action.projectId,
         }
       };
@@ -1192,11 +1422,19 @@ export const mastraRouter = createTRPCRouter({
       // Canonical priority enum. Optional and backward-compatible: when omitted,
       // the action falls back to "Quick" (the historical hardcoded value).
       priority: z.enum(PRIORITY_VALUES).optional(),
+      // Explicit dates (ISO strings). Agents often rewrite the user's request
+      // into a clean action name, dropping the date phrase the text parser
+      // relies on — an explicit value survives that rewrite and wins over
+      // whatever the parser extracts. scheduledStart is the do-date /today
+      // keys on; dueDate is the deadline. min(1) keeps a blank string from
+      // silently clearing the text-parsed date via the precedence logic.
+      scheduledStart: z.string().min(1).optional(),
+      dueDate: z.string().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId || "none"}, priority=${input.priority ?? "none"}`);
+      console.log(`🎯 [tRPC quickCreateAction] RECEIVED: text="${input.text}", projectId=${input.projectId ?? "none"}, priority=${input.priority ?? "none"}, scheduledStart=${input.scheduledStart ?? "none"}, dueDate=${input.dueDate ?? "none"}`);
 
       // Use the same parsing logic as action.quickCreate
       const { parseActionInput } = await import("~/server/services/parsing/parseActionInput");
@@ -1216,45 +1454,34 @@ export const mastraRouter = createTRPCRouter({
         parsed.projectId = input.projectId;
       }
 
-      // Get kanban order if project specified
-      let kanbanOrder: number | null = null;
-      if (parsed.projectId) {
-        const highestOrder = await ctx.db.action.findFirst({
-          where: { projectId: parsed.projectId, kanbanOrder: { not: null } },
-          orderBy: { kanbanOrder: 'desc' },
-          select: { kanbanOrder: true },
-        });
-        kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-      }
+      // Explicit dates win over text-parsed ones (same precedence rationale as
+      // projectId above). When neither is passed, the parsed values stand.
+      const scheduledStart =
+        input.scheduledStart !== undefined
+          ? parseAgentDate(input.scheduledStart, "scheduledStart")
+          : parsed.scheduledStart;
+      const dueDate =
+        input.dueDate !== undefined
+          ? parseAgentDate(input.dueDate, "dueDate")
+          : parsed.dueDate;
 
-      // Inherit workspaceId from the target project
-      let quickMastraWsId: string | null = null;
-      if (parsed.projectId) {
-        const proj = await ctx.db.project.findUnique({
-          where: { id: parsed.projectId },
-          select: { workspaceId: true },
-        });
-        quickMastraWsId = proj?.workspaceId ?? null;
-      }
-
-      const action = await ctx.db.action.create({
-        data: {
-          name: parsed.name,
-          projectId: parsed.projectId,
-          priority: input.priority ?? "Quick",
-          status: "ACTIVE",
-          createdById: userId,
-          scheduledStart: parsed.scheduledStart,
-          dueDate: parsed.dueDate,
-          source: deriveActionSource(ctx.tokenType),
-          kanbanStatus: parsed.projectId ? "TODO" : null,
-          kanbanOrder,
-          workspaceId: quickMastraWsId,
-        },
-        include: {
-          project: { select: { id: true, name: true } },
-        },
+      // The write is the Action module's: project edit gate on the resolved
+      // project (ADR-0016), workspace from the project, kanban seed, activity
+      // event. A gateway token names its surface; an unmapped gateway type
+      // is rejected rather than mislabelled; anything else is the agent.
+      const created = await createAction(actionWriteDeps(ctx), {
+        name: parsed.name,
+        projectId: parsed.projectId ?? undefined,
+        priority: input.priority ?? "Quick",
+        status: "ACTIVE",
+        scheduledStart: scheduledStart ?? undefined,
+        dueDate: dueDate ?? undefined,
+        source: resolveAgentActionSource(ctx.tokenType),
       });
+      const action = {
+        ...created,
+        project: created.project ? { id: created.project.id, name: created.project.name } : null,
+      };
 
       console.log(`✅ [tRPC quickCreateAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}, project=${action.project?.name || "none"}`);
 
@@ -1265,6 +1492,7 @@ export const mastraRouter = createTRPCRouter({
           name: action.name,
           priority: action.priority,
           dueDate: action.dueDate?.toISOString(),
+          scheduledStart: action.scheduledStart?.toISOString(),
           project: action.project,
         },
         parsing: parsed.parsingMetadata,
@@ -1333,10 +1561,6 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      // Build where clause for TranscriptionSession query
-      const whereClause: any = {
-        userId: userId, // Ensure user can only access their own transcriptions
-      };
 
       if (input.workspaceId) {
         const wsMembership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
@@ -1346,11 +1570,9 @@ export const mastraRouter = createTRPCRouter({
             message: 'Workspace not found or access denied',
           });
         }
-        whereClause.workspaceId = input.workspaceId;
       }
 
       if (input.projectId) {
-        whereClause.projectId = input.projectId;
         // Verify user has access to this project via all access paths
         const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
         if (!hasProjectAccess(projectAccess)) {
@@ -1361,11 +1583,9 @@ export const mastraRouter = createTRPCRouter({
         }
       }
 
-      if (input.startDate || input.endDate) {
-        whereClause.createdAt = {}; // Use createdAt instead of meetingDate
-        if (input.startDate) whereClause.createdAt.gte = new Date(input.startDate);
-        if (input.endDate) whereClause.createdAt.lte = new Date(input.endDate);
-      }
+      // Every Meeting the user can see (not only ones they own — agent imports
+      // belong to the agent), dated by when the meeting happened.
+      const whereClause = buildMeetingTranscriptionsWhere(userId, input);
 
       // Participant filtering needs to scan transcript text; force-include it
       // even when the caller asked for the lightweight path.
@@ -1376,13 +1596,14 @@ export const mastraRouter = createTRPCRouter({
       // Get transcriptions first, then filter by participants if needed
       let transcriptions = await ctx.db.transcriptionSession.findMany({
         where: whereClause,
-        orderBy: { createdAt: 'desc' }, // Use createdAt instead of meetingDate
+        orderBy: [{ meetingDate: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         take: input.participants ? 50 : input.limit, // Get more if we need to filter by participants
         select: {
           id: true,
           title: true,
           ...(selectTranscript ? { transcription: true } : {}),
           createdAt: true,
+          meetingDate: true,
           projectId: true,
           summary: true,
         },
@@ -1416,7 +1637,7 @@ export const mastraRouter = createTRPCRouter({
             ? ((t as { transcription?: string | null }).transcription ?? "")
             : "",
           participants: [], // Empty array - field doesn't exist in schema
-          meetingDate: t.createdAt.toISOString(), // Map createdAt to meetingDate
+          meetingDate: (t.meetingDate ?? t.createdAt).toISOString(),
           meetingType: "", // Empty string - field doesn't exist in schema
           projectId: t.projectId,
           duration: null, // Null - field doesn't exist in schema
@@ -1474,6 +1695,9 @@ export const mastraRouter = createTRPCRouter({
         const searchResults = await knowledgeService.search(input.query, {
           workspaceId: input.workspaceId,
           userId,
+          // Own chunks are own pages/meetings today; keep access explicit anyway.
+          pageViewerId: userId,
+          transcriptionViewerId: userId,
           projectId: input.projectId,
           sourceTypes: input.sourceTypes,
           limit: input.topK,
@@ -2124,130 +2348,6 @@ export const mastraRouter = createTRPCRouter({
         baseUrl,
         isProduction: baseUrl.includes('vercel.app') || !baseUrl.includes('localhost'),
       };
-    }),
-
-  // AI Next Best Step - Get a gentle suggestion for what to focus on
-  getNextBestStep: protectedProcedure
-    .input(
-      z.object({
-        context: z.object({
-          pendingActionsCount: z.number(),
-          overdueActionsCount: z.number(),
-          calendarEventsCount: z.number(),
-          dailyOutcomesCount: z.number(),
-          weeklyOutcomesCount: z.number(),
-          completedHabitsCount: z.number(),
-          totalHabitsCount: z.number(),
-          staleProjectIds: z.array(z.string()),
-          dayOfWeek: z.string(),
-          isMonday: z.boolean(),
-          isSunday: z.boolean(),
-        }),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const { context } = input;
-
-      // Build a gentle, non-judgmental prompt
-      const promptParts = [
-        `You are a supportive productivity assistant. Based on today's context (${context.dayOfWeek}), suggest ONE gentle, optional action that might help the user feel successful today.`,
-        "",
-        "Today's context:",
-        `- ${context.pendingActionsCount} action${context.pendingActionsCount !== 1 ? "s" : ""} scheduled for today`,
-        context.overdueActionsCount > 0
-          ? `- ${context.overdueActionsCount} action${context.overdueActionsCount !== 1 ? "s" : ""} from earlier days (no judgment - just information)`
-          : null,
-        `- ${context.calendarEventsCount} calendar event${context.calendarEventsCount !== 1 ? "s" : ""} today`,
-        `- ${context.dailyOutcomesCount} daily outcome${context.dailyOutcomesCount !== 1 ? "s" : ""} set for today`,
-        `- ${context.weeklyOutcomesCount} weekly outcome${context.weeklyOutcomesCount !== 1 ? "s" : ""} this week`,
-        `- Habits: ${context.completedHabitsCount}/${context.totalHabitsCount} completed`,
-        context.staleProjectIds.length > 0
-          ? `- ${context.staleProjectIds.length} project${context.staleProjectIds.length !== 1 ? "s" : ""} haven't had recent activity`
-          : null,
-        context.isMonday ? "- It's Monday - start of a fresh week" : null,
-        context.isSunday ? "- It's Sunday - a good day for reflection or light planning" : null,
-        "",
-        "Guidelines for your response:",
-        "- Keep it to 1-2 sentences maximum",
-        "- Use warm, supportive language",
-        "- Focus on what might feel good to accomplish, not what 'should' be done",
-        "- Never use guilt, pressure, or 'should have' language",
-        "- If the day looks clear, suggest something restorative or intentional",
-        "- Make the suggestion feel optional, not urgent",
-      ].filter(Boolean);
-
-      const prompt = promptParts.join("\n");
-
-      try {
-        // Generate JWT for agent authentication
-        const agentJWT = generateAgentJWT(ctx.session.user, 30);
-
-        // Call the ash agent for a gentle suggestion
-        const res = await fetch(
-          `${MASTRA_API_URL}/api/agents/ashAgent/generate`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", ...mastraAuthHeaders(agentJWT) },
-            body: JSON.stringify({
-              messages: [{ role: "user", content: prompt }],
-              requestContext: {
-                authToken: agentJWT,
-                userId: ctx.session.user.id,
-                userEmail: ctx.session.user.email,
-                todoAppBaseUrl:
-                  process.env.TODO_APP_BASE_URL ??
-                  process.env.NEXTAUTH_URL ??
-                  "http://localhost:3000",
-              },
-            }),
-          }
-        );
-
-        const text = await res.text();
-
-        if (!res.ok) {
-          console.error(
-            `[getNextBestStep] Mastra generate failed with status ${res.status}: ${text}`
-          );
-          // Return a fallback suggestion instead of throwing
-          return {
-            suggestion: getFallbackSuggestion(context),
-            source: "fallback",
-          };
-        }
-
-        try {
-          const responseData = JSON.parse(text);
-          const suggestion =
-            responseData.text ??
-            responseData.content ??
-            (typeof responseData === "string" ? responseData : null);
-
-          if (suggestion) {
-            return { suggestion, source: "ai" };
-          }
-
-          return {
-            suggestion: getFallbackSuggestion(context),
-            source: "fallback",
-          };
-        } catch {
-          // If response is plain text
-          if (text && text.length < 500) {
-            return { suggestion: text, source: "ai" };
-          }
-          return {
-            suggestion: getFallbackSuggestion(context),
-            source: "fallback",
-          };
-        }
-      } catch (error) {
-        console.error("[getNextBestStep] Error calling Mastra:", error);
-        return {
-          suggestion: getFallbackSuggestion(context),
-          source: "fallback",
-        };
-      }
     }),
 
   // Calendar Endpoints for Mastra agents
@@ -4338,92 +4438,31 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`✏️ [tRPC updateAction] RECEIVED: actionId=${input.actionId}, userId=${userId}, changes=${JSON.stringify(input)}`);
 
-      // Find the action first
-      const existing = await ctx.db.action.findUnique({
-        where: { id: input.actionId },
-        select: { id: true, createdById: true, projectId: true, status: true, priority: true, name: true, description: true, dueDate: true },
-      });
-
-      if (!existing) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Action not found',
-        });
-      }
-
-      // Check access: user is creator, or has project-level access
-      let hasAccess = existing.createdById === userId;
-      if (!hasAccess && existing.projectId) {
-        const projectAccess = await getProjectAccess(ctx.db, userId, existing.projectId);
-        hasAccess = hasProjectAccess(projectAccess);
-      }
-      if (!hasAccess) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'You do not have access to this action',
-        });
-      }
-
-      // Build update data
+      // The write is the Action module's: central edit gate (ADR-0016 — the
+      // inline gate here accepted view access), kanban ⇄ status lockstep
+      // and completedAt (this copy stamped it without the legacy backfill),
+      // project moves with the kanban re-seed, and the activity event.
       const { actionId, ...fields } = input;
-      const updateData: Record<string, unknown> = {};
-
-      if (fields.name !== undefined) updateData.name = fields.name;
-      if (fields.description !== undefined) updateData.description = fields.description;
-      if (fields.priority !== undefined) updateData.priority = fields.priority;
-      if (fields.dueDate !== undefined) {
-        updateData.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
-      }
-      if (fields.scheduledStart !== undefined) {
-        updateData.scheduledStart = fields.scheduledStart
-          ? new Date(fields.scheduledStart)
-          : null;
-      }
-      if (fields.scheduledEnd !== undefined) {
-        updateData.scheduledEnd = fields.scheduledEnd
-          ? new Date(fields.scheduledEnd)
-          : null;
-      }
-      if (fields.duration !== undefined) {
-        updateData.duration = fields.duration;
-      }
-
-      // Handle status change
-      if (fields.status !== undefined) {
-        updateData.status = fields.status;
-        if (fields.status === 'COMPLETED' && existing.status !== 'COMPLETED') {
-          updateData.completedAt = new Date();
-        } else if (fields.status !== 'COMPLETED' && existing.status === 'COMPLETED') {
-          updateData.completedAt = null;
-        }
-      }
-
-      // Handle project reassignment
-      if (fields.projectId !== undefined) {
-        updateData.projectId = fields.projectId;
-        if (fields.projectId && fields.projectId !== existing.projectId) {
-          // Moving to a new project — set kanban defaults
-          const highestOrder = await ctx.db.action.findFirst({
-            where: { projectId: fields.projectId, kanbanOrder: { not: null } },
-            orderBy: { kanbanOrder: 'desc' },
-            select: { kanbanOrder: true },
-          });
-          updateData.kanbanStatus = 'TODO';
-          updateData.kanbanOrder = (highestOrder?.kanbanOrder ?? 0) + 1;
-        } else if (fields.projectId === null) {
-          // Unassigning from project — clear kanban
-          updateData.kanbanStatus = null;
-          updateData.kanbanOrder = null;
-        }
-      }
-
-      const action = await ctx.db.action.update({
-        where: { id: actionId },
-        data: updateData,
-        include: {
-          project: { select: { id: true, name: true } },
+      const { action } = await applyActionUpdate(
+        actionWriteDeps(ctx),
+        actionId,
+        {
+          ...(fields.name !== undefined ? { name: fields.name } : {}),
+          ...(fields.description !== undefined ? { description: fields.description } : {}),
+          ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
+          ...(fields.status !== undefined ? { status: fields.status } : {}),
+          ...(fields.dueDate !== undefined ? { dueDate: parseAgentDate(fields.dueDate, "dueDate") } : {}),
+          ...(fields.scheduledStart !== undefined
+            ? { scheduledStart: parseAgentDate(fields.scheduledStart, "scheduledStart") }
+            : {}),
+          ...(fields.scheduledEnd !== undefined
+            ? { scheduledEnd: parseAgentDate(fields.scheduledEnd, "scheduledEnd") }
+            : {}),
+          ...(fields.duration !== undefined ? { duration: fields.duration } : {}),
+          ...(fields.projectId !== undefined ? { projectId: fields.projectId } : {}),
         },
-      });
+        { include: { project: { select: { id: true, name: true } } } },
+      );
 
       console.log(`✅ [tRPC updateAction] UPDATED: id=${action.id}, name="${action.name}", projectId=${action.projectId || "none"}`);
 
@@ -4516,8 +4555,8 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎫 [tRPC createTicket] RECEIVED: productId=${input.productId}, title="${input.title}", type=${input.type ?? 'FEATURE'}, status=${input.status ?? 'BACKLOG'}, userId=${userId}`);
 
-      // Verifies the product exists and the user is a member of its workspace.
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      // Verifies the product exists and the user can write to its workspace.
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       // Counter increment, shortId, create, and activity-feed write live in the
       // shared service (ADR-0016). Access was already verified above.
@@ -4582,7 +4621,7 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🎫 [tRPC bulkCreateTickets] RECEIVED: productId=${input.productId}, count=${input.tickets.length}, userId=${userId}`);
 
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       // Resolve the shared label set once; per-ticket labels resolve lazily
       // through a memo so repeated names don't re-query.
@@ -4762,7 +4801,7 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`📥 [tRPC importNotionCycleTickets] RECEIVED: productId=${input.productId}, cycle="${input.cycleName ?? input.cyclePageId}", dryRun=${input.dryRun ?? false}, userId=${userId}`);
 
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       const result = await importNotionCycleTickets(ctx.db, {
         userId,
@@ -4786,10 +4825,12 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // List the cycles (SPRINT lists) an agent can reference. Cycles are
-  // workspace-scoped; pass a productId to resolve the workspace from a product
-  // the agent already knows. Pure read — unlike the plugin's cycle.list, this
-  // never auto-creates upcoming cycles. Declared as a query per ADR-0041
-  // (agent tools POST; allowMethodOverride accepts it).
+  // product-scoped (List.productId; null = legacy workspace-shared): passing a
+  // productId returns that product's cycles plus shared ones, matching the
+  // plugin's cycle.list; passing only a workspaceId returns every cycle in the
+  // workspace. Pure read — unlike the plugin's cycle.list, this never
+  // auto-creates upcoming cycles. Declared as a query per ADR-0041 (agent
+  // tools POST; allowMethodOverride accepts it).
   listCycles: protectedProcedure
     .input(
       z.object({
@@ -4803,14 +4844,20 @@ export const mastraRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       let workspaceId = input.workspaceId;
       if (input.productId) {
-        const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+        const product = await loadProductWithAccess(ctx.db, userId, input.productId, "view");
         workspaceId = product.workspaceId;
       } else if (workspaceId) {
-        await assertWorkspaceMember(ctx.db, userId, workspaceId);
+        await assertWorkspaceAccess(ctx.db, userId, workspaceId, "view");
       }
 
       const cycles = await ctx.db.list.findMany({
-        where: { workspaceId, listType: "SPRINT" },
+        where: {
+          workspaceId,
+          listType: "SPRINT",
+          ...(input.productId
+            ? { OR: [{ productId: input.productId }, { productId: null }] }
+            : {}),
+        },
         select: {
           id: true,
           name: true,
@@ -4859,7 +4906,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const product = await loadProductWithAccess(ctx.db, userId, input.productId);
+      const product = await loadProductWithAccess(ctx.db, userId, input.productId, "view");
       const limit = input.limit ?? 100;
 
       // Resolve the human cycle reference against the workspace's cycles.
@@ -4975,7 +5022,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await loadProductWithAccess(ctx.db, userId, input.productId);
+      await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       console.log(`🔗 [tRPC addTicketDependencies] RECEIVED: productId=${input.productId}, edges=${input.dependencies.length}, userId=${userId}`);
 
@@ -5045,7 +5092,7 @@ export const mastraRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await loadProductWithAccess(ctx.db, userId, input.productId);
+      await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
 
       const [ticket, dependsOn] = await Promise.all([
         ctx.db.ticket.findUnique({
@@ -5067,47 +5114,6 @@ export const mastraRouter = createTRPCRouter({
       return { removed: result.count > 0 };
     }),
 });
-
-// Helper function for fallback AI suggestions
-function getFallbackSuggestion(context: {
-  pendingActionsCount: number;
-  overdueActionsCount: number;
-  calendarEventsCount: number;
-  dailyOutcomesCount: number;
-  weeklyOutcomesCount: number;
-  completedHabitsCount: number;
-  totalHabitsCount: number;
-  staleProjectIds: string[];
-  isMonday: boolean;
-  isSunday: boolean;
-}): string {
-  // Provide contextual fallback suggestions when AI is unavailable
-  if (context.dailyOutcomesCount === 0) {
-    return "Consider setting one small intention for today - what would make it feel meaningful?";
-  }
-
-  if (context.pendingActionsCount === 0 && context.calendarEventsCount === 0) {
-    return "Your day looks open. This might be a good time for something restorative or a project you've been curious about.";
-  }
-
-  if (context.isMonday && context.weeklyOutcomesCount === 0) {
-    return "It's a fresh week! You might enjoy taking a few minutes to think about what would make this week feel successful.";
-  }
-
-  if (context.isSunday) {
-    return "Sundays can be great for light reflection. What went well this week that you'd like to continue?";
-  }
-
-  if (context.pendingActionsCount > 0) {
-    return "You have some actions lined up for today. Starting with the one that feels most approachable can build nice momentum.";
-  }
-
-  if (context.completedHabitsCount < context.totalHabitsCount) {
-    return "You're making progress on your habits. Keep going at your own pace.";
-  }
-
-  return "Take a moment to appreciate what you've already accomplished. Small wins matter.";
-}
 
 // Helper functions for meeting insights extraction
 function determineContextType(content: string): 'decision' | 'action_item' | 'deadline' | 'blocker' | 'discussion' | 'update' {

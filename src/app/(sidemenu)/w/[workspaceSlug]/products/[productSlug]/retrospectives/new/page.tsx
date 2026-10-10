@@ -31,8 +31,8 @@ export default function NewRetrospectivePage() {
   );
 
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
   );
 
   const [title, setTitle] = useState("");

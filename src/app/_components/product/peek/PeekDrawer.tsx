@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ActionIcon, Drawer, Group, Tooltip } from "@mantine/core";
+import {
+  LIST_NAV_HINT,
+  useListNavHotkeys,
+} from "~/app/_components/product/useListNavHotkeys";
 import {
   IconArrowsDiagonal,
   IconArrowsDiagonalMinimize2,
@@ -28,6 +32,8 @@ const WIDE_PREF_KEY = "peek-drawer-wide";
  * EditContactDrawer convention scaled up), prev/next to flip through the
  * list without closing (j/k also work), and an escape hatch to the full
  * detail page. Esc closes (Mantine default). Content is entity-specific.
+ * Navigation keys come from useListNavHotkeys, shared with the ticket detail
+ * page: j/k, plus ⌃⌘←/→ which also work while typing.
  */
 export function PeekDrawer({
   opened,
@@ -62,34 +68,12 @@ export function PeekDrawer({
       return !w;
     });
 
-  // j/k flip through the list (Linear convention) - never while typing.
-  useEffect(() => {
-    if (!opened) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable)
-      )
-        return;
-      // Never flip entities under an open dropdown - the menu would suddenly
-      // refer to a different item.
-      if (
-        document.querySelector(
-          ".mantine-Menu-dropdown, .mantine-Popover-dropdown, .mantine-Select-dropdown, .mantine-Combobox-dropdown",
-        )
-      )
-        return;
-      if (e.key === "j" && onNext) onNext();
-      if (e.key === "k" && onPrev) onPrev();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [opened, onPrev, onNext]);
+  // j/k flip through the list, ⌃⌘←/→ do the same while typing. Shared with the
+  // ticket detail page so the keys mean one thing app-wide. `bodyRef` tells the
+  // hook which modal is ours: this drawer is itself aria-modal, and without it
+  // the overlay guard would block the navigation it exists to provide.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  useListNavHotkeys({ onPrev, onNext, enabled: opened, root: bodyRef });
 
   const hasNav = onPrev !== undefined || onNext !== undefined;
 
@@ -112,7 +96,10 @@ export function PeekDrawer({
           <span className="sr-only">{label}</span>
           {hasNav && (
             <>
-              <Tooltip label="Previous in list (k)" position="bottom">
+              <Tooltip
+                label={`Previous in list (${LIST_NAV_HINT.prev})`}
+                position="bottom"
+              >
                 <ActionIcon
                   variant="subtle"
                   size="sm"
@@ -124,7 +111,10 @@ export function PeekDrawer({
                   <IconChevronUp size={15} />
                 </ActionIcon>
               </Tooltip>
-              <Tooltip label="Next in list (j)" position="bottom">
+              <Tooltip
+                label={`Next in list (${LIST_NAV_HINT.next})`}
+                position="bottom"
+              >
                 <ActionIcon
                   variant="subtle"
                   size="sm"
@@ -177,7 +167,7 @@ export function PeekDrawer({
     >
       {/* Initial focus lands here (not on the title input), so j/k work
           immediately and opening the peek never starts an accidental edit. */}
-      <div data-autofocus tabIndex={-1} style={{ outline: "none" }}>
+      <div ref={bodyRef} data-autofocus tabIndex={-1} style={{ outline: "none" }}>
         {children}
       </div>
     </Drawer>

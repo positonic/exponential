@@ -21,7 +21,6 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
           '/home',
           '/projects',
           '/goals',
-          '/outcomes',
           '/actions',
           '/act',
           '/plan',

@@ -15,6 +15,12 @@ export const NOTIFICATION_CATEGORIES = {
   SUMMARY: "summary",
   MEETING_READY: "meeting_ready",
   MEETING_PARTICIPANT_ADDED: "meeting_participant_added",
+  /** A ceremony occurrence's agenda was generated and circulated (ADR-0059). */
+  AGENDA_READY: "agenda_ready",
+  /** A Workspace update draft (or a quiet-week notice) awaits its reviewers. */
+  UPDATE_REVIEW: "update_review",
+  /** An Agent run finished or stopped on an action you handed to an Assistant (ADR-0067). */
+  AGENT_RUN: "agent_run",
 } as const;
 
 export type NotificationCategory =
@@ -71,6 +77,9 @@ export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.SUMMARY,
   NOTIFICATION_CATEGORIES.MEETING_READY,
   NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+  NOTIFICATION_CATEGORIES.AGENDA_READY,
+  NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+  NOTIFICATION_CATEGORIES.AGENT_RUN,
 ] as const;
 
 /** All channels, in stable delivery / matrix-column order. */
@@ -86,9 +95,11 @@ export const CHANNEL_LIST = [
  * Seeded fallback for the category × channel matrix — used when a user has no
  * explicit {@link NotificationChannelPreference} row for a cell. Always-on
  * channels (Push, Email) default on for high-signal categories; Summary keeps
- * push quiet. Opt-in channels (Matrix, WhatsApp, Zulip) default off everywhere,
+ * push quiet. Opt-in channels (Matrix, WhatsApp, Zulip) default off,
  * so connecting a chat channel never auto-starts pings (CONTEXT: Notification
- * channel).
+ * channel) — except Update review, whose reviewers asked to approve drafts in
+ * Matrix. A defaulted Matrix cell only delivers to a user who has paired
+ * Matrix (`resolveEnabledChannels`).
  */
 export const DEFAULT_MATRIX: Record<
   NotificationCategory,
@@ -100,4 +111,11 @@ export const DEFAULT_MATRIX: Record<
   [NOTIFICATION_CATEGORIES.SUMMARY]: { push: false, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.MEETING_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  // Agenda ready: push + email on; chat channels off (the ceremony's own
+  // Matrix room gets the agenda through the ceremony post, not per person).
+  [NOTIFICATION_CATEGORIES.AGENDA_READY]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  // Update review: the draft goes to the reviewer's Matrix DM (when paired) and
+  // email, so it can be read where it arrives and approved from its link.
+  [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { push: true, email: true, matrix: true, whatsapp: false, zulip: false },
+  [NOTIFICATION_CATEGORIES.AGENT_RUN]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
 };

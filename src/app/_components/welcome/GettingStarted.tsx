@@ -6,6 +6,8 @@ import { Loader } from "@mantine/core";
 import { useWelcomeSetup } from "./useWelcomeSetup";
 import { WelcomeChatView } from "./WelcomeChatView";
 import { WelcomeChecklistView } from "./WelcomeChecklistView";
+import { WelcomeInvited } from "./WelcomeInvited";
+import { COPY } from "./welcomeCopy";
 import styles from "./Welcome.module.css";
 
 type ViewMode = "chat" | "checklist";
@@ -48,29 +50,60 @@ export function GettingStarted() {
     );
   }
 
+  // Invited variant: the user joined someone else's workspace via an
+  // invitation — no chat/checklist (and no view toggle), just the shortened
+  // "you're in" flow. The explore exit stays available like everywhere else.
+  if (setup.invitedContext) {
+    return (
+      <div style={{ position: "relative" }}>
+        <div className={styles.topBar}>
+          <button
+            type="button"
+            className={styles.exploreLink}
+            onClick={() => void setup.exploreOnOwn()}
+          >
+            {COPY.chips.explore}
+          </button>
+        </div>
+        <WelcomeInvited setup={setup} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: "relative" }}>
-      <div className={styles.viewToggle} role="tablist" aria-label="Setup view">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "chat"}
-          className={view === "chat" ? styles.toggleOn : undefined}
-          onClick={() => switchView("chat")}
-        >
-          <IconMessageChatbot size={13} />
-          Chat
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "checklist"}
-          className={view === "checklist" ? styles.toggleOn : undefined}
-          onClick={() => switchView("checklist")}
-        >
-          <IconListCheck size={13} />
-          Checklist
-        </button>
+      <div className={styles.topBar}>
+        {!setup.allDone && (
+          <button
+            type="button"
+            className={styles.exploreLink}
+            onClick={() => void setup.exploreOnOwn()}
+          >
+            {COPY.chips.explore}
+          </button>
+        )}
+        <div className={styles.viewToggle} role="tablist" aria-label="Setup view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "chat"}
+            className={view === "chat" ? styles.toggleOn : undefined}
+            onClick={() => switchView("chat")}
+          >
+            <IconMessageChatbot size={13} />
+            Chat
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "checklist"}
+            className={view === "checklist" ? styles.toggleOn : undefined}
+            onClick={() => switchView("checklist")}
+          >
+            <IconListCheck size={13} />
+            Checklist
+          </button>
+        </div>
       </div>
       {view === "chat" ? (
         <WelcomeChatView setup={setup} />

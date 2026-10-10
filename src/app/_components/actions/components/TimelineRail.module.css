@@ -107,6 +107,7 @@
   overflow: hidden;
   cursor: pointer;
   border-left: 2px solid;
+  z-index: 1;
 }
 
 .blockCal {
@@ -127,8 +128,96 @@
   color: var(--today-rail-focus-text);
 }
 
+.blockTitle {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .blockTime {
   font-size: 10px;
   opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* See the matching rule in today-desktop.css: floored blocks are drawn taller
+   than their duration, so they need an edge to stay distinct from the next. */
+.block[data-floored="true"] {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  outline: 1px solid var(--color-border-primary);
+  outline-offset: -1px;
+}
+
+.more {
+  position: absolute;
+  z-index: 2;
+}
+
+.more[data-open="true"] {
+  z-index: 3;
+}
+
+.moreButton {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border-primary);
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.moreButton:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+}
+
+.morePanel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 190px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 4px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-primary);
+}
+
+.moreItem {
+  padding: 5px 7px;
+  border-radius: 5px;
+}
+
+.moreItem + .moreItem {
+  margin-top: 1px;
+}
+
+.moreItem:hover {
+  background: var(--color-surface-secondary);
+}
+
+.moreItemTitle {
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moreItemTime {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }

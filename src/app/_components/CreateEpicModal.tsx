@@ -11,15 +11,30 @@ interface CreateEpicModalProps {
   opened: boolean;
   onClose: () => void;
   workspaceId?: string;
+  /**
+   * The product this epic belongs to. Pass it from a product-scoped surface
+   * (the Epics tab, a ticket) to skip the picker. Omit it from surfaces with
+   * no product of their own — the action modals — and the user picks one,
+   * because every epic needs a product.
+   */
+  productId?: string;
   onCreated?: (epic: { id: string; name: string }) => void;
 }
 
-export function CreateEpicModal({ opened, onClose, workspaceId, onCreated }: CreateEpicModalProps) {
+export function CreateEpicModal({ opened, onClose, workspaceId, productId, onCreated }: CreateEpicModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [targetDate, setTargetDate] = useState<Date | null>(null);
+  const [pickedProductId, setPickedProductId] = useState<string | null>(null);
+
+  const needsProductPicker = !productId;
+  const { data: products } = api.product.product.list.useQuery(
+    { workspaceId: workspaceId ?? '' },
+    { enabled: opened && needsProductPicker && !!workspaceId },
+  );
+  const effectiveProductId = productId ?? pickedProductId;
 
   const createEpic = api.epic.create.useMutation({
     onSuccess: (data) => {
@@ -49,13 +64,15 @@ export function CreateEpicModal({ opened, onClose, workspaceId, onCreated }: Cre
     setPriority('MEDIUM');
     setStartDate(null);
     setTargetDate(null);
+    setPickedProductId(null);
   };
 
   const handleSubmit = () => {
-    if (!name.trim() || !workspaceId) return;
+    if (!name.trim() || !workspaceId || !effectiveProductId) return;
 
     createEpic.mutate({
       workspaceId,
+      productId: effectiveProductId,
       name: name.trim(),
       description: description.trim() || undefined,
       priority: priority as "HIGH" | "MEDIUM" | "LOW" | "NONE",
@@ -112,6 +129,20 @@ export function CreateEpicModal({ opened, onClose, workspaceId, onCreated }: Cre
           styles={inputStyles}
         />
 
+        {needsProductPicker && (
+          <Select
+            label="Product"
+            placeholder={products ? 'Select a product' : 'Loading…'}
+            value={pickedProductId}
+            onChange={setPickedProductId}
+            data={(products ?? []).map((p) => ({ value: p.id, label: p.name }))}
+            required
+            searchable
+            nothingFoundMessage="No products in this workspace"
+            styles={inputStyles}
+          />
+        )}
+
         <Select
           label="Priority"
           value={priority}
@@ -150,7 +181,7 @@ export function CreateEpicModal({ opened, onClose, workspaceId, onCreated }: Cre
           <Button
             onClick={handleSubmit}
             loading={createEpic.isPending}
-            disabled={!name.trim() || !workspaceId}
+            disabled={!name.trim() || !workspaceId || !effectiveProductId}
           >
             Create Epic
           </Button>

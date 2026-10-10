@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  loadProductWithAccess,
+  assertWorkspaceAccess,
+  type WorkspaceAccessLevel,
+} from "./product";
 import type { PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
@@ -25,6 +29,7 @@ async function loadResearchWithAccess(
   db: PrismaClient,
   userId: string,
   researchId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const research = await db.research.findUnique({
     where: { id: researchId },
@@ -37,10 +42,11 @@ async function loadResearchWithAccess(
   if (!research) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Research not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     research.product.workspaceId,
+    level,
   );
   return research;
 }
@@ -49,6 +55,7 @@ async function loadInsightWithAccess(
   db: PrismaClient,
   userId: string,
   insightId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const insight = await db.insight.findUnique({
     where: { id: insightId },
@@ -61,10 +68,11 @@ async function loadInsightWithAccess(
   if (!insight) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Insight not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     insight.product.workspaceId,
+    level,
   );
   return insight;
 }
@@ -74,7 +82,7 @@ export const researchRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       return ctx.db.research.findMany({
         where: { productId: input.productId },
@@ -109,10 +117,11 @@ export const researchRouter = createTRPCRouter({
       if (!research) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Research not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         research.product.workspaceId,
+        "view",
       );
       return research;
     }),
@@ -129,7 +138,7 @@ export const researchRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       return ctx.db.research.create({
         data: {
@@ -156,7 +165,7 @@ export const researchRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadResearchWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadResearchWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const { id, ...data } = input;
       return ctx.db.research.update({ where: { id }, data });
     }),
@@ -164,7 +173,7 @@ export const researchRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadResearchWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadResearchWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.research.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -179,7 +188,7 @@ export const researchRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       return ctx.db.insight.findMany({
         where: {
@@ -222,6 +231,7 @@ export const researchRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.researchId,
+        "edit",
       );
       return ctx.db.insight.create({
         data: {
@@ -246,7 +256,7 @@ export const researchRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const { id, ...data } = input;
       return ctx.db.insight.update({ where: { id }, data });
     }),
@@ -254,7 +264,7 @@ export const researchRouter = createTRPCRouter({
   deleteInsight: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.insight.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -272,6 +282,7 @@ export const researchRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.insightId,
+        "edit",
       );
       const feature = await ctx.db.feature.findUnique({
         where: { id: input.featureId },
@@ -284,10 +295,11 @@ export const researchRouter = createTRPCRouter({
       if (!feature) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         feature.product.workspaceId,
+        "edit",
       );
       if (feature.productId !== insight.productId) {
         throw new TRPCError({
@@ -327,6 +339,7 @@ export const researchRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.insightId,
+        "edit",
       );
       await ctx.db.featureInsight.deleteMany({
         where: {

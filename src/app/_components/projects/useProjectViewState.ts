@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useTransition } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { FilterState } from "~/types/filter";
 import type {
@@ -8,9 +16,123 @@ import type {
   SortDirection,
 } from "~/app/_components/toolbar/useProjectSort";
 
-const FILTER_KEYS = ["status", "priority", "driId"] as const;
+export const PROJECT_FILTER_KEYS = [
+  "status",
+  "priority",
+  "driId",
+  "visibility",
+  "eta",
+] as const;
+
+export type ProjectFilterKey = (typeof PROJECT_FILTER_KEYS)[number];
+
+/**
+ * `driId` sentinel for "My projects" — the signed-in user. Stored verbatim in
+ * the URL (`?driId=me`) so the link is the same for everyone who opens it,
+ * and resolved against the session only at filter time.
+ */
+export const DRI_ME = "me";
+/** `driId` sentinel for projects that have no DRI at all. */
+export const DRI_NONE = "none";
+
+/** `visibility` filter values. */
+export const VISIBILITY_PUBLIC = "public";
+export const VISIBILITY_RESTRICTED = "restricted";
+
+/** `eta` filter values — buckets of the project's end date. */
+export const ETA_OVERDUE = "overdue";
+export const ETA_SOON = "soon";
+export const ETA_NONE = "none";
+/** "Due soon" reaches this many days ahead of today, inclusive. */
+export const ETA_SOON_DAYS = 30;
+
+export interface ProjectFilterContext {
+  /** Signed-in user id; `driId=me` matches nothing until it is known. */
+  currentUserId?: string | null;
+  /** Reference "today" for the ETA buckets (injectable for tests). */
+  now?: Date;
+}
+
+/** The project fields the client-side filters read. */
+export interface FilterableProject {
+  status: string;
+  priority: string;
+  driId?: string | null;
+  isPublic?: boolean;
+  isRestricted?: boolean;
+  endDate?: Date | string | null;
+}
+
+const FINISHED_STATUSES = new Set(["COMPLETED", "CANCELLED"]);
+
+/**
+ * Which ETA bucket a project falls in. "Overdue" is reserved for unfinished
+ * work — a completed project whose end date has passed is simply done.
+ * Anything else (finished, or due beyond the "soon" window) returns null and
+ * matches no ETA option.
+ */
+export function projectEtaBucket(
+  project: Pick<FilterableProject, "endDate" | "status">,
+  now: Date = new Date(),
+): typeof ETA_OVERDUE | typeof ETA_SOON | typeof ETA_NONE | null {
+  const end = toDate(project.endDate ?? null);
+  if (!end) return ETA_NONE;
+  if (FINISHED_STATUSES.has(project.status)) return null;
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  if (end < today) return ETA_OVERDUE;
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + ETA_SOON_DAYS + 1);
+  if (end < horizon) return ETA_SOON;
+  return null;
+}
+
+/**
+ * Product default for the project views: hide finished work. Applied only on
+ * a first visit — before the user has ever touched the filters — and never
+ * re-applied once they have set or explicitly cleared their own.
+ */
+export const PROJECT_DEFAULT_VIEW_STATE = "status=ACTIVE,ON_HOLD";
+
 const QUERY_PARAM = "q";
 const SORT_PARAM = "sort";
+
+const PERSIST_STORAGE_PREFIX = "exponential.viewFilters";
+
+/**
+ * One saved filter/sort state per workspace per page family, so the three
+ * project views (/projects, /projects-tasks, /timeline) share a single entry
+ * while the goals page keeps its own.
+ */
+function persistStorageKey(pathname: string, scope: string): string {
+  const match = /^\/w\/([^/]+)/.exec(pathname);
+  return `${PERSIST_STORAGE_PREFIX}.${match?.[1] ?? "global"}.${scope}`;
+}
+
+/** The filter + sort params only — `?q=` is transient and never persisted. */
+function persistableSubset(
+  params: URLSearchParams,
+  filterKeys: readonly string[],
+): string {
+  const out = new URLSearchParams();
+  for (const key of filterKeys) {
+    const v = params.get(key);
+    if (v) out.set(key, v);
+  }
+  const s = params.get(SORT_PARAM);
+  if (s) out.set(SORT_PARAM, s);
+  return out.toString();
+}
+
+/**
+ * How long to wait after the last keystroke before writing `?q=` to the URL.
+ *
+ * Writing it per-keystroke means a `router.replace()` per character, and the
+ * `(sidemenu)` route group is served by an async *server* layout — so every one
+ * of those replaces refetches the whole RSC tree. That is what made the search
+ * box feel like it was reloading the page as you typed.
+ */
+const SEARCH_URL_DEBOUNCE_MS = 350;
 
 const PROJECT_PRIORITY_RANK: Record<string, number> = {
   HIGH: 0,
@@ -38,7 +160,14 @@ const ENUM_FIELDS: Record<string, Record<string, number>> = {
   status: STATUS_ORDER,
 };
 
-const DESC_DEFAULT_FIELDS = new Set(["createdAt", "startDate", "endDate"]);
+const DESC_DEFAULT_FIELDS = new Set([
+  "createdAt",
+  "startDate",
+  "endDate",
+  // Contacts list: newest interaction / strongest connection first.
+  "lastInteractionAt",
+  "connectionScore",
+]);
 
 function toDate(val: unknown): Date | null {
   if (val instanceof Date) return val;
@@ -49,9 +178,12 @@ function toDate(val: unknown): Date | null {
   return null;
 }
 
-function parseFilters(params: URLSearchParams): FilterState {
+function parseFilters(
+  params: URLSearchParams,
+  filterKeys: readonly string[],
+): FilterState {
   const result: FilterState = {};
-  for (const key of FILTER_KEYS) {
+  for (const key of filterKeys) {
     const raw = params.get(key);
     if (raw) {
       const values = raw.split(",").filter(Boolean);
@@ -73,7 +205,13 @@ function parseSort(params: URLSearchParams): ProjectSortState | null {
 export interface ProjectViewState {
   filters: FilterState;
   setFilters: (next: FilterState | ((prev: FilterState) => FilterState)) => void;
+  /** Live text — bind this to the search `<input value>`. Updates synchronously. */
   searchQuery: string;
+  /**
+   * Deferred copy of {@link searchQuery}. Filter list rendering off this so a
+   * slow re-render of the results never blocks the next keystroke.
+   */
+  deferredSearchQuery: string;
   setSearchQuery: (next: string) => void;
   sortState: ProjectSortState | null;
   setSortField: (field: string) => void;
@@ -82,7 +220,26 @@ export interface ProjectViewState {
   viewParamsQueryString: string;
 }
 
-export function useProjectViewState(): ProjectViewState {
+/**
+ * URL-mirrored view state (filters, debounced `?q=`, sort) for a filterable
+ * list page. `filterKeys` names the query params the page's FilterBar owns;
+ * the project views use the default, the goals view passes its own keys.
+ *
+ * Pass `persistScope` to remember the filter/sort state in localStorage and
+ * re-apply it when the user returns to the bare URL. A URL that already
+ * carries any filter or sort param always wins over the saved state, so deep
+ * links stay shareable and honest.
+ *
+ * `defaultViewState` (same `k=v&sort=…` encoding as the persisted value) is
+ * applied on a bare URL only when the user has never saved anything — an
+ * explicit "clear filters" is remembered as an empty entry and suppresses the
+ * default from then on.
+ */
+export function useProjectViewState(
+  filterKeys: readonly string[] = PROJECT_FILTER_KEYS,
+  persistScope?: string,
+  defaultViewState?: string,
+): ProjectViewState {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -91,48 +248,160 @@ export function useProjectViewState(): ProjectViewState {
   const [, startTransition] = useTransition();
 
   const filters = useMemo(
-    () => parseFilters(new URLSearchParams(paramsString)),
-    [paramsString],
+    () => parseFilters(new URLSearchParams(paramsString), filterKeys),
+    [paramsString, filterKeys],
   );
   const sortState = useMemo(
     () => parseSort(new URLSearchParams(paramsString)),
     [paramsString],
   );
-  const searchQuery = searchParams.get(QUERY_PARAM) ?? "";
+  const urlSearchQuery = searchParams.get(QUERY_PARAM) ?? "";
+
+  // The input is driven by local state, not by the URL. The URL is a *mirror*
+  // that catches up once typing pauses (see SEARCH_URL_DEBOUNCE_MS).
+  const [searchQuery, setSearchQueryState] = useState(urlSearchQuery);
+  // Last value this hook wrote to the URL, so we can tell our own echo apart
+  // from an external change (back/forward, a link carrying `?q=`).
+  const lastWrittenQueryRef = useRef(urlSearchQuery);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const viewParamsQueryString = useMemo(() => {
     const params = new URLSearchParams(paramsString);
     const out = new URLSearchParams();
-    for (const key of FILTER_KEYS) {
+    for (const key of filterKeys) {
       const v = params.get(key);
       if (v) out.set(key, v);
     }
-    const q = params.get(QUERY_PARAM);
-    if (q) out.set(QUERY_PARAM, q);
+    // Use the live text, not the URL's — a view-tab link clicked mid-debounce
+    // should still carry what the user has typed.
+    if (searchQuery.trim()) out.set(QUERY_PARAM, searchQuery);
     const s = params.get(SORT_PARAM);
     if (s) out.set(SORT_PARAM, s);
     return out.toString();
-  }, [paramsString]);
+  }, [paramsString, searchQuery, filterKeys]);
+
+  const storageKey = persistScope
+    ? persistStorageKey(pathname, persistScope)
+    : null;
 
   const updateParams = useCallback(
-    (mutator: (params: URLSearchParams) => void) => {
+    (mutator: (params: URLSearchParams) => void, persist = true) => {
       const params = new URLSearchParams(paramsString);
       mutator(params);
+      // Persist only on filter/sort interactions (`persist` is false for the
+      // debounced `?q=` writes), never on the restore itself — so a deep link
+      // someone shared doesn't overwrite the user's saved default unless they
+      // actually touch the filters. An empty subset is stored as an empty
+      // entry rather than removed: "I cleared my filters" must stay
+      // distinguishable from "I've never touched them", or the product default
+      // would resurrect the filters on the next visit.
+      if (storageKey && persist) {
+        try {
+          window.localStorage.setItem(
+            storageKey,
+            persistableSubset(params, filterKeys),
+          );
+        } catch {
+          // Storage unavailable (private mode, quota) — the URL still works.
+        }
+      }
       const query = params.toString();
       const url = query ? `${pathname}?${query}` : pathname;
       startTransition(() => {
         router.replace(url, { scroll: false });
       });
     },
-    [router, pathname, paramsString],
+    [router, pathname, paramsString, storageKey, filterKeys],
   );
+
+  // A debounced write fires from a timer, so it must not capture a stale
+  // `updateParams` (which closes over `paramsString`) — read the latest here.
+  const updateParamsRef = useRef(updateParams);
+  useEffect(() => {
+    updateParamsRef.current = updateParams;
+  }, [updateParams]);
+
+  // Adopt external URL changes (back/forward, or landing on a `?q=` link), but
+  // ignore our own debounced write coming back around.
+  useEffect(() => {
+    if (urlSearchQuery === lastWrittenQueryRef.current) return;
+    lastWrittenQueryRef.current = urlSearchQuery;
+    setSearchQueryState(urlSearchQuery);
+  }, [urlSearchQuery]);
+
+  // Re-apply the saved filter/sort state when landing on a bare URL. Restoring
+  // by router.replace (rather than seeding state from localStorage during
+  // render) keeps the URL the single source of truth and avoids an SSR
+  // hydration mismatch; the cost is one unfiltered paint before the replace
+  // lands. Runs once per mount: a user who then clears the filters must see
+  // them stay cleared, not snap back.
+  const restoreAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!storageKey || restoreAttemptedRef.current) return;
+    restoreAttemptedRef.current = true;
+
+    const params = new URLSearchParams(paramsString);
+    const urlHasViewState =
+      filterKeys.some((key) => params.has(key)) || params.has(SORT_PARAM);
+    if (urlHasViewState) return;
+
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(storageKey);
+    } catch {
+      return;
+    }
+    // null = never saved → fall back to the product default. "" = the user
+    // explicitly cleared their filters → honour that, apply nothing.
+    if (saved === null) saved = defaultViewState ?? null;
+    if (!saved) return;
+
+    const savedParams = new URLSearchParams(saved);
+    let adopted = false;
+    for (const key of filterKeys) {
+      const v = savedParams.get(key);
+      if (v) {
+        params.set(key, v);
+        adopted = true;
+      }
+    }
+    const savedSort = savedParams.get(SORT_PARAM);
+    if (savedSort) {
+      params.set(SORT_PARAM, savedSort);
+      adopted = true;
+    }
+    if (!adopted) return;
+
+    const query = params.toString();
+    startTransition(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      });
+    });
+  }, [storageKey, paramsString, filterKeys, pathname, router, defaultViewState]);
+
+  // Never let a queued write land after unmount — it would navigate a page the
+  // user has already left. Tradeoff, deliberate: a query typed in the last
+  // SEARCH_URL_DEBOUNCE_MS before navigating away never reaches the URL, so
+  // Back returns to an empty box. Don't "fix" that by flushing on unmount — it
+  // reintroduces the hijack. View-tab switches are already covered, because
+  // viewParamsQueryString builds its links from the live text.
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, []);
 
   const setFilters = useCallback(
     (next: FilterState | ((prev: FilterState) => FilterState)) => {
       updateParams((params) => {
         const resolved =
-          typeof next === "function" ? next(parseFilters(params)) : next;
-        for (const key of FILTER_KEYS) {
+          typeof next === "function"
+            ? next(parseFilters(params, filterKeys))
+            : next;
+        for (const key of filterKeys) {
           const val = resolved[key];
           if (Array.isArray(val) && val.length > 0) {
             params.set(key, val.join(","));
@@ -142,18 +411,24 @@ export function useProjectViewState(): ProjectViewState {
         }
       });
     },
-    [updateParams],
+    [updateParams, filterKeys],
   );
 
-  const setSearchQuery = useCallback(
-    (next: string) => {
-      updateParams((params) => {
-        if (next.trim()) params.set(QUERY_PARAM, next);
+  const setSearchQuery = useCallback((next: string) => {
+    // Synchronous: the caret and the visible text never wait on the router.
+    setSearchQueryState(next);
+
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      searchTimerRef.current = null;
+      const trimmed = next.trim();
+      lastWrittenQueryRef.current = trimmed ? next : "";
+      updateParamsRef.current((params) => {
+        if (trimmed) params.set(QUERY_PARAM, next);
         else params.delete(QUERY_PARAM);
-      });
-    },
-    [updateParams],
-  );
+      }, false);
+    }, SEARCH_URL_DEBOUNCE_MS);
+  }, []);
 
   const setSortField = useCallback(
     (field: string) => {
@@ -222,6 +497,7 @@ export function useProjectViewState(): ProjectViewState {
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
@@ -231,22 +507,116 @@ export function useProjectViewState(): ProjectViewState {
   };
 }
 
-export function filterProjects<
-  T extends { status: string; priority: string; driId?: string | null },
->(projects: T[], filters: FilterState, searchQuery: string): T[] {
+/**
+ * Facet counts for the filter value pickers: each field is counted with every
+ * *other* active filter (and the search text) applied, so the number next to
+ * an option answers "how many rows would I see if I picked this?".
+ *
+ * `statusTotals` (from `project.getStatusCounts`) overrides the status counts:
+ * the list itself is fetched status-filtered, so hidden statuses can't be
+ * counted from it. Those server totals ignore the other client-side filters —
+ * an accepted approximation.
+ */
+export function computeProjectFilterCounts<T extends FilterableProject>(
+  projects: T[],
+  filters: FilterState,
+  searchQuery: string,
+  statusTotals?: Record<string, number>,
+  ctx: ProjectFilterContext = {},
+): Record<string, Record<string, number>> {
+  const countBy = (
+    items: T[],
+    pick: (p: T) => string | string[] | null | undefined,
+  ) => {
+    const out: Record<string, number> = {};
+    for (const item of items) {
+      const picked = pick(item);
+      const keys = Array.isArray(picked) ? picked : picked ? [picked] : [];
+      for (const key of keys) out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+  };
+  const without = (field: string) =>
+    filterProjects(
+      projects,
+      { ...filters, [field]: undefined },
+      searchQuery,
+      ctx,
+    );
+  const driCandidates = without("driId");
+  const counts: Record<string, Record<string, number>> = {
+    priority: countBy(without("priority"), (p) => p.priority),
+    driId: countBy(driCandidates, (p) => p.driId ?? DRI_NONE),
+    visibility: countBy(without("visibility"), (p) => [
+      ...(p.isPublic ? [VISIBILITY_PUBLIC] : []),
+      ...(p.isRestricted ? [VISIBILITY_RESTRICTED] : []),
+    ]),
+    eta: countBy(without("eta"), (p) => projectEtaBucket(p, ctx.now)),
+  };
+  if (ctx.currentUserId) {
+    counts.driId![DRI_ME] = driCandidates.filter(
+      (p) => p.driId === ctx.currentUserId,
+    ).length;
+  }
+  const statusFilterActive =
+    Array.isArray(filters.status) && filters.status.length > 0;
+  if (statusTotals) {
+    counts.status = statusTotals;
+  } else if (!statusFilterActive) {
+    // Without server totals we can only count what was fetched. Under an
+    // active status filter the fetch excludes the other statuses, so a client
+    // count would show them as a confident "0" — omit the status counts
+    // (picker shows no numbers) until the totals arrive instead of lying.
+    counts.status = countBy(without("status"), (p) => p.status);
+  }
+  return counts;
+}
+
+function arrayFilter(filters: FilterState, key: string): string[] | null {
+  const val = filters[key];
+  return Array.isArray(val) && val.length > 0 ? val : null;
+}
+
+export function filterProjects<T extends FilterableProject>(
+  projects: T[],
+  filters: FilterState,
+  searchQuery: string,
+  ctx: ProjectFilterContext = {},
+): T[] {
   const q = searchQuery.trim().toLowerCase();
+  const statusFilter = arrayFilter(filters, "status");
+  const priorityFilter = arrayFilter(filters, "priority");
+  const driFilter = arrayFilter(filters, "driId");
+  const visibilityFilter = arrayFilter(filters, "visibility");
+  const etaFilter = arrayFilter(filters, "eta");
+
+  // Resolve the DRI sentinels once, not per row. `me` without a session
+  // resolves to nothing — the views treat that gap as loading.
+  let driMatchNone = false;
+  const driIds = new Set<string>();
+  for (const v of driFilter ?? []) {
+    if (v === DRI_NONE) driMatchNone = true;
+    else if (v === DRI_ME) {
+      if (ctx.currentUserId) driIds.add(ctx.currentUserId);
+    } else driIds.add(v);
+  }
+
   return projects.filter((p) => {
-    const statusFilter = filters.status as string[] | undefined;
-    if (statusFilter && statusFilter.length > 0) {
-      if (!statusFilter.includes(p.status)) return false;
+    if (statusFilter && !statusFilter.includes(p.status)) return false;
+    if (priorityFilter && !priorityFilter.includes(p.priority)) return false;
+    if (driFilter) {
+      const ok = p.driId ? driIds.has(p.driId) : driMatchNone;
+      if (!ok) return false;
     }
-    const priorityFilter = filters.priority as string[] | undefined;
-    if (priorityFilter && priorityFilter.length > 0) {
-      if (!priorityFilter.includes(p.priority)) return false;
+    if (visibilityFilter) {
+      const ok =
+        (visibilityFilter.includes(VISIBILITY_PUBLIC) && !!p.isPublic) ||
+        (visibilityFilter.includes(VISIBILITY_RESTRICTED) && !!p.isRestricted);
+      if (!ok) return false;
     }
-    const driFilter = filters.driId as string[] | undefined;
-    if (driFilter && driFilter.length > 0) {
-      if (!p.driId || !driFilter.includes(p.driId)) return false;
+    if (etaFilter) {
+      const bucket = projectEtaBucket(p, ctx.now);
+      if (!bucket || !etaFilter.includes(bucket)) return false;
     }
     if (q) {
       const name = (p as unknown as { name?: string }).name ?? "";

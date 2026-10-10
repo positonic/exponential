@@ -1,7 +1,8 @@
 import { db } from '~/server/db';
-import { FirefliesService } from './FirefliesService';
-import { ActionExtractionService, numberScreenshotMarkers } from './ActionExtractionService';
+import { FirefliesService, type FirefliesSummary } from './FirefliesService';
+import { ActionExtractionService, filterNearDuplicateActions, mergeActionItems, numberScreenshotMarkers } from './ActionExtractionService';
 import { InternalActionProcessor } from './processors/InternalActionProcessor';
+import { type ParsedActionItem } from './processors/ActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
 import { SlackChannelResolver } from './SlackChannelResolver';
 import { SlackNotificationService } from './notifications/SlackNotificationService';
@@ -10,6 +11,12 @@ import {
   hasProjectAccess as userHasProjectAccess,
 } from './access';
 import { assignMeetingPlacement } from './meetings/assignMeetingPlacement';
+import {
+  generateDraftDecisions as generateDraftDecisionsForMeeting,
+  type DraftDecisionsResult,
+  type GenerateDraftDecisionsOptions,
+} from './decisions/generateDraftDecisions';
+import type { ActionCandidate } from './DecisionExtractionService';
 
 export interface ProcessTranscriptionResult {
   success: boolean;
@@ -24,6 +31,54 @@ export interface DraftTranscriptionActionsResult {
   alreadyPublished: boolean;
   draftCount: number;
   errors: string[];
+}
+
+export interface GenerateDraftActionsOptions {
+  /**
+   * Action items already told apart from the decisions by the decision
+   * extractor's transcript pass. When given, they stand in for the separate
+   * transcript action pass, so one model reading decides whether each item
+   * is a decision or an action. Undefined means that pass did not run.
+   */
+  transcriptActionItems?: ActionCandidate[];
+}
+
+/** The meeting page's single "Extract outputs" run: actions and decisions. */
+export interface ExtractMeetingOutputsResult {
+  actions: DraftTranscriptionActionsResult;
+  decisions: Omit<DraftDecisionsResult, "actionItems">;
+  /** True when both halves got through and the meeting was stamped `outputsExtractedAt`. */
+  extracted: boolean;
+}
+
+export interface ExtractMeetingOutputsOptions {
+  /**
+   * Who asked. `manual` is the button on the meeting page; `auto_extract`
+   * is the ceremony sweep (`meetings/autoExtractOutputs`), where nobody is
+   * looking so the decision drafts notify the meeting owner.
+   */
+  trigger?: "manual" | "auto_extract";
+}
+
+/**
+ * Map the decision extractor's action items onto the action pipeline's
+ * shape. The quoted turn becomes the draft's description, so the reviewer
+ * sees what was said, as the separate action pass did.
+ */
+export function actionCandidatesToParsedItems(candidates: ActionCandidate[]): ParsedActionItem[] {
+  return candidates.map((candidate) => {
+    const quote = candidate.evidence
+      .map((turn) => (turn.speaker ? `${turn.speaker}: ${turn.text}` : turn.text))
+      .join(" / ");
+    return {
+      text: candidate.text,
+      assignee: candidate.assigneeName ?? FirefliesService.parseAssigneeFromText(candidate.text),
+      dueDate:
+        (candidate.dueDateText ? FirefliesService.parseDate(candidate.dueDateText) : undefined) ??
+        FirefliesService.extractDueDateFromText(candidate.text),
+      context: quote ? `From transcript: "${quote}"` : `From transcript: "${candidate.text}"`,
+    };
+  });
 }
 
 export class TranscriptionProcessingService {
@@ -55,7 +110,8 @@ export class TranscriptionProcessingService {
    */
   static async generateDraftActions(
     transcriptionId: string,
-    userId: string
+    userId: string,
+    options: GenerateDraftActionsOptions = {}
   ): Promise<DraftTranscriptionActionsResult> {
     const result: DraftTranscriptionActionsResult = {
       success: false,
@@ -113,19 +169,24 @@ export class TranscriptionProcessingService {
         },
       });
 
-      if (existingActiveCount > 0) {
-        console.log(`[generateDraftActions] Already has ${existingActiveCount} active actions, returning alreadyPublished`);
-        result.alreadyPublished = true;
-        result.success = true;
-        return result;
-      }
-
       const existingDraftCount = await db.action.count({
         where: {
           transcriptionSessionId: transcriptionId,
           status: "DRAFT",
         },
       });
+
+      if (existingActiveCount > 0) {
+        // Report any drafts left over from a partial "Create selected" too:
+        // without the count the caller can only say "already created" and the
+        // leftovers become unreachable once the review card has left the
+        // drawer thread.
+        console.log(`[generateDraftActions] Already has ${existingActiveCount} active actions (${existingDraftCount} drafts remaining), returning alreadyPublished`);
+        result.alreadyPublished = true;
+        result.success = true;
+        result.draftCount = existingDraftCount;
+        return result;
+      }
 
       if (existingDraftCount > 0) {
         console.log(`[generateDraftActions] Already has ${existingDraftCount} drafts, returning existing`);
@@ -134,53 +195,96 @@ export class TranscriptionProcessingService {
         return result;
       }
 
-      let processedData;
+      // Notes are the authoritative source: they're human-curated, so any
+      // explicit action list in them extracts first and near-verbatim. The
+      // transcript (or Fireflies summary) then only contributes items the
+      // notes didn't already cover.
+      const notesText = transcription.notes?.trim() ?? "";
+      let notesItems: ParsedActionItem[] = [];
+      if (notesText) {
+        console.log(`[generateDraftActions] Extracting from notes (${notesText.length} chars)`);
+        notesItems = await ActionExtractionService.extractFromNotes(notesText);
+        console.log(`[generateDraftActions] Notes extraction returned ${notesItems.length} items`);
+      }
+
+      const transcriptText = transcription.transcription || "";
+      let summary: FirefliesSummary = {};
+      let transcriptItems: ParsedActionItem[] = [];
+
       if (transcription.summary) {
         try {
           console.log(`[generateDraftActions] Parsing summary JSON (first 200 chars): ${transcription.summary.slice(0, 200)}`);
-          const summary = JSON.parse(transcription.summary);
-          let actionItems = FirefliesService.parseActionItems(summary);
-          console.log(`[generateDraftActions] FirefliesService.parseActionItems returned ${actionItems.length} items`);
-          const transcriptText = transcription.transcription || "";
-
-          if (actionItems.length === 0 && transcriptText) {
-            console.log(`[generateDraftActions] No Fireflies actions, falling back to AI extraction on transcript (${transcriptText.length} chars)`);
-            const { numberedText } = numberScreenshotMarkers(transcriptText);
-            actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
-            console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
-          } else if (actionItems.length === 0) {
-            console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
-          }
-
-          processedData = {
-            summary,
-            actionItems,
-            transcriptText,
-          };
+          summary = JSON.parse(transcription.summary) as FirefliesSummary;
+          transcriptItems = FirefliesService.parseActionItems(summary);
+          console.log(`[generateDraftActions] FirefliesService.parseActionItems returned ${transcriptItems.length} items`);
         } catch (parseError) {
+          // Non-fatal: notes and/or raw transcript extraction below can still
+          // produce drafts even when the stored summary JSON is corrupt. But a
+          // corrupt stored summary is a data-integrity signal, so report it
+          // rather than letting it vanish into server logs.
           console.error("[generateDraftActions] Failed to parse transcription summary:", parseError);
-          result.errors.push("Failed to parse transcription data");
+          const { reportHandledErrorServer } = await import(
+            "~/server/utils/reportHandledErrorServer"
+          );
+          reportHandledErrorServer(parseError, {
+            area: "generateDraftActions: corrupt TranscriptionSession.summary JSON",
+            context: { transcriptionId },
+          });
         }
-      } else if (transcription.transcription) {
-        const transcriptText = transcription.transcription;
-        console.log(`[generateDraftActions] No summary, using AI extraction on transcript (${transcriptText.length} chars)`);
-        const { numberedText } = numberScreenshotMarkers(transcriptText);
-        const actionItems = await ActionExtractionService.extractFromTranscript(screenshots.length > 0 ? numberedText : transcriptText);
-        console.log(`[generateDraftActions] AI extraction returned ${actionItems.length} items`);
-        processedData = {
-          summary: {},
-          actionItems,
-          transcriptText,
-        };
-      } else {
-        console.log("[generateDraftActions] No summary and no transcription text available");
       }
 
-      if (!processedData) {
-        console.log("[generateDraftActions] No processedData, returning early");
-        result.success = true;
-        return result;
+      // The combined decision pass, when it ran, wins over the stored
+      // summary's action list: it read the transcript itself, sorted each
+      // item into decision or action, and quotes its evidence. Screen
+      // recordings keep the dedicated pass: it reads the transcript's
+      // [SCREENSHOT-N] markers to attach captures to actions, and the
+      // decision extractor's turn-numbered input has those markers stripped.
+      if (options.transcriptActionItems && screenshots.length === 0) {
+        transcriptItems = actionCandidatesToParsedItems(options.transcriptActionItems);
+        console.log(`[generateDraftActions] Using ${transcriptItems.length} action item(s) from the combined decision pass`);
+      } else if (transcriptItems.length === 0 && transcriptText) {
+        console.log(`[generateDraftActions] No Fireflies actions, using AI extraction on transcript (${transcriptText.length} chars)`);
+        const { numberedText } = numberScreenshotMarkers(transcriptText);
+        // A transcript-extraction failure must degrade to notes-only drafts,
+        // not abort: the notes items already in hand are the ones the user
+        // explicitly wrote down.
+        try {
+          transcriptItems = await ActionExtractionService.extractFromTranscript(
+            screenshots.length > 0 ? numberedText : transcriptText,
+            { excludeActions: notesItems.map((item) => item.text) }
+          );
+          console.log(`[generateDraftActions] AI extraction returned ${transcriptItems.length} items`);
+        } catch (extractError) {
+          console.error("[generateDraftActions] Transcript extraction failed, continuing with notes items:", extractError);
+          const { reportHandledErrorServer } = await import(
+            "~/server/utils/reportHandledErrorServer"
+          );
+          reportHandledErrorServer(extractError, {
+            area: "generateDraftActions: transcript action extraction failed",
+            context: { transcriptionId },
+          });
+        }
+      } else if (transcriptItems.length === 0) {
+        console.log("[generateDraftActions] No Fireflies actions and no transcript text available");
       }
+
+      // The AI transcript pass is told about notes items via excludeActions,
+      // but the Fireflies-summary path involves no LLM — filter its rewordings
+      // of notes items out before the exact-match merge.
+      if (notesItems.length > 0 && transcriptItems.length > 0) {
+        const beforeCount = transcriptItems.length;
+        transcriptItems = filterNearDuplicateActions(transcriptItems, notesItems);
+        if (transcriptItems.length < beforeCount) {
+          console.log(`[generateDraftActions] Dropped ${beforeCount - transcriptItems.length} near-duplicate(s) of notes items`);
+        }
+      }
+
+      const processedData = {
+        summary,
+        actionItems: mergeActionItems(notesItems, transcriptItems),
+        transcriptText,
+      };
+      console.log(`[generateDraftActions] Merged ${notesItems.length} notes + ${transcriptItems.length} transcript items into ${processedData.actionItems.length}`);
 
       if (!processedData.actionItems || processedData.actionItems.length === 0) {
         console.log("[generateDraftActions] processedData exists but 0 action items found");
@@ -206,13 +310,16 @@ export class TranscriptionProcessingService {
       result.errors = actionResult.errors;
       result.success = actionResult.errors.length === 0;
 
-      // Create screenshot-action associations based on AI screenshotRefs
+      // Create screenshot-action associations based on AI screenshotRefs.
+      // itemResults is index-parallel with the input actionItems (null where a
+      // create failed), so a mid-list failure can't shift the pairings.
+      const itemResults = actionResult.itemResults ?? [];
       if (screenshots.length > 0 && actionResult.createdItems.length > 0) {
         const junctionData: { actionId: string; screenshotId: string }[] = [];
 
-        for (let i = 0; i < actionResult.createdItems.length && i < processedData.actionItems.length; i++) {
+        for (let i = 0; i < itemResults.length && i < processedData.actionItems.length; i++) {
           const item = processedData.actionItems[i];
-          const created = actionResult.createdItems[i];
+          const created = itemResults[i];
           if (!item?.screenshotRefs?.length || !created) continue;
 
           for (const ref of item.screenshotRefs) {
@@ -245,6 +352,56 @@ export class TranscriptionProcessingService {
       );
       return result;
     }
+  }
+
+  /**
+   * The meeting page's single "Extract outputs" run. Decisions first: their
+   * transcript pass also sorts out the action items, so one model reading
+   * decides whether an item is a decision, an open question or an action.
+   * The action drafts are then written from those items (plus the notes'
+   * action list). Each half reports on its own — a meeting outside a
+   * workspace can still get actions, and actions already created do not
+   * stop decisions.
+   */
+  static async extractMeetingOutputs(
+    transcriptionId: string,
+    userId: string,
+    options: ExtractMeetingOutputsOptions = {}
+  ): Promise<ExtractMeetingOutputsResult> {
+    const { actionItems, ...decisions } = await this.generateDraftDecisions(transcriptionId, userId, {
+      trigger: options.trigger ?? "manual",
+    });
+    const actions = await this.generateDraftActions(transcriptionId, userId, {
+      transcriptActionItems: actionItems,
+    });
+    // The run counts as done once both halves got through (including the
+    // "already drafted" short-circuits): the stamp is what keeps the
+    // ceremony sweep from reading the same meeting again. A half that
+    // failed leaves it unset, so the sweep retries and the half that landed
+    // short-circuits on its drafts; the sweep stamps the failures a retry
+    // cannot fix itself.
+    const extracted = actions.success && decisions.success;
+    if (extracted) {
+      await db.transcriptionSession.update({
+        where: { id: transcriptionId },
+        data: { outputsExtractedAt: new Date() },
+      });
+    }
+    return { actions, decisions, extracted };
+  }
+
+  /**
+   * Extract draft Decisions from a meeting (ADR-0060). Same shape as
+   * `generateDraftActions`: drafts only, a person confirms. The body lives in
+   * `decisions/generateDraftDecisions` so it can run against an injected
+   * Prisma client in tests.
+   */
+  static async generateDraftDecisions(
+    transcriptionId: string,
+    userId: string,
+    options: GenerateDraftDecisionsOptions = {}
+  ): Promise<DraftDecisionsResult> {
+    return generateDraftDecisionsForMeeting(db, transcriptionId, userId, options);
   }
 
   /**

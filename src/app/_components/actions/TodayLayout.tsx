@@ -8,7 +8,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useActionDeepLink } from "~/hooks/useActionDeepLink";
 import { useDetailedActionsEnabled } from "~/hooks/useDetailedActionsEnabled";
 import { useDayRollover } from "~/hooks/useDayRollover";
-import { addDays, hourFloat } from "~/lib/actions/dates";
+import { addDays, hourFloat, startOfLocalDay } from "~/lib/actions/dates";
 import { buildRailBlocks, type RailBlock } from "~/lib/actions/railBlocks";
 import type { Action } from "~/lib/actions/types";
 import { CreateActionModal } from "../CreateActionModal";
@@ -173,12 +173,12 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
     for (const s of activeSuggestions) handleAcceptSuggestion(s);
   };
 
-  // "Now", not midnight — see TodayDesktopShell.handleRescheduleAllOverdue.
+  // Local midnight — see TodayDesktopShell.handleRescheduleAllOverdue.
   const handleRescheduleAllOverdue = useCallback(
     (ids: string[]) =>
       bulkReschedule({
         actionIds: ids,
-        dueDate: new Date(),
+        date: startOfLocalDay(new Date()),
         label: "Today",
         fromOverdue: true,
       }),
@@ -229,7 +229,7 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
                   onReschedule: (date, ids) =>
                     bulkReschedule({
                       actionIds: ids,
-                      dueDate: date,
+                      date,
                       fromOverdue: true,
                     }),
                 },

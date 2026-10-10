@@ -13,13 +13,39 @@ const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 /**
  * Append the absolute deep link to the message body so the Matrix DM is
  * actionable — the gateway only forwards { title, message }, so the link has to
- * ride along in the text (Matrix clients auto-linkify a bare URL). `deeplink` is
- * a workspace-relative path (e.g. `/w/acme/actions/123`); no-op when absent.
+ * ride along in the text. The gateway renders the body as markdown, so the link
+ * goes in as `[View action](url)` and shows as link text, not a long bare URL.
+ * `deeplink` is a workspace-relative path (e.g. `/w/acme/actions/123`); no-op
+ * when absent.
  */
 function appendDeeplink(message: string, meta: NotificationPayload['metadata']): string {
   const deeplink = typeof meta?.deeplink === 'string' ? meta.deeplink : undefined;
   if (!deeplink) return message;
-  return `${message}\n\nView action: ${BASE_URL}${deeplink}`;
+  return `${message}\n\n[View action](${BASE_URL}${deeplink})`;
+}
+
+/**
+ * The body to POST: a rich markdown variant when the notification carries one
+ * (`metadata.markdown`, ADR-0059 — the gateway renders markdown to HTML), else
+ * the plain `message` with its deep link appended. A markdown variant carries
+ * its links inline, so no deeplink is appended to it.
+ */
+function messageBody(payload: NotificationPayload): string {
+  const markdown = payload.metadata?.markdown as unknown;
+  const replyHint = payload.metadata?.replyHint as unknown;
+  const hint = typeof replyHint === 'string' && replyHint.length > 0 ? `\n\n${replyHint}` : '';
+  if (typeof markdown === 'string' && markdown.length > 0) return `${markdown}${hint}`;
+  return `${appendDeeplink(payload.message, payload.metadata)}${hint}`;
+}
+
+/**
+ * Context the gateway saves beside the message in the person's DM memory
+ * (Shutdown recap: its numbers → action ids), so the agent can resolve a
+ * reply. Never shown in the room.
+ */
+function agentContext(payload: NotificationPayload): string | undefined {
+  const value = payload.metadata?.agentContext as unknown;
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /**
@@ -63,7 +89,8 @@ export class MatrixNotificationService extends NotificationService {
         body: JSON.stringify({
           userId: this.config.userId,
           title: payload.title,
-          message: appendDeeplink(payload.message, payload.metadata),
+          message: messageBody(payload),
+          agentContext: agentContext(payload),
         }),
       });
 

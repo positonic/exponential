@@ -3,22 +3,28 @@
 import type { ReactNode } from "react";
 import { Title, Text } from "@mantine/core";
 import { useSession } from "next-auth/react";
+import { usePathname } from "next/navigation";
 import type { DocContent } from "~/lib/docs/types";
 import { DocsBreadcrumb } from "./DocsBreadcrumb";
 import { DocsPrevNext } from "./DocsPrevNext";
 import { DocsCallout } from "./DocsCallout";
+import { DocsPageMeta } from "./DocsPageMeta";
+import { DocsFeedback } from "./DocsFeedback";
 
 interface DocsContentProps {
   doc: DocContent;
+  lastUpdated: string | null;
+  editUrl: string;
   children: ReactNode;
 }
 
-export function DocsContent({ doc, children }: DocsContentProps) {
+export function DocsContent({ doc, lastUpdated, editUrl, children }: DocsContentProps) {
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
+  const pathname = usePathname();
 
   return (
-    <article className={`min-w-0 flex-1 px-8 pb-6 ${isLoggedIn ? "py-6" : "pt-10"}`}>
+    <article className={`min-w-0 flex-1 px-4 pb-6 sm:px-8 ${isLoggedIn ? "py-6" : "pt-6 lg:pt-10"}`}>
       <div className="mx-auto max-w-3xl">
         <DocsBreadcrumb />
 
@@ -39,6 +45,8 @@ export function DocsContent({ doc, children }: DocsContentProps) {
           {children}
         </div>
 
+        <DocsFeedback path={pathname} />
+        <DocsPageMeta lastUpdated={lastUpdated} editUrl={editUrl} />
         <DocsPrevNext />
       </div>
     </article>

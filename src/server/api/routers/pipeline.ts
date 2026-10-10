@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
+import { RETIRED_PIPELINE_STATUSES } from "~/server/services/crm/pipelineDefaults";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   requireProjectAccess,
@@ -115,8 +116,9 @@ export const pipelineRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string(),
         // Target a specific pipeline. Omitted → the workspace's default
-        // (oldest) pipeline, preserving the historical single-pipeline contract
-        // for callers that don't yet know about multiple pipelines.
+        // (oldest non-retired) pipeline, preserving the historical
+        // single-pipeline contract for callers that don't yet know about
+        // multiple pipelines.
         pipelineId: z.string().optional(),
       }),
     )
@@ -125,7 +127,9 @@ export const pipelineRouter = createTRPCRouter({
         where: {
           workspaceId: input.workspaceId,
           type: "pipeline",
-          ...(input.pipelineId ? { id: input.pipelineId } : {}),
+          ...(input.pipelineId
+            ? { id: input.pipelineId }
+            : { status: { notIn: [...RETIRED_PIPELINE_STATUSES] } }),
         },
         include: {
           pipelineStages: {

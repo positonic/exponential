@@ -43,6 +43,7 @@ interface CalendarDayTimeGridProps {
   scheduledActions: ScheduledAction[];
   timeEntries?: CalendarTimeEntry[];
   selectedDate: Date;
+  onEventClick?: (event: CalendarEventWithSource) => void;
   onActionClick?: (action: ScheduledAction) => void;
   onRescheduleAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
   onResizeAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
@@ -56,6 +57,7 @@ export function CalendarDayTimeGrid({
   scheduledActions,
   timeEntries = [],
   selectedDate,
+  onEventClick,
   onActionClick,
   onRescheduleAction,
   onResizeAction,
@@ -225,6 +227,7 @@ export function CalendarDayTimeGrid({
                   <CalendarEventBlock
                     key={item.id}
                     event={item.originalEvent}
+                    onClick={onEventClick}
                     style={{
                       top: item.top,
                       left: `${item.left}%`,

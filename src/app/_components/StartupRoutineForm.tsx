@@ -76,9 +76,6 @@ export function StartupRoutineForm() {
   const [doNotToDo, setDoNotToDo] = useState(false);
   const [doQuestions, setDoQuestions] = useState(false);
   
-  // New state for outcome input
-  const [_newOutcome, setNewOutcome] = useState("");
-  
   // Get TRPC utils for invalidating queries
   const utils = api.useUtils();
   
@@ -189,18 +186,6 @@ export function StartupRoutineForm() {
     },
   });
   
-  // Outcome creation mutation
-  const _createOutcome = api.outcome.createOutcome.useMutation({
-    onSuccess: () => {
-      setNewOutcome("");
-      notifications.show({
-        title: 'Outcome Created',
-        message: 'Your outcome has been created successfully',
-        color: 'green',
-      });
-    },
-  });
-
   // Initialize form state from database
   const [gratitude, setGratitude] = useState('');
   const [exercise, setExercise] = useState('');
@@ -470,14 +455,6 @@ export function StartupRoutineForm() {
           <Accordion.Panel>
             <Paper shadow="sm" p="lg" radius="md" className="bg-surface-secondary border border-blue-900/30">
               <Stack gap="md">
-                {/* What would make today great - temporarily hidden */}
-                {/* <OutcomeSection
-                  newOutcome={newOutcome}
-                  setNewOutcome={setNewOutcome}
-                  addOutcome={handleAddOutcome}
-                  isLoading={createOutcome.isPending}
-                /> */}
-
                 {/* Exercise Section */}
                 <ExerciseSection
                   exercise={exercise}

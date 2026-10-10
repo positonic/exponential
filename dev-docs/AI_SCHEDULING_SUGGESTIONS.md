@@ -2,14 +2,14 @@
 
 ## Overview
 
-The AI Scheduling Suggestions feature automatically analyzes overdue tasks and suggests optimal times to reschedule them. It considers your calendar availability, existing scheduled tasks, and project outcome deadlines to provide intelligent scheduling recommendations.
+The AI Scheduling Suggestions feature automatically analyzes overdue tasks and suggests optimal times to reschedule them. It considers your calendar availability and existing scheduled tasks to provide intelligent scheduling recommendations.
 
 ## How It Works
 
 When you have overdue tasks and view the "Today" filter on the Act page, the system:
 
 1. **Analyzes Your Schedule**: Fetches your Google Calendar events and already-scheduled actions for the next 7 days
-2. **Considers Priorities**: Examines each overdue task's priority level and linked project outcomes
+2. **Considers Priorities**: Examines each overdue task's priority level
 3. **Generates Suggestions**: Uses AI to recommend optimal times for each overdue task
 4. **Displays Inline**: Shows suggestions directly on each overdue task card
 
@@ -19,7 +19,6 @@ When you have overdue tasks and view the "Today" filter on the Act page, the sys
 
 Tasks are prioritized based on:
 
-- **Outcome Deadlines**: Tasks linked to outcomes with closer deadlines are prioritized
 - **Task Priority**: Higher priority tasks (Big Rock, Focus) get morning slots
 - **Calendar Conflicts**: Avoids scheduling over existing commitments
 
@@ -129,13 +128,11 @@ The AI considers:
 1. **Overdue Actions**: Tasks with `dueDate < today` and `status = ACTIVE`
 2. **Calendar Events**: From Google Calendar API (if connected)
 3. **Scheduled Actions**: Existing tasks with `scheduledStart` set
-4. **Project Outcomes**: Deadlines from linked project outcomes
 
 ### AI Processing
 
 The feature uses the Mastra AI agent with a specialized prompt that:
 
-- Prioritizes tasks by outcome deadlines
 - Avoids scheduling conflicts
 - Considers work patterns (morning for focused work)
 - Provides clear reasoning for each suggestion
@@ -157,7 +154,6 @@ The feature uses the Mastra AI agent with a specialized prompt that:
 ### Suggestions Not Accurate
 
 1. **Connect Google Calendar**: Without calendar access, suggestions may conflict with your events
-2. **Check outcome deadlines**: Ensure important tasks are linked to outcomes with deadlines
 3. **Review task priorities**: Update task priorities for better suggestions
 
 ### Calendar Not Considered
@@ -178,4 +174,3 @@ The feature uses the Mastra AI agent with a specialized prompt that:
 
 - [Google Calendar Integration](./GOOGLE_CALENDAR.md)
 - [Task Management](./USER_GUIDE.md)
-- [Project Outcomes](./OUTCOMES.md)

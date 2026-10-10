@@ -2,9 +2,11 @@
 
 import { ActionIcon, Tooltip } from "@mantine/core";
 import { IconBrandNotion } from "@tabler/icons-react";
+import { notionPageUrl } from "~/lib/notionUrl";
 
 export interface TicketSyncLinkView {
   provider: string;
+  externalId: string;
   externalUrl: string | null;
   lastSyncedAt: Date | string;
   tombstonedAt: Date | string | null;
@@ -25,6 +27,10 @@ export function NotionSyncBadge({
   const sync = syncs?.find((s) => s.provider === "notion");
   if (!sync) return null;
 
+  // Adoption-era sync records stored only the page id; derive the canonical
+  // URL so their badges deep-link too.
+  const href = sync.externalUrl ?? notionPageUrl(sync.externalId);
+
   const label = sync.tombstonedAt
     ? "Notion counterpart archived"
     : `Synced with Notion · last synced ${new Date(sync.lastSyncedAt).toLocaleString()}`;
@@ -38,10 +44,10 @@ export function NotionSyncBadge({
 
   return (
     <Tooltip label={label} withArrow>
-      {sync.externalUrl ? (
+      {href ? (
         <ActionIcon
           component="a"
-          href={sync.externalUrl}
+          href={href}
           target="_blank"
           rel="noopener noreferrer"
           variant="subtle"

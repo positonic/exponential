@@ -67,6 +67,9 @@ export {
 // Resolvers (for direct use when needed)
 export {
   getWorkspaceMembership,
+  assertWorkspaceRole,
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
   canEditWorkspaceContent,
   isWorkspaceOwner,
   isWorkspaceGuest,
@@ -89,6 +92,8 @@ export {
   canEditAction,
   checkActionPermission,
   buildActionAccessWhere,
+  buildActionEditWhere,
+  buildActionDeleteWhere,
 } from "./resolvers/actionResolver";
 export {
   getTranscriptionAccess,
@@ -98,12 +103,27 @@ export {
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
 export {
+  getDecisionAccess,
+  canViewDecision,
+  canEditDecision,
+  buildDecisionAccessWhere,
+  buildDecisionAccessWhereAcrossWorkspaces,
+} from "./resolvers/decisionResolver";
+export type {
+  DecisionAccessInfo,
+  DecisionAccessSubject,
+} from "./resolvers/decisionResolver";
+export {
   getKnowledgePageAccess,
   canViewKnowledgePage,
   canEditKnowledgePage,
   buildKnowledgePageAccessWhere,
+  listKnowledgePageViewers,
 } from "./resolvers/knowledgePageResolver";
-export type { KnowledgePageAccessInfo } from "./resolvers/knowledgePageResolver";
+export type {
+  KnowledgePageAccessInfo,
+  KnowledgePageViewer,
+} from "./resolvers/knowledgePageResolver";
 
 // Cross-workspace link guards (epic/feature/cycle/scope foreign keys)
 export { assertWorkspaceScopedRefs } from "./workspaceRefs";

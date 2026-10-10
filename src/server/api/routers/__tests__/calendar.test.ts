@@ -9,7 +9,7 @@
  * full OAuth round-trip is left to a future integration test.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
@@ -80,6 +80,8 @@ vi.mock("~/server/services/activity/recordActivity", () => ({
 }));
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
+import { CalendarEventPermissionError } from "~/server/services/CalendarProvider";
 
 describe("calendar router — ConnectedAccount (mocked)", () => {
   const userId = "user-1";
@@ -152,6 +154,197 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
           calendarIds: ["primary"],
         }),
       ).rejects.toThrow();
+    });
+  });
+
+  describe("getEventsMultiCalendar — canDelete", () => {
+    const eventsSpy = vi.spyOn(GoogleCalendarService.prototype, "getEventsFromMultipleCalendars");
+    const googleEvent = (id: string, calendarId: string) => ({
+      id,
+      summary: id,
+      start: { dateTime: "2026-10-05T10:00:00Z" },
+      end: { dateTime: "2026-10-05T11:00:00Z" },
+      htmlLink: `https://calendar.google.com/event?eid=${id}`,
+      status: "confirmed",
+      calendarId,
+    });
+
+    beforeEach(() => {
+      vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", `${userId}@test.com`);
+      dbMock.connectedAccount.findMany.mockResolvedValue([
+        {
+          id: "ca-1",
+          provider: "google",
+          scope: "https://www.googleapis.com/auth/calendar.events",
+          expires_at: null,
+          access_token: "token",
+          refresh_token: "refresh",
+          providerEmail: "me@example.com",
+        },
+      ] as never);
+      // A fresh cached list, so the provider's calendarList is never called.
+      // "lost@example.com" is selected but absent from it — a failed refresh.
+      dbMock.calendarPreference.findUnique.mockResolvedValue({
+        id: "pref-1",
+        selectedCalendarIds: ["me@example.com", "team@example.com", "lost@example.com"],
+        cachedCalendars: [
+          { id: "me@example.com", summary: "Me", primary: true, accessRole: "owner" },
+          { id: "team@example.com", summary: "Team", primary: false, accessRole: "reader" },
+        ],
+        cacheUpdatedAt: new Date(),
+      } as never);
+      dbMock.calendarEvent.findMany.mockResolvedValue([
+        {
+          id: "ics-1",
+          calendarFeedId: "feed-1",
+          title: "Feed event",
+          location: null,
+          startsAt: new Date("2026-10-05T12:00:00Z"),
+          endsAt: new Date("2026-10-05T13:00:00Z"),
+          isAllDay: false,
+          calendarFeed: { name: "Feed" },
+        },
+      ] as never);
+      dbMock.meeting.findMany.mockResolvedValue([]);
+      eventsSpy.mockReset().mockResolvedValue([
+        googleEvent("own", "me@example.com"),
+        googleEvent("shared", "team@example.com"),
+        googleEvent("unlisted", "lost@example.com"),
+      ]);
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("withholds Delete only where the calendar is known to be read-only", async () => {
+      const caller = createMockCaller({ userId, db: dbMock });
+      const events = await caller.calendar.getEventsMultiCalendar({
+        timeMin: new Date("2026-10-05T00:00:00Z"),
+        timeMax: new Date("2026-10-06T00:00:00Z"),
+      });
+
+      const canDelete = Object.fromEntries(events.map((e) => [e.id, e.canDelete]));
+      expect(canDelete).toEqual({
+        own: true,
+        shared: false,
+        // Not in the cached list: offered, and left to Google to refuse.
+        unlisted: true,
+        // Feed events never carry it — there is no account to delete through.
+        "ics-1": undefined,
+      });
+      expect(events.find((e) => e.id === "own")).toMatchObject({
+        provider: "google",
+        accountId: "ca-1",
+        accountEmail: "me@example.com",
+      });
+    });
+  });
+
+  describe("deleteEvent", () => {
+    const deleteSpy = vi.spyOn(GoogleCalendarService.prototype, "deleteEvent");
+
+    beforeEach(() => {
+      // createMockCaller's session email — on the allowlist, so Google isn't gated.
+      vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", `${userId}@test.com`);
+      deleteSpy.mockReset().mockResolvedValue({ alreadyGone: false });
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("deletes at the provider through the caller's own connected account", async () => {
+      dbMock.connectedAccount.findFirst.mockResolvedValue({
+        id: "ca-1",
+        provider: "google",
+      } as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.deleteEvent({
+        eventId: "evt-1",
+        calendarId: "team@group.calendar.google.com",
+        accountId: "ca-1",
+      });
+
+      expect(res).toEqual({ success: true, alreadyGone: false });
+      // The account lookup is what stops one user deleting through another's connection.
+      expect(dbMock.connectedAccount.findFirst.mock.calls[0]![0]!.where).toEqual({
+        id: "ca-1",
+        userId,
+      });
+      expect(deleteSpy).toHaveBeenCalledWith(userId, {
+        eventId: "evt-1",
+        calendarId: "team@group.calendar.google.com",
+        accountId: "ca-1",
+        notifyAttendees: true,
+      });
+    });
+
+    it("refuses an account that isn't the caller's without touching the provider", async () => {
+      dbMock.connectedAccount.findFirst.mockResolvedValue(null);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      await expect(
+        caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "someone-elses" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a dot-segment event id", { eventId: "..", calendarId: "primary", accountId: "ca-1" }],
+      ["an empty account id", { eventId: "evt-1", calendarId: "primary", accountId: "" }],
+      ["an empty calendar id", { eventId: "evt-1", calendarId: "", accountId: "ca-1" }],
+    ])("rejects %s before any account lookup or provider call", async (_label, input) => {
+      const caller = createMockCaller({ userId, db: dbMock });
+
+      await expect(caller.calendar.deleteEvent(input)).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+      // ".." would collapse the provider URL onto the calendar itself; "" would
+      // fall through resolveAccount to the user's first account.
+      expect(dbMock.connectedAccount.findFirst).not.toHaveBeenCalled();
+      expect(deleteSpy).not.toHaveBeenCalled();
+    });
+
+    it("passes on that the event was already gone, so the client doesn't claim a delete", async () => {
+      dbMock.connectedAccount.findFirst.mockResolvedValue({
+        id: "ca-1",
+        provider: "google",
+      } as never);
+      deleteSpy.mockResolvedValue({ alreadyGone: true });
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      const res = await caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "ca-1" });
+
+      expect(res).toEqual({ success: true, alreadyGone: true });
+    });
+
+    it("reports a provider refusal as FORBIDDEN", async () => {
+      dbMock.connectedAccount.findFirst.mockResolvedValue({
+        id: "ca-1",
+        provider: "google",
+      } as never);
+      deleteSpy.mockRejectedValue(new CalendarEventPermissionError());
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      await expect(
+        caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "ca-1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
+
+    it("stays closed to users outside the Google allowlist", async () => {
+      vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", "someone-else@test.com");
+      dbMock.connectedAccount.findFirst.mockResolvedValue({
+        id: "ca-1",
+        provider: "google",
+      } as never);
+
+      const caller = createMockCaller({ userId, db: dbMock });
+      await expect(
+        caller.calendar.deleteEvent({ eventId: "evt-1", calendarId: "primary", accountId: "ca-1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(deleteSpy).not.toHaveBeenCalled();
     });
   });
 });

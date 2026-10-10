@@ -24,12 +24,11 @@ const AGENT_OPTIONS = [
 ];
 
 interface TelegramGatewayCardProps {
-  assistantSaved?: boolean;
   /** When true, renders without the outer Card wrapper (for use inside a Modal) */
   embedded?: boolean;
 }
 
-export function TelegramGatewayCard({ assistantSaved = false, embedded = false }: TelegramGatewayCardProps) {
+export function TelegramGatewayCard({ embedded = false }: TelegramGatewayCardProps) {
   const [agentId, setAgentId] = useState("assistant");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -159,9 +158,8 @@ export function TelegramGatewayCard({ assistantSaved = false, embedded = false }
             onClick={() => initiatePairing.mutate({ agentId })}
             loading={initiatePairing.isPending}
             leftSection={<IconBrandTelegram size={18} />}
-            disabled={!assistantSaved}
           >
-            {assistantSaved ? 'Connect Telegram' : '1st - Click Update Assistant'}
+            Connect Telegram
           </Button>
         </Stack>
       )}

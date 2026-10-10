@@ -1,30 +1,39 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   IconActivity,
-  IconCalendarEvent,
+  IconCalendarRepeat,
   IconChecklist,
+  IconFileText,
   IconLayersIntersect,
   IconMessage,
+  IconPlus,
+  IconSortAscending,
+  IconSortDescending,
   IconTargetArrow,
 } from "@tabler/icons-react";
+import { ActionIcon, Tooltip } from "@mantine/core";
 import { format, formatDistanceToNow, isAfter, isBefore, isSameDay, startOfDay } from "date-fns";
 import { api, type RouterOutputs } from "~/trpc/react";
-import { OutcomeTimeline } from "./OutcomeTimeline";
-import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { ProjectTimeline } from "./ProjectTimeline";
+import { CreateGoalModal } from "./CreateGoalModal";
+import { CreateActionModal } from "./CreateActionModal";
+import { CeremonyIconTile } from "./ceremonies/CeremonyIcon";
+import { CEREMONY_KIND_LABELS } from "./ceremonies/CeremonyEditorModal";
+import { describeCadence } from "~/lib/ceremonies/cadence";
+import { toPlainText } from "~/lib/content/plainText";
 import styles from "./ProjectOverview.module.css";
 
 type Project = NonNullable<RouterOutputs["project"]["getById"]>;
 type Goal = RouterOutputs["goal"]["getProjectGoals"][number];
-type Outcome = RouterOutputs["outcome"]["getProjectOutcomes"][number];
 type ActivityRow = RouterOutputs["project"]["getRecentActivity"][number];
-type Transcription = NonNullable<Project["transcriptionSessions"]>[number];
 
 interface ProjectOverviewProps {
   project: Project;
   goals: Goal[];
-  outcomes: Outcome[];
 }
 
 const STANDUP_NOTES_PREVIEW_CHARS = 200;
@@ -107,6 +116,13 @@ function activityDotClass(type: string): string {
 }
 
 function describeActivity(row: ActivityRow): { verb: string; target: string | null; detail: string | null } {
+  const { verb, target, detail } = describeActivityRaw(row);
+  // Action names may be stored as legacy HTML (a pasted link) or Markdown;
+  // this line is a sentence, so show the text a reader would see.
+  return { verb, target: target ? toPlainText(target) || null : null, detail };
+}
+
+function describeActivityRaw(row: ActivityRow): { verb: string; target: string | null; detail: string | null } {
   const targetName = row.action?.name ?? row.fromValue ?? null;
   switch (row.type) {
     case "STATUS_CHANGED":
@@ -135,8 +151,7 @@ function describeActivity(row: ActivityRow): { verb: string; target: string | nu
   }
 }
 
-export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewProps) {
-  const [openTranscription, setOpenTranscription] = useState<Transcription | null>(null);
+export function ProjectOverview({ project, goals }: ProjectOverviewProps) {
 
   const { data: actions = [] } = api.action.getProjectActions.useQuery({ projectId: project.id });
   const { data: activity = [] } = api.project.getRecentActivity.useQuery({
@@ -144,19 +159,28 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
     sinceDays: 7,
     limit: 12,
   });
+  const [activityNewestFirst, setActivityNewestFirst] = useState(true);
+  const sortedActivity = useMemo(() => {
+    const byTime = (a: ActivityRow, b: ActivityRow) =>
+      new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime();
+    const asc = [...activity].sort(byTime);
+    return activityNewestFirst ? asc.reverse() : asc;
+  }, [activity, activityNewestFirst]);
   const transcriptions = project.transcriptionSessions ?? [];
+  const { workspace } = useWorkspace();
+  const { data: docs = [] } = api.page.list.useQuery(
+    { workspaceId: workspace?.id ?? "", projectId: project.id },
+    { enabled: !!workspace },
+  );
+
+  const { data: ceremonies = [] } = api.ceremony.listForProject.useQuery(
+    { projectId: project.id },
+    { enabled: !!workspace },
+  );
 
   const weekStart = useMemo(() => startOfThisWeek(), []);
   const weekEnd = useMemo(() => endOfThisWeek(), []);
   const today = useMemo(() => startOfDay(new Date()), []);
-
-  const outcomesThisWeek = useMemo(
-    () =>
-      outcomes
-        .filter((o) => o.dueDate && isAfter(new Date(o.dueDate), new Date(weekStart.getTime() - 1)) && isBefore(new Date(o.dueDate), weekEnd))
-        .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()),
-    [outcomes, weekStart, weekEnd],
-  );
 
   const actionsThisWeek = useMemo(() => {
     return actions
@@ -175,90 +199,266 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
 
   return (
     <div className={styles.dashboard}>
-      {/* ── 1. OKR alignment strip ──────────────────────── */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <div className={styles.sectionTitle}>
-            <IconTargetArrow size={14} className={styles.sectionTitleIcon} />
-            OKR alignment
-            <span className={styles.sectionMeta}>{goals.length}</span>
-          </div>
-        </div>
-        <div className={styles.sectionBody}>
-          {goals.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>
-                <IconTargetArrow size={16} />
-              </div>
-              <div>No goal linked yet — link one to see alignment here.</div>
-            </div>
-          ) : (
-            <div className={styles.okrStrip}>
-              {goals.map((goal) => (
-                <div key={goal.id} className={styles.okrChip}>
-                  <div className={styles.okrChipTop}>
-                    <span className={styles.okrChipTitle}>{goal.title}</span>
-                    <span className={`${styles.healthBadge} ${healthClass(goal.health)}`}>
-                      {healthLabel(goal.health)}
-                    </span>
-                  </div>
-                  <div className={styles.okrChipSub}>
-                    {goal.period && <span>{goal.period}</span>}
-                    {goal.dueDate && <span>Due {format(new Date(goal.dueDate), "MMM d")}</span>}
-                    {goal.lifeDomain?.title && <span>{goal.lifeDomain.title}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ── 2. Timeline ─────────────────────────────────── */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <div className={styles.sectionTitle}>
-            <IconLayersIntersect size={14} className={styles.sectionTitleIcon} />
-            Timeline
-          </div>
-        </div>
-        <OutcomeTimeline projectId={project.id} />
-      </section>
-
-      {/* ── 3. This week ────────────────────────────────── */}
-      <div className={styles.twoCol}>
+      <div className={styles.dashboardMain}>
+        {/* ── 4. What shifted this week ───────────────────── */}
         <section className={styles.section}>
           <div className={styles.sectionHead}>
             <div className={styles.sectionTitle}>
-              <IconCalendarEvent size={14} className={styles.sectionTitleIcon} />
-              Outcomes this week
-              <span className={styles.sectionMeta}>{outcomesThisWeek.length}</span>
+              <IconActivity size={14} className={styles.sectionTitleIcon} />
+              What shifted this week
+              <span className={styles.sectionMeta}>{activity.length}</span>
             </div>
+            {activity.length > 1 && (
+              <Tooltip
+                label={activityNewestFirst ? "Newest first — click for oldest first" : "Oldest first — click for newest first"}
+                position="left"
+                withArrow
+              >
+                <ActionIcon
+                  variant="subtle"
+                  size="sm"
+                  aria-label={activityNewestFirst ? "Sort oldest first" : "Sort newest first"}
+                  onClick={() => setActivityNewestFirst((v) => !v)}
+                >
+                  {activityNewestFirst ? <IconSortDescending size={16} /> : <IconSortAscending size={16} />}
+                </ActionIcon>
+              </Tooltip>
+            )}
           </div>
           <div className={styles.sectionBodyFlush}>
-            {outcomesThisWeek.length === 0 ? (
+            {activity.length === 0 ? (
               <div className={styles.empty}>
                 <div className={styles.emptyIcon}>
-                  <IconCalendarEvent size={16} />
+                  <IconActivity size={16} />
                 </div>
-                <div>Nothing due this week.</div>
+                <div>No changes recorded in the last 7 days.</div>
               </div>
             ) : (
-              outcomesThisWeek.map((o) => (
-                <div key={o.id} className={styles.row}>
-                  <div className={styles.rowBody}>
-                    <div className={styles.rowTitle}>{o.description}</div>
-                    <div className={styles.rowSub}>
-                      {o.type && <span>{o.type}</span>}
-                      {o.dueDate && <span className={styles.rowDue}>{formatRelativeDay(new Date(o.dueDate))}</span>}
+              sortedActivity.map((row) => {
+                const { verb, target, detail } = describeActivity(row);
+                const actor = row.changedBy?.name ?? "Someone";
+                return (
+                  <div key={row.id} className={styles.activityRow}>
+                    <span className={`${styles.activityDot} ${activityDotClass(row.type)}`} />
+                    <div className={styles.activityBody}>
+                      <span className={styles.activityActor}>{actor}</span>
+                      <span className={styles.activityVerb}> {verb} </span>
+                      {target && <span className={styles.activityTarget}>{target}</span>}
+                      {detail && <span className={styles.activityVerb}> · {detail}</span>}
+                      <div className={styles.activityMeta}>
+                        {formatDistanceToNow(new Date(row.changedAt), { addSuffix: true })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
 
+        {/* ── 5. Recent standups ──────────────────────────── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconMessage size={14} className={styles.sectionTitleIcon} />
+              Recent standups
+              <span className={styles.sectionMeta}>{standupTranscriptions.length}</span>
+            </div>
+          </div>
+          <div className={styles.sectionBodyFlush}>
+            {standupTranscriptions.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <IconMessage size={16} />
+                </div>
+                <div>No standups recorded yet.</div>
+              </div>
+            ) : (
+              standupTranscriptions.map((t) => {
+                const notesPreview = t.notes
+                  ? t.notes.slice(0, STANDUP_NOTES_PREVIEW_CHARS) +
+                    (t.notes.length > STANDUP_NOTES_PREVIEW_CHARS ? "…" : "")
+                  : null;
+                const dateLabel = t.meetingDate
+                  ? format(new Date(t.meetingDate), "MMM d, yyyy")
+                  : t.processedAt
+                    ? format(new Date(t.processedAt), "MMM d, yyyy")
+                    : "";
+                const liveActions = t.actions.filter((a) => a.status !== "DELETED").length;
+                return (
+                  <Link
+                    key={t.id}
+                    href={`/recording/${t.id}`}
+                    className={styles.standup}
+                  >
+                    <div className={styles.standupTop}>
+                      <span className={styles.standupTitle}>{t.title ?? "Standup"}</span>
+                      <span className={styles.standupDate}>{dateLabel}</span>
+                    </div>
+                    {notesPreview && <div className={styles.standupNotes}>{notesPreview}</div>}
+                    {liveActions > 0 && (
+                      <span className={styles.standupActionPill}>
+                        {liveActions} action{liveActions === 1 ? "" : "s"} extracted
+                      </span>
+                    )}
+                  </Link>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {/* ── 6. Docs ─────────────────────────────────────── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconFileText size={14} className={styles.sectionTitleIcon} />
+              Docs
+              <span className={styles.sectionMeta}>{docs.length}</span>
+            </div>
+          </div>
+          <div className={styles.sectionBodyFlush}>
+            {docs.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <IconFileText size={16} />
+                </div>
+                <div>No docs linked to this project yet.</div>
+              </div>
+            ) : (
+              docs.map((doc) => (
+                <Link
+                  key={doc.id}
+                  href={`/w/${workspace?.slug ?? ""}/pages/${doc.id}`}
+                  className={`${styles.row} ${styles.rowLink}`}
+                >
+                  <IconFileText size={16} className={styles.sectionTitleIcon} />
+                  <div className={styles.rowBody}>
+                    <div className={styles.rowTitle}>{doc.title || "Untitled"}</div>
+                    <div className={styles.rowSub}>
+                      <span>
+                        Edited {formatDistanceToNow(new Date(doc.updatedAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+        </section>
+      </div>
+
+      <aside className={styles.dashboardAside}>
+        {/* ── 1. OKR alignment strip ──────────────────────── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconTargetArrow size={14} className={styles.sectionTitleIcon} />
+              OKR alignment
+              <span className={styles.sectionMeta}>{goals.length}</span>
+            </div>
+            <CreateGoalModal projectId={project.id}>
+              <ActionIcon variant="subtle" size="sm" aria-label="Add goal">
+                <IconPlus size={14} />
+              </ActionIcon>
+            </CreateGoalModal>
+          </div>
+          <div className={styles.sectionBody}>
+            {goals.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <IconTargetArrow size={16} />
+                </div>
+                <div>No goal linked yet — link one to see alignment here.</div>
+                <CreateGoalModal projectId={project.id}>
+                  <button type="button" className={styles.emptyCta}>
+                    <IconPlus size={12} />
+                    Add a goal
+                  </button>
+                </CreateGoalModal>
+              </div>
+            ) : (
+              <div className={styles.okrStrip}>
+                {goals.map((goal) => (
+                  <div key={goal.id} className={styles.okrChip}>
+                    <div className={styles.okrChipTop}>
+                      <span className={styles.okrChipTitle}>{goal.title}</span>
+                      <span className={`${styles.healthBadge} ${healthClass(goal.health)}`}>
+                        {healthLabel(goal.health)}
+                      </span>
+                    </div>
+                    <div className={styles.okrChipSub}>
+                      {goal.period && <span>{goal.period}</span>}
+                      {goal.dueDate && <span>Due {format(new Date(goal.dueDate), "MMM d")}</span>}
+                      {goal.lifeDomain?.title && <span>{goal.lifeDomain.title}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ── 2. Timeline ─────────────────────────────────── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHead}>
+            <div className={styles.sectionTitle}>
+              <IconLayersIntersect size={14} className={styles.sectionTitleIcon} />
+              Timeline
+            </div>
+          </div>
+          <ProjectTimeline projectId={project.id} />
+        </section>
+
+        {/* ── 2b. Ceremonies ──────────────────────────────── */}
+        {workspace && (
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <div className={styles.sectionTitle}>
+                <IconCalendarRepeat size={14} className={styles.sectionTitleIcon} />
+                Ceremonies
+                <span className={styles.sectionMeta}>{ceremonies.length}</span>
+              </div>
+            </div>
+            <div className={styles.sectionBodyFlush}>
+              {ceremonies.length === 0 ? (
+                <div className={styles.empty}>
+                  <div className={styles.emptyIcon}>
+                    <IconCalendarRepeat size={16} />
+                  </div>
+                  <div>No ceremonies linked — link one from the project&apos;s edit form.</div>
+                </div>
+              ) : (
+                ceremonies.map((ceremony) => {
+                  const next = ceremony.occurrences[0];
+                  return (
+                    <Link
+                      key={ceremony.id}
+                      href={`/w/${workspace.slug}/ceremonies/${ceremony.id}`}
+                      className={`${styles.row} ${styles.rowLink}`}
+                    >
+                      <CeremonyIconTile icon={ceremony.icon} kind={ceremony.kind} size="sm" />
+                      <div className={styles.rowBody}>
+                        <div className={styles.rowTitle}>{ceremony.name}</div>
+                        <div className={styles.rowSub}>
+                          <span>{CEREMONY_KIND_LABELS[ceremony.kind]}</span>
+                          <span>{describeCadence(ceremony.cadenceRule)}</span>
+                          {next && (
+                            <span className={styles.rowDue}>
+                              Next {format(new Date(next.scheduledStart), "EEE d MMM, HH:mm")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* ── 3. This week ────────────────────────────────── */}
         <section className={styles.section}>
           <div className={styles.sectionHead}>
             <div className={styles.sectionTitle}>
@@ -266,6 +466,11 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
               Actions this week
               <span className={styles.sectionMeta}>{actionsThisWeek.length}</span>
             </div>
+            <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+              <ActionIcon variant="subtle" size="sm" aria-label="Add action">
+                <IconPlus size={14} />
+              </ActionIcon>
+            </CreateActionModal>
           </div>
           <div className={styles.sectionBodyFlush}>
             {actionsThisWeek.length === 0 ? (
@@ -274,6 +479,12 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
                   <IconChecklist size={16} />
                 </div>
                 <div>No actions due this week.</div>
+                <CreateActionModal projectId={project.id} viewName={`project-${project.id}`}>
+                  <button type="button" className={styles.emptyCta}>
+                    <IconPlus size={12} />
+                    Add an action
+                  </button>
+                </CreateActionModal>
               </div>
             ) : (
               actionsThisWeek.map((a) => {
@@ -288,7 +499,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
                       </span>
                     )}
                     <div className={styles.rowBody}>
-                      <div className={styles.rowTitle}>{a.name}</div>
+                      <div className={styles.rowTitle}>{toPlainText(a.name)}</div>
                       <div className={styles.rowSub}>
                         <span>{a.priority ?? "Action"}</span>
                         {due && (
@@ -305,107 +516,7 @@ export function ProjectOverview({ project, goals, outcomes }: ProjectOverviewPro
             )}
           </div>
         </section>
-      </div>
-
-      {/* ── 4. What shifted this week ───────────────────── */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <div className={styles.sectionTitle}>
-            <IconActivity size={14} className={styles.sectionTitleIcon} />
-            What shifted this week
-            <span className={styles.sectionMeta}>{activity.length}</span>
-          </div>
-        </div>
-        <div className={styles.sectionBodyFlush}>
-          {activity.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>
-                <IconActivity size={16} />
-              </div>
-              <div>No changes recorded in the last 7 days.</div>
-            </div>
-          ) : (
-            activity.map((row) => {
-              const { verb, target, detail } = describeActivity(row);
-              const actor = row.changedBy?.name ?? "Someone";
-              return (
-                <div key={row.id} className={styles.activityRow}>
-                  <span className={`${styles.activityDot} ${activityDotClass(row.type)}`} />
-                  <div className={styles.activityBody}>
-                    <span className={styles.activityActor}>{actor}</span>
-                    <span className={styles.activityVerb}> {verb} </span>
-                    {target && <span className={styles.activityTarget}>{target}</span>}
-                    {detail && <span className={styles.activityVerb}> · {detail}</span>}
-                    <div className={styles.activityMeta}>
-                      {formatDistanceToNow(new Date(row.changedAt), { addSuffix: true })}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
-
-      {/* ── 5. Recent standups ──────────────────────────── */}
-      <section className={styles.section}>
-        <div className={styles.sectionHead}>
-          <div className={styles.sectionTitle}>
-            <IconMessage size={14} className={styles.sectionTitleIcon} />
-            Recent standups
-            <span className={styles.sectionMeta}>{standupTranscriptions.length}</span>
-          </div>
-        </div>
-        <div className={styles.sectionBodyFlush}>
-          {standupTranscriptions.length === 0 ? (
-            <div className={styles.empty}>
-              <div className={styles.emptyIcon}>
-                <IconMessage size={16} />
-              </div>
-              <div>No standups recorded yet.</div>
-            </div>
-          ) : (
-            standupTranscriptions.map((t) => {
-              const notesPreview = t.notes
-                ? t.notes.slice(0, STANDUP_NOTES_PREVIEW_CHARS) +
-                  (t.notes.length > STANDUP_NOTES_PREVIEW_CHARS ? "…" : "")
-                : null;
-              const dateLabel = t.meetingDate
-                ? format(new Date(t.meetingDate), "MMM d, yyyy")
-                : t.processedAt
-                  ? format(new Date(t.processedAt), "MMM d, yyyy")
-                  : "";
-              const liveActions = t.actions.filter((a) => a.status !== "DELETED").length;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={styles.standup}
-                  onClick={() => setOpenTranscription(t)}
-                >
-                  <div className={styles.standupTop}>
-                    <span className={styles.standupTitle}>{t.title ?? "Standup"}</span>
-                    <span className={styles.standupDate}>{dateLabel}</span>
-                  </div>
-                  {notesPreview && <div className={styles.standupNotes}>{notesPreview}</div>}
-                  {liveActions > 0 && (
-                    <span className={styles.standupActionPill}>
-                      {liveActions} action{liveActions === 1 ? "" : "s"} extracted
-                    </span>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-      </section>
-
-      <TranscriptionDetailsModal
-        opened={!!openTranscription}
-        onClose={() => setOpenTranscription(null)}
-        transcription={openTranscription}
-        onTranscriptionUpdate={(updated) => setOpenTranscription(updated as Transcription)}
-      />
+      </aside>
     </div>
   );
 }

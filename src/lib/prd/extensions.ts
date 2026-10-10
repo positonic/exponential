@@ -11,6 +11,7 @@ import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
 import { Markdown } from "tiptap-markdown";
 import { CommentMark } from "./comment-mark";
+import { PlainTextClipboard } from "./plain-text-clipboard";
 import { PageLink } from "./page-link";
 
 /**
@@ -79,6 +80,7 @@ export function buildPrdExtensions(
     TableCell,
     CommentMark,
     options.pageLink ?? PageLink,
+    PlainTextClipboard,
     Placeholder.configure({
       placeholder: options.placeholder ?? PRD_DEFAULT_PLACEHOLDER,
     }),
@@ -89,7 +91,10 @@ export function buildPrdExtensions(
       linkify: true,
       breaks: false,
       transformPastedText: true,
-      transformCopiedText: true,
+      // Copying must not hand the Markdown projection (or, for table
+      // rows/cells, the raw HTML fallback) to plain-text targets — see
+      // {@link PlainTextClipboard}, which serialises `text/plain` instead.
+      transformCopiedText: false,
     }),
   ];
 }

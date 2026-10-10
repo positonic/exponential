@@ -26,6 +26,8 @@ interface FilterValuePickerProps {
   onFiltersChange: (filters: FilterState) => void;
   members?: FilterMember[];
   onCopyMemberLink?: (memberId: string) => void;
+  /** Result count per option value; when provided, shown next to each option */
+  counts?: Record<string, number>;
 }
 
 export function FilterValuePicker({
@@ -34,6 +36,7 @@ export function FilterValuePicker({
   onFiltersChange,
   members = [],
   onCopyMemberLink,
+  counts,
 }: FilterValuePickerProps) {
   switch (field.type) {
     case "multi-select":
@@ -47,6 +50,7 @@ export function FilterValuePicker({
               [field.key]: values.length > 0 ? values : undefined,
             })
           }
+          counts={counts}
         />
       );
     case "user":
@@ -62,6 +66,7 @@ export function FilterValuePicker({
           }
           members={members}
           onCopyMemberLink={onCopyMemberLink}
+          counts={counts}
         />
       );
     case "boolean":
@@ -84,10 +89,12 @@ function MultiSelectPicker({
   field,
   selected,
   onChange,
+  counts,
 }: {
   field: Extract<FilterField, { type: "multi-select" }>;
   selected: string[];
   onChange: (values: string[]) => void;
+  counts?: Record<string, number>;
 }) {
   const toggle = (value: string) => {
     if (selected.includes(value)) {
@@ -114,6 +121,11 @@ function MultiSelectPicker({
               styles={{ input: { cursor: "pointer" } }}
             />
             <Text size="sm">{opt.label}</Text>
+            {counts && (
+              <Text size="xs" c="dimmed" ml="auto">
+                {counts[opt.value] ?? 0}
+              </Text>
+            )}
           </UnstyledButton>
         ))}
       </Stack>
@@ -127,12 +139,14 @@ function UserPicker({
   onChange,
   members,
   onCopyMemberLink,
+  counts,
 }: {
   field: Extract<FilterField, { type: "user" }>;
   selected: string[];
   onChange: (values: string[]) => void;
   members: FilterMember[];
   onCopyMemberLink?: (memberId: string) => void;
+  counts?: Record<string, number>;
 }) {
   const toggle = (id: string) => {
     if (selected.includes(id)) {
@@ -183,6 +197,11 @@ function UserPicker({
                 <Text size="sm" truncate>
                   {member.name ?? member.email ?? "Unknown"}
                 </Text>
+                {counts && (
+                  <Text size="xs" c="dimmed">
+                    {counts[member.id] ?? 0}
+                  </Text>
+                )}
               </Group>
             </UnstyledButton>
             {onCopyMemberLink && (

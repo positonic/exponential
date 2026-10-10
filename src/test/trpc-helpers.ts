@@ -47,9 +47,15 @@ export function createMockCaller(opts: {
   email?: string;
   name?: string;
   isAdmin?: boolean;
+  /** JWT token type the caller presented (e.g. "agent-context" for a run tool). */
+  tokenType?: string;
+  /** The Agent run an agent-context token was minted for (ADR-0067). */
+  agentRunId?: string;
 }) {
   return createCaller({
     db: opts.db,
+    tokenType: opts.tokenType,
+    agentRunId: opts.agentRunId,
     session: {
       user: {
         id: opts.userId,

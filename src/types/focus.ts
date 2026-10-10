@@ -4,7 +4,7 @@
 export type FocusPeriod = "today" | "tomorrow" | "week" | "month";
 
 /**
- * Date range for filtering actions and outcomes
+ * Date range for filtering actions
  */
 export interface DateRange {
   startDate: Date;

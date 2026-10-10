@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { addDays, startOfDay } from "date-fns";
 
 export function useDayRollover(): Date {
@@ -22,4 +22,15 @@ export function useDayRollover(): Date {
   }, [today]);
 
   return today;
+}
+
+/**
+ * Today as the viewer's local `[midnight, next midnight)` — for queries that
+ * take the viewer's day (`action.getSidebarCounts`,
+ * `action.getToday`). Both ends come from the browser's calendar,
+ * so a DST-change day is its real 23 or 25 hours. Stable until midnight.
+ */
+export function useLocalDay(): { start: Date; end: Date } {
+  const start = useDayRollover();
+  return useMemo(() => ({ start, end: addDays(start, 1) }), [start]);
 }

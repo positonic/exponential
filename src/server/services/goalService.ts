@@ -1,6 +1,11 @@
+import type { Prisma } from "@prisma/client";
 import { type Context } from "~/server/auth/types";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  getWorkspaceMembership,
+  canEditWorkspaceContent,
+} from "~/server/services/access/resolvers/workspaceResolver";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
+import { recordActivity } from "~/server/services/activity/recordActivity";
 
 /**
  * Verifies the current user has access to the given goal.
@@ -12,7 +17,9 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
 
   const goal = await ctx.db.goal.findUnique({
     where: { id: goalId },
-    select: { id: true, userId: true, driUserId: true, workspaceId: true },
+    // `title` rides along for the activity-feed write sites (bare rows carry
+    // the objective title) so instrumented callers don't re-fetch the row.
+    select: { id: true, userId: true, driUserId: true, workspaceId: true, title: true },
   });
 
   if (!goal) throw new Error("Goal not found");
@@ -57,7 +64,7 @@ export async function createGoalUpdate({
   content: string;
   health: GoalUpdateHealth;
 }) {
-  await verifyGoalAccess({ ctx, goalId });
+  const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
@@ -84,6 +91,23 @@ export async function createGoalUpdate({
     }),
   ]);
 
+  // Surface the posted update in the workspace feed — distinct from comment
+  // events. This seam covers both the human router and Zoe's mastra proxy
+  // (ADR-0016). metadata.goalId is the drawer target; personal objectives are
+  // silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId,
+      entityType: "goal_update",
+      entityId: update.id,
+      action: "created",
+      metadata: { title: goal.title, goalId },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
   return update;
 }
 
@@ -107,12 +131,12 @@ export async function createGoalComment({
   content: string;
   parentUpdateId?: string | null;
 }) {
-  await verifyGoalAccess({ ctx, goalId });
+  const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
 
-  return ctx.db.goalComment.create({
+  const comment = await ctx.db.goalComment.create({
     data: {
       goalId,
       authorId: userId,
@@ -123,6 +147,24 @@ export async function createGoalComment({
       author: { select: { id: true, name: true, image: true } },
     },
   });
+
+  // Surface the comment in the workspace feed. This seam covers both the
+  // human router and Zoe's mastra proxy (ADR-0016). metadata.goalId is the
+  // drawer target; personal objectives are silent. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId,
+      entityType: "goal_comment",
+      entityId: comment.id,
+      action: "created",
+      metadata: { title: goal.title, goalId },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return comment;
 }
 
 export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
@@ -133,8 +175,7 @@ export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
     },
     include: {
       lifeDomain: true,
-      projects: true,
-      outcomes: true
+      projects: true
     }
   });
 }
@@ -148,7 +189,7 @@ export async function getAllMyGoals({ ctx }: { ctx: Context }) {
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true
+      parentGoal: { select: { id: true, title: true } }
     }
   });
 }
@@ -163,7 +204,6 @@ interface GoalInput {
   status?: string; // "planned" | "active" | "completed" | "archived"
   lifeDomainId?: number;
   projectId?: string;
-  outcomeIds?: string[];
   driUserId?: string;
   workspaceId?: string;
   parentGoalId?: number | null;
@@ -185,7 +225,13 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
     await validateParentAssignment({ ctx, parentGoalId: input.parentGoalId });
   }
 
-  return await ctx.db.goal.create({
+  // Same rule as the move path in updateGoal: you may only file a goal into a
+  // workspace you belong to.
+  if (input.workspaceId) {
+    await assertCanPlaceGoalInWorkspace({ ctx, workspaceId: input.workspaceId });
+  }
+
+  const goal = await ctx.db.goal.create({
     data: {
       title: input.title,
       description: input.description,
@@ -204,16 +250,54 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
       projects: input.projectId ? {
         connect: [{ id: input.projectId }]
       } : undefined,
-      outcomes: input.outcomeIds?.length ? {
-        connect: input.outcomeIds.map(id => ({ id }))
-      } : undefined,
     },
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
     },
   });
+
+  // Surface workspace-scoped objective creation in the activity feed. This
+  // seam covers every service caller (Zoe's mastra proxies included);
+  // personal objectives are silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId: ctx.session.user.id,
+      entityType: "goal",
+      entityId: String(goal.id),
+      action: "created",
+      metadata: { title: goal.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return goal;
+}
+
+/**
+ * Assert the caller may place a goal into this workspace.
+ *
+ * Guards the create and move paths — a goal's workspace decides who can see and
+ * edit it, so writing one is an access change, not a field edit. Bare
+ * membership is not the test: `viewer` is read-only and `guest` is synthesized
+ * for project-only access, and neither should be filing goals into a workspace.
+ * `canEditWorkspaceContent` is the repo's answer (see its docstring).
+ */
+async function assertCanPlaceGoalInWorkspace({
+  ctx,
+  workspaceId,
+}: {
+  ctx: Context;
+  workspaceId: string;
+}) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+  const membership = await getWorkspaceMembership(ctx.db, userId, workspaceId);
+  if (!canEditWorkspaceContent(membership?.role ?? null)) {
+    throw new Error("You are not a member of the target workspace");
+  }
 }
 
 /**
@@ -253,9 +337,40 @@ async function validateParentAssignment({
   }
 }
 
-interface UpdateGoalInput extends GoalInput {
+/**
+ * A **partial** goal update. Every field is optional and follows one rule:
+ *
+ *   - key absent / `undefined` → leave the column exactly as it is
+ *   - key present with a value → write that value
+ *   - key present as `null`    → clear the column (nullable fields only)
+ *
+ * This matters because the goal form in the web UI posts every field, while API
+ * and CLI consumers send only what changed. The old full-overwrite shape wiped
+ * `period`, `workspaceId`, `lifeDomainId` and every project link on any caller
+ * that omitted them — orphaning workspace goals out of their workspace, which in
+ * turn locked the caller out of their own goal (the access check falls through
+ * to owner-only once `workspaceId` is null).
+ */
+interface UpdateGoalInput {
   id: number;
+  title?: string;
+  description?: string | null;
+  whyThisGoal?: string | null;
+  notes?: string | null;
+  dueDate?: Date | null;
+  period?: string | null;
+  status?: string;
+  lifeDomainId?: number | null;
+  /** Replace the goal's project links with this one project; `null` clears them. */
+  projectId?: string | null;
+  /** Replace the goal's project links wholesale; `[]` clears them. */
+  projectIds?: string[];
+  driUserId?: string | null;
+  workspaceId?: string | null;
+  parentGoalId?: number | null;
   displayOrder?: number;
+  icon?: string | null;
+  iconColor?: string | null;
 }
 
 export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGoalInput }) {
@@ -278,41 +393,87 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     await validateParentAssignment({ ctx, goalId: input.id, parentGoalId: input.parentGoalId });
   }
 
-  return await ctx.db.goal.update({
+  // Moving a goal between workspaces is an access change, so the caller must
+  // belong to where it lands. Without this, anyone who can edit a goal can push
+  // it into a workspace they cannot see — orphaning it exactly like the
+  // overwrite bug above — or into one they can, exposing it to that workspace's
+  // members. Clearing to null (making it personal) needs no membership.
+  if (
+    input.workspaceId !== undefined &&
+    input.workspaceId !== null &&
+    input.workspaceId !== existingGoal.workspaceId
+  ) {
+    await assertCanPlaceGoalInWorkspace({ ctx, workspaceId: input.workspaceId });
+  }
+
+  const data: Prisma.GoalUncheckedUpdateInput = {};
+  // Only keys the caller actually supplied are written — see UpdateGoalInput.
+  const assign = <K extends keyof Prisma.GoalUncheckedUpdateInput>(
+    key: K,
+    value: Prisma.GoalUncheckedUpdateInput[K] | undefined,
+  ) => {
+    if (value !== undefined) data[key] = value;
+  };
+
+  assign("title", input.title);
+  assign("description", input.description);
+  assign("whyThisGoal", input.whyThisGoal);
+  assign("notes", input.notes);
+  assign("dueDate", input.dueDate);
+  assign("period", input.period);
+  assign("status", input.status);
+  assign("lifeDomainId", input.lifeDomainId);
+  assign("driUserId", input.driUserId);
+  assign("workspaceId", input.workspaceId);
+  assign("parentGoalId", input.parentGoalId);
+  assign("displayOrder", input.displayOrder);
+  assign("icon", input.icon);
+  assign("iconColor", input.iconColor);
+
+  // Project links are replaced only when the caller names them. `projectIds`
+  // wins over the legacy single-project `projectId` when both are sent.
+  if (input.projectIds !== undefined) {
+    data.projects = { set: input.projectIds.map((id) => ({ id })) };
+  } else if (input.projectId !== undefined) {
+    data.projects =
+      input.projectId === null
+        ? { set: [] }
+        : { set: [], connect: [{ id: input.projectId }] };
+  }
+
+  const updated = await ctx.db.goal.update({
     where: {
       id: input.id,
     },
-    data: {
-      title: input.title,
-      description: input.description,
-      whyThisGoal: input.whyThisGoal,
-      notes: input.notes,
-      dueDate: input.dueDate,
-      period: input.period ?? null,
-      status: input.status ?? existingGoal.status,
-      lifeDomainId: input.lifeDomainId ?? null,
-      driUserId: input.driUserId ?? existingGoal.driUserId ?? ctx.session.user.id,
-      workspaceId: input.workspaceId ?? null,
-      parentGoalId: input.parentGoalId !== undefined ? (input.parentGoalId ?? null) : existingGoal.parentGoalId,
-      displayOrder: input.displayOrder ?? existingGoal.displayOrder,
-      icon: input.icon !== undefined ? (input.icon ?? null) : existingGoal.icon,
-      iconColor: input.iconColor !== undefined ? (input.iconColor ?? null) : existingGoal.iconColor,
-      projects: input.projectId ? {
-        set: [], // Clear existing connections
-        connect: [{ id: input.projectId }]
-      } : {
-        set: [] // Clear project connection if no projectId provided
-      },
-      outcomes: input.outcomeIds !== undefined ? {
-        set: input.outcomeIds.map(id => ({ id }))
-      } : undefined,
-    },
+    data,
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
     },
   });
+
+  // One event per lifecycle status change — `completed` on the transition into
+  // completed, `status_changed` otherwise. Plain field edits are silent, as are
+  // personal objectives (guarded on the post-update workspace, so a goal moved
+  // out of its workspace in the same call logs nothing). Fire-and-forget.
+  if (
+    input.status !== undefined &&
+    input.status !== existingGoal.status &&
+    updated.workspaceId
+  ) {
+    await recordActivity(ctx.db, {
+      workspaceId: updated.workspaceId,
+      userId: ctx.session.user.id,
+      entityType: "goal",
+      entityId: String(updated.id),
+      action: input.status === "completed" ? "completed" : "status_changed",
+      metadata: { title: updated.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return updated;
 }
 
 /**
@@ -364,8 +525,12 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
+      // The list nests sub-goals under their parent; the parent's title is what
+      // labels a sub-goal whose parent isn't itself on this project.
+      parentGoal: { select: { id: true, title: true } },
+      driUser: { select: { id: true, name: true, image: true } },
     },
+    orderBy: { displayOrder: "asc" },
   });
 }
 
@@ -385,30 +550,25 @@ export async function getGoalTree({ ctx, workspaceId, status }: { ctx: Context, 
     include: {
       lifeDomain: true,
       projects: true,
-      outcomes: true,
       keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
       childGoals: {
         include: {
           lifeDomain: true,
           projects: true,
-          outcomes: true,
           keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
           childGoals: {
             include: {
               lifeDomain: true,
               projects: true,
-              outcomes: true,
               keyResults: { select: { id: true, status: true, currentValue: true, targetValue: true } },
               childGoals: {
                 include: {
                   lifeDomain: true,
                   projects: true,
-                  outcomes: true,
                   childGoals: {
                     include: {
                       lifeDomain: true,
                       projects: true,
-                      outcomes: true,
                       childGoals: true,
                     },
                     orderBy: { displayOrder: "asc" },
@@ -556,7 +716,6 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
           createdBy: { select: { id: true, name: true, image: true } },
         },
       },
-      outcomes: true,
       keyResults: {
         select: {
           id: true,
@@ -598,11 +757,29 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
 }
 
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
-  await verifyGoalAccess({ ctx, goalId: input.id });
+  // The access check already fetches the title + workspaceId the feed row
+  // needs, captured here before the row is gone.
+  const goal = await verifyGoalAccess({ ctx, goalId: input.id });
 
-  return await ctx.db.goal.delete({
+  const deleted = await ctx.db.goal.delete({
     where: { id: input.id },
   });
+
+  // Personal objectives are silent by design. Fire-and-forget.
+  if (goal.workspaceId) {
+    await recordActivity(ctx.db, {
+      workspaceId: goal.workspaceId,
+      userId: ctx.session?.user?.id ?? null,
+      entityType: "goal",
+      entityId: String(input.id),
+      action: "deleted",
+      metadata: { title: goal.title },
+    }).catch(() => {
+      /* instrumentation failure is non-fatal */
+    });
+  }
+
+  return deleted;
 }
 
 export async function updateGoalIcon({ ctx, input }: { ctx: Context; input: { id: number; icon: string | null; iconColor: string | null } }) {

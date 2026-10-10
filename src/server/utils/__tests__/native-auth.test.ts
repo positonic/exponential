@@ -6,6 +6,8 @@ import {
   ALLOWED_REDIRECT_URIS,
   NATIVE_REDIRECT_URI,
   TAURI_REDIRECT_URI,
+  VOICE_REDIRECT_URI,
+  MEET_REDIRECT_URI,
   isAllowedRedirectUri,
   isValidCodeChallenge,
   isValidState,
@@ -36,31 +38,48 @@ describe("input validation", () => {
     expect(isValidCodeChallenge(null)).toBe(false);
   });
 
-  it("allow-lists both shell schemes and nothing else", () => {
+  it("allow-lists all three shell schemes and nothing else", () => {
     expect(isAllowedRedirectUri(NATIVE_REDIRECT_URI)).toBe(true);
     expect(isAllowedRedirectUri(TAURI_REDIRECT_URI)).toBe(true);
+    expect(isAllowedRedirectUri(VOICE_REDIRECT_URI)).toBe(true);
+    expect(isAllowedRedirectUri(MEET_REDIRECT_URI)).toBe(true);
+    expect(isAllowedRedirectUri("https://talk.syntro.fi/api/exponential/other")).toBe(false);
+    expect(isAllowedRedirectUri("http://talk.syntro.fi/api/exponential/callback")).toBe(false);
+    // Look-alike hosts and smuggled query strings: an https target makes these the real risk
+    expect(isAllowedRedirectUri("https://talk.syntro.fi.evil.example/api/exponential/callback")).toBe(false);
+    expect(isAllowedRedirectUri("https://evil.example/?x=https://talk.syntro.fi/api/exponential/callback")).toBe(false);
+    expect(isAllowedRedirectUri("https://talk.syntro.fi/api/exponential/callback?next=https://evil.example")).toBe(false);
     expect(isAllowedRedirectUri("https://evil.example/callback")).toBe(false);
     expect(isAllowedRedirectUri("exponential://auth/other")).toBe(false);
     expect(isAllowedRedirectUri("exponential-beta://auth/other")).toBe(false);
-    // Near-misses on the new scheme: no prefix/suffix slack in the match.
+    expect(isAllowedRedirectUri("exponential-voice://auth/other")).toBe(false);
+    // Near-misses on the new schemes: no prefix/suffix slack in the match.
     expect(isAllowedRedirectUri("exponential-beta://auth/callback/")).toBe(false);
     expect(isAllowedRedirectUri("exponential-beta-evil://auth/callback")).toBe(false);
+    expect(isAllowedRedirectUri("exponential-voice://auth/callback/")).toBe(false);
+    expect(isAllowedRedirectUri("exponential-voice-evil://auth/callback")).toBe(false);
     expect(isAllowedRedirectUri(null)).toBe(false);
     expect(isAllowedRedirectUri(undefined)).toBe(false);
   });
 
-  it("pins the two schemes so a rename can't silently break a shipped shell", () => {
-    // iOS/Electron read these from the ADR-0005 contract; the values are frozen.
+  it("pins the redirect targets so a rename can't silently break a shipped client", () => {
+    // iOS/Mac/Electron read these from the ADR-0005 contract; the values are frozen.
     expect(NATIVE_REDIRECT_URI).toBe("exponential://auth/callback");
     expect(TAURI_REDIRECT_URI).toBe("exponential-beta://auth/callback");
-    expect(ALLOWED_REDIRECT_URIS).toEqual([NATIVE_REDIRECT_URI, TAURI_REDIRECT_URI]);
+    expect(VOICE_REDIRECT_URI).toBe("exponential-voice://auth/callback");
+    // Hard-coded in Syntrofi's LiveKit Meet (ops-livekit-meet).
+    expect(MEET_REDIRECT_URI).toBe("https://talk.syntro.fi/api/exponential/callback");
+    expect(ALLOWED_REDIRECT_URIS).toEqual([
+      NATIVE_REDIRECT_URI,
+      TAURI_REDIRECT_URI,
+      VOICE_REDIRECT_URI,
+      MEET_REDIRECT_URI,
+    ]);
   });
 
-  it("keeps the two schemes distinct so macOS can route each shell's callback", () => {
-    expect(NATIVE_REDIRECT_URI).not.toBe(TAURI_REDIRECT_URI);
-    expect(new URL(NATIVE_REDIRECT_URI).protocol).not.toBe(
-      new URL(TAURI_REDIRECT_URI).protocol,
-    );
+  it("keeps every scheme distinct so macOS can route each shell's callback", () => {
+    const protocols = ALLOWED_REDIRECT_URIS.map((uri) => new URL(uri).protocol);
+    expect(new Set(protocols).size).toBe(ALLOWED_REDIRECT_URIS.length);
   });
 
   it("bounds state", () => {

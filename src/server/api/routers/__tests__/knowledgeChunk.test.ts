@@ -358,6 +358,53 @@ describe("knowledgeChunk router (mocked)", () => {
       expect(callArgs.userId).toBeUndefined();
     });
 
+    it("restricts page chunks to pages the caller can view (pageViewerId)", async () => {
+      stubMembership(true);
+      mockSearch.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.knowledgeChunk.semanticSearch({ query: "x", workspaceId });
+
+      expect(mockSearch).toHaveBeenCalledWith(
+        "x",
+        expect.objectContaining({ pageViewerId: callerId }),
+      );
+    });
+
+    it("restricts transcription chunks to meetings the caller can view (transcriptionViewerId)", async () => {
+      stubMembership(true);
+      mockSearch.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.knowledgeChunk.semanticSearch({ query: "x", workspaceId });
+
+      expect(mockSearch).toHaveBeenCalledWith(
+        "x",
+        expect.objectContaining({ transcriptionViewerId: callerId }),
+      );
+    });
+
+    it("keeps the caller's meeting access when filtering by participantEmail", async () => {
+      stubMembership(true);
+      mockSearch.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.knowledgeChunk.semanticSearch({
+        query: "x",
+        workspaceId,
+        sourceType: "transcription",
+        participantEmail: "alice@example.com",
+      });
+
+      expect(mockSearch).toHaveBeenCalledWith(
+        "x",
+        expect.objectContaining({
+          participantEmail: "alice@example.com",
+          transcriptionViewerId: callerId,
+        }),
+      );
+    });
+
     it("forwards participantEmail to KnowledgeService.search", async () => {
       stubMembership(true);
       mockSearch.mockResolvedValue([]);

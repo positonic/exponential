@@ -16,6 +16,7 @@ import { StartupRoutineForm } from "./StartupRoutineForm";
 import { api } from "~/trpc/react";
 import { format, parseISO } from "date-fns";
 import { CalendarDayView } from "./CalendarDayView";
+import { GooglePremiumFeature } from "./GooglePremiumFeature";
 import type { ScheduledAction } from "./calendar/types";
 import { CalendarWeekView } from "./CalendarWeekView";
 import { CalendarMonthView } from "./CalendarMonthView";
@@ -49,6 +50,9 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
   };
 
   const [activeTab, setActiveTab] = useState<TabValue>(getInitialTab);
+
+  const { data: calendarStatus } = api.calendar.getConnectionStatus.useQuery();
+  const googleCalendarGated = calendarStatus?.gated ?? false;
 
   // Memoize the viewName string to avoid recalculation
   const viewName = useMemo(
@@ -169,6 +173,12 @@ export function TodayContent({ calendarConnected, initialTab, focus, dateRange, 
 
   const renderCalendarContent = () => {
     if (!calendarConnected) {
+      // While Google verifies our calendar scopes, non-testers can't act on a
+      // "connect your calendar" prompt — explain the gate instead.
+      if (googleCalendarGated) {
+        return <GooglePremiumFeature feature="calendar" variant="card" />;
+      }
+
       return (
         <Paper
           p="xl"

@@ -1,0 +1,168 @@
+/*
+ * The list-page table: full-bleed with 32px gutters, sticky uppercase header,
+ * hairline row dividers. Lifted from the Projects page.
+ */
+
+.tableWrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tableHead th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-primary);
+  white-space: nowrap;
+  background: var(--color-bg-primary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.tableHead th:first-child {
+  padding-left: 32px;
+}
+
+.tableHead th:last-child {
+  padding-right: 32px;
+}
+
+.tableRow {
+  border-bottom: 1px solid var(--color-border-secondary);
+  transition: background 80ms;
+}
+
+.tableRow:hover {
+  background: var(--color-bg-secondary);
+}
+
+.tableRow td {
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  vertical-align: middle;
+}
+
+.tableRow td:first-child {
+  padding-left: 32px;
+}
+
+.tableRow td:last-child {
+  padding-right: 32px;
+}
+
+/* Rows that open something on click (a peek drawer), and multi-selected rows. */
+.tableRow[data-clickable='true'] {
+  cursor: pointer;
+}
+
+.tableRow[data-selected='true'] {
+  background: var(--color-bg-hover);
+}
+
+/* ── sortable header cell ── */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 100ms;
+}
+
+.sortable:hover {
+  color: var(--color-text-primary);
+}
+
+.sortInner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── group header row (Group by / Completed) ── */
+.groupRow {
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupRow td {
+  padding: 16px 16px 8px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-primary);
+}
+
+.groupRow td:first-child {
+  padding-left: 32px;
+}
+
+.groupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+/* ── primary cell: title with a muted sub-line ── */
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nameText {
+  font-weight: 500;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameText:hover {
+  color: var(--brand-400);
+}
+
+.nameSub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* A sub-line carrying chips (labels) as well as text. */
+.nameMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* Secondary cell text: IDs, counts, dates. */
+.muted {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── empty state ── */
+.empty {
+  text-align: center;
+  padding: 80px 40px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Combobox, Text, useCombobox } from "@mantine/core";
+import { Combobox, Group, Text, useCombobox } from "@mantine/core";
+import { IconLock } from "@tabler/icons-react";
 
 /** A project option, grouped by its workspace in the dropdown. */
 export interface MeetingProjectOption {
@@ -10,6 +11,8 @@ export interface MeetingProjectOption {
   /** Null for personal (workspace-less) projects. */
   workspaceId: string | null;
   workspaceName: string | null;
+  /** Shows a lock — restricted projects are visible to their members only. */
+  isRestricted?: boolean;
 }
 
 const NONE_VALUE = "__none__";
@@ -26,7 +29,17 @@ interface MeetingProjectPickerProps {
   children: (args: { toggle: () => void }) => ReactNode;
   /** Label for the clear-placement option. */
   noneLabel?: string;
-  dropdownWidth?: number;
+  /** Offer the clear-placement option. Off when the caller knows clearing
+   * would be rejected (e.g. detaching a page needs workspace membership). */
+  allowNone?: boolean;
+  dropdownWidth?: number | "target";
+  /** True while the candidate list is still loading. */
+  loading?: boolean;
+  /** Fires when the dropdown opens — lets callers fetch candidates lazily. */
+  onOpen?: () => void;
+  /** Render the dropdown in a portal (default). Pass false inside a Popover,
+   * where a portalled dropdown counts as an outside click and closes it. */
+  withinPortal?: boolean;
 }
 
 /**
@@ -42,9 +55,14 @@ export function MeetingProjectPicker({
   onChange,
   children,
   noneLabel = "Personal / no project",
+  allowNone = true,
   dropdownWidth = 260,
+  loading = false,
+  onOpen,
+  withinPortal = true,
 }: MeetingProjectPickerProps) {
   const combobox = useCombobox({
+    onDropdownOpen: () => onOpen?.(),
     onDropdownClose: () => {
       combobox.resetSelectedOption();
       setSearch("");
@@ -73,6 +91,7 @@ export function MeetingProjectPicker({
       store={combobox}
       width={dropdownWidth}
       position="bottom-end"
+      withinPortal={withinPortal}
       onOptionSubmit={(val) => {
         onChange(val === NONE_VALUE ? null : val);
         combobox.closeDropdown();
@@ -94,16 +113,27 @@ export function MeetingProjectPicker({
           size="xs"
         />
         <Combobox.Options mah={280} style={{ overflowY: "auto" }}>
-          <Combobox.Option value={NONE_VALUE} active={value === null}>
-            <Text size="xs" className="text-text-muted">
-              {noneLabel}
-            </Text>
-          </Combobox.Option>
+          {allowNone && (
+            <Combobox.Option value={NONE_VALUE} active={value === null}>
+              <Text size="xs" className="text-text-muted">
+                {noneLabel}
+              </Text>
+            </Combobox.Option>
+          )}
           {groups.map(([groupName, items]) => (
             <Combobox.Group key={groupName} label={groupName}>
               {items.map((p) => (
                 <Combobox.Option key={p.id} value={p.id} active={value === p.id}>
-                  <Text size="xs">{p.name}</Text>
+                  <Group gap={4} wrap="nowrap">
+                    <Text size="xs">{p.name}</Text>
+                    {p.isRestricted ? (
+                      <IconLock
+                        size={12}
+                        className="shrink-0 text-text-muted"
+                        aria-label="Restricted"
+                      />
+                    ) : null}
+                  </Group>
                 </Combobox.Option>
               ))}
             </Combobox.Group>
@@ -111,7 +141,7 @@ export function MeetingProjectPicker({
           {groups.length === 0 && (
             <Combobox.Empty>
               <Text size="xs" className="text-text-muted">
-                No matching projects
+                {loading ? "Loading projects…" : "No matching projects"}
               </Text>
             </Combobox.Empty>
           )}

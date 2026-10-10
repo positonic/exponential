@@ -44,6 +44,7 @@ import {
 import { modals } from "@mantine/modals";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { useViewPrefs } from "~/hooks/useViewPrefs";
 import { EmptyState } from "~/app/_components/EmptyState";
 import { KanbanBoard } from "~/app/_components/shared/kanban";
 import type { KanbanItem } from "~/app/_components/shared/kanban";
@@ -259,14 +260,17 @@ export default function InsightsPage() {
   // map is keyed by an opaque string; suffixing the slug keeps insights prefs
   // separate from the tickets page's prefs for the same product.
   const prefsKey = `${productSlug}/insights`;
-  const { data: savedPrefs } = api.product.product.getViewPrefs.useQuery(
-    { productSlug: prefsKey, workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
-  );
-  const savePrefs = api.product.product.saveViewPrefs.useMutation();
+  // The hook keeps the cached prefs, which a remount restores from, in step
+  // with each save - including one made before the prefs have loaded.
+  const { prefs: savedPrefs, save: savePrefs } = useViewPrefs<{ view?: "list" | "board" }>({
+    productSlug: prefsKey,
+    workspaceId,
+  });
+  const utils = api.useUtils();
 
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {
+      // Saved prefs are untrusted JSON: only take a view this page has.
       if (savedPrefs.view === "list" || savedPrefs.view === "board") {
         setView(savedPrefs.view);
       }
@@ -276,9 +280,7 @@ export default function InsightsPage() {
 
   const changeView = (v: "list" | "board") => {
     setView(v);
-    if (workspaceId) {
-      savePrefs.mutate({ productSlug: prefsKey, workspaceId, prefs: { view: v } });
-    }
+    savePrefs({ view: v });
   };
 
   const { data: product } = api.product.product.getBySlug.useQuery(
@@ -296,7 +298,6 @@ export default function InsightsPage() {
     { enabled: !!product?.id },
   );
 
-  const utils = api.useUtils();
   const invalidate = () => {
     if (product?.id) void utils.product.insight.list.invalidate({ productId: product.id });
   };

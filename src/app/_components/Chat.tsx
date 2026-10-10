@@ -165,6 +165,15 @@ export default function Chat({ initialMessages, githubSettings, buttons }: ChatP
       });
 
       if (!response.ok) {
+        if (response.status === 429) {
+          const data = (await response.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(
+            data?.error ??
+              "You've hit the chat rate limit. Please wait a moment and try again.",
+          );
+        }
         throw new Error('Stream request failed');
       }
 

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { IconAlertCircle, IconCalendar, IconClock } from "@tabler/icons-react";
+import { IconAlertCircle, IconCalendar } from "@tabler/icons-react";
 import type { Action } from "~/lib/actions/types";
 import { toVisualPriority } from "~/lib/actions/priority";
-import { formatAprDay, formatClockTime } from "~/lib/actions/dates";
+import { formatAprDay } from "~/lib/actions/dates";
 import { stripHtml } from "~/lib/utils";
 import { HTMLContent } from "../HTMLContent";
+import { ScheduledIndicator } from "../shared/ScheduledIndicator";
 import {
   ReschedulePopover,
   type RescheduleChoice,
@@ -43,7 +44,6 @@ export function TaskRow({
   const isDone = action.status === "COMPLETED" || action.status === "DONE";
   const visualPrio = toVisualPriority(action.priority, isOverdue);
 
-  const scheduled = action.scheduledStart ? new Date(action.scheduledStart) : null;
   const due = action.dueDate ? new Date(action.dueDate) : null;
 
   const tags = action.tags?.map((t) => t.tag) ?? [];
@@ -115,12 +115,11 @@ export function TaskRow({
               </span>
             )
           )}
-          {scheduled && (
-            <span className="td-task__meta-item">
-              <IconClock size={11} />
-              {formatClockTime(scheduled)}
-            </span>
-          )}
+          <ScheduledIndicator
+            action={action}
+            className="td-task__meta-item"
+            unscheduledClassName="td-task__meta-item--unscheduled"
+          />
           {primaryTag ? (
             <TagChip
               label={primaryTag.name}

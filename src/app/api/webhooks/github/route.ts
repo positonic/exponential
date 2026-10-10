@@ -1,37 +1,50 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "~/server/db";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { githubActivityService } from "~/server/services/GitHubActivityService";
+import { triggerAdrSyncFromPush } from "~/server/services/adrSync/webhookTrigger";
+import { safeSignatureEquals } from "~/server/utils/webhookSignature";
 
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
+// ADR sync work deferred via after() still needs runtime beyond the response;
+// without an explicit budget the platform default can kill a first-enrolment
+// sync mid-run and leave its AdrSyncRun stuck "running".
+export const maxDuration = 120;
 
-function verifySignature(payload: string, signature: string): boolean {
-  if (!WEBHOOK_SECRET) {
-    console.warn(
-      "GITHUB_WEBHOOK_SECRET not set - skipping signature verification",
-    );
-    return true; // Allow in development
-  }
-
+function verifySignature(
+  payload: string,
+  signature: string,
+  secret: string,
+): boolean {
   const expectedSignature =
     "sha256=" +
-    crypto.createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
+    crypto.createHmac("sha256", secret).update(payload).digest("hex");
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expectedSignature),
-  );
+  return safeSignatureEquals(signature, expectedSignature);
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Fail closed: without the shared secret we cannot verify a single
+    // delivery, so we must never process one (same rule as the Notion and
+    // Sentry receivers).
+    const secret = process.env.GITHUB_WEBHOOK_SECRET;
+    if (!secret) {
+      console.error(
+        "[GitHubWebhook] GITHUB_WEBHOOK_SECRET is not configured — refusing to process events",
+      );
+      return NextResponse.json(
+        { error: "GITHUB_WEBHOOK_SECRET is not configured" },
+        { status: 503 },
+      );
+    }
+
     const signature = request.headers.get("x-hub-signature-256");
     const event = request.headers.get("x-github-event");
     const delivery = request.headers.get("x-github-delivery");
 
     if (!signature || !event || !delivery) {
-      console.error("Mission required headers", request.headers);
+      console.error("Missing required headers", request.headers);
       return NextResponse.json(
         { error: "Missing required headers" },
         { status: 400 },
@@ -41,7 +54,7 @@ export async function POST(request: NextRequest) {
     const payload = await request.text();
 
     // Verify webhook signature
-    if (!verifySignature(payload, signature)) {
+    if (!verifySignature(payload, signature, secret)) {
       console.error("Invalid webhook signature");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
@@ -58,6 +71,20 @@ export async function POST(request: NextRequest) {
         break;
       case "push":
         await githubActivityService.processPushEvent(data, delivery);
+        // Decision Log fast-follow: a default-branch push touching enrolled
+        // adrPaths lands the ADR within seconds instead of at the next hourly
+        // cron. Deferred with after() so the sync runs OUTSIDE the request
+        // path — a slow first-enrolment sync can neither blow GitHub's 10s
+        // delivery window nor take down the activity handling above. Failures
+        // are contained (redelivery is idempotent via the tree-SHA
+        // short-circuit, and the hourly cron is the backstop).
+        after(async () => {
+          try {
+            await triggerAdrSyncFromPush(db, data);
+          } catch (error) {
+            console.error("[AdrSync] webhook trigger failed:", error);
+          }
+        });
         break;
       case "pull_request":
         await githubActivityService.processPullRequestEvent(data, delivery);

@@ -14,21 +14,83 @@
  *     featureId, same as feature._count.tickets), so the fixture makes that
  *     design decision observable: 6 tickets exist, the accordion shows 5.
  */
+import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
+import { encryptString } from "../../src/server/utils/encryption";
+import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
 
 export const FIXTURE = {
   userEmail: "dev-fixture@exponential.test",
   userName: "Dev Fixture",
   workspaceSlug: "dev-fixture",
   workspaceName: "Dev Fixture",
+  otherWorkspaceSlug: "dev-fixture-other",
+  otherWorkspaceName: "Dev Fixture Other",
+  // Deliberately unlike anything in the main workspace, so a search for it
+  // returning nothing is proof that scoping held.
+  otherWorkspaceActionName: "Zarquon cross-workspace beacon",
   productSlug: "fixture",
   productName: "Fixture Product",
   featureName: "Tickets accordion fixture",
+  objectiveTitle: "Fixture objective for OKR execution links",
+  keyResultTitle: "Linked work renders under the KR accordion",
+  okrPeriod: "Annual-2026",
+  projectName: "Fixture Linked Project",
+  projectSlug: "fixture-linked-project",
+  // A second project, kept separate from the OKR one so each fixture stays
+  // legible: this one carries the goal hierarchy the Goals tab renders.
+  goalProjectSlug: "goal-hierarchy-fixture",
+  goalProjectName: "Goal hierarchy fixture",
+  parentGoalTitle: "Grow the fixture business",
+  childGoalTitle: "Ship the goal hierarchy affordance",
+  offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
+  detachedChildGoalTitle: "Sub-goal whose parent is off-project",
+  // Ceremonies (ADR-0059) and Decisions (ADR-0060): one Daily Standup, one
+  // occurrence, a recorded meeting attached to it, one confirmed decision.
+  ceremonySlug: "daily-standup",
+  ceremonyName: "Daily Standup",
+  meetingSessionId: "dev-fixture-daily-standup-2026-09-08",
+  meetingTitle: "Daily Standup",
+  decisionStatement: "Park prioritisation debates for the prioritisation ceremony",
+  draftDecisionStatements: {
+    confirm: "Pat takes the accordion review today",
+    reject: "The accordion PR is otherwise clear",
+    resolve: "The peek drawer ships before the hover affordances",
+  },
+  /** An OPEN decision (open question) the `resolve` draft answers. */
+  openQuestionStatement: "Should the peek drawer ship before the hover affordances?",
+  /**
+   * Scheduling a meeting from a project (ADR-0059 amendment, V4): a second
+   * workspace member who is the fixture project's DRI (preselected as an
+   * attendee) and a CRM contact to invite as an external.
+   */
+  colleagueEmail: "fixture-colleague@exponential.test",
+  colleagueName: "Fixture Colleague",
+  contactEmail: "pat.partner@partner.example",
+  contactFirstName: "Pat",
+  contactLastName: "Partner",
+  /** A workspace tag, so the create-action modals' tag picker has something to pick. */
+  tagName: "Fixture label",
+  tagSlug: "fixture-label",
+  /**
+   * Assistants as assignees (ADR-0067): the fixture user's own Assistant, the
+   * colleague's, and an unassigned action to hand to one from the Assign modal.
+   */
+  assistantName: "Aria",
+  colleagueAssistantName: "Max",
+  assistantActionName: "Find a venue for the fixture offsite",
+  /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
+  agentRunActionName: "Draft the fixture offsite agenda",
 } as const;
 
 export interface SeededFixture {
   userId: string;
   workspaceSlug: string;
+  /** A second workspace the fixture user owns, for cross-workspace cases. */
+  otherWorkspaceSlug: string;
+  otherWorkspaceName: string;
+  /** Action living only in `otherWorkspaceSlug`. */
+  otherWorkspaceActionName: string;
   productSlug: string;
   featureId: string;
   /** App-relative URL of the seeded feature's detail page. */
@@ -39,6 +101,55 @@ export interface SeededFixture {
   featureTicketCount: number;
   /** Total tickets seeded, including the scope-only one the accordion hides. */
   totalTicketCount: number;
+  /** App-relative URL of the OKR dashboard holding the seeded objective. */
+  okrUrl: string;
+  /** App-relative URL of the seeded project's Goals tab (the goal hierarchy). */
+  projectGoalsUrl: string;
+  /** Goals on that project: a parent, its sub-goal, and a detached sub-goal. */
+  goalIds: { parent: number; child: number; offProjectParent: number; detachedChild: number };
+  /** The seeded Daily Standup ceremony and its one occurrence. */
+  ceremonyId: string;
+  occurrenceId: string;
+  /** App-relative URL of the recorded meeting attached to that occurrence. */
+  meetingUrl: string;
+  /** A workspace tag the create-action modals can attach. */
+  tagId: string;
+  tagName: string;
+  /** The fixture user's Assistant and the colleague's, both members of the workspace. */
+  assistantName: string;
+  colleagueAssistantName: string;
+  /** App-relative URL of the unassigned action the Assign-to-Assistant spec hands over. */
+  assistantActionUrl: string;
+  assistantActionName: string;
+  /** Its twin for the agent-run spec (ADR-0067), reset to unassigned with no runs on each seed. */
+  agentRunActionUrl: string;
+  agentRunActionName: string;
+  /** The confirmed decision logged against that meeting. */
+  decisionId: string;
+  /** Its rendered label (`D-0001` on a fresh workspace). */
+  decisionLabel: string;
+  /** App-relative URL of the workspace Decision Log. */
+  decisionsUrl: string;
+  /**
+   * Two extracted draft decisions on the same meeting (Decisions V2), one to
+   * confirm and one to reject in the e2e spec. Re-seeding puts both back to
+   * DRAFT so the spec is re-runnable.
+   */
+  draftDecisionStatements: { confirm: string; reject: string; resolve: string };
+  /** The open question the `resolve` draft answers (re-asserted OPEN on every seed). */
+  openQuestionStatement: string;
+  /** App-relative URL of the fixture project's Meetings tab. */
+  projectMeetingsUrl: string;
+  /** The project's DRI, a second workspace member — preselected when scheduling. */
+  colleagueName: string;
+  /** A CRM contact in the workspace, invitable as an external attendee. */
+  contactName: string;
+  /**
+   * False when DATABASE_ENCRYPTION_KEY was missing at seed time: the contact
+   * has no email and booking with an external can't store one, so the
+   * schedule-meeting spec skips.
+   */
+  canScheduleWithContact: boolean;
 }
 
 interface TicketSpec {
@@ -59,6 +170,18 @@ const TICKETS: TicketSpec[] = [
   { number: 5, title: "Ticket row hover affordances", status: "BACKLOG", priority: null, assign: false },
   { number: 6, title: "Scope-only ticket (must NOT appear in the feature accordion)", status: "BACKLOG", priority: null, assign: false, scopeOnly: true },
 ];
+
+/** Weekdays at 09:00 in the fixture zone; the seeded occurrence sits on this tick. */
+const FIXTURE_AGENDA_TEMPLATE = [
+  { key: "blockers", type: "blockers", title: "Blockers", minutes: 5, config: {} },
+  { key: "carried", type: "carried_over", title: "Carried over", minutes: 5, config: {} },
+  { key: "free", type: "free_text", title: "Anything else", minutes: 5, config: {} },
+  // V2: the OKR review section gives the generated agenda a query with
+  // fixture data behind it (the seeded key result has no check-ins).
+  { key: "okr", type: "okr_review", title: "Key results at risk", minutes: 5, config: { days: 7 } },
+];
+
+const FIXTURE_CADENCE_RULE = "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0";
 
 export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   const user = await db.user.upsert({
@@ -87,6 +210,70 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "owner" },
     create: { userId: user.id, workspaceId: workspace.id, role: "owner" },
   });
+
+  // Pin the default explicitly. Routes outside `/w/…` (e.g. `/wiki`) resolve
+  // their workspace through `workspace.getDefault`, which without this falls
+  // back to "first by type, then by createdAt" — a tie-break that only stayed
+  // stable while the fixture had exactly one workspace to choose from.
+  await db.user.update({
+    where: { id: user.id },
+    data: { defaultWorkspaceId: workspace.id },
+  });
+
+  // One workspace tag. The create-action modals apply tags *after* the action
+  // exists, on a separate mutation, which is exactly the path that used to
+  // drop them - so the fixture needs a tag for that to be observable.
+  const tag = await db.tag.upsert({
+    where: { id: `${workspace.id}-fixture-label` },
+    update: { name: FIXTURE.tagName },
+    create: {
+      id: `${workspace.id}-fixture-label`,
+      name: FIXTURE.tagName,
+      slug: FIXTURE.tagSlug,
+      color: "brand-primary",
+      workspaceId: workspace.id,
+      createdById: user.id,
+    },
+  });
+
+  // A second workspace, so the fixture can express anything that only exists
+  // for people who belong to more than one — the command palette's
+  // "All workspaces" toggle, for one, hides itself below that threshold. Kept
+  // deliberately thin: one action, whose name is the thing cross-workspace
+  // search looks for and which must NOT surface in a `dev-fixture`-scoped
+  // search.
+  const otherWorkspace = await db.workspace.upsert({
+    where: { slug: FIXTURE.otherWorkspaceSlug },
+    update: {},
+    create: {
+      slug: FIXTURE.otherWorkspaceSlug,
+      name: FIXTURE.otherWorkspaceName,
+      type: "team",
+      ownerId: user.id,
+    },
+  });
+
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: user.id, workspaceId: otherWorkspace.id } },
+    update: { role: "owner" },
+    create: { userId: user.id, workspaceId: otherWorkspace.id, role: "owner" },
+  });
+
+  const existingOtherAction = await db.action.findFirst({
+    where: { workspaceId: otherWorkspace.id, name: FIXTURE.otherWorkspaceActionName },
+    select: { id: true },
+  });
+  if (!existingOtherAction) {
+    await db.action.create({
+      data: {
+        name: FIXTURE.otherWorkspaceActionName,
+        workspaceId: otherWorkspace.id,
+        createdById: user.id,
+        status: "ACTIVE",
+        priority: "Quick",
+      },
+    });
+  }
 
   const product = await db.product.upsert({
     where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.productSlug } },
@@ -171,15 +358,640 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     },
   });
 
+  // OKR execution links (ADR-0050): one objective → one KR carrying BOTH a
+  // linked Project and a linked Feature, so the KR accordion on the OKRs tab
+  // renders one row of each kind (Project pill / Feature pill).
+  // Project.workspace, Goal.workspace and KeyResult.workspace are all optional
+  // relations with no explicit onDelete, so Prisma defaults them to SetNull:
+  // dropping the `dev-fixture` workspace orphans these rows with a null
+  // workspaceId rather than cascading them away. Every path below therefore
+  // re-attaches `workspaceId`, so a seed → delete-workspace → seed cycle
+  // converges instead of resurrecting a workspace-less fixture the OKR
+  // dashboard (which queries by workspaceId) can't see.
+  // A second member and DRI of the fixture project, so scheduling from the
+  // project has someone to preselect; and a CRM contact to invite.
+  const colleague = await db.user.upsert({
+    where: { email: FIXTURE.colleagueEmail },
+    update: {},
+    create: { email: FIXTURE.colleagueEmail, name: FIXTURE.colleagueName, emailVerified: new Date() },
+  });
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: colleague.id, workspaceId: workspace.id } },
+    update: { role: "member" },
+    create: { userId: colleague.id, workspaceId: workspace.id, role: "member" },
+  });
+  // One Assistant each for the fixture user and the colleague, so the Assign
+  // modal has "your assistant" to pin first and a teammate's to group below.
+  // Each Assistant owns an External agent whose shadow user is a workspace
+  // member (ADR-0067) — created through the same service `assistant.create`
+  // uses, so the fixture can never drift from the product path.
+  async function ensureAssistant(ownerId: string, name: string) {
+    const existing = await db.assistant.findFirst({
+      where: { workspaceId: workspace.id, createdById: ownerId, name },
+      select: { id: true },
+    });
+    if (existing) return existing;
+    return db.$transaction(async (tx) => {
+      const { externalAgentId } = await createAssistantPrincipal(tx, {
+        name,
+        ownerId,
+        workspaceId: workspace.id,
+      });
+      return tx.assistant.create({
+        data: {
+          name,
+          emoji: "✨",
+          personality: `${name} is warm, direct and allergic to filler.`,
+          workspaceId: workspace.id,
+          createdById: ownerId,
+          isDefault: true,
+          externalAgentId,
+        },
+        select: { id: true },
+      });
+    });
+  }
+  await ensureAssistant(user.id, FIXTURE.assistantName);
+  await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
+
+  // The actions the specs assign. Re-seeding clears their assignees and
+  // Agent runs so each spec starts from "Unassigned" and a fresh run rather
+  // than coalescing onto a leftover one.
+  async function ensureUnassignedAction(name: string) {
+    let action = await db.action.findFirst({
+      where: { workspaceId: workspace.id, name },
+      select: { id: true },
+    });
+    if (!action) {
+      action = await db.action.create({
+        data: { name, workspaceId: workspace.id, createdById: user.id, status: "ACTIVE", priority: "Quick" },
+        select: { id: true },
+      });
+    }
+    await db.actionAssignee.deleteMany({ where: { actionId: action.id } });
+    await db.agentRun.deleteMany({ where: { actionId: action.id } });
+    return action;
+  }
+  const assistantAction = await ensureUnassignedAction(FIXTURE.assistantActionName);
+  const agentRunAction = await ensureUnassignedAction(FIXTURE.agentRunActionName);
+
+  // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
+  // in development; without it the contact is seeded email-less (the app
+  // couldn't store one either) and the scheduling spec skips itself, rather
+  // than failing the seed every other spec depends on.
+  const canEncrypt = !!process.env.DATABASE_ENCRYPTION_KEY;
+  if (canEncrypt) {
+    const contactEmailHash = createHash("sha256").update(FIXTURE.contactEmail).digest("hex");
+    await db.crmContact.upsert({
+      where: { workspaceId_emailHash: { workspaceId: workspace.id, emailHash: contactEmailHash } },
+      update: { firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
+      create: {
+        workspaceId: workspace.id,
+        createdById: user.id,
+        firstName: FIXTURE.contactFirstName,
+        lastName: FIXTURE.contactLastName,
+        email: encryptString(FIXTURE.contactEmail),
+        emailHash: contactEmailHash,
+        importSource: "MANUAL",
+      },
+    });
+  } else {
+    console.warn("[dev-fixture] DATABASE_ENCRYPTION_KEY not set: seeding the CRM contact without an email; the schedule-meeting spec will skip.");
+    const existing = await db.crmContact.findFirst({
+      where: { workspaceId: workspace.id, firstName: FIXTURE.contactFirstName, lastName: FIXTURE.contactLastName },
+      select: { id: true },
+    });
+    if (!existing) {
+      await db.crmContact.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          firstName: FIXTURE.contactFirstName,
+          lastName: FIXTURE.contactLastName,
+          importSource: "MANUAL",
+        },
+      });
+    }
+  }
+
+  const project = await db.project.upsert({
+    where: { slug: FIXTURE.projectSlug },
+    update: { workspaceId: workspace.id, driId: colleague.id },
+    create: {
+      name: FIXTURE.projectName,
+      slug: FIXTURE.projectSlug,
+      status: "ACTIVE",
+      createdById: user.id,
+      workspaceId: workspace.id,
+      driId: colleague.id,
+    },
+  });
+
+  // Meetings booked from the project by earlier runs of the schedule-meeting
+  // spec: drop them so each run starts from an empty timeline. A one-off's
+  // ceremony cascades to its occurrence; its booking goes separately.
+  await db.ceremony.deleteMany({
+    where: { workspaceId: workspace.id, isOneOff: true, projects: { some: { projectId: project.id } } },
+  });
+  await db.meeting.deleteMany({ where: { workspaceId: workspace.id, projectId: project.id } });
+
+  // A second project carrying a goal hierarchy, so the Goals tab's nesting
+  // affordance is observable: a parent with a sub-goal under it, plus a
+  // sub-goal whose parent is NOT on this project (it can't nest under anything
+  // on screen, so it stays at the root and names its parent instead).
+  // Same SetNull caveat as above — the Goals tab is reached through a
+  // workspace-scoped route, so re-assert the workspace on every seed.
+  const goalProject = await db.project.upsert({
+    where: { slug: FIXTURE.goalProjectSlug },
+    update: { workspaceId: workspace.id, status: "ACTIVE" },
+    create: {
+      slug: FIXTURE.goalProjectSlug,
+      name: FIXTURE.goalProjectName,
+      description: "Seeded for visual verification of sub-goal nesting on the project Goals tab.",
+      status: "ACTIVE",
+      priority: "HIGH",
+      createdById: user.id,
+      workspaceId: workspace.id,
+    },
+  });
+
+  const upsertGoal = async (
+    title: string,
+    opts: { description?: string; parentGoalId?: number; onProject: boolean; displayOrder: number },
+  ) => {
+    const existing = await db.goal.findFirst({ where: { userId: user.id, title } });
+    const data = {
+      description: opts.description ?? null,
+      status: "active",
+      parentGoalId: opts.parentGoalId ?? null,
+      displayOrder: opts.displayOrder,
+      workspaceId: workspace.id,
+      ...(opts.onProject ? { projects: { connect: { id: goalProject.id } } } : {}),
+    };
+    return existing
+      ? await db.goal.update({ where: { id: existing.id }, data })
+      : await db.goal.create({
+          data: { title, userId: user.id, ...data },
+        });
+  };
+
+  const parentGoal = await upsertGoal(FIXTURE.parentGoalTitle, {
+    description: "Root objective — the sub-goal below nests under it.",
+    onProject: true,
+    displayOrder: 0,
+  });
+  const childGoal = await upsertGoal(FIXTURE.childGoalTitle, {
+    description: "Nested one level under its parent.",
+    parentGoalId: parentGoal.id,
+    onProject: true,
+    displayOrder: 1,
+  });
+  const offProjectParentGoal = await upsertGoal(FIXTURE.offProjectParentGoalTitle, {
+    onProject: false,
+    displayOrder: 2,
+  });
+  const detachedChildGoal = await upsertGoal(FIXTURE.detachedChildGoalTitle, {
+    description: "Its parent isn't on this project, so the row names the parent.",
+    parentGoalId: offProjectParentGoal.id,
+    onProject: true,
+    displayOrder: 3,
+  });
+
+  // Matched on title alone (not workspaceId) so an orphaned goal is found and
+  // re-homed rather than duplicated.
+  const existingObjective = await db.goal.findFirst({
+    where: { title: FIXTURE.objectiveTitle, userId: user.id },
+  });
+  const objective = existingObjective
+    ? await db.goal.update({
+        where: { id: existingObjective.id },
+        data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod },
+      })
+    : await db.goal.create({
+        data: {
+          title: FIXTURE.objectiveTitle,
+          period: FIXTURE.okrPeriod,
+          userId: user.id,
+          driUserId: user.id,
+          workspaceId: workspace.id,
+        },
+      });
+
+  const existingKeyResult = await db.keyResult.findFirst({
+    where: { goalId: objective.id, title: FIXTURE.keyResultTitle },
+  });
+  const keyResult = existingKeyResult
+    ? await db.keyResult.update({
+        where: { id: existingKeyResult.id },
+        data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod },
+      })
+    : await db.keyResult.create({
+        data: {
+          title: FIXTURE.keyResultTitle,
+          targetValue: 100,
+          currentValue: 40,
+          startValue: 0,
+          unit: "percent",
+          period: FIXTURE.okrPeriod,
+          goalId: objective.id,
+          userId: user.id,
+          driUserId: user.id,
+          workspaceId: workspace.id,
+        },
+      });
+
+  await db.keyResultProject.upsert({
+    where: {
+      keyResultId_projectId: { keyResultId: keyResult.id, projectId: project.id },
+    },
+    update: {},
+    create: { keyResultId: keyResult.id, projectId: project.id },
+  });
+
+  await db.keyResultFeature.upsert({
+    where: {
+      keyResultId_featureId: { keyResultId: keyResult.id, featureId: feature.id },
+    },
+    update: {},
+    create: { keyResultId: keyResult.id, featureId: feature.id },
+  });
+
+  // Ceremonies (ADR-0059): one Daily Standup definition, one occurrence that
+  // has already been captured, and a recorded meeting attached to it - the
+  // data behind the "Part of" rail row on /recording/[id] and the ceremony
+  // filter on the meetings list. The ceremony cascades with the workspace;
+  // the meeting (TranscriptionSession.workspace is SetNull) is re-homed on
+  // every seed the same way the OKR rows above are.
+  const ceremony = await db.ceremony.upsert({
+    where: { workspaceId_slug: { workspaceId: workspace.id, slug: FIXTURE.ceremonySlug } },
+    update: { ownerId: user.id, isActive: true, cadenceRule: FIXTURE_CADENCE_RULE, agendaTemplate: FIXTURE_AGENDA_TEMPLATE },
+    create: {
+      workspaceId: workspace.id,
+      slug: FIXTURE.ceremonySlug,
+      name: FIXTURE.ceremonyName,
+      aliases: ["Daily Standup", "Standup"],
+      kind: "STANDUP",
+      purpose: "Surface blockers and align on today's priorities in fifteen minutes.",
+      notFor: "Prioritisation debates - park them for the prioritisation ceremony.",
+      inputs: "Yesterday's completed Actions and anything flagged as blocked.",
+      outputs: "Blockers assigned an owner; parking-lot items carried to the next occurrence.",
+      cadenceRule: FIXTURE_CADENCE_RULE,
+      timezone: "Europe/Berlin",
+      startsOn: new Date("2026-09-01T00:00:00.000Z"),
+      durationMinutes: 15,
+      leadTimeHours: 12,
+      ownerId: user.id,
+      createdById: user.id,
+      agendaTemplate: FIXTURE_AGENDA_TEMPLATE,
+    },
+  });
+
+  await db.ceremonyParticipant.upsert({
+    where: { ceremonyId_userId: { ceremonyId: ceremony.id, userId: user.id } },
+    update: {},
+    create: { ceremonyId: ceremony.id, userId: user.id },
+  });
+
+  // 09:00 Europe/Berlin on Monday 8 September 2026 (CEST, UTC+2).
+  const occurrenceStart = new Date("2026-09-08T07:00:00.000Z");
+  const occurrenceEnd = new Date(occurrenceStart.getTime() + ceremony.durationMinutes * 60_000);
+  const occurrence = await db.ceremonyOccurrence.upsert({
+    where: {
+      ceremonyId_scheduledStart: { ceremonyId: ceremony.id, scheduledStart: occurrenceStart },
+    },
+    update: { workspaceId: workspace.id, status: "CAPTURED" },
+    create: {
+      ceremonyId: ceremony.id,
+      workspaceId: workspace.id,
+      scheduledStart: occurrenceStart,
+      scheduledEnd: occurrenceEnd,
+      status: "CAPTURED",
+      definitionSnapshot: {
+        name: ceremony.name,
+        slug: ceremony.slug,
+        kind: ceremony.kind,
+        cadenceRule: ceremony.cadenceRule,
+        timezone: ceremony.timezone,
+        durationMinutes: ceremony.durationMinutes,
+        agendaTemplate: ceremony.agendaTemplate,
+      },
+    },
+  });
+
+  // Plain `Name: text` lines - the labelled-turns parser (ADR-0032) turns each
+  // into one Transcript turn, so the decision's evidence `turnIndex` below
+  // resolves to a real turn on the recording page.
+  const transcriptTurns = [
+    "Dev Fixture: Morning. Blockers first - anything stuck?",
+    "Pat Reviewer: The accordion PR is waiting on a review, otherwise clear.",
+    "Dev Fixture: Before we go on, can we talk about whether the peek drawer should ship before the hover affordances?",
+    "Pat Reviewer: That is a prioritisation call, not a standup one. Let's park it for the prioritisation ceremony.",
+    "Dev Fixture: Agreed. Decision: prioritisation debates get parked and go to the prioritisation ceremony.",
+    "Pat Reviewer: Noted. I'll take the accordion review today.",
+  ];
+  // `[SCREENSHOT]` markers are what the capture extension writes when it
+  // saves a frame. They live only in the stored transcript (the parser strips
+  // them on read), so the decision evidence below quotes clean turn text; the
+  // Screenshots tab pairs the n-th marker with the n-th capture seeded below.
+  const markerTurnIndices = new Set([1, 2]);
+  const storedTranscript = transcriptTurns
+    .map((turn, i) => (markerTurnIndices.has(i) ? `${turn} [SCREENSHOT]` : turn))
+    .join("\n");
+  const meetingSummary =
+    "Short standup. One blocker (accordion review, picked up by Pat). Agreed to park prioritisation debates for the prioritisation ceremony.";
+  const meeting = await db.transcriptionSession.upsert({
+    where: { sessionId: FIXTURE.meetingSessionId },
+    // The update branch refreshes the content too: the decision's evidence
+    // `turnIndex` values are computed against `transcriptTurns` as written
+    // here, so a stale transcript would deep-link to the wrong turn.
+    update: {
+      workspaceId: workspace.id,
+      occurrenceId: occurrence.id,
+      userId: user.id,
+      title: FIXTURE.meetingTitle,
+      meetingDate: occurrenceStart,
+      transcription: storedTranscript,
+      summary: meetingSummary,
+    },
+    create: {
+      sessionId: FIXTURE.meetingSessionId,
+      title: FIXTURE.meetingTitle,
+      meetingDate: occurrenceStart,
+      userId: user.id,
+      workspaceId: workspace.id,
+      occurrenceId: occurrence.id,
+      transcription: storedTranscript,
+      summary: meetingSummary,
+      processedAt: occurrenceStart,
+      durationSeconds: 9 * 60,
+      participantCount: 2,
+    },
+  });
+
+  // Two captured frames for the Screenshots tab, in the order of the markers
+  // above. Inline SVGs (named colours: the pre-commit hook rejects hex) so the
+  // fixture needs no blob storage; re-created each run so edits in a dev
+  // session converge back on the fixture.
+  await db.screenshot.deleteMany({ where: { transcriptionSessionId: meeting.id } });
+  const captureSvg = (label: string) =>
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">` +
+        `<rect width="1280" height="800" fill="darkslategray"/>` +
+        `<rect x="40" y="40" width="1200" height="64" rx="8" fill="slategray"/>` +
+        `<rect x="40" y="136" width="760" height="624" rx="8" fill="slategray"/>` +
+        `<rect x="832" y="136" width="408" height="300" rx="8" fill="slategray"/>` +
+        `<rect x="832" y="460" width="408" height="300" rx="8" fill="slategray"/>` +
+        `<text x="640" y="430" text-anchor="middle" font-family="sans-serif" font-size="56" fill="gainsboro">${label}</text>` +
+        `</svg>`,
+    );
+  for (const [i, label] of ["Accordion PR", "Peek drawer"].entries()) {
+    await db.screenshot.create({
+      data: {
+        url: captureSvg(label),
+        timestamp: i === 0 ? "00:42" : "01:58",
+        transcriptionSessionId: meeting.id,
+        createdAt: new Date(occurrenceStart.getTime() + (i + 1) * 60_000),
+      },
+    });
+  }
+
+  // Decisions (ADR-0060): one confirmed decision logged from that meeting with
+  // two quoted transcript turns as evidence. The label comes from the
+  // workspace sequence, advanced inside the create transaction the way the
+  // decision service will (like Product.ticketCounter), so the fixture shows
+  // `D-0001`. Matched on statement so a re-seed re-attaches rather than
+  // duplicates; the row cascades with the workspace.
+  const existingDecision = await db.decision.findFirst({
+    where: { workspaceId: workspace.id, statement: FIXTURE.decisionStatement },
+  });
+  // Every state-carrying field is re-asserted on re-seed so a decision that
+  // was edited in a dev session converges back on the declared fixture.
+  const decisionState = {
+    body: [
+      "## Context",
+      "Standups were drifting into prioritisation debates.",
+      "",
+      "## Decision",
+      "Prioritisation topics raised in a standup are parked and taken to the prioritisation ceremony.",
+      "",
+      "## Consequences",
+      "Standups stay inside fifteen minutes; the parking lot carries the topic forward.",
+    ].join("\n"),
+    status: "ACCEPTED",
+    reviewState: "CONFIRMED",
+    source: "MEETING",
+    decidedAt: occurrenceStart,
+    ownerId: user.id,
+    confirmedById: user.id,
+    confirmedAt: occurrenceStart,
+    transcriptionSessionId: meeting.id,
+    occurrenceId: occurrence.id,
+    productId: product.id,
+    evidence: [
+      { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+      { turnIndex: 4, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[4]!.replace(/^Dev Fixture: /, "") },
+    ],
+  } as const;
+  const decision = existingDecision
+    ? await db.decision.update({
+        where: { id: existingDecision.id },
+        data: decisionState,
+      })
+    : await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...decisionState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: FIXTURE.decisionStatement,
+            createdById: user.id,
+            deciders: {
+              create: [
+                { userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail },
+                { name: "Pat Reviewer", email: "pat.reviewer@exponential.test" },
+              ],
+            },
+          },
+        });
+      });
+
+  // An open question (a Decision in OPEN status, ADR-0060 decision 3) raised
+  // in the same meeting. The `resolve` draft below answers it; confirming
+  // that draft accepts this row instead of adding a new one, so the seed
+  // re-asserts OPEN and the original body every run.
+  const openQuestionState = {
+    body: "## Context\nRaised in the standup; parked for the prioritisation ceremony.",
+    status: "OPEN",
+    reviewState: "CONFIRMED",
+    source: "MEETING",
+    decidedAt: null,
+    confirmedById: user.id,
+    confirmedAt: occurrenceStart,
+    supersededById: null,
+    transcriptionSessionId: meeting.id,
+    occurrenceId: occurrence.id,
+    productId: product.id,
+    evidence: [
+      { turnIndex: 2, speaker: "Dev Fixture", startTime: null, text: transcriptTurns[2]!.replace(/^Dev Fixture: /, "") },
+    ],
+  } as const;
+  const existingOpenQuestion = await db.decision.findFirst({
+    where: { workspaceId: workspace.id, statement: FIXTURE.openQuestionStatement },
+  });
+  const openQuestion = existingOpenQuestion
+    ? await db.decision.update({ where: { id: existingOpenQuestion.id }, data: openQuestionState })
+    : await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...openQuestionState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: FIXTURE.openQuestionStatement,
+            createdById: user.id,
+            deciders: { create: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }] },
+          },
+        });
+      });
+
+  // Draft decisions (Decisions V2): what the extractor would have produced
+  // from this transcript, persisted as `reviewState: DRAFT` rows so the review
+  // surfaces have something to confirm and reject without a model call.
+  // Re-asserted back to DRAFT on every seed, so a spec that confirmed or
+  // rejected one last run finds it pending again.
+  const draftSpecs = [
+    {
+      statement: FIXTURE.draftDecisionStatements.confirm,
+      evidence: [
+        { turnIndex: 5, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[5]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.reject,
+      evidence: [
+        { turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[1]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ userId: user.id, name: FIXTURE.userName, email: FIXTURE.userEmail }],
+    },
+    {
+      statement: FIXTURE.draftDecisionStatements.resolve,
+      evidence: [
+        { turnIndex: 3, speaker: "Pat Reviewer", startTime: null, text: transcriptTurns[3]!.replace(/^Pat Reviewer: /, "") },
+      ],
+      deciders: [{ name: "Pat Reviewer", email: "pat.reviewer@exponential.test" }],
+      // A resolution draft: points at the open question until confirm applies it.
+      resolvesId: openQuestion.id,
+    },
+  ] as const;
+  // Converge the meeting's decisions on the declared set: a draft edited or
+  // confirmed by a spec no longer matches its declared statement and would be
+  // duplicated (or shadow it) on re-seed. The fixture workspace is
+  // disposable, so the "confirmed decisions are never deleted" rule
+  // (ADR-0060) does not apply to its strays.
+  await db.decision.deleteMany({
+    where: {
+      transcriptionSessionId: meeting.id,
+      statement: {
+        notIn: [
+          FIXTURE.decisionStatement,
+          FIXTURE.openQuestionStatement,
+          ...draftSpecs.map((spec) => spec.statement),
+        ],
+      },
+    },
+  });
+  for (const spec of draftSpecs) {
+    const draftState = {
+      body: "## Context\nExtracted from the standup transcript.",
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      source: "MEETING",
+      decidedAt: occurrenceStart,
+      confirmedById: null,
+      confirmedAt: null,
+      supersededById: "resolvesId" in spec ? spec.resolvesId : null,
+      transcriptionSessionId: meeting.id,
+      occurrenceId: occurrence.id,
+      productId: product.id,
+      evidence: spec.evidence,
+    } as const;
+    const existingDraft = await db.decision.findFirst({
+      where: { workspaceId: workspace.id, statement: spec.statement },
+    });
+    if (existingDraft) {
+      await db.decision.update({ where: { id: existingDraft.id }, data: draftState });
+    } else {
+      await db.$transaction(async (tx) => {
+        const counter = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { decisionCounter: { increment: 1 } },
+          select: { decisionCounter: true },
+        });
+        return tx.decision.create({
+          data: {
+            ...draftState,
+            workspaceId: workspace.id,
+            number: counter.decisionCounter,
+            statement: spec.statement,
+            createdById: user.id,
+            deciders: { create: spec.deciders.map((d) => ({ ...d })) },
+          },
+        });
+      });
+    }
+  }
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    tagId: tag.id,
+    tagName: FIXTURE.tagName,
+    assistantName: FIXTURE.assistantName,
+    colleagueAssistantName: FIXTURE.colleagueAssistantName,
+    assistantActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${assistantAction.id}`,
+    assistantActionName: FIXTURE.assistantActionName,
+    agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
+    agentRunActionName: FIXTURE.agentRunActionName,
+    ceremonyId: ceremony.id,
+    occurrenceId: occurrence.id,
+    meetingUrl: `/recording/${meeting.id}`,
+    decisionId: decision.id,
+    decisionLabel: `D-${String(decision.number).padStart(4, "0")}`,
+    decisionsUrl: `/w/${FIXTURE.workspaceSlug}/decisions`,
+    draftDecisionStatements: FIXTURE.draftDecisionStatements,
+    openQuestionStatement: FIXTURE.openQuestionStatement,
+    projectMeetingsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=transcriptions`,
+    colleagueName: FIXTURE.colleagueName,
+    contactName: `${FIXTURE.contactFirstName} ${FIXTURE.contactLastName}`,
+    canScheduleWithContact: canEncrypt,
+    projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,
+    goalIds: {
+      parent: parentGoal.id,
+      child: childGoal.id,
+      offProjectParent: offProjectParentGoal.id,
+      detachedChild: detachedChildGoal.id,
+    },
     userId: user.id,
     workspaceSlug: FIXTURE.workspaceSlug,
+    otherWorkspaceSlug: FIXTURE.otherWorkspaceSlug,
+    otherWorkspaceName: FIXTURE.otherWorkspaceName,
+    otherWorkspaceActionName: FIXTURE.otherWorkspaceActionName,
     productSlug: FIXTURE.productSlug,
     featureId: feature.id,
     featureUrl: `${base}/features/${feature.id}`,
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
+    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?tab=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }

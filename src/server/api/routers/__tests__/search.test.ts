@@ -106,7 +106,6 @@ function stubEmptyResults(dbMock: DeepMockProxy<PrismaClient>) {
   dbMock.action.findMany.mockResolvedValue([]);
   dbMock.goal.findMany.mockResolvedValue([]);
   dbMock.keyResult.findMany.mockResolvedValue([]);
-  dbMock.outcome.findMany.mockResolvedValue([]);
   dbMock.ticket.findMany.mockResolvedValue([]);
   dbMock.feature.findMany.mockResolvedValue([]);
   dbMock.epic.findMany.mockResolvedValue([]);

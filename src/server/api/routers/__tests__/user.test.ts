@@ -184,6 +184,45 @@ describe("user.updateProfile", () => {
   });
 });
 
+describe("user.updateTimezone", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  it("persists a recognized IANA timezone", async () => {
+    db.user.update.mockResolvedValue({ timezone: "Europe/Berlin" } as unknown as User);
+
+    const result = await caller(db).user.updateTimezone({ timezone: "Europe/Berlin" });
+
+    expect(db.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: USER_ID },
+        data: { timezone: "Europe/Berlin" },
+      }),
+    );
+    expect(result).toEqual({ success: true, timezone: "Europe/Berlin" });
+  });
+
+  it("rejects a Windows zone name (as Outlook feeds publish) without writing", async () => {
+    await expect(
+      caller(db).user.updateTimezone({ timezone: "W. Europe Standard Time" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects garbage without writing", async () => {
+    await expect(
+      caller(db).user.updateTimezone({ timezone: "Not/AZone" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("user.uploadProfileImage", () => {
   let db: DeepMockProxy<PrismaClient>;
 

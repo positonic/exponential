@@ -31,11 +31,15 @@ export default function NewCyclePage() {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const { data: product, isError: isProductError } =
+    api.product.product.getBySlug.useQuery(
+      { workspaceId: workspaceId ?? "", slug: productSlug },
+      { enabled: !!workspaceId && !!productSlug },
+    );
+
   const createCycle = api.product.cycle.create.useMutation({
     onSuccess: async (cycle) => {
-      if (workspaceId) {
-        await utils.product.cycle.list.invalidate({ workspaceId });
-      }
+      await utils.product.cycle.list.invalidate();
       if (workspace) {
         router.push(
           `/w/${workspace.slug}/products/${productSlug}/cycles/${cycle.id}`,
@@ -49,9 +53,11 @@ export default function NewCyclePage() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!product) return;
     setError(null);
     createCycle.mutate({
       workspaceId,
+      productId: product.id,
       name: name.trim(),
       startDate: startDate ?? undefined,
       endDate: endDate ?? undefined,
@@ -116,6 +122,12 @@ export default function NewCyclePage() {
               autosize
               minRows={2}
             />
+            {isProductError && (
+              <Text size="sm" className="text-text-error">
+                Product not found. It may have been renamed or deleted — check
+                the URL.
+              </Text>
+            )}
             {error && (
               <Text size="sm" className="text-text-error">
                 {error}
@@ -133,7 +145,7 @@ export default function NewCyclePage() {
                 type="submit"
                 color="brand"
                 loading={createCycle.isPending}
-                disabled={!name.trim()}
+                disabled={!name.trim() || !product}
               >
                 Create cycle
               </Button>

@@ -50,10 +50,12 @@ export interface FakePage {
   extra: Record<string, unknown>;
   /** Body blocks passed to createPage, kept for assertions. */
   children: unknown[];
+  /** Absolute URLs on the page (link properties, linked text, body links). */
+  links?: string[];
 }
 
 export interface NotionWrite {
-  method: "updatePage" | "createPage" | "archivePage";
+  method: "updatePage" | "createPage";
   externalId: string | null;
   properties?: Record<string, unknown>;
 }
@@ -110,6 +112,10 @@ export const DEFAULT_FAKE_SCHEMA: NotionDbSchema = {
   Label: { type: "multi_select", options: [] },
   Cycles: { type: "relation" },
   Assignee: { type: "people" },
+  // The creation markers a real backlog database carries. The back-link is
+  // what the outbound orphan probe reads, so the fake must model it.
+  Source: { type: "select", options: ["Exponential"] },
+  "Exponential URL": { type: "url" },
 };
 
 /** Property-name → page-column roles, mirroring the default config names. */
@@ -239,6 +245,10 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     return Promise.resolve(page ? `Body of ${page.title}` : null);
   }
 
+  getPageLinks(externalId: string): Promise<string[]> {
+    return Promise.resolve(this.pages.get(externalId)?.links ?? []);
+  }
+
   // ── TicketPushAdapter (outbound / push) ───────────────────────────────────
 
   getRow(externalId: string): Promise<RemoteTicketRow | null> {
@@ -282,6 +292,33 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     return Promise.resolve(this.peopleByEmail.get(email) ?? null);
   }
 
+  /** Pages whose recorded back-link equals `ticketUrl`; null = no such property. */
+  findPagesByBacklink(
+    _databaseId: string,
+    backlinkProperty: string,
+    ticketUrl: string,
+  ): Promise<Array<{ externalId: string; url: string | null }> | null> {
+    if (this.schema[backlinkProperty]?.type !== "url") return Promise.resolve(null);
+    const matches = [...this.pages.values()]
+      .filter((p) => {
+        const raw = p.extra[backlinkProperty] as { url?: string } | undefined;
+        return !p.archived && raw?.url === ticketUrl;
+      })
+      .map((p) => ({ externalId: p.externalId, url: p.url }));
+    return Promise.resolve(matches);
+  }
+
+  findPagesByTitle(
+    _databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>> {
+    const wanted = title.trim().toLowerCase();
+    const matches = [...this.pages.values()]
+      .filter((p) => !p.archived && p.title.trim().toLowerCase() === wanted)
+      .map((p) => ({ externalId: p.externalId, url: p.url }));
+    return Promise.resolve(matches);
+  }
+
   createPage(params: {
     databaseId: string;
     titleProperty: string | null;
@@ -298,15 +335,6 @@ export class FakeNotion implements TicketSyncRemoteAdapter, TicketPushAdapter {
     page.lastEditedAt = this.clock.advance();
     page.lastEditedBy = "bot";
     return Promise.resolve({ externalId: page.externalId, url: page.url });
-  }
-
-  archivePage(externalId: string): Promise<void> {
-    const page = this.mustGet(externalId);
-    this.writes.push({ method: "archivePage", externalId });
-    page.archived = true;
-    page.lastEditedAt = this.clock.advance();
-    page.lastEditedBy = "bot";
-    return Promise.resolve();
   }
 
   // ── internals ─────────────────────────────────────────────────────────────

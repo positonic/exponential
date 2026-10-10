@@ -51,7 +51,7 @@ export default function AISalesBlogPage() {
               </ThemeIcon>
               <Title order={4} mb="sm">Intelligent Analysis</Title>
               <Text size="sm" c="dimmed">
-                AI analyzes your project data - metrics, outcomes, client feedback - 
+                AI analyzes your project data - metrics, results, client feedback - 
                 and identifies the most compelling success stories.
               </Text>
             </Card>

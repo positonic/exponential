@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-delete-page"
+description = "Enables the wiki_delete_page command without any pre-configured scope."
+commands.allow = ["wiki_delete_page"]
+
+[[permission]]
+identifier = "deny-wiki-delete-page"
+description = "Denies the wiki_delete_page command without any pre-configured scope."
+commands.deny = ["wiki_delete_page"]

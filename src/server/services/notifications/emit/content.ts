@@ -1,6 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import { buildMentionContent } from "./mention";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { toChatMarkdown } from "~/server/services/workspaceUpdates/render";
+import { formatWindowLabel } from "~/server/services/workspaceUpdates/window";
 import type { EmitNotificationInput, NotificationContent } from "./types";
 
 /**
@@ -30,6 +34,15 @@ async function resolveActionWorkspace(
  * subject can't be resolved (e.g. deleted action, no workspace) — the emit is
  * then skipped for that recipient.
  */
+/**
+ * Prefix of the "N draft decisions to review" notification's dedupe key for
+ * one meeting (the recipient id follows). Exported so resolving the drafts
+ * can find and settle that notification.
+ */
+export function draftDecisionsDedupePrefix(sessionId: string): string {
+  return `meeting_ready:decisions:${sessionId}:`;
+}
+
 export async function buildContent(
   input: EmitNotificationInput,
   recipientId: string,
@@ -71,6 +84,55 @@ export async function buildContent(
         dedupeKey: `assignment:${actionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.AGENT_RUN: {
+      const { runId, actionId, outcome } = input.subject;
+      const [run, ws] = await Promise.all([
+        db.agentRun.findUnique({
+          where: { id: runId },
+          select: {
+            summary: true,
+            error: true,
+            status: true,
+            readyToClose: true,
+            agent: { select: { name: true } },
+            action: { select: { name: true } },
+          },
+        }),
+        resolveActionWorkspace(db, actionId),
+      ]);
+      if (!run || !ws) return null;
+
+      const assistant = run.agent.name;
+      const title =
+        outcome === "finished"
+          ? `${assistant} finished: ${run.action.name}`
+          : `${assistant} stopped: ${run.action.name}`;
+      const message =
+        outcome === "finished"
+          ? (run.summary ?? (run.readyToClose ? "Ready for you to confirm." : "Done — review the result."))
+          : (run.error ?? `Run ${run.status.toLowerCase().replace("_", " ")}.`);
+
+      return {
+        category: NOTIFICATION_CATEGORIES.AGENT_RUN,
+        title,
+        message,
+        deeplink: `/w/${ws.workspaceSlug}/actions/${actionId}`,
+        metadata: {
+          runId,
+          actionId,
+          outcome,
+          readyToClose: run.readyToClose,
+          workspaceId: ws.workspaceId,
+          workspaceSlug: ws.workspaceSlug,
+          workspaceName: ws.workspaceName,
+          assistantName: assistant,
+        },
+        workspaceId: ws.workspaceId,
+        // One notification per run per recipient; owner == requester collapses
+        // on the (dedupeKey, userId) unique index.
+        dedupeKey: `agent_run:${runId}:${recipientId}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.DUE_DATE: {
       const { actionId, actionName, offsetMinutes, workspaceSlug, workspaceId } =
         input.subject;
@@ -94,7 +156,10 @@ export async function buildContent(
     }
     case NOTIFICATION_CATEGORIES.SUMMARY: {
       // The cron pre-rendered the digest; a summary is personal, not
-      // workspace-scoped, so no per-workspace email override applies.
+      // workspace-scoped, so no per-workspace email override applies. The
+      // markdown variant (ADR-0059) rides in metadata so it is persisted on
+      // the Notification row and survives a cron retry (`contentFromRow`).
+      const { markdown, replyHint, agentContext } = input.subject;
       return {
         category: NOTIFICATION_CATEGORIES.SUMMARY,
         title: input.subject.title,
@@ -102,6 +167,9 @@ export async function buildContent(
         metadata: {
           kind: input.subject.kind,
           periodKey: input.subject.periodKey,
+          ...(markdown ? { markdown } : {}),
+          ...(replyHint ? { replyHint } : {}),
+          ...(agentContext ? { agentContext } : {}),
         },
         workspaceId: "",
         dedupeKey: `summary:${input.subject.kind}:${input.subject.periodKey}`,
@@ -151,6 +219,94 @@ export async function buildContent(
         dedupeKey: `meeting_participant_added:${sessionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.AGENDA_READY: {
+      const { occurrenceId } = input.subject;
+      const occurrence = await db.ceremonyOccurrence.findUnique({
+        where: { id: occurrenceId },
+        select: {
+          scheduledStart: true,
+          status: true,
+          skipReason: true,
+          updatedAt: true,
+          agenda: true,
+          agendaGeneratedAt: true,
+          ceremony: {
+            select: {
+              id: true,
+              name: true,
+              kind: true,
+              timezone: true,
+              workspace: { select: { id: true, slug: true, name: true } },
+            },
+          },
+          updates: { where: { flaggedBlocker: true, submittedAt: { not: null } }, select: { id: true }, take: 1 },
+        },
+      });
+      if (!occurrence) return null;
+      const { ceremony } = occurrence;
+      const agenda = occurrence.agenda as { sections?: Array<{ items?: unknown[] }> } | null;
+      const itemCount = (agenda?.sections ?? []).reduce((n, s) => n + (s.items?.length ?? 0), 0);
+      let when: string;
+      try {
+        when = occurrence.scheduledStart.toLocaleString("en-GB", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: ceremony.timezone,
+        });
+      } catch {
+        when = occurrence.scheduledStart.toISOString();
+      }
+      // The empty-agenda skip proposal (ADR-0059, V3): a standup with nothing
+      // to cover and nobody blocked is worth offering to skip, and saying so
+      // in the notification is the only place the owner reliably sees it.
+      const skipProposed =
+        itemCount === 0 && occurrence.ceremony.kind === "STANDUP" && occurrence.updates.length === 0;
+      const skipped = occurrence.status === "SKIPPED";
+      const title = skipped
+        ? `Skipped: ${ceremony.name}`
+        : skipProposed
+          ? `Nothing to cover: ${ceremony.name}`
+          : `Agenda ready: ${ceremony.name}`;
+      const message = skipped
+        ? `${when} · ${occurrence.skipReason ?? "skipped"} — the async summary stands in for it`
+        : skipProposed
+          ? `${when} · nobody flagged a blocker, so the owner can skip this one`
+          : `${when} · ${itemCount} item${itemCount === 1 ? "" : "s"} to cover`;
+      return {
+        category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+        title,
+        message,
+        deeplink: `/w/${ceremony.workspace.slug}/ceremonies/${ceremony.id}/${occurrenceId}`,
+        metadata: {
+          occurrenceId,
+          ceremonyId: ceremony.id,
+          ceremonyName: ceremony.name,
+          itemCount,
+          skipProposed,
+          skipped,
+          workspaceId: ceremony.workspace.id,
+          workspaceSlug: ceremony.workspace.slug,
+          workspaceName: ceremony.workspace.name,
+        },
+        workspaceId: ceremony.workspace.id,
+        // Keyed on the generation, not just the occurrence. Two sweeps over
+        // one generation must not double-notify, but a deliberate
+        // re-circulation after a regeneration ("Regenerate & send to
+        // participants") has a new `agendaGeneratedAt` and must reach people
+        // — otherwise the button reports success and notifies nobody.
+        // A skip notice is keyed by the skip write itself (`updatedAt` moves
+        // on every skip and nothing else touches a SKIPPED row), so skip →
+        // undo → skip again reaches people a second time instead of being
+        // swallowed as a duplicate of the first notice.
+        dedupeKey: `agenda_ready:${occurrenceId}:${
+          skipped ? `skipped:${occurrence.updatedAt.getTime()}` : (occurrence.agendaGeneratedAt?.getTime() ?? 0)
+        }:${recipientId}`,
+      };
+    }
+
     case NOTIFICATION_CATEGORIES.MEETING_READY: {
       const { sessionId } = input.subject;
 
@@ -164,10 +320,14 @@ export async function buildContent(
       if (!session?.workspace) return null;
 
       const meetingTitle = session.title ?? "a meeting";
+      const draftDecisionCount = input.subject.draftDecisionCount;
+      const isDraftVariant = draftDecisionCount !== undefined;
 
       return {
         category: NOTIFICATION_CATEGORIES.MEETING_READY,
-        title: "Meeting notes are ready",
+        title: isDraftVariant
+          ? `${draftDecisionCount} draft ${draftDecisionCount === 1 ? "decision" : "decisions"} to review`
+          : "Meeting notes are ready",
         message: meetingTitle,
         deeplink: `/recording/${sessionId}`,
         metadata: {
@@ -176,16 +336,94 @@ export async function buildContent(
           workspaceId: session.workspace.id,
           workspaceSlug: session.workspace.slug,
           workspaceName: session.workspace.name,
+          ...(isDraftVariant ? { draftDecisionCount } : {}),
         },
         workspaceId: session.workspace.id,
-        dedupeKey: `meeting_ready:${sessionId}:${recipientId}`,
+        dedupeKey: isDraftVariant
+          ? `${draftDecisionsDedupePrefix(sessionId)}${recipientId}`
+          : `meeting_ready:${sessionId}:${recipientId}`,
       };
     }
     case NOTIFICATION_CATEGORIES.MENTION:
       return buildMentionContent(input, recipientId);
+    case NOTIFICATION_CATEGORIES.UPDATE_REVIEW:
+      return buildUpdateReviewContent(input.db, input.subject.updateId);
     default:
       return null;
   }
+}
+
+/**
+ * Update review: the draft itself rides in `metadata.markdown`, so Matrix and
+ * email reviewers read the update where it arrives and approve from its link;
+ * other channels get a one-line pointer. A quiet week (status EMPTY) is a
+ * one-line notice. Keyed on the update's version, so a regenerated draft
+ * notifies again while a retry of the same version never does.
+ */
+async function buildUpdateReviewContent(
+  db: PrismaClient,
+  updateId: string,
+): Promise<NotificationContent | null> {
+  const update = await db.workspaceUpdate.findUnique({
+    where: { id: updateId },
+    select: {
+      status: true,
+      version: true,
+      windowStart: true,
+      windowEnd: true,
+      pageId: true,
+      page: { select: { title: true, body: true } },
+      workspace: {
+        select: { id: true, slug: true, name: true, updateConfig: { select: { timezone: true } } },
+      },
+    },
+  });
+  if (!update) return null;
+  const { workspace } = update;
+  const window = formatWindowLabel(
+    update.windowStart,
+    update.windowEnd,
+    workspace.updateConfig?.timezone ?? "UTC",
+  );
+  const metadata = { updateId, workspaceId: workspace.id, workspaceSlug: workspace.slug, workspaceName: workspace.name };
+
+  if (update.status === "EMPTY") {
+    return {
+      category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+      title: `No update this week for ${workspace.name}`,
+      message: `Nothing user-facing shipped ${window}, so there is no update to review.`,
+      deeplink: `/w/${workspace.slug}/settings`,
+      metadata,
+      workspaceId: workspace.id,
+      dedupeKey: `update_review:${updateId}:empty`,
+    };
+  }
+  if (!update.pageId || !update.page) return null;
+
+  const path = buildPageEditorPath(workspace.slug, update.pageId);
+  const reviewUrl = `${getPublicBaseUrlFromEnv()}${path}`;
+  const draft = update.page.body?.trim() ?? "";
+  return {
+    category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
+    title: `Update ready for review: ${update.page.title}`,
+    message: `This week's update for ${workspace.name} (${window}) is drafted. Nothing is sent until you approve it.`,
+    deeplink: path,
+    metadata: {
+      ...metadata,
+      // Chat-shaped (bold lines, not headings) so it reads well in a Matrix DM.
+      markdown: [
+        `**Draft update for ${workspace.name}** · ${window}`,
+        "---",
+        toChatMarkdown(draft),
+        "---",
+        `Nothing is sent until you approve it. **[Review and approve →](${reviewUrl})**`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    },
+    workspaceId: workspace.id,
+    dedupeKey: `update_review:${updateId}:${update.version}`,
+  };
 }
 
 /** Human label for a reminder offset, e.g. 60 → "in 1 hour". */

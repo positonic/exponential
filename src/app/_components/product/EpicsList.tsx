@@ -56,6 +56,12 @@ interface EpicRow {
   description: string | null;
   status: string;
   priority: string;
+  /**
+   * Null for epics created before epics became per-product. They surface on
+   * every product board until someone assigns them, so they are flagged
+   * rather than shown as if they belonged here.
+   */
+  product?: { id: string; name: string; slug: string } | null;
   _count?: { actions?: number; tickets?: number };
 }
 
@@ -160,6 +166,18 @@ export function EpicsList({
     );
   }
 
+  const renderUnassignedBadge = (epic: EpicRow) =>
+    epic.product ? null : (
+      <Tooltip
+        label="Not assigned to a product yet — open it to pick one"
+        position="top"
+      >
+        <Badge size="xs" variant="outline" color="orange" className="shrink-0">
+          Unassigned
+        </Badge>
+      </Tooltip>
+    );
+
   const renderEditMenu = (epicId: string) => (
     <Menu position="bottom-end" withinPortal>
       <Menu.Target>
@@ -213,6 +231,7 @@ export function EpicsList({
               <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
                 {epic.name}
               </Text>
+              {renderUnassignedBadge(epic)}
               <PriorityIcon priority={PRIORITY_TO_NUM[epic.priority] ?? 4} size={14} />
               <Text size="xs" className="text-text-muted shrink-0">
                 {epic._count?.tickets ?? 0} tickets
@@ -259,7 +278,10 @@ export function EpicsList({
                   </Badge>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" className="text-text-primary" lineClamp={1}>{epic.name}</Text>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Text size="sm" className="text-text-primary min-w-0" lineClamp={1}>{epic.name}</Text>
+                    {renderUnassignedBadge(epic)}
+                  </div>
                 </Table.Td>
                 <Table.Td style={{ width: 40 }}>
                   <Tooltip label={epic.priority.toLowerCase()} position="top">

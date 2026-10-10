@@ -4,7 +4,6 @@ import { Button } from '@mantine/core';
 import {
   IconArrowRight,
   IconFileText,
-  IconFlag,
   IconPlus,
   IconRefresh,
   IconTarget,
@@ -43,17 +42,6 @@ const PILLARS: Pillar[] = [
   },
   {
     number: '02',
-    title: 'Outcomes',
-    description:
-      'Measurable results at different time horizons. Track what you want to achieve daily, weekly, monthly.',
-    icon: IconFlag,
-    iconClass: 'bg-yellow-500/10 text-yellow-400',
-    href: '/outcomes',
-    metric: '14',
-    metricLabel: 'tracked',
-  },
-  {
-    number: '03',
     title: 'Habits',
     description:
       'Daily and weekly routines that compound over time. Link habits to goals for purposeful consistency.',
@@ -64,7 +52,7 @@ const PILLARS: Pillar[] = [
     metricLabel: 'running',
   },
   {
-    number: '04',
+    number: '03',
     title: 'OKRs',
     description:
       'Objectives & Key Results for quantitative goal tracking. Set targets and measure progress.',
@@ -93,27 +81,20 @@ const FLOW_STEPS: FlowStep[] = [
   },
   {
     number: 2,
-    title: 'Define Outcomes',
-    tag: 'Specify',
-    description:
-      'Translate each objective into measurable outcomes at different time horizons — weekly, monthly, quarterly.',
-  },
-  {
-    number: 3,
     title: 'Build Habits',
     tag: 'Practice',
     description:
-      'Establish the daily routines that compound. Link each habit to the outcome it serves.',
+      'Establish the daily routines that compound. Link each habit to the objective it serves.',
   },
   {
-    number: 4,
+    number: 3,
     title: 'Track with OKRs',
     tag: 'Measure',
     description:
       'Set Key Results, check in weekly, and adjust pace as you learn. Confidence is part of the signal.',
   },
   {
-    number: 5,
+    number: 4,
     title: 'Review & Refine',
     tag: 'Adapt',
     description:
@@ -132,11 +113,6 @@ const TIMELINE: TimelineItem[] = [
     label: 'Objective',
     text: 'Build a calmer, more deliberate life',
     dotClass: 'border-blue-400',
-  },
-  {
-    label: 'Outcome',
-    text: 'Reach 30 deep-work hours/week by July',
-    dotClass: 'border-yellow-400',
   },
   {
     label: 'Habit',
@@ -160,7 +136,6 @@ const STATS: Stat[] = [
   { label: 'Alignment health', value: '82%', caption: '+6 pts vs last month' },
   { label: 'Active objectives', value: '6', caption: 'across 4 life domains' },
   { label: 'Habit streak', value: '21 days', caption: 'Longest this quarter' },
-  { label: 'Outcomes on track', value: '11 / 14', caption: '3 need attention' },
 ];
 
 function SectionLabel({
@@ -216,8 +191,8 @@ export default function AlignmentPage() {
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-text-secondary">
             Connect your daily actions to your life vision. Understand how
-            goals, habits, outcomes, and OKRs work together to create
-            meaningful progress.
+            goals, habits, and OKRs work together to create meaningful
+            progress.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -239,10 +214,10 @@ export default function AlignmentPage() {
         </div>
       </div>
 
-      {/* The Four Pillars */}
+      {/* The Three Pillars */}
       <section className="mb-14">
-        <SectionLabel label="The Four Pillars" meta="4 components" />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <SectionLabel label="The Three Pillars" meta="3 components" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PILLARS.map((pillar) => (
             <Link
               key={pillar.title}
@@ -358,14 +333,13 @@ export default function AlignmentPage() {
       {/* Where You Stand */}
       <section>
         <SectionLabel label="Where You Stand" />
-        <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-border-primary bg-surface-secondary sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-border-primary bg-surface-secondary sm:grid-cols-2 lg:grid-cols-3">
           {STATS.map((stat, idx) => {
             const borderCls =
               [
                 '',
                 'border-t border-border-primary sm:border-t-0 sm:border-l',
                 'border-t border-border-primary lg:border-t-0 lg:border-l',
-                'border-t border-border-primary sm:border-l lg:border-t-0',
               ][idx] ?? '';
             return (
               <div key={stat.label} className={`p-6 ${borderCls}`}>

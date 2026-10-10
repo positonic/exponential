@@ -2,6 +2,13 @@
 
 Every commentable entity in Exponential is reachable from the `exponential` CLI. Add `--json` (or pipe) for machine-readable output.
 
+> **Agents:** every command on this page must be prefixed with
+> `HOME=/Users/james/.config/agent-homes/claude`. The examples below omit it for
+> readability. This page matters more than most: without the prefix your comment
+> is posted *as James*, so a note meant to read as an agent's finding arrives as
+> his. See the CLI section of
+> [`CLAUDE.md`](../../CLAUDE.md#-agents-every-exponential-call-needs-the-home-prefix).
+
 | Entity | Command |
 | --- | --- |
 | Feature (PRD) | `exponential features comment {list,add,reply,update,rm,resolve,unresolve}` |

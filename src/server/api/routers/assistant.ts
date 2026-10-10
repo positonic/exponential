@@ -1,10 +1,78 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
+import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
+import type { PrismaClient } from "@prisma/client";
+import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
+import {
+  createAssistantPrincipal,
+  deleteExternalAgentPrincipal,
+  renameAssistantPrincipal,
+} from "~/server/services/assistant/principal";
+import { deleteFromBlob } from "~/lib/blob";
+import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
+
+/** Same ceiling as `externalAgent.createKey`: an Assistant's principal is an External agent. */
+const MAX_RUNNER_KEYS = 10;
+
+/**
+ * Assistants are **per user, per workspace** — each member of a workspace gets
+ * their own agent with their own name and persona. Two consequences:
+ *
+ *  - Every id-addressed procedure loads the row scoped by `createdById`, so a
+ *    CUID belonging to someone else simply doesn't resolve. NOT_FOUND rather
+ *    than FORBIDDEN, so the API doesn't confirm that an id exists.
+ *  - Workspace-scoped queries (`list`, `getDefault`, `create`) additionally
+ *    filter by `createdById`, so co-members never see or clobber each other's
+ *    assistant. This matches how the Telegram and Matrix gateways resolve the
+ *    default assistant (`{ createdById, isDefault }`).
+ *
+ * Mutations are `humanOnlyProcedure`: an Assistant owns an External agent
+ * principal (ADR-0067), so creating, renaming or deleting one is agent
+ * management, which ADR-0049 keeps out of reach of agent principals.
+ *
+ * `personality`, `instructions`, and `userContext` are free-text private
+ * content injected verbatim into the system prompt by /api/chat/stream, so
+ * read access is as sensitive as write access — `getById` and `list` are
+ * guarded on the same terms as the mutations.
+ */
+/**
+ * What the settings page needs from the principal: which engine runs its
+ * Agent runs and the runner keys minted for it (prefixes only — the secret is
+ * never stored).
+ */
+const ASSISTANT_PRINCIPAL_INCLUDE = {
+  externalAgent: {
+    select: {
+      id: true,
+      executor: true,
+      shadowUserId: true,
+      keys: {
+        orderBy: { createdAt: "desc" as const },
+        select: { id: true, name: true, keyPrefix: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+      },
+    },
+  },
+} as const;
+
+async function getOwnedAssistantOrThrow(
+  db: PrismaClient,
+  id: string,
+  userId: string,
+) {
+  const assistant = await db.assistant.findFirst({
+    where: { id, createdById: userId },
+    include: ASSISTANT_PRINCIPAL_INCLUDE,
+  });
+  if (!assistant) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
+  }
+  return assistant;
+}
 
 export const assistantRouter = createTRPCRouter({
-  /** Create a new custom assistant for a workspace */
-  create: protectedProcedure
+  /** Create a new assistant owned by the calling user */
+  create: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -16,29 +84,44 @@ export const assistantRouter = createTRPCRouter({
         isDefault: z.boolean().optional().default(false),
       })
     )
+    .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ input, ctx }) => {
       const { workspaceId, isDefault, ...data } = input;
+      const userId = ctx.session.user.id;
 
-      // If setting as default, unset any existing default first
+      // Unset only *this user's* existing default — never a co-member's.
       if (isDefault) {
         await ctx.db.assistant.updateMany({
-          where: { workspaceId, isDefault: true },
+          where: { workspaceId, createdById: userId, isDefault: true },
           data: { isDefault: false },
         });
       }
 
-      return ctx.db.assistant.create({
-        data: {
-          ...data,
+      // An Assistant is a principal (ADR-0067): shadow user → External agent →
+      // workspace membership → Assistant, in one transaction so a half-made
+      // Assistant can never exist. `requireWorkspaceMembership("edit")` above
+      // already guarantees the owner is a non-viewer member, which is the
+      // delegation-invariant precondition for the membership row.
+      return ctx.db.$transaction(async (tx) => {
+        const { externalAgentId } = await createAssistantPrincipal(tx, {
+          name: data.name,
+          ownerId: userId,
           workspaceId,
-          createdById: ctx.session.user.id,
-          isDefault,
-        },
+        });
+        return tx.assistant.create({
+          data: {
+            ...data,
+            workspaceId,
+            createdById: userId,
+            isDefault,
+            externalAgentId,
+          },
+        });
       });
     }),
 
-  /** Update an existing assistant */
-  update: protectedProcedure
+  /** Update an assistant owned by the calling user */
+  update: humanOnlyProcedure
     .input(
       z.object({
         id: z.string(),
@@ -48,90 +131,184 @@ export const assistantRouter = createTRPCRouter({
         instructions: z.string().max(10000).optional().nullable(),
         userContext: z.string().max(5000).optional().nullable(),
         isDefault: z.boolean().optional(),
+        /** Which engine runs Agent runs assigned to this Assistant (ADR-0067 §4, Agent PRD V2). */
+        executor: z.enum(["MASTRA", "LOCAL_CLI"]).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { id, isDefault, ...data } = input;
+      const { id, isDefault, executor, ...data } = input;
+      const userId = ctx.session.user.id;
 
-      const existing = await ctx.db.assistant.findUnique({ where: { id } });
-      if (!existing) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
-      }
+      const existing = await getOwnedAssistantOrThrow(ctx.db, id, userId);
 
-      // If setting as default, unset any existing default first
       if (isDefault) {
         await ctx.db.assistant.updateMany({
-          where: { workspaceId: existing.workspaceId, isDefault: true, id: { not: id } },
+          where: {
+            workspaceId: existing.workspaceId,
+            createdById: userId,
+            isDefault: true,
+            id: { not: id },
+          },
           data: { isDefault: false },
         });
       }
 
-      return ctx.db.assistant.update({
-        where: { id },
-        data: {
-          ...data,
-          ...(isDefault !== undefined && { isDefault }),
-        },
+      const renamed = data.name !== undefined && data.name !== existing.name;
+      return ctx.db.$transaction(async (tx) => {
+        // The principal answers to the Assistant's name (ADR-0067).
+        if (renamed) {
+          await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
+        }
+        // The executor lives on the principal: a QUEUED run already copied the
+        // old value, so the switch applies to the next assignment. The
+        // relation is required (`Assistant.externalAgentId` NOT NULL, ADR-0067).
+        if (executor !== undefined && executor !== existing.externalAgent.executor) {
+          await tx.externalAgent.update({
+            where: { id: existing.externalAgentId },
+            data: { executor },
+          });
+        }
+        return tx.assistant.update({
+          where: { id },
+          data: {
+            ...data,
+            ...(isDefault !== undefined && { isDefault }),
+          },
+          include: ASSISTANT_PRINCIPAL_INCLUDE,
+        });
       });
     }),
 
-  /** Get a single assistant by ID */
+  /** Get a single assistant owned by the calling user */
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input, ctx }) => {
-      const assistant = await ctx.db.assistant.findUnique({ where: { id: input.id } });
-      if (!assistant) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
-      }
-      return assistant;
+      return getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
     }),
 
-  /** List all assistants for a workspace */
+  /** List the calling user's assistants in a workspace */
   list: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
     .query(async ({ input, ctx }) => {
       return ctx.db.assistant.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: {
+          workspaceId: input.workspaceId,
+          createdById: ctx.session.user.id,
+        },
         orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       });
     }),
 
-  /** Get the default assistant for a workspace (or null) */
+  /** Get the calling user's default assistant for a workspace (or null) */
   getDefault: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
     .query(async ({ input, ctx }) => {
       return ctx.db.assistant.findFirst({
-        where: { workspaceId: input.workspaceId, isDefault: true },
+        where: {
+          workspaceId: input.workspaceId,
+          createdById: ctx.session.user.id,
+          isDefault: true,
+        },
+        include: ASSISTANT_PRINCIPAL_INCLUDE,
       });
     }),
 
-  /** Delete an assistant */
-  delete: protectedProcedure
+  /**
+   * The assistant the Telegram and Matrix gateways pair to (identity fields
+   * only), so /settings/assistant can open on it instead of guessing a workspace.
+   */
+  getGatewayDefault: protectedProcedure.query(async ({ ctx }) => {
+    return findGatewayAssistant(ctx.db, ctx.session.user.id);
+  }),
+
+  /**
+   * Delete an assistant owned by the calling user — and its principal. The
+   * Assistant row itself goes with the External agent (FK cascade); the shadow
+   * user is kept when it authored content, so attribution survives (ADR-0067).
+   */
+  delete: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const existing = await ctx.db.assistant.findUnique({ where: { id: input.id } });
-      if (!existing) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      const agent = await ctx.db.externalAgent.findUnique({
+        where: { id: assistant.externalAgentId },
+        select: { id: true, shadowUserId: true, shadowUser: { select: { image: true } } },
+      });
+      if (!agent) {
+        return ctx.db.assistant.delete({ where: { id: input.id } });
       }
-      return ctx.db.assistant.delete({ where: { id: input.id } });
+      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
+      if (result.orphanedImage) {
+        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
+      }
+      return assistant;
     }),
 
-  /** Set an assistant as the workspace default */
-  setDefault: protectedProcedure
-    .input(z.object({ id: z.string() }))
+  /**
+   * Mint a runner key for the Assistant's principal (Agent PRD V2): the
+   * `exp_agent_` credential the local runner presents to `agentRun.claim`.
+   * Same key model and ceiling as `externalAgent.createKey`; the secret is
+   * returned exactly once and only its hash is stored.
+   */
+  createRunnerKey: humanOnlyProcedure
+    .input(z.object({ id: z.string(), name: z.string().trim().min(1).max(100).default("runner") }))
     .mutation(async ({ input, ctx }) => {
-      const assistant = await ctx.db.assistant.findUnique({ where: { id: input.id } });
-      if (!assistant) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      const agentId = assistant.externalAgentId;
+
+      const keyCount = await ctx.db.externalAgentKey.count({ where: { agentId } });
+      if (keyCount >= MAX_RUNNER_KEYS) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `An assistant can hold at most ${MAX_RUNNER_KEYS} runner keys — revoke one first`,
+        });
       }
 
-      // Unset existing default
+      const generated = generateExternalAgentKey();
+      const key = await ctx.db.externalAgentKey.create({
+        data: {
+          agentId,
+          name: input.name,
+          keyHash: generated.hash,
+          keyPrefix: generated.displayPrefix,
+        },
+      });
+      // The only moment the secret ever leaves the server.
+      return { keyId: key.id, keyPrefix: key.keyPrefix, secret: generated.secret };
+    }),
+
+  /** Revoke a runner key: row delete, effective on the runner's next request. */
+  revokeRunnerKey: humanOnlyProcedure
+    .input(z.object({ id: z.string(), keyId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      const result = await ctx.db.externalAgentKey.deleteMany({
+        where: { id: input.keyId, agentId: assistant.externalAgentId },
+      });
+      if (result.count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Key not found" });
+      }
+      return { revoked: true as const };
+    }),
+
+  /** Set one of the calling user's assistants as their workspace default */
+  setDefault: humanOnlyProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.session.user.id;
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, userId);
+
       await ctx.db.assistant.updateMany({
-        where: { workspaceId: assistant.workspaceId, isDefault: true },
+        where: {
+          workspaceId: assistant.workspaceId,
+          createdById: userId,
+          isDefault: true,
+        },
         data: { isDefault: false },
       });
 
-      // Set new default
       return ctx.db.assistant.update({
         where: { id: input.id },
         data: { isDefault: true },

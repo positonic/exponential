@@ -94,6 +94,18 @@ export async function streamChatResponse(
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // Surface the rate limit rather than failing as a generic transport
+        // error: the "rate limit" wording routes classifyStreamError() to a
+        // non-retryable kind, so auto-retry doesn't hammer a limited user.
+        const data = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        throw new Error(
+          data?.error ??
+            "You've hit the chat rate limit. Please wait a moment and try again.",
+        );
+      }
       throw new Error('Stream request failed');
     }
 

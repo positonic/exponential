@@ -7,6 +7,7 @@ import { WorkspaceHomeConceptD as WorkspaceHomeCommand } from '~/app/_components
 import { WorkspaceHomeActivity } from '~/app/_components/home/WorkspaceHomeActivity';
 import { WorkspaceHomeCoaching } from '~/app/_components/home/WorkspaceHomeCoaching';
 import { GithubConnectCta } from '~/app/_components/home/GithubConnectCta';
+import { JoinedWorkspaceBanner } from '~/app/_components/home/JoinedWorkspaceBanner';
 import { validateHomeLayout } from '~/app/_components/home/HomeLayoutPicker';
 
 function WorkspaceHomeContent() {
@@ -45,6 +46,7 @@ function WorkspaceHomeContent() {
 
   return (
     <>
+      <JoinedWorkspaceBanner />
       {/* Activity layout shows GitHub in the rail widget; other layouts have no
           rail, so they keep the top Connect banner. */}
       {layout !== 'activity' && <GithubConnectCta />}

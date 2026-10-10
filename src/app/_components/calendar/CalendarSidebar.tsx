@@ -9,8 +9,10 @@ import {
   Menu,
   ActionIcon,
   Loader,
+  Tooltip,
 } from "@mantine/core";
 import {
+  IconAlertTriangle,
   IconBrandGoogle,
   IconBrandWindows,
   IconPlus,
@@ -20,22 +22,31 @@ import {
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { CalendarMiniWidget } from "./CalendarMiniWidget";
+import { CalendarFeedsSection } from "./CalendarFeedsSection";
 import { getEventHue, EVENT_HUE_DOT } from "./eventHue";
 
 interface CalendarSidebarProps {
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
+  /** Forwarded to CalendarFeedsSection — the page owns the timezone prompt. */
+  onTimezoneSuggestion?: (suggestedTimezone: string | null) => void;
 }
 
 export function CalendarSidebar({
   selectedDate,
   onDateSelect,
+  onTimezoneSuggestion,
 }: CalendarSidebarProps) {
   const utils = api.useUtils();
 
   const { data, isLoading } = api.calendar.getCalendarAccounts.useQuery();
   const accounts = data?.accounts ?? [];
   const hasMicrosoft = accounts.some((a) => a.provider === "microsoft");
+  // Hide "Add Google account" while our calendar scopes await verification —
+  // the OAuth route would only bounce the user to the premium page.
+  const { data: connectionStatuses } =
+    api.calendar.getAllConnectionStatuses.useQuery();
+  const googleGated = connectionStatuses?.google?.gated ?? false;
 
   const startOAuth = (path: string) => {
     const returnUrl = encodeURIComponent(
@@ -173,6 +184,25 @@ export function CalendarSidebar({
                     >
                       {account.email ?? account.name ?? "Calendar account"}
                     </Text>
+                    {/* Busy-time sync status (V2) — display fetches are
+                        live, so only surface the background sync's error. */}
+                    {account.syncStatus === "error" && (
+                      <Tooltip
+                        label={account.lastSyncError ?? "Background calendar sync failed."}
+                        multiline
+                        maw={280}
+                        withinPortal
+                      >
+                        <ActionIcon
+                          variant="transparent"
+                          size="sm"
+                          aria-label={`Background sync failed: ${account.lastSyncError ?? "unknown error"}`}
+                          className="flex-shrink-0 cursor-default"
+                        >
+                          <IconAlertTriangle size={14} className="text-brand-warning" />
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
                     <Menu position="bottom-end" withinPortal>
                       <Menu.Target>
                         <ActionIcon
@@ -254,13 +284,15 @@ export function CalendarSidebar({
             <div className="border-t border-border-primary my-1" />
 
             {/* Add accounts. Google can always stack additional accounts. */}
-            <UnstyledButton
-              onClick={() => startOAuth("/api/auth/google-calendar")}
-              className="flex items-center gap-2 text-text-secondary transition-colors hover:text-text-primary"
-            >
-              <IconPlus size={16} />
-              <Text size="sm">Add Google account</Text>
-            </UnstyledButton>
+            {!googleGated && (
+              <UnstyledButton
+                onClick={() => startOAuth("/api/auth/google-calendar")}
+                className="flex items-center gap-2 text-text-secondary transition-colors hover:text-text-primary"
+              >
+                <IconPlus size={16} />
+                <Text size="sm">Add Google account</Text>
+              </UnstyledButton>
+            )}
 
             {!hasMicrosoft && (
               <UnstyledButton
@@ -272,6 +304,14 @@ export function CalendarSidebar({
               </UnstyledButton>
             )}
           </Stack>
+        </div>
+
+        {/* Calendar feeds (ICS subscriptions — not accounts, ADR-0057) */}
+        <div>
+          <Text size="sm" fw={600} mb="sm" className="text-text-primary">
+            Calendar feeds
+          </Text>
+          <CalendarFeedsSection compact onTimezoneSuggestion={onTimezoneSuggestion} />
         </div>
       </Stack>
     </div>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActionIcon,
+  Badge,
   Button,
   Group,
   Modal,
@@ -10,7 +11,6 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { DateTimePicker } from "@mantine/dates";
 import { notifications } from "@mantine/notifications";
 import {
   IconPencil,
@@ -20,8 +20,10 @@ import {
 
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { DateTimeField } from "./DateTimeField";
 import { EditActionModal } from "./EditActionModal";
 import { formatElapsedClock } from "~/hooks/useActiveTimer";
+import { toPlainText } from "~/lib/content/plainText";
 import type { CalendarTimeEntry } from "./calendar/types";
 
 interface TimeEntryModalProps {
@@ -52,6 +54,10 @@ export function TimeEntryModal({
   const [query, setQuery] = useState<string>("");
   const [editActionOpened, setEditActionOpened] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Set when the nested action editor's Time section changes a piece; this
+  // modal's own fields (and the parent's `entry`) may then describe a piece
+  // that was edited or deleted underneath it.
+  const [timeChangedInside, setTimeChangedInside] = useState(false);
 
   useEffect(() => {
     if (!entry) return;
@@ -149,6 +155,15 @@ export function TimeEntryModal({
         title={
           <Group gap="xs">
             <Text fw={600}>Time entry</Text>
+            {entry.status === "PROPOSED" ? (
+              <Badge size="xs" variant="outline" color="yellow">
+                proposed
+              </Badge>
+            ) : (
+              <Badge size="xs" variant="light" color="green">
+                confirmed
+              </Badge>
+            )}
             <Tooltip label="Edit underlying action" withArrow>
               <ActionIcon
                 variant="subtle"
@@ -170,7 +185,7 @@ export function TimeEntryModal({
               Action
             </Text>
             <Group gap="xs" align="center">
-              <Text fw={500}>{actionName || "Untitled"}</Text>
+              <Text fw={500}>{toPlainText(actionName) || "Untitled"}</Text>
               <Tooltip
                 label={pickerOpen ? "Cancel reassignment" : "Reassign to another action"}
                 withArrow
@@ -223,26 +238,40 @@ export function TimeEntryModal({
             )}
           </div>
 
-          <DateTimePicker
+          <DateTimeField
             label="Started"
             value={startedAt}
-            onChange={(v) => setStartedAt(v ? new Date(v) : null)}
-            withSeconds={false}
-            popoverProps={{ withinPortal: true }}
+            onChange={setStartedAt}
           />
 
-          <DateTimePicker
+          <DateTimeField
             label="Ended"
             value={endedAt}
-            onChange={(v) => setEndedAt(v ? new Date(v) : null)}
-            withSeconds={false}
-            popoverProps={{ withinPortal: true }}
+            onChange={setEndedAt}
             description="Leave blank to keep this entry running"
           />
 
           <Text size="xs" c="dimmed">
             Duration: <span className="font-mono">{durationLabel}</span>
           </Text>
+
+          {entry.note && (
+            <div>
+              <Text size="xs" c="dimmed">
+                Note
+              </Text>
+              <Text size="sm" className="text-text-primary">
+                {entry.note}
+              </Text>
+            </div>
+          )}
+
+          {entry.status === "PROPOSED" && (
+            <Text size="xs" c="dimmed">
+              Proposed by the Daily worklog. Saving or deleting confirms it; the
+              worklog will not touch it again.
+            </Text>
+          )}
 
           <Group justify="space-between" mt="md">
             <Tooltip label="Delete entry" withArrow>
@@ -293,10 +322,22 @@ export function TimeEntryModal({
             : null
         }
         opened={editActionOpened}
-        onClose={() => setEditActionOpened(false)}
+        onClose={() => {
+          setEditActionOpened(false);
+          // Close rather than let a Save here write stale start/end back
+          // over what was just edited in the Time section.
+          if (timeChangedInside) {
+            setTimeChangedInside(false);
+            onClose();
+          }
+        }}
         onSuccess={() => {
           void utils.timeEntry.listByDateRange.invalidate();
         }}
+        // This modal only lives on the time surfaces (/time, /calendar), so
+        // the action editor it opens always shows the Action's time.
+        showTimeEntries
+        onTimeEntriesChange={() => setTimeChangedInside(true)}
       />
     </>
   );

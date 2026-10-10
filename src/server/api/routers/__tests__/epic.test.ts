@@ -74,7 +74,13 @@ import { createMockCaller } from "~/test/trpc-helpers";
 
 const WORKSPACE_ID = "ws-1";
 const USER_ID = "user-1";
-const EPIC = { id: "epic-1", name: "Payments", workspaceId: WORKSPACE_ID };
+const PRODUCT_ID = "prod-1";
+const EPIC = {
+  id: "epic-1",
+  name: "Payments",
+  workspaceId: WORKSPACE_ID,
+  productId: PRODUCT_ID,
+};
 
 type MembershipKind = "direct" | "team" | "none";
 
@@ -152,5 +158,206 @@ describe("epic router access gating (mocked)", () => {
       ).rejects.toBeInstanceOf(TRPCError);
       expect(dbMock.epic.findMany).not.toHaveBeenCalled();
     });
+
+    it("scopes to one product, and keeps product-less epics visible", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.list({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+      });
+
+      // Pre-backfill epics (productId null) must stay in the list or they are
+      // invisible from every product board and can never be assigned one.
+      expect(dbMock.epic.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workspaceId: WORKSPACE_ID,
+            OR: [{ productId: PRODUCT_ID }, { productId: null }],
+          }),
+        }),
+      );
+    });
+
+    it("drops product-less epics when includeUnassigned is off", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.list({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+        includeUnassigned: false,
+      });
+
+      expect(dbMock.epic.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ OR: [{ productId: PRODUCT_ID }] }),
+        }),
+      );
+    });
+  });
+
+  describe("create", () => {
+    it("rejects a product from another workspace", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.product.findUnique.mockResolvedValue({
+        workspaceId: "ws-other",
+      } as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.epic.create({
+          workspaceId: WORKSPACE_ID,
+          productId: PRODUCT_ID,
+          name: "Payments",
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(dbMock.epic.create).not.toHaveBeenCalled();
+    });
+
+    it("stores the product when it belongs to the workspace", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.product.findUnique.mockResolvedValue({
+        workspaceId: WORKSPACE_ID,
+      } as never);
+      dbMock.epic.create.mockResolvedValue(EPIC as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.create({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+        name: "Payments",
+      });
+
+      expect(dbMock.epic.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ productId: PRODUCT_ID }),
+        }),
+      );
+    });
+  });
+
+  describe("update", () => {
+    it("rejects moving an epic to another workspace's product", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+      dbMock.product.findUnique.mockResolvedValue({
+        workspaceId: "ws-other",
+      } as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.epic.update({ id: EPIC.id, productId: PRODUCT_ID }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(dbMock.epic.update).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("epic router role gating (mocked)", () => {
+  // Membership is not permission to write: a read-only viewer can see epics
+  // but must not create, update or delete them.
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  function stubRole(role: "owner" | "admin" | "member" | "viewer") {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      { role, workspaceId: WORKSPACE_ID } as never,
+    );
+    dbMock.teamUser.findFirst.mockResolvedValue(null as never);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  it("lets a viewer list epics", async () => {
+    stubRole("viewer");
+    dbMock.epic.findMany.mockResolvedValue([] as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.epic.list({ workspaceId: WORKSPACE_ID }),
+    ).resolves.toBeDefined();
+  });
+
+  it("refuses a viewer creating an epic", async () => {
+    stubRole("viewer");
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.epic.create({
+        workspaceId: WORKSPACE_ID,
+        productId: PRODUCT_ID,
+        name: "Payments",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.epic.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a viewer updating an epic", async () => {
+    stubRole("viewer");
+    dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.epic.update({ id: EPIC.id, name: "Renamed" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.epic.update).not.toHaveBeenCalled();
+  });
+
+  it("lets a member update an epic", async () => {
+    stubRole("member");
+    dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+    dbMock.epic.update.mockResolvedValue(EPIC as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.epic.update({ id: EPIC.id, name: "Renamed" });
+    expect(dbMock.epic.update).toHaveBeenCalled();
+  });
+
+  it("refuses a viewer deleting an epic they own", async () => {
+    stubRole("viewer");
+    dbMock.epic.findUnique.mockResolvedValue(
+      { ...EPIC, ownerId: USER_ID } as never,
+    );
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(caller.epic.delete({ id: EPIC.id })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(dbMock.epic.delete).not.toHaveBeenCalled();
+  });
+
+  it("lets a member delete an epic they own", async () => {
+    stubRole("member");
+    dbMock.epic.findUnique.mockResolvedValue(
+      { ...EPIC, ownerId: USER_ID } as never,
+    );
+    dbMock.epic.delete.mockResolvedValue(EPIC as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.epic.delete({ id: EPIC.id });
+    expect(dbMock.epic.delete).toHaveBeenCalled();
+  });
+
+  it("refuses a member deleting someone else's epic", async () => {
+    stubRole("member");
+    dbMock.epic.findUnique.mockResolvedValue(
+      { ...EPIC, ownerId: "someone-else" } as never,
+    );
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(caller.epic.delete({ id: EPIC.id })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(dbMock.epic.delete).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin delete someone else's epic", async () => {
+    stubRole("admin");
+    dbMock.epic.findUnique.mockResolvedValue(
+      { ...EPIC, ownerId: "someone-else" } as never,
+    );
+    dbMock.epic.delete.mockResolvedValue(EPIC as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.epic.delete({ id: EPIC.id });
+    expect(dbMock.epic.delete).toHaveBeenCalled();
   });
 });

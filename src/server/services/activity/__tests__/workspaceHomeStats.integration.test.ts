@@ -37,7 +37,11 @@ async function seedEvent(
 describe("getWorkspaceHomeStats — T6 weekly fields (integration)", () => {
   let db: ReturnType<typeof getTestDb>;
   // Anchor "now" to a fixed Wednesday so ISO weeks are deterministic.
-  const now = new Date("2026-05-13T12:00:00Z"); // Wed
+  // Built from local components, not a Z-instant: a single UTC instant is a
+  // different weekday either side of the date line (12:00Z on 2026-05-13 is
+  // already Thursday at UTC+12 and beyond), which would make the "today" bar
+  // depend on the runner's timezone.
+  const now = new Date(2026, 4, 13, 12, 0, 0); // Wed 2026-05-13, local noon
   const thisMon = startOfISOWeek(now);
 
   beforeEach(() => {

@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   Group,
-  NumberInput,
   Select,
   Stack,
   Text,
@@ -16,6 +15,9 @@ import {
   Title,
 } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortFieldLabel, effortOptions } from "~/types/effort";
+import { SizeSuggestionChip } from "~/app/_components/product/SizeSuggestionChip";
 import { api } from "~/trpc/react";
 import { ticketUrlId } from "~/lib/fun-ids";
 
@@ -79,8 +81,8 @@ export default function NewTicketPage() {
   );
 
   const { data: cycles } = api.product.cycle.list.useQuery(
-    { workspaceId: workspaceId ?? "" },
-    { enabled: !!workspaceId },
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
   );
 
   const [title, setTitle] = useState("");
@@ -88,6 +90,8 @@ export default function NewTicketPage() {
   const [type, setType] = useState<TicketType>("FEATURE");
   const [status, setStatus] = useState<TicketStatus>("BACKLOG");
   const [points, setPoints] = useState<number | "">("");
+  const effortUnit = useWorkspaceEffortUnit();
+  const [acceptedPoints, setAcceptedPoints] = useState<number | null>(null);
   const [featureId, setFeatureId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [branchName, setBranchName] = useState("");
@@ -98,7 +102,7 @@ export default function NewTicketPage() {
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
       if (product?.id) {
-        await utils.product.ticket.list.invalidate({ productId: product.id });
+        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
       }
       if (workspace) {
         router.push(
@@ -121,6 +125,10 @@ export default function NewTicketPage() {
       type,
       status,
       points: typeof points === "number" ? points : undefined,
+      links:
+        acceptedPoints != null && points === acceptedPoints
+          ? { sizeSource: "ai" }
+          : undefined,
       featureId: featureId ?? undefined,
       cycleId: cycleId ?? undefined,
       branchName: branchName.trim() || undefined,
@@ -168,16 +176,29 @@ export default function NewTicketPage() {
                 value={status}
                 onChange={(v) => v && setStatus(v as TicketStatus)}
               />
-              <NumberInput
-                label="Story points"
-                value={points}
-                onChange={(v) =>
-                  setPoints(typeof v === "number" ? v : "")
-                }
-                min={0}
-                allowDecimal={false}
+              <Select
+                label={effortFieldLabel(effortUnit)}
+                placeholder="None"
+                data={effortOptions(effortUnit).map((o) => ({
+                  value: String(o.value),
+                  label: o.label,
+                }))}
+                value={typeof points === "number" ? String(points) : null}
+                onChange={(v) => setPoints(v ? Number(v) : "")}
+                clearable
               />
             </Group>
+            <SizeSuggestionChip
+              productId={product.id}
+              title={title}
+              body={body}
+              effortUnit={effortUnit}
+              value={typeof points === "number" ? points : null}
+              onAccept={(p) => {
+                setPoints(p);
+                setAcceptedPoints(p);
+              }}
+            />
             <Group grow>
               <Select
                 label="Feature"

@@ -69,6 +69,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 
 const USER_ID = "user-1";
 const MXID = "@james:syntro.fi";
@@ -122,6 +123,29 @@ describe("matrixGateway router (mocked)", () => {
       });
     });
 
+    it("scopes the fallback lookup to the system row, not a workspace's Matrix server", async () => {
+      // A workspace-registered homeserver is also an Integration with userId: null,
+      // so the predicate must pin workspaceId: null or the mapping can be read
+      // against the wrong integration entirely.
+      fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+      dbMock.integrationUserMapping.findFirst.mockResolvedValue(null as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.matrixGateway.getStatus();
+
+      expect(dbMock.integrationUserMapping.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: USER_ID,
+          integration: SHARED_MATRIX_INTEGRATION_WHERE,
+        },
+      });
+      expect(SHARED_MATRIX_INTEGRATION_WHERE).toMatchObject({
+        provider: "matrix",
+        userId: null,
+        workspaceId: null,
+      });
+    });
+
     it("reports unpaired when the gateway is down and no mapping exists", async () => {
       fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
       dbMock.integrationUserMapping.findFirst.mockResolvedValue(null as never);
@@ -143,11 +167,9 @@ describe("matrixGateway router (mocked)", () => {
     });
 
     it("passes mxid + default-assistant context to the gateway and returns the code", async () => {
-      dbMock.assistant.findFirst.mockResolvedValue({
-        id: "asst-1",
-        name: "Zoe",
-        workspaceId: "ws-1",
-      } as never);
+      dbMock.assistant.findMany.mockResolvedValue([
+        { id: "asst-1", name: "Zoe", workspaceId: "ws-1", workspace: { name: "WS" } },
+      ] as never);
       fetchMock.mockResolvedValue(
         okJson({
           pairingCode: "A3F1B2",
@@ -173,7 +195,7 @@ describe("matrixGateway router (mocked)", () => {
     });
 
     it("surfaces a friendly error when the gateway is unreachable", async () => {
-      dbMock.assistant.findFirst.mockResolvedValue(null as never);
+      dbMock.assistant.findMany.mockResolvedValue([] as never);
       fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
 
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
@@ -200,7 +222,7 @@ describe("matrixGateway router (mocked)", () => {
       expect(dbMock.integrationUserMapping.deleteMany).toHaveBeenCalledWith({
         where: {
           userId: USER_ID,
-          integration: { provider: "matrix", status: "ACTIVE", userId: null },
+          integration: SHARED_MATRIX_INTEGRATION_WHERE,
         },
       });
     });

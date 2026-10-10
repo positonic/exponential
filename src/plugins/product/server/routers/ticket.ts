@@ -1,13 +1,28 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  loadProductWithAccess,
+  assertWorkspaceAccess,
+  type WorkspaceAccessLevel,
+} from "./product";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   assertWorkspaceScopedRefs,
   assertAssignableUser,
 } from "~/server/services/access";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { checkStaleWrite } from "~/lib/prd/stale-write";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+  withCarriedCommentMarks,
+} from "~/server/services/prd/anchor-comment";
+import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
@@ -15,13 +30,16 @@ import {
   dispatchTicketPush,
   PUSH_RELEVANT_TICKET_FIELDS,
 } from "~/server/services/ticketSync/pushRunner";
+import { suggestTicketSize, type SizeSuggestion } from "../sizeSuggestion";
 import {
   COMPLETED_TICKET_STATUSES,
   IN_FLIGHT_TICKET_STATUSES,
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
-import { parseTicketUrlId } from "~/lib/fun-ids";
+import { parseTicketUrlId, shortIdSearchWhere } from "~/lib/fun-ids";
+
+const prosemirrorDoc = z.record(z.string(), z.unknown());
 
 const ticketTypeEnum = z.enum([
   "BUG",
@@ -45,10 +63,13 @@ const ticketStatusEnum = z.enum([
   "ARCHIVED",
 ]);
 
+type TicketStatusValue = z.infer<typeof ticketStatusEnum>;
+
 async function loadTicketWithAccess(
   db: PrismaClient,
   userId: string,
   ticketId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const ticket = await db.ticket.findUnique({
     where: { id: ticketId },
@@ -59,8 +80,10 @@ async function loadTicketWithAccess(
       // compute fieldsChanged / status transition without a second query.
       title: true,
       body: true,
+      docVersion: true,
       type: true,
       status: true,
+      completedAt: true,
       priority: true,
       points: true,
       branchName: true,
@@ -79,10 +102,11 @@ async function loadTicketWithAccess(
   if (!ticket) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     ticket.product.workspaceId,
+    level,
   );
   return ticket;
 }
@@ -98,10 +122,200 @@ const DEP_TICKET_SELECT = {
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
 
+/** Filters shared by `list` and `listSummaries`. */
+const ticketListInput = z.object({
+  productId: z.string(),
+  status: ticketStatusEnum.optional(),
+  type: ticketTypeEnum.optional(),
+  featureId: z.string().optional(),
+  epicId: z.string().optional(),
+  cycleId: z.string().optional(),
+  assigneeId: z.string().optional(),
+  // Area filter: a Tag CUID (category = "area"). Constrains results to
+  // tickets carrying that Area tag. No-op when omitted.
+  areaTagId: z.string().optional(),
+});
+
+function ticketListWhere(
+  input: z.infer<typeof ticketListInput>,
+): Prisma.TicketWhereInput {
+  return {
+    productId: input.productId,
+    ...(input.status ? { status: input.status } : {}),
+    ...(input.type ? { type: input.type } : {}),
+    ...(input.featureId ? { featureId: input.featureId } : {}),
+    ...(input.epicId ? { epicId: input.epicId } : {}),
+    ...(input.cycleId ? { cycleId: input.cycleId } : {}),
+    ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
+    ...(input.areaTagId
+      ? { tags: { some: { tagId: input.areaTagId } } }
+      : {}),
+  };
+}
+
+const TICKET_LIST_ORDER_BY: Prisma.TicketOrderByWithRelationInput[] = [
+  { status: "asc" },
+  { createdAt: "desc" },
+];
+
+/** Swap each ticket's `depsOut` edges for its open-blocker count. */
+function withBlockerCounts<
+  T extends {
+    status: TicketStatusValue;
+    depsOut: Array<{ dependsOn: { status: TicketStatusValue } }>;
+  },
+>(tickets: T[]) {
+  return tickets.map((t) => {
+    const openBlockerCount = t.depsOut.filter(
+      (d) => !COMPLETED_TICKET_STATUSES.includes(d.dependsOn.status),
+    ).length;
+    const isBlocked =
+      openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
+    const { depsOut: _depsOut, ...rest } = t;
+    return { ...rest, openBlockerCount, isBlocked };
+  });
+}
+
+/**
+ * The columns a list view renders (backlog table, list and board, a Feature's
+ * ticket list, the Decision pickers). Leaves out the body, its ProseMirror
+ * doc and the engineering links: on a large product those are most of the
+ * bytes, and every view that shows them loads the ticket by id.
+ */
+const TICKET_SUMMARY_SELECT = {
+  id: true,
+  productId: true,
+  number: true,
+  shortId: true,
+  title: true,
+  type: true,
+  status: true,
+  priority: true,
+  createdAt: true,
+  assignee: { select: { id: true, name: true, image: true } },
+  feature: { select: { id: true, name: true } },
+  epic: { select: { id: true, name: true } },
+  cycle: { select: { id: true, name: true, status: true, startDate: true, endDate: true } },
+  tags: {
+    select: {
+      tag: { select: { id: true, name: true, color: true, category: true } },
+    },
+  },
+  depsOut: { select: { dependsOn: { select: { status: true } } } },
+  syncs: {
+    select: {
+      provider: true,
+      externalId: true,
+      externalUrl: true,
+      lastSyncedAt: true,
+      tombstonedAt: true,
+    },
+  },
+} satisfies Prisma.TicketSelect;
+
+/** Everything the ticket detail page renders, shared by getById and getByRef. */
+const TICKET_DETAIL_INCLUDE = {
+  product: {
+    select: { id: true, slug: true, workspaceId: true, name: true, funTicketIds: true },
+  },
+  assignee: {
+    select: { id: true, name: true, email: true, image: true },
+  },
+  createdBy: { select: { id: true, name: true, image: true } },
+  feature: { select: { id: true, name: true, status: true } },
+  epic: { select: { id: true, name: true, status: true } },
+  cycle: { select: { id: true, name: true, startDate: true, endDate: true } },
+  scope: { select: { id: true, version: true } },
+  tags: { include: { tag: true } },
+  actions: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      status: true,
+      completedAt: true,
+      kanbanStatus: true,
+      priority: true,
+      dueDate: true,
+      projectId: true,
+      workspaceId: true,
+      assignees: {
+        include: {
+          user: { select: { id: true, name: true, email: true, image: true } },
+        },
+      },
+    },
+  },
+  comments: {
+    orderBy: { createdAt: "desc" },
+    include: {
+      author: { select: { id: true, name: true, image: true } },
+    },
+  },
+  depsOut: {
+    orderBy: { createdAt: "asc" },
+    select: { id: true, dependsOn: { select: DEP_TICKET_SELECT } },
+  },
+  depsIn: {
+    orderBy: { createdAt: "asc" },
+    select: { id: true, ticket: { select: DEP_TICKET_SELECT } },
+  },
+  syncs: {
+    select: {
+      provider: true,
+      externalId: true,
+      externalUrl: true,
+      lastSyncedAt: true,
+      tombstonedAt: true,
+    },
+  },
+} satisfies Prisma.TicketInclude;
+
+type TicketDetailRow = Prisma.TicketGetPayload<{
+  include: typeof TICKET_DETAIL_INCLUDE;
+}>;
+
+function shapeTicketDetail(ticket: TicketDetailRow) {
+  const dependsOn = ticket.depsOut.map((d) => d.dependsOn);
+  const requiredFor = ticket.depsIn.map((d) => d.ticket);
+  const openBlockerCount = dependsOn.filter(
+    (d) => !COMPLETED_TICKET_STATUSES.includes(d.status),
+  ).length;
+  const isBlocked =
+    openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(ticket.status);
+
+  const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
+  return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
+}
+
+/**
+ * Where-clause for a ticket URL segment within one product: the sequential
+ * number (`29`) or Linear-style id (`PLAT-29`), else a CUID or fun shortId.
+ * Shared by resolveId and getByRef so the accepted URL forms can't drift.
+ */
+function ticketRefWhere(
+  productId: string,
+  identifier: string,
+): Prisma.TicketWhereInput {
+  const number = parseTicketUrlId(identifier);
+  return number !== null
+    ? { productId, number }
+    : { productId, OR: [{ id: identifier }, { shortId: identifier }] };
+}
+
+function listTicketEvents(db: PrismaClient, workspaceId: string, ticketId: string) {
+  return db.workspaceActivityEvent.findMany({
+    where: { workspaceId, entityType: "ticket", entityId: ticketId },
+    orderBy: { createdAt: "asc" },
+    include: { user: { select: { id: true, name: true, image: true } } },
+  });
+}
+
 async function loadTemplateWithAccess(
   db: PrismaClient,
   userId: string,
   templateId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const template = await db.ticketTemplate.findUnique({
     where: { id: templateId },
@@ -113,44 +327,25 @@ async function loadTemplateWithAccess(
       message: "Ticket template not found",
     });
   }
-  await assertWorkspaceMember(db, userId, template.workspaceId);
+  await assertWorkspaceAccess(db, userId, template.workspaceId, level);
   return template;
 }
 
 export const ticketRouter = createTRPCRouter({
   // ────────────────── Tickets ──────────────────
+  /**
+   * Every ticket in a product with all of its columns, body included. The
+   * public API: the SDK and CLI read this. In-app list views use
+   * `listSummaries`, which leaves the body out.
+   */
   list: protectedProcedure
-    .input(
-      z.object({
-        productId: z.string(),
-        status: ticketStatusEnum.optional(),
-        type: ticketTypeEnum.optional(),
-        featureId: z.string().optional(),
-        epicId: z.string().optional(),
-        cycleId: z.string().optional(),
-        assigneeId: z.string().optional(),
-        // Area filter: a Tag CUID (category = "area"). Constrains results to
-        // tickets carrying that Area tag. No-op when omitted.
-        areaTagId: z.string().optional(),
-      }),
-    )
+    .input(ticketListInput)
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       const tickets = await ctx.db.ticket.findMany({
-        where: {
-          productId: input.productId,
-          ...(input.status ? { status: input.status } : {}),
-          ...(input.type ? { type: input.type } : {}),
-          ...(input.featureId ? { featureId: input.featureId } : {}),
-          ...(input.epicId ? { epicId: input.epicId } : {}),
-          ...(input.cycleId ? { cycleId: input.cycleId } : {}),
-          ...(input.assigneeId ? { assigneeId: input.assigneeId } : {}),
-          ...(input.areaTagId
-            ? { tags: { some: { tagId: input.areaTagId } } }
-            : {}),
-        },
-        orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+        where: ticketListWhere(input),
+        orderBy: TICKET_LIST_ORDER_BY,
         include: {
           assignee: { select: { id: true, name: true, image: true } },
           feature: { select: { id: true, name: true } },
@@ -162,6 +357,7 @@ export const ticketRouter = createTRPCRouter({
           syncs: {
             select: {
               provider: true,
+              externalId: true,
               externalUrl: true,
               lastSyncedAt: true,
               tombstonedAt: true,
@@ -170,15 +366,27 @@ export const ticketRouter = createTRPCRouter({
         },
       });
 
-      return tickets.map((t) => {
-        const openBlockerCount = t.depsOut.filter(
-          (d) => !COMPLETED_TICKET_STATUSES.includes(d.dependsOn.status),
-        ).length;
-        const isBlocked =
-          openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
-        const { depsOut: _depsOut, ...rest } = t;
-        return { ...rest, openBlockerCount, isBlocked };
+      return withBlockerCounts(tickets);
+    }),
+
+  /**
+   * The product's tickets as list views need them: same filters and order as
+   * `list`, but only the columns in TICKET_SUMMARY_SELECT. On CLEAR (656
+   * tickets) `list` returns 2.1 MB, most of it body text the backlog never
+   * shows.
+   */
+  listSummaries: protectedProcedure
+    .input(ticketListInput)
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
+
+      const tickets = await ctx.db.ticket.findMany({
+        where: ticketListWhere(input),
+        orderBy: TICKET_LIST_ORDER_BY,
+        select: TICKET_SUMMARY_SELECT,
       });
+
+      return withBlockerCounts(tickets);
     }),
 
   getById: protectedProcedure
@@ -186,81 +394,100 @@ export const ticketRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const ticket = await ctx.db.ticket.findUnique({
         where: { id: input.id },
-        include: {
-          product: {
-            select: { id: true, slug: true, workspaceId: true, name: true, funTicketIds: true },
-          },
-          assignee: {
-            select: { id: true, name: true, email: true, image: true },
-          },
-          createdBy: { select: { id: true, name: true, image: true } },
-          feature: { select: { id: true, name: true, status: true } },
-          epic: { select: { id: true, name: true, status: true } },
-          cycle: { select: { id: true, name: true, startDate: true, endDate: true } },
-          scope: { select: { id: true, version: true } },
-          tags: { include: { tag: true } },
-          actions: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-              status: true,
-              completedAt: true,
-              kanbanStatus: true,
-              priority: true,
-              dueDate: true,
-              projectId: true,
-              workspaceId: true,
-              assignees: {
-                include: {
-                  user: { select: { id: true, name: true, email: true, image: true } },
-                },
-              },
-            },
-          },
-          comments: {
-            orderBy: { createdAt: "desc" },
-            include: {
-              author: { select: { id: true, name: true, image: true } },
-            },
-          },
-          depsOut: {
-            orderBy: { createdAt: "asc" },
-            select: { id: true, dependsOn: { select: DEP_TICKET_SELECT } },
-          },
-          depsIn: {
-            orderBy: { createdAt: "asc" },
-            select: { id: true, ticket: { select: DEP_TICKET_SELECT } },
-          },
-          syncs: {
-            select: {
-              provider: true,
-              externalUrl: true,
-              lastSyncedAt: true,
-              tombstonedAt: true,
-            },
-          },
-        },
+        include: TICKET_DETAIL_INCLUDE,
       });
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         ticket.product.workspaceId,
+        "view",
       );
+      return shapeTicketDetail(ticket);
+    }),
 
-      const dependsOn = ticket.depsOut.map((d) => d.dependsOn);
-      const requiredFor = ticket.depsIn.map((d) => d.ticket);
-      const openBlockerCount = dependsOn.filter(
-        (d) => !COMPLETED_TICKET_STATUSES.includes(d.status),
-      ).length;
-      const isBlocked =
-        openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(ticket.status);
+  /**
+   * The ticket detail page's whole first paint in one call, keyed only on what
+   * the URL holds: workspace slug, product slug, and the ticket segment (any
+   * form resolveId accepts). Replaces the workspace → resolveId → getById
+   * waterfall, and because nothing in the key needs a lookup first, the page's
+   * server shell can prefetch it without awaiting — so navigating to a ticket
+   * never suspends on the server.
+   *
+   * Returns null rather than throwing for an unknown ticket or a caller outside
+   * the workspace: a server-prefetched query that rejects streams to the client
+   * as an unhandled error. Null for both also keeps the two cases
+   * indistinguishable to non-members.
+   */
+  getByRef: protectedProcedure
+    .input(
+      z.object({
+        workspaceSlug: z.string(),
+        productSlug: z.string(),
+        identifier: z.string().min(1),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const product = await ctx.db.product.findFirst({
+        where: {
+          slug: input.productSlug,
+          workspace: { slug: input.workspaceSlug },
+        },
+        select: { id: true, workspaceId: true },
+      });
+      if (!product) return null;
 
-      const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
-      return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
+      // Access is checked alongside the read, and nothing is returned unless it
+      // passes.
+      const [membership, ticket] = await Promise.all([
+        getWorkspaceMembership(ctx.db, ctx.session.user.id, product.workspaceId),
+        ctx.db.ticket.findFirst({
+          where: ticketRefWhere(product.id, input.identifier),
+          include: TICKET_DETAIL_INCLUDE,
+        }),
+      ]);
+      if (!membership || !ticket) return null;
+
+      const events = await listTicketEvents(ctx.db, product.workspaceId, ticket.id);
+      return { ticket: shapeTicketDetail(ticket), events };
+    }),
+
+  /**
+   * The nearest existing ticket either side of `number` within a product,
+   * powering the prev/next arrows on the detail page. Numbers have gaps (tickets
+   * get deleted), so this walks to the closest lower/higher number rather than
+   * assuming ±1. Legacy tickets with `number = 0` are skipped — they have no
+   * clean URL to navigate to.
+   */
+  getAdjacent: protectedProcedure
+    .input(
+      // Positive: the `next` branch has no lower bound of its own, so a
+      // non-positive input would let it match a legacy number=0 ticket.
+      z.object({ productId: z.string(), number: z.number().int().positive() }),
+    )
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
+
+      const select = { number: true, title: true } as const;
+      const [prev, next] = await Promise.all([
+        ctx.db.ticket.findFirst({
+          where: {
+            productId: input.productId,
+            number: { lt: input.number, gt: 0 },
+          },
+          orderBy: { number: "desc" },
+          select,
+        }),
+        ctx.db.ticket.findFirst({
+          where: { productId: input.productId, number: { gt: input.number } },
+          orderBy: { number: "asc" },
+          select,
+        }),
+      ]);
+
+      return { prev, next };
     }),
 
   /**
@@ -279,10 +506,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       const product = await ctx.db.product.findUnique({
@@ -298,25 +526,49 @@ export const ticketRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
       }
 
-      const number = parseTicketUrlId(input.identifier);
-      const ticket =
-        number !== null
-          ? await ctx.db.ticket.findUnique({
-              where: { productId_number: { productId: product.id, number } },
-              select: { id: true, number: true },
-            })
-          : await ctx.db.ticket.findFirst({
-              where: {
-                productId: product.id,
-                OR: [{ id: input.identifier }, { shortId: input.identifier }],
-              },
-              select: { id: true, number: true },
-            });
+      const ticket = await ctx.db.ticket.findFirst({
+        where: ticketRefWhere(product.id, input.identifier),
+        select: { id: true, number: true },
+      });
 
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
       return ticket;
+    }),
+
+  /**
+   * AI-suggested size for a ticket being written (ticket inner.lotus). Never
+   * persists anything: the form stores the mapped points only when the person
+   * accepts. Returns null when the server has no OpenAI key, so the client can
+   * hide the affordance.
+   */
+  suggestSize: protectedProcedure
+    .input(
+      z.object({
+        productId: z.string(),
+        title: boundedText("Title", 300, { min: 1 }),
+        body: boundedText("Body", TEXT_LIMITS.LARGE),
+      }),
+    )
+    .mutation(async ({ ctx, input }): Promise<SizeSuggestion | null> => {
+      const product = await loadProductWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.productId,
+        "edit",
+      );
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: product.workspaceId },
+        select: { effortUnit: true },
+      });
+      return suggestTicketSize(ctx.db, {
+        product: { id: product.id, workspaceId: product.workspaceId },
+        userId: ctx.session.user.id,
+        title: input.title,
+        body: input.body,
+        unit: workspace?.effortUnit ?? "STORY_POINTS",
+      });
     }),
 
   create: protectedProcedure
@@ -347,16 +599,25 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.productId,
+        "edit",
       );
 
       // A linked epic/feature/cycle/scope must live in the product's own
       // workspace, or its fields leak back through this ticket's includes.
-      await assertWorkspaceScopedRefs(ctx.db, ctx.session.user.id, product.workspaceId, {
-        epicId: input.epicId,
-        featureId: input.featureId,
-        cycleId: input.cycleId,
-        scopeId: input.scopeId,
-      });
+      // The trailing product id additionally holds an epic or cycle to this
+      // product (legacy product-less rows are exempt).
+      await assertWorkspaceScopedRefs(
+        ctx.db,
+        ctx.session.user.id,
+        product.workspaceId,
+        {
+          epicId: input.epicId,
+          featureId: input.featureId,
+          cycleId: input.cycleId,
+          scopeId: input.scopeId,
+        },
+        product.id,
+      );
 
       // Same reasoning for the assignee, whose name and email come back through
       // `getById`'s include: only someone who could already read this ticket
@@ -420,6 +681,12 @@ export const ticketRouter = createTRPCRouter({
         id: z.string(),
         title: boundedText("Title", 300, { min: 1 }).optional(),
         body: boundedText("Body", TEXT_LIMITS.LARGE).optional(),
+        // Rich-body save (ADR-0024, as Feature.update). `bodyDoc` is the
+        // canonical document; `body` rides along as its derived Markdown
+        // projection (the client serialises it — no server-side DOM at save
+        // time). `baseVersion` is the optimistic-concurrency check.
+        bodyDoc: prosemirrorDoc.optional(),
+        baseVersion: z.number().int().min(0).optional(),
         type: ticketTypeEnum.optional(),
         status: ticketStatusEnum.optional(),
         priority: z.number().int().min(0).max(4).nullable().optional(),
@@ -441,6 +708,7 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "edit",
       );
 
       // Same-workspace guard as create — `rest` is spread straight into the
@@ -455,6 +723,7 @@ export const ticketRouter = createTRPCRouter({
           cycleId: input.cycleId,
           scopeId: input.scopeId,
         },
+        previousTicket.productId,
       );
 
       await assertAssignableUser(
@@ -463,20 +732,117 @@ export const ticketRouter = createTRPCRouter({
         input.assigneeId,
       );
 
-      const { id, ...rest } = input;
+      const { id, bodyDoc, baseVersion, ...rest } = input;
       const data: Record<string, unknown> = { ...rest };
 
-      // Auto-track completedAt when transitioning to a completed status
-      if (input.status && COMPLETED_TICKET_STATUSES.includes(input.status)) {
-        data.completedAt = new Date();
-      } else if (input.status) {
-        data.completedAt = null;
+      // `completedAt` means "first finished at": stamped on the move INTO a
+      // completed status, left alone while the ticket stays completed (a body
+      // edit, a Notion re-sync, DONE -> DEPLOYED), cleared on reopen. It used
+      // to be re-stamped by every completed-status save, which turned the
+      // column into "last edited at" (149 tickets "completed" on one day) and
+      // broke every throughput number read from it. A completed ticket that
+      // somehow has no date (legacy rows) is stamped now rather than left null.
+      if (input.status) {
+        const wasCompleted = COMPLETED_TICKET_STATUSES.includes(previousTicket.status);
+        const isCompleted = COMPLETED_TICKET_STATUSES.includes(input.status);
+        if (isCompleted && (!wasCompleted || !previousTicket.completedAt)) {
+          data.completedAt = new Date();
+        } else if (!isCompleted) {
+          data.completedAt = null;
+        }
       }
 
-      const updatedTicket = await ctx.db.ticket.update({
-        where: { id },
-        data,
-      });
+      // Markdown-only body write (CLI/SDK/agents): derive the canonical
+      // `bodyDoc` from the Markdown server-side (ADR-0024 — leaving the doc
+      // stale would make the edit invisible in the rich editor and get
+      // clobbered by its next save). Bumping `docVersion` turns any open
+      // editor tab's next autosave into a CONFLICT instead of a silent
+      // overwrite. Skipped when the Markdown is unchanged (agents retry-write
+      // a lot) so no-op writes don't hand open tabs spurious conflicts. This
+      // runs even while `bodyDoc` is still null: a tab may already hold the
+      // older `body` it is about to migrate, and without the doc + bump its
+      // lazy migration and first save would silently undo this write.
+      // Comment marks are carried across from the old doc wherever their
+      // text survived, so the rewrite doesn't orphan those threads.
+      const syncDoc =
+        bodyDoc === undefined &&
+        rest.body !== undefined &&
+        rest.body !== previousTicket.body;
+      if (syncDoc) {
+        const previousDoc = await ctx.db.ticket.findUnique({
+          where: { id },
+          select: { bodyDoc: true },
+        });
+        try {
+          data.bodyDoc = withCarriedCommentMarks(
+            previousDoc?.bodyDoc as JSONContent | null | undefined,
+            markdownToDocServer(rest.body),
+            "ticket.update",
+          );
+          data.docVersion = { increment: 1 };
+        } catch (err) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to derive the ticket document from the Markdown body",
+            cause: err,
+          });
+        }
+      }
+
+      let updatedTicket;
+      if (bodyDoc !== undefined) {
+        // Rich-body save: optimistic-concurrency guard + version bump.
+        if (baseVersion === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "baseVersion is required when saving the ticket body",
+          });
+        }
+        const decision = checkStaleWrite({
+          storedVersion: previousTicket.docVersion,
+          baseVersion,
+        });
+        if (!decision.accept) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              decision.reason === "stale"
+                ? "This ticket was updated in another tab or by another member. Reload to get the latest version."
+                : "Stale document version - reload and try again.",
+          });
+        }
+        // Atomic compare-and-set: the WHERE on docVersion closes the
+        // read→write race so two concurrent saves can't both bump from the
+        // same base.
+        const res = await ctx.db.ticket.updateMany({
+          where: { id, docVersion: baseVersion },
+          data: {
+            ...data,
+            bodyDoc: bodyDoc as Prisma.InputJsonValue,
+            docVersion: { increment: 1 },
+          },
+        });
+        if (res.count === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This ticket was updated concurrently. Reload to get the latest version.",
+          });
+        }
+        const row = await ctx.db.ticket.findUnique({ where: { id } });
+        if (!row) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+        // Report the version THIS save produced, not whatever the re-read
+        // saw: a write landing between the compare-and-set and the read would
+        // otherwise hand the editor a base that silently absorbs it.
+        updatedTicket = { ...row, docVersion: decision.nextVersion };
+      } else {
+        updatedTicket = await ctx.db.ticket.update({
+          where: { id },
+          data,
+        });
+      }
 
       // T7: workspace activity feed instrumentation.
       //  - status moved → fire `status_changed`
@@ -485,38 +851,45 @@ export const ticketRouter = createTRPCRouter({
       const activityWorkspaceId = previousTicket.product.workspaceId;
       const statusChanged =
         input.status !== undefined && input.status !== previousTicket.status;
+      const previousRecord = previousTicket as unknown as Record<
+        string,
+        unknown
+      >;
+      const fieldsChanged = Object.keys(rest).filter((key) => {
+        if (key === "status") return false;
+        const incoming = (rest as Record<string, unknown>)[key];
+        if (incoming === undefined) return false;
+        if (!(key in previousRecord)) return true;
+        const existing = previousRecord[key];
+        // links is a Json object - JSON-stringify for a coarse equality check.
+        if (
+          existing !== null &&
+          typeof existing === "object" &&
+          incoming !== null &&
+          typeof incoming === "object"
+        ) {
+          return JSON.stringify(existing) !== JSON.stringify(incoming);
+        }
+        return existing !== incoming;
+      });
       if (statusChanged) {
+        // Other fields changed in the same edit (e.g. cycleId) ride along on
+        // the status event, so readers such as the Overview burn-up see them.
         await recordActivity(ctx.db, {
           workspaceId: activityWorkspaceId,
           userId: ctx.session.user.id,
           entityType: "ticket",
           entityId: id,
           action: "status_changed",
-          metadata: { from: previousTicket.status, to: input.status! },
+          metadata: {
+            from: previousTicket.status,
+            to: input.status!,
+            ...(fieldsChanged.length > 0 ? { fieldsChanged } : {}),
+          },
         }).catch(() => {
           /* instrumentation failure is non-fatal */
         });
       } else {
-        const previousRecord = previousTicket as unknown as Record<
-          string,
-          unknown
-        >;
-        const fieldsChanged = Object.keys(rest).filter((key) => {
-          const incoming = (rest as Record<string, unknown>)[key];
-          if (incoming === undefined) return false;
-          if (!(key in previousRecord)) return true;
-          const existing = previousRecord[key];
-          // links is a Json object - JSON-stringify for a coarse equality check.
-          if (
-            existing !== null &&
-            typeof existing === "object" &&
-            incoming !== null &&
-            typeof incoming === "object"
-          ) {
-            return JSON.stringify(existing) !== JSON.stringify(incoming);
-          }
-          return existing !== incoming;
-        });
         if (fieldsChanged.length > 0) {
           await recordActivity(ctx.db, {
             workspaceId: activityWorkspaceId,
@@ -547,6 +920,27 @@ export const ticketRouter = createTRPCRouter({
       }
 
       return updatedTicket;
+    }),
+
+  /**
+   * One-time lazy migration of a legacy Markdown-only ticket body into the
+   * canonical `bodyDoc` (ADR-0024, as feature.initDescriptionDoc). The client
+   * converts Markdown → ProseMirror JSON (the codec needs the editor schema)
+   * and posts the result here on first open. Idempotent and write-once: if
+   * `bodyDoc` is already set, the existing document wins. `body` and
+   * `docVersion` stay untouched.
+   */
+  initBodyDoc: protectedProcedure
+    .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
+      // Conditional write, not read-then-write: an editor save or a Markdown
+      // API write landing in between must win over this migration.
+      const res = await ctx.db.ticket.updateMany({
+        where: { id: input.id, bodyDoc: { equals: Prisma.DbNull } },
+        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+      });
+      return { migrated: res.count > 0 };
     }),
 
   /**
@@ -582,6 +976,8 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           status: true,
+          cycleId: true,
+          productId: true,
           product: { select: { workspaceId: true } },
         },
       });
@@ -592,36 +988,81 @@ export const ticketRouter = createTRPCRouter({
         new Set(tickets.map((t) => t.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
-
-        // The same link and assignee guards as `create`/`update` — this path
-        // writes the identical foreign keys and its tickets are read back
-        // through the identical includes. The patch applies uniformly, so a
-        // reference must be valid in *every* workspace the selection spans.
-        await assertWorkspaceScopedRefs(
-          ctx.db,
-          ctx.session.user.id,
-          workspaceId,
-          { epicId: input.epicId, cycleId: input.cycleId },
-        );
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
         await assertAssignableUser(ctx.db, workspaceId, input.assigneeId);
       }
 
-      const data: Record<string, unknown> = Object.fromEntries(fields);
-      if (input.status) {
-        data.completedAt = COMPLETED_TICKET_STATUSES.includes(input.status)
-          ? new Date()
-          : null;
+      // The same link guard as `create`/`update` — this path writes the
+      // identical foreign keys and its tickets are read back through the
+      // identical includes. The patch applies uniformly, so a reference must be
+      // valid in *every* product the selection spans: bulk-assigning one
+      // product's epic across a mixed selection is rejected outright rather
+      // than half-applied.
+      const productIds = Array.from(new Set(tickets.map((t) => t.productId)));
+      const workspaceByProduct = new Map(
+        tickets.map((t) => [t.productId, t.product.workspaceId]),
+      );
+      for (const productId of productIds) {
+        // Both collections come from the same `tickets` rows, so a miss is
+        // unreachable — but defaulting to `null` here would quietly *disable*
+        // workspace containment for that product rather than reject, so fail
+        // loudly instead.
+        const refWorkspaceId = workspaceByProduct.get(productId);
+        if (!refWorkspaceId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not resolve the workspace for a selected ticket",
+          });
+        }
+        await assertWorkspaceScopedRefs(
+          ctx.db,
+          ctx.session.user.id,
+          refWorkspaceId,
+          { epicId: input.epicId, cycleId: input.cycleId },
+          productId,
+        );
       }
 
-      await ctx.db.ticket.updateMany({
-        where: { id: { in: uniqueIds } },
-        data,
-      });
+      const data: Record<string, unknown> = Object.fromEntries(fields);
+      const toCompleted =
+        input.status !== undefined &&
+        COMPLETED_TICKET_STATUSES.includes(input.status);
+      if (input.status && !toCompleted) data.completedAt = null;
 
-      const fieldsChanged = fields.map(([k]) => k).filter((k) => k !== "status");
+      // Same "first finished at" rule as `update`: only the tickets moving
+      // INTO a completed status get stamped; the ones already completed keep
+      // the date they have. Two writes when the selection is mixed, one
+      // otherwise.
+      const newlyCompleted = toCompleted
+        ? new Set(
+            tickets
+              .filter((t) => !COMPLETED_TICKET_STATUSES.includes(t.status))
+              .map((t) => t.id),
+          )
+        : new Set<string>();
+      const stampIds = uniqueIds.filter((id) => newlyCompleted.has(id));
+      const keepIds = uniqueIds.filter((id) => !newlyCompleted.has(id));
+      if (stampIds.length > 0) {
+        await ctx.db.ticket.updateMany({
+          where: { id: { in: stampIds } },
+          data: { ...data, completedAt: new Date() },
+        });
+      }
+      if (keepIds.length > 0) {
+        await ctx.db.ticket.updateMany({
+          where: { id: { in: keepIds } },
+          data,
+        });
+      }
+
+      const patchedFields = fields.map(([k]) => k).filter((k) => k !== "status");
       await Promise.all(
         tickets.map((t) => {
+          // A ticket already in the target cycle didn't move; recording a
+          // cycleId change would re-date its entry in the Overview burn-up.
+          const fieldsChanged = patchedFields.filter(
+            (k) => !(k === "cycleId" && t.cycleId === input.cycleId),
+          );
           const statusChanged =
             input.status !== undefined && input.status !== t.status;
           if (statusChanged) {
@@ -631,7 +1072,12 @@ export const ticketRouter = createTRPCRouter({
               entityType: "ticket",
               entityId: t.id,
               action: "status_changed",
-              metadata: { from: t.status, to: input.status!, bulk: true },
+              metadata: {
+                from: t.status,
+                to: input.status!,
+                bulk: true,
+                ...(fieldsChanged.length > 0 ? { fieldsChanged } : {}),
+              },
             });
           }
           if (fieldsChanged.length === 0) return Promise.resolve(true);
@@ -675,7 +1121,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
       if (approxBytes > 5 * 1024 * 1024) {
         throw new TRPCError({
@@ -694,7 +1140,7 @@ export const ticketRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.ticket.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -715,7 +1161,7 @@ export const ticketRouter = createTRPCRouter({
         new Set(tickets.map((t) => t.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
       }
       await ctx.db.ticket.deleteMany({ where: { id: { in: uniqueIds } } });
       return { count: uniqueIds.length };
@@ -731,7 +1177,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const q = (input.query ?? "").trim();
       const limit = input.limit ?? 20;
 
@@ -745,7 +1191,9 @@ export const ticketRouter = createTRPCRouter({
             ? {
                 OR: [
                   { title: { contains: q, mode: "insensitive" as const } },
-                  { shortId: { contains: q, mode: "insensitive" as const } },
+                  // Fun shortIds match word-order-insensitively
+                  // ("toucan.prime" finds prime.toucan).
+                  ...shortIdSearchWhere(q),
                   ...(numberFromQuery !== undefined ? [{ number: numberFromQuery }] : []),
                 ],
               }
@@ -791,10 +1239,11 @@ export const ticketRouter = createTRPCRouter({
           message: "Dependencies must be within the same product.",
         });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         ticket.product.workspaceId,
+        "edit",
       );
 
       return ctx.db.$transaction(async (tx) => {
@@ -835,7 +1284,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
       await ctx.db.ticketDependency.deleteMany({
         where: { ticketId: input.ticketId, dependsOnId: input.dependsOnId },
       });
@@ -847,7 +1296,15 @@ export const ticketRouter = createTRPCRouter({
     .input(
       z.object({
         ticketId: z.string(),
-        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
+        content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+        // Anchored comment (ADR-0024): `threadId` matches a `comment` mark in
+        // `Ticket.bodyDoc`; `quotedText` snapshots the highlighted text so an
+        // orphaned thread still renders. Both absent = plain feed comment.
+        threadId: z.string().min(1).optional(),
+        quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `bodyDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -855,12 +1312,15 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.ticketId,
+        "edit",
       );
       const comment = await ctx.db.ticketComment.create({
         data: {
           ticketId: input.ticketId,
           authorId: ctx.session.user.id,
           content: input.content,
+          threadId: input.threadId,
+          quotedText: input.quotedText,
         },
         include: { author: { select: { id: true, name: true, image: true } } },
       });
@@ -880,7 +1340,45 @@ export const ticketRouter = createTRPCRouter({
         /* instrumentation failure is non-fatal */
       });
 
-      return comment;
+      // Fire-and-forget: notify mentioned workspace members via the pipeline
+      // (same path as feature comments).
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: input.ticketId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
+      const anchor = input.threadId
+        ? await anchorThreadInStoredDoc({
+            area: "ticket.addComment",
+            threadId: input.threadId,
+            quotedText: input.quotedText,
+            anchor: input.anchor,
+            read: async () => {
+              const row = await ctx.db.ticket.findUnique({
+                where: { id: input.ticketId },
+                select: { bodyDoc: true, docVersion: true },
+              });
+              return row && {
+                doc: row.bodyDoc as JSONContent | null,
+                docVersion: row.docVersion,
+              };
+            },
+            write: async (doc, expectedVersion) => {
+              const res = await ctx.db.ticket.updateMany({
+                where: { id: input.ticketId, docVersion: expectedVersion },
+                data: {
+                  bodyDoc: doc as Prisma.InputJsonValue,
+                  docVersion: { increment: 1 },
+                },
+              });
+              return res.count === 1;
+            },
+          })
+        : NOT_ANCHORED;
+
+      return { ...comment, anchor };
     }),
 
   updateComment: protectedProcedure
@@ -896,6 +1394,7 @@ export const ticketRouter = createTRPCRouter({
         select: {
           id: true,
           authorId: true,
+          content: true,
           ticket: {
             select: { product: { select: { workspaceId: true } } },
           },
@@ -904,10 +1403,11 @@ export const ticketRouter = createTRPCRouter({
       if (!comment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         comment.ticket.product.workspaceId,
+        "edit",
       );
       if (comment.authorId !== ctx.session.user.id) {
         throw new TRPCError({
@@ -915,11 +1415,23 @@ export const ticketRouter = createTRPCRouter({
           message: "You can only edit your own comments",
         });
       }
-      return ctx.db.ticketComment.update({
+      const updated = await ctx.db.ticketComment.update({
         where: { id: input.id },
         data: { content: input.content },
         include: { author: { select: { id: true, name: true, image: true } } },
       });
+
+      // Fire-and-forget: notify mentions added by the edit. Passing the old
+      // body means already-notified users aren't pinged again.
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: updated.ticketId,
+        commentId: updated.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+        previousContent: comment.content,
+      });
+
+      return updated;
     }),
 
   deleteComment: protectedProcedure
@@ -938,10 +1450,11 @@ export const ticketRouter = createTRPCRouter({
       if (!comment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         comment.ticket.product.workspaceId,
+        "edit",
       );
       if (comment.authorId !== ctx.session.user.id) {
         throw new TRPCError({
@@ -949,7 +1462,71 @@ export const ticketRouter = createTRPCRouter({
           message: "You can only delete your own comments",
         });
       }
+      // Replies cascade via the parentId self-relation FK.
       await ctx.db.ticketComment.delete({ where: { id: input.id } });
+      return { success: true };
+    }),
+
+  /** Threaded reply on an anchored comment (mirrors featureComment.reply). */
+  replyComment: protectedProcedure
+    .input(
+      z.object({
+        parentId: z.string(),
+        content: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const parent = await ctx.db.ticketComment.findUnique({
+        where: { id: input.parentId },
+        select: { ticketId: true, threadId: true, parentId: true },
+      });
+      if (!parent) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, parent.ticketId, "edit");
+
+      const comment = await ctx.db.ticketComment.create({
+        data: {
+          ticketId: parent.ticketId,
+          authorId: ctx.session.user.id,
+          content: input.content,
+          threadId: parent.threadId,
+          // Keep threads one level deep: a reply to a reply still hangs off the root.
+          parentId: parent.parentId ?? input.parentId,
+        },
+        include: { author: { select: { id: true, name: true, image: true } } },
+      });
+
+      // Fire-and-forget: notify mentioned workspace members.
+      void emitTicketCommentMention(ctx.db, {
+        ticketId: parent.ticketId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
+      return comment;
+    }),
+
+  resolveCommentThread: protectedProcedure
+    .input(z.object({ ticketId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
+      await ctx.db.ticketComment.updateMany({
+        where: { ticketId: input.ticketId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  unresolveCommentThread: protectedProcedure
+    .input(z.object({ ticketId: z.string(), threadId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
+      await ctx.db.ticketComment.updateMany({
+        where: { ticketId: input.ticketId, threadId: input.threadId, parentId: null },
+        data: { resolvedAt: null },
+      });
       return { success: true };
     }),
 
@@ -965,23 +1542,16 @@ export const ticketRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.id,
+        "view",
       );
-      return ctx.db.workspaceActivityEvent.findMany({
-        where: {
-          workspaceId: ticket.product.workspaceId,
-          entityType: "ticket",
-          entityId: input.id,
-        },
-        orderBy: { createdAt: "asc" },
-        include: { user: { select: { id: true, name: true, image: true } } },
-      });
+      return listTicketEvents(ctx.db, ticket.product.workspaceId, input.id);
     }),
 
   // ────────────────── Action ↔ Ticket linking ──────────────────
   linkAction: protectedProcedure
     .input(z.object({ ticketId: z.string(), actionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId);
+      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.ticketId, "edit");
       const action = await ctx.db.action.findFirst({
         where: { id: input.actionId, createdById: ctx.session.user.id },
         select: { id: true },
@@ -1024,10 +1594,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
       return ctx.db.ticketTemplate.findMany({
         where: {
@@ -1055,10 +1626,11 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
       return ctx.db.ticketTemplate.create({
         data: {
@@ -1082,7 +1654,7 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const { id, ...data } = input;
       return ctx.db.ticketTemplate.update({ where: { id }, data });
     }),
@@ -1090,7 +1662,7 @@ export const ticketRouter = createTRPCRouter({
   deleteTemplate: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadTemplateWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.ticketTemplate.delete({ where: { id: input.id } });
       return { success: true };
     }),

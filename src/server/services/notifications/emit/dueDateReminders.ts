@@ -31,40 +31,45 @@ export function resolveOwnerIds(action: {
     : [action.createdById];
 }
 
-/** A user's configured reminder offsets, cached within a cron run. */
-async function getUserOffsets(
-  db: PrismaClient,
-  userId: string,
-  cache: Map<string, number[]>,
-): Promise<number[]> {
-  const cached = cache.get(userId);
-  if (cached) return cached;
-
-  const pref = await db.notificationPreference.findUnique({
-    where: { userId },
-    select: { reminderMinutesBefore: true },
+/**
+ * Every user's configured reminder offsets, in one query. A row with an
+ * explicit (even empty) list wins; users with no row get the defaults.
+ */
+async function loadUserOffsets(db: PrismaClient): Promise<Map<string, number[]>> {
+  const prefs = await db.notificationPreference.findMany({
+    select: { userId: true, reminderMinutesBefore: true },
   });
-  // A row with an explicit (even empty) list wins; no row → defaults.
-  const offsets = pref?.reminderMinutesBefore ?? DEFAULT_OFFSETS;
-  cache.set(userId, offsets);
-  return offsets;
+  return new Map(prefs.map((p) => [p.userId, p.reminderMinutesBefore]));
 }
 
 /**
  * Cron scheduled-generation (ADR-0045, V3): scan upcoming owned actions and emit
  * a Due-date reminder to the owner as each reminder offset is crossed. Dedup
  * (per action, offset, owner) makes it safe to run every tick.
+ *
+ * Runs every 2 minutes, so the scan is narrowed to the actions that can fire
+ * now: those due within one lookback window of some offset in use, not every
+ * open action due in the next 8 days.
  */
 export async function generateDueDateReminders(
   db: PrismaClient,
   now: Date = new Date(),
 ): Promise<{ emitted: number }> {
   const horizon = new Date(now.getTime() + SCAN_HORIZON_MS);
+  const userOffsets = await loadUserOffsets(db);
+  const offsetsInUse = new Set([...DEFAULT_OFFSETS, ...[...userOffsets.values()].flat()]);
 
   const actions = await db.action.findMany({
     where: {
       dueDate: { gt: now, lte: horizon },
       status: { notIn: TERMINAL_STATUSES },
+      // A reminder fires when dueDate - offset is in (now - LOOKBACK, now].
+      OR: [...offsetsInUse].map((offset) => ({
+        dueDate: {
+          gt: new Date(now.getTime() - LOOKBACK_MS + offset * 60_000),
+          lte: new Date(now.getTime() + offset * 60_000),
+        },
+      })),
     },
     select: {
       id: true,
@@ -78,7 +83,6 @@ export async function generateDueDateReminders(
   });
 
   let emitted = 0;
-  const offsetCache = new Map<string, number[]>();
 
   for (const action of actions) {
     if (!action.dueDate) continue;
@@ -88,7 +92,7 @@ export async function generateDueDateReminders(
     const ownerIds = resolveOwnerIds(action);
 
     for (const ownerId of ownerIds) {
-      const offsets = await getUserOffsets(db, ownerId, offsetCache);
+      const offsets = userOffsets.get(ownerId) ?? DEFAULT_OFFSETS;
       for (const offset of offsets) {
         const reminderMs = action.dueDate.getTime() - offset * 60_000;
         // Fire only as the boundary is crossed (within the last window).

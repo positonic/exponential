@@ -52,6 +52,18 @@ export async function assertWorkspaceScopedRefs(
   userId: string,
   workspaceId: string | null,
   refs: WorkspaceScopedRefs,
+  /**
+   * The pointing row's product, when it has one (tickets always do; actions
+   * never do). Supplying it additionally requires that an epic or cycle
+   * belong to that same product — both are per-product, so a ticket may not
+   * borrow another product's epic or cycle even inside one workspace.
+   *
+   * An epic with no product yet (pre-backfill), or a cycle with no product
+   * (legacy workspace-shared), is exempt: it is still workspace-scoped in
+   * practice, and rejecting it would break every existing link the moment
+   * this ships.
+   */
+  productId?: string,
 ): Promise<void> {
   const lookups: Array<Promise<{ label: string; refWorkspaceId: string | null }>> =
     [];
@@ -61,12 +73,25 @@ export async function assertWorkspaceScopedRefs(
       db.epic
         .findUnique({
           where: { id: refs.epicId },
-          select: { workspaceId: true },
+          select: { workspaceId: true, productId: true },
         })
-        .then((row) => ({
-          label: "Epic",
-          refWorkspaceId: row?.workspaceId ?? null,
-        })),
+        .then((row) => {
+          if (
+            row &&
+            productId &&
+            row.productId &&
+            row.productId !== productId
+          ) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Epic not found in this product",
+            });
+          }
+          return {
+            label: "Epic",
+            refWorkspaceId: row?.workspaceId ?? null,
+          };
+        }),
     );
   }
 
@@ -90,12 +115,20 @@ export async function assertWorkspaceScopedRefs(
       db.list
         .findUnique({
           where: { id: refs.cycleId },
-          select: { workspaceId: true },
+          select: { workspaceId: true, productId: true },
         })
-        .then((row) => ({
-          label: "Cycle",
-          refWorkspaceId: row?.workspaceId ?? null,
-        })),
+        .then((row) => {
+          if (row && productId && row.productId && row.productId !== productId) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Cycle not found in this product",
+            });
+          }
+          return {
+            label: "Cycle",
+            refWorkspaceId: row?.workspaceId ?? null,
+          };
+        }),
     );
   }
 

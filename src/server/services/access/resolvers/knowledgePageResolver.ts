@@ -114,3 +114,136 @@ export function buildKnowledgePageAccessWhere(
     ],
   };
 }
+
+/** One person who can view a Page, as {@link listKnowledgePageViewers} finds them. */
+export interface KnowledgePageViewer {
+  userId: string;
+  /**
+   * True when their only route in is the workspace owner/admin escape hatch on
+   * a restricted project — the share popover calls this out, because people
+   * expect "restricted" to mean "members only".
+   */
+  viaAdminEscapeHatch: boolean;
+}
+
+/**
+ * Everyone who can view a Page — the inverse of {@link getKnowledgePageAccess}.
+ *
+ * Loads every membership row that could grant access in a handful of batch
+ * queries (not one resolver call per person), then runs each candidate through
+ * the same decision functions the per-user resolver uses (`hasProjectAccess`,
+ * `canViewKnowledgePage`), so the two cannot disagree on the rules — only on
+ * data loading, which the parity test covers.
+ *
+ * Returns `isPublicProject: true` with no viewers for a page in a public
+ * project: every signed-in user can view it, so there is no list to show.
+ */
+export async function listKnowledgePageViewers(
+  db: PrismaClient,
+  page: {
+    createdById: string;
+    projectId: string | null;
+    workspaceId: string;
+  },
+): Promise<{ isPublicProject: boolean; viewers: KnowledgePageViewer[] }> {
+  const project = page.projectId
+    ? await db.project.findUnique({
+        where: { id: page.projectId },
+        select: {
+          createdById: true,
+          teamId: true,
+          workspaceId: true,
+          isPublic: true,
+          isRestricted: true,
+        },
+      })
+    : null;
+  if (project?.isPublic) return { isPublicProject: true, viewers: [] };
+
+  // Project-access workspace is the project's own (as in getProjectAccess);
+  // a project-less page uses its own workspace.
+  const workspaceId = page.projectId ? project?.workspaceId : page.workspaceId;
+
+  const [workspaceUsers, workspaceTeamUsers, projectMembers, projectTeamUsers] =
+    await Promise.all([
+      workspaceId
+        ? db.workspaceUser.findMany({
+            where: { workspaceId },
+            select: { userId: true, role: true },
+          })
+        : [],
+      workspaceId
+        ? db.teamUser.findMany({
+            where: { team: { workspaceId } },
+            select: { userId: true },
+          })
+        : [],
+      page.projectId
+        ? db.projectMember.findMany({
+            where: { projectId: page.projectId },
+            select: { userId: true },
+          })
+        : [],
+      project?.teamId
+        ? db.teamUser.findMany({
+            where: { teamId: project.teamId },
+            select: { userId: true },
+          })
+        : [],
+    ]);
+
+  // Workspace role per user: a direct WorkspaceUser row wins; otherwise a team
+  // linked to the workspace grants "member" (getWorkspaceMembership's fallback).
+  const workspaceRoles = new Map<string, WorkspaceRole>();
+  for (const { userId } of workspaceTeamUsers) {
+    workspaceRoles.set(userId, "member");
+  }
+  for (const { userId, role } of workspaceUsers) {
+    workspaceRoles.set(userId, role as WorkspaceRole);
+  }
+  const projectMemberIds = new Set(projectMembers.map((m) => m.userId));
+  const projectTeamIds = new Set(projectTeamUsers.map((m) => m.userId));
+
+  const candidates = new Set<string>([
+    page.createdById,
+    ...workspaceRoles.keys(),
+    ...projectMemberIds,
+    ...projectTeamIds,
+  ]);
+  if (project) candidates.add(project.createdById);
+
+  const viewers: KnowledgePageViewer[] = [];
+  for (const userId of candidates) {
+    const workspaceRole = workspaceRoles.get(userId) ?? null;
+    const projectAccess = page.projectId
+      ? {
+          isCreator: project?.createdById === userId,
+          isMember: projectMemberIds.has(userId),
+          isTeamMember: projectTeamIds.has(userId),
+          isWorkspaceMember: workspaceRole !== null,
+          isPublic: false,
+          isRestricted: project?.isRestricted ?? false,
+          workspaceRole: workspaceRole ?? undefined,
+        }
+      : null;
+    const access: KnowledgePageAccessInfo = {
+      isOwner: page.createdById === userId,
+      hasProject: !!page.projectId,
+      hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
+      // View-only question; edit rights don't affect who is in the audience.
+      canEditProject: false,
+      workspaceRole: page.projectId ? null : workspaceRole,
+    };
+    if (!canViewKnowledgePage(access)) continue;
+    viewers.push({
+      userId,
+      viaAdminEscapeHatch:
+        !!projectAccess?.isRestricted &&
+        !access.isOwner &&
+        !projectAccess.isCreator &&
+        !projectAccess.isMember,
+    });
+  }
+
+  return { isPublicProject: false, viewers };
+}

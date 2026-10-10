@@ -124,4 +124,32 @@ describe("createSaveQueue", () => {
     await ctl.finishNext();
     expect(ctl.calls).toBe(2);
   });
+
+  it("exclusive runs after queued saves and holds back saves requested meanwhile", async () => {
+    const log: string[] = [];
+    const queue = createSaveQueue(async () => {
+      log.push("save");
+    });
+    void queue.request();
+    const done = queue.exclusive(async () => {
+      log.push("exclusive:start");
+      void queue.request();
+      await Promise.resolve();
+      log.push("exclusive:end");
+      return 42;
+    });
+    await expect(done).resolves.toBe(42);
+    await queue.flush();
+    expect(log).toEqual(["save", "exclusive:start", "exclusive:end", "save"]);
+  });
+
+  it("an exclusive run that rejects doesn't poison the queue", async () => {
+    let saves = 0;
+    const queue = createSaveQueue(async () => {
+      saves++;
+    });
+    await expect(queue.exclusive(() => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+    await queue.request();
+    expect(saves).toBe(1);
+  });
 });

@@ -21,6 +21,7 @@ import {
   sendWorkspaceMemberAddedEmail,
 } from "~/server/services/EmailService";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { resolveNewUserRedirect } from "~/server/services/welcome/resolveNewUserRedirect";
 import { uploadToBlob, deleteFromBlob } from "~/lib/blob";
 import { getWorkspaceHomeStats } from "~/server/services/activity/workspaceHomeStats";
 import { getWorkspaceFocusSummary } from "~/server/services/activity/workspaceFocusSummary";
@@ -41,6 +42,7 @@ import {
   DigestRateLimitError,
 } from "~/server/services/activity/weeklyWorkDigest/digest";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import {
   getOrGenerateWeeklyNarrative,
   NarrativeRateLimitError,
@@ -73,6 +75,98 @@ async function requireWorkspaceAccess(
       message: "You are not a member of this workspace",
     });
   }
+}
+
+/**
+ * A workspace with its owner, members and counts, plus the caller's role in it
+ * — what `workspace.getBySlug` returns. Shared with `workspace.getDefault`, so
+ * the provider can seed the getBySlug cache from the default-workspace lookup
+ * instead of fetching the same workspace again.
+ */
+async function loadWorkspaceForUser(
+  db: PrismaClient,
+  userId: string,
+  where: { slug: string } | { id: string },
+) {
+  const workspace = await db.workspace.findUnique({
+    where,
+    include: {
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          image: true,
+        },
+      },
+      members: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+              isAgent: true,
+            },
+          },
+        },
+      },
+      _count: {
+        select: {
+          projects: true,
+          goals: true,
+          teams: true,
+        },
+      },
+    },
+  });
+
+  if (!workspace) return { status: "not_found" as const };
+
+  // Direct WorkspaceUser membership wins
+  const currentMember = workspace.members.find(
+    (member) => member.userId === userId
+  );
+
+  if (currentMember) {
+    return {
+      status: "ok" as const,
+      workspace: { ...workspace, currentUserRole: currentMember.role },
+    };
+  }
+
+  // Team-based access synthesizes "member"
+  const teamBasedMembership = await getWorkspaceMembership(
+    db,
+    userId,
+    workspace.id,
+  );
+
+  if (teamBasedMembership) {
+    return {
+      status: "ok" as const,
+      workspace: { ...workspace, currentUserRole: teamBasedMembership.role },
+    };
+  }
+
+  // Project-only access synthesizes "guest"
+  const guestProjectMember = await db.projectMember.findFirst({
+    where: {
+      userId,
+      project: { workspaceId: workspace.id },
+    },
+    select: { id: true },
+  });
+
+  if (guestProjectMember) {
+    return {
+      status: "ok" as const,
+      workspace: { ...workspace, currentUserRole: "guest" as const },
+    };
+  }
+
+  return { status: "forbidden" as const };
 }
 
 export const workspaceRouter = createTRPCRouter({
@@ -213,7 +307,6 @@ export const workspaceRouter = createTRPCRouter({
           select: {
             projects: true,
             goals: true,
-            outcomes: true,
             teams: true,
           },
         },
@@ -249,96 +342,22 @@ export const workspaceRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      const workspace = await ctx.db.workspace.findUnique({
-        where: { slug: input.slug },
-        include: {
-          owner: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              image: true,
-            },
-          },
-          members: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                  image: true,
-                  isAgent: true,
-                },
-              },
-            },
-          },
-          _count: {
-            select: {
-              projects: true,
-              goals: true,
-              outcomes: true,
-              teams: true,
-            },
-          },
-        },
+      const result = await loadWorkspaceForUser(ctx.db, ctx.session.user.id, {
+        slug: input.slug,
       });
-
-      if (!workspace) {
+      if (result.status === "not_found") {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Workspace not found",
         });
       }
-
-      const userId = ctx.session.user.id;
-
-      // Direct WorkspaceUser membership wins
-      const currentMember = workspace.members.find(
-        (member) => member.userId === userId
-      );
-
-      if (currentMember) {
-        return {
-          ...workspace,
-          currentUserRole: currentMember.role,
-        };
+      if (result.status === "forbidden") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not a member of this workspace",
+        });
       }
-
-      // Team-based access synthesizes "member"
-      const teamBasedMembership = await getWorkspaceMembership(
-        ctx.db,
-        userId,
-        workspace.id,
-      );
-
-      if (teamBasedMembership) {
-        return {
-          ...workspace,
-          currentUserRole: teamBasedMembership.role,
-        };
-      }
-
-      // Project-only access synthesizes "guest"
-      const guestProjectMember = await ctx.db.projectMember.findFirst({
-        where: {
-          userId,
-          project: { workspaceId: workspace.id },
-        },
-        select: { id: true },
-      });
-
-      if (guestProjectMember) {
-        return {
-          ...workspace,
-          currentUserRole: "guest" as const,
-        };
-      }
-
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "You are not a member of this workspace",
-      });
+      return result.workspace;
     }),
 
   // Update workspace details
@@ -359,6 +378,7 @@ export const workspaceRouter = createTRPCRouter({
         enableWeeklyReviewBanner: z.boolean().optional(),
         enableEmailNotifications: z.boolean().optional(),
         enableAutoEnrichContacts: z.boolean().optional(),
+        enableKeyResults: z.boolean().optional(),
         homeLayout: z.enum(["command", "activity", "coaching"]).optional(),
       })
     )
@@ -394,6 +414,7 @@ export const workspaceRouter = createTRPCRouter({
           enableWeeklyReviewBanner: input.enableWeeklyReviewBanner,
           enableEmailNotifications: input.enableEmailNotifications,
           enableAutoEnrichContacts: input.enableAutoEnrichContacts,
+          enableKeyResults: input.enableKeyResults,
           homeLayout: input.homeLayout,
         },
       });
@@ -654,7 +675,64 @@ export const workspaceRouter = createTRPCRouter({
               },
             );
           } else {
-            const workspaceUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            // Land the email on /invite/<token> rather than the bare
+            // workspace URL: the recipient is usually signed out in the
+            // browser their mail client opens, and a /w/<slug> link just
+            // bounces them off middleware onto an anonymous /signin wall.
+            // The invite landing page is public, survives mail scanners
+            // (the token identifies, it doesn't authenticate — ADR-0056),
+            // prefills their email and offers a one-click sign-in code.
+            // If minting the record fails, fall back to the workspace URL
+            // rather than failing the mutation — membership already exists.
+            let ctaUrl = `${getPublicBaseUrlFromEnv()}/w/${workspace.slug}`;
+            try {
+              const landing = await ctx.db.workspaceInvitation.upsert({
+                where: {
+                  workspaceId_email: {
+                    workspaceId: input.workspaceId,
+                    email: input.email,
+                  },
+                },
+                // The token is deliberately absent from `update`: this address
+                // may already have a pending invitation whose token is sitting
+                // in an email someone can still click. Rotating it here would
+                // dead-end that link on "Invalid Invitation"; reusing the row's
+                // existing token instead re-points it at the accepted landing.
+                update: {
+                  role: input.role,
+                  status: "accepted",
+                  acceptedAt: new Date(),
+                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  createdById: ctx.session.user.id,
+                },
+                create: {
+                  workspaceId: input.workspaceId,
+                  email: input.email,
+                  role: input.role,
+                  token: generateSecureToken(),
+                  status: "accepted",
+                  acceptedAt: new Date(),
+                  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  createdById: ctx.session.user.id,
+                },
+              });
+              ctaUrl = generateInviteUrl(landing.token);
+            } catch (err: unknown) {
+              // Degrading to the bare /w/<slug> link silently would put the
+              // recipient back on the signin wall this path exists to avoid,
+              // so it goes to Sentry rather than only to the server log.
+              console.error(
+                "[workspace.addMember] Failed to mint invite landing token, falling back to workspace URL:",
+                err,
+              );
+              reportHandledErrorServer(err, {
+                area: "workspace-member-added-landing-token",
+                context: {
+                  workspaceId: input.workspaceId,
+                  recipientEmail: newMember.user.email ?? "",
+                },
+              });
+            }
             sendWorkspaceMemberAddedEmail({
               to: newMember.user.email,
               workspaceName: workspace.name ?? "a workspace",
@@ -662,12 +740,19 @@ export const workspaceRouter = createTRPCRouter({
                 ctx.session.user.name ??
                 ctx.session.user.email ??
                 "A workspace member",
-              workspaceUrl,
+              ctaUrl,
             }).catch((err: unknown) => {
               console.error(
                 "[workspace.addMember] Failed to send member-added email:",
                 err,
               );
+              reportHandledErrorServer(err, {
+                area: "workspace-member-added-email",
+                context: {
+                  workspaceId: input.workspaceId,
+                  recipientEmail: newMember.user.email ?? "",
+                },
+              });
             });
           }
         }
@@ -749,6 +834,10 @@ export const workspaceRouter = createTRPCRouter({
           inviteUrl,
         }).catch((err: unknown) => {
           console.error("[workspace.addMember] Failed to send invitation email:", err);
+          reportHandledErrorServer(err, {
+            area: "workspace-invitation-email",
+            context: { workspaceId: input.workspaceId, recipientEmail: input.email },
+          });
         });
 
         return {
@@ -796,6 +885,7 @@ export const workspaceRouter = createTRPCRouter({
             workspaceId: input.workspaceId,
           },
         },
+        include: { user: { select: { email: true } } },
       });
 
       if (memberToRemove?.role === "owner") {
@@ -818,6 +908,36 @@ export const workspaceRouter = createTRPCRouter({
       // Delegation invariant (ADR-0049): the removed member's external agents
       // lose their memberships here too — agent access never outlives its owner's.
       await cascadeOwnerRemovedFromWorkspace(ctx.db, input.userId, input.workspaceId);
+
+      // Retire any invitation row for this address. Its token renders a public
+      // landing page carrying the workspace name, inviter and member count, and
+      // addMember now mints one of these for existing users — without this it
+      // would keep serving that after the member is gone. Expiring rather than
+      // deleting keeps the invitation history intact. Non-fatal: the member is
+      // already out, so a failure here must not fail the mutation.
+      if (memberToRemove?.user.email) {
+        try {
+          await ctx.db.workspaceInvitation.updateMany({
+            where: {
+              workspaceId: input.workspaceId,
+              email: memberToRemove.user.email,
+            },
+            data: { expiresAt: new Date() },
+          });
+        } catch (err: unknown) {
+          console.error(
+            "[workspace.removeMember] Failed to expire invitation for removed member:",
+            err,
+          );
+          reportHandledErrorServer(err, {
+            area: "workspace-remove-member-invitation-expiry",
+            context: {
+              workspaceId: input.workspaceId,
+              removedUserId: input.userId,
+            },
+          });
+        }
+      }
 
       return { success: true };
     }),
@@ -904,29 +1024,32 @@ export const workspaceRouter = createTRPCRouter({
     }),
 
   // Get user's default workspace
+  //
+  // `details` is the same workspace in getBySlug's shape (null when the caller
+  // can't access it), so WorkspaceProvider can seed getBySlug on routes without
+  // a workspace in the URL instead of fetching it in a second round trip.
   getDefault: protectedProcedure.query(async ({ ctx }) => {
     const user = await ctx.db.user.findUnique({
       where: { id: ctx.session.user.id },
       select: { defaultWorkspaceId: true },
     });
 
-    if (!user?.defaultWorkspaceId) {
-      // Return the first workspace user has access to (preferably personal)
-      const firstWorkspace = await ctx.db.workspace.findFirst({
-        where: buildWorkspaceAccessWhere(ctx.session.user.id),
-        orderBy: [{ type: "asc" }, { createdAt: "asc" }],
-        select: { id: true, slug: true, name: true, type: true },
-      });
+    const workspace = user?.defaultWorkspaceId
+      ? await ctx.db.workspace.findUnique({
+          where: { id: user.defaultWorkspaceId },
+          select: { id: true, slug: true, name: true, type: true },
+        })
+      : // Return the first workspace user has access to (preferably personal)
+        await ctx.db.workspace.findFirst({
+          where: buildWorkspaceAccessWhere(ctx.session.user.id),
+          orderBy: [{ type: "asc" }, { createdAt: "asc" }],
+          select: { id: true, slug: true, name: true, type: true },
+        });
 
-      return firstWorkspace;
-    }
+    if (!workspace) return workspace;
 
-    const workspace = await ctx.db.workspace.findUnique({
-      where: { id: user.defaultWorkspaceId },
-      select: { id: true, slug: true, name: true, type: true },
-    });
-
-    return workspace;
+    const loaded = await loadWorkspaceForUser(ctx.db, ctx.session.user.id, { id: workspace.id });
+    return { ...workspace, details: loaded.status === "ok" ? loaded.workspace : null };
   }),
 
   // Delete a workspace (owner only)
@@ -1055,7 +1178,7 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.workspaceInvitation.findMany({
+      const invitations = await ctx.db.workspaceInvitation.findMany({
         where: {
           workspaceId: input.workspaceId,
           status: "pending",
@@ -1067,6 +1190,14 @@ export const workspaceRouter = createTRPCRouter({
         },
         orderBy: { createdAt: "desc" },
       });
+
+      // Built server-side, like the invitation email's link. The client used to
+      // read NEXT_PUBLIC_APP_URL, which production doesn't set, so "Copy invite
+      // link" handed out http://localhost:3000/invite/<token>.
+      return invitations.map((invitation) => ({
+        ...invitation,
+        inviteUrl: generateInviteUrl(invitation.token),
+      }));
     }),
 
   // Cancel a pending invitation
@@ -1167,6 +1298,13 @@ export const workspaceRouter = createTRPCRouter({
         inviteUrl,
       }).catch((err: unknown) => {
         console.error("[workspace.resendInvitation] Failed to send invitation email:", err);
+        reportHandledErrorServer(err, {
+          area: "workspace-invitation-email",
+          context: {
+            workspaceId: invitation.workspaceId,
+            recipientEmail: invitation.email,
+          },
+        });
       });
 
       return {
@@ -1326,6 +1464,39 @@ export const workspaceRouter = createTRPCRouter({
 
       const { members, _count, ...workspaceRest } = invitation.workspace;
 
+      // Whether the logged-in viewer already belongs to the workspace — e.g.
+      // an invitee whose invitation was auto-accepted during signup.
+      const viewerId = ctx.session?.user?.id;
+      const [isMember, viewer] = viewerId
+        ? await Promise.all([
+            ctx.db.workspaceUser
+              .findUnique({
+                where: {
+                  userId_workspaceId: {
+                    userId: viewerId,
+                    workspaceId: invitation.workspaceId,
+                  },
+                },
+                select: { userId: true },
+              })
+              .then((membership) => membership !== null),
+            ctx.db.user.findUnique({
+              where: { id: viewerId },
+              select: {
+                welcomeCompletedAt: true,
+                // User has no createdAt column; the earliest owned workspace
+                // (the auto-created Personal one) stands in for account
+                // creation time — same proxy /home uses.
+                ownedWorkspaces: {
+                  orderBy: { createdAt: "asc" },
+                  take: 1,
+                  select: { createdAt: true },
+                },
+              },
+            }),
+          ])
+        : [false, null];
+
       return {
         ...invitation,
         workspace: {
@@ -1336,6 +1507,77 @@ export const workspaceRouter = createTRPCRouter({
         isExpired: invitation.expiresAt < new Date(),
         isLoggedIn: !!ctx.session?.user,
         isForCurrentUser: invitation.email === ctx.session?.user?.email,
+        isMember,
+        // Only a genuinely NEW invitee (account under the new-user window,
+        // welcome unfinished — the same rule /home applies) is routed through
+        // the invited welcome variant. An existing user who was added to a
+        // workspace goes straight into it; /welcome would be a detour for an
+        // account that's already set up. Logged-out viewers default to false —
+        // they get the landing page anyway.
+        viewerShouldSeeWelcome: viewer
+          ? resolveNewUserRedirect({
+              createdAt: viewer.ownedWorkspaces[0]?.createdAt ?? null,
+              welcomeCompletedAt: viewer.welcomeCompletedAt,
+            }) !== null
+          : false,
+      };
+    }),
+
+  /**
+   * Context for the "You've joined this workspace" banner on the workspace
+   * home. Non-null only while the viewer is a recent joiner: a member (not
+   * the owner) whose membership started inside the last 7 days. The inviter
+   * name comes from the accepted invitation matching their email when one
+   * exists — members can also be added directly, so a missing invitation
+   * still shows the banner, just without the inviter line.
+   */
+  getRecentJoinContext: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const RECENT_JOIN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+      const userId = ctx.session.user.id;
+
+      const membership = await ctx.db.workspaceUser.findUnique({
+        where: {
+          userId_workspaceId: { userId, workspaceId: input.workspaceId },
+        },
+        select: {
+          joinedAt: true,
+          workspace: { select: { ownerId: true, name: true, slug: true } },
+        },
+      });
+      if (!membership) return null;
+      if (membership.workspace.ownerId === userId) return null;
+
+      const joinedAgoMs = Date.now() - membership.joinedAt.getTime();
+      if (joinedAgoMs > RECENT_JOIN_WINDOW_MS) return null;
+
+      const email = ctx.session.user.email;
+      const invitation = email
+        ? await ctx.db.workspaceInvitation.findFirst({
+            where: {
+              email,
+              workspaceId: input.workspaceId,
+              status: "accepted",
+            },
+            orderBy: { acceptedAt: "desc" },
+            select: { createdBy: { select: { name: true, email: true } } },
+          })
+        : null;
+
+      // `??` alone would let a whitespace-only stored name through and render
+      // "  invited you" — treat blank as missing (same rule as the welcome
+      // page's resolveInvitedContext).
+      const inviterName =
+        invitation?.createdBy.name?.trim() ||
+        invitation?.createdBy.email?.trim() ||
+        null;
+
+      return {
+        workspaceName: membership.workspace.name,
+        workspaceSlug: membership.workspace.slug,
+        joinedAt: membership.joinedAt,
+        inviterName,
       };
     }),
 
@@ -1902,6 +2144,8 @@ export const workspaceRouter = createTRPCRouter({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
         source: z.string().optional(),
+        /** Only the caller's own events — the feed's "Mine" filter. */
+        mine: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -1934,6 +2178,7 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
+        actorUserId: input.mine ? ctx.session.user.id : undefined,
       });
     }),
 
@@ -2050,6 +2295,8 @@ export const workspaceRouter = createTRPCRouter({
         cursor: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
         source: z.string().optional(),
+        /** Only the caller's own events — the feed's "Mine" filter. */
+        mine: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -2063,6 +2310,7 @@ export const workspaceRouter = createTRPCRouter({
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
+        actorUserId: input.mine ? ctx.session.user.id : undefined,
       });
     }),
 

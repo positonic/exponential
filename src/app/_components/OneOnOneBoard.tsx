@@ -6,8 +6,6 @@ import { Select, Text, Group, Progress, Title, Container, ScrollArea } from "@ma
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { type RouterOutputs } from "~/trpc/react";
 import { ActionsList } from "./actions/ActionsList";
-import { OutcomeMultiSelect } from "./OutcomeMultiSelect";
-import { OutcomeBadges } from "./OutcomeBadges";
 import Link from "next/link";
 
 type Project = RouterOutputs["project"]["getActiveWithDetails"][0];
@@ -27,20 +25,13 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
     : api.project.getActiveWithDetails.useQuery({ workspaceId });
   
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
-  const [outcomeSearchValues, setOutcomeSearchValues] = useState<Record<string, string>>({});
   const utils = api.useUtils();
-  
-  // Fetch outcomes - use different API for shared view
-  const { data: allOutcomes } = isSharedView && userId && teamId
-    ? api.outcome.getOutcomesForUser.useQuery({ userId, teamId })
-    : api.outcome.getMyOutcomes.useQuery({ workspaceId: workspaceId ?? undefined });
   
   const updateProject = api.project.update.useMutation({
     onSuccess: () => {
       if (isSharedView && userId && teamId) {
         // Invalidate shared view queries
         void utils.project.getActiveWithDetailsForUser.invalidate({ userId, teamId });
-        void utils.outcome.getOutcomesForUser.invalidate({ userId, teamId });
       } else {
         // Invalidate personal view queries
         void utils.project.getActiveWithDetails.invalidate();
@@ -140,7 +131,6 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
               <th className="text-left p-3 text-text-secondary font-medium text-sm">Project name</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Status</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Priority</th>
-              <th className="text-left p-3 text-text-secondary font-medium text-sm">Weekly Outcomes</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '300px' }}>Tasks (read only)</th>
             </tr>
           </thead>
@@ -225,34 +215,6 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
                       />
                     </td>
                     <td className="p-3">
-                      {isSharedView ? (
-                        <OutcomeBadges
-                          outcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
-                          size="sm"
-                        />
-                      ) : (
-                        <OutcomeMultiSelect
-                          projectId={project.id}
-                          projectName={project.name}
-                          projectStatus={project.status as "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED"}
-                          projectPriority={project.priority as "HIGH" | "MEDIUM" | "LOW" | "NONE"}
-                          currentOutcomes={project.outcomes?.map(outcome => ({ ...outcome, goals: [], projects: [], assignees: [] })) || []}
-                          searchValue={outcomeSearchValues[project.id] || ''}
-                          onSearchChange={(value) => {
-                            setOutcomeSearchValues(prev => ({
-                              ...prev,
-                              [project.id]: value
-                            }));
-                          }}
-                          allOutcomes={allOutcomes || []}
-                          size="sm"
-                          isSharedView={isSharedView}
-                          sharedViewUserId={userId}
-                          sharedViewTeamId={teamId}
-                        />
-                      )}
-                    </td>
-                    <td className="p-3">
                       <Group gap="xs" align="center">
                         <Text size="sm" className="text-text-secondary">
                           {project.actions?.filter(a => a.status === "DONE" || a.kanbanStatus === "DONE").length || 0}/{project.actions?.length || 0} completed
@@ -273,7 +235,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
                   {/* Expanded row showing tasks */}
                   {isExpanded && project.actions && project.actions.length > 0 && (
                     <tr>
-                      <td colSpan={6} className="p-0">
+                      <td colSpan={5} className="p-0">
                         <div className="bg-background-secondary border-t border-border-primary">
                           <div className="pl-12 pr-4 py-2 max-w-3xl">
                             <ActionsList

@@ -23,7 +23,13 @@ import type {
   WorkspaceRole,
 } from "../types";
 import { hasMinimumProjectRole } from "../types";
-import { getWorkspaceMembership } from "./workspaceResolver";
+
+/** Workspace roles that may write workspace content (see `canEditWorkspaceContent`). */
+const WORKSPACE_WRITE_ROLES = ["owner", "admin", "member"] as const;
+import {
+  canEditWorkspaceContent,
+  getWorkspaceMembership,
+} from "./workspaceResolver";
 
 export async function getProjectAccess(
   db: PrismaClient,
@@ -56,42 +62,41 @@ export async function getProjectAccess(
   const isPublic = project.isPublic;
   const isRestricted = project.isRestricted;
 
-  // Check direct project membership
-  const projectMember = await db.projectMember.findFirst({
-    where: { projectId, userId },
-    select: { role: true },
-  });
+  // The three membership paths are independent reads — run them in parallel
+  // rather than paying one database round trip after another.
+  const [projectMember, teamMembership, wsMembership] = await Promise.all([
+    // Direct project membership
+    db.projectMember.findFirst({
+      where: { projectId, userId },
+      select: { role: true },
+    }),
+    // Team membership (if project has a team)
+    project.teamId
+      ? db.teamUser.findUnique({
+          where: { userId_teamId: { userId, teamId: project.teamId } },
+          select: { role: true },
+        })
+      : null,
+    // Workspace membership (if project has a workspace). Uses
+    // getWorkspaceMembership which checks both direct WorkspaceUser and
+    // team-based access (user in a team linked to the workspace)
+    project.workspaceId
+      ? getWorkspaceMembership(db, userId, project.workspaceId)
+      : null,
+  ]);
+
   const isMember = !!projectMember;
   const memberRole = projectMember
     ? (projectMember.role as ProjectMemberRole)
     : undefined;
 
-  // Check team membership (if project has a team)
-  let isTeamMember = false;
-  let teamRole: TeamRole | undefined;
-  if (project.teamId) {
-    const teamMembership = await db.teamUser.findUnique({
-      where: { userId_teamId: { userId, teamId: project.teamId } },
-      select: { role: true },
-    });
-    if (teamMembership) {
-      isTeamMember = true;
-      teamRole = teamMembership.role as TeamRole;
-    }
-  }
+  const isTeamMember = !!teamMembership;
+  const teamRole: TeamRole | undefined = teamMembership
+    ? (teamMembership.role as TeamRole)
+    : undefined;
 
-  // Check workspace membership (if project has a workspace)
-  // Uses getWorkspaceMembership which checks both direct WorkspaceUser
-  // and team-based access (user in a team linked to the workspace)
-  let isWorkspaceMember = false;
-  let workspaceRole: WorkspaceRole | undefined;
-  if (project.workspaceId) {
-    const wsMembership = await getWorkspaceMembership(db, userId, project.workspaceId);
-    if (wsMembership) {
-      isWorkspaceMember = true;
-      workspaceRole = wsMembership.role;
-    }
-  }
+  const isWorkspaceMember = !!wsMembership;
+  const workspaceRole: WorkspaceRole | undefined = wsMembership?.role;
 
   return {
     isCreator,
@@ -163,10 +168,14 @@ export function canEditProject(access: ProjectAccess): boolean {
     }
     return isWorkspaceEscapeHatch(access);
   }
-  // Unrestricted: any member, team member, or workspace member can edit
+  // Unrestricted: any project member or team member can edit, and so can a
+  // workspace member holding a write role. `viewer` is read-only: workspace
+  // membership at that role grants view, never edit.
   if (access.isMember) return true;
   if (access.isTeamMember) return true;
-  if (access.isWorkspaceMember) return true;
+  if (access.isWorkspaceMember) {
+    return canEditWorkspaceContent(access.workspaceRole ?? null);
+  }
   return false;
 }
 
@@ -228,8 +237,9 @@ export function buildProjectAccessWhere(
 /**
  * Prisma WHERE clause for projects a user can **edit** (the DB-level mirror of
  * {@link canEditProject}). Stricter than {@link buildProjectAccessWhere}:
- * `isPublic` alone grants view but not edit, and a restricted project requires
- * an editor+ project-member role (not mere viewer membership) or the workspace
+ * `isPublic` alone grants view but not edit, a workspace `viewer` gets no edit
+ * through workspace membership, and a restricted project requires an editor+
+ * project-member role (not mere viewer membership) or the workspace
  * owner/admin escape hatch.
  *
  * Use for candidate lists where the next action requires edit rights — e.g.
@@ -241,7 +251,11 @@ export function buildProjectEditWhere(
   return {
     OR: [
       { createdById: userId },
-      // Unrestricted: any project/team/workspace membership grants edit.
+      // Unrestricted: project/team membership grants edit, and so does
+      // workspace membership at a write role (owner/admin/member, never
+      // viewer). Team-via-workspace access resolves to `member`, but only when
+      // the user has no direct WorkspaceUser row — `getWorkspaceMembership`
+      // lets the direct row win, so a direct viewer stays a viewer.
       {
         AND: [
           { isRestricted: false },
@@ -249,10 +263,17 @@ export function buildProjectEditWhere(
             OR: [
               { projectMembers: { some: { userId } } },
               { team: { members: { some: { userId } } } },
-              { workspace: { members: { some: { userId } } } },
+              {
+                workspace: {
+                  members: {
+                    some: { userId, role: { in: [...WORKSPACE_WRITE_ROLES] } },
+                  },
+                },
+              },
               {
                 workspace: {
                   teams: { some: { members: { some: { userId } } } },
+                  members: { none: { userId } },
                 },
               },
             ],

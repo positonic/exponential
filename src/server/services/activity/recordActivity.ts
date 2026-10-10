@@ -8,13 +8,26 @@ import { env } from "~/env";
  */
 export type ActivityAction =
   | "created"
+  | "failed"
   | "updated"
   | "status_changed"
   | "completed"
   | "commented"
   | "summarized"
   | "synced"
-  | "reverted";
+  | "reverted"
+  | "checked_in"
+  | "deleted"
+  // Decision lifecycle (ADR-0060): each terminal transition is its own
+  // action so the feed reads as a lifecycle rather than "status changed".
+  | "accepted"
+  | "superseded"
+  | "deprecated"
+  | "confirmed"
+  /** A recorded meeting was linked to a ceremony occurrence (ADR-0059). */
+  | "captured"
+  /** An occurrence's agenda was generated and sent to its participants (ADR-0059). */
+  | "agenda_circulated";
 
 /**
  * Entity types we currently log activity for. New writers append new values
@@ -22,6 +35,7 @@ export type ActivityAction =
  */
 export type ActivityEntityType =
   | "action"
+  | "agent_run"
   | "action_comment"
   | "ticket"
   | "ticket_comment"
@@ -31,6 +45,11 @@ export type ActivityEntityType =
   | "insight_comment"
   | "project"
   | "goal"
+  | "goal_update"
+  | "goal_comment"
+  | "key_result"
+  | "key_result_comment"
+  | "okr_checkin"
   | "weekly_review"
   | "workspace_member"
   | "deal"
@@ -44,7 +63,9 @@ export type ActivityEntityType =
   // chip. Emitted at feed altitude — one row per push, not per commit.
   | "github_push"
   | "github_pull_request"
-  | "github_pull_request_review";
+  | "github_pull_request_review"
+  | "decision"
+  | "ceremony_occurrence";
 
 export interface RecordActivityInput {
   workspaceId: string;

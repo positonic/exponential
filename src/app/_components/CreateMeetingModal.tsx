@@ -26,6 +26,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { GoogleCalendarConnect } from "./GoogleCalendarConnect";
+import { GooglePremiumFeature } from "./GooglePremiumFeature";
 
 interface CreateMeetingModalProps {
   projectId?: string;
@@ -167,6 +168,8 @@ export function CreateMeetingModal({
 
   const isValid = title.trim() && meetingDate && startTime;
   const isConnected = connectionStatus?.isConnected ?? false;
+  // Creating events needs the calendar scopes Google hasn't verified yet.
+  const isGated = connectionStatus?.gated ?? false;
 
   return (
     <>
@@ -196,6 +199,10 @@ export function CreateMeetingModal({
         {statusLoading ? (
           <Stack align="center" py="xl">
             <Text c="dimmed">Checking calendar connection...</Text>
+          </Stack>
+        ) : isGated ? (
+          <Stack gap="md" py="md">
+            <GooglePremiumFeature feature="calendar" variant="alert" />
           </Stack>
         ) : !isConnected ? (
           <Stack gap="md" py="md">

@@ -6,7 +6,7 @@ import { SignInLandingPage } from "./SignInLandingPage";
 
 export const metadata: Metadata = {
   title: `Sign In | ${PRODUCT_NAME}`,
-  description: `Sign in to ${PRODUCT_NAME} with Google, Microsoft, Discord, or an email magic link.`,
+  description: `Sign in to ${PRODUCT_NAME} with Google, Microsoft, Discord, or an emailed sign-in code.`,
   robots: { index: false, follow: false },
   alternates: {
     canonical: "/signin",

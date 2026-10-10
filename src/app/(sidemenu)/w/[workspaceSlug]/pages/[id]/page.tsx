@@ -1,16 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ActionIcon, Skeleton, Text, TextInput, Tooltip } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
-import { IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
+import { IconCalendarEvent, IconViewportNarrow, IconViewportWide } from '@tabler/icons-react';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
+import { PageProjectPicker } from '~/app/_components/pages/PageProjectPicker';
+import { UpdateReviewBanner } from '~/app/_components/pages/UpdateReviewBanner';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
 import type { RichDocEditorHandle } from '~/app/_components/shared/RichDocEditor';
 
@@ -104,6 +107,17 @@ function PageEditorContent({
   const utils = api.useUtils();
   const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
 
+  // Markdown for the "Copy/Export as Markdown" actions. Read off the live
+  // editor rather than `page.body` so an export includes edits the debounced
+  // autosave hasn't written yet.
+  const currentMarkdown = () => {
+    const editor = editorHandleRef.current?.editor;
+    if (!editor) return null;
+    return (
+      editor.storage.markdown as { getMarkdown: () => string }
+    ).getMarkdown();
+  };
+
   // Detach a sub-page: remove its `pageLink` block(s) from the live doc, flush
   // the save, then refresh the child list. Editing the live editor (not the DB)
   // keeps the body the single source of truth and avoids a docVersion conflict
@@ -154,9 +168,35 @@ function PageEditorContent({
 
   return (
     <div className={`${widthClass} px-6 py-8`}>
+      {page.ceremonyOccurrence ? (
+        <Link
+          href={`/w/${workspaceSlug}/ceremonies/${page.ceremonyOccurrence.ceremonyId}/${page.ceremonyOccurrence.id}`}
+          className="mb-3 inline-flex items-center gap-1 text-xs text-text-muted hover:underline"
+          data-testid="page-occurrence-crumb"
+        >
+          <IconCalendarEvent size={14} />
+          Notes for {page.ceremonyOccurrence.ceremony.name} ·{' '}
+          {new Date(page.ceremonyOccurrence.scheduledStart).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            timeZone: page.ceremonyOccurrence.ceremony.timezone,
+          })}
+        </Link>
+      ) : null}
+      <UpdateReviewBanner pageId={page.id} />
       <div className="mb-4 flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
+          <div className="mt-1">
+            <PageProjectPicker
+              pageId={page.id}
+              workspaceId={page.workspaceId}
+              workspaceSlug={workspaceSlug}
+              project={page.project}
+              editable={page.canEdit}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Tooltip label={fullWidth ? 'Use narrow width' : 'Use full width'}>
@@ -186,12 +226,15 @@ function PageEditorContent({
           />
           <PageShareMenu
             pageId={page.id}
+            workspaceId={page.workspaceId}
             workspaceSlug={workspaceSlug}
             isPublic={page.isPublic}
             publicId={page.publicId}
             publicSlug={page.publicSlug}
             publicSeoIndexed={page.publicSeoIndexed}
             canEdit={page.canEdit}
+            title={page.title}
+            getMarkdown={currentMarkdown}
           />
         </div>
       </div>

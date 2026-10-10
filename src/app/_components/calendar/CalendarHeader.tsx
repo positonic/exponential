@@ -9,6 +9,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import {
+  IconCalendarPlus,
   IconChevronLeft,
   IconChevronRight,
   IconRefresh,
@@ -31,6 +32,7 @@ interface CalendarHeaderProps {
   isDisconnecting?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  onScheduleMeeting?: () => void;
 }
 
 export function CalendarHeader({
@@ -47,6 +49,7 @@ export function CalendarHeader({
   isDisconnecting,
   onRefresh,
   isRefreshing,
+  onScheduleMeeting,
 }: CalendarHeaderProps) {
   // Format the header text based on view
   const headerText =
@@ -100,6 +103,16 @@ export function CalendarHeader({
           ]}
           size="sm"
         />
+        {onScheduleMeeting && (
+          <Button
+            size="sm"
+            variant="light"
+            leftSection={<IconCalendarPlus size={16} />}
+            onClick={onScheduleMeeting}
+          >
+            Schedule meeting
+          </Button>
+        )}
         {isConnected && onRefresh && (
           <Tooltip label="Refresh events" position="bottom">
             <ActionIcon

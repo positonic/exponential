@@ -125,7 +125,7 @@ function OrganizationForm({
           onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
         />
         <Select
-          label="Company Size"
+          label="Organization Size"
           placeholder="Select size"
           data={[
             { value: '1-10', label: '1-10 employees' },
@@ -224,7 +224,7 @@ export default function OrganizationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Title order={2} className="text-text-primary">
             Organizations
@@ -247,8 +247,8 @@ export default function OrganizationsPage() {
       />
 
       {isLoading ? (
-        <div className="overflow-hidden rounded-lg border border-border-primary">
-          <Table>
+        <div className="overflow-x-auto rounded-lg border border-border-primary">
+          <Table miw={640}>
             <Table.Thead className="bg-surface-secondary">
               <Table.Tr>
                 <Table.Th className="text-text-muted">Name</Table.Th>
@@ -279,8 +279,8 @@ export default function OrganizationsPage() {
           </Table>
         </div>
       ) : data?.organizations && data.organizations.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-border-primary">
-          <Table highlightOnHover>
+        <div className="overflow-x-auto rounded-lg border border-border-primary">
+          <Table highlightOnHover miw={640}>
             <Table.Thead className="bg-surface-secondary">
               <Table.Tr>
                 <Table.Th className="text-text-muted">Name</Table.Th>
@@ -391,7 +391,7 @@ export default function OrganizationsPage() {
         <EmptyState
           icon={IconBuilding}
           title="No organizations yet"
-          message="Organizations help you group contacts by company. Create your first one to get started."
+          message="Organizations group the contacts who work together. Create your first one to get started."
           action={
             <Button leftSection={<IconPlus size={16} />} onClick={openCreateModal}>
               New Organization

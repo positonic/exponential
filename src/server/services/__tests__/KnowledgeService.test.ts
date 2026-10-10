@@ -35,6 +35,8 @@ vi.mock("@langchain/openai", () => ({
 
 // Imports of code under test must come AFTER vi.mock calls.
 import { KnowledgeService } from "../KnowledgeService";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
+import { buildTranscriptionAccessWhere } from "~/server/services/access/resolvers/transcriptionResolver";
 import type { EmbeddingSource } from "../embedding/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -54,6 +56,8 @@ function buildFakeDb() {
   const executeRawCalls: CapturedRawCall[] = [];
   const queryRawCalls: CapturedRawCall[] = [];
   let queryRawResult: unknown[] = [];
+  let viewablePages: { id: string }[] = [];
+  let viewableMeetings: { id: string }[] = [];
 
   // Prisma's tagged template hands the function `(strings, ...values)`.
   // We accept a single Prisma.Sql object too (when caller pre-built it).
@@ -80,6 +84,12 @@ function buildFakeDb() {
     knowledgeChunk: {
       count: vi.fn(async () => 0),
     },
+    knowledgePage: {
+      findMany: vi.fn(async () => viewablePages),
+    },
+    transcriptionSession: {
+      findMany: vi.fn(async () => viewableMeetings),
+    },
   } as unknown as ConstructorParameters<typeof KnowledgeService>[0];
 
   return {
@@ -88,6 +98,12 @@ function buildFakeDb() {
     queryRawCalls,
     setQueryRawResult: (rows: unknown[]) => {
       queryRawResult = rows;
+    },
+    setViewablePages: (ids: string[]) => {
+      viewablePages = ids.map((id) => ({ id }));
+    },
+    setViewableMeetings: (ids: string[]) => {
+      viewableMeetings = ids.map((id) => ({ id }));
     },
   };
 }
@@ -124,6 +140,24 @@ function buildSource(overrides: Partial<{
 // at runtime — we just want to confirm the column lists / WHERE clauses).
 function joinSql(call: CapturedRawCall): string {
   return call.strings.join(" ?? ");
+}
+
+/** The nested Prisma.sql fragments and their bound values of one raw call. */
+function nestedSql(call: CapturedRawCall): { fragments: string; bound: unknown[] } {
+  const fragments: string[] = [];
+  const bound: unknown[] = [];
+  for (const v of call.values) {
+    const sub = (v as { strings?: readonly string[] })?.strings;
+    if (sub) fragments.push(sub.join(" ?? "));
+    const subVals = (v as { values?: unknown[] })?.values;
+    if (Array.isArray(subVals)) bound.push(...subVals);
+  }
+  return { fragments: fragments.join("\n"), bound };
+}
+
+function meetingFindMany(db: unknown): ReturnType<typeof vi.fn> {
+  return (db as { transcriptionSession: { findMany: ReturnType<typeof vi.fn> } })
+    .transcriptionSession.findMany;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -308,6 +342,165 @@ describe("KnowledgeService — workspace scoping", () => {
       expect(haystack).toContain('p."workspaceId"');
       expect(allBound).toContain("alice@example.com");
       expect(allBound).toContain("ws-A");
+    });
+
+    it("keeps page chunks only for pages the pageViewerId can view", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setViewablePages } = buildFakeDb();
+      setQueryRawResult([]);
+      setViewablePages(["page-ok"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", pageViewerId: "u-7" });
+
+      const pageFindMany = (db as unknown as {
+        knowledgePage: { findMany: ReturnType<typeof vi.fn> };
+      }).knowledgePage.findMany;
+      expect(pageFindMany).toHaveBeenCalledTimes(1);
+      const where = (pageFindMany.mock.calls[0]?.[0] as { where: unknown }).where;
+      expect(where).toEqual({
+        AND: [{ workspaceId: "ws-A" }, buildKnowledgePageAccessWhere("u-7")],
+      });
+
+      const call = queryRawCalls[0]!;
+      const fragments: string[] = [];
+      const bound: unknown[] = [];
+      for (const v of call.values) {
+        const sub = (v as { strings?: readonly string[] })?.strings;
+        if (sub) fragments.push(sub.join(" ?? "));
+        const subVals = (v as { values?: unknown[] })?.values;
+        if (Array.isArray(subVals)) bound.push(...subVals);
+      }
+      expect(fragments.join("\n")).toContain(`kc."sourceType" <> 'page' OR kc."sourceId" = ANY(`);
+      expect(bound).toContainEqual(["page-ok"]);
+    });
+
+    it("drops page chunks entirely when no pageViewerId is given (fails closed)", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A" });
+
+      const pageFindMany = (db as unknown as {
+        knowledgePage: { findMany: ReturnType<typeof vi.fn> };
+      }).knowledgePage.findMany;
+      expect(pageFindMany).not.toHaveBeenCalled();
+      const fragments = queryRawCalls[0]!.values
+        .map((v) => (v as { strings?: readonly string[] })?.strings?.join(" ?? "))
+        .filter(Boolean)
+        .join("\n");
+      expect(fragments).toContain(`AND kc."sourceType" <> 'page'`);
+    });
+
+    it("skips the page-access lookup when the search can't return page chunks", async () => {
+      const { db, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", {
+        workspaceId: "ws-A",
+        pageViewerId: "u-7",
+        sourceTypes: ["resource"],
+      });
+
+      const pageFindMany = (db as unknown as {
+        knowledgePage: { findMany: ReturnType<typeof vi.fn> };
+      }).knowledgePage.findMany;
+      expect(pageFindMany).not.toHaveBeenCalled();
+    });
+
+    it("keeps transcription chunks only for meetings the transcriptionViewerId can view", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setViewableMeetings } = buildFakeDb();
+      setQueryRawResult([]);
+      setViewableMeetings(["meeting-ok"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", transcriptionViewerId: "u-7" });
+
+      const findMany = meetingFindMany(db);
+      expect(findMany).toHaveBeenCalledTimes(1);
+      const where = (findMany.mock.calls[0]?.[0] as { where: unknown }).where;
+      expect(where).toEqual({
+        AND: [{ workspaceId: "ws-A" }, buildTranscriptionAccessWhere("u-7")],
+      });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain(
+        `kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(`,
+      );
+      expect(bound).toContainEqual(["meeting-ok"]);
+    });
+
+    it("still filters transcription chunks when the viewer can see no meetings", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", transcriptionViewerId: "u-7" });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain(
+        `kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(`,
+      );
+      expect(bound).toContainEqual([]);
+    });
+
+    it("drops transcription chunks entirely when no transcriptionViewerId is given (fails closed)", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A" });
+
+      expect(meetingFindMany(db)).not.toHaveBeenCalled();
+      const { fragments } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain(`AND kc."sourceType" <> 'transcription'`);
+    });
+
+    it("skips the meeting-access lookup when the search can't return transcription chunks", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", {
+        workspaceId: "ws-A",
+        transcriptionViewerId: "u-7",
+        sourceTypes: ["resource"],
+      });
+
+      expect(meetingFindMany(db)).not.toHaveBeenCalled();
+      const { fragments } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).not.toContain(`'transcription'`);
+    });
+
+    it("applies meeting access on top of participantEmail — the email narrows, it never grants", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setViewableMeetings } = buildFakeDb();
+      setQueryRawResult([]);
+      setViewableMeetings(["meeting-ok"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", {
+        workspaceId: "ws-A",
+        participantEmail: "alice@example.com",
+        transcriptionViewerId: "u-7",
+      });
+
+      // Viewable meetings are resolved for the caller alone; the attendee
+      // email being searched for plays no part in who may see them.
+      const where = (meetingFindMany(db).mock.calls[0]?.[0] as { where: unknown }).where;
+      expect(where).toEqual({
+        AND: [{ workspaceId: "ws-A" }, buildTranscriptionAccessWhere("u-7")],
+      });
+      expect(JSON.stringify(where)).not.toContain("alice@example.com");
+
+      // Both conditions land in the WHERE clause, so a meeting must pass both.
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain("p.email");
+      expect(fragments).toContain(
+        `kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(`,
+      );
+      expect(bound).toContain("alice@example.com");
+      expect(bound).toContainEqual(["meeting-ok"]);
     });
   });
 });

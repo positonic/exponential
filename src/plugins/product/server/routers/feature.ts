@@ -1,43 +1,26 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  loadProductWithAccess,
+  assertWorkspaceAccess,
+  type WorkspaceAccessLevel,
+} from "./product";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
+import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
 import { uploadToBlob } from "~/lib/blob";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { hasMinimumWorkspaceRole } from "~/server/services/access";
+import { assertWorkspaceWriteRole } from "~/server/services/access";
 import {
   planFeatureMove,
   type FeatureMoveGraph,
   type FeatureMoveDestination,
 } from "../services/featureMove";
-
-/**
- * Require the caller to be a non-viewer (owner/admin/member) of the workspace.
- * A cross-workspace Feature move is a lossy cascade, so - per ADR-0027 - the
- * mover must be able to *write* to both the source and destination workspaces,
- * not merely read them. This is stricter than {@link assertWorkspaceMember},
- * which admits viewers.
- */
-async function assertWorkspaceWriteRole(
-  db: PrismaClient,
-  userId: string,
-  workspaceId: string,
-) {
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!membership || !hasMinimumWorkspaceRole(membership.role, "member")) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        "You need owner, admin, or member access to this workspace to move a feature here",
-    });
-  }
-  return membership;
-}
+import { dropStrandedFeatureMeetingLinks } from "~/server/services/meetings/meetingFeatures";
 
 /**
  * Load everything a Feature move needs, run both-ends access checks, and shape
@@ -52,7 +35,9 @@ async function loadFeatureMoveContext(
   featureId: string,
   destinationProductId: string,
 ) {
-  // Source: feature graph + workspace, require write role.
+  // Source: feature graph + workspace, require write role. A cross-workspace
+  // Feature move is a lossy cascade, so - per ADR-0027 - the mover must be able
+  // to *write* to both the source and destination workspaces.
   const feature = await db.feature.findUnique({
     where: { id: featureId },
     select: {
@@ -219,18 +204,21 @@ const scopeStatusEnum = z.enum([
 ]);
 
 /**
- * Load a feature and verify workspace membership via its product. Shared with
- * the featureComment router so comments reuse the exact same access gate.
+ * Load a feature and verify workspace access via its product. Shared with the
+ * featureComment router so comments reuse the exact same access gate. Pass
+ * `"edit"` from every mutation - `"view"` admits read-only viewers.
  */
 export async function loadFeatureWithAccess(
   db: PrismaClient,
   userId: string,
   featureId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const feature = await db.feature.findUnique({
     where: { id: featureId },
     select: {
       id: true,
+      name: true,
       productId: true,
       product: { select: { workspaceId: true } },
     },
@@ -238,7 +226,7 @@ export async function loadFeatureWithAccess(
   if (!feature) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
   }
-  await assertWorkspaceMember(db, userId, feature.product.workspaceId);
+  await assertWorkspaceAccess(db, userId, feature.product.workspaceId, level);
   return feature;
 }
 
@@ -246,6 +234,7 @@ async function loadScopeWithAccess(
   db: PrismaClient,
   userId: string,
   scopeId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const scope = await db.featureScope.findUnique({
     where: { id: scopeId },
@@ -254,17 +243,22 @@ async function loadScopeWithAccess(
       featureId: true,
       status: true,
       feature: {
-        select: { productId: true, product: { select: { workspaceId: true } } },
+        select: {
+          name: true,
+          productId: true,
+          product: { select: { workspaceId: true } },
+        },
       },
     },
   });
   if (!scope) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Scope not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     scope.feature.product.workspaceId,
+    level,
   );
   return scope;
 }
@@ -273,6 +267,7 @@ async function loadUserStoryWithAccess(
   db: PrismaClient,
   userId: string,
   storyId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const story = await db.userStory.findUnique({
     where: { id: storyId },
@@ -285,10 +280,11 @@ async function loadUserStoryWithAccess(
   if (!story) {
     throw new TRPCError({ code: "NOT_FOUND", message: "User story not found" });
   }
-  await assertWorkspaceMember(
+  await assertWorkspaceAccess(
     db,
     userId,
     story.feature.product.workspaceId,
+    level,
   );
   return story;
 }
@@ -303,7 +299,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       return ctx.db.feature.findMany({
         where: {
@@ -315,6 +311,18 @@ export const featureRouter = createTRPCRouter({
           goal: { select: { id: true, title: true, period: true } },
           area: { select: { id: true, name: true, displayOrder: true } },
           tags: { include: { tag: true } },
+          // Lean Key result edges (ADR-0050) so a per-Feature "which numbers
+          // does this move" column can be built from one list call instead of
+          // N `getById`s. Deliberately id+title+period only - the full KR with
+          // its progress values is {@link getById}'s job.
+          keyResultLinks: {
+            orderBy: { assignedAt: "asc" },
+            select: {
+              keyResult: {
+                select: { id: true, title: true, period: true, goalId: true },
+              },
+            },
+          },
           _count: {
             select: { scopes: true, requirements: true, tickets: true },
           },
@@ -329,17 +337,18 @@ export const featureRouter = createTRPCRouter({
    * board needs plus the parent `product` (icon/color/name for the card badge).
    * No descriptions, no ticket graphs - keep the payload small.
    *
-   * Access is gated at the workspace level (`assertWorkspaceMember`); every
+   * Access is gated at the workspace level (`assertWorkspaceAccess`); every
    * Feature returned belongs to a Product in that workspace, so the per-Product
    * access check is unnecessary.
    */
   listForWorkspace: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
       return ctx.db.feature.findMany({
@@ -364,6 +373,60 @@ export const featureRouter = createTRPCRouter({
           // Lean Objective for the Product Roadmap's swimlane grouping
           // (ADR-0035) - id + title only, no Key results / nested graph.
           goal: { select: { id: true, title: true } },
+        },
+      });
+    }),
+
+  /**
+   * Features **aligned** to one Objective (`Feature.goalId`), for the Features
+   * tab on the Objective page. Alignment only - a Feature that merely executes
+   * one of the Objective's Key results (`KeyResultFeature`) is not aligned and
+   * does not appear here; that edge is shown in the Key results' "Executing
+   * work" panels instead (CONTEXT.md "Product alignment chain").
+   *
+   * Every status is returned, DEPRECATED/ARCHIVED included: the tab hides those
+   * behind a client-side toggle, same as the Product Roadmap.
+   */
+  listForGoal: protectedProcedure
+    .input(z.object({ goalId: z.number().int() }))
+    .query(async ({ ctx, input }) => {
+      const goal = await ctx.db.goal.findUnique({
+        where: { id: input.goalId },
+        select: { workspaceId: true },
+      });
+      if (!goal) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
+      }
+      // feature.create/update only accept a goal in the Product's workspace, so
+      // a workspace-less (personal) goal can have no aligned Features.
+      if (!goal.workspaceId) return [];
+
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, goal.workspaceId, "view");
+
+      return ctx.db.feature.findMany({
+        where: {
+          goalId: input.goalId,
+          product: { workspaceId: goal.workspaceId },
+        },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          priority: true,
+          updatedAt: true,
+          product: {
+            select: { id: true, name: true, slug: true, icon: true, color: true },
+          },
+          area: { select: { id: true, name: true } },
+          // Only this Objective's Key results: executing another Objective's
+          // numbers is noise on this page.
+          keyResultLinks: {
+            where: { keyResult: { goalId: input.goalId } },
+            orderBy: { assignedAt: "asc" },
+            select: { keyResult: { select: { id: true, title: true } } },
+          },
+          _count: { select: { tickets: true } },
         },
       });
     }),
@@ -427,6 +490,39 @@ export const featureRouter = createTRPCRouter({
             },
           },
           tags: { include: { tag: true } },
+          // The Feature→Key result execution edges (ADR-0050), readable from
+          // this side too. `goal` above is the coarser Objective alignment and
+          // answers a different question: which Objective this Feature serves,
+          // versus which specific numbers it is meant to move. The two can
+          // legitimately disagree, so neither substitutes for the other.
+          //
+          // No workspace filter on the join, matching `okr.getById`'s mirror
+          // include: a link row cannot cross workspaces in the first place.
+          // Both write paths - `okr.linkFeature` and `okr.updateLinkedFeatures`
+          // - reject a feature whose product is in a different workspace than
+          // the key result, and both rejections are covered by tests. Filtering
+          // here would duplicate that guard and mask, rather than surface, any
+          // future breach of the invariant.
+          keyResultLinks: {
+            orderBy: { assignedAt: "asc" },
+            select: {
+              assignedAt: true,
+              keyResult: {
+                select: {
+                  id: true,
+                  title: true,
+                  period: true,
+                  status: true,
+                  currentValue: true,
+                  targetValue: true,
+                  unit: true,
+                  unitLabel: true,
+                  goalId: true,
+                  goal: { select: { id: true, title: true } },
+                },
+              },
+            },
+          },
           // `comments` is a count, not the list: the UI loads the thread lazily
           // via `featureComment.list`, and API callers need to know a discussion
           // exists before paying for it.
@@ -436,10 +532,11 @@ export const featureRouter = createTRPCRouter({
       if (!feature) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         feature.product.workspaceId,
+        "view",
       );
       return feature;
     }),
@@ -459,7 +556,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const product = await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      const product = await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       if (input.goalId) {
         const goal = await ctx.db.goal.findFirst({
@@ -504,6 +601,7 @@ export const featureRouter = createTRPCRouter({
         entityType: "feature",
         entityId: created.id,
         action: "created",
+        metadata: { name: created.name },
       });
       return created;
     }),
@@ -535,7 +633,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       if (input.goalId) {
         const goal = await ctx.db.goal.findFirst({
@@ -589,18 +687,19 @@ export const featureRouter = createTRPCRouter({
       // server-side (ADR-0024 - the doc is canonical; leaving it stale would
       // make the edit invisible in the UI and get clobbered on the next
       // editor save). Bumping `docVersion` turns any open editor tab's next
-      // autosave into a CONFLICT instead of a silent overwrite. Anchored
-      // comment marks don't survive the rewrite - the Markdown projection
-      // never carried them - which is the same trade-off as a full-body
-      // rewrite in the editor.
+      // autosave into a CONFLICT instead of a silent overwrite. The Markdown
+      // projection never carried comment marks, so they're carried across
+      // from the old doc wherever their text survived the rewrite; a thread
+      // whose text is gone becomes orphaned, as an editor deletion would.
       let syncDoc = descriptionDoc === undefined && rest.description !== undefined;
+      let previousDoc: JSONContent | null = null;
       if (syncDoc) {
         // Re-sending the stored Markdown unchanged (agents retry-write a lot)
         // must not rewrite the doc: it would bump `docVersion` for nothing
         // and hand every open editor tab a spurious CONFLICT.
         const current = await ctx.db.feature.findUnique({
           where: { id },
-          select: { description: true },
+          select: { description: true, descriptionDoc: true },
         });
         if (!current) {
           // Deleted between the access check and this read - fail the same
@@ -608,14 +707,17 @@ export const featureRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
         }
         if (current.description === rest.description) syncDoc = false;
+        previousDoc = current.descriptionDoc as JSONContent | null;
       }
       let data: Prisma.FeatureUncheckedUpdateInput = rest;
       if (syncDoc) {
         try {
           data = {
             ...rest,
-            descriptionDoc: markdownToDocServer(
-              rest.description,
+            descriptionDoc: withCarriedCommentMarks(
+              previousDoc,
+              markdownToDocServer(rest.description),
+              "feature.update",
             ) as Prisma.InputJsonValue,
             docVersion: { increment: 1 },
           };
@@ -645,7 +747,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "status_changed",
-            metadata: { from: prev?.status ?? "", to: rest.status! },
+            metadata: {
+              from: prev?.status ?? "",
+              to: rest.status!,
+              name: rest.name ?? feature.name,
+            },
           });
           return;
         }
@@ -660,7 +766,7 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature",
             entityId: id,
             action: "updated",
-            metadata: { fieldsChanged },
+            metadata: { fieldsChanged, name: rest.name ?? feature.name },
           });
         }
       };
@@ -766,6 +872,7 @@ export const featureRouter = createTRPCRouter({
         where: { id: { in: uniqueIds } },
         select: {
           id: true,
+          name: true,
           status: true,
           productId: true,
           product: { select: { workspaceId: true } },
@@ -782,7 +889,7 @@ export const featureRouter = createTRPCRouter({
         new Set(features.map((f) => f.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
       }
 
       if (input.areaId) {
@@ -851,7 +958,12 @@ export const featureRouter = createTRPCRouter({
                 entityType: "feature",
                 entityId: f.id,
                 action: "status_changed",
-                metadata: { from: f.status, to: input.status!, bulk: true },
+                metadata: {
+                  from: f.status,
+                  to: input.status!,
+                  bulk: true,
+                  name: f.name,
+                },
               });
             }
             if (fieldsChanged.length === 0) return Promise.resolve(true);
@@ -861,7 +973,7 @@ export const featureRouter = createTRPCRouter({
               entityType: "feature",
               entityId: f.id,
               action: "updated",
-              metadata: { fieldsChanged, bulk: true },
+              metadata: { fieldsChanged, bulk: true, name: f.name },
             });
           }),
       );
@@ -882,7 +994,7 @@ export const featureRouter = createTRPCRouter({
   initDescriptionDoc: protectedProcedure
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       const existing = await ctx.db.feature.findUnique({
         where: { id: input.id },
@@ -915,7 +1027,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       // Same 5MB cap as action.uploadImage (base64 is ~4/3 the byte size).
       const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
@@ -935,7 +1047,7 @@ export const featureRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.feature.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -959,7 +1071,7 @@ export const featureRouter = createTRPCRouter({
         new Set(features.map((f) => f.product.workspaceId)),
       );
       for (const workspaceId of workspaceIds) {
-        await assertWorkspaceMember(ctx.db, ctx.session.user.id, workspaceId);
+        await assertWorkspaceAccess(ctx.db, ctx.session.user.id, workspaceId, "edit");
       }
       await ctx.db.feature.deleteMany({ where: { id: { in: uniqueIds } } });
       return { count: uniqueIds.length };
@@ -1095,6 +1207,12 @@ export const featureRouter = createTRPCRouter({
             },
           });
         }
+        // Meeting links are workspace-bound; a cross-workspace move strands
+        // the ones whose meeting stays behind.
+        await dropStrandedFeatureMeetingLinks(tx, {
+          featureIds: [mutations.featureId],
+          workspaceId: destProduct.workspaceId,
+        });
         if (mutations.nextTicketCounter !== destProduct.ticketCounter) {
           await tx.product.update({
             where: { id: destProduct.id },
@@ -1128,6 +1246,7 @@ export const featureRouter = createTRPCRouter({
         ctx.db,
         ctx.session.user.id,
         input.featureId,
+        "view",
       );
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1163,7 +1282,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const parentFeature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const parentFeature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
 
       const maxOrder = await ctx.db.featureScope.findFirst({
         where: { featureId: input.featureId },
@@ -1188,7 +1307,11 @@ export const featureRouter = createTRPCRouter({
         entityType: "feature_scope",
         entityId: scope.id,
         action: "created",
-        metadata: { featureId: input.featureId, version: input.version },
+        metadata: {
+          featureId: input.featureId,
+          version: input.version,
+          name: parentFeature.name,
+        },
       });
       return scope;
     }),
@@ -1205,7 +1328,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       const { id, ...data } = input;
       const updated = await ctx.db.featureScope.update({
@@ -1231,7 +1354,12 @@ export const featureRouter = createTRPCRouter({
           entityType: "feature_scope",
           entityId: scope.id,
           action: "status_changed",
-          metadata: { from: scope.status, to: input.status! },
+          metadata: {
+            from: scope.status,
+            to: input.status!,
+            featureId: scope.featureId,
+            name: scope.feature.name,
+          },
         });
       } else {
         // displayOrder is drag-reorder noise, not timeline material.
@@ -1245,7 +1373,11 @@ export const featureRouter = createTRPCRouter({
             entityType: "feature_scope",
             entityId: scope.id,
             action: "updated",
-            metadata: { fieldsChanged },
+            metadata: {
+              fieldsChanged,
+              featureId: scope.featureId,
+              name: scope.feature.name,
+            },
           });
         }
       }
@@ -1255,7 +1387,7 @@ export const featureRouter = createTRPCRouter({
   deleteScope: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const scope = await loadScopeWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.featureScope.delete({ where: { id: input.id } });
       await applyScopeRollup(ctx.db, scope.featureId);
       return { success: true };
@@ -1286,10 +1418,11 @@ export const featureRouter = createTRPCRouter({
       if (!scope) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Scope not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         scope.feature.product.workspaceId,
+        "view",
       );
       return scope;
     }),
@@ -1302,7 +1435,7 @@ export const featureRouter = createTRPCRouter({
   listAreas: protectedProcedure
     .input(z.object({ productId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       return ctx.db.area.findMany({
         where: { productId: input.productId },
         orderBy: { displayOrder: "asc" },
@@ -1319,7 +1452,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
       const maxOrder = await ctx.db.area.findFirst({
         where: { productId: input.productId },
         orderBy: { displayOrder: "desc" },
@@ -1362,7 +1495,7 @@ export const featureRouter = createTRPCRouter({
       if (!area) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
       }
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, area.product.workspaceId, "edit");
       const { id, ...data } = input;
       try {
         return await ctx.db.area.update({ where: { id }, data });
@@ -1387,7 +1520,7 @@ export const featureRouter = createTRPCRouter({
       if (!area) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Area not found" });
       }
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, area.product.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, area.product.workspaceId, "edit");
       await ctx.db.area.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -1407,7 +1540,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
           where: { id: input.scopeId },
@@ -1458,10 +1591,11 @@ export const featureRouter = createTRPCRouter({
       if (!requirement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         requirement.feature.product.workspaceId,
+        "edit",
       );
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1493,10 +1627,11 @@ export const featureRouter = createTRPCRouter({
       if (!requirement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         requirement.feature.product.workspaceId,
+        "edit",
       );
       return ctx.db.requirement.update({
         where: { id: input.id },
@@ -1519,10 +1654,11 @@ export const featureRouter = createTRPCRouter({
       if (!requirement) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Requirement not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         requirement.feature.product.workspaceId,
+        "edit",
       );
       await ctx.db.requirement.delete({ where: { id: input.id } });
       return { success: true };
@@ -1542,7 +1678,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      const feature = await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       const page = await ctx.db.knowledgePage.findUnique({
         where: { id: input.pageId },
         select: { id: true, workspaceId: true },
@@ -1582,7 +1718,7 @@ export const featureRouter = createTRPCRouter({
   unlinkPage: protectedProcedure
     .input(z.object({ featureId: z.string(), pageId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       await ctx.db.featurePage.deleteMany({
         where: { featureId: input.featureId, pageId: input.pageId },
       });
@@ -1602,7 +1738,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
 
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1648,7 +1784,7 @@ export const featureRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const story = await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const story = await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -1673,7 +1809,7 @@ export const featureRouter = createTRPCRouter({
   deleteUserStory: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadUserStoryWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.userStory.delete({ where: { id: input.id } });
       return { success: true };
     }),

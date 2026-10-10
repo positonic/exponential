@@ -60,6 +60,32 @@ export interface WikiBridge {
   listPages: () => Promise<WikiPage[]>;
   readPage: (path: string) => Promise<string>;
   writePage: (path: string, content: string) => Promise<void>;
+  /**
+   * Remove a page. Inbound `[[wikilinks]]` are deliberately left alone: per
+   * `schema.md` a link to a page nobody has written marks something worth
+   * writing, which is the right record of a page having been deleted.
+   */
+  deletePage: (path: string) => Promise<void>;
+  /**
+   * Move a page **and repoint every `[[wikilink]]` that pointed at it**, which
+   * is why this returns what it relinked rather than void — a rename that
+   * quietly edits six other pages is a surprise the caller has to be able to
+   * report. See `wiki.rs` for why rewriting beats refusing.
+   */
+  renamePage: (from: string, to: string) => Promise<RenameResult>;
+  /** One page's commits, newest first, followed through renames. */
+  pageHistory: (path: string, limit?: number) => Promise<WikiCommit[]>;
+  /** What changed across the whole wiki lately, newest first. */
+  recentChanges: (limit?: number) => Promise<WikiCommit[]>;
+  /**
+   * Run `handler` whenever the wiki changes on disk, and return the unsubscribe.
+   *
+   * The librarian writes these files from a chat elsewhere in the app, so an
+   * open wiki view would otherwise sit there showing yesterday's wiki. Falls
+   * back to doing nothing on a shell without the event channel, which is safe
+   * because `useRefreshOnFocus` still covers the case, more slowly.
+   */
+  onChanged: (handler: (change: WikiChange) => void) => () => void;
   search: (query: string) => Promise<SearchHit[]>;
   /**
    * Where the wiki lives, so the app can say so instead of making the user
@@ -90,6 +116,36 @@ export interface CommitResult {
   sha: string | null;
 }
 
+/** What a rename moved, and what it had to edit to keep the links working. */
+export interface RenameResult {
+  /** The paths actually used, after a missing `.md` was filled in. */
+  from: string;
+  to: string;
+  /** Pages whose `[[wikilinks]]` were repointed at the new path. */
+  relinked: string[];
+}
+
+/** One commit in the wiki's history, as `git log` would show it. */
+export interface WikiCommit {
+  /** Short hash — what `git show` and `git revert` take. */
+  sha: string;
+  subject: string;
+  author: string;
+  /** ISO-8601 with offset, formatted for the reader here rather than in Rust. */
+  date: string;
+  /** Pages the commit touched. Empty on a single page's history. */
+  paths: string[];
+}
+
+/** Why an open wiki view should re-read. */
+export interface WikiChange {
+  kind: "write" | "delete" | "rename" | "commit";
+  path: string | null;
+}
+
+/** Event the shell emits when the wiki folder changes. Mirrors `wiki.rs`. */
+const CHANGED_EVENT = "wiki://changed";
+
 /** Outside material handed to the librarian to fold into the wiki. */
 export interface FetchedSource {
   /** Echoed back so the librarian can cite where a page came from. */
@@ -107,15 +163,75 @@ export interface SearchHit {
   lines: string[];
 }
 
-/** Tauri's IPC primitive, as narrowly as we need it. */
+/** Tauri's IPC primitives, as narrowly as we need them. */
 type TauriWindow = Window & {
-  __TAURI_INTERNALS__?: { invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
+  __TAURI_INTERNALS__?: {
+    invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+    /**
+     * Hands a JS function to Rust as a callback id. Needed only by `onChanged`
+     * — every other call here is a plain request/response.
+     */
+    transformCallback?: (callback: (payload: unknown) => void) => number;
+  };
 };
 
 function invoker(): ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null {
   if (getDesktopBridge()?.shell !== "tauri") return null;
   const invoke = (window as TauriWindow).__TAURI_INTERNALS__?.invoke;
   return typeof invoke === "function" ? invoke : null;
+}
+
+/**
+ * Subscribe to the shell's change event.
+ *
+ * Spoken directly to `plugin:event|listen` rather than through
+ * `@tauri-apps/api`, for the same reason every command above is: the package
+ * isn't a dependency of the web app, and adding it to ship one subscription
+ * would put a desktop-only SDK in the browser bundle. This module already
+ * treats `__TAURI_INTERNALS__` as the contract.
+ *
+ * Degrades to a no-op on a shell without the event channel — an older build of
+ * the app, most likely — because `useRefreshOnFocus` still covers that case.
+ */
+function subscribe(
+  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
+  handler: (change: WikiChange) => void,
+): () => void {
+  const transformCallback = (window as TauriWindow).__TAURI_INTERNALS__?.transformCallback;
+  if (typeof transformCallback !== "function") return () => undefined;
+
+  let unsubscribed = false;
+  let stop: (() => void) | null = null;
+
+  void (async () => {
+    try {
+      const id = await invoke("plugin:event|listen", {
+        event: CHANGED_EVENT,
+        target: { kind: "Any" },
+        handler: transformCallback((message) => {
+          const payload = (message as { payload?: WikiChange } | null)?.payload;
+          if (payload) handler(payload);
+        }),
+      });
+      const off = () => {
+        void invoke("plugin:event|unlisten", { event: CHANGED_EVENT, eventId: id }).catch(
+          () => undefined,
+        );
+      };
+      // Unmounted while the listen call was still in flight: tear down the
+      // listener we just created rather than leaking it for the page's life.
+      if (unsubscribed) off();
+      else stop = off;
+    } catch {
+      // No event channel, or the capability wasn't granted. Focus refresh
+      // still works, so this must not take the view down with it.
+    }
+  })();
+
+  return () => {
+    unsubscribed = true;
+    stop?.();
+  };
 }
 
 /**
@@ -140,6 +256,16 @@ export function getWikiBridge(): WikiBridge | null {
     writePage: async (path: string, content: string) => {
       await invoke("wiki_write_page", { path, content });
     },
+    deletePage: async (path: string) => {
+      await invoke("wiki_delete_page", { path });
+    },
+    renamePage: async (from: string, to: string) =>
+      (await invoke("wiki_rename_page", { from, to })) as RenameResult,
+    pageHistory: async (path: string, limit?: number) =>
+      ((await invoke("wiki_page_history", { path, limit })) ?? []) as WikiCommit[],
+    recentChanges: async (limit?: number) =>
+      ((await invoke("wiki_recent_changes", { limit })) ?? []) as WikiCommit[],
+    onChanged: (handler) => subscribe(invoke, handler),
     search: async (query: string) =>
       ((await invoke("wiki_search", { query })) ?? []) as SearchHit[],
     getRoot: async () => {

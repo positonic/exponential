@@ -8,6 +8,12 @@ import {
   CHANNEL_LIST,
   DEFAULT_MATRIX,
 } from "~/server/services/notifications/emit/constants";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
+import {
+  DEFAULT_SHUTDOWN_RECAP_TIME,
+  DEFAULT_SUMMARY_TIME,
+  resolveSummaryTimezone,
+} from "~/server/services/notifications/emit/summarySchedule";
 
 /**
  * Which opt-in channels the user has actually connected — Push/Email are
@@ -16,7 +22,7 @@ import {
  */
 async function resolveChannelAvailability(db: PrismaClient, userId: string) {
   const matrixIntegration = await db.integration.findFirst({
-    where: { provider: "matrix", status: "ACTIVE", userId: null },
+    where: SHARED_MATRIX_INTEGRATION_WHERE,
     select: { id: true },
   });
   const [matrixMapping, zulipMapping, whatsappMapping] = await Promise.all([
@@ -45,7 +51,125 @@ async function resolveChannelAvailability(db: PrismaClient, userId: string) {
   };
 }
 
+/** Visibility window shared by list/unreadCount/markAllRead — a future scheduledFor means the notification hasn't fired yet. */
+const firedWindow = () => ({
+  OR: [{ scheduledFor: null }, { scheduledFor: { lte: new Date() } }],
+});
+
 export const notificationRouter = createTRPCRouter({
+  /**
+   * List the current user's Notification rows — the read side of the
+   * ADR-0045 pipeline (which until this query only ever wrote them).
+   * Newest first, cursor-paginated, optionally narrowed to one category
+   * (e.g. "mention" for the home-panel inbox).
+   */
+  list: protectedProcedure
+    .input(
+      z
+        .object({
+          category: z.enum(CATEGORY_LIST).optional(),
+          unreadOnly: z.boolean().optional(),
+          limit: z.number().int().min(1).max(50).default(20),
+          cursor: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 20;
+      const rows = await ctx.db.notification.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          ...(input?.category ? { category: input.category } : {}),
+          ...(input?.unreadOnly ? { readAt: null } : {}),
+          ...firedWindow(),
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        ...(input?.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          category: true,
+          title: true,
+          message: true,
+          deeplink: true,
+          createdAt: true,
+          readAt: true,
+        },
+      });
+
+      let nextCursor: string | undefined;
+      if (rows.length > limit) {
+        rows.pop();
+        nextCursor = rows[rows.length - 1]?.id;
+      }
+      return { notifications: rows, nextCursor };
+    }),
+
+  /**
+   * Mark one Notification read. Scoped to the current user via updateMany so
+   * a foreign id is a silent no-op rather than an oracle; idempotent (an
+   * already-read row keeps its original readAt).
+   */
+  markRead: protectedProcedure
+    .input(z.object({ notificationId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.notification.updateMany({
+        where: {
+          id: input.notificationId,
+          userId: ctx.session.user.id,
+          readAt: null,
+        },
+        data: { readAt: new Date() },
+      });
+      return { success: true };
+    }),
+
+  /** Mark every unread Notification read, optionally within one category. */
+  markAllRead: protectedProcedure
+    .input(z.object({ category: z.enum(CATEGORY_LIST).optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.db.notification.updateMany({
+        where: {
+          userId: ctx.session.user.id,
+          readAt: null,
+          ...(input?.category ? { category: input.category } : {}),
+          ...firedWindow(),
+        },
+        data: { readAt: new Date() },
+      });
+      return { success: true, count: result.count };
+    }),
+
+  /**
+   * Unread Notification count, optionally per category. `excludeCategories`
+   * lets the sidebar Inbox badge leave out categories the user reads
+   * elsewhere (e.g. summaries, read by email) so it can reach zero.
+   */
+  unreadCount: protectedProcedure
+    .input(
+      z
+        .object({
+          category: z.enum(CATEGORY_LIST).optional(),
+          excludeCategories: z.array(z.enum(CATEGORY_LIST)).optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const excluded = input?.excludeCategories ?? [];
+      return ctx.db.notification.count({
+        where: {
+          userId: ctx.session.user.id,
+          readAt: null,
+          ...(input?.category
+            ? { category: input.category }
+            : excluded.length
+              ? { category: { notIn: excluded } }
+              : {}),
+          ...firedWindow(),
+        },
+      });
+    }),
+
   // Get user notification preferences
   getPreferences: protectedProcedure.query(async ({ ctx }) => {
     const preferences = await ctx.db.notificationPreference.findUnique({
@@ -82,7 +206,7 @@ export const notificationRouter = createTRPCRouter({
   // by itself; the user must choose Matrix here. (V2, ADR-0043)
   getMatrixOptIn: protectedProcedure.query(async ({ ctx }) => {
     const integration = await ctx.db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     if (!integration) return { available: false, integrationId: null };
 
@@ -99,7 +223,7 @@ export const notificationRouter = createTRPCRouter({
   // scheduler), so opt-in can be verified on the spot. Requires a Matrix mapping.
   sendMatrixTest: protectedProcedure.mutation(async ({ ctx }) => {
     const integration = await ctx.db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     const mapping = integration
       ? await ctx.db.integrationUserMapping.findFirst({
@@ -185,6 +309,78 @@ export const notificationRouter = createTRPCRouter({
           channel: input.channel,
           enabled: input.enabled,
         },
+      });
+      return { success: true };
+    }),
+
+  // Settings → Notifications "Summary schedule" card: when the daily and
+  // weekly digests fire. Times are read in the profile timezone
+  // (`User.timezone`, Settings → Profile) — see `resolveSummaryTimezone`.
+  // Read-only: never creates the preference row (unlike `getPreferences`,
+  // whose create path switches the daily summary off).
+  getSummarySchedule: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const [pref, user] = await Promise.all([
+      ctx.db.notificationPreference.findUnique({
+        where: { userId },
+        select: {
+          dailySummary: true,
+          dailySummaryTime: true,
+          weeklySummary: true,
+          weeklyDayOfWeek: true,
+          shutdownRecap: true,
+          shutdownRecapTime: true,
+          timezone: true,
+        },
+      }),
+      ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { timezone: true },
+      }),
+    ]);
+
+    const profileTimezone = user?.timezone ?? null;
+    return {
+      // No row means the scheduler never visits this user (it iterates
+      // existing rows), so report the summary as off — the schema default of
+      // `true` only takes effect once a row exists. Saving creates the row.
+      dailySummary: pref?.dailySummary ?? false,
+      dailySummaryTime: pref?.dailySummaryTime ?? DEFAULT_SUMMARY_TIME,
+      weeklySummary: pref?.weeklySummary ?? false,
+      weeklyDayOfWeek: pref?.weeklyDayOfWeek ?? 1,
+      shutdownRecap: pref?.shutdownRecap ?? false,
+      shutdownRecapTime: pref?.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME,
+      /** The zone the scheduler will actually use for this user. */
+      timezone: resolveSummaryTimezone({
+        timezone: pref?.timezone ?? null,
+        user: { timezone: profileTimezone },
+      }),
+      /** Null until the user sets one on their profile; then times follow it. */
+      profileTimezone,
+    };
+  }),
+
+  updateSummarySchedule: protectedProcedure
+    .input(
+      z.object({
+        dailySummary: z.boolean(),
+        dailySummaryTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 08:00"),
+        weeklySummary: z.boolean(),
+        weeklyDayOfWeek: z.number().int().min(1).max(7),
+        shutdownRecap: z.boolean(),
+        shutdownRecapTime: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time like 18:00"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await ctx.db.notificationPreference.upsert({
+        where: { userId },
+        update: input,
+        create: { userId, ...input },
       });
       return { success: true };
     }),

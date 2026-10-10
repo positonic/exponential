@@ -7,6 +7,7 @@ import { ActionModalForm, type PastedScreenshot } from './ActionModalForm';
 import { AssignActionModal } from './AssignActionModal';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { ActionTimeEntries } from './time/ActionTimeEntries';
 
 // Minimal action type needed for the edit modal - supports actions from various query sources
 // Only requires fields that the modal actually reads for initialization
@@ -24,7 +25,7 @@ export type Action = {
   duration?: number | null;
   epicId?: string | null;
   effortEstimate?: number | null;
-  blockedByIds?: string[];
+  depsOut?: Array<{ dependsOn: { id: string } }>;
   tags?: Array<{ tag: { id: string; name: string; color: string } }>;
   assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
   lists?: Array<{ list: { id: string; name: string; listType: string } }>;
@@ -45,9 +46,24 @@ interface EditActionModalProps {
   opened: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /**
+   * Show the Time section: the caller's time entries on this Action, each
+   * editable in place. Off by default — only the time-centric surfaces
+   * (/time, /calendar) turn it on.
+   */
+  showTimeEntries?: boolean;
+  /** Called after the Time section adds, edits or deletes a time entry. */
+  onTimeEntriesChange?: () => void;
 }
 
-export function EditActionModal({ action, opened, onClose, onSuccess }: EditActionModalProps) {
+export function EditActionModal({
+  action,
+  opened,
+  onClose,
+  onSuccess,
+  showTimeEntries = false,
+  onTimeEntriesChange,
+}: EditActionModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -165,7 +181,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
         duration?: number | null;
         epicId?: string | null;
         effortEstimate?: number | null;
-        blockedByIds?: string[];
+        depsOut?: Array<{ dependsOn: { id: string } }>;
         lists?: Array<{ list: { id: string; listType: string } }>;
         tags?: Array<{ tag: { id: string } }>;
       };
@@ -174,7 +190,7 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
       // Load epic & effort
       setEpicId(actionData.epicId ?? null);
       setEffortEstimate(actionData.effortEstimate ?? null);
-      setBlockedByIds(actionData.blockedByIds ?? []);
+      setBlockedByIds(actionData.depsOut?.map((d) => d.dependsOn.id) ?? []);
       // Load sprint (first SPRINT-type list)
       const sprintList = actionData.lists?.find(l => l.list.listType === 'SPRINT');
       const sprintId = sprintList?.list.id ?? null;
@@ -460,6 +476,11 @@ export function EditActionModal({ action, opened, onClose, onSuccess }: EditActi
           // Only allow removing newly pasted screenshots (existing ones need a delete API)
           setPastedScreenshots(prev => prev.filter(s => s.id !== id));
         }}
+        extraSection={
+          showTimeEntries && opened && currentAction ? (
+            <ActionTimeEntries actionId={currentAction.id} onChange={onTimeEntriesChange} />
+          ) : undefined
+        }
       />
     </Modal>
 

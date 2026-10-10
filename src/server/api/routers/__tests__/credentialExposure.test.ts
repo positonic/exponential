@@ -160,4 +160,21 @@ describe("integration credential exposure (V1 audit regressions)", () => {
   ])("audit-deleted procedure %s does not exist", (path) => {
     expect(procedurePaths).not.toContain(path);
   });
+
+  /**
+   * The Matrix bot access token is an IntegrationCredential like any other, so the
+   * compile-time walker above already covers it structurally. This names it: the
+   * `matrixServer` router exists, and there is no procedure on it whose name suggests
+   * handing the token back — the shape `getFirefliesApiKey` had before it was deleted.
+   */
+  it("exposes no matrixServer procedure that reads the bot access token back out", () => {
+    const matrixServerPaths = procedurePaths.filter((path) =>
+      path.startsWith("matrixServer."),
+    );
+
+    expect(matrixServerPaths.length).toBeGreaterThan(0);
+    expect(
+      matrixServerPaths.filter((path) => /token|credential|secret/i.test(path)),
+    ).toEqual([]);
+  });
 });

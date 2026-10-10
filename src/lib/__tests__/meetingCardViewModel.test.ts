@@ -11,7 +11,6 @@ function baseSession(overrides: Partial<MeetingCardSession> = {}): MeetingCardSe
     sessionId: "external-1",
     title: "Weekly sync",
     summary: null,
-    transcription: null,
     project: null,
     actions: [],
     ...overrides,
@@ -184,42 +183,3 @@ describe("buildMeetingCardViewModel — title fallback and project pill", () => 
   });
 });
 
-describe("buildMeetingCardViewModel — peek lines", () => {
-  it("returns the first two parsed sentences with formatted timestamps", () => {
-    const session = baseSession({
-      transcription: JSON.stringify({
-        sentences: [
-          { start_time: 5, speaker_name: "Alice", text: "Hi everyone." },
-          { start_time: 65, speaker_name: "Ben", text: "Let's start." },
-          { start_time: 120, speaker_name: "Carla", text: "Third line." },
-        ],
-      }),
-    });
-    const vm = buildMeetingCardViewModel(session, []);
-    expect(vm.peekLines).toEqual([
-      { time: "00:00:05", speaker: "Alice", text: "Hi everyone." },
-      { time: "00:01:05", speaker: "Ben", text: "Let's start." },
-    ]);
-  });
-
-  it("returns null when transcription is null", () => {
-    const vm = buildMeetingCardViewModel(baseSession({ transcription: null }), []);
-    expect(vm.peekLines).toBeNull();
-  });
-
-  it("returns null when transcription JSON is invalid", () => {
-    const vm = buildMeetingCardViewModel(
-      baseSession({ transcription: "not-json" }),
-      [],
-    );
-    expect(vm.peekLines).toBeNull();
-  });
-
-  it("returns null when sentences array is empty", () => {
-    const vm = buildMeetingCardViewModel(
-      baseSession({ transcription: JSON.stringify({ sentences: [] }) }),
-      [],
-    );
-    expect(vm.peekLines).toBeNull();
-  });
-});

@@ -59,6 +59,18 @@
   display: grid; place-items: center; flex-shrink: 0; transition: background 120ms, color 120ms;
 }
 .mp-title__edit:hover { color: var(--color-text-secondary); background: var(--color-bg-hover); }
+.mp-title--editable .mp-title__text { cursor: text; border-radius: 5px; }
+.mp-title--editable .mp-title__text:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 2px; }
+.mp-title--editable .mp-title__edit { opacity: 0; }
+.mp-title--editable:hover .mp-title__edit,
+.mp-title--editable .mp-title__edit:focus-visible { opacity: 1; }
+@media (hover: none) { .mp-title--editable .mp-title__edit { opacity: 1; } }
+.mp-title__input {
+  flex: 1; min-width: 0; font: inherit; letter-spacing: inherit; line-height: inherit; color: inherit;
+  background: transparent; border: 0; border-bottom: 1px solid var(--color-border-primary);
+  padding: 0; margin: 0; outline: none;
+}
+.mp-title__input:focus { border-bottom-color: var(--brand-400); }
 .mp-meta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: var(--color-text-secondary); }
 .mp-meta__item { display: inline-flex; align-items: center; gap: 7px; }
 .mp-meta__item svg { color: var(--color-text-muted); }
@@ -148,6 +160,15 @@
 .mp-card__label { display: inline-flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px; }
 .mp-card__label--decision { color: var(--accent-crm); }
 .mp-card__label--question { color: var(--accent-okr); }
+.mp-card__label--action { color: var(--accent-ritual); }
+/* Outputs tab: actions, decisions and open questions side by side. */
+.mp-threecard { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1280px) { .mp-threecard { grid-template-columns: 1fr; } }
+.mp-review { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.mp-review__head { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-text-muted); }
+/* A copy of a rail control for when the rail is hidden (see .mp-rail below). */
+.mp-only-narrow { display: none; }
+@media (max-width: 1100px) { .mp-only-narrow { display: inline-flex; } }
 .mp-card__list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .mp-card__list li { display: grid; grid-template-columns: 15px 1fr; gap: 9px; font-size: 13.5px; color: var(--color-text-primary); line-height: 1.5; }
 .mp-card__list li svg { margin-top: 3px; }
@@ -219,6 +240,46 @@
 .mp-shot__time { position: absolute; top: 8px; left: 8px; font-family: var(--font-mono); font-size: 10px; color: var(--mp-on-accent); background: var(--mp-shot-overlay); border: 1px solid var(--color-border-subtle); padding: 2px 6px; border-radius: 3px; font-variant-numeric: tabular-nums; }
 .mp-shot__flag { position: absolute; top: 8px; right: 8px; font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-okr); background: var(--mp-amber-12); border: 1px solid var(--mp-amber-25); padding: 2px 6px; border-radius: 3px; }
 .mp-shot__cap { padding: 10px 12px; font-size: 12.5px; color: var(--color-text-secondary); line-height: 1.4; }
+/* Drop target: the whole tab accepts dragged images. min-height keeps an empty
+   tab a usable target, not a one-line strip. */
+.mp-shots-drop { position: relative; min-height: 320px; }
+.mp-shots-add { display: flex; align-items: center; gap: 12px; width: 100%; margin-bottom: 16px; padding: 12px 14px; text-align: left; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); color: var(--color-text-secondary); transition: border-color 120ms, background 120ms; }
+.mp-shots-add:hover:not(:disabled) { border-color: var(--brand-400); background: var(--mp-brand-05); }
+.mp-shots-add:disabled { cursor: progress; }
+.mp-shots-add__icon { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: var(--radius-sm); background: var(--mp-brand-10); color: var(--brand-400); }
+.mp-shots-add__title { display: block; font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+.mp-shots-add__hint { display: block; font-size: 11.5px; color: var(--color-text-muted); }
+.mp-shots-drop__overlay { position: absolute; inset: -8px; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; pointer-events: none; border: 2px dashed var(--brand-400); border-radius: var(--radius-md); background: var(--color-bg-elevated); color: var(--brand-400); font-size: 14px; font-weight: 500; }
+
+/* Screenshot narrative ("With transcript"): one numbered row per capture,
+   image left, what was said before it right. A hairline joins the step
+   numbers so the eye reads top-to-bottom like a storyboard. */
+.mp-story { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.mp-story__row { position: relative; padding-left: 38px; }
+.mp-story__row::before { content: ""; position: absolute; left: 12px; top: 30px; bottom: -16px; width: 1px; background: var(--color-border-subtle); }
+.mp-story__row:last-child::before { display: none; }
+.mp-story__num { position: absolute; left: 0; top: 2px; width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: var(--mp-brand-10); border: 1px solid var(--mp-brand-22); color: var(--brand-400); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mp-story__card { display: grid; grid-template-columns: minmax(0, 11fr) minmax(0, 9fr); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); overflow: hidden; background: var(--color-bg-secondary); transition: border-color 120ms; }
+.mp-story__card:hover { border-color: var(--color-border-strong); }
+.mp-story__frame { position: relative; aspect-ratio: 16 / 10; display: grid; place-items: center; background: var(--color-surface-muted); border-right: 1px solid var(--color-border-subtle); }
+.mp-story__img { width: 100%; height: 100%; object-fit: contain; display: block; cursor: zoom-in; }
+.mp-story__text { display: flex; flex-direction: column; min-width: 0; padding: 18px 20px; }
+.mp-story__eyebrow { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 10px; }
+.mp-story__passage { display: flex; flex-direction: column; gap: 8px; border-left: 2px solid var(--mp-brand-25); padding-left: 12px; }
+.mp-story__passage.is-clamped { max-height: 11.5em; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, var(--color-text-primary) 70%, transparent); mask-image: linear-gradient(180deg, var(--color-text-primary) 70%, transparent); }
+.mp-story__turn { margin: 0; font-size: 14px; line-height: 1.65; color: var(--color-text-primary); }
+.mp-story__speaker { font-weight: 600; margin-right: 6px; }
+.mp-story__speaker.is-me { color: var(--mp-identity-me); }
+.mp-story__speaker.is-them { color: var(--mp-identity-them); }
+.mp-story__speaker.is-alt { color: var(--mp-identity-alt); }
+.mp-story__more { align-self: flex-start; margin-top: 10px; font-size: 12px; font-weight: 500; color: var(--brand-400); }
+.mp-story__more:hover { text-decoration: underline; }
+.mp-story__none { margin: auto 0; font-size: 13px; color: var(--color-text-muted); }
+.mp-story__note { margin: 0 0 14px; font-size: 12.5px; color: var(--color-text-muted); }
+@media (max-width: 760px) {
+  .mp-story__card { grid-template-columns: 1fr; }
+  .mp-story__frame { border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+}
 
 /* ============ EMPTY STATES ============ */
 .mp-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 24px 0; color: var(--color-text-muted); font-size: 13.5px; }
@@ -239,6 +300,8 @@
 .mp-person__remove:hover:not(:disabled) { color: var(--color-text-primary); background: var(--color-bg-hover); }
 .mp-person__remove:disabled { opacity: 0.6; cursor: default; }
 .mp-rail__empty { font-size: 12px; color: var(--color-text-muted); }
+.mp-rail__extract { width: 100%; justify-content: center; }
+.mp-rail__hint { margin-top: 8px; font-size: 11.5px; line-height: 1.45; color: var(--color-text-muted); }
 .mp-linkrow { display: grid; grid-template-columns: 26px 1fr 14px; gap: 11px; align-items: center; padding: 9px 10px; margin: 0 -10px; border-radius: var(--radius-md); transition: background 120ms; }
 .mp-linkrow:hover { background: var(--color-bg-hover); }
 .mp-linkrow__glyph { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--mp-on-accent); }
@@ -268,3 +331,39 @@
 
 /* loading / not-found */
 .mp-centered { display: grid; place-items: center; height: 60vh; color: var(--color-text-muted); }
+
+/* ===== Decisions (ADR-0060): summary-tab list, evidence capture, deep-link target ===== */
+.mp-dec__list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.mp-dec__item { display: grid; grid-template-columns: 9px 1fr; gap: 9px; align-items: baseline; font-size: 13.5px; line-height: 1.5; color: var(--color-text-primary); }
+.mp-dec__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-faint); position: relative; top: -1px; }
+.mp-dec__dot[data-status="ACCEPTED"] { background: var(--accent-crm); }
+.mp-dec__dot[data-status="PROPOSED"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--color-text-muted); }
+.mp-dec__dot[data-status="OPEN"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--accent-okr); }
+.mp-dec__dot[data-status="SUPERSEDED"] { background: var(--accent-okr); }
+.mp-dec__dot[data-status="DEPRECATED"] { background: var(--accent-due); }
+.mp-dec__label { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin-right: 7px; text-decoration: none; }
+.mp-dec__label:hover { color: var(--brand-400); }
+.mp-dec__meta { display: block; margin-top: 1px; font-size: 11.5px; color: var(--color-text-faint); }
+/* The extractor's context/alternatives/consequences bullets, under the statement.
+   MarkdownRenderer owns the typography inside (its compact variant renders the
+   headings as styled paragraphs, not h2) — this only sets the block apart. */
+.mp-dec__body { margin-top: 4px; color: var(--color-text-secondary); }
+.mp-dec__body > :first-child { margin-top: 0; }
+.mp-dec__empty { font-size: 12.5px; color: var(--color-text-muted); }
+
+/* per-turn "Use as evidence" — hover-revealed, sticky once selected */
+.mp-turn__evidence { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; margin-top: 6px; border-radius: var(--radius-sm); border: 1px solid var(--color-border-subtle); background: transparent; color: var(--color-text-muted); font-size: 11px; font-weight: 500; cursor: pointer; opacity: 0; transition: opacity 120ms, color 120ms, border-color 120ms; }
+.mp-turn:hover .mp-turn__evidence, .mp-turn__evidence:focus-visible, .mp-turn__evidence.on { opacity: 1; }
+.mp-turn__evidence:hover { color: var(--color-text-primary); border-color: var(--color-border-strong); }
+.mp-turn__evidence.on { color: var(--accent-crm); border-color: color-mix(in oklab, var(--accent-crm) 45%, transparent); background: color-mix(in oklab, var(--accent-crm) 8%, transparent); }
+.mp-turn--evidence { background: color-mix(in oklab, var(--accent-crm) 5%, transparent); border-radius: var(--radius-md); }
+.mp-turn--target { animation: mp-turn-flash 2.4s ease-out; border-radius: var(--radius-md); }
+@keyframes mp-turn-flash {
+  0% { background: color-mix(in oklab, var(--brand-400) 22%, transparent); }
+  100% { background: transparent; }
+}
+
+/* evidence tray — pinned under the transcript while turns are selected */
+.mp-evtray { position: sticky; bottom: 12px; display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 10px 12px 10px 14px; border-radius: var(--radius-md); background: var(--color-bg-elevated); border: 1px solid var(--color-border-primary); box-shadow: 0 6px 18px color-mix(in oklab, var(--color-text-primary) 10%, transparent); font-size: 12.5px; color: var(--color-text-secondary); }
+.mp-evtray b { color: var(--color-text-primary); font-weight: 600; }
+.mp-evtray__spacer { flex: 1; }

@@ -113,6 +113,22 @@ export function generateLinearId(productName: string, number: number): string {
 }
 
 /**
+ * "CLR-241"-style display id for a ticket, honouring the product's fun-id
+ * setting: the `adjective.noun` shortId when the product uses fun ids, else
+ * the Linear-style `PREFIX-number`. Shared by the product overview and the
+ * Daily summary so a ticket reads the same everywhere.
+ */
+export function ticketDisplayId(
+  product: { name: string; funTicketIds: boolean },
+  ticket: { shortId: string | null; number: number },
+): string {
+  if (product.funTicketIds && ticket.shortId) return ticket.shortId;
+  return ticket.number > 0
+    ? generateLinearId(product.name, ticket.number)
+    : "—";
+}
+
+/**
  * The canonical, user-friendly identifier to put in a ticket URL.
  * Prefers the per-product sequential number (e.g. `/tickets/29`) and falls
  * back to the CUID for legacy tickets that never got a number (number === 0).
@@ -121,6 +137,42 @@ export function generateLinearId(productName: string, number: number): string {
  */
 export function ticketUrlId(ticket: { id: string; number: number }): string {
   return ticket.number > 0 ? String(ticket.number) : ticket.id;
+}
+
+/** One `shortId` condition in the shape Prisma's `TicketWhereInput` accepts. */
+interface ShortIdContains {
+  shortId: { contains: string; mode: "insensitive" };
+}
+
+/**
+ * Where-clauses matching a ticket's `shortId` against a free-text query, for
+ * spreading into a Prisma `OR`. Beyond the plain substring match, a multi-word
+ * query matches shortIds containing every word in any order: fun IDs are
+ * `adjective.noun`, and people reliably recall the two words but not which
+ * came first — a search for "toucan.prime" (or "toucan prime") must find
+ * `prime.toucan`.
+ */
+export function shortIdSearchWhere(
+  query: string,
+): (ShortIdContains | { AND: ShortIdContains[] })[] {
+  const contains = (value: string): ShortIdContains => ({
+    shortId: { contains: value, mode: "insensitive" },
+  });
+  const words = query.split(/[.\s]+/).filter(Boolean);
+  // Nothing but separators: no clause at all, rather than a match-everything
+  // `contains("")` or a match-nothing `contains(".")`.
+  if (words.length === 0) return [];
+  // Matching the word instead of the raw query lets stray separators along
+  // for the ride ("toucan." still finds prime.toucan).
+  if (words.length === 1) return [contains(words[0]!)];
+  // Fun IDs are exactly adjective.noun, so only a two-word query can be one
+  // typed from memory — and both words must be real words, or "a b" floods
+  // the results with every shortId containing those two letters. The AND of
+  // per-word substrings subsumes the exact match, so it stands alone. Longer
+  // queries are title-style text: plain substring match, as before.
+  return words.length === 2 && words.every((w) => w.length >= 2)
+    ? [{ AND: words.map(contains) }]
+    : [contains(query.trim())];
 }
 
 /**

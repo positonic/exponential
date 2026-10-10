@@ -2,21 +2,11 @@
 
 import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Collapse, Skeleton } from '@mantine/core';
-import { useDisclosure, useHotkeys } from '@mantine/hooks';
+import { Skeleton } from '@mantine/core';
 import {
-  IconTable,
-  IconLayoutList,
-  IconTimeline,
-  IconSearch,
-  IconFilter,
   IconArrowsSort,
   IconSparkles,
   IconPlus,
-  IconCircleDot,
-  IconFlag,
-  IconUser,
 } from '@tabler/icons-react';
 import {
   addDays,
@@ -34,20 +24,33 @@ import {
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CreateProjectModal } from '~/app/_components/CreateProjectModal';
-import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
-import { useProjectViewState, filterProjects } from './useProjectViewState';
-import { hasActiveFilters } from '~/types/filter';
-import type { FilterBarConfig, FilterMember } from '~/types/filter';
+import {
+  useProjectViewState,
+  filterProjects,
+  computeProjectFilterCounts,
+  PROJECT_FILTER_KEYS,
+  DRI_ME,
+  PROJECT_DEFAULT_VIEW_STATE,
+} from './useProjectViewState';
+import { useSaveProjectsViewTab } from './projectsViewTab';
+import {
+  ListPageTopBar,
+  ListPageSearch,
+  ListPageButton,
+  ListPagePrimaryButton,
+} from '~/app/_components/listPage';
+import { ProjectsViewTabs } from './ProjectsViewTabs';
+import { useSession } from 'next-auth/react';
+import {
+  ProjectFilterPopover,
+  ProjectFilterPills,
+  countActiveProjectFilters,
+} from './ProjectFilterControls';
+import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
+import type { FilterMember } from '~/types/filter';
 import styles from './WorkspaceProjectsTimelineConceptD.module.css';
 
-const VIEW_TABS = [
-  { value: 'table', label: 'Projects', icon: IconTable, path: '/projects' },
-  { value: 'projects-tasks', label: 'Projects & Tasks', icon: IconLayoutList, path: '/projects-tasks' },
-  { value: 'timeline', label: 'Timeline', icon: IconTimeline, path: '/timeline' },
-] as const;
-
-type ViewTabValue = typeof VIEW_TABS[number]['value'];
 type TimelineZoom = 'month' | 'quarter' | 'year';
 type DragMode = 'move' | 'resize-start' | 'resize-end';
 
@@ -58,49 +61,13 @@ interface TimelineProject {
   status: string;
   priority: string;
   driId: string | null;
+  isPublic: boolean;
+  isRestricted: boolean;
   createdAt: Date;
   startDate: Date | null;
   endDate: Date | null;
   workspaceSlug?: string;
 }
-
-const PROJECT_FILTER_CONFIG: FilterBarConfig = {
-  fields: [
-    {
-      key: 'status',
-      label: 'Status',
-      type: 'multi-select',
-      icon: IconCircleDot,
-      badgeColor: 'cyan',
-      options: [
-        { value: 'ACTIVE', label: 'Active' },
-        { value: 'ON_HOLD', label: 'On Hold' },
-        { value: 'COMPLETED', label: 'Completed' },
-        { value: 'CANCELLED', label: 'Cancelled' },
-      ],
-    },
-    {
-      key: 'priority',
-      label: 'Priority',
-      type: 'multi-select',
-      icon: IconFlag,
-      badgeColor: 'grape',
-      options: [
-        { value: 'HIGH', label: 'High' },
-        { value: 'MEDIUM', label: 'Medium' },
-        { value: 'LOW', label: 'Low' },
-        { value: 'NONE', label: 'None' },
-      ],
-    },
-    {
-      key: 'driId',
-      label: 'DRI',
-      type: 'user',
-      icon: IconUser,
-      badgeColor: 'blue',
-    },
-  ],
-};
 
 interface TimelineProjectRange extends TimelineProject {
   rangeStart: Date;
@@ -213,7 +180,8 @@ function getPriorityShortLabel(priority: string): string {
 
 export function WorkspaceProjectsTimelineConceptD() {
   const { workspace, workspaceId } = useWorkspace();
-  const pathname = usePathname();
+  const { data: session, status: sessionStatus } = useSession();
+  const currentUserId = session?.user?.id ?? null;
   const searchRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragMovedRef = useRef(false);
@@ -222,14 +190,15 @@ export function WorkspaceProjectsTimelineConceptD() {
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
     clearSort,
     sortProjects,
     viewParamsQueryString,
-  } = useProjectViewState();
-  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+  } = useProjectViewState(PROJECT_FILTER_KEYS, 'projects', PROJECT_DEFAULT_VIEW_STATE);
+  useSaveProjectsViewTab('timeline');
   const [zoom, setZoom] = useState<TimelineZoom>('quarter');
   const [dragState, setDragState] = useState<DragState | null>(null);
 
@@ -245,20 +214,32 @@ export function WorkspaceProjectsTimelineConceptD() {
     }));
   }, [workspace?.members]);
 
-  const filtersActive = hasActiveFilters(PROJECT_FILTER_CONFIG, filters);
+  const filterCtx = useMemo(() => ({ currentUserId }), [currentUserId]);
 
-  const activeTab: ViewTabValue = useMemo(() => {
-    if (pathname.includes('/projects-tasks')) return 'projects-tasks';
-    if (pathname.includes('/timeline')) return 'timeline';
-    return 'table';
-  }, [pathname]);
+  const activeFilterCount = countActiveProjectFilters(filters);
+  const filtersActive = activeFilterCount > 0;
+  // `driId=me` can only be resolved once the session is known; until then
+  // the list would flash empty, so treat that gap as loading.
+  const needsSession =
+    Array.isArray(filters.driId) && filters.driId.includes(DRI_ME);
+  const sessionPending = needsSession && sessionStatus === 'loading';
 
-  useHotkeys([['mod+k', () => searchRef.current?.focus()]]);
+  // Not mod+k — that opens the global CommandPalette, and binding both here
+  // meant one keypress focused this box *and* opened the palette over it.
+  usePageSearchHotkey(searchRef);
 
   const utils = api.useUtils();
+  const statusFilter = filters.status as string[] | undefined;
+  // Also the cache key for the optimistic date updates below — keep every
+  // getAll call in this component on this exact object.
   const queryInput = useMemo(
-    () => (workspaceId ? { workspaceId } : {}),
-    [workspaceId],
+    () => ({
+      ...(workspaceId ? { workspaceId } : {}),
+      ...(statusFilter && statusFilter.length > 0
+        ? { status: [...statusFilter].sort() }
+        : {}),
+    }),
+    [workspaceId, statusFilter],
   );
 
   const updateDates = api.project.updateDates.useMutation({
@@ -281,6 +262,7 @@ export function WorkspaceProjectsTimelineConceptD() {
   });
 
   const { data: rawProjects, isLoading } = api.project.getAll.useQuery(queryInput, {
+    placeholderData: (prev) => prev,
     select: (data): TimelineProject[] =>
       data?.map((p) => ({
         id: p.id,
@@ -289,6 +271,8 @@ export function WorkspaceProjectsTimelineConceptD() {
         status: p.status,
         priority: p.priority,
         driId: p.driId ?? null,
+        isPublic: p.isPublic,
+        isRestricted: p.isRestricted,
         createdAt: p.createdAt,
         startDate: p.startDate ?? null,
         endDate: p.endDate ?? null,
@@ -302,9 +286,38 @@ export function WorkspaceProjectsTimelineConceptD() {
   );
 
   const filteredProjects = useMemo(() => {
-    const filtered = filterProjects(timelineProjects, filters, searchQuery);
+    const filtered = filterProjects(timelineProjects, filters, deferredSearchQuery, filterCtx);
     return sortProjects(filtered);
-  }, [timelineProjects, filters, searchQuery, sortProjects]);
+  }, [timelineProjects, filters, deferredSearchQuery, sortProjects, filterCtx]);
+
+  const { data: statusCounts } = api.project.getStatusCounts.useQuery(
+    { workspaceId: workspaceId ?? undefined },
+    { enabled: !!workspaceId },
+  );
+
+  const optionCounts = useMemo(
+    () =>
+      computeProjectFilterCounts(
+        timelineProjects,
+        filters,
+        deferredSearchQuery,
+        statusCounts,
+        filterCtx,
+      ),
+    [timelineProjects, filters, deferredSearchQuery, statusCounts, filterCtx],
+  );
+
+  const clearFiltersAndSearch = useCallback(() => {
+    setFilters({});
+    setSearchQuery('');
+  }, [setFilters, setSearchQuery]);
+
+  // The status default is auto-applied, so filtersActive alone can't tell a
+  // filtered-out list from a workspace with no projects at all — a new
+  // workspace must still greet with the plain empty message, not a Clear button.
+  const workspaceIsEmpty =
+    statusCounts !== undefined &&
+    Object.values(statusCounts).every((n) => n === 0);
 
   const today = startOfDay(new Date());
 
@@ -402,82 +415,53 @@ export function WorkspaceProjectsTimelineConceptD() {
 
   return (
     <div className={styles.page}>
-      {/* Top bar */}
-      <div className={styles.topBar}>
-        <nav className={styles.viewTabs}>
-          {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
-            <Link
-              key={value}
-              href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
-              className={styles.viewTab}
-              data-active={activeTab === value ? 'true' : 'false'}
-            >
-              <Icon size={13} stroke={1.75} />
-              {label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className={styles.actions}>
-          <div className={styles.searchWrap}>
-            <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search  ⌘K"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Escape' && searchRef.current?.blur()}
-              className={styles.searchInput}
+      <ListPageTopBar
+        left={
+          <>
+            <ProjectsViewTabs
+              linkPrefix={prefix}
+              viewParamsQueryString={viewParamsQueryString}
             />
-          </div>
-          <button
-            className={styles.actionBtn}
-            type="button"
-            onClick={toggleFilterRow}
-            data-active={filtersActive ? 'true' : 'false'}
-          >
-            <IconFilter size={13} stroke={1.75} />
-            Filter
-          </button>
-          <ProjectSortMenu
-            sortState={sortState}
-            onSortChange={setSortField}
-            onClearSort={clearSort}
-            trigger={
-              <button
-                type="button"
-                className={styles.actionBtn}
-                data-active={sortState ? 'true' : 'false'}
-              >
-                <IconArrowsSort size={13} stroke={1.75} />
-                Sort
-              </button>
-            }
-          />
-          <button className={styles.actionBtn} type="button">
-            <IconSparkles size={13} stroke={1.75} />
-            Ask Zoe
-          </button>
-          <CreateProjectModal>
-            <button className={styles.newBtn} type="button">
-              <IconPlus size={13} stroke={2.5} />
-              New project
-            </button>
-          </CreateProjectModal>
-        </div>
-      </div>
-
-      <Collapse in={filterRowOpen || filtersActive}>
-        <div className={styles.filterRow}>
-          <FilterBar
-            config={PROJECT_FILTER_CONFIG}
-            filters={filters}
-            onFiltersChange={setFilters}
-            members={workspaceMembers}
-          />
-        </div>
-      </Collapse>
+            <ProjectFilterPills
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+            />
+          </>
+        }
+        actions={
+          <>
+            <ListPageSearch ref={searchRef} value={searchQuery} onChange={setSearchQuery} />
+            <ProjectFilterPopover
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+              counts={optionCounts}
+            />
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+              trigger={
+                <ListPageButton active={!!sortState}>
+                  <IconArrowsSort size={13} stroke={1.75} />
+                  Sort
+                </ListPageButton>
+              }
+            />
+            <ListPageButton>
+              <IconSparkles size={13} stroke={1.75} />
+              Ask Zoe
+            </ListPageButton>
+            <CreateProjectModal>
+              <ListPagePrimaryButton>
+                <IconPlus size={13} stroke={2.5} />
+                New project
+              </ListPagePrimaryButton>
+            </CreateProjectModal>
+          </>
+        }
+      />
 
       {/* Sub-header: info + zoom controls */}
       <div className={styles.subHeader}>
@@ -508,7 +492,7 @@ export function WorkspaceProjectsTimelineConceptD() {
 
       {/* Gantt chart */}
       <div className={styles.ganttOuter}>
-        {isLoading ? (
+        {isLoading || sessionPending ? (
           <div style={{ padding: '24px 32px' }}>
             <Skeleton height={300} radius="sm" />
           </div>
@@ -564,7 +548,14 @@ export function WorkspaceProjectsTimelineConceptD() {
               {filteredProjects.length === 0 ? (
                 <div style={{ display: 'flex' }}>
                   <div className={styles.labelCell} style={{ width: LABEL_WIDTH, height: ROW_HEIGHT }}>
-                    <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>No projects found</span>
+                    <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+                      {(searchQuery || filtersActive) && !workspaceIsEmpty ? 'No projects match your filters.' : 'No projects found'}
+                    </span>
+                    {(searchQuery || filtersActive) && !workspaceIsEmpty && (
+                      <ListPageButton onClick={clearFiltersAndSearch}>
+                        Clear filters
+                      </ListPageButton>
+                    )}
                   </div>
                   <div style={{ flex: 1 }} />
                 </div>

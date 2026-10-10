@@ -114,6 +114,7 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 - `npm run test:all` — Run both unit and integration tests
 - `npm run check` — Lint + typecheck (always run before committing)
 - `npm run test:e2e` — Playwright visual/E2E suite: boots `next dev` on :3100, seeds the disposable `dev-fixture` workspace, mints a session (no OAuth), runs `e2e/*.spec.ts`. For ad-hoc authenticated browsing use `npm run dev:seed-fixture` + `npm run dev:session`. **See `/dev-docs/AGENT_VISUAL_TESTING.md`** — this is how to visually verify UI changes without a login wall.
+- `npm run test:perf` — page-load perf harness (`e2e/perf/`, production build only, one worker): hard load + client nav timings, tRPC waterfalls/payloads, DB query counts per page. Run `next build` first; see the perf section of `/dev-docs/AGENT_VISUAL_TESTING.md`.
 
 **Unit tests** (`*.test.ts`) — pure function tests, no DB needed:
 - Access control permissions (`src/server/services/access/__tests__/`)
@@ -122,7 +123,7 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 
 **Integration tests** (`*.integration.test.ts`) — real DB via Testcontainers:
 - tRPC router tests (`src/server/api/routers/__tests__/`)
-- Tests workspace, action, project, goal/outcome routers
+- Tests workspace, action, project, and goal routers
 - Requires **Docker** (OrbStack recommended on macOS) OR `DATABASE_URL_TEST` env var
 
 **Writing new tests:**
@@ -173,27 +174,46 @@ removed `?? process.env.DATABASE_URL` fallback path.
 
 This is the primary project board for tracking all development work. Use the `exponential` CLI to query tasks and project status.
 
+### 🚨 Agents: every `exponential` call needs the `HOME=` prefix
+
+```bash
+HOME=/Users/james/.config/agent-homes/claude exponential <command>
+```
+
+The CLI reads its credentials from `$HOME`. Without the prefix an agent authenticates
+as **James's personal account**, so every ticket, comment and status transition it
+writes is misattributed to a human who didn't do it — and `@mentions` notify the wrong
+person. A global hook blocks unprefixed calls, but it matches on the command text, so
+it also fires on greps that merely *contain* the string; reword those rather than
+dropping the prefix.
+
+Human, in your own terminal: use the bare `exponential ...` — the prefix is for agents.
+
 ### Proactive Behavior
-- **At session start**: Run `exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json` to check current tasks and priorities
+- **At session start**: Run the "current tasks" command below to check current tasks and priorities
 - **When picking up new work**: Check the project board for the latest task assignments and statuses
 - **After completing work**: Update task status if applicable
 
 ### Key CLI Commands
 ```bash
 # Check current tasks for this project
-exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
+HOME=/Users/james/.config/agent-homes/claude exponential actions list --project mvp_development-cmlf3zmw40005l804w0eg28p4 --json
 
 # View kanban board
-exponential actions kanban --json
+HOME=/Users/james/.config/agent-homes/claude exponential actions kanban --json
 
 # List all projects in the workspace
-exponential projects list --workspace exponential --json
+HOME=/Users/james/.config/agent-homes/claude exponential projects list --workspace exponential --json
 
-# Check auth status
-exponential auth status
+# Check auth status — also the fastest way to confirm which identity you are
+HOME=/Users/james/.config/agent-homes/claude exponential auth status
 ```
 
 The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.
+
+Two flag gotchas that cost a round-trip each: `--project` takes the **bare CUID**, not the
+slug-prefixed id from the URL; and `tickets show` takes neither `--product` nor `--workspace`,
+so filter `tickets list --json` instead of calling `show` with them.
 
 ## Architecture Overview
 
@@ -209,12 +229,13 @@ This is a productivity management application built with the T3 Stack (Next.js 1
 ### Key Features
 - **Project Management**: Create/track projects with status, priority, progress
 - **Action Management**: Task management with flexible priority system
-- **Goal & Outcome Tracking**: Hierarchical goal-outcome-action alignment
+- **Goal & OKR Tracking**: Hierarchical goal-key-result-action alignment
 - **Daily Planning**: Journal system with reflection and planning tools
 - **AI Assistant**: Chat interface with semantic video search
 - **Video Processing**: YouTube analysis and transcription support
 - **CRM**: Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import. See `/dev-docs/CRM_ARCHITECTURE.md`
 - **Notifications**: Multi-channel notification system (email, push, WhatsApp). See `/dev-docs/NOTIFICATION_ARCHITECTURE.md`
+- **Agent runs**: assigning an Action to an Assistant starts a hosted run (ADR-0067). See `/dev-docs/AGENT_RUNS.md` before touching `services/agentRuns/`, the `mastra.*` run callbacks, or the Assign modal
 
 ## Directory Structure
 
@@ -226,12 +247,11 @@ src/
 │   │   └── w/[workspaceSlug]/  # Workspace-scoped routes
 │   │       ├── projects/       # Projects page
 │   │       ├── goals/          # Goals page
-│   │       ├── outcomes/       # Outcomes page
 │   │       └── settings/       # Workspace settings
 │   ├── (web3)/             # Web3 integration (Silk wallet integration)
 │   ├── _components/        # Shared components
 │   │   ├── layout/         # Navigation and shell components
-│   │   └── sections/       # Content sections (journal, outcomes, etc.)
+│   │   └── sections/       # Content sections (journal, etc.)
 │   └── api/                # API routes and tRPC handlers
 ├── providers/              # React context providers
 │   └── WorkspaceProvider.tsx  # Workspace context
@@ -294,11 +314,10 @@ src/
 ### Database Schema
 Key entities include:
 - `User` - Authentication and user data
-- `Workspace` - Container for organizing projects/goals/outcomes (similar to Linear.app)
+- `Workspace` - Container for organizing projects/goals (similar to Linear.app)
 - `Project` - Main project container with status/priority
 - `Action` - Tasks linked to projects with flexible priority
 - `Goal` - Strategic goals linked to life domains
-- `Outcome` - Measurable results (daily/weekly/monthly/quarterly)
 - `Video` - Media content with transcription and AI analysis
 
 ### Workspaces
@@ -308,7 +327,7 @@ Workspaces allow users to organize their work into separate containers (e.g., on
 **Data Model:**
 - `Workspace` - Container with name, slug, type (personal/team/organization)
 - `WorkspaceUser` - Many-to-many join table with role (owner/admin/member/viewer)
-- Projects, Goals, Outcomes, Actions all have optional `workspaceId` field
+- Projects, Goals, Actions all have optional `workspaceId` field
 
 **URL Structure:**
 - All workspace-scoped pages use `/w/[workspaceSlug]/...` routes
@@ -355,7 +374,7 @@ getAll: protectedProcedure
 
 ### Component Organization
 - **Layout Components**: Navigation, sidebar, header
-- **Feature Components**: Actions, Projects, Goals, Outcomes
+- **Feature Components**: Actions, Projects, Goals
 - **Section Components**: Reusable content sections for different views
 - **UI Components**: Base [Mantine components](https://mantine.dev/getting-started/) with custom styling
 
@@ -409,7 +428,6 @@ The AI agents for this application live in a separate repository:
 ## Development Notes
 
 ### Keyboard Shortcuts
-- `Cmd+Enter` in outcome input fields adds new outcomes
 - Various modal shortcuts throughout the application
 
 ### Data Flow
@@ -436,6 +454,20 @@ We use a hybrid git flow optimized for a small team (2 developers) that balances
 - `/fast-track` - Skip develop for safe changes (UI, docs, non-DB fixes)
 - `/check-deploy-safety` - Analyze changes and recommend merge strategy
 - `/sync-branches` - Keep develop updated with main after fast-track merges
+
+### Who merges: the PR-Agent auto-merge gate, or James
+
+`.github/workflows/pr-agent-automerge.yml` squash-merges a PR into `main` once CI is green
+and PR-Agent left nothing blocking on the latest commit. **Agent sessions do not merge PRs.**
+
+- Never pass `--merge` to `/ship-this` or `/ship-ticket`, and never run `gh pr merge`. Open
+  the PR, apply PR-Agent's findings, push, and stop at "in review". The gate (or James) merges.
+- Never add the `pr-agent-ack` label. It means "James saw the blocker and is merging anyway".
+  Only James applies it: a Claude Code hook blocks sessions from adding it, and the gate
+  ignores it from anyone else.
+- A PR you can't get past the gate is left for James with a comment saying what blocks it
+  and why you could not fix it.
+- `no-automerge` on a PR keeps it human-only. Don't remove it.
 
 ### Database Migration Safety
 - All schema changes MUST go through develop branch first
@@ -515,7 +547,6 @@ For parallel feature development using git worktrees, see the comprehensive guid
 - Claude Code custom commands for worktree management
 - Step-by-step instructions for feature development
 - Best practices and common gotchas
-- Example implementation (outcomes delete feature)
 
 ## IDE Enhancement with Serena MCP
 
@@ -626,8 +657,11 @@ Copy the prompt content into a new Claude session, then provide your inputs. See
 ## Task Tracking
 
 **Exponential is the single source of truth for work items** (features, bugs, PRDs, tickets) —
-workspace `syntrofi` / product `exponential`, via the `exponential` CLI and the `/to-expo`,
-`/start-ticket`, `/ship-ticket` skills. See the **Issue tracker** section below.
+workspace `syntrofi` / product `exponential`, via the `exponential` CLI and the `/to-prd`,
+`/to-robo-prd`, `/to-tickets`, `/start-ticket`, `/ship-ticket` skills. Feature work goes
+`/to-prd` → `/to-robo-prd` → `/to-tickets` (one ticket per scope, slices as ordered actions)
+so the backlog stays human-readable; `/to-expo` is manual-only and reserved for loose plans
+outside the feature registry, because it files many thin tickets. See the **Issue tracker** section below.
 
 ### Tracking inside a session
 
@@ -650,7 +684,7 @@ Exponential. Until that's done:
 
 ## Agent skills
 
-Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-issues`, `/to-prd`, `/to-expo`, `/qa`, `/improve-codebase-architecture`, `/diagnose`, `/tdd`, `/grill-with-docs`, …).
+Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-prd`, `/to-robo-prd`, `/to-tickets`, `/to-expo`, `/qa`, `/improve-codebase-architecture`, `/diagnose`, `/tdd`, `/grill-with-docs`, …).
 
 ### Issue tracker
 

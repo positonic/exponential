@@ -4,13 +4,13 @@
 [![GitHub stars](https://img.shields.io/github/stars/positonic/exponential)](https://github.com/positonic/exponential)
 [![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-green)](https://github.com/positonic/exponential)
 
-An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and outcomes, plan your day with AI, and collaborate across workspaces.
+An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and key results, plan your day with AI, and collaborate across workspaces.
 
 ## Features
 
 - **Project Management** - Create and track projects with status, priority, and progress across workspaces
 - **Action Management** - Flexible task system with priorities, tags, and project linking
-- **Goals & Outcomes** - Hierarchical goal-outcome-action alignment (daily/weekly/monthly/quarterly)
+- **Goals & OKRs** - Hierarchical goal-key-result-action alignment
 - **Daily Planning** - Journal system with reflection, planning tools, and daily scoring
 - **AI Assistant** - Chat interface powered by Mastra agents with semantic video search
 - **Meetings** - Calendar integration with transcription and auto-generated action items
@@ -114,7 +114,6 @@ src/
 │   │       ├── projects/       #   Project management
 │   │       ├── actions/        #   Action/task tracking
 │   │       ├── goals/          #   Goal setting
-│   │       ├── outcomes/       #   Outcome tracking
 │   │       ├── crm/            #   CRM pipeline
 │   │       ├── meetings/       #   Meeting notes
 │   │       └── settings/       #   Workspace settings

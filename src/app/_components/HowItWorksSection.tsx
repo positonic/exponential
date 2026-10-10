@@ -47,13 +47,13 @@ export const HowItWorksSection: React.FC<HowItWorksSectionProps> = ({ id }) => {
     },
     {
       icon: <IconChartBar size={28} stroke={1.5} />,
-      title: "Define Outcomes",
-      description: "Break goals into measurable weekly and monthly outcomes. Know what success looks like."
+      title: "Set Key Results",
+      description: "Break goals into measurable key results. Know what success looks like."
     },
     {
       icon: <IconChecklist size={28} stroke={1.5} />,
       title: "Execute With Focus",
-      description: "Your daily actions are automatically connected to outcomes. Always know why you're doing what you're doing."
+      description: "Your daily actions are automatically connected to your goals. Always know why you're doing what you're doing."
     },
     {
       icon: <IconRefresh size={28} stroke={1.5} />,

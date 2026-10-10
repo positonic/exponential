@@ -21,6 +21,7 @@ export type IconKind =
   | "commented"
   | "milestone"
   | "tracked"
+  | "deleted"
   | "channel_summary"
   | "github"
   | "shipped"
@@ -87,6 +88,37 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "commented",
   },
 
+  // Features (product plugin). Every feature event carries the feature name in
+  // metadata so {entityRef} renders the name, not a CUID slice.
+  [key("feature", "created")]: {
+    template: "{actor} created feature {entityRef}",
+    iconKind: "created",
+  },
+  [key("feature", "updated")]: {
+    template: "{actor} updated feature {entityRef}",
+    iconKind: "updated",
+  },
+  [key("feature", "status_changed")]: {
+    template: "{actor} changed status on feature {entityRef}",
+    iconKind: "status_changed",
+  },
+
+  // Feature scopes. A scope has no name of its own (only a version like "V1"),
+  // so scope events carry the PARENT feature's name in metadata and the
+  // templates read "…scope on/to feature {entityRef}".
+  [key("feature_scope", "created")]: {
+    template: "{actor} added a scope to feature {entityRef}",
+    iconKind: "created",
+  },
+  [key("feature_scope", "updated")]: {
+    template: "{actor} updated a scope on feature {entityRef}",
+    iconKind: "updated",
+  },
+  [key("feature_scope", "status_changed")]: {
+    template: "{actor} changed a scope status on feature {entityRef}",
+    iconKind: "status_changed",
+  },
+
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
   [key("project", "created")]: {
@@ -98,9 +130,71 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "milestone",
   },
 
-  // Goals — completing a strategic goal is a milestone.
+  // Objectives — stored entityType stays the schema-flavoured "goal"; rendered
+  // copy says "objective" per the glossary. Completing one is a milestone.
+  [key("goal", "created")]: {
+    template: "{actor} created objective {entityRef}",
+    iconKind: "created",
+  },
+  [key("goal", "status_changed")]: {
+    template: "{actor} changed status on objective {entityRef}",
+    iconKind: "status_changed",
+  },
   [key("goal", "completed")]: {
-    template: "{actor} completed goal {entityRef}",
+    template: "{actor} completed objective {entityRef}",
+    iconKind: "milestone",
+  },
+  [key("goal", "deleted")]: {
+    template: "{actor} deleted objective {entityRef}",
+    iconKind: "deleted",
+  },
+
+  // Objective updates (health-bearing check-ins) are distinct from comments;
+  // {entityRef} is the parent objective's title.
+  [key("goal_update", "created")]: {
+    template: "{actor} posted an update on objective {entityRef}",
+    iconKind: "created",
+  },
+  [key("goal_comment", "created")]: {
+    template: "{actor} commented on objective {entityRef}",
+    iconKind: "commented",
+  },
+
+  // Key results — rendered copy says "key result" per the glossary even
+  // though the stored entityType stays schema-flavoured. A check-in reuses the
+  // "tracked" icon kind (clock) so progress logging reads distinctly from
+  // creation/edits.
+  [key("key_result", "created")]: {
+    template: "{actor} created key result {entityRef}",
+    iconKind: "created",
+  },
+  [key("key_result", "checked_in")]: {
+    template: "{actor} checked in on key result {entityRef}",
+    iconKind: "tracked",
+  },
+  [key("key_result", "status_changed")]: {
+    template: "{actor} changed status on key result {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("key_result", "deleted")]: {
+    template: "{actor} deleted key result {entityRef}",
+    iconKind: "deleted",
+  },
+  [key("key_result_comment", "created")]: {
+    template: "{actor} commented on key result {entityRef}",
+    iconKind: "commented",
+  },
+
+  // Weekly team OKR check-in ritual — {entityRef} is the TEAM name, not an
+  // objective. A member submitting their status update reads like progress
+  // logging (tracked); the facilitator closing the meeting is the team-visible
+  // milestone. Draft saves and meeting start never log.
+  [key("okr_checkin", "checked_in")]: {
+    template: "{actor} submitted their OKR check-in for {entityRef}",
+    iconKind: "tracked",
+  },
+  [key("okr_checkin", "completed")]: {
+    template: "{actor} completed the OKR check-in for {entityRef}",
     iconKind: "milestone",
   },
 
@@ -141,6 +235,27 @@ const HINTS: Record<string, FeedRenderHint> = {
   // "updated" icon kind since summarizing enriches an existing meeting.
   [key("meeting", "summarized")]: {
     template: "{actor} summarized a meeting {entityRef}",
+    iconKind: "updated",
+  },
+
+  // Ceremony occurrences (ADR-0059). "created" is emitted once per expansion
+  // that inserted rows (not once per row — a weekday standup would otherwise
+  // flood the feed); metadata.name carries "N occurrences of <ceremony>" or
+  // the single upcoming date. "captured" fires when a recorded meeting is
+  // linked to an occurrence, by hand, on ingestion or by backfill;
+  // metadata.name carries "<ceremony> · <date>" and metadata.meetingId the
+  // recording.
+  [key("ceremony_occurrence", "created")]: {
+    template: "{actor} scheduled {entityRef}",
+    iconKind: "created",
+  },
+  [key("ceremony_occurrence", "captured")]: {
+    template: "{actor} linked a recording to {entityRef}",
+    iconKind: "milestone",
+  },
+  // Circulation is usually the hourly cron (system actor, rendered as such).
+  [key("ceremony_occurrence", "agenda_circulated")]: {
+    template: "{actor} circulated the agenda for {entityRef}",
     iconKind: "updated",
   },
 
@@ -195,6 +310,38 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("github_push", "created")]: {
     template: "{actor} pushed {entityRef}",
     iconKind: "github",
+  },
+
+  // Decisions (ADR-0060). The label + statement ride in metadata.title so
+  // {entityRef} reads "D-0042 Park prioritisation debates…", never a CUID.
+  // Status transitions are separate actions so the feed reads as a lifecycle.
+  [key("decision", "created")]: {
+    template: "{actor} logged decision {entityRef}",
+    iconKind: "created",
+  },
+  [key("decision", "updated")]: {
+    template: "{actor} updated decision {entityRef}",
+    iconKind: "updated",
+  },
+  [key("decision", "status_changed")]: {
+    template: "{actor} changed status on decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "accepted")]: {
+    template: "{actor} accepted decision {entityRef}",
+    iconKind: "completed",
+  },
+  [key("decision", "superseded")]: {
+    template: "{actor} superseded decision {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("decision", "deprecated")]: {
+    template: "{actor} deprecated decision {entityRef}",
+    iconKind: "deleted",
+  },
+  [key("decision", "confirmed")]: {
+    template: "{actor} confirmed decision {entityRef}",
+    iconKind: "completed",
   },
 
   // Channel activity summaries (ADR-0023). The feed renders these rows with a

@@ -119,7 +119,7 @@ export default async function LearnArticlePage({
         <div
           className="relative flex items-end overflow-hidden py-16 md:py-24"
           style={{
-            backgroundImage: "url('/banners/dyna-banner.png')",
+            backgroundImage: "url('/banners/dyna-banner.webp')",
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}
@@ -242,7 +242,7 @@ export default async function LearnArticlePage({
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 shrink-0">&#10003;</span>
                 <span>
-                  Goals, outcomes, and projects linked in one system
+                  Goals, key results, and projects linked in one system
                 </span>
               </div>
               <div className="flex items-start gap-2.5">

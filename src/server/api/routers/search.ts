@@ -12,7 +12,7 @@ import {
   isWorkspaceGuest,
 } from "~/server/services/access";
 import { stripHtml } from "~/lib/utils";
-import { ticketUrlId } from "~/lib/fun-ids";
+import { shortIdSearchWhere, ticketUrlId } from "~/lib/fun-ids";
 
 /**
  * Global search — the server-side equivalent of the Cmd+K palette
@@ -30,7 +30,6 @@ export interface SearchResult {
     | "action"
     | "goal"
     | "keyResult"
-    | "outcome"
     | "ticket"
     | "feature"
     | "epic"
@@ -232,34 +231,7 @@ async function searchKeyResults({ db, userId, q, workspaceId, limit }: SearchArg
   }));
 }
 
-// Mirrors outcome list scoping: strictly owner-scoped (no workspace-wide
-// sharing on the canonical list).
-async function searchOutcomes({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
-  const outcomes = await db.outcome.findMany({
-    where: {
-      userId,
-      ...(workspaceId ? { workspaceId } : {}),
-      description: insensitive(q),
-    },
-    select: {
-      id: true,
-      description: true,
-      type: true,
-      workspace: { select: { id: true, slug: true, name: true } },
-    },
-    take: limit,
-  });
-  return outcomes.map((o) => ({
-    type: "outcome",
-    id: o.id,
-    title: o.description,
-    subtitle: o.type,
-    workspace: o.workspace,
-    url: o.workspace ? `/w/${o.workspace.slug}/outcomes` : null,
-  }));
-}
-
-// Mirrors ticket.list's assertWorkspaceMember gate (direct or team-based
+// Mirrors ticket.list's assertWorkspaceAccess gate (direct or team-based
 // workspace membership via the ticket's product; guests denied).
 async function searchTickets({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
   const tickets = await db.ticket.findMany({
@@ -270,7 +242,9 @@ async function searchTickets({ db, userId, q, workspaceId, limit }: SearchArgs):
       },
       OR: [
         { title: insensitive(q) },
-        { shortId: insensitive(q) },
+        // Fun shortIds match word-order-insensitively ("toucan.prime" finds
+        // prime.toucan).
+        ...shortIdSearchWhere(q),
         // An all-digits query also matches the ticket's sequential number.
         ...(/^\d+$/.test(q) && parseInt(q, 10) > 0
           ? [{ number: parseInt(q, 10) }]
@@ -343,6 +317,7 @@ async function searchEpics({ db, userId, q, workspaceId, limit }: SearchArgs): P
       name: true,
       status: true,
       workspace: { select: { id: true, slug: true, name: true } },
+      product: { select: { slug: true } },
     },
     take: limit,
   });
@@ -352,8 +327,11 @@ async function searchEpics({ db, userId, q, workspaceId, limit }: SearchArgs): P
     title: e.name,
     subtitle: e.status,
     workspace: e.workspace,
-    // Epics have no dedicated detail route; they surface inside kanban views.
-    url: null,
+    // The detail route is product-nested. An epic still awaiting its product
+    // (pre-backfill) has nowhere to point, so it stays unlinked.
+    url: e.product
+      ? `/w/${e.workspace.slug}/products/${e.product.slug}/epics/${e.id}`
+      : null,
   }));
 }
 
@@ -465,7 +443,7 @@ async function searchOrganizations({ db, userId, q, workspaceId, limit }: Search
   }));
 }
 
-// Mirrors product.list's assertWorkspaceMember gate (direct or team-based).
+// Mirrors product.list's assertWorkspaceAccess gate (direct or team-based).
 async function searchProducts({ db, userId, q, workspaceId, limit }: SearchArgs): Promise<SearchResult[]> {
   const products = await db.product.findMany({
     where: {
@@ -507,7 +485,6 @@ export const searchRouter = createTRPCRouter({
       searchActions(args),
       searchGoals(args),
       searchKeyResults(args),
-      searchOutcomes(args),
       searchTickets(args),
       searchFeatures(args),
       searchEpics(args),
@@ -520,6 +497,11 @@ export const searchRouter = createTRPCRouter({
 
     return {
       query: input.query,
+      // Echoed back for the same reason as `query`: a caller holding results
+      // while the next search is in flight needs to know which scope the ones
+      // on screen were fetched at. The query string alone can't tell a
+      // workspace-scoped result set from a global one.
+      workspaceId: input.workspaceId ?? null,
       results: groups.flat(),
     };
   }),

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { DateTimePicker } from "@mantine/dates";
+import { DateTimeField } from "~/app/_components/DateTimeField";
 import {
   IconPlayerPlay,
   IconShare,
@@ -9,6 +9,7 @@ import {
   IconExternalLink,
   IconArchive,
   IconPlus,
+  IconSparkles,
   IconX,
 } from "@tabler/icons-react";
 import { Loader } from "@mantine/core";
@@ -17,9 +18,24 @@ import {
   MeetingProjectPicker,
   type MeetingProjectOption,
 } from "./MeetingProjectPicker";
-import type { MeetingParticipant } from "~/lib/meeting-view-model";
+import {
+  MeetingOccurrencePicker,
+  formatOccurrenceWhen,
+  type MeetingOccurrenceOption,
+} from "./MeetingOccurrencePicker";
+import {
+  MeetingFeaturePicker,
+  type MeetingFeatureOption,
+} from "./MeetingFeaturePicker";
+import type { MeetingOccurrenceRef, MeetingParticipant } from "~/lib/meeting-view-model";
 
 interface ContextRailProps {
+  /**
+   * "Extract outputs": draft actions, decisions and open questions from the
+   * meeting in one run, reviewed on the Outputs tab. Absent → no button.
+   */
+  onExtractOutputs?: () => void;
+  isExtractingOutputs?: boolean;
   participants: MeetingParticipant[];
   project: { name: string } | null;
   projectHref: string | null;
@@ -35,9 +51,31 @@ interface ContextRailProps {
   /** Current placement + candidates. Workspace is derived from the project. */
   projectId: string | null;
   assignableProjects: MeetingProjectOption[];
+  /** The project picker opened — fetch candidates. */
+  onProjectPickerOpen?: () => void;
+  isLoadingProjects?: boolean;
   onProjectChange: (projectId: string | null) => void;
   /** Read-only workspace label, derived from the placed project. */
   workspaceName: string | null;
+  /** The ceremony occurrence this meeting captured (ADR-0059), if any. */
+  occurrence: MeetingOccurrenceRef | null;
+  occurrenceHref: string | null;
+  /** Candidate occurrences around the meeting date (workspace-scoped). */
+  occurrenceOptions: MeetingOccurrenceOption[];
+  /** Link the meeting to an occurrence (null unlinks). Absent → read-only row. */
+  onOccurrenceChange?: (occurrenceId: string | null) => void;
+  /** The occurrence picker opened — fetch candidates. */
+  onOccurrencePickerOpen?: () => void;
+  isLoadingOccurrences?: boolean;
+  /** Features this meeting discussed, in link order. */
+  linkedFeatures: { id: string; name: string; productName: string; href: string | null }[];
+  /** Candidate features in the meeting's workspace. */
+  featureOptions: MeetingFeatureOption[];
+  /** Link (true) or unlink (false) a feature. Absent → read-only rows. */
+  onFeatureToggle?: (featureId: string, linked: boolean) => void;
+  /** The feature picker opened — fetch candidates. */
+  onFeaturePickerOpen?: () => void;
+  isLoadingFeatures?: boolean;
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
@@ -49,6 +87,8 @@ interface ContextRailProps {
 }
 
 export function ContextRail({
+  onExtractOutputs,
+  isExtractingOutputs,
   participants,
   project,
   projectHref,
@@ -63,8 +103,21 @@ export function ContextRail({
   onMeetingDateChange,
   projectId,
   assignableProjects,
+  onProjectPickerOpen,
+  isLoadingProjects,
   onProjectChange,
   workspaceName,
+  occurrence,
+  occurrenceHref,
+  occurrenceOptions,
+  onOccurrenceChange,
+  onOccurrencePickerOpen,
+  isLoadingOccurrences,
+  linkedFeatures,
+  featureOptions,
+  onFeatureToggle,
+  onFeaturePickerOpen,
+  isLoadingFeatures,
   onShare,
   onExportTranscript,
   canExport,
@@ -75,6 +128,22 @@ export function ContextRail({
 }: ContextRailProps) {
   return (
     <aside className="mp-rail">
+      {onExtractOutputs && (
+        <div className="mp-rail__section">
+          <button
+            type="button"
+            className="mp-btn mp-btn--primary mp-rail__extract"
+            onClick={onExtractOutputs}
+            disabled={isExtractingOutputs}
+          >
+            {isExtractingOutputs ? <Loader size={13} color="currentColor" /> : <IconSparkles size={13} />}
+            {isExtractingOutputs ? "Extracting…" : "Extract outputs"}
+          </button>
+          <div className="mp-rail__hint">
+            Actions, decisions and open questions from this meeting, to review on the Outputs tab.
+          </div>
+        </div>
+      )}
       {(participants.length > 0 || onAddParticipant) && (
         <div className="mp-rail__section">
           <div className="mp-rail__label">
@@ -132,6 +201,8 @@ export function ContextRail({
           projects={assignableProjects}
           value={projectId}
           onChange={onProjectChange}
+          loading={isLoadingProjects}
+          onOpen={onProjectPickerOpen}
         >
           {({ toggle }) => (
             <button
@@ -163,6 +234,119 @@ export function ContextRail({
           >
             <IconExternalLink size={12} /> Open project
           </Link>
+        )}
+        {/* "Part of": the ceremony occurrence this recording captured
+            (ADR-0059). Needs a workspace, since ceremonies are workspace-owned. */}
+        <MeetingOccurrencePicker
+          occurrences={occurrenceOptions}
+          value={occurrence?.id ?? null}
+          onChange={(id) => onOccurrenceChange?.(id)}
+          disabled={!onOccurrenceChange}
+          loading={isLoadingOccurrences}
+          onOpen={onOccurrencePickerOpen}
+        >
+          {({ toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              className="mp-linkrow mt-1.5"
+              style={{ width: "100%", textAlign: "left", cursor: onOccurrenceChange ? "pointer" : "default" }}
+              disabled={!onOccurrenceChange}
+              aria-label="Part of ceremony"
+              data-testid="meeting-part-of"
+            >
+              <span className="mp-linkrow__glyph mp-linkrow__glyph--ritual">
+                {occurrence ? occurrence.ceremonyName.charAt(0).toUpperCase() : "+"}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">
+                  {occurrence ? `Part of: ${occurrence.ceremonyName}` : "Part of a ceremony?"}
+                </div>
+                <div className="mp-linkrow__sub">
+                  {occurrence
+                    ? formatOccurrenceWhen(occurrence.scheduledStart)
+                    : onOccurrenceChange
+                      ? "Link to an occurrence"
+                      : "Assign to a project first"}
+                </div>
+              </div>
+            </button>
+          )}
+        </MeetingOccurrencePicker>
+        {occurrence && occurrenceHref && (
+          <Link
+            href={occurrenceHref}
+            className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-brand-400"
+          >
+            <IconExternalLink size={12} /> Open ceremony
+          </Link>
+        )}
+        {/* Features this meeting discussed — many per meeting, and
+            workspace-owned like ceremonies. */}
+        {linkedFeatures.map((f) => (
+          <div key={f.id} className="mp-linkrow mt-1.5" data-testid="meeting-linked-feature">
+            <span className="mp-linkrow__glyph mp-linkrow__glyph--okr">
+              {f.name.charAt(0).toUpperCase()}
+            </span>
+            {f.href ? (
+              <Link href={f.href} style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">{f.name}</div>
+                <div className="mp-linkrow__sub">Feature · {f.productName}</div>
+              </Link>
+            ) : (
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">{f.name}</div>
+                <div className="mp-linkrow__sub">Feature · {f.productName}</div>
+              </div>
+            )}
+            {onFeatureToggle && (
+              <button
+                type="button"
+                className="mp-person__remove"
+                style={{ width: 14, height: 14 }}
+                onClick={() => onFeatureToggle(f.id, false)}
+                aria-label={`Unlink ${f.name}`}
+                title={`Unlink ${f.name}`}
+              >
+                <IconX size={12} />
+              </button>
+            )}
+          </div>
+        ))}
+        {/* Workspace members who can edit get the picker; a workspace-less
+            meeting gets the hint; anyone else (attendees, project guests)
+            gets nothing to click. */}
+        {(onFeatureToggle ?? !workspaceName) && (
+        <MeetingFeaturePicker
+          features={featureOptions}
+          value={linkedFeatures.map((f) => f.id)}
+          onToggle={(id, linked) => onFeatureToggle?.(id, linked)}
+          disabled={!onFeatureToggle}
+          loading={isLoadingFeatures}
+          onOpen={onFeaturePickerOpen}
+        >
+          {({ toggle }) => (
+            <button
+              type="button"
+              onClick={toggle}
+              className="mp-linkrow mt-1.5"
+              style={{ width: "100%", textAlign: "left", cursor: onFeatureToggle ? "pointer" : "default" }}
+              disabled={!onFeatureToggle}
+              aria-label="Link features"
+              data-testid="meeting-link-feature"
+            >
+              <span className="mp-linkrow__glyph mp-linkrow__glyph--okr">+</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="mp-linkrow__title">
+                  {linkedFeatures.length > 0 ? "Link another feature" : "Discussed a feature?"}
+                </div>
+                <div className="mp-linkrow__sub">
+                  {onFeatureToggle ? "Link to features" : "Assign to a project first"}
+                </div>
+              </div>
+            </button>
+          )}
+        </MeetingFeaturePicker>
         )}
       </div>
 
@@ -210,14 +394,13 @@ export function ContextRail({
           </div>
         </div>
         <div className="mp-rail__field">
-          <DateTimePicker
+          <DateTimeField
             label="Meeting date"
             value={meetingDate}
-            onChange={(value) => onMeetingDateChange(value ? new Date(value) : null)}
+            onChange={onMeetingDateChange}
             clearable
             size="xs"
             valueFormat="MMM D, YYYY h:mm A"
-            popoverProps={{ withinPortal: true }}
           />
         </div>
       </div>

@@ -239,7 +239,7 @@ export function ViewBoard({ workspaceId, viewConfig, deepLinkActionId, onActionO
     try {
       const result = await bulkRescheduleMutation.mutateAsync({
         actionIds,
-        dueDate: date,
+        date,
       });
 
       notifications.update({

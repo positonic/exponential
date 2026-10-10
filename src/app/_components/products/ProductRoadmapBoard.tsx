@@ -30,22 +30,25 @@ import {
   Text,
   Tooltip,
 } from '@mantine/core';
-import { IconRoute } from '@tabler/icons-react';
+import { IconArrowsSort, IconRoute } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { EmptyState } from '~/app/_components/EmptyState';
-import { getAvatarColor, getInitial } from '~/utils/avatarColors';
+import { ProductBadge } from '~/app/_components/product/ProductBadge';
 import {
   FEATURE_STATUSES,
   ROADMAP_BOARD_COLUMNS,
   HIDDEN_FEATURE_STATUSES,
   type FeatureStatus,
 } from '~/lib/feature-statuses';
+import {
+  PriorityIcon,
+  PRIORITY_LABELS,
+} from '~/app/_components/product/PriorityIcon';
 
 type RoadmapFeature =
   RouterOutputs['product']['feature']['listForWorkspace'][number];
-type RoadmapProduct = RoadmapFeature['product'];
 type RoadmapColumn = (typeof FEATURE_STATUSES)[number];
 
 type GroupBy = 'objective' | 'none';
@@ -115,34 +118,8 @@ function resolveTargetStatus(
   return featuresById.get(overId)?.status ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Product badge - small colored chip identifying the card's owning Product.
-// `Product.icon` / `Product.color` are free-text and often unset, so fall back
-// to a deterministic avatar color + the product's initial.
-// ---------------------------------------------------------------------------
-
-function ProductBadge({ product }: { product: RoadmapProduct }) {
-  const dotStyle = {
-    backgroundColor: product.color ?? getAvatarColor(product.id),
-  };
-
-  return (
-    <Group gap={6} wrap="nowrap" align="center" className="min-w-0">
-      <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-[10px] leading-none"
-        style={dotStyle}
-        aria-hidden
-      >
-        {product.icon ?? getInitial(product.name)}
-      </span>
-      <Text size="xs" className="text-text-muted truncate">
-        {product.name}
-      </Text>
-    </Group>
-  );
-}
-
 function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {
+  const priorityLabel = PRIORITY_LABELS[feature.priority ?? 4] ?? 'No priority';
   return (
     <>
       <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
@@ -150,6 +127,15 @@ function FeatureCardBody({ feature }: { feature: RoadmapFeature }) {
       </Text>
       <Group mt="xs" gap="xs" justify="space-between" wrap="nowrap">
         <ProductBadge product={feature.product} />
+        <Tooltip label={priorityLabel} position="top" withArrow>
+          <span
+            role="img"
+            aria-label={priorityLabel}
+            className="flex shrink-0 items-center text-text-muted"
+          >
+            <PriorityIcon priority={feature.priority} size={14} />
+          </span>
+        </Tooltip>
       </Group>
     </>
   );
@@ -242,13 +228,24 @@ function FeatureCard({
 }
 
 // ---------------------------------------------------------------------------
-// Helpers - bucket a feature list into status columns.
+// Helpers - bucket a feature list into status columns, each column sorted by
+// priority (0 = Urgent first). Unset ranks the same as the explicit
+// "No priority" 4 - both render the identical label, so they must not order
+// differently.
 // ---------------------------------------------------------------------------
 
-function bucketByStatus(features: RoadmapFeature[]) {
+function priorityRank(f: RoadmapFeature) {
+  return f.priority ?? 4;
+}
+
+export function bucketByStatus(features: RoadmapFeature[]) {
   const map: Record<string, RoadmapFeature[]> = {};
   for (const col of FEATURE_STATUSES) map[col.value] = [];
   for (const f of features) (map[f.status] ??= []).push(f);
+  // Stable sort: equal priorities keep the query's updatedAt-desc order.
+  for (const list of Object.values(map)) {
+    list.sort((a, b) => priorityRank(a) - priorityRank(b));
+  }
   return map;
 }
 
@@ -674,6 +671,18 @@ export function ProductRoadmapBoard() {
           }}
         />
       </div>
+      <Tooltip
+        label="Cards in each column are ordered by priority (Urgent first)"
+        position="bottom"
+        withArrow
+      >
+        <Group gap={4} wrap="nowrap">
+          <IconArrowsSort size={14} className="text-text-muted" />
+          <Text size="xs" className="text-text-muted">
+            Sorted by priority
+          </Text>
+        </Group>
+      </Tooltip>
       <Tooltip
         label="By default, SHIPPED shows only features updated this quarter"
         position="bottom"

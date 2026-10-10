@@ -6,21 +6,17 @@ import { Actions } from "./Actions";
 import ProjectDetails from "./ProjectDetails";
 //import Chat from "./Chat";
 import { Team } from "./Team";
-// import { Plan } from "./Plan";
-import { OutcomesTable } from "./OutcomesTable";
-import { OutcomeTimeline } from "./OutcomeTimeline";
+import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
+import { ProjectTimeline } from "./ProjectTimeline";
 import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
 import { Button } from "@mantine/core";
-import { HTMLContent } from "./HTMLContent";
 import {
   Group,
   Tabs,
-  Title,
   Paper,
   Stack,
   Text,
   Drawer,
-  Badge,
   ActionIcon,
   Card,
   SegmentedControl,
@@ -34,7 +30,6 @@ import {
   IconSettings,
   // IconClipboardList,
   IconTargetArrow,
-  IconActivity,
   IconClock,
   IconMicrophone,
   IconMessageCircle,
@@ -44,33 +39,34 @@ import {
   IconGitBranch,
   IconHome,
   IconEdit,
-  IconPlayerPlay,
-  IconTrash,
   IconLayoutList,
   IconCoin,
   IconPlug,
   IconShieldLock,
   IconLock,
   IconWorld,
+  IconStopwatch,
+  IconFileText,
 } from "@tabler/icons-react";
-import { format, isBefore, startOfDay } from "date-fns";
+import { addDays, format, isBefore, startOfDay } from "date-fns";
 import overviewStyles from "./ProjectOverview.module.css";
-import { CreateOutcomeModal } from "~/app/_components/CreateOutcomeModal";
 import { CreateProjectModal } from "~/app/_components/CreateProjectModal";
-import { SmartContentRenderer } from "./SmartContentRenderer";
+import { UnifiedDatePicker } from "~/app/_components/UnifiedDatePicker";
 import { ProjectIntegrations } from "./ProjectIntegrations";
 import { ProjectSyncStatus } from "./ProjectSyncStatus";
 import { ProjectSyncConfiguration } from "./ProjectSyncConfiguration";
-import { TranscriptionDetailsModal } from "./TranscriptionDetailsModal";
 import { TeamWeeklyReview } from "./TeamWeeklyReview";
 import { WeeklyOutcomes } from "./WeeklyOutcomes";
-import { ProjectFirefliesSyncPanel } from "./ProjectFirefliesSyncPanel";
+import { ProjectMeetingsTab } from "./meeting/ProjectMeetingsTab";
 import { ProjectWorkflowsTab } from "./ProjectWorkflowsTab";
 import { ProjectOverview } from "./ProjectOverview";
 import { ProjectOverviewLegacy } from "./ProjectOverviewLegacy";
 import { ProjectMembersPanel } from "./ProjectMembersPanel";
-import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
-import { useAgentModal } from "~/providers/AgentModalProvider";
+import { GoalIcon } from "./GoalIcon";
+import { IconPicker } from "./IconPicker";
+import { ProjectTimeTab } from "./ProjectTimeTab";
+import { PagesListContent } from "~/app/_components/pages/PagesListContent";
+import { daysLeftLabel, daysUntil, resolveProjectTargetDate } from "~/lib/projectTargetDate";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { notifications } from "@mantine/notifications";
@@ -80,10 +76,10 @@ import { useMemo } from "react";
 type TabValue =
   | "overview"
   | "tasks"
-  | "plan"
   | "goals"
-  | "outcomes"
   | "timeline"
+  | "time"
+  | "pages"
   | "transcriptions"
   | "integrations"
   | "workflows"
@@ -94,10 +90,10 @@ type TabValue =
 const VALID_TABS: TabValue[] = [
   "overview",
   "tasks",
-  "plan",
   "goals",
-  "outcomes",
   "timeline",
+  "time",
+  "pages",
   "transcriptions",
   "integrations",
   "workflows",
@@ -133,10 +129,15 @@ export function ProjectContent({
       : "tasks";
 
   const pathname = usePathname();
-  const [drawerOpened, setDrawerOpened] = useState(false);
   const [activeDrawer, setActiveDrawer] = useState<'settings' | null>(null);
-  const { openModal: openChatModal, isOpen: chatModalOpen } = useAgentModal();
-  const [selectedTranscription, setSelectedTranscription] = useState<unknown>(null);
+  // The days-left label is per calendar day: re-render at local midnight so a
+  // page left open overnight doesn't keep yesterday's count.
+  const [today, setToday] = useState(() => new Date());
+  useEffect(() => {
+    const msToMidnight = addDays(startOfDay(today), 1).getTime() - Date.now();
+    const timer = setTimeout(() => setToday(new Date()), Math.max(msToMidnight, 0) + 1000);
+    return () => clearTimeout(timer);
+  }, [today]);
   const [syncStatusOpened, setSyncStatusOpened] = useState(false);
   const [selectedActionIds, setSelectedActionIds] = useState<Set<string>>(new Set());
   const { data: project, isLoading, error: projectError } = api.project.getById.useQuery({
@@ -199,48 +200,71 @@ export function ProjectContent({
   });
 
   // Use the resolved project ID (from getById which handles slug resolution)
-  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev..."
-  const resolvedProjectId = project?.id ?? projectId;
+  // instead of the raw projectId prop which may be a slug like "home-renovation-cmm3mjlev...".
+  // URL slugs use the compound "slug-cuid" format, so when the CUID is present
+  // we can extract it and start the dependent queries in parallel with getById
+  // instead of serializing a second network round-trip behind it.
+  const idFromSlug = /(?:^|-)(c[a-z0-9]{24,})$/.exec(projectId)?.[1];
+  const resolvedProjectId = project?.id ?? idFromSlug ?? projectId;
+  const dependentQueriesEnabled = !!project || !!idFromSlug;
   const { data: projectActions } = api.action.getProjectActions.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const goalsQuery = api.goal.getProjectGoals.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
-  const outcomesQuery = api.outcome.getProjectOutcomes.useQuery(
+  // Same key as the Overview's Docs section, so the tab count rides its cache.
+  const { data: projectPages } = api.page.list.useQuery(
+    { workspaceId: workspaceId ?? "", projectId: resolvedProjectId },
+    { enabled: dependentQueriesEnabled && !!workspaceId },
+  );
+  // Same key as the Access tab — gates the Pages tab's write controls.
+  const { data: myAccess } = api.project.getMyAccess.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const { data: projectWorkflows } = api.projectWorkflow.getProjectWorkflows.useQuery(
     { projectId: resolvedProjectId },
-    { enabled: !!project },
+    { enabled: dependentQueriesEnabled },
   );
   const utils = api.useUtils();
-
-  const toggleActionsMutation = api.transcription.toggleActionGeneration.useMutation({
-    onSuccess: (result) => {
-      if (result.action === "generated") {
-        notifications.show({
-          title: "Actions Generated",
-          message: `Successfully created ${result.actionsCreated} action${result.actionsCreated === 1 ? "" : "s"} from the transcription`,
-          color: "green",
-        });
-      } else {
-        notifications.show({
-          title: "Actions Deleted",
-          message: `Successfully deleted ${result.actionsDeleted} action${result.actionsDeleted === 1 ? "" : "s"}`,
-          color: "orange",
+  const updateIcon = api.project.updateIcon.useMutation({
+    onMutate: async (newData) => {
+      await utils.project.getById.cancel({ id: projectId });
+      const previous = utils.project.getById.getData({ id: projectId });
+      if (previous) {
+        utils.project.getById.setData({ id: projectId }, {
+          ...previous,
+          icon: newData.icon,
+          iconColor: newData.iconColor,
         });
       }
-      // Refresh project data
+      return { previous };
+    },
+    onError: (error, _newData, context) => {
+      if (context?.previous) {
+        utils.project.getById.setData({ id: projectId }, context.previous);
+      }
+      notifications.show({
+        title: "Error",
+        message: error.message,
+        color: "red",
+      });
+    },
+    onSettled: () => {
+      void utils.project.getById.invalidate({ id: projectId });
+    },
+  });
+  const updateDates = api.project.updateDates.useMutation({
+    onSuccess: () => {
       void utils.project.getById.invalidate({ id: projectId });
     },
     onError: (error) => {
       notifications.show({
         title: "Error",
-        message: error.message || "Failed to toggle actions",
+        message: error.message,
         color: "red",
       });
     },
@@ -260,46 +284,23 @@ export function ProjectContent({
     }
   }, [router, searchParams]);
 
-  const handleTranscriptionClick = useCallback((transcription: any) => {
-    setSelectedTranscription(transcription);
-    setDrawerOpened(true);
-
-    // Add transcription sessionId to URL
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("transcription", transcription.sessionId);
-    const newUrl = `?${params.toString()}`;
-    router.push(newUrl, { scroll: false });
-  }, [router, searchParams]);
-
-  const handleTranscriptionClose = useCallback(() => {
-    setDrawerOpened(false);
-    setSelectedTranscription(null);
-
-    // Remove transcription param from URL
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("transcription");
-    const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-    router.push(newUrl, { scroll: false });
-  }, [router, searchParams]);
-
   // Check if project has active Fireflies workflow
   const hasFirefliesWorkflow = projectWorkflows?.some(
     workflow => workflow.template?.id === 'fireflies-meeting-transcription' && workflow.status === 'ACTIVE'
   ) || false;
 
-  // Auto-open transcription from URL param
+  // Legacy `?transcription=<sessionId>` links opened a modal on this tab;
+  // meetings now live on their own detail page, so forward old links there.
+  const legacyTranscriptionParam = searchParams.get("transcription");
   useEffect(() => {
-    const transcriptionParam = searchParams.get("transcription");
-    if (transcriptionParam && project?.transcriptionSessions && !drawerOpened) {
-      const transcription = project.transcriptionSessions.find(
-        (session) => session.sessionId === transcriptionParam
-      );
-      if (transcription) {
-        setSelectedTranscription(transcription);
-        setDrawerOpened(true);
-      }
+    if (!legacyTranscriptionParam || !project?.transcriptionSessions) return;
+    const match = project.transcriptionSessions.find(
+      (session) => session.sessionId === legacyTranscriptionParam || session.id === legacyTranscriptionParam
+    );
+    if (match) {
+      router.replace(`/recording/${match.id}`);
     }
-  }, [searchParams, project?.transcriptionSessions, drawerOpened]);
+  }, [legacyTranscriptionParam, project?.transcriptionSessions, router]);
 
   if (isLoading) {
     return <div>Loading project...</div>;
@@ -350,9 +351,19 @@ export function ProjectContent({
     projectActions?.filter((a) => a.status === "COMPLETED").length ?? 0;
   const progressPct = Math.max(0, Math.min(100, Math.round(project.progress ?? 0)));
 
-  const dueDate = project.reviewDate ? new Date(project.reviewDate) : null;
+  // "Due" is the project's end date — the same field the create/edit modal sets.
+  const dueDate = project.endDate ? new Date(project.endDate) : null;
   const dueLabel = dueDate ? format(dueDate, "MMM d") : null;
   const dueIsOverdue = dueDate ? isBefore(dueDate, startOfDay(new Date())) : false;
+
+  // Days left counts down to the project's end date, else the linked goal's.
+  const targetDate = resolveProjectTargetDate(project.endDate, project.goals);
+  const daysLeft = targetDate ? daysUntil(targetDate.date, today) : null;
+  const daysLeftTooltip = targetDate
+    ? targetDate.source === "project"
+      ? `Project due ${format(targetDate.date, "MMM d, yyyy")}`
+      : `From goal "${targetDate.goalTitle}" · ${format(targetDate.date, "MMM d, yyyy")}`
+    : null;
 
   const ownerUser = project.dri ?? project.createdBy;
   const ownerName = ownerUser?.name ?? null;
@@ -370,7 +381,21 @@ export function ProjectContent({
             {workspace?.name ? ` · ${workspace.name}` : ""}
           </div>
           <h1 className={overviewStyles.title}>
-            <span className={overviewStyles.titleGlyph}>{monogram}</span>
+            <IconPicker
+              value={project.icon}
+              color={project.iconColor}
+              onChange={(icon, iconColor) => {
+                updateIcon.mutate({ id: project.id, icon, iconColor });
+              }}
+            >
+              {project.icon ? (
+                <span className={`${overviewStyles.titleGlyph} ${overviewStyles.titleGlyphIcon}`}>
+                  <GoalIcon icon={project.icon} iconColor={project.iconColor} size={20} />
+                </span>
+              ) : (
+                <span className={overviewStyles.titleGlyph}>{monogram}</span>
+              )}
+            </IconPicker>
             {project.name}
             {project.isRestricted && (
               <Tooltip label="Restricted — only members can access">
@@ -393,6 +418,17 @@ export function ProjectContent({
                   />
                 </div>
                 {progressPct}%
+                {daysLeft !== null && (
+                  <Tooltip label={daysLeftTooltip}>
+                    <span
+                      className={`${overviewStyles.daysLeft} ${
+                        daysLeft < 0 ? overviewStyles.daysLeftOverdue : ""
+                      }`}
+                    >
+                      {daysLeftLabel(daysLeft)}
+                    </span>
+                  </Tooltip>
+                )}
               </div>
             </div>
             <div className={overviewStyles.stat}>
@@ -403,13 +439,29 @@ export function ProjectContent({
             </div>
             <div className={overviewStyles.stat}>
               <div className={overviewStyles.statLabel}>Due</div>
-              <div
-                className={`${overviewStyles.statValue} ${
-                  dueIsOverdue ? overviewStyles.statValueDue : ""
-                }`}
-              >
-                {dueLabel ?? "—"}
-              </div>
+              <UnifiedDatePicker
+                value={dueDate}
+                onChange={(date) =>
+                  updateDates.mutate({
+                    id: project.id,
+                    startDate: project.startDate ?? null,
+                    endDate: date,
+                  })
+                }
+                notificationContext="project"
+                renderTrigger={({ toggle }) => (
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    aria-label="Set due date"
+                    className={`${overviewStyles.statValue} ${overviewStyles.statValueButton} ${
+                      dueIsOverdue ? overviewStyles.statValueDue : ""
+                    } ${dueLabel ? "" : overviewStyles.statValuePlaceholder}`}
+                  >
+                    {dueLabel ?? "Set date"}
+                  </button>
+                )}
+              />
             </div>
             {ownerFirstName && (
               <div className={overviewStyles.stat}>
@@ -427,7 +479,7 @@ export function ProjectContent({
           <CreateProjectModal project={project}>
             <button
               type="button"
-              className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+              className={overviewStyles.iconBtn}
               title="Edit Project"
               aria-label="Edit project"
             >
@@ -436,16 +488,7 @@ export function ProjectContent({
           </CreateProjectModal>
           <button
             type="button"
-            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
-            onClick={() => openChatModal(projectId)}
-            title={chatModalOpen ? "Close Project Chat" : "Open Project Chat"}
-            aria-label="Project chat"
-          >
-            <IconMessageCircle size={14} />
-          </button>
-          <button
-            type="button"
-            className={`${overviewStyles.iconBtn} ${overviewStyles.iconBtnPrimary}`}
+            className={overviewStyles.iconBtn}
             onClick={() =>
               setActiveDrawer(activeDrawer === "settings" ? null : "settings")
             }
@@ -500,22 +543,31 @@ export function ProjectContent({
               >
                 Goals
               </Tabs.Tab>
-              <Tabs.Tab
-                value="outcomes"
-                leftSection={<IconActivity size={14} />}
-              >
-                Outcomes
-              </Tabs.Tab>
               <Tabs.Tab value="timeline" leftSection={<IconClock size={14} />}>
                 Timeline
               </Tabs.Tab>
-              {/* <Tabs.Tab
-                value="plan"
-                leftSection={<IconClipboardList size={14} />}
-              >
-                Plan
-              </Tabs.Tab> */}
-              
+              <Tabs.Tab value="time" leftSection={<IconStopwatch size={14} />}>
+                Time
+              </Tabs.Tab>
+              {workspaceId && workspace?.slug && (
+                <Tabs.Tab
+                  value="pages"
+                  leftSection={<IconFileText size={14} />}
+                  rightSection={
+                    projectPages && projectPages.length > 0 ? (
+                      <span
+                        className={`${overviewStyles.tabCount} ${
+                          activeTab === "pages" ? overviewStyles.tabCountActive : ""
+                        }`}
+                      >
+                        {projectPages.length}
+                      </span>
+                    ) : null
+                  }
+                >
+                  Pages
+                </Tabs.Tab>
+              )}
               {/* Team Weekly Planning Tabs - Only show for team projects */}
               {project.teamId && (
                 <>
@@ -529,7 +581,7 @@ export function ProjectContent({
                     value="weekly-outcomes" 
                     leftSection={<IconCalendarWeek size={14} />}
                   >
-                    Weekly Outcomes
+                    Weekly Commitments
                   </Tabs.Tab>
                 </>
               )}
@@ -563,9 +615,9 @@ export function ProjectContent({
             {/* Content Area */}
             <Tabs.Panel value="overview">
               {legacyOverview ? (
-                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+                <ProjectOverviewLegacy project={project} goals={goalsQuery.data ?? []} />
               ) : (
-                <ProjectOverview project={project} goals={goalsQuery.data ?? []} outcomes={outcomesQuery.data ?? []} />
+                <ProjectOverview project={project} goals={goalsQuery.data ?? []} />
               )}
             </Tabs.Panel>
 
@@ -592,29 +644,8 @@ export function ProjectContent({
               </Stack>
             </Tabs.Panel>
 
-            {/* <Tabs.Panel value="plan">
-              <Plan projectId={projectId} />
-            </Tabs.Panel> */}
-
             <Tabs.Panel value="goals">
               <InitiativeDashboard projectId={resolvedProjectId} />
-            </Tabs.Panel>
-
-            <Tabs.Panel value="outcomes">
-              <Paper
-                p="md"
-                radius="sm"
-                className="mx-auto w-full bg-surface-secondary"
-              >
-                <OutcomesTable outcomes={outcomesQuery.data ?? []} />
-                <div className="mt-4">
-                  <CreateOutcomeModal projectId={resolvedProjectId}>
-                    <Button variant="filled" color="dark" leftSection="+">
-                      Add Outcome
-                    </Button>
-                  </CreateOutcomeModal>
-                </div>
-              </Paper>
             </Tabs.Panel>
 
             <Tabs.Panel value="timeline">
@@ -623,8 +654,25 @@ export function ProjectContent({
                 radius="sm"
                 className="mx-auto w-full bg-surface-secondary"
               >
-                <OutcomeTimeline projectId={resolvedProjectId} />
+                <ProjectTimeline projectId={resolvedProjectId} />
               </Paper>
+            </Tabs.Panel>
+
+            <Tabs.Panel value="time">
+              <ProjectTimeTab projectId={resolvedProjectId} />
+            </Tabs.Panel>
+
+            <Tabs.Panel value="pages">
+              {/* Mounted only while active: the list owns a ⌘F binding and a
+                  tree query that the other tabs don't need. */}
+              {activeTab === "pages" && workspaceId && workspace?.slug && (
+                <PagesListContent
+                  workspaceId={workspaceId}
+                  workspaceSlug={workspace.slug}
+                  projectId={resolvedProjectId}
+                  readOnly={!myAccess?.canEdit}
+                />
+              )}
             </Tabs.Panel>
 
             <Tabs.Panel value="workflows">
@@ -651,180 +699,13 @@ export function ProjectContent({
             )}
 
             <Tabs.Panel value="transcriptions">
-              <Stack gap="md">
-                <Group justify="space-between" align="center">
-                  <Group gap="md">
-                    <Title order={4}>Project Meetings</Title>
-                    <CreateTranscriptionModal
-                      projectId={resolvedProjectId}
-                      workspaceId={project.workspaceId ?? undefined}
-                    />
-                  </Group>
-                  <Group gap="md">
-                    {hasFirefliesWorkflow && (
-                      <ProjectFirefliesSyncPanel
-                        projectId={resolvedProjectId}
-                        onSyncComplete={() => {
-                          // Refresh project data to show newly synced transcriptions
-                          void utils.project.getById.invalidate({ id: projectId });
-                        }}
-                      />
-                    )}
-                    <Text size="sm" c="dimmed">
-                      {project.transcriptionSessions?.length || 0} meetings
-                      {(project.transcriptionSessions?.length || 0) > 3 && (
-                        <Text component="span" size="xs" c="dimmed" ml="xs">
-                          • Scroll to view all
-                        </Text>
-                      )}
-                    </Text>
-                  </Group>
-                </Group>
-
-                {project.transcriptionSessions && project.transcriptionSessions.length > 0 ? (
-                  <div 
-                    style={{ 
-                      maxHeight: '600px', 
-                      overflowY: 'auto',
-                      paddingRight: '8px',
-                      scrollbarWidth: 'thin',
-                      scrollbarColor: 'var(--mantine-color-gray-4) transparent',
-                    }}
-                    className="scrollable-transcriptions"
-                  >
-                    <Stack gap="lg">
-                      {project.transcriptionSessions.map((session) => (
-                      <Card
-                        key={session.id}
-                        withBorder
-                        shadow="sm"
-                        radius="md"
-                        className="hover:shadow-md transition-shadow cursor-pointer"
-                        onClick={() => handleTranscriptionClick(session)}
-                      >
-                        <Stack gap="md">
-                          {/* Transcription Header */}
-                          <Group justify="space-between" align="flex-start" wrap="nowrap">
-                            <Stack gap="xs" style={{ flex: 1 }}>
-                              <Group gap="sm" wrap="nowrap">
-                                <Text size="lg" fw={600} lineClamp={1}>
-                                  {session.title || `Session ${session.sessionId}`}
-                                </Text>
-                                <Group gap="xs">
-                                  {session.sourceIntegration && (
-                                    <Badge variant="dot" color="teal" size="sm">
-                                      {session.sourceIntegration.provider}
-                                    </Badge>
-                                  )}
-                                </Group>
-                              </Group>
-
-                              <Group gap="md" c="dimmed">
-                                <Text size="sm">
-                                  {new Date(session.meetingDate ?? session.createdAt).toLocaleDateString('en-US', {
-                                    weekday: 'short',
-                                    year: 'numeric',
-                                    month: 'short',
-                                    day: 'numeric',
-                                  })}
-                                </Text>
-                                <Text size="sm">
-                                  {new Date(session.meetingDate ?? session.createdAt).toLocaleTimeString('en-US', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}
-                                </Text>
-                                {session.actions && session.actions.length > 0 && (
-                                  <>
-                                    <Text size="sm">•</Text>
-                                    <Text size="sm">
-                                      {session.actions.length} {session.actions.length === 1 ? 'action' : 'actions'}
-                                    </Text>
-                                  </>
-                                )}
-                              </Group>
-                            </Stack>
-
-                            {/* Generate/Delete Actions Button */}
-                            <Button
-                              size="xs"
-                              variant={(session as any).processedAt && session.actions?.length > 0 ? "light" : "filled"}
-                              color={(session as any).processedAt && session.actions?.length > 0 ? "red" : "blue"}
-                              leftSection={(session as any).processedAt && session.actions?.length > 0 ? <IconTrash size={14} /> : <IconPlayerPlay size={14} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleActionsMutation.mutate({ transcriptionId: session.id });
-                              }}
-                              loading={toggleActionsMutation.isPending && toggleActionsMutation.variables?.transcriptionId === session.id}
-                            >
-                              {(session as any).processedAt && session.actions?.length > 0 ? "Delete Actions" : "Generate Actions"}
-                            </Button>
-                          </Group>
-
-                          {/* Description Preview */}
-                          {session.description && (
-                            <Paper p="sm" radius="sm" className="bg-surface-secondary">
-                              <SmartContentRenderer
-                                content={session.description}
-                                isPreview={true}
-                                maxLines={3}
-                              />
-                            </Paper>
-                          )}
-
-                          {/* Actions Summary */}
-                          {session.actions && session.actions.length > 0 && (
-                            <Paper p="sm" radius="sm" withBorder>
-                              <Group justify="space-between" align="center">
-                                <Group gap="xs">
-                                  <Text size="sm" fw={500} c="dimmed">
-                                    Action Items:
-                                  </Text>
-                                  <Badge variant="filled" color="blue" size="sm">
-                                    {session.actions.length}
-                                  </Badge>
-                                </Group>
-                              </Group>
-                              
-                              {/* Action Items Preview */}
-                              <Stack gap="xs" mt="xs">
-                                {session.actions.slice(0, 3).map((action: any) => (
-                                  <Group key={action.id} gap="xs" align="flex-start">
-                                    <Text size="xs" c="dimmed" mt={2}>•</Text>
-                                    <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
-                                      <HTMLContent html={action.name} compactUrls />
-                                    </Text>
-                                    {action.priority && (
-                                      <Badge variant="outline" size="xs" color="gray">
-                                        {action.priority}
-                                      </Badge>
-                                    )}
-                                  </Group>
-                                ))}
-                                {session.actions.length > 3 && (
-                                  <Text size="xs" c="dimmed" fs="italic">
-                                    +{session.actions.length - 3} more actions...
-                                  </Text>
-                                )}
-                              </Stack>
-                            </Paper>
-                          )}
-                        </Stack>
-                      </Card>
-                      ))}
-                    </Stack>
-                  </div>
-                ) : (
-                  <Paper p="xl" radius="md" className="text-center">
-                    <Stack gap="md" align="center">
-                      <Text size="lg" c="dimmed">No meetings found</Text>
-                      <Text size="sm" c="dimmed">
-                        Meetings assigned to this project will appear here
-                      </Text>
-                    </Stack>
-                  </Paper>
-                )}
-              </Stack>
+              <ProjectMeetingsTab
+                projectId={resolvedProjectId}
+                projectName={project.name}
+                workspaceId={project.workspaceId}
+                hasFirefliesWorkflow={hasFirefliesWorkflow}
+                dri={project.dri}
+              />
             </Tabs.Panel>
 
             <Tabs.Panel value="integrations">
@@ -837,14 +718,6 @@ export function ProjectContent({
           </Stack>
         </Tabs>
       </div>
-
-      {/* Transcription Details Modal */}
-      <TranscriptionDetailsModal
-        opened={drawerOpened}
-        onClose={handleTranscriptionClose}
-        transcription={selectedTranscription}
-        onTranscriptionUpdate={(updated) => setSelectedTranscription(updated)}
-      />
 
       {/* Project Settings Drawer */}
       <Drawer
@@ -1029,6 +902,30 @@ export function ProjectContent({
                   fullWidth
                   disabled={updateBountiesMutation.isPending}
                 />
+              </Stack>
+            </Card>
+          </Stack>
+
+          {/* Matrix room binding */}
+          <Stack gap="xs">
+            <Group gap="xs" align="center">
+              <IconMessageCircle size={16} className="text-brand-primary" />
+              <Text size="sm" fw={600} className="text-brand-primary">
+                MATRIX ROOM
+              </Text>
+            </Group>
+            <Card withBorder p="md" radius="lg" className="bg-surface-secondary border-border-primary">
+              <Stack gap="sm">
+                <Text size="sm" className="text-text-secondary">
+                  Where this project&apos;s meeting summaries are posted. Posting is
+                  always a manual click — nothing is sent automatically.
+                </Text>
+                {workspaceId && resolvedProjectId && (
+                  <MatrixRoomBinding
+                    workspaceId={workspaceId}
+                    projectId={resolvedProjectId}
+                  />
+                )}
               </Stack>
             </Card>
           </Stack>

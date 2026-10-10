@@ -85,7 +85,7 @@ export function formatDateRangeDisplay(focus: FocusPeriod, dateRange: DateRange)
 }
 
 /**
- * Get the title suffix for outcomes/actions sections
+ * Get the title suffix for goals/actions sections
  */
 export function getFocusSectionTitle(focus: FocusPeriod, baseTitle: string): string {
   switch (focus) {

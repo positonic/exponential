@@ -19,7 +19,13 @@ import {
   Divider,
 } from '@mantine/core';
 import { IconCircleCheck, IconUserPlus } from '@tabler/icons-react';
+import Link from 'next/link';
 import { signIn } from 'next-auth/react';
+import {
+  normalizeSignInEmail,
+  SIGN_IN_CALLBACK_KEY,
+  SIGN_IN_EMAIL_KEY,
+} from '~/lib/signInCode';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import { loadDraft, saveDraft, clearDraft } from './formDraft';
 
@@ -81,7 +87,7 @@ export function PublicForm({
     renderedAtRef.current = Date.now();
   }, []);
   // Applicant account CTA (CONTEXT.md ### Forms): an optional, success-page-only
-  // offer to create an Exponential account via a magic link to the email the
+  // offer to create an Exponential account via a sign-in code to the email the
   // applicant already submitted. Captured at submit so it survives the values
   // state. No link to the CrmContact the submission created (v1).
   const [accountEmail, setAccountEmail] = useState('');
@@ -97,14 +103,22 @@ export function PublicForm({
     setAccountSubmitting(true);
     setAccountError(null);
     try {
+      // Email sign-in delivers a typed code, not a link (ADR-0056), so hand the
+      // identifier to the verify page — otherwise the applicant gets a code and
+      // nowhere to type it.
+      const identifier = normalizeSignInEmail(accountEmail);
       const res = await signIn('postmark', {
-        email: accountEmail,
+        email: identifier,
         redirect: false,
         callbackUrl: '/',
       });
       if (res?.error) {
         setAccountError('Could not start account setup. Please try again.');
       } else {
+        // Only once the code is actually on its way, so a failed attempt
+        // doesn't prime the verify page for a code that was never issued.
+        window.sessionStorage.setItem(SIGN_IN_EMAIL_KEY, identifier);
+        window.sessionStorage.setItem(SIGN_IN_CALLBACK_KEY, '/');
         setAccountRequested(true);
       }
     } catch {
@@ -208,8 +222,13 @@ export function PublicForm({
                 <Divider w="100%" my="xs" />
                 {accountRequested ? (
                   <Text size="sm" c="dimmed" ta="center">
-                    Check your inbox at <strong>{accountEmail}</strong> to finish
-                    setting up your account.
+                    We&apos;ve emailed a sign-in code to{' '}
+                    <strong>{accountEmail}</strong>.{' '}
+                    <Anchor component={Link} href="/auth/verify-request">
+                      Enter it here
+                    </Anchor>{' '}
+                    to
+                    finish setting up your account.
                   </Text>
                 ) : (
                   <Stack align="center" gap="xs">

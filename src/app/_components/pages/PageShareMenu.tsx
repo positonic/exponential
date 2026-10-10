@@ -23,34 +23,57 @@ import {
   IconCopy,
   IconDots,
   IconExternalLink,
+  IconFileExport,
+  IconMarkdown,
+  IconUsers,
   IconWorld,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { buildPublicPagePath } from "~/lib/pages/public-url";
+import {
+  buildMarkdownExport,
+  markdownFilename,
+} from "~/lib/pages/markdown-export";
+import { PageAudience } from "~/app/_components/pages/PageAudience";
 
 interface PageShareMenuProps {
   pageId: string;
+  workspaceId: string;
   workspaceSlug: string;
   isPublic: boolean;
   publicId: string | null;
   publicSlug: string | null;
   publicSeoIndexed: boolean;
   canEdit: boolean;
+  /** Page title — the H1 of the export and the download's filename. */
+  title: string;
+  /**
+   * Current Markdown projection of the body, read from the live editor so an
+   * export reflects edits the debounced autosave hasn't written yet. Returns
+   * null before the editor has mounted.
+   */
+  getMarkdown: () => string | null;
 }
 
 /**
- * The "Share" popover + page actions menu on the Page editor (ADR-0038).
- * Publishing is gated server-side on edit access; this component is the
- * consent surface — it says plainly that the page becomes public.
+ * The "Share" popover + page actions menu on the Page editor. The popover
+ * leads with who can see the page now (and, for editors, how to change that
+ * by moving it between projects); publishing to the web (ADR-0038) comes
+ * last, for editors only. Publishing is gated server-side on edit access;
+ * this component is the consent surface — it says plainly that the page
+ * becomes public.
  */
 export function PageShareMenu({
   pageId,
+  workspaceId,
   workspaceSlug,
   isPublic,
   publicId,
   publicSlug,
   publicSeoIndexed,
   canEdit,
+  title,
+  getMarkdown,
 }: PageShareMenuProps) {
   const router = useRouter();
   const utils = api.useUtils();
@@ -60,8 +83,8 @@ export function PageShareMenu({
   useEffect(() => setSlugDraft(publicSlug ?? ""), [publicSlug]);
 
   const onSettled = () => utils.page.get.invalidate({ id: pageId });
-  const onError = (error: { message: string }, title: string) =>
-    notifications.show({ color: "red", title, message: error.message });
+  const onError = (error: { message: string }, failed: string) =>
+    notifications.show({ color: "red", title: failed, message: error.message });
 
   const publish = api.page.publish.useMutation({
     onSettled,
@@ -108,6 +131,45 @@ export function PageShareMenu({
       : null;
   const publicUrl = publicPath ? `${origin}${publicPath}` : null;
 
+  /** Title-as-H1 + the live body projection, or null if the editor isn't up. */
+  const markdownDocument = () => {
+    const body = getMarkdown();
+    return body == null ? null : buildMarkdownExport(title, body);
+  };
+
+  const copyMarkdown = async () => {
+    const markdown = markdownDocument();
+    if (markdown == null) return;
+    try {
+      await navigator.clipboard.writeText(markdown);
+      notifications.show({
+        color: "teal",
+        title: "Copied as Markdown",
+        message: "Paste into Notion, Obsidian, or any Markdown editor.",
+      });
+    } catch {
+      // Denied permission, or a non-secure origin.
+      notifications.show({
+        color: "red",
+        title: "Could not copy",
+        message: "Your browser blocked clipboard access.",
+      });
+    }
+  };
+
+  const exportMarkdown = () => {
+    const markdown = markdownDocument();
+    if (markdown == null) return;
+    const url = URL.createObjectURL(
+      new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = markdownFilename(title);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const commitSlug = () => {
     const next = slugDraft.trim();
     if (!next || next === publicSlug) {
@@ -119,22 +181,32 @@ export function PageShareMenu({
 
   return (
     <Group gap="xs" wrap="nowrap">
-      {canEdit ? (
-        <Popover width={360} position="bottom-end" shadow="md">
-          <Popover.Target>
-            <Button
-              variant={isPublic ? "light" : "default"}
-              size="xs"
-              leftSection={<IconWorld size={14} />}
-            >
-              {isPublic ? "Published" : "Share"}
-            </Button>
-          </Popover.Target>
-          <Popover.Dropdown>
-            <Stack gap="sm">
+      <Popover width={360} position="bottom-end" shadow="md">
+        <Popover.Target>
+          <Button
+            variant={isPublic ? "light" : "default"}
+            size="xs"
+            leftSection={
+              isPublic ? <IconWorld size={14} /> : <IconUsers size={14} />
+            }
+          >
+            {isPublic ? "Published" : "Share"}
+          </Button>
+        </Popover.Target>
+        <Popover.Dropdown>
+          <Stack gap="sm">
+            <PageAudience
+              pageId={pageId}
+              workspaceId={workspaceId}
+              canEdit={canEdit}
+            />
+
+            {canEdit ? (
+              <>
+              <Divider />
               <Switch
                 label="Publish to web"
-                description="Anyone with the link can view the live page."
+                description="Makes the page public: anyone with the link can view the live page, no sign-in needed."
                 checked={isPublic}
                 disabled={publish.isPending || unpublish.isPending}
                 onChange={(e) =>
@@ -255,10 +327,11 @@ export function PageShareMenu({
                   ) : null}
                 </>
               ) : null}
-            </Stack>
-          </Popover.Dropdown>
-        </Popover>
-      ) : null}
+              </>
+            ) : null}
+          </Stack>
+        </Popover.Dropdown>
+      </Popover>
 
       <Menu position="bottom-end" shadow="md">
         <Menu.Target>
@@ -283,6 +356,22 @@ export function PageShareMenu({
               Duplicate with sub-pages
             </Menu.Item>
           ) : null}
+          <Menu.Divider />
+          {/* Plain copy (Cmd-C) puts text on the clipboard and the formatted
+              slice on `text/html`; these two are the explicit Markdown route,
+              for a Markdown-source target. */}
+          <Menu.Item
+            leftSection={<IconMarkdown size={14} />}
+            onClick={() => void copyMarkdown()}
+          >
+            Copy as Markdown
+          </Menu.Item>
+          <Menu.Item
+            leftSection={<IconFileExport size={14} />}
+            onClick={exportMarkdown}
+          >
+            Export as Markdown
+          </Menu.Item>
         </Menu.Dropdown>
       </Menu>
     </Group>

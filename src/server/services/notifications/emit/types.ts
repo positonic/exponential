@@ -8,6 +8,19 @@ import type { NotificationCategory } from "./constants";
  * matching arm to the {@link EmitNotificationInput} union.
  */
 
+/**
+ * Agent run (ADR-0067): a run on an action finished (summary ready for review)
+ * or stopped (failed, timed out). Recipients are the human who assigned and
+ * the Assistant's owner; the actor is the Assistant's shadow user, so a
+ * self-notification never happens. A question to the owner is NOT this
+ * category — it travels as a Mention through the comment path.
+ */
+export interface AgentRunSubject {
+  runId: string;
+  actionId: string;
+  outcome: "finished" | "stopped";
+}
+
 /** Assignment (V1): the action and the users just assigned to it. */
 export interface AssignmentSubject {
   actionId: string;
@@ -31,6 +44,22 @@ export interface MeetingParticipantAddedSubject {
  */
 export interface MeetingReadySubject {
   sessionId: string;
+  /**
+   * Draft-decisions variant (ADR-0060 V2): set when extraction produced
+   * drafts for the meeting. Recipient is the meeting owner (who reviews
+   * them), the content names the count, and the dedupe key is its own so
+   * it never collides with the notes-ready emit.
+   */
+  draftDecisionCount?: number;
+}
+
+/**
+ * Agenda ready (ADR-0059): a ceremony occurrence whose agenda was just
+ * generated. Recipients are the ceremony's participants plus the members of
+ * its team, resolved by the resolver; the acting user is dropped as always.
+ */
+export interface AgendaReadySubject {
+  occurrenceId: string;
 }
 
 /**
@@ -76,11 +105,41 @@ export interface DueDateSubject {
  */
 export interface SummarySubject {
   userId: string;
-  kind: "daily" | "weekly";
+  /** `shutdown` is the weekday end-of-day recap (Shutdown recap). */
+  kind: "daily" | "weekly" | "shutdown";
   title: string;
+  /** Plain-text rendering with bare URLs — what every channel gets by default. */
   message: string;
+  /**
+   * Optional markdown rendering of the same digest (ADR-0059). Persisted as
+   * `metadata.markdown`; channels that render markdown prefer it (Matrix
+   * sends it as-is, email renders it as the HTML body so links are linked
+   * text), every other channel ignores it and sends `message`.
+   */
+  markdown?: string;
   /** Period id for dedup — e.g. "2026-07-23" (daily) or "2026-W30" (weekly). */
   periodKey: string;
+  /**
+   * Shutdown recap only: a line Matrix appends to the markdown, because a
+   * reply reaches the agent there and nowhere else.
+   */
+  replyHint?: string;
+  /**
+   * Shutdown recap only: what the Matrix gateway stores beside the message in
+   * the person's DM memory (the numbers → action ids), so a reply resolves.
+   */
+  agentContext?: string;
+}
+
+/**
+ * Update review: a Workspace update draft is waiting for approval, or nothing
+ * shipped this period (status EMPTY). The generator resolves the reviewers; the
+ * content builder reads the update's current version, so a regenerated draft
+ * notifies again.
+ */
+export interface UpdateReviewSubject {
+  updateId: string;
+  reviewerIds: string[];
 }
 
 /**
@@ -118,6 +177,18 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.MEETING_READY;
       subject: MeetingReadySubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.AGENDA_READY;
+      subject: AgendaReadySubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.UPDATE_REVIEW;
+      subject: UpdateReviewSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.AGENT_RUN;
+      subject: AgentRunSubject;
     }
 );
 

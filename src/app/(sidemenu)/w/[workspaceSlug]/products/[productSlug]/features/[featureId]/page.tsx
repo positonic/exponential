@@ -52,7 +52,12 @@ import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
 import { FeatureTicketsSection } from "~/app/_components/product/FeatureTicketsSection";
-import { FeatureActivitySection } from "~/app/_components/product/FeatureActivitySection";
+import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import {
+  ActivityFilterMenu,
+  useActivityFilter,
+} from "~/app/_components/shared/ActivityFilterMenu";
+import { useFeatureActivity } from "~/hooks/useFeatureActivity";
 import {
   FEATURE_STATUS_OPTIONS,
   FEATURE_STATUS_COLORS,
@@ -114,6 +119,8 @@ export default function FeatureDetailPage() {
   });
 
   const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const activity = useFeatureActivity(featureId);
+  const [activityFilter, setActivityFilter] = useActivityFilter();
 
   const invalidateFeature = async () => {
     await utils.product.feature.getById.invalidate({ id: featureId });
@@ -205,9 +212,9 @@ export default function FeatureDetailPage() {
   const backPath = `/w/${workspace?.slug}/products/${productSlug}/features`;
 
   return (
-    <div className="flex min-h-0">
+    <div className="flex flex-col lg:flex-row min-h-0">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto pr-6">
+      <div className="flex-1 min-w-0 overflow-y-auto lg:pr-6">
         <Stack gap="lg">
           {/* Back nav */}
           <Link href={backPath} className="inline-flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors">
@@ -372,9 +379,12 @@ export default function FeatureDetailPage() {
             </CollapsibleSection>
           )}
 
-          {/* Activity - feature-level comments, ticket-detail pattern. */}
-          <CollapsibleSection title="Activity">
-            <FeatureActivitySection featureId={featureId} />
+          {/* Activity - the app-wide feed + composer, same block as FeaturePeek */}
+          <CollapsibleSection
+            title="Activity"
+            action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}
+          >
+            <ActivityTimeline activity={activity} filter={activityFilter} />
           </CollapsibleSection>
         </Stack>
       </div>

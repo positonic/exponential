@@ -1,4 +1,5 @@
 import "~/styles/globals.css";
+import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { MantineProvider } from "@mantine/core";
 import "@mantine/core/styles.css";
@@ -10,6 +11,12 @@ import { getThemeDomain } from "~/config/site";
  * Bare shell for public, unauthenticated pages (the Forms renderer at /f/[slug]).
  * Provides the theme + Mantine but no sidemenu, no auth, no tRPC.
  */
+// Forms are intake for a workspace, shared by link; they are not search
+// landing pages.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
+
 export default async function PublicLayout({
   children,
 }: {

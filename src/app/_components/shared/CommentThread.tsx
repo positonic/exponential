@@ -11,6 +11,8 @@ import {
   getTextColor,
 } from "~/utils/avatarColors";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { collapseMentions, expandMentions } from "~/lib/content/mentionText";
+import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 
 export interface CommentAuthor {
   id: string;
@@ -33,6 +35,12 @@ interface CommentThreadProps {
   onDeleteImage?: (commentId: string, imageUrl: string) => void;
   currentUserId?: string;
   mentionNames?: string[];
+  /**
+   * When set, inline editing shows mentions as display text (@Name) instead
+   * of the stored @[Name](id) markup, converting back on save. Without it,
+   * editing falls back to the raw stored body.
+   */
+  mentionCandidates?: MentionCandidate[];
   variant?: "card" | "inline";
   emptyMessage?: string | null;
 }
@@ -48,6 +56,7 @@ export function CommentThread({
   onDeleteImage,
   currentUserId,
   mentionNames = [],
+  mentionCandidates,
   variant = "card",
   emptyMessage = "No comments yet. Start the discussion!",
 }: CommentThreadProps) {
@@ -57,7 +66,11 @@ export function CommentThread({
 
   const startEditing = (comment: Comment) => {
     setEditingCommentId(comment.id);
-    setEditContent(comment.content);
+    setEditContent(
+      mentionCandidates
+        ? collapseMentions(comment.content, mentionCandidates)
+        : comment.content,
+    );
   };
 
   const cancelEditing = () => {
@@ -69,7 +82,10 @@ export function CommentThread({
     if (!editingCommentId || !editContent.trim() || !onEditComment) return;
     setIsSaving(true);
     try {
-      await onEditComment(editingCommentId, editContent.trim());
+      const body = mentionCandidates
+        ? expandMentions(editContent.trim(), mentionCandidates)
+        : editContent.trim();
+      await onEditComment(editingCommentId, body);
       setEditingCommentId(null);
       setEditContent("");
     } finally {

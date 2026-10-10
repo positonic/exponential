@@ -229,3 +229,48 @@ describe("externalAgent.grantWorkspaces", () => {
     expect(db.workspaceUser.upsert).not.toHaveBeenCalled();
   });
 });
+
+describe("externalAgent.delete — an Assistant's principal is protected (ADR-0067)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    arrangeOwner(db);
+  });
+
+  it("refuses to delete an agent that backs an Assistant, writing nothing", async () => {
+    db.externalAgent.findFirst.mockResolvedValue({
+      id: AGENT_ID,
+      ownerId: OWNER_ID,
+      shadowUserId: SHADOW_ID,
+      shadowUser: { id: SHADOW_ID, image: null },
+      assistant: { id: "assistant-1" },
+    } as never);
+
+    await expect(caller(db).externalAgent.delete({ agentId: AGENT_ID })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.externalAgent.delete).not.toHaveBeenCalled();
+    expect(db.user.delete).not.toHaveBeenCalled();
+  });
+
+  it("still deletes a plain External agent", async () => {
+    db.externalAgent.findFirst.mockResolvedValue({
+      id: AGENT_ID,
+      ownerId: OWNER_ID,
+      shadowUserId: SHADOW_ID,
+      shadowUser: { id: SHADOW_ID, image: null },
+      assistant: null,
+    } as never);
+    db.user.delete.mockResolvedValue({} as never);
+
+    await expect(caller(db).externalAgent.delete({ agentId: AGENT_ID })).resolves.toEqual({
+      success: true,
+      shadowUserRetained: false,
+    });
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
+});

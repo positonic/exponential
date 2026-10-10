@@ -9,6 +9,7 @@
  * 2. Team membership: user is in a team linked to the workspace (Team.workspaceId)
  */
 
+import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import type { WorkspaceMembership, WorkspaceRole } from "../types";
 import { WORKSPACE_ROLE_HIERARCHY } from "../types";
@@ -18,8 +19,8 @@ import { WORKSPACE_ROLE_HIERARCHY } from "../types";
  *
  * Membership alone is NOT the answer: `viewer` is a read-only role and `guest`
  * is synthesized for project-only access, so both must be refused. Callers that
- * merely assert membership (e.g. `assertWorkspaceMember`) let a viewer write —
- * use this wherever a write is about to happen.
+ * merely assert membership let a viewer write — use this (or
+ * `assertWorkspaceWriteRole`, which throws) wherever a write is about to happen.
  */
 export function canEditWorkspaceContent(role: WorkspaceRole | null): boolean {
   if (!role) return false;
@@ -193,4 +194,103 @@ export async function findUserByEmailInWorkspace(
   }
 
   return { id: user.id, email: user.email, name: user.name };
+}
+
+/**
+ * Assert that the user holds one of `allowedRoles` in the workspace, throwing
+ * `FORBIDDEN` otherwise. Returns the resolved role so callers can branch further.
+ *
+ * This is the centralized replacement for the
+ * `member.role !== "owner" && member.role !== "admin"` shape that `workspace.ts`
+ * open-codes in about ten places. Reach for it whenever a workspace-level
+ * privileged action needs gating — CLAUDE.md forbids adding another inline copy.
+ *
+ * Note that team-based access resolves to `member` (see `getWorkspaceMembership`),
+ * so a user who reaches the workspace only through a team is correctly refused an
+ * owner/admin gate.
+ */
+export async function assertWorkspaceRole(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+  allowedRoles: readonly WorkspaceRole[],
+): Promise<WorkspaceRole> {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace.",
+    });
+  }
+
+  if (!allowedRoles.includes(membership.role)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `This action requires the ${formatRoleList(allowedRoles)} role.`,
+    });
+  }
+
+  return membership.role;
+}
+
+/**
+ * Assert that the user is a member of the workspace (any role, directly or via
+ * a team), throwing `FORBIDDEN` otherwise. Returns the membership.
+ *
+ * This is the READ gate: it admits `viewer`. Never use it alone in front of a
+ * write — use `assertWorkspaceWriteRole` there.
+ */
+export async function assertWorkspaceMembership(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<WorkspaceMembership> {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace.",
+    });
+  }
+  return membership;
+}
+
+/**
+ * Assert that the user may create or modify content in the workspace, i.e.
+ * holds `owner`, `admin` or `member`. Viewers and guests (and non-members)
+ * are refused with `FORBIDDEN`. Returns the membership so callers can branch.
+ *
+ * This is the write-side counterpart of a bare membership check: every
+ * mutation that only asserted "is a member" let a read-only `viewer` write.
+ * Use it (or a wrapper that delegates to it) on every workspace-scoped write.
+ */
+export async function assertWorkspaceWriteRole(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<WorkspaceMembership> {
+  const membership = await getWorkspaceMembership(db, userId, workspaceId);
+
+  if (!membership) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You are not a member of this workspace.",
+    });
+  }
+
+  if (!canEditWorkspaceContent(membership.role)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "You need owner, admin, or member access to this workspace to make changes.",
+    });
+  }
+
+  return membership;
+}
+
+function formatRoleList(roles: readonly WorkspaceRole[]): string {
+  if (roles.length <= 1) return roles[0] ?? "owner";
+  return `${roles.slice(0, -1).join(", ")} or ${roles[roles.length - 1]}`;
 }

@@ -46,7 +46,7 @@ export const FeaturesSection: React.FC<FeaturesSectionProps> = ({ id }) => {
       icon: <IconSun size={32} stroke={1.5} />,
       iconColor: "var(--color-brand-warning)",
       title: "Daily Focus",
-      description: "Your morning starts with clarity. See today's priorities connected to this week's outcomes. No more planning paralysis."
+      description: "Your morning starts with clarity. See today's priorities connected to this week's goals. No more planning paralysis."
     },
     {
       icon: <IconCalendarWeek size={32} stroke={1.5} />,

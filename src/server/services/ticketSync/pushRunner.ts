@@ -2,11 +2,13 @@ import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import {
   runOutboundTicketPush,
+  NonRetryablePushError,
   PENDING_EXTERNAL_PREFIX,
   type OutboundPushItem,
   type TicketPushAdapter,
 } from "./push";
 import { createNotionTicketSyncAdapter } from "./notionAdapter";
+import { hasNotionProvenance } from "./mapping";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 
 /**
@@ -43,6 +45,8 @@ export const PUSH_RELEVANT_TICKET_FIELDS = [
 const MAX_ATTEMPTS = 5;
 const STALE_RUNNING_MINUTES = 15;
 const MAX_JOBS_PER_SWEEP = 200;
+/** Hard cap on rows one backfill run mirrors, applied after the filters. */
+const BACKFILL_LIMIT = 500;
 
 /** Exponential backoff (minutes → ms), capped at 1h, keyed on attempt count. */
 function backoffMs(attempts: number): number {
@@ -135,9 +139,11 @@ export async function dispatchTicketPush(
  * (`externalId: "pending:<ticketId>"`) so the durable queue can turn it into a
  * real Notion page on drain, then kicks the drain. Never throws.
  *
- * Skips terminal tickets (mirror only non-terminal work, matching backfill) and
+ * Skips terminal tickets (mirror only non-terminal work, matching backfill),
  * tickets that already carry a sync (inbound-born, or already mirrored) — the
- * `[ticketId, provider]` uniqueness is the final idempotency guard.
+ * `[ticketId, provider]` uniqueness is the final idempotency guard — and
+ * tickets that carry Notion provenance in `links` (see
+ * {@link ticketIsNotionBorn}).
  */
 export async function dispatchTicketCreate(
   db: PrismaClient,
@@ -156,6 +162,22 @@ export async function dispatchTicketCreate(
   }
 }
 
+/**
+ * A ticket that came FROM Notion, whatever its sync state.
+ *
+ * "Has no `TicketSync` row" is NOT the same question as "does not exist in
+ * Notion". Tickets imported before the sync engine landed — and any row the
+ * importer created whose sync record was later removed — carry their origin
+ * page in `links.notionPageId` and nothing else. Mirroring one of those out
+ * creates a SECOND Notion page for a row Notion already has, which the next
+ * inbound poll then treats as a fresh row: the duplicate-per-side failure the
+ * 2026-07 CLEAR import produced. The inbound adoption pass reclaims these into
+ * real sync records; until it runs, the outbound side must leave them alone.
+ */
+function ticketIsNotionBorn(ticket: { links: unknown }): boolean {
+  return hasNotionProvenance(ticket.links);
+}
+
 async function ensureCreateSentinel(
   db: PrismaClient,
   ticketId: string,
@@ -166,12 +188,14 @@ async function ensureCreateSentinel(
       id: true,
       status: true,
       productId: true,
+      links: true,
       _count: { select: { syncs: true } },
     },
   });
   if (!ticket) return null;
   if (COMPLETED_TICKET_STATUSES.includes(ticket.status)) return null;
   if (ticket._count.syncs > 0) return null;
+  if (ticketIsNotionBorn(ticket)) return null;
 
   const config = await db.ticketSyncConfig.findFirst({
     where: {
@@ -208,20 +232,55 @@ export interface BackfillPlanItem {
   ticketId: string;
   title: string;
   number: number;
+  /**
+   * Set when Notion already holds a row with this title. Advisory ONLY — a
+   * title is user-editable, mutates in place, and is not unique (auto-filed
+   * bug tickets are identical by design), so it is a hint for the person
+   * approving the backfill and must never drive an automatic decision.
+   */
+  warning?: string;
+  /**
+   * True when the title check actually completed for this row. Absent warning
+   * + absent flag means "not checked", NOT "checked and clean" — the probe
+   * swallows per-row failures, so the two must stay distinguishable.
+   */
+  titleChecked?: boolean;
+}
+
+/** Adapter surface the preview needs; a subset of the real Notion adapter. */
+export interface BackfillTitleProbe {
+  findPagesByTitle(
+    databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>>;
 }
 
 /**
+ * How many planned rows the title check covers. One Notion query per title, so
+ * this is capped at the number the preview UI actually shows; the router
+ * reports the cap rather than implying the whole plan was checked.
+ */
+export const TITLE_WARNING_PROBE_LIMIT = 20;
+
+/**
  * The one-time backfill manifest: the non-terminal tickets in a config's
- * product that have no sync record yet (exactly what a real backfill would
- * mirror). Read-only — the dry-run gate the UI shows before the real run.
+ * product that have no sync record yet AND no Notion provenance (exactly what
+ * a real backfill would mirror). Read-only — the dry-run gate the UI shows
+ * before the real run.
+ *
+ * Provenance is filtered in JS rather than in the `where`: Prisma's JSON path
+ * filters don't express "key absent" portably, and getting that subtly wrong
+ * fails OPEN (it mirrors a Notion-born ticket back out). The cap is applied
+ * after the filter so a product full of imported tickets can't starve the
+ * manifest of the Exponential-born rows the backfill actually exists for.
  */
 export async function planBackfill(
   db: PrismaClient,
-  params: { configId: string },
+  params: { configId: string; probe?: BackfillTitleProbe },
 ): Promise<BackfillPlanItem[]> {
   const config = await db.ticketSyncConfig.findUnique({
     where: { id: params.configId },
-    select: { productId: true },
+    select: { productId: true, databaseId: true },
   });
   if (!config) return [];
 
@@ -231,17 +290,43 @@ export async function planBackfill(
       status: { notIn: [...COMPLETED_TICKET_STATUSES] },
       syncs: { none: {} },
     },
-    select: { id: true, title: true, number: true },
+    select: { id: true, title: true, number: true, links: true },
     orderBy: { createdAt: "asc" },
-    take: 500,
   });
-  return tickets.map((t) => ({ ticketId: t.id, title: t.title, number: t.number }));
+  const items: BackfillPlanItem[] = tickets
+    .filter((t) => !ticketIsNotionBorn(t))
+    .slice(0, BACKFILL_LIMIT)
+    .map((t) => ({ ticketId: t.id, title: t.title, number: t.number }));
+
+  if (!params.probe) return items;
+
+  // Advisory title check on the rows the preview shows. A failure here must
+  // never break the preview — a missing warning is a smaller problem than a
+  // backfill nobody can approve. Each item records whether its own check
+  // actually ran, so "no warning" is never read as "checked and clean" when
+  // Notion rate-limited us halfway through.
+  for (const item of items.slice(0, TITLE_WARNING_PROBE_LIMIT)) {
+    try {
+      const matches = await params.probe.findPagesByTitle(
+        config.databaseId,
+        item.title,
+      );
+      item.titleChecked = true;
+      if (matches.length > 0) {
+        item.warning = `Notion already has ${matches.length === 1 ? "a row" : `${matches.length} rows`} with this title — check this isn't the same work before mirroring`;
+      }
+    } catch {
+      // Leave titleChecked false; the create path's own probe is the real guard.
+    }
+  }
+  return items;
 }
 
 /**
  * Run the backfill: enqueue a create job (via a sentinel sync) for every
- * non-terminal, unsynced ticket. Idempotent — a ticket that already has a sync
- * is skipped, so re-running creates nothing new. The Notion pages themselves
+ * non-terminal, unsynced, Exponential-born ticket. Idempotent — a ticket that
+ * already has a sync is skipped, so re-running creates nothing new. The
+ * Notion pages themselves
  * are written by the durable drain, so a large backfill can't time out the
  * request and each row retries independently.
  */
@@ -257,15 +342,20 @@ export async function enqueueBackfill(
     return { enqueued: 0 };
   }
 
-  const tickets = await db.ticket.findMany({
+  const candidates = await db.ticket.findMany({
     where: {
       productId: config.productId,
       status: { notIn: [...COMPLETED_TICKET_STATUSES] },
       syncs: { none: {} },
     },
-    select: { id: true },
-    take: 500,
+    select: { id: true, links: true },
+    orderBy: { createdAt: "asc" },
   });
+  // Same provenance exclusion as planBackfill — the manifest the user approved
+  // and the rows actually enqueued must be the same set.
+  const tickets = candidates
+    .filter((t) => !ticketIsNotionBorn(t))
+    .slice(0, BACKFILL_LIMIT);
 
   let enqueued = 0;
   for (const t of tickets) {
@@ -460,14 +550,18 @@ export async function runOutboundPushSweep(
       } catch (error) {
         const message = error instanceof Error ? error.message : "unknown error";
         const attempts = job.attempts + 1;
-        const exhausted = attempts >= MAX_ATTEMPTS;
+        // A remote write that already landed must never be retried — another
+        // attempt would duplicate it. Ordinary transient failures (rate limits,
+        // 5xx, a dropped connection before the write) still back off and retry.
+        const nonRetryable = error instanceof NonRetryablePushError;
+        const giveUp = nonRetryable || attempts >= MAX_ATTEMPTS;
         await db.ticketSyncPushJob.update({
           where: { id: job.id },
           data: {
-            status: exhausted ? "FAILED" : "PENDING",
+            status: giveUp ? "FAILED" : "PENDING",
             attempts,
             lastError: message,
-            nextAttemptAt: exhausted
+            nextAttemptAt: giveUp
               ? now
               : new Date(now.getTime() + backoffMs(attempts)),
           },
@@ -475,13 +569,15 @@ export async function runOutboundPushSweep(
         counts.failed++;
         items.push({
           syncId: job.syncId,
-          externalId: null,
+          externalId: nonRetryable ? error.orphanedExternalId : null,
           ticketId: "",
           title: "",
           action: "failed",
-          reason: exhausted
-            ? `${message} (gave up after ${attempts} attempts)`
-            : `${message} (will retry, attempt ${attempts}/${MAX_ATTEMPTS})`,
+          reason: nonRetryable
+            ? `${message} (not retried — a retry would create a duplicate page; reconcile the orphan manually)`
+            : giveUp
+              ? `${message} (gave up after ${attempts} attempts)`
+              : `${message} (will retry, attempt ${attempts}/${MAX_ATTEMPTS})`,
         });
       }
     }

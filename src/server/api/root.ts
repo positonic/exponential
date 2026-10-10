@@ -2,13 +2,15 @@ import { postRouter } from "~/server/api/routers/post";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
 import { actionRouter } from "./routers/action";
 import { adminRouter } from "./routers/admin";
+import { adrRouter } from "./routers/adr";
+import { decisionRouter } from "./routers/decision";
+import { ceremonyRouter } from "./routers/ceremony";
 import { projectRouter } from "./routers/project";
 import { searchRouter } from "./routers/search";
 import { toolRouter } from "./routers/tool";
 import { videoRouter } from "~/server/api/routers/video";
 import { goalRouter } from "./routers/goal";
 import { dayRouter } from "~/server/api/routers/day";
-import { outcomeRouter } from "./routers/outcome";
 import { lifeDomainRouter } from "./routers/lifeDomain";
 import { workflowRouter } from "./routers/workflow";
 import { transcriptionRouter } from "./routers/transcription";
@@ -23,13 +25,19 @@ import { teamRouter } from "./routers/team";
 import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
+import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
 import { feedbackRouter } from "./routers/feedback";
+import { docsRouter } from "./routers/docs";
 import { featureRequestRouter } from "./routers/featureRequest";
 import { whatsappRouter } from "./routers/whatsapp";
 import { whatsappGatewayRouter } from "./routers/whatsappGateway";
 import { telegramGatewayRouter } from "./routers/telegramGateway";
 import { matrixGatewayRouter } from "./routers/matrixGateway";
+import { matrixServerRouter } from "./routers/matrixServer";
+import { matrixRoomRouter } from "./routers/matrixRoom";
 import { notificationRouter } from "./routers/notification";
+import { inboxRouter } from "./routers/inbox";
+import { agentRunRouter } from "./routers/agentRun";
 import { pushSubscriptionRouter } from "./routers/pushSubscription";
 import { weeklyPlanningRouter } from "./routers/weeklyPlanning";
 import { projectWorkflowRouter } from "./routers/projectWorkflow";
@@ -52,6 +60,7 @@ import { formRouter } from "./routers/form";
 import { collectionRouter } from "./routers/collection";
 import { listAutomationRouter } from "./routers/listAutomation";
 import { broadcastRouter } from "./routers/broadcast";
+import { workspaceUpdateRouter } from "./routers/workspaceUpdate";
 import { tagRouter } from "./routers/tag";
 import { schedulingRouter } from "./routers/scheduling";
 import { taskScheduleRouter } from "./routers/taskSchedule";
@@ -88,6 +97,7 @@ import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
 import { pageCommentRouter } from "./routers/pageComment";
+import { yourWorkRouter } from "./routers/yourWork";
 /**
  * This is the primary router for your server.
  *
@@ -99,11 +109,13 @@ export const appRouter = createTRPCRouter({
   search: searchRouter,
   action: actionRouter,
   admin: adminRouter,
+  adr: adrRouter,
+  decision: decisionRouter,
+  ceremony: ceremonyRouter,
   tools: toolRouter,
   video: videoRouter,
   goal: goalRouter,
   day: dayRouter,
-  outcome: outcomeRouter,
   lifeDomain: lifeDomainRouter,
   workflow: workflowRouter,
   transcription: transcriptionRouter,
@@ -118,14 +130,20 @@ export const appRouter = createTRPCRouter({
   slack: slackRouter,
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
+  workspaceScheduling: workspaceSchedulingRouter,
   feedback: feedbackRouter,
+  docs: docsRouter,
   featureRequest: featureRequestRouter,
   whatsapp: whatsappRouter,
   whatsappGateway: whatsappGatewayRouter,
   telegramGateway: telegramGatewayRouter,
   matrixGateway: matrixGatewayRouter,
+  matrixServer: matrixServerRouter,
+  matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
   notification: notificationRouter,
+  inbox: inboxRouter,
+  agentRun: agentRunRouter,
   pushSubscription: pushSubscriptionRouter,
   weeklyPlanning: weeklyPlanningRouter,
   projectWorkflow: projectWorkflowRouter,
@@ -147,6 +165,7 @@ export const appRouter = createTRPCRouter({
   collection: collectionRouter,
   listAutomation: listAutomationRouter,
   broadcast: broadcastRouter,
+  workspaceUpdate: workspaceUpdateRouter,
   tag: tagRouter,
   scheduling: schedulingRouter,
   taskSchedule: taskScheduleRouter,
@@ -178,6 +197,7 @@ export const appRouter = createTRPCRouter({
   voice: voiceRouter,
   page: pageRouter,
   pageComment: pageCommentRouter,
+  yourWork: yourWorkRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,
   okr: keyResultRouter,

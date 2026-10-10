@@ -44,6 +44,7 @@ interface CalendarWeekTimeGridProps {
   scheduledActions: ScheduledAction[];
   timeEntries?: CalendarTimeEntry[];
   dateRange: { start: Date; end: Date };
+  onEventClick?: (event: CalendarEventWithSource) => void;
   onActionClick?: (action: ScheduledAction) => void;
   onRescheduleAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
   onResizeAction?: (action: ScheduledAction, newStart: Date, newEnd: Date) => void;
@@ -57,6 +58,7 @@ export function CalendarWeekTimeGrid({
   scheduledActions,
   timeEntries = [],
   dateRange,
+  onEventClick,
   onActionClick,
   onRescheduleAction,
   onResizeAction,
@@ -313,6 +315,7 @@ export function CalendarWeekTimeGrid({
                         <CalendarEventBlock
                           key={item.id}
                           event={item.originalEvent}
+                          onClick={onEventClick}
                           style={{
                             top: item.top,
                             left: `${item.left}%`,

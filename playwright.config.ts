@@ -11,10 +11,19 @@ import { defineConfig, devices } from "@playwright/test";
  * Dev-only by construction: global-setup runs the same guards as the fixture
  * scripts (refuses NODE_ENV=production and non-local databases).
  */
-const PORT = 3100;
+// Override with E2E_PORT when another checkout already holds 3100 (parallel
+// worktrees): with reuseExistingServer the suite would otherwise run against
+// that checkout's server instead of this one.
+const PORT = Number(process.env.E2E_PORT ?? 3100);
+
+// Shared with e2e/fixture-data.ts (kept literal there — specs do not import the config).
+const E2E_MASTRA_STUB_URL = "http://127.0.0.1:4199";
+const E2E_CRON_SECRET = "e2e-cron-secret";
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/perf/ has its own config (production build, one worker).
+  testIgnore: ["perf/**", "docs-screenshots/**"],
   globalSetup: "./e2e/global-setup",
   outputDir: "./e2e/.results",
   // First hit on a `next dev` route pays compile + data-fetch cost; give each
@@ -36,5 +45,19 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // Never deliver real email from a spec: booking a meeting sends calendar
+    // invites, and `.env.local` carries a live Postmark key. The switch blocks
+    // every send whatever the key source (env or a workspace integration).
+    // It only reaches a server Playwright starts — a reused one must be
+    // started with EMAIL_DELIVERY_DISABLED=1 (AGENT_VISUAL_TESTING.md).
+    env: {
+      EMAIL_DELIVERY_DISABLED: "1",
+      // Agent runs (ADR-0067) never reach a real Mastra from a spec: the
+      // assign-to-assistant spec runs a stub on this port, and any other
+      // spec that trips a run just fails the dispatch quietly. The cron
+      // secret is fixed so a spec can kick the dispatcher deterministically.
+      MASTRA_API_URL: E2E_MASTRA_STUB_URL,
+      CRON_SECRET: E2E_CRON_SECRET,
+    },
   },
 });

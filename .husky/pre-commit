@@ -5,6 +5,17 @@ if ! npm run test; then
   exit 1
 fi
 
+# Stamp `updated:` frontmatter on staged docs pages
+# (see scripts/docs-last-updated.ts; CI's docs:check fails on a page without one)
+DOCS_STAGED=$(git diff --staged --name-only --diff-filter=ACMR -- 'content/docs/*.md' 'content/docs/**/*.md')
+if [ -n "$DOCS_STAGED" ]; then
+  echo "Stamping docs last-updated dates..."
+  if ! npx tsx scripts/docs-last-updated.ts --staged; then
+    echo "❌ Could not stamp updated dates on staged docs pages"
+    exit 1
+  fi
+fi
+
 # Check for Prisma schema changes without migrations
 echo "Checking Prisma migrations..."
 SCHEMA_STAGED=$(git diff --staged --name-only -- prisma/schema.prisma)

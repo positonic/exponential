@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { YourWorkPanel } from './YourWorkPanel';
 import styles from './WorkspaceHomeConceptD.module.css';
 
 type Mode = 'all' | 'tasks' | 'projects' | 'docs' | 'people' | 'ai';
@@ -336,6 +337,8 @@ export function WorkspaceHomeConceptD() {
           )
         )}
       </Container>
+
+      <YourWorkPanel />
     </div>
   );
 }

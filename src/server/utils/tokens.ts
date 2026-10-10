@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 /**
  * Generate a cryptographically secure random token
@@ -9,12 +10,13 @@ export function generateSecureToken(length = 32): string {
 }
 
 /**
- * Generate an invite URL with the given token
+ * Generate an invite URL with the given token. Uses the shared public-base-URL
+ * helper (NEXT_PUBLIC_APP_URL, prod fallback) — never NEXTAUTH_URL, which is
+ * unset in some deploys and would send invite emails to localhost.
  * @param token - The invitation token
  */
 export function generateInviteUrl(token: string): string {
-  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return `${baseUrl}/invite/${token}`;
+  return `${getPublicBaseUrlFromEnv()}/invite/${token}`;
 }
 
 /**
@@ -22,6 +24,5 @@ export function generateInviteUrl(token: string): string {
  * @param token - The team invitation token
  */
 export function generateTeamInviteUrl(token: string): string {
-  const baseUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return `${baseUrl}/team-invite/${token}`;
+  return `${getPublicBaseUrlFromEnv()}/team-invite/${token}`;
 }

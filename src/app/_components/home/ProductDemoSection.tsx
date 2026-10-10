@@ -27,7 +27,7 @@ const SLIDES: Slide[] = [
     name: "Projects",
     title: "Projects with intelligence",
     description:
-      "Track health, progress, ownership, and outcomes across every active initiative.",
+      "Track health, progress, ownership, and results across every active initiative.",
     image: "/product-shots/exponential-projects.jpg",
   },
   {
@@ -75,7 +75,7 @@ const SLIDES: Slide[] = [
     name: "Draft Actions",
     title: "AI-drafted next steps",
     description:
-      "Generate clear, outcome-driven actions from context, goals, or chat.",
+      "Generate clear, goal-driven actions from context, goals, or chat.",
     image: "/product-shots/expo-draft-actions.jpg",
   },
   {
@@ -99,7 +99,7 @@ const SLIDES: Slide[] = [
     name: "Today's Calendar",
     title: "Calendar meets execution",
     description:
-      "See meetings, actions, and outcomes together in one streamlined view.",
+      "See meetings, actions, and goals together in one streamlined view.",
     image: "/product-shots/exponential-calendar-today.jpg",
   },
   {
@@ -123,7 +123,7 @@ const SLIDES: Slide[] = [
     name: "Time Tracking",
     title: "Own your time",
     description:
-      "Understand where your time goes — and redirect it toward outcomes.",
+      "Understand where your time goes — and redirect it toward what matters.",
     image: "/product-shots/exponential-plan-time.jpg",
   },
   {
@@ -214,7 +214,6 @@ const SLIDE_ICONS: Record<string, string> = {
   projects: "📊",
   "ai-chat": "🤖",
   "weekly-plan": "🔄",
-  outcomes: "📈",
   journal: "📝",
   crm: "🤝",
   calendar: "📅",

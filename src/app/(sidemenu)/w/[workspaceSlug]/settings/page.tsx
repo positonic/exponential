@@ -24,6 +24,7 @@ import {
   IconPencil,
   IconUserPlus,
   IconPlug,
+  IconCalendarRepeat,
   IconFolder,
   IconUsers,
   IconRocket,
@@ -40,6 +41,7 @@ import {
   IconSettings,
   IconPalette,
   IconLayoutList,
+  IconTarget,
   IconFlame,
   IconClock,
   IconPlus,
@@ -47,6 +49,7 @@ import {
   IconSparkles,
   IconSend,
   IconBug,
+  IconServer,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
@@ -59,6 +62,7 @@ import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTab
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
+import { MatrixServerSettings } from '~/app/_components/MatrixServerSettings';
 import { SentrySettings } from '~/app/_components/SentrySettings';
 import { FirefliesWizardModal } from '~/app/_components/integrations/FirefliesWizardModal';
 import { FirefliesIntegrationsList } from '~/app/_components/integrations/FirefliesIntegrationsList';
@@ -82,6 +86,7 @@ import {
   SettingsRowLink,
   type SidebarGroup,
 } from '~/app/_components/settings/SettingsShell';
+import { WorkspaceUpdatesSettings } from '~/app/_components/settings/WorkspaceUpdatesSettings';
 
 type SectionId =
   | 'general'
@@ -90,6 +95,8 @@ type SectionId =
   | 'features'
   | 'integrations'
   | 'plugins'
+  | 'ceremonies'
+  | 'updates'
   | 'danger';
 
 export default function WorkspaceSettingsPage() {
@@ -163,6 +170,10 @@ export default function WorkspaceSettingsPage() {
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
   const autoEnrichContactsEnabled = workspaceData?.enableAutoEnrichContacts ?? false;
+  // null = never set, so fall back to the workspace-type default (same
+  // resolution as useTerminology: team/org on, personal off).
+  const keyResultsEnabled =
+    workspaceData?.enableKeyResults ?? (workspaceData?.type !== 'personal');
   const currentHomeLayout = validateHomeLayout(workspaceData?.homeLayout);
 
   const featureSuccess = (message: string) => () => {
@@ -237,6 +248,12 @@ export default function WorkspaceSettingsPage() {
     ),
   });
 
+  const updateKeyResultsMutation = api.workspace.update.useMutation({
+    onSuccess: featureSuccess(
+      keyResultsEnabled ? 'Key results have been disabled' : 'Key results have been enabled'
+    ),
+  });
+
   const updateEffortUnitMutation = api.workspace.update.useMutation({
     onSuccess: () => {
       void utils.workspace.getBySlug.invalidate();
@@ -254,6 +271,31 @@ export default function WorkspaceSettingsPage() {
       refetchWorkspace();
       void utils.workspace.list.invalidate();
       setEditingField(null);
+    },
+  });
+
+  // The workspace you land in when a URL doesn't name one (getDefault falls
+  // back to your first workspace when none has been chosen).
+  const { data: defaultWorkspace, isLoading: isDefaultLoading } = api.workspace.getDefault.useQuery();
+  const isDefaultWorkspace = !!workspaceId && defaultWorkspace?.id === workspaceId;
+
+  const setDefaultMutation = api.workspace.setDefault.useMutation({
+    onSuccess: () => {
+      void utils.workspace.getDefault.invalidate();
+      notifications.show({
+        title: 'Default workspace updated',
+        message: `${workspace?.name ?? 'This workspace'} is now your default workspace.`,
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({
+        title: 'Could not set default workspace',
+        message: error.message,
+        color: 'red',
+        autoClose: 5000,
+      });
     },
   });
 
@@ -578,6 +620,7 @@ export default function WorkspaceSettingsPage() {
     advancedActionsEnabled,
     detailedActionsEnabled,
     bountiesEnabled,
+    keyResultsEnabled,
     dailyPlanBannerEnabled,
     weeklyReviewBannerEnabled,
     emailNotificationsEnabled,
@@ -600,6 +643,10 @@ export default function WorkspaceSettingsPage() {
         { id: 'features', label: 'Features', icon: IconRocket, badge: `${featureOn}/${featureTotal}` },
         { id: 'integrations', label: 'Integrations', icon: IconPalette },
         { id: 'plugins', label: 'Plugins', icon: IconPlug },
+        { id: 'ceremonies', label: 'Ceremonies', icon: IconCalendarRepeat },
+        ...(userRole === 'owner' || userRole === 'admin'
+          ? [{ id: 'updates' as const, label: 'Updates', icon: IconSparkles }]
+          : []),
       ],
     },
     ...(userRole === 'owner'
@@ -728,6 +775,35 @@ export default function WorkspaceSettingsPage() {
               <SettingsPill variant={workspace.type === 'personal' ? 'neutral' : 'team'}>
                 {workspaceTypeLabel}
               </SettingsPill>
+            </SettingsField>
+
+            <SettingsField
+              label="Default workspace"
+              sublabel="Where you land when a link doesn't name a workspace. Only affects you."
+              action={
+                !isDefaultLoading && !isDefaultWorkspace && workspaceId ? (
+                  <SettingsFieldButton
+                    onClick={() => {
+                      if (setDefaultMutation.isPending) return;
+                      setDefaultMutation.mutate({ workspaceId });
+                    }}
+                  >
+                    {setDefaultMutation.isPending ? 'Saving…' : 'Set as default'}
+                  </SettingsFieldButton>
+                ) : null
+              }
+            >
+              {isDefaultLoading ? (
+                <Skeleton height={16} width={120} />
+              ) : isDefaultWorkspace ? (
+                <SettingsPill variant="active">Default</SettingsPill>
+              ) : (
+                <span className="text-text-muted text-[12px]">
+                  {defaultWorkspace
+                    ? `Your default is ${defaultWorkspace.name}`
+                    : 'No default set'}
+                </span>
+              )}
             </SettingsField>
 
             <SettingsField
@@ -1088,6 +1164,18 @@ export default function WorkspaceSettingsPage() {
               }}
             />
             <FeatureRow
+              icon={IconTarget}
+              tag="Product"
+              title="Key Results"
+              description="Track measurable key results against goals, with start and target values, units, and periods. On by default for team workspaces."
+              enabled={keyResultsEnabled}
+              disabled={!canEdit || updateKeyResultsMutation.isPending}
+              onToggle={(checked) => {
+                if (!workspaceId) return;
+                updateKeyResultsMutation.mutate({ workspaceId, enableKeyResults: checked });
+              }}
+            />
+            <FeatureRow
               icon={IconSun}
               tag="Home"
               title="Daily Plan Banner"
@@ -1271,6 +1359,19 @@ export default function WorkspaceSettingsPage() {
                 <ZulipSettings
                   workspace={{ id: workspaceId, name: workspace.name }}
                   workspaceSlug={workspace.slug}
+                />
+              </SettingsSection>
+            )}
+
+            {workspaceId && (
+              <SettingsSection
+                icon={IconServer}
+                title="Matrix"
+                description="Register your own Matrix homeserver so meeting summaries can be posted into the rooms your team already uses. The bot posts only; it cannot be messaged back."
+              >
+                <MatrixServerSettings
+                  workspace={{ id: workspaceId, name: workspace.name }}
+                  canManage={canEdit}
                 />
               </SettingsSection>
             )}
@@ -1488,11 +1589,35 @@ export default function WorkspaceSettingsPage() {
           </SettingsSection>
         )}
 
+        {section === 'ceremonies' && (
+          <SettingsSection
+            icon={IconCalendarRepeat}
+            title="Ceremonies"
+            description="The workspace's operating rhythm: standups, planning, reviews, retros and the meetings that capture them."
+            flush
+          >
+            <SettingsRowLink
+              href={`/w/${workspace.slug}/settings/ceremonies`}
+              icon={IconCalendarRepeat}
+              title="Manage ceremonies"
+              description="Define recurring meetings from templates, set cadence, owner and participants, and link recordings to occurrences."
+            />
+          </SettingsSection>
+        )}
+
+        {section === 'updates' && (userRole === 'owner' || userRole === 'admin') && (
+          <WorkspaceUpdatesSettings
+            workspaceId={workspace.id}
+            workspaceSlug={workspace.slug}
+            members={workspace.members ?? []}
+          />
+        )}
+
         {section === 'danger' && userRole === 'owner' && (
           <SettingsDangerZone icon={IconShieldExclamation}>
             <SettingsDangerRow
               title="Delete workspace"
-              description="Permanently remove this workspace and all projects, actions, goals, outcomes, contacts, and deals. This action cannot be undone."
+              description="Permanently remove this workspace and all projects, actions, goals, contacts, and deals. This action cannot be undone."
               action={
                 <Button color="red" variant="outline" onClick={openDeleteModal}>
                   Delete workspace

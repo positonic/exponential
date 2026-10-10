@@ -10,6 +10,7 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { toPlainText } from '~/lib/content/plainText';
 
 interface CoachingCommitmentsProps {
   workspaceId: string;
@@ -137,7 +138,7 @@ export function CoachingCommitments({ workspaceId }: CoachingCommitmentsProps) {
                     <IconCheck size={11} />
                   </span>
                   <div className="ch-commit__body">
-                    <div className="ch-commit__title">{a.name}</div>
+                    <div className="ch-commit__title">{toPlainText(a.name)}</div>
                     <div className="ch-commit__sub">
                       <IconHash size={10} /> {a.goalTitle}
                       <span className="ch-commit__when">
@@ -153,7 +154,7 @@ export function CoachingCommitments({ workspaceId }: CoachingCommitmentsProps) {
                     <IconX size={11} />
                   </span>
                   <div className="ch-commit__body">
-                    <div className="ch-commit__title">{a.name}</div>
+                    <div className="ch-commit__title">{toPlainText(a.name)}</div>
                     <div className="ch-commit__sub">
                       <IconHash size={10} /> {a.goalTitle}
                       <span className="ch-commit__when">missed</span>
@@ -203,7 +204,7 @@ export function CoachingCommitments({ workspaceId }: CoachingCommitmentsProps) {
                       {done ? <IconCheck size={11} /> : null}
                     </span>
                     <div className="ch-commit__body">
-                      <div className="ch-commit__title">{a.name}</div>
+                      <div className="ch-commit__title">{toPlainText(a.name)}</div>
                       <div className="ch-commit__sub">
                         <IconHash size={10} /> {a.goalTitle}
                       </div>

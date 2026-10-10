@@ -83,6 +83,19 @@ describe('GoogleCalendarConnect', () => {
     });
   });
 
+  describe('when Google Calendar is gated', () => {
+    test('offers the premium explainer instead of a connect button', () => {
+      render(<GoogleCalendarConnect isConnected={false} gated />);
+
+      expect(
+        screen.queryByRole('button', { name: /connect google calendar/i }),
+      ).not.toBeInTheDocument();
+
+      const link = screen.getByRole('link', { name: /premium feature/i });
+      expect(link).toHaveAttribute('href', '/google-access?feature=calendar');
+    });
+  });
+
   describe('when calendar is connected', () => {
     test('renders connected state button', () => {
       render(<GoogleCalendarConnect isConnected={true} />);
@@ -142,6 +155,26 @@ describe('GoogleCalendarConnect', () => {
       expect(mockShow).toHaveBeenCalledWith({
         title: 'Connection Failed',
         message: 'Failed to connect calendar. Please try again.',
+        color: 'red',
+      });
+    });
+
+    test('maps account_linked_elsewhere instead of falling back', () => {
+      // Emitted by the Google callback when the account is already linked to
+      // another user. Before the shared message map no surface handled it, so
+      // it degraded to the generic provider fallback.
+      mockUseSearchParams.mockImplementation(() => ({
+        get: vi.fn((param: string) => {
+          if (param === 'calendar_error') return 'account_linked_elsewhere';
+          return null;
+        }),
+      }));
+
+      render(<GoogleCalendarConnect isConnected={false} />);
+
+      expect(mockShow).toHaveBeenCalledWith({
+        title: 'Connection Failed',
+        message: expect.stringContaining('already connected to a different user'),
         color: 'red',
       });
     });

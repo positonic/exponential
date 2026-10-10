@@ -58,7 +58,7 @@ const roadmapData: RoadmapItem[] = [
       "Goal hierarchy and tracking",
       "Progress visualization",
       "AI-assisted goal refinement",
-      "Outcome alignment checking"
+      "Goal alignment checking"
     ]
   },
   {

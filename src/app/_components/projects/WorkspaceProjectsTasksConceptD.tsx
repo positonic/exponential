@@ -1,23 +1,12 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Avatar, Checkbox, Collapse, Skeleton, Tooltip } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { Avatar, Checkbox, Skeleton, Tooltip } from '@mantine/core';
 import {
-  IconTable,
-  IconLayoutList,
-  IconTimeline,
-  IconSearch,
-  IconFilter,
   IconArrowsSort,
   IconSparkles,
   IconPlus,
   IconChevronRight,
-  IconCircleDot,
-  IconFlag,
-  IconUser,
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
@@ -26,25 +15,37 @@ import { CreateActionModal } from '~/app/_components/CreateActionModal';
 import { EditActionModal } from '~/app/_components/EditActionModal';
 import { HTMLContent } from '~/app/_components/HTMLContent';
 import { calculateProjectHealth } from '~/app/_components/home/ProjectHealth';
-import { FilterBar } from '~/app/_components/filters';
 import { ProjectSortMenu } from '~/app/_components/toolbar';
-import { useProjectViewState, filterProjects } from './useProjectViewState';
-import { hasActiveFilters } from '~/types/filter';
-import type { FilterBarConfig, FilterMember } from '~/types/filter';
+import {
+  useProjectViewState,
+  filterProjects,
+  computeProjectFilterCounts,
+  PROJECT_FILTER_KEYS,
+  DRI_ME,
+  PROJECT_DEFAULT_VIEW_STATE,
+} from './useProjectViewState';
+import { useSaveProjectsViewTab } from './projectsViewTab';
+import {
+  ListPageTopBar,
+  ListPageSearch,
+  ListPageButton,
+  ListPagePrimaryButton,
+} from '~/app/_components/listPage';
+import { ProjectsViewTabs } from './ProjectsViewTabs';
+import { useSession } from 'next-auth/react';
+import {
+  ProjectFilterPopover,
+  ProjectFilterPills,
+  countActiveProjectFilters,
+} from './ProjectFilterControls';
+import { usePageSearchHotkey } from '~/hooks/usePageSearchHotkey';
+import type { FilterMember } from '~/types/filter';
 import { getAvatarColor, getInitial } from '~/utils/avatarColors';
 import type { RouterOutputs } from '~/trpc/react';
 import styles from './WorkspaceProjectsTasksConceptD.module.css';
 
 type ProjectWithActions = RouterOutputs['project']['getProjectsWithActions']['projects'][0];
 type ActionItem = ProjectWithActions['actions'][0];
-
-const VIEW_TABS = [
-  { value: 'table', label: 'Projects', icon: IconTable, path: '/projects' },
-  { value: 'projects-tasks', label: 'Projects & Tasks', icon: IconLayoutList, path: '/projects-tasks' },
-  { value: 'timeline', label: 'Timeline', icon: IconTimeline, path: '/timeline' },
-] as const;
-
-type ViewTabValue = typeof VIEW_TABS[number]['value'];
 
 function getProjectStatusStyle(status: string): React.CSSProperties {
   switch (status) {
@@ -282,61 +283,25 @@ function TaskRow({ action, projectName, onRowClick, onCheckboxChange }: TaskRowP
   );
 }
 
-const PROJECT_FILTER_CONFIG: FilterBarConfig = {
-  fields: [
-    {
-      key: 'status',
-      label: 'Status',
-      type: 'multi-select',
-      icon: IconCircleDot,
-      badgeColor: 'cyan',
-      options: [
-        { value: 'ACTIVE', label: 'Active' },
-        { value: 'ON_HOLD', label: 'On Hold' },
-        { value: 'COMPLETED', label: 'Completed' },
-        { value: 'CANCELLED', label: 'Cancelled' },
-      ],
-    },
-    {
-      key: 'priority',
-      label: 'Priority',
-      type: 'multi-select',
-      icon: IconFlag,
-      badgeColor: 'grape',
-      options: [
-        { value: 'HIGH', label: 'High' },
-        { value: 'MEDIUM', label: 'Medium' },
-        { value: 'LOW', label: 'Low' },
-        { value: 'NONE', label: 'None' },
-      ],
-    },
-    {
-      key: 'driId',
-      label: 'DRI',
-      type: 'user',
-      icon: IconUser,
-      badgeColor: 'blue',
-    },
-  ],
-};
-
 export function WorkspaceProjectsTasksConceptD() {
   const { workspace, workspaceId } = useWorkspace();
-  const pathname = usePathname();
+  const { data: session, status: sessionStatus } = useSession();
+  const currentUserId = session?.user?.id ?? null;
   const searchRef = useRef<HTMLInputElement>(null);
 
   const {
     filters,
     setFilters,
     searchQuery,
+    deferredSearchQuery,
     setSearchQuery,
     sortState,
     setSortField,
     clearSort,
     sortProjects,
     viewParamsQueryString,
-  } = useProjectViewState();
-  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+  } = useProjectViewState(PROJECT_FILTER_KEYS, 'projects', PROJECT_DEFAULT_VIEW_STATE);
+  useSaveProjectsViewTab('projects-tasks');
   const [includeCompleted, setIncludeCompleted] = useState(false);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [editingAction, setEditingAction] = useState<ActionItem | null>(null);
@@ -353,22 +318,40 @@ export function WorkspaceProjectsTasksConceptD() {
     }));
   }, [workspace?.members]);
 
-  const filtersActive = hasActiveFilters(PROJECT_FILTER_CONFIG, filters);
+  const filterCtx = useMemo(() => ({ currentUserId }), [currentUserId]);
 
-  const activeTab: ViewTabValue = useMemo(() => {
-    if (pathname.includes('/projects-tasks')) return 'projects-tasks';
-    if (pathname.includes('/timeline')) return 'timeline';
-    return 'table';
-  }, [pathname]);
+  const activeFilterCount = countActiveProjectFilters(filters);
+  const filtersActive = activeFilterCount > 0;
+  // `driId=me` can only be resolved once the session is known; until then
+  // the list would flash empty, so treat that gap as loading.
+  const needsSession =
+    Array.isArray(filters.driId) && filters.driId.includes(DRI_ME);
+  const sessionPending = needsSession && sessionStatus === 'loading';
 
-  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') searchRef.current?.blur();
-  }, []);
+  usePageSearchHotkey(searchRef);
 
   const utils = api.useUtils();
 
+  const statusFilter = filters.status as string[] | undefined;
+  const statusQueryInput = useMemo(
+    () =>
+      statusFilter && statusFilter.length > 0
+        ? [...statusFilter].sort()
+        : undefined,
+    [statusFilter],
+  );
+
   const { data, isLoading } = api.project.getProjectsWithActions.useQuery(
-    { workspaceId: workspaceId ?? undefined, includeCompleted },
+    {
+      workspaceId: workspaceId ?? undefined,
+      includeCompleted,
+      status: statusQueryInput,
+    },
+    { enabled: !!workspaceId, placeholderData: (prev) => prev },
+  );
+
+  const { data: statusCounts } = api.project.getStatusCounts.useQuery(
+    { workspaceId: workspaceId ?? undefined },
     { enabled: !!workspaceId },
   );
 
@@ -388,8 +371,8 @@ export function WorkspaceProjectsTasksConceptD() {
 
   const filteredProjects = useMemo(() => {
     const all = data?.projects ?? [];
-    const filtered = filterProjects(all, filters, '');
-    const q = searchQuery.trim().toLowerCase();
+    const filtered = filterProjects(all, filters, '', filterCtx);
+    const q = deferredSearchQuery.trim().toLowerCase();
     const searchFiltered = q
       ? filtered.filter(
           (p) =>
@@ -398,96 +381,90 @@ export function WorkspaceProjectsTasksConceptD() {
         )
       : filtered;
     return sortProjects(searchFiltered);
-  }, [data?.projects, filters, searchQuery, sortProjects]);
+  }, [data?.projects, filters, deferredSearchQuery, sortProjects, filterCtx]);
 
   const totalActive = filteredProjects.filter((p) => p.status === 'ACTIVE').length;
   const totalOnHold = filteredProjects.filter((p) => p.status === 'ON_HOLD').length;
 
+  const optionCounts = useMemo(
+    () =>
+      computeProjectFilterCounts(
+        data?.projects ?? [],
+        filters,
+        deferredSearchQuery,
+        statusCounts,
+        filterCtx,
+      ),
+    [data?.projects, filters, deferredSearchQuery, statusCounts, filterCtx],
+  );
+
+  const clearFiltersAndSearch = useCallback(() => {
+    setFilters({});
+    setSearchQuery('');
+  }, [setFilters, setSearchQuery]);
+
+  // The status default is auto-applied, so filtersActive alone can't tell a
+  // filtered-out list from a workspace with no projects at all — a new
+  // workspace must still greet with "No projects yet.", not a Clear button.
+  const workspaceIsEmpty =
+    statusCounts !== undefined &&
+    Object.values(statusCounts).every((n) => n === 0);
+
   return (
     <div className={styles.page}>
-      {/* Top bar */}
-      <div className={styles.topBar}>
-        <nav className={styles.viewTabs}>
-          {VIEW_TABS.map(({ value, label, icon: Icon, path }) => (
-            <Link
-              key={value}
-              href={`${prefix}${path}${viewParamsQueryString ? `?${viewParamsQueryString}` : ''}`}
-              className={styles.viewTab}
-              data-active={activeTab === value ? 'true' : 'false'}
-            >
-              <Icon size={13} stroke={1.75} />
-              {label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className={styles.actions}>
-          <div className={styles.searchWrap}>
-            <IconSearch className={styles.searchIcon} size={13} stroke={1.75} />
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search  ⌘K"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              className={styles.searchInput}
+      <ListPageTopBar
+        left={
+          <>
+            <ProjectsViewTabs
+              linkPrefix={prefix}
+              viewParamsQueryString={viewParamsQueryString}
             />
-          </div>
-          <button
-            className={styles.actionBtn}
-            type="button"
-            onClick={toggleFilterRow}
-            data-active={filtersActive ? 'true' : 'false'}
-          >
-            <IconFilter size={13} stroke={1.75} />
-            Filter
-          </button>
-          <ProjectSortMenu
-            sortState={sortState}
-            onSortChange={setSortField}
-            onClearSort={clearSort}
-            trigger={
-              <button
-                type="button"
-                className={styles.actionBtn}
-                data-active={sortState ? 'true' : 'false'}
-              >
-                <IconArrowsSort size={13} stroke={1.75} />
-                Sort
-              </button>
-            }
-          />
-          <button
-            className={`${styles.actionBtn} ${includeCompleted ? styles.actionBtnActive : ''}`}
-            type="button"
-            onClick={() => setIncludeCompleted((v) => !v)}
-          >
-            Show completed
-          </button>
-          <button className={styles.actionBtn} type="button">
-            <IconSparkles size={13} stroke={1.75} />
-            Ask Zoe
-          </button>
-          <CreateProjectModal>
-            <button className={styles.newBtn} type="button">
-              <IconPlus size={13} stroke={2.5} />
-              New project
-            </button>
-          </CreateProjectModal>
-        </div>
-      </div>
-
-      <Collapse in={filterRowOpen || filtersActive}>
-        <div className={styles.filterRow}>
-          <FilterBar
-            config={PROJECT_FILTER_CONFIG}
-            filters={filters}
-            onFiltersChange={setFilters}
-            members={workspaceMembers}
-          />
-        </div>
-      </Collapse>
+            <ProjectFilterPills
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+            />
+          </>
+        }
+        actions={
+          <>
+            <ListPageSearch ref={searchRef} value={searchQuery} onChange={setSearchQuery} />
+            <ProjectFilterPopover
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
+              counts={optionCounts}
+            />
+            <ProjectSortMenu
+              sortState={sortState}
+              onSortChange={setSortField}
+              onClearSort={clearSort}
+              trigger={
+                <ListPageButton active={!!sortState}>
+                  <IconArrowsSort size={13} stroke={1.75} />
+                  Sort
+                </ListPageButton>
+              }
+            />
+            <ListPageButton
+              active={includeCompleted}
+              onClick={() => setIncludeCompleted((v) => !v)}
+            >
+              Show completed
+            </ListPageButton>
+            <ListPageButton>
+              <IconSparkles size={13} stroke={1.75} />
+              Ask Zoe
+            </ListPageButton>
+            <CreateProjectModal>
+              <ListPagePrimaryButton>
+                <IconPlus size={13} stroke={2.5} />
+                New project
+              </ListPagePrimaryButton>
+            </CreateProjectModal>
+          </>
+        }
+      />
 
       {/* Stats row */}
       <div style={{ padding: '8px 32px', borderBottom: '1px solid var(--color-border-primary)', flexShrink: 0 }}>
@@ -497,10 +474,10 @@ export function WorkspaceProjectsTasksConceptD() {
           {totalOnHold > 0 && ` · ${totalOnHold} on hold`}
         </span>
         <CreateActionModal viewName="projects-tasks">
-          <button className={styles.actionBtn} type="button" style={{ float: 'right', marginTop: -2 }}>
+          <ListPageButton style={{ float: 'right', marginTop: -2 }}>
             <IconPlus size={13} stroke={2} />
             Add task
-          </button>
+          </ListPageButton>
         </CreateActionModal>
       </div>
 
@@ -518,7 +495,7 @@ export function WorkspaceProjectsTasksConceptD() {
             </tr>
           </thead>
           <tbody>
-            {isLoading
+            {isLoading || sessionPending
               ? Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--color-border-secondary)' }}>
                     {Array.from({ length: 6 }).map((__, j) => (
@@ -532,7 +509,16 @@ export function WorkspaceProjectsTasksConceptD() {
                 ? (
                     <tr>
                       <td colSpan={6} className={styles.empty}>
-                        {searchQuery ? 'No matches.' : 'No projects yet.'}
+                        {(searchQuery || filtersActive) && !workspaceIsEmpty ? (
+                          <span className="inline-flex items-center gap-3">
+                            No projects match your filters.
+                            <ListPageButton onClick={clearFiltersAndSearch}>
+                              Clear filters
+                            </ListPageButton>
+                          </span>
+                        ) : (
+                          'No projects yet.'
+                        )}
                       </td>
                     </tr>
                   )

@@ -21,25 +21,15 @@ export default async function TodayPage({ searchParams }: PageProps) {
   const filterParam = typeof resolvedSearchParams?.filter === 'string' ? resolvedSearchParams.filter : undefined;
   const filter: DoFilter = isValidDoFilter(filterParam) ? filterParam : "today";
 
-  // The redesigned /today shell renders full-bleed (its own top bar + filter
-  // row span edge-to-edge with bottom borders). For tomorrow/upcoming we keep
-  // the legacy container padding.
-  const isToday = filter === "today";
-
+  // One tree for every filter: the desktop shell renders full-bleed and owns
+  // its padding, so switching tabs never remounts the page around it (the
+  // mobile legacy list pads itself in DoPageContent).
   return (
     <HydrateClient>
       <main className="flex h-full flex-col items-stretch justify-start text-text-primary">
-        {isToday ? (
-          <Suspense fallback={<div className="p-6">Loading...</div>}>
-            <ActionsWrapper initialFilter={filter} />
-          </Suspense>
-        ) : (
-          <div className="container flex flex-col items-stretch justify-start px-4 pb-20 pt-6">
-            <Suspense fallback={<div>Loading...</div>}>
-              <ActionsWrapper initialFilter={filter} />
-            </Suspense>
-          </div>
-        )}
+        <Suspense fallback={<div className="p-6">Loading...</div>}>
+          <ActionsWrapper initialFilter={filter} />
+        </Suspense>
       </main>
     </HydrateClient>
   );

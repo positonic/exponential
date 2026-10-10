@@ -1,5 +1,11 @@
 import type { PrismaClient } from "@prisma/client";
-import { addWeeks, endOfISOWeek, startOfISOWeek } from "date-fns";
+import {
+  addDays,
+  addWeeks,
+  differenceInCalendarDays,
+  endOfISOWeek,
+  startOfISOWeek,
+} from "date-fns";
 
 /**
  * One bar of the Week-in-Review sparkline. `day` is the ISO weekday label
@@ -52,16 +58,6 @@ export interface WorkspaceHomeStats {
   fourWeekAvg: number;
   /** Highest single-ISO-week event total in the trailing 12 ISO weeks. */
   bestWeekTotal: number;
-}
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getUTCFullYear() === b.getUTCFullYear() &&
-    a.getUTCMonth() === b.getUTCMonth() &&
-    a.getUTCDate() === b.getUTCDate()
-  );
 }
 
 export async function getWorkspaceHomeStats(
@@ -137,14 +133,26 @@ export async function getWorkspaceHomeStats(
   }
 
   // ── This-week sparkline (Mon → Sun) ────────────────────────────────
+  // Which bar is "today", as an offset from the start of the week — always
+  // 0..6, since `thisWeekStart` is derived from this same `now`.
+  //
+  // Deliberately the local calendar, so the flag agrees with the day labels.
+  // The `count` key below is a UTC date, matching the SQL's `date_trunc`, so
+  // flag and count line up only when the runtime is UTC — which is what
+  // production runs. On a non-UTC runtime the flagged bar can carry the
+  // adjacent UTC day's count; reconciling the two calendars means changing
+  // the SQL bucketing and the week window together, so it is left to its own
+  // change rather than half-done here.
+  const todayIndex = differenceInCalendarDays(now, thisWeekStart);
+
   const sparkline: WeeklySparklineBar[] = [];
   for (let i = 0; i < 7; i++) {
-    const day = new Date(thisWeekStart.getTime() + i * MS_PER_DAY);
+    const day = addDays(thisWeekStart, i);
     const key = day.toISOString().slice(0, 10);
     sparkline.push({
       day: DAY_LABELS[i] ?? "?",
       count: countsByDay.get(key) ?? 0,
-      isToday: isSameDay(day, now),
+      isToday: i === todayIndex,
     });
   }
 
@@ -156,7 +164,7 @@ export async function getWorkspaceHomeStats(
     const weekStart = startOfISOWeek(addWeeks(now, -w));
     let total = 0;
     for (let d = 0; d < 7; d++) {
-      const day = new Date(weekStart.getTime() + d * MS_PER_DAY);
+      const day = addDays(weekStart, d);
       total += countsByDay.get(day.toISOString().slice(0, 10)) ?? 0;
     }
     weekTotals.push(total);

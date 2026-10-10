@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { syncProjectCeremonies } from "~/server/services/ceremonies/projectCeremonies";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { slugify } from "~/utils/slugify";
@@ -14,7 +15,9 @@ import {
   AccessControlService,
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { projectActivityScopeWhere } from "~/server/services/projectActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
+import { rehomeProjectMeetings } from "~/server/services/meetings/assignMeetingPlacement";
 import type { PrismaClient } from "@prisma/client";
 
 /**
@@ -92,6 +95,7 @@ export const projectRouter = createTRPCRouter({
       }).optional(),
       workspaceId: z.string().optional(),
       goalId: z.number().optional(),
+      status: z.array(z.string()).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       console.log('🔍 [PROJECT.GETALL DEBUG] Query started', {
@@ -123,6 +127,9 @@ export const projectRouter = createTRPCRouter({
           ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
           // Filter by goal if provided
           ...(input?.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          ...(input?.status && input.status.length > 0
+            ? { status: { in: input.status } }
+            : {}),
           ...accessWhere,
         },
         orderBy: {
@@ -131,7 +138,6 @@ export const projectRouter = createTRPCRouter({
         include: {
           actions: input?.include?.actions ?? false,
           goals: true,
-          outcomes: true,
           lifeDomains: true,
           keyResults: {
             select: { keyResultId: true },
@@ -177,9 +183,8 @@ export const projectRouter = createTRPCRouter({
           name: projects[0].name,
           createdById: projects[0].createdById,
           status: projects[0].status,
-          goalsCount: projects[0].goals?.length || 0,
-          actionsCount: projects[0].actions?.length || 0,
-          outcomesCount: projects[0].outcomes?.length || 0
+          goalsCount: projects[0].goals?.length ?? 0,
+          actionsCount: projects[0].actions?.length ?? 0
         } : 'No projects found'
       });
 
@@ -192,6 +197,38 @@ export const projectRouter = createTRPCRouter({
       });
 
       return sortedProjects;
+    }),
+
+  /**
+   * Per-status project totals for the filter UI. Kept separate from getAll so
+   * the list can be fetched status-filtered while the status picker still
+   * shows honest counts for the statuses currently hidden.
+   */
+  getStatusCounts: protectedProcedure
+    .input(z.object({
+      workspaceId: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const isGuest = input?.workspaceId
+        ? await isWorkspaceGuest(ctx.db, userId, input.workspaceId)
+        : false;
+      const accessWhere = isGuest
+        ? { projectMembers: { some: { userId } } }
+        : buildProjectAccessWhere(userId);
+
+      const groups = await ctx.db.project.groupBy({
+        by: ["status"],
+        where: {
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          ...accessWhere,
+        },
+        _count: { _all: true },
+      });
+
+      return Object.fromEntries(
+        groups.map((g) => [g.status, g._count._all]),
+      ) as Record<string, number>;
     }),
 
   create: protectedProcedure
@@ -208,7 +245,6 @@ export const projectRouter = createTRPCRouter({
         startDate: z.date().nullable().optional(),
         endDate: z.date().nullable().optional(),
         goalIds: z.array(z.string()).optional(),
-        outcomeIds: z.array(z.string()).optional(),
         keyResultIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         teamId: z.string().optional(),
@@ -218,6 +254,8 @@ export const projectRouter = createTRPCRouter({
         productId: z.string().nullable().optional(),
         isPublic: z.boolean().optional().default(false),
         isRestricted: z.boolean().optional().default(false),
+        /** Ceremonies (same workspace) this project owns; see syncProjectCeremonies. */
+        ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -266,18 +304,13 @@ export const projectRouter = createTRPCRouter({
       });
 
       // Connect relations if provided
-      if (input.goalIds?.length || input.outcomeIds?.length || input.lifeDomainIds?.length) {
+      if (input.goalIds?.length || input.lifeDomainIds?.length) {
         await ctx.db.project.update({
           where: { id: project.id },
           data: {
             ...(input.goalIds?.length && {
               goals: {
                 connect: input.goalIds.map(id => ({ id: parseInt(id) })),
-              },
-            }),
-            ...(input.outcomeIds?.length && {
-              outcomes: {
-                connect: input.outcomeIds.map(id => ({ id })),
               },
             }),
             ...(input.lifeDomainIds?.length && {
@@ -290,6 +323,14 @@ export const projectRouter = createTRPCRouter({
       }
 
       // Link to key results via the KeyResultProject join table
+      if (input.ceremonyIds?.length) {
+        await syncProjectCeremonies(ctx.db, {
+          projectId: project.id,
+          workspaceId: project.workspaceId,
+          ceremonyIds: input.ceremonyIds,
+        });
+      }
+
       if (input.keyResultIds?.length) {
         await ctx.db.keyResultProject.createMany({
           data: input.keyResultIds.map((keyResultId) => ({
@@ -366,6 +407,31 @@ export const projectRouter = createTRPCRouter({
       });
     }),
 
+  // Slim mutation for the header icon picker (same format as goal icons).
+  updateIcon: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        icon: z.string().max(100).nullable(),
+        iconColor: z.string().max(32).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have edit access to this project",
+        });
+      }
+
+      return ctx.db.project.update({
+        where: { id: input.id },
+        data: { icon: input.icon, iconColor: input.iconColor },
+        select: { id: true, icon: true, iconColor: true },
+      });
+    }),
+
   update: protectedProcedure
     .input(
       z.object({
@@ -381,7 +447,6 @@ export const projectRouter = createTRPCRouter({
         taskManagementTool: z.enum(["internal", "monday", "notion"]).optional(),
         taskManagementConfig: z.record(z.any()).optional(),
         goalIds: z.array(z.string()).optional(),
-        outcomeIds: z.array(z.string()).optional(),
         keyResultIds: z.array(z.string()).optional(),
         lifeDomainIds: z.array(z.number()).optional(),
         workspaceId: z.string().nullable().optional(),
@@ -395,10 +460,11 @@ export const projectRouter = createTRPCRouter({
         isRestricted: z.boolean().optional(),
         enableDetailedActions: z.boolean().nullable().optional(),
         enableBounties: z.boolean().nullable().optional(),
+        ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, outcomeIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ...updateData } = input;
+      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ceremonyIds, ...updateData } = input;
 
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -430,7 +496,7 @@ export const projectRouter = createTRPCRouter({
       // already-completed project).
       const priorProject = await ctx.db.project.findUnique({
         where: { id },
-        select: { status: true },
+        select: { status: true, workspaceId: true },
       });
 
       // A product can only be linked to a project in the same workspace.
@@ -459,47 +525,57 @@ export const projectRouter = createTRPCRouter({
         }
       }
 
-      const updated = await ctx.db.project.update({
-        where: { id },
-        data: {
-          ...updateData,
-          slug,
-          goals: goalIds?.length ? {
-            set: goalIds.map(id => ({ id: parseInt(id) })),
-          } : undefined,
-          outcomes: outcomeIds !== undefined ? {
-            set: outcomeIds.map(id => ({ id })),
-          } : undefined,
-          lifeDomains: lifeDomainIds !== undefined ? {
-            set: lifeDomainIds.map(id => ({ id })),
-          } : undefined,
-          // Handle workspace: null means disconnect, string means connect
-          workspace: workspaceId === null
-            ? { disconnect: true }
-            : workspaceId !== undefined
-              ? { connect: { id: workspaceId } }
-              : undefined,
-          // Handle DRI: null means disconnect, string means connect
-          dri: driId === null
-            ? { disconnect: true }
-            : driId !== undefined
-              ? { connect: { id: driId } }
-              : undefined,
-          // Handle Product: null means disconnect, string means connect
-          product: productId === null
-            ? { disconnect: true }
-            : productId !== undefined
-              ? { connect: { id: productId } }
-              : undefined,
-          // Handle public visibility toggle
-          ...(isPublic !== undefined ? { isPublic } : {}),
-          // Handle restriction toggle (gated above by canManageProjectMembers)
-          ...(isRestricted !== undefined ? { isRestricted } : {}),
-          // Handle detailed actions override (null = inherit from workspace)
-          ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
-          // Handle bounties override (null = inherit from workspace)
-          ...(enableBounties !== undefined ? { enableBounties } : {}),
-        },
+      // A project moved to another workspace takes its meetings, and the
+      // actions under it, with it: a meeting's workspace is always its
+      // project's (CONTEXT.md → Meeting↔Workspace). One transaction, so the
+      // project row and its meetings move together or not at all.
+      const movesWorkspace =
+        workspaceId !== undefined && workspaceId !== (priorProject?.workspaceId ?? null);
+      const updated = await ctx.db.$transaction(async (tx) => {
+        const row = await tx.project.update({
+          where: { id },
+          data: {
+            ...updateData,
+            slug,
+            goals: goalIds?.length ? {
+              set: goalIds.map(id => ({ id: parseInt(id) })),
+            } : undefined,
+            lifeDomains: lifeDomainIds !== undefined ? {
+              set: lifeDomainIds.map(id => ({ id })),
+            } : undefined,
+            // Handle workspace: null means disconnect, string means connect
+            workspace: workspaceId === null
+              ? { disconnect: true }
+              : workspaceId !== undefined
+                ? { connect: { id: workspaceId } }
+                : undefined,
+            // Handle DRI: null means disconnect, string means connect
+            dri: driId === null
+              ? { disconnect: true }
+              : driId !== undefined
+                ? { connect: { id: driId } }
+                : undefined,
+            // Handle Product: null means disconnect, string means connect
+            product: productId === null
+              ? { disconnect: true }
+              : productId !== undefined
+                ? { connect: { id: productId } }
+                : undefined,
+            // Handle public visibility toggle
+            ...(isPublic !== undefined ? { isPublic } : {}),
+            // Handle restriction toggle (gated above by canManageProjectMembers)
+            ...(isRestricted !== undefined ? { isRestricted } : {}),
+            // Handle detailed actions override (null = inherit from workspace)
+            ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
+            // Handle bounties override (null = inherit from workspace)
+            ...(enableBounties !== undefined ? { enableBounties } : {}),
+          },
+        });
+
+        if (movesWorkspace) {
+          await rehomeProjectMeetings(tx, { projectId: id, workspaceId: row.workspaceId ?? null });
+        }
+        return row;
       });
 
       // Record a milestone activity event when a project is newly completed.
@@ -538,6 +614,15 @@ export const projectRouter = createTRPCRouter({
               ]
             : []),
         ]);
+      }
+
+      // Replace the project's ceremony set when provided (absent = untouched).
+      if (ceremonyIds !== undefined) {
+        await syncProjectCeremonies(ctx.db, {
+          projectId: id,
+          workspaceId: updated.workspaceId,
+          ceremonyIds,
+        });
       }
 
       return updated;
@@ -615,11 +700,6 @@ export const projectRouter = createTRPCRouter({
               tags: { include: { tag: true } },
             },
           },
-          outcomes: {
-            orderBy: {
-              dueDate: 'asc',
-            },
-          },
           goals: {
             select: { id: true, title: true },
           },
@@ -656,6 +736,7 @@ export const projectRouter = createTRPCRouter({
       workspaceId: z.string().optional(),
       includeCompleted: z.boolean().default(false),
       goalId: z.number().optional(),
+      status: z.array(z.string()).optional(),
     }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
@@ -665,6 +746,9 @@ export const projectRouter = createTRPCRouter({
         where: {
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
           ...(input.goalId ? { goals: { some: { id: input.goalId } } } : {}),
+          ...(input.status && input.status.length > 0
+            ? { status: { in: input.status } }
+            : {}),
           ...buildProjectAccessWhere(userId),
         },
         include: {
@@ -820,14 +904,6 @@ export const projectRouter = createTRPCRouter({
               image: true,
             },
           },
-          outcomes: {
-            where: {
-              type: 'weekly',
-            },
-            orderBy: {
-              dueDate: 'asc',
-            },
-          },
           goals: {
             select: { id: true, title: true },
           },
@@ -919,14 +995,20 @@ export const projectRouter = createTRPCRouter({
         });
       }
 
-      // Return full project with includes (use resolved id in case input was a slug)
+      // Return the project with only the relations the detail page actually
+      // renders. Keep this lean: transcription sessions in particular carry
+      // multi-megabyte columns (transcription, sentencesJson, analyticsJson)
+      // that made this query the page-load bottleneck for meeting-heavy
+      // projects. The details modal lazily fetches the full session via
+      // transcription.getById, and the tasks tab loads actions via
+      // action.getProjectActions.
       return ctx.db.project.findUnique({
         where: { id: projectExists.id },
         include: {
-          goals: true,
-          outcomes: true,
-          lifeDomains: true,
-          actions: true,
+          // Dates feed the header's days-left fallback, which must be the
+          // same for every member — so every linked goal, not the viewer's.
+          goals: { select: { id: true, title: true, dueDate: true, period: true, status: true } },
+          lifeDomains: { select: { id: true, title: true } },
           keyResults: {
             select: {
               keyResultId: true,
@@ -964,8 +1046,15 @@ export const projectRouter = createTRPCRouter({
             },
           },
           transcriptionSessions: {
-            include: {
-              screenshots: true,
+            select: {
+              id: true,
+              sessionId: true,
+              title: true,
+              description: true,
+              notes: true,
+              meetingDate: true,
+              createdAt: true,
+              processedAt: true,
               sourceIntegration: {
                 select: {
                   id: true,
@@ -977,10 +1066,8 @@ export const projectRouter = createTRPCRouter({
                 select: {
                   id: true,
                   name: true,
-                  description: true,
                   status: true,
                   priority: true,
-                  dueDate: true,
                 },
               },
             },
@@ -1037,6 +1124,7 @@ export const projectRouter = createTRPCRouter({
         where: {
           projectId: input.projectId,
           changedAt: { gte: since },
+          ...projectActivityScopeWhere(input.projectId),
         },
         orderBy: { changedAt: "desc" },
         take: input.limit,

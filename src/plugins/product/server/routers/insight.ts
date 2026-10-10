@@ -1,12 +1,17 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { loadProductWithAccess, assertWorkspaceMember } from "./product";
+import {
+  loadProductWithAccess,
+  assertWorkspaceAccess,
+  type WorkspaceAccessLevel,
+} from "./product";
 import { Prisma, type PrismaClient, type InsightType } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { emitInsightCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 
 // Loose shape for a ProseMirror document (same treatment as feature.ts).
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -52,6 +57,7 @@ async function loadInsightWithAccess(
   db: PrismaClient,
   userId: string,
   insightId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const insight = await db.insight.findUnique({
     where: { id: insightId },
@@ -68,7 +74,7 @@ async function loadInsightWithAccess(
   if (!insight) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Insight not found" });
   }
-  await assertWorkspaceMember(db, userId, insight.product.workspaceId);
+  await assertWorkspaceAccess(db, userId, insight.product.workspaceId, level);
   return insight;
 }
 
@@ -95,7 +101,7 @@ export const insightRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
 
       // Translate the origin filter into a `source` predicate. `form` matches
       // the `form:` prefix stamped by the create_insight destination; `manual`
@@ -170,7 +176,7 @@ export const insightRouter = createTRPCRouter({
       if (!insight) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Insight not found" });
       }
-      await assertWorkspaceMember(ctx.db, ctx.session.user.id, insight.product.workspaceId);
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, insight.product.workspaceId, "view");
       return coalesceStatus(insight);
     }),
 
@@ -193,7 +199,7 @@ export const insightRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "edit");
 
       return ctx.db.$transaction(async (tx) => {
         const insight = await tx.insight.create({
@@ -265,7 +271,7 @@ export const insightRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const existing = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const existing = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const { id, bodyDoc, baseVersion, ...data } = input;
 
       // Feed the detail page's activity trail (fire-and-forget). Compare
@@ -350,7 +356,7 @@ export const insightRouter = createTRPCRouter({
   initBodyDoc: protectedProcedure
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       const existing = await ctx.db.insight.findUnique({
         where: { id: input.id },
@@ -375,7 +381,7 @@ export const insightRouter = createTRPCRouter({
   uploadImage: protectedProcedure
     .input(z.object({ id: z.string(), base64Data: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       // Same 5MB cap as feature.uploadImage (base64 is ~4/3 the byte size).
       const approxBytes = Math.floor((input.base64Data.length * 3) / 4);
@@ -395,7 +401,7 @@ export const insightRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.insight.delete({ where: { id: input.id } });
       return { success: true };
     }),
@@ -403,7 +409,7 @@ export const insightRouter = createTRPCRouter({
   linkToFeature: protectedProcedure
     .input(z.object({ insightId: z.string(), featureId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId, "edit");
       const feature = await ctx.db.feature.findUnique({
         where: { id: input.featureId },
         select: { id: true, productId: true },
@@ -434,7 +440,7 @@ export const insightRouter = createTRPCRouter({
   unlinkFromFeature: protectedProcedure
     .input(z.object({ insightId: z.string(), featureId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId, "edit");
       await ctx.db.featureInsight.deleteMany({
         where: { insightId: input.insightId, featureId: input.featureId },
       });
@@ -445,7 +451,7 @@ export const insightRouter = createTRPCRouter({
   setFeatures: protectedProcedure
     .input(z.object({ insightId: z.string(), featureIds: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId, "edit");
       const uniqueFeatureIds = [...new Set(input.featureIds)];
       await ctx.db.$transaction(async (tx) => {
         if (uniqueFeatureIds.length > 0) {
@@ -492,7 +498,7 @@ export const insightRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       return ctx.db.insight.update({
         where: { id: input.id },
         data: { parkedAt: new Date(), parkReason: input.reason },
@@ -502,7 +508,7 @@ export const insightRouter = createTRPCRouter({
   unpark: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       // Clearing parkedAt/parkReason restores the insight at its prior status,
       // which was never touched while parked.
       return ctx.db.insight.update({
@@ -521,7 +527,7 @@ export const insightRouter = createTRPCRouter({
   publish: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       if (!PUBLISHABLE_TYPES.includes(insight.type)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -547,7 +553,7 @@ export const insightRouter = createTRPCRouter({
   unpublish: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const updated = await ctx.db.insight.update({
         where: { id: input.id },
         data: { publishedAt: null },
@@ -578,7 +584,7 @@ export const insightRouter = createTRPCRouter({
           message: "An insight cannot be a duplicate of itself",
         });
       }
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       const target = await ctx.db.insight.findUnique({
         where: { id: input.canonicalId },
         select: { id: true, title: true, productId: true, duplicateOfId: true },
@@ -661,7 +667,7 @@ export const insightRouter = createTRPCRouter({
   unmarkDuplicate: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       if (!insight.duplicateOfId) return { success: true };
       await ctx.db.insight.update({
         where: { id: input.id },
@@ -690,7 +696,7 @@ export const insightRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.insightId, "edit");
       const comment = await ctx.db.insightComment.create({
         data: {
           insightId: input.insightId,
@@ -707,7 +713,68 @@ export const insightRouter = createTRPCRouter({
         action: "created",
         metadata: { insightId: input.insightId, snippet: input.content.slice(0, 120) },
       });
+
+      // Fire-and-forget: notify mentioned workspace members via the pipeline.
+      void emitInsightCommentMention(ctx.db, {
+        insightId: input.insightId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+      });
+
       return comment;
+    }),
+
+  updateComment: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        content: boundedText("Comment", TEXT_LIMITS.MEDIUM, { min: 1 }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const comment = await ctx.db.insightComment.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          authorId: true,
+          content: true,
+          insightId: true,
+          insight: { select: { product: { select: { workspaceId: true } } } },
+        },
+      });
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+      await assertWorkspaceAccess(
+        ctx.db,
+        ctx.session.user.id,
+        comment.insight.product.workspaceId,
+        "edit",
+      );
+      if (comment.authorId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You can only edit your own comments",
+        });
+      }
+      const updated = await ctx.db.insightComment.update({
+        where: { id: input.id },
+        data: { content: input.content },
+        include: { author: { select: { id: true, name: true, image: true } } },
+      });
+
+      // Fire-and-forget: notify mentions added by the edit. Passing the old
+      // content means already-notified users aren't pinged again.
+      void emitInsightCommentMention(ctx.db, {
+        insightId: comment.insightId,
+        commentId: comment.id,
+        commentContent: input.content,
+        commentAuthorId: ctx.session.user.id,
+        previousContent: comment.content,
+      });
+
+      return updated;
     }),
 
   deleteComment: protectedProcedure
@@ -724,10 +791,11 @@ export const insightRouter = createTRPCRouter({
       if (!comment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         comment.insight.product.workspaceId,
+        "edit",
       );
       if (comment.authorId !== ctx.session.user.id) {
         throw new TRPCError({
@@ -742,7 +810,7 @@ export const insightRouter = createTRPCRouter({
   listEvents: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const insight = await loadInsightWithAccess(ctx.db, ctx.session.user.id, input.id, "view");
       return ctx.db.workspaceActivityEvent.findMany({
         where: {
           workspaceId: insight.product.workspaceId,

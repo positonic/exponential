@@ -60,6 +60,16 @@ export function formatRelativeDueAge(anchor: Date, today: Date): string {
   return days === 1 ? "due yesterday" : `due ${days}d ago`;
 }
 
+/** "Wed · Sep 16" — the agenda rail header and Upcoming day sections. */
+export function formatDayLabel(date: Date): string {
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MON = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${DOW[date.getDay()]} · ${MON[date.getMonth()]} ${date.getDate()}`;
+}
+
 export function addDays(base: Date, n: number): Date {
   const d = new Date(base);
   d.setDate(d.getDate() + n);
@@ -69,4 +79,18 @@ export function addDays(base: Date, n: number): Date {
 export function nextSaturday(from: Date): Date {
   const daysUntilSat = (6 - from.getDay() + 7) % 7;
   return addDays(from, daysUntilSat === 0 ? 7 : daysUntilSat);
+}
+
+/**
+ * Midnight at the start of `base`'s day, in the *viewer's* timezone.
+ *
+ * Deliberately computed on the client. `partitionActions` buckets by comparing
+ * `startOfDay` values in the viewer's zone, so a day boundary picked on the
+ * server would be the server's midnight — UTC on Vercel — and every user west
+ * of UTC would see a reschedule land on the previous day.
+ */
+export function startOfLocalDay(base: Date): Date {
+  const d = new Date(base);
+  d.setHours(0, 0, 0, 0);
+  return d;
 }

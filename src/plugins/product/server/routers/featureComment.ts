@@ -1,9 +1,16 @@
 import { z } from "zod";
+import type { JSONContent } from "@tiptap/core";
+import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { loadFeatureWithAccess } from "./feature";
 import { emitFeatureCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
+import {
+  anchorThreadInStoredDoc,
+  commentAnchorInput,
+  NOT_ANCHORED,
+} from "~/server/services/prd/anchor-comment";
 
 const authorSelect = {
   id: true,
@@ -15,8 +22,9 @@ const authorSelect = {
  * Comments on a PRD body (ADR-0024). Anchored comments carry a `threadId` that
  * matches a `comment` mark in `Feature.descriptionDoc`; doc-level comments leave
  * `threadId` null. Bodies are Markdown (ADR-0017). Every procedure reuses the
- * same `loadFeatureWithAccess` workspace-member gate that `feature.update` uses -
- * editing the body and commenting share one access path.
+ * same `loadFeatureWithAccess` workspace gate that `feature.update` uses -
+ * editing the body and commenting share one access path, so a read-only
+ * viewer can list comments but not write one.
  *
  * Procedures: `list`, `create` (root comment), `reply` (threaded), and
  * `resolve`/`unresolve` (toggle the root's `resolvedAt`).
@@ -25,7 +33,7 @@ export const featureCommentRouter = createTRPCRouter({
   list: protectedProcedure
     .input(z.object({ featureId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "view");
 
       return ctx.db.featureComment.findMany({
         where: { featureId: input.featureId },
@@ -44,10 +52,13 @@ export const featureCommentRouter = createTRPCRouter({
         threadId: z.string().min(1).optional(),
         body: boundedText("Comment", TEXT_LIMITS.LARGE, { min: 1 }),
         quotedText: boundedText("Quoted text", TEXT_LIMITS.LARGE).optional(),
+        // A new anchored thread's selection: the server pins the `comment`
+        // mark into `descriptionDoc` itself (see anchorThreadInStoredDoc).
+        anchor: commentAnchorInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
 
       if (input.scopeId) {
         const scope = await ctx.db.featureScope.findUnique({
@@ -83,7 +94,36 @@ export const featureCommentRouter = createTRPCRouter({
         commentAuthorId: ctx.session.user.id,
       });
 
-      return comment;
+      const anchor = input.threadId
+        ? await anchorThreadInStoredDoc({
+            area: "featureComment.create",
+            threadId: input.threadId,
+            quotedText: input.quotedText,
+            anchor: input.anchor,
+            read: async () => {
+              const row = await ctx.db.feature.findUnique({
+                where: { id: input.featureId },
+                select: { descriptionDoc: true, docVersion: true },
+              });
+              return row && {
+                doc: row.descriptionDoc as JSONContent | null,
+                docVersion: row.docVersion,
+              };
+            },
+            write: async (doc, expectedVersion) => {
+              const res = await ctx.db.feature.updateMany({
+                where: { id: input.featureId, docVersion: expectedVersion },
+                data: {
+                  descriptionDoc: doc as Prisma.InputJsonValue,
+                  docVersion: { increment: 1 },
+                },
+              });
+              return res.count === 1;
+            },
+          })
+        : NOT_ANCHORED;
+
+      return { ...comment, anchor };
     }),
 
   reply: protectedProcedure
@@ -101,7 +141,7 @@ export const featureCommentRouter = createTRPCRouter({
       if (!parent) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
       }
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, parent.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, parent.featureId, "edit");
 
       const comment = await ctx.db.featureComment.create({
         data: {
@@ -187,7 +227,7 @@ export const featureCommentRouter = createTRPCRouter({
   resolve: protectedProcedure
     .input(z.object({ featureId: z.string(), threadId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       await ctx.db.featureComment.updateMany({
         where: { featureId: input.featureId, threadId: input.threadId, parentId: null },
         data: { resolvedAt: new Date() },
@@ -198,7 +238,7 @@ export const featureCommentRouter = createTRPCRouter({
   unresolve: protectedProcedure
     .input(z.object({ featureId: z.string(), threadId: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId);
+      await loadFeatureWithAccess(ctx.db, ctx.session.user.id, input.featureId, "edit");
       await ctx.db.featureComment.updateMany({
         where: { featureId: input.featureId, threadId: input.threadId, parentId: null },
         data: { resolvedAt: null },

@@ -12,16 +12,22 @@ import { MeetingDetail } from "~/app/_components/meeting/MeetingDetail";
 export default function SessionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
 
-  const { data: session, isLoading } = api.transcription.getById.useQuery({ id });
+  const { data: session, isLoading } = api.transcription.getDetail.useQuery({ id });
   const { data: transcriptActions = [], isLoading: isActionsLoading } =
     api.action.getByTranscription.useQuery(
       { transcriptionId: id },
       { enabled: Boolean(id) },
     );
-  const { data: assignableProjects = [] } = api.project.getAssignable.useQuery();
   const utils = api.useUtils();
+  // Decisions only need the meeting id, which the URL already carries: start
+  // them alongside the meeting instead of after it. MeetingDetail reads the
+  // same cache entry.
+  useEffect(() => {
+    void utils.decision.listForMeeting.prefetch({ transcriptionSessionId: id });
+  }, [utils, id]);
   const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
+  const updateTitleMutation = api.transcription.updateTitle.useMutation();
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -29,7 +35,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         message: "Meeting placement updated",
         color: "green",
       });
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
       void utils.action.getByTranscription.invalidate({ transcriptionId: id });
     },
     onError: (error) => {
@@ -67,7 +73,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   const summaryAttemptedRef = useRef<Set<string>>(new Set());
   const generateSummaryMutation = api.transcription.generateSummary.useMutation({
     onSuccess: () => {
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
     },
   });
   const { mutate: generateSummary } = generateSummaryMutation;
@@ -99,71 +105,113 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
   useEffect(() => {
     if (!session) return;
     const hasSummary = Boolean(session.summary?.trim());
-    const hasTranscript = Boolean(session.transcription);
-    if (hasSummary || !hasTranscript) return;
+    if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
     summaryAttemptedRef.current.add(session.id);
-    generateSummary({ transcriptionId: session.id });
+    // Say so when it fails — otherwise the summary just never appears and
+    // there's no hint why (e.g. the LLM provider is out of credit).
+    generateSummary(
+      { transcriptionId: session.id },
+      {
+        onError: (error) => {
+          notifications.show({
+            title: "Couldn't generate the AI summary",
+            message: error.message,
+            color: "red",
+          });
+        },
+      },
+    );
   }, [session, generateSummary]);
 
-  // Deterministic extraction: Create Actions runs generateDraftActions (not the
-  // LLM), then appends an interactive review card to the active drawer thread
-  // (ADR-0007).
-  const generateDraftsMutation =
-    api.transcription.generateDraftActions.useMutation({
-      onSuccess: (result) => {
-        if (!session) return;
-        if (result.alreadyPublished) {
-          notifications.show({
-            title: "Actions already created",
-            message: "This meeting already has actions.",
-            color: "orange",
-          });
-          return;
-        }
-        if (result.actionsCreated === 0 && result.draftCount === 0) {
-          notifications.show({
-            title: "No actions found",
-            message: "No action items were detected in this meeting.",
-            color: "gray",
-          });
-          return;
-        }
-        void utils.transcription.getById.invalidate({ id });
-        const transcriptionId = session.id;
-        setMessages((prev) => {
-          const alreadyHasCard = prev.some(
-            (m) =>
-              m.card?.kind === "draft-actions" &&
-              m.card.transcriptionId === transcriptionId,
-          );
-          if (alreadyHasCard) return prev;
-          const cardMessage: ChatMessage = {
-            type: "ai",
-            agentName: "Zoe",
-            content:
-              "I found some actions in this meeting — review and create the ones you want below.",
-            card: { kind: "draft-actions", transcriptionId },
-          };
-          return [...prev, cardMessage];
-        });
-        openModal();
-      },
-      onError: (error) => {
+  // "Extract outputs" (one button on every tab): one reading of the meeting
+  // drafts its actions, decisions and open questions, so each item lands in
+  // exactly one bucket. Nothing is created or logged until it is reviewed on
+  // the Outputs tab (ADR-0007, ADR-0060), which MeetingDetail opens on success.
+  const extractOutputsMutation = api.transcription.extractOutputs.useMutation();
+
+  async function handleExtractOutputs(): Promise<boolean> {
+    if (!session) return false;
+    const transcriptionId = session.id;
+    const result = await extractOutputsMutation
+      .mutateAsync({ transcriptionId })
+      .catch((error: unknown) => {
         notifications.show({
-          title: "Error",
-          message: error.message || "Failed to generate draft actions",
+          title: "Couldn't extract outputs",
+          message: error instanceof Error && error.message.length > 0 ? error.message : "Extraction failed",
           color: "red",
         });
-      },
-    });
+        return null;
+      });
+    if (!result) return false;
+    const { actions, decisions } = result;
+    await Promise.all([
+      utils.action.getDraftByTranscription.invalidate({ transcriptionId }),
+      utils.action.getByTranscription.invalidate({ transcriptionId }),
+      utils.decision.listForMeeting.invalidate({ transcriptionSessionId: transcriptionId }),
+      utils.transcription.getDetail.invalidate({ id }),
+    ]);
 
-  function handleCreateActions() {
-    if (!session) return;
-    generateDraftsMutation.mutate({ transcriptionId: session.id });
+    // Partial transcript coverage is a caveat on a successful run, not a
+    // failure — say so plainly rather than leaving the count unexplained.
+    for (const warning of decisions.warnings ?? []) {
+      notifications.show({
+        title: "Part of the transcript was not read",
+        message: warning,
+        color: "yellow",
+        autoClose: 10_000,
+      });
+    }
+    // One half can fail while the other succeeds (a meeting outside a
+    // workspace has no decision log, but can still get actions).
+    for (const [label, half] of [
+      ["Actions", actions],
+      ["Decisions", decisions],
+    ] as const) {
+      if (!half.success && half.errors.length > 0) {
+        notifications.show({
+          title: `${label} not extracted`,
+          message: half.errors.join(", "),
+          color: "orange",
+        });
+      }
+    }
+
+    const parts: string[] = [];
+    if (actions.draftCount > 0) {
+      parts.push(`${actions.draftCount} draft ${actions.draftCount === 1 ? "action" : "actions"}`);
+    }
+    if (decisions.draftCount > 0) {
+      parts.push(
+        `${decisions.draftCount} draft ${decisions.draftCount === 1 ? "decision or question" : "decisions & questions"}`,
+      );
+    }
+    if (parts.length > 0) {
+      notifications.show({
+        title: "Ready to review",
+        message: `${parts.join(" and ")} on the Outputs tab.`,
+        color: "green",
+      });
+    } else if (actions.alreadyPublished || decisions.alreadyPublished) {
+      notifications.show({
+        title: "Already extracted",
+        message: "This meeting's outputs have already been reviewed.",
+        color: "gray",
+      });
+    } else if (actions.success || decisions.success) {
+      notifications.show({
+        title: "Nothing found",
+        message:
+          decisions.discardedWithoutEvidence > 0
+            ? "Candidates were found but none could be backed by a transcript turn."
+            : "No actions, decisions or open questions were detected in this meeting.",
+        color: "gray",
+      });
+    }
+    return true;
   }
 
-  // Same deterministic-then-review shape as Create Actions, one level up the
+  // Same deterministic-then-review shape as Extract outputs, one level up the
   // altitude ladder: an Action is a task, a Feature is a product capability.
   // Nothing is written to the feature registry until the card's accept step.
   const ideateFeaturesMutation =
@@ -227,13 +275,32 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
     try {
       await updateDetailsMutation.mutateAsync({ id: session.id, summary: value });
       notifications.show({ title: "Saved", message: "Summary updated", color: "green" });
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
     } catch (error) {
       notifications.show({
         title: "Error",
         message: error instanceof Error ? error.message : "Failed to update summary",
         color: "red",
       });
+    }
+  }
+
+  async function handleRenameTitle(title: string) {
+    if (!session) return;
+    try {
+      await updateTitleMutation.mutateAsync({ id: session.id, title });
+      utils.transcription.getDetail.setData({ id }, (prev) =>
+        prev ? { ...prev, title } : prev,
+      );
+      // Meeting lists (workspace, project tab, recordings) show the title too.
+      void utils.transcription.invalidate();
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to rename meeting",
+        color: "red",
+      });
+      throw error;
     }
   }
 
@@ -246,7 +313,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         message: value ? "Meeting date updated" : "Meeting date cleared",
         color: "green",
       });
-      void utils.transcription.getById.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
     } catch (error) {
       notifications.show({
         title: "Error",
@@ -276,7 +343,7 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
         summary: session.summary ?? null,
         description: session.description ?? null,
         actionsCount: transcriptActions.length,
-        hasTranscription: Boolean(session.transcription),
+        hasTranscription: session.hasTranscript,
         meetingDate: session.meetingDate ? String(session.meetingDate) : null,
         workspaceName: session.workspace?.name ?? null,
       },
@@ -302,16 +369,16 @@ export default function SessionPage({ params }: { params: Promise<{ id: string }
       session={session}
       actions={transcriptActions}
       isActionsLoading={isActionsLoading}
-      assignableProjects={assignableProjects}
-      isCreatingActions={generateDraftsMutation.isPending}
       isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
+      onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
-      onCreateActions={handleCreateActions}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
+      onExtractOutputs={handleExtractOutputs}
+      isExtractingOutputs={extractOutputsMutation.isPending}
       onArchive={handleArchive}
     />
   );

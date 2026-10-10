@@ -119,7 +119,7 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '40px' }}></th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm">Team Member</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Role</th>
-              <th className="text-left p-3 text-text-secondary font-medium text-sm">Weekly Outcomes</th>
+              <th className="text-left p-3 text-text-secondary font-medium text-sm">Weekly Commitments</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '100px' }}>Capacity</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '300px' }}>Task Progress</th>
               <th className="text-left p-3 text-text-secondary font-medium text-sm" style={{ width: '120px' }}>Status/Notes</th>
@@ -187,7 +187,7 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
                         </div>
                       ) : (
                         <Text size="sm" c="dimmed" fs="italic">
-                          No weekly outcomes assigned
+                          No weekly commitments assigned
                         </Text>
                       )}
                     </td>
@@ -458,7 +458,7 @@ function SharedWeeklyReviewsSection({ projectId, currentWeekStart }: SharedWeekl
                           <Alert variant="light" color="blue">
                             <Text size="sm">
                               <strong>Coming Soon:</strong> Actual weekly plan content integration is in development.
-                              This will show the member&apos;s weekly outcomes, reflections, and progress summaries.
+                              This will show the member&apos;s weekly commitments, reflections, and progress summaries.
                             </Text>
                           </Alert>
                           <Group mt="sm">

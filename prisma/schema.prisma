@@ -57,10 +57,17 @@ model ConnectedAccount {
   expires_at         Int?
   token_type         String?
   scope              String?
+  // Server-side busy-time sync bookkeeping (V2 calendar sync) — mirrors the
+  // CalendarFeed fields. Attempt-stamped so the cron sweep can order fairly.
+  calendarSyncStatus        String    @default("pending") // pending | ok | error
+  calendarLastSyncedAt      DateTime?
+  calendarLastSyncAttemptAt DateTime?
+  calendarLastSyncError     String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   calendarPreference CalendarPreference?
+  calendarEvents     CalendarEvent[]
 
   @@unique([userId, provider, providerAccountId])
   @@index([userId])
@@ -110,8 +117,10 @@ model User {
   actions                        Action[]
   actionAssignees                ActionAssignee[]                @relation("ActionAssignees")
   timeEntries                    TimeEntry[]
+  timeResolutionRules            TimeResolutionRule[]
   aiInteractionHistory           AiInteractionHistory[]
   feedback                       Feedback[]
+  docsFeedback                   DocsFeedback[]
   goals                          Goal[]
   integrations                   Integration[]
   workspaceRepositoriesAdded     WorkspaceRepository[]           @relation("WorkspaceRepositoryAddedBy")
@@ -125,6 +134,10 @@ model User {
   notificationChannelPreferences NotificationChannelPreference[]
   navigationPreference           NavigationPreference?
   calendarPreferences            CalendarPreference[]
+  calendarFeeds                  CalendarFeed[]
+  calendarEvents                 CalendarEvent[]
+  meetingsOrganized              Meeting[]                       @relation("MeetingOrganizer")
+  meetingAttendances             MeetingAttendee[]
   outcomes                       Outcome[]
   posts                          Post[]
   projects                       Project[]
@@ -210,12 +223,17 @@ model User {
   workspaceActivityEvents        WorkspaceActivityEvent[]
   // Inbound channel links created by this user
   channelLinksCreated            ChannelLink[]                   @relation("ChannelLinkCreatedBy")
+  matrixPostsPosted              MatrixPostLog[]                 @relation("MatrixPostLogPostedBy")
   // Per-user favourites (polymorphic pins)
   favorites                      Favorite[]
 
   // Onboarding: Attribution
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
   attributionSource String? // "google", "twitter", "linkedin", "friend", "youtube", "podcast", "other"
+
+  // IANA timezone name (e.g. "Europe/Berlin"). Prompted for when the user
+  // connects a calendar source; work hours are interpreted in this zone.
+  timezone         String?
 
   // Onboarding: Work Hours
   workHoursEnabled Boolean   @default(true)
@@ -270,11 +288,15 @@ model User {
   retrospectivesCreated Retrospective[]       @relation("RetrospectiveCreatedBy")
   ticketComments        TicketComment[]       @relation("TicketCommentAuthor")
   ticketDepsCreated     TicketDependency[]    @relation("TicketDependencyCreatedBy")
+  actionDepsCreated     ActionDependency[]    @relation("ActionDependencyCreatedBy")
   insightsCreated       Insight[]             @relation("InsightCreatedBy")
   insightComments       InsightComment[]      @relation("InsightCommentAuthor")
   requirementsChecked   Requirement[]         @relation("RequirementCheckedBy")
   ticketSyncConfigs     TicketSyncConfig[]    @relation("TicketSyncConfigCreatedBy")
   ticketSyncRuns        TicketSyncRun[]       @relation("TicketSyncRunTriggeredBy")
+  adrSyncConfigs        AdrSyncConfig[]       @relation("AdrSyncConfigCreatedBy")
+  adrSyncRuns           AdrSyncRun[]          @relation("AdrSyncRunTriggeredBy")
+  adrTicketLinks        AdrTicketLink[]       @relation("AdrTicketLinkCreatedBy")
 
   // One2b agent schema additions
   phone            Bytes?  @map("phone_encrypted") @db.ByteA
@@ -289,9 +311,23 @@ model User {
   pendingDriveUploads         PendingDriveUpload[]
   /// True for an External agent's shadow principal (ADR-0049). Never signs in;
   /// gates the human-only procedure denylist.
-  isAgent                     Boolean                         @default(false)
-  ownedExternalAgents         ExternalAgent[]                 @relation("ExternalAgentOwner")
-  externalAgentShadow         ExternalAgent?                  @relation("ExternalAgentShadowUser")
+  isAgent                     Boolean                           @default(false)
+  ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
+  externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
+  agentRunsRequested          AgentRun[]                        @relation("AgentRunRequestedBy")
+  agentRunsReviewed           AgentRun[]                        @relation("AgentRunReviewedBy")
+  // Ceremonies (ADR-0059)
+  ownedCeremonies             Ceremony[]                        @relation("CeremonyOwner")
+  createdCeremonies           Ceremony[]                        @relation("CeremonyCreatedBy")
+  ceremonyParticipations      CeremonyParticipant[]
+  ceremonyOccurrenceUpdates   CeremonyOccurrenceUpdate[]        @relation("CeremonyOccurrenceUpdateUser")
+  meetingFeatureLinks         MeetingFeature[]                  @relation("MeetingFeatureCreatedBy")
+  // Decisions (ADR-0060)
+  ownedDecisions              Decision[]                        @relation("DecisionOwner")
+  createdDecisions            Decision[]                        @relation("DecisionCreatedBy")
+  confirmedDecisions          Decision[]                        @relation("DecisionConfirmedBy")
+  decisionDeciderEntries      DecisionDecider[]
+  decisionLinksCreated        DecisionLink[]                    @relation("DecisionLinkCreatedBy")
 }
 
 model VerificationToken {
@@ -322,11 +358,105 @@ model ExternalAgent {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  /// Which engine executes Agent runs assigned to this principal (ADR-0067).
+  executor     AgentExecutor @default(MASTRA)
+
   owner      User               @relation("ExternalAgentOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   shadowUser User               @relation("ExternalAgentShadowUser", fields: [shadowUserId], references: [id], onDelete: Cascade)
   keys       ExternalAgentKey[]
+  /// Time entries this agent wrote on its owner's behalf (ADR-0061).
+  timeEntries TimeEntry[]       @relation("TimeEntryAuthorAgent")
+  /// Present when this row is an Assistant's principal (ADR-0067). Such rows are
+  /// managed from Settings → Assistant, not the External agents page.
+  assistant   Assistant?
+  /// Agent runs this principal performed (ADR-0067).
+  agentRuns   AgentRun[]
 
   @@index([ownerId])
+}
+
+/// Engine that executes an Agent run for an ExternalAgent (ADR-0067).
+/// MASTRA = hosted Mastra executor; LOCAL_CLI = `exponential runner` on the
+/// owner's machine (V2 — the value exists so every row carries one).
+enum AgentExecutor {
+  MASTRA
+  LOCAL_CLI
+}
+
+/// One attempt by an agent principal to progress one Action, started by
+/// assigning the Action to it (ADR-0067, Agent PRD D2). Status machine:
+/// QUEUED → RUNNING → {SUCCEEDED | FAILED | WAITING_ON_OWNER | TIMED_OUT};
+/// QUEUED → CANCELLED; RUNNING → CANCELLED (flag only — the dispatcher checks
+/// before every write). WAITING_ON_OWNER is terminal for the row; a resume is
+/// a new row with `predecessorId`. Live set = {QUEUED, RUNNING}.
+model AgentRun {
+  id            String         @id @default(cuid())
+  actionId      String
+  /// The principal (ExternalAgent.id); its shadow user does the writes.
+  agentId       String
+  /// Human who assigned; null when an agent reassigned.
+  requestedById String?
+  executor      AgentExecutor
+  status        AgentRunStatus @default(QUEUED)
+  /// Owner reply that resumed a WAITING_ON_OWNER predecessor.
+  wakeCommentId String?
+  /// The run this one resumes.
+  predecessorId String?
+  /// V2 runner id; null for MASTRA.
+  claimedBy     String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  /// Heartbeat; touched on every event append.
+  lastEventAt   DateTime?
+  toolCallCount Int            @default(0)
+  /// Public — written by the agent knowing everyone with action access reads it.
+  summary       String?        @db.Text
+  readyToClose  Boolean        @default(false)
+  error         String?
+  usage         Json?
+  /// Delegated row cleared.
+  reviewedAt    DateTime?
+  reviewedById  String?
+  createdAt     DateTime       @default(now())
+
+  action      Action         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  agent       ExternalAgent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  requestedBy User?          @relation("AgentRunRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  reviewedBy  User?          @relation("AgentRunReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  predecessor AgentRun?      @relation("AgentRunResume", fields: [predecessorId], references: [id], onDelete: SetNull)
+  successors  AgentRun[]     @relation("AgentRunResume")
+  events      AgentRunEvent[]
+
+  @@index([actionId, createdAt])
+  @@index([agentId, status])
+  @@index([requestedById, reviewedAt])
+  @@index([status, lastEventAt])
+}
+
+/// Append-only event log of a run, written by the app on every tool callback
+/// (never streamed from Mastra). `seq` is monotonic per run.
+model AgentRunEvent {
+  id        String   @id @default(cuid())
+  runId     String
+  seq       Int
+  /// "status" | "tool_call" | "tool_result" | "text" | "log" | "error"
+  kind      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  run AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, seq])
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  WAITING_ON_OWNER
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  TIMED_OUT
 }
 
 /// Opaque credential for an ExternalAgent: SHA-256 hash of an `exp_agent_…` secret,
@@ -364,6 +494,9 @@ model Workspace {
   logoUrl        String?
   type           String   @default("personal") // "personal" | "team" | "organization"
   homeLayout     String   @default("command") // "command" | "activity"
+  /// Workspace-wide sequence for Decision labels (`D-0042`); advanced inside
+  /// the create transaction (ADR-0060), like `Product.ticketCounter`.
+  decisionCounter Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   ownerId        String
@@ -378,12 +511,19 @@ model Workspace {
   // When on, creating a CRM contact enqueues an async web-search enrichment job
   // (drained by the enrich-pending-contacts cron → Mastra enrichmentAgent).
   enableAutoEnrichContacts Boolean    @default(false)
+  // Key Results / OKR UI. Nullable on purpose — unlike the flags above there is
+  // no single sensible default: null means "follow the workspace type"
+  // (team/org on, personal off), which is the behaviour that predates this
+  // column. Setting it true/false is an explicit per-workspace override, so a
+  // personal workspace can opt into KRs. Resolved in `useTerminology`.
+  enableKeyResults         Boolean?
 
   // Notion integration defaults: { defaultIntegrationId, defaultDatabaseId, fieldMappings, syncDirection, syncFrequency }
   notionDefaultConfig Json?
 
   owner                   User                            @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members                 WorkspaceUser[]
+  meetings                Meeting[]
   projects                Project[]
   epics                   Epic[]
   goals                   Goal[]
@@ -443,6 +583,8 @@ model Workspace {
   integrations            Integration[]
   // GitHub repo connection (ADR-0020): repos this workspace tracks
   workspaceRepositories   WorkspaceRepository[]
+  // Decision Log (ADR projection)
+  adrSyncConfigs          AdrSyncConfig[]
   // Notification override relations
   notificationOverrides   WorkspaceNotificationOverride[]
   // Slack channel config relation
@@ -466,6 +608,14 @@ model Workspace {
   weeklyNarratives WorkspaceWeeklyNarrative[]
   // Inbound channel links routed to this workspace (ADR-0023)
   channelLinks     ChannelLink[]
+  // Ceremonies (ADR-0059)
+  ceremonies          Ceremony[]
+  ceremonyOccurrences CeremonyOccurrence[]
+  // Decisions (ADR-0060)
+  decisions           Decision[]
+  // Workspace updates: the resident copywriter's owner-approved progress posts
+  updateConfig        WorkspaceUpdateConfig?
+  updates             WorkspaceUpdate[]
 
   @@index([slug])
   @@index([ownerId])
@@ -506,8 +656,8 @@ model WorkspaceActivityEvent {
 // Integration-FK-bound SlackChannelConfig - this is inbound and integration-free.
 model ChannelLink {
   id          String   @id @default(cuid())
-  provider    String // "whatsapp" | "slack" | "telegram" | …
-  externalId  String // provider conversation id (e.g. WhatsApp group JID)
+  provider    String // "whatsapp" | "slack" | "telegram" | "matrix" | …
+  externalId  String // provider conversation id (e.g. WhatsApp group JID, Matrix room id)
   displayName String?
   workspaceId String
   projectId   String?
@@ -516,14 +666,64 @@ model ChannelLink {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy User?     @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  // Which way this link routes. ADR-0023 defined ChannelLink as inbound-only
+  // ("which workspace/project owns this conversation?"); outbound rows answer the
+  // reverse ("where does this project's content go?"). Existing WhatsApp rows keep
+  // the default, so the ADR-0023 summarization path is untouched.
+  direction String @default("inbound") // "inbound" | "outbound"
 
+  // For outbound rows, the registered server to send through. Null for inbound rows,
+  // which are attributed by the gateway that received them rather than by credential.
+  serverIntegrationId String?
+  serverIntegration   Integration? @relation("ChannelLinkServer", fields: [serverIntegrationId], references: [id], onDelete: Cascade)
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy   User?           @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  matrixPosts MatrixPostLog[]
+
+  // Kept as-is for V1. Consequence: a workspace default and a project override cannot
+  // name the same room. That is a recorded open decision on the feature, not an
+  // oversight — do not relax it without deciding it.
   @@unique([provider, externalId])
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+  @@index([projectId, direction])
+  @@index([workspaceId, direction])
+  @@index([serverIntegrationId])
+}
+
+/// One row per successful post of a meeting summary into a Matrix room.
+///
+/// A table rather than a timestamp column on TranscriptionSession, because the
+/// destination is not singular: `slackNotificationAt` is the single-destination
+/// precedent and it breaks the moment a meeting is re-tagged to a project with a
+/// different room. Rows are written only after the homeserver accepts the event, so
+/// the log never claims a post that did not happen.
+model MatrixPostLog {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  /// The binding used, when the destination came from one. Null for a one-off post to
+  /// an explicitly picked room, which deliberately persists no binding.
+  channelLinkId          String?
+  roomId                 String
+  serverIntegrationId    String
+  /// The homeserver's event id for the message that was sent.
+  eventId                String
+  postedById             String
+  postedAt               DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  channelLink          ChannelLink?         @relation(fields: [channelLinkId], references: [id], onDelete: SetNull)
+  serverIntegration    Integration          @relation("MatrixPostLogServer", fields: [serverIntegrationId], references: [id], onDelete: Cascade)
+  postedBy             User                 @relation("MatrixPostLogPostedBy", fields: [postedById], references: [id], onDelete: Cascade)
+
+  /// Answers "has this meeting already been posted here?" — the repost guard.
+  @@index([transcriptionSessionId, roomId])
+  @@index([serverIntegrationId])
+  @@index([channelLinkId])
+  @@index([postedById])
 }
 
 // Cached AI-generated Week-in-Review narrative. One row per (workspace, ISO week).
@@ -571,6 +771,82 @@ model WeeklyWorkDigest {
 
   @@unique([userId, isoYear, isoWeek])
   @@index([userId, generatedAt])
+}
+
+// Per-workspace settings for the resident copywriter that drafts a Workspace
+// update each period and hands it to reviewers for approval. One row per
+// workspace; absent = disabled. Weekday/hour are local to `timezone`.
+// See src/server/services/workspaceUpdates/.
+model WorkspaceUpdateConfig {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  enabled     Boolean   @default(false)
+  weekday     Int       @default(5) // 0=Sun ... 6=Sat
+  hour        Int       @default(9) // 0-23
+  timezone    String    @default("UTC") // IANA
+  // Users asked to approve each draft. Empty = the workspace's owners + admins.
+  reviewerIds String[]  @default([])
+  // Writer voice: an Assistant's personality. Null = neutral house voice.
+  assistantId String?
+  // The "Updates" index Page each draft is linked from (pageLink graph, ADR-0039).
+  indexPageId String?
+  // Stamped when enabled; scheduled runs never backfill periods before it.
+  enabledAt   DateTime?
+  // Approved updates are listed on the public /updates/<workspace> page and RSS.
+  isPublic    Boolean   @default(false)
+  // The contact List (Collection of CRM contacts) approved updates are emailed to.
+  newsletterCollectionId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// One period's curated progress post for a workspace. The body lives in a
+// KnowledgePage (draft, later published); this row carries the lifecycle.
+// Nothing is sent or published unless a reviewer moves it to APPROVED.
+model WorkspaceUpdate {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  kind         String // "weekly" | "monthly"
+  // Local date of the trigger instant ("2026-10-02"), or "manual-<ISO>" for an
+  // on-demand draft. Unique per workspace + kind, so a period runs once.
+  periodKey    String
+  windowStart  DateTime
+  windowEnd    DateTime
+  // "DRAFT" | "REGENERATING" (a rewrite holds the draft) | "APPROVED" | "SENT" | "SKIPPED" | "EMPTY"
+  status       String
+  pageId       String?   @unique
+  // The ranked, capped selection the writer was given: its whole universe.
+  items        Json?
+  // Bumps on each regenerate; keys the review notification's dedupe.
+  version      Int       @default(1)
+  feedback     String?   @db.Text
+  model        String?
+  approvedById String?
+  approvedAt   DateTime?
+  // What was approved, frozen at approval: distribution sends this, so a
+  // later edit to the live Page never goes out unreviewed.
+  approvedTitle String?
+  approvedBody  String?  @db.Text
+  skippedById  String?
+  skippedAt    DateTime?
+  // Distribution after approval: per-channel outcome (public / email / matrix)
+  // and when every configured channel finished.
+  deliveries   Json?
+  sentAt       DateTime?
+  // Start of the latest distribution attempt. Doubles as a lease (no second
+  // attempt while it is fresh) and as the retry sweep's fairness order.
+  distributionAttemptAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  page      KnowledgePage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, kind, periodKey])
+  @@index([workspaceId, kind, windowEnd])
+  @@index([status, approvedAt])
 }
 
 model WorkspaceUser {
@@ -656,11 +932,17 @@ model List {
   displayOrder Int @default(0)
 
   workspaceId String
+  // Cycles (listType SPRINT) are scoped to a single product; null = legacy
+  // workspace-shared cycle. Overlap validation only applies within one
+  // product. On product delete the cycle reverts to workspace-shared
+  // (SetNull) so sprint history survives.
+  productId   String?
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product        Product?         @relation("ProductCycles", fields: [productId], references: [id], onDelete: SetNull)
   createdBy      User             @relation("ListsCreated", fields: [createdById], references: [id])
   actions        ActionList[]
   tickets        Ticket[]         @relation("TicketCycle")
@@ -671,6 +953,7 @@ model List {
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
+  @@index([productId])
   @@index([createdById])
   @@index([status])
 }
@@ -755,9 +1038,8 @@ model Action {
   recurringParentId String?
   instanceDate      DateTime?
 
-  // Task dependencies (blocking relationships)
-  blockedByIds String[]
-  blockingIds  String[]
+  // Task dependencies: see `ActionDependency` (ADR-0062). `depsOut` are the
+  // actions this one is blocked by; `depsIn` are the actions it blocks.
 
   // Reminder task (not scheduled on calendar)
   isReminderOnly Boolean @default(false)
@@ -790,6 +1072,10 @@ model Action {
   parentChunk          Action?                     @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks          Action[]                    @relation("ActionChunks")
   syncs                ActionSync[]
+  /// Agent runs that worked (or are working) this action (ADR-0067).
+  agentRuns            AgentRun[]
+  depsOut              ActionDependency[]          @relation("ActionDepsOut")
+  depsIn               ActionDependency[]          @relation("ActionDepsIn")
   assignees            ActionAssignee[]
   participantAssignees ActionParticipantAssignee[]
   weeklyOutcomes       WeeklyOutcome[]             @relation("WeeklyOutcomeActions")
@@ -816,8 +1102,11 @@ model Action {
   bountyExternalUrl  String?
   bountyClaims       BountyClaim[]
 
+  decisionLinks DecisionLink[]
+
   @@index([projectId])
   @@index([createdById])
+  @@index([dueDate])
   @@index([teamId])
   @@index([workspaceId])
   @@index([transcriptionSessionId])
@@ -834,25 +1123,89 @@ model Action {
   @@index([sourceType, sourceId])
 }
 
+/// "`action` is blocked by `dependsOn`" — the Action analogue of
+/// `TicketDependency` (ADR-0062). One row per edge, cascade on either end,
+/// no cycles (enforced in the Action write module, not the database).
+model ActionDependency {
+  id          String   @id @default(cuid())
+  actionId    String
+  dependsOnId String
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  action    Action @relation("ActionDepsOut", fields: [actionId], references: [id], onDelete: Cascade)
+  dependsOn Action @relation("ActionDepsIn", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("ActionDependencyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([actionId, dependsOnId])
+  @@index([actionId])
+  @@index([dependsOnId])
+}
+
+/// Lifecycle of a TimeEntry (ADR-0061). `PROPOSED` rows are written by the
+/// Daily worklog on the owner's behalf and stay out of `Action.timeSpentMins`
+/// until the owner confirms them; everything a human makes is `CONFIRMED`.
+enum TimeEntryStatus {
+  PROPOSED
+  CONFIRMED
+}
+
 model TimeEntry {
   id          String    @id @default(cuid())
+  /// Whose time this is. Under an External agent this is the agent's OWNER,
+  /// never the shadow user (ADR-0061); the writer is `createdByAgentId`.
   userId      String
   actionId    String
   workspaceId String?
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
+  /// "plugin" (legacy Timer / calendar grids), "manual", "claude-desktop"
+  /// (Proposed time from the Daily worklog) or "agent-run" (Agent-run time).
   source      String    @default("plugin")
+  status      TimeEntryStatus @default(CONFIRMED)
+  /// ExternalAgent that wrote the row; null for human-made entries.
+  createdByAgentId String?
+  /// Idempotency key, e.g. "claude-session:<sessionId>#<segmentIndex>".
+  sourceRef   String?
+  /// One line shown in the day view and list row.
+  note        String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    Action     @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action         Action         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  workspace      Workspace?     @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  createdByAgent ExternalAgent? @relation("TimeEntryAuthorAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
 
+  @@unique([userId, sourceRef])
   @@index([userId, endedAt])
   @@index([userId, startedAt])
+  @@index([userId, status, startedAt])
   @@index([actionId])
   @@index([workspaceId, startedAt])
+}
+
+/// A remembered answer to "which Project or Ticket is this conversation?"
+/// (Daily worklog V4). One row per person and conversation title; applied by
+/// action.upsertBySource when a later conversation with the same title arrives
+/// with no Project or Ticket. A table rather than a JSON column on User so
+/// rules can be listed, edited and indexed (decision 2026-09-12).
+model TimeResolutionRule {
+  id           String   @id @default(cuid())
+  userId       String
+  /// The conversation title, matched exactly and case-insensitively.
+  titlePattern String
+  projectId    String?
+  ticketId     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  ticket  Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, titlePattern])
+  @@index([userId])
 }
 
 model BountyClaim {
@@ -939,6 +1292,9 @@ model Project {
   createdById           String
   slug                  String                     @unique
   description           String?
+  // Display icon: "emoji:🚀" or "tabler:IconRocket" (same format as Goal.icon)
+  icon                  String?
+  iconColor             String? // Color key: "purple", "blue", "teal", etc.
   // Per-scope AI guidance ("Instructions" in the UI). Layered on top of the
   // workspace's aiInstructions as DEMOTED <user_data> context in the chat
   // route (project wins on conflict), never an authoritative system prompt
@@ -967,6 +1323,7 @@ model Project {
   slackConfig           SlackChannelConfig?
   channelLinks          ChannelLink[]
   transcriptionSessions TranscriptionSession[]
+  meetings              Meeting[]
   workflows             Workflow[]
   goals                 Goal[]                     @relation("GoalProjects")
   outcomes              Outcome[]                  @relation("ProjectOutcomes")
@@ -981,6 +1338,12 @@ model Project {
   // Deal Pipeline relations (when type = "pipeline")
   pipelineStages        PipelineStage[]
   deals                 Deal[]
+  // Ceremonies that review this project (ADR-0059; many-to-many since 2026-09-27)
+  ceremonies            CeremonyProject[]
+  // Decisions scoped to this project (ADR-0060)
+  decisions             Decision[]
+
+  timeResolutionRules TimeResolutionRule[]
 
   @@index([name])
   @@index([status])
@@ -1106,6 +1469,7 @@ model Goal {
   recommendations   WheelOfLifeRecommendation[]
   progressSnapshots GoalProgressSnapshot[]
   features          Feature[]                   @relation("FeatureGoal")
+  decisions         Decision[] // Decisions scoped to this objective (ADR-0060)
 
   @@index([lifeDomainId])
   @@index([userId])
@@ -1238,6 +1602,7 @@ model Team {
   memberCapacities        TeamMemberWeeklyCapacity[] @relation("TeamMemberCapacities")
   weeklyReviewSharing     WeeklyReviewSharing[]
   okrCheckins             OkrCheckin[]
+  ceremonies              Ceremony[]
 
   @@index([slug])
   @@index([isOrganization])
@@ -1321,6 +1686,14 @@ model TranscriptionSession {
   sourceIntegrationId String?
   workspaceId         String?
 
+  /// The ceremony occurrence this recording captured (ADR-0059); set by
+  /// calendar recurrence id, title alias, or by hand.
+  occurrenceId        String?
+  /// When an "Extract outputs" run last completed for this meeting, by hand
+  /// or by the ceremony's auto-extract sweep. Null means not yet extracted;
+  /// the sweep only ever picks up null rows.
+  outputsExtractedAt  DateTime?
+
   // Embedding status tracking for knowledge base
   embeddingStatus String?   @default("none") // none|pending|processing|completed|failed
   embeddingError  String?
@@ -1338,12 +1711,16 @@ model TranscriptionSession {
   actions           Action[]
   featureDrafts     MeetingFeatureDraft[]
   sourcedFeatures   Feature[]                         @relation("FeatureSourceMeeting")
+  featureLinks      MeetingFeature[]
   screenshots       Screenshot[]
   project           Project?                          @relation(fields: [projectId], references: [id])
   sourceIntegration Integration?                      @relation(fields: [sourceIntegrationId], references: [id])
   user              User?                             @relation(fields: [userId], references: [id])
   workspace         Workspace?                        @relation(fields: [workspaceId], references: [id])
   participants      TranscriptionSessionParticipant[]
+  matrixPosts       MatrixPostLog[]
+  occurrence        CeremonyOccurrence?               @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+  decisions         Decision[]
 
   @@index([sessionId])
   @@index([workspaceId])
@@ -1352,6 +1729,7 @@ model TranscriptionSession {
   @@index([sourceIntegrationId])
   @@index([embeddingStatus])
   @@index([firefliesId])
+  @@index([occurrenceId])
 }
 
 model Screenshot {
@@ -1413,6 +1791,11 @@ model Integration {
   // GitHub repo connection (ADR-0020): repos a workspace tracks via this installation
   workspaceRepositories   WorkspaceRepository[]
   syncConfigs             TicketSyncConfig[]
+  adrSyncConfigs          AdrSyncConfig[]
+  // Outbound routing (matrix-server rows): rooms bound through this server, and the
+  // log of what has been posted through it.
+  outboundChannelLinks    ChannelLink[]            @relation("ChannelLinkServer")
+  matrixPostLogs          MatrixPostLog[]          @relation("MatrixPostLogServer")
 
   @@index([userId])
   @@index([teamId])
@@ -1697,6 +2080,22 @@ model Feedback {
   @@index([aiInteractionId])
 }
 
+/// A reader's answer to "Was this helpful?" on a /docs page. Signed-out
+/// readers can answer too, so userId is optional (and nulled if the user is
+/// deleted). Written by the public docs.submitFeedback procedure.
+model DocsFeedback {
+  id        String   @id @default(cuid())
+  path      String
+  helpful   Boolean
+  comment   String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([path, createdAt])
+  @@index([userId])
+}
+
 // Agent-quality Thread scoring (ADR-0012). One row per judged Thread - a
 // conversationId-scoped exchange with Zoe-the-brain, judged as a whole by an
 // LLM judge against Zoe's contract. Different grain from per-turn Feedback:
@@ -1847,6 +2246,9 @@ model NotificationPreference {
   timezone              String       @default("UTC")
   dailySummaryTime      String?      @default("09:00")
   weeklyDayOfWeek       Int?         @default(1)
+  /// Weekday end-of-day recap (Shutdown recap), off until the user turns it on.
+  shutdownRecap         Boolean      @default(false)
+  shutdownRecapTime     String?      @default("18:00")
   reminderMinutesBefore Int[]        @default([15, 60, 1440])
   quietHoursEnabled     Boolean      @default(false)
   quietHoursStart       String?
@@ -1949,6 +2351,337 @@ model CalendarPreference {
   @@index([connectedAccountId])
 }
 
+/// A per-user ICS subscription URL (e.g. an Outlook published calendar).
+/// Deliberately NOT a ConnectedAccount — there is no account or token behind
+/// a feed, just a bearer-secret URL. See ADR on calendar feeds.
+model CalendarFeed {
+  id            String    @id @default(cuid())
+  userId        String
+  name          String
+  /// encryptToBase64() ciphertext — an ICS URL is a bearer secret. Never
+  /// store or log the plaintext.
+  urlEncrypted  String
+  /// From the feed's X-WR-TIMEZONE, informational only.
+  timezone      String?
+  /// Sidebar visibility toggle. Feeds have no CalendarPreference row.
+  isEnabled     Boolean   @default(true)
+  syncStatus    String    @default("pending") // pending | ok | error
+  lastSyncedAt  DateTime?
+  /// Stamped on every sync attempt, success or failure — the cron sweep
+  /// orders by this so permanently failing feeds can't starve healthy ones.
+  lastSyncAttemptAt DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events        CalendarEvent[]
+
+  @@index([userId])
+}
+
+/// Persisted external calendar events — the app's first event persistence
+/// layer. ICS feed rows in V1; Google/Microsoft busy-time rows in V2.
+/// `title`/`location` are stored for the owner's own rendering and must
+/// NEVER cross users: cross-user reads select only startsAt/endsAt/isAllDay/
+/// sourceType (free/busy).
+model CalendarEvent {
+  id                 String        @id @default(cuid())
+  userId             String
+  sourceType         String // "ics" | "google" | "microsoft"
+  calendarFeedId     String? // set when sourceType=ics
+  connectedAccountId String? // set when sourceType=google|microsoft
+  providerCalendarId String?
+  /// iCal UID / provider event id. Recurrence instances share it and are
+  /// disambiguated by startsAt (see the unique constraint).
+  externalId         String
+  title              String?
+  location           String?
+  startsAt           DateTime
+  endsAt             DateTime
+  isAllDay           Boolean       @default(false)
+  syncedAt           DateTime
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calendarFeed       CalendarFeed? @relation(fields: [calendarFeedId], references: [id], onDelete: Cascade)
+  connectedAccount   ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+
+  /// Feed-scoped so the same event (UID + start) appearing in two of a
+  /// user's feeds keeps both rows — each feed owns its copy independently.
+  @@unique([calendarFeedId, externalId, startsAt])
+  /// Provider rows (V2): scoped per account + calendar, so a shared event
+  /// visible in two calendars keeps both busy blocks.
+  @@unique([connectedAccountId, providerCalendarId, externalId, startsAt])
+  @@index([userId, startsAt, endsAt])
+  @@index([calendarFeedId])
+  @@index([connectedAccountId])
+}
+
+/// A scheduled workspace meeting (V3 calendar scheduling) — forward-looking,
+/// distinct from the retrospective TranscriptionSession. The write path to
+/// attendees' real calendars is exclusively the iCalendar email invite
+/// (METHOD:REQUEST / METHOD:CANCEL against icalUid, monotonic sequence) —
+/// no API write-back. Reschedule = cancel + rebook (V3 non-goal).
+model Meeting {
+  id          String   @id @default(cuid())
+  workspaceId String
+  organizerId String
+  projectId   String?
+  title       String
+  /// Markdown (ADR-0017).
+  description String?
+  /// Manual free-text location or meeting link — no auto conference links.
+  location    String?
+  startsAt    DateTime
+  endsAt      DateTime
+  /// Stable across the meeting's lifetime; what external calendars key on.
+  icalUid     String   @unique
+  /// Bumped on every outbound iCalendar change (cancel included).
+  sequence    Int      @default(0)
+  status      String   @default("confirmed") // confirmed | cancelled
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  organizer User              @relation("MeetingOrganizer", fields: [organizerId], references: [id])
+  project   Project?          @relation(fields: [projectId], references: [id])
+  attendees MeetingAttendee[]
+  /// The ceremony occurrence this booking was made for (ADR-0059).
+  occurrence CeremonyOccurrence?
+
+  @@index([workspaceId, startsAt])
+}
+
+/// A person invited to a Scheduled meeting (CONTEXT.md → Attendee): a
+/// workspace member, or an external person known by email with an optional
+/// CRM contact (ADR-0059 amendment, 2026-10-07). Mirrors
+/// `TranscriptionSessionParticipant`, so the two match on email when a
+/// recording attaches. Only members have availability.
+model MeetingAttendee {
+  id        String      @id @default(cuid())
+  meetingId String
+  userId    String?
+  contactId String?
+  /// Lowercased. The invite goes here; a member without an email on file
+  /// carries the `user:<id>` sentinel and is never emailed.
+  email     String
+  name      String?
+  meeting   Meeting     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([meetingId, email])
+  @@index([userId])
+  @@index([contactId])
+}
+
+// ---------------------------------------------------------------------------
+// Ceremonies (ADR-0059). A Ceremony is the *definition* of a recurring team
+// meeting (standup, planning, retro, ...); a CeremonyOccurrence is one instance
+// on a date and is the bridge between the Scheduled `Meeting` and the recorded
+// `TranscriptionSession`. Neither meeting model is renamed or merged.
+// `OkrCheckin` and `Retrospective` are deliberately untouched.
+// ---------------------------------------------------------------------------
+
+enum CeremonyKind {
+  STANDUP
+  PLANNING
+  REVIEW
+  RETROSPECTIVE
+  PRIORITISATION
+  ALL_HANDS
+  ONE_ON_ONE
+  CUSTOM
+}
+
+enum CeremonyOccurrenceStatus {
+  PLANNED
+  AGENDA_CIRCULATED
+  IN_PROGRESS
+  CAPTURED
+  FOLLOWED_THROUGH
+  SKIPPED
+}
+
+model Ceremony {
+  id              String       @id @default(cuid())
+  workspaceId     String
+  productId       String?
+  teamId          String?
+  name            String
+  /// Unique per workspace; the upsert key for `importDefinitions`.
+  slug            String
+  /// Title patterns for auto-attaching recorded meetings and calendar events.
+  aliases         String[]     @default([])
+  /// Drives the default agenda template and (V3) the per-person questions.
+  kind            CeremonyKind @default(CUSTOM)
+  /// Icon key from `~/lib/ceremonies/icons`; null shows the kind's default.
+  icon            String?
+  /// Markdown (ADR-0017).
+  purpose         String?      @db.Text
+  /// Markdown (ADR-0017). What this ceremony is explicitly not for.
+  notFor          String?      @db.Text
+  /// Markdown (ADR-0017). Required inputs.
+  inputs          String?      @db.Text
+  /// Markdown (ADR-0017). Expected outputs.
+  outputs         String?      @db.Text
+  /// RFC 5545 RRULE string, evaluated in `timezone`. Null only on a one-off.
+  cadenceRule     String?
+  /// IANA zone the cadence rule is evaluated in.
+  timezone        String
+  /// Date the cadence rule is anchored to; past occurrences expand from here
+  /// so backfill has targets.
+  startsOn        DateTime     @db.Date
+  durationMinutes Int          @default(30)
+  /// Hours before `scheduledStart` at which the agenda is generated and circulated.
+  leadTimeHours   Int          @default(24)
+  ownerId         String
+  /// Ordered sections `{ key, type, title, minutes, config }`.
+  agendaTemplate  Json         @default("[]")
+  /// Append a `linked_projects` section to every generated agenda — the
+  /// ACTIVE projects in this ceremony's scope (its project, product or team)
+  /// with DRI and next action — unless the template already places one.
+  includeProjects Boolean      @default(true)
+  /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
+  matrixRoomId    String?
+  /// Run the meeting page's "Extract outputs" (draft actions, decisions and
+  /// open questions) on every recording that attaches to one of this
+  /// ceremony's occurrences, instead of waiting for someone to press the
+  /// button. Drafts only; a person still reviews them (ADR-0007).
+  autoExtractOutputs Boolean   @default(false)
+  isActive        Boolean      @default(true)
+  /// An ad hoc meeting scheduled from a project (ADR-0059 amendment,
+  /// 2026-10-07): no cadence rule, exactly one occurrence, never listed with
+  /// the recurring ceremonies, and never called a "ceremony" in the UI.
+  isOneOff        Boolean      @default(false)
+  createdById     String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product      Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  team         Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  owner        User                  @relation("CeremonyOwner", fields: [ownerId], references: [id])
+  createdBy    User                  @relation("CeremonyCreatedBy", fields: [createdById], references: [id])
+  participants CeremonyParticipant[]
+  /// The projects this ceremony is scoped to (many-to-many; a project can
+  /// have several ceremonies and a ceremony can review several projects).
+  projects     CeremonyProject[]
+  occurrences  CeremonyOccurrence[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, isActive])
+  @@index([workspaceId, isOneOff])
+  @@index([productId])
+  @@index([teamId])
+  @@index([ownerId])
+}
+
+/// Explicit participants (mirrors `MeetingAttendee`). `Ceremony.teamId` set
+/// additionally means "everyone on the team".
+model CeremonyParticipant {
+  id         String   @id @default(cuid())
+  ceremonyId String
+  userId     String
+  ceremony   Ceremony @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ceremonyId, userId])
+  @@index([userId])
+}
+
+/// Ceremony ↔ Project link (ADR-0059, amended 2026-09-27): a ceremony reviews
+/// any number of projects and a project is reviewed in any number of
+/// ceremonies. Both sides must be in the same workspace (checked in code).
+model CeremonyProject {
+  id         String   @id @default(cuid())
+  ceremonyId String
+  projectId  String
+  createdAt  DateTime @default(now())
+  ceremony   Ceremony @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([ceremonyId, projectId])
+  @@index([projectId])
+}
+
+model CeremonyOccurrence {
+  id                   String                   @id @default(cuid())
+  ceremonyId           String
+  /// Denormalised from the ceremony for indexes and access checks.
+  workspaceId          String
+  scheduledStart       DateTime
+  scheduledEnd         DateTime
+  status               CeremonyOccurrenceStatus @default(PLANNED)
+  skipReason           String?
+  /// The ceremony definition as it was when this occurrence was created;
+  /// later edits to the ceremony never rewrite history.
+  definitionSnapshot   Json
+  /// Agenda snapshot (V2): sections with items
+  /// `{ id, sectionKey, title, refType, refId, goalId?, keyResultId?,
+  ///    carriedFromOccurrenceId?, addedByUserId?, resolvedAt?, order }`.
+  agenda               Json?
+  agendaGeneratedAt    DateTime?
+  agendaCirculatedAt   DateTime?
+  /// The Scheduled meeting (calendar booking) for this occurrence, if one was
+  /// created by the scheduling flow. Recorded meetings link the other way
+  /// (`TranscriptionSession.occurrenceId`).
+  scheduledMeetingId   String?                  @unique
+  /// Self-link for carry-over of unresolved agenda items.
+  previousOccurrenceId String?
+  /// The free-text notes canvas for this occurrence: a Knowledge Page
+  /// (ADR-0033) created lazily when the agenda is generated, edited inline
+  /// under the agenda. Its `projectId` follows the ceremony's project so
+  /// visibility inherits; deleting the page just detaches it.
+  notesPageId          String?                  @unique
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  ceremony           Ceremony               @relation(fields: [ceremonyId], references: [id], onDelete: Cascade)
+  workspace          Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scheduledMeeting   Meeting?               @relation(fields: [scheduledMeetingId], references: [id], onDelete: SetNull)
+  notesPage          KnowledgePage?         @relation(fields: [notesPageId], references: [id], onDelete: SetNull)
+  previousOccurrence CeremonyOccurrence?    @relation("CeremonyOccurrenceCarryOver", fields: [previousOccurrenceId], references: [id], onDelete: SetNull)
+  nextOccurrences    CeremonyOccurrence[]   @relation("CeremonyOccurrenceCarryOver")
+  /// Recorded meetings that captured this occurrence.
+  recordedMeetings   TranscriptionSession[]
+  /// Decisions logged as outputs of this occurrence (ADR-0060).
+  decisions          Decision[]
+  /// Per-participant async updates (V3).
+  updates            CeremonyOccurrenceUpdate[]
+
+  @@unique([ceremonyId, scheduledStart])
+  @@index([workspaceId, scheduledStart])
+  @@index([status])
+}
+
+/// One participant's async-first update for an occurrence (ADR-0059, V3;
+/// mirrors `OkrCheckinUpdate`). `draftAnswers` is what the system proposed
+/// from that person's activity since the previous occurrence; `answers` is
+/// what they actually said. Both are keyed by the per-person question key
+/// for the ceremony's kind, with Markdown values (ADR-0017).
+model CeremonyOccurrenceUpdate {
+  id             String    @id @default(cuid())
+  occurrenceId   String
+  userId         String
+  /// `{ [questionKey]: markdown }` proposed by the draft builder.
+  draftAnswers   Json      @default("{}")
+  draftedAt      DateTime?
+  /// `{ [questionKey]: markdown }` as edited by the participant.
+  answers        Json      @default("{}")
+  submittedAt    DateTime?
+  /// The participant says something is blocking them; suppresses the
+  /// empty-agenda skip proposal.
+  flaggedBlocker Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  occurrence CeremonyOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  user       User               @relation("CeremonyOccurrenceUpdateUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([occurrenceId, userId])
+  @@index([occurrenceId])
+  @@index([userId])
+}
+
 model ScheduledNotification {
   id             String       @id @default(cuid())
   userId         String
@@ -1988,6 +2721,9 @@ model Notification {
   deeplink     String?
   dedupeKey    String
   scheduledFor DateTime?
+  /// In-app read state (null = unread). Set by the inbox UI; delivery
+  /// channels never touch it.
+  readAt       DateTime?
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
   user         User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1995,6 +2731,7 @@ model Notification {
 
   @@unique([dedupeKey, userId])
   @@index([userId])
+  @@index([userId, readAt])
   @@index([category])
   @@index([scheduledFor])
   @@index([createdAt])
@@ -2285,11 +3022,17 @@ model Epic {
 
   ownerId     String
   workspaceId String
+  // An epic belongs to one Product. Nullable only for the backfill window:
+  // rows predating this column have no product yet, and a null epic stays
+  // linkable from any product in its workspace so existing tickets keep
+  // their epic. Tighten to required once every row is assigned.
+  productId   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   owner     User      @relation("EpicOwner", fields: [ownerId], references: [id])
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
   actions   Action[]
   tickets   Ticket[]  @relation("TicketEpic")
   tags      EpicTag[]
@@ -2297,6 +3040,7 @@ model Epic {
   @@index([workspaceId])
   @@index([ownerId])
   @@index([status])
+  @@index([productId])
 }
 
 enum ActionStatus {
@@ -2705,29 +3449,72 @@ model KnowledgePage {
   createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
   comments  KnowledgePageComment[]
+  /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
+  ceremonyOccurrence CeremonyOccurrence?
+  /// Set when this page is a Workspace update's draft / published body.
+  workspaceUpdate    WorkspaceUpdate?
+  /// `pageLink` nodes in this page's `bodyDoc` (ADR-0039 nesting).
+  linksFrom          PageLink[] @relation("PageLinkFrom")
+  /// Pages whose `bodyDoc` links to this one.
+  linksTo            PageLink[] @relation("PageLinkTo")
 
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
 }
 
-/// Discussion note on a Knowledge Page — the doc-level comment feed under the
-/// page body, same card + composer pattern as FeatureComment's feature-level
-/// feed. No anchored threads: page bodies carry no `comment` marks, so the
-/// model stays flat (no threadId/parentId/quotedText until a real need).
-/// Bodies are Markdown (ADR-0017).
-model KnowledgePageComment {
-  id          String   @id @default(cuid())
-  pageId      String
-  body        String
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+/// One `pageLink` node in a Page's `bodyDoc` (ADR-0039: the page hierarchy is
+/// the link graph). A derived index of the doc, not a second source of truth:
+/// rewritten from the stored doc in the same transaction as every body write
+/// (`syncPageLinks`), so the tree, breadcrumb and sub-tree walks read these
+/// rows instead of parsing every doc in the workspace. Only same-workspace,
+/// existing targets are stored; self-links are dropped; a doc linking one page
+/// twice keeps its first position.
+model PageLink {
+  fromPageId  String
+  toPageId    String
+  /// Order of the link within the source doc (document order, 0-based).
+  position    Int
+  /// The source page's workspace (always also the target's).
+  workspaceId String
 
-  page      KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  createdBy User          @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
+  from KnowledgePage @relation("PageLinkFrom", fields: [fromPageId], references: [id], onDelete: Cascade)
+  to   KnowledgePage @relation("PageLinkTo", fields: [toPageId], references: [id], onDelete: Cascade)
+
+  @@id([fromPageId, toPageId])
+  @@index([toPageId])
+  @@index([workspaceId])
+}
+
+/// Comment on a Knowledge Page. Two flavours share the table, same shape as
+/// FeatureComment: doc-level rows (threadId null) form the flat Activity feed
+/// under the page body; anchored rows (threadId set) pin a discussion thread
+/// to a `comment` mark in `KnowledgePage.bodyDoc`, with `quotedText` as the
+/// orphan-rendering snapshot and `resolvedAt` settling a thread without
+/// deleting it. Bodies are Markdown (ADR-0017).
+model KnowledgePageComment {
+  id          String    @id @default(cuid())
+  pageId      String
+  // Anchored comments (ADR-0024's model, applied to Pages): `threadId` matches
+  // a `comment` mark in `KnowledgePage.bodyDoc`. Doc-level comments — the flat
+  // Activity feed under the page — leave it null.
+  threadId    String?
+  parentId    String?
+  body        String
+  quotedText  String?
+  resolvedAt  DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  page      KnowledgePage          @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  parent    KnowledgePageComment?  @relation("KnowledgePageCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   KnowledgePageComment[] @relation("KnowledgePageCommentReplies")
+  createdBy User                   @relation("KnowledgePageCommentAuthor", fields: [createdById], references: [id])
 
   @@index([pageId])
+  @@index([threadId])
+  @@index([parentId])
   @@index([createdById])
 }
 
@@ -2768,9 +3555,15 @@ model CrmContact {
   // Gmail/Calendar import fields
   connectionScore Int?      @default(0) // 0-100 calculated score
   emailHash       String? // SHA-256 for deduplication; uniqueness is workspace-scoped via @@unique below
-  importSource    String? // "GMAIL", "CALENDAR", "MANUAL"
+  importSource    String? // "GMAIL", "CALENDAR", "MANUAL", "FORM", "CSV"
   googleContactId String? // Google People API ID
   lastSyncedAt    DateTime? // Last import sync time
+  // Imported columns with no dedicated field (external ids, membership info,
+  // event counts, …), keyed by the source's original column header.
+  metadata        Json?
+  // When the source system first saw this person (e.g. a CSV export's
+  // first_seen). Distinct from createdAt, which is when the row landed here.
+  firstSeenAt     DateTime?
 
   workspace                   Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   organization                CrmOrganization?                  @relation(fields: [organizationId], references: [id], onDelete: SetNull)
@@ -2779,6 +3572,7 @@ model CrmContact {
   communications              CrmCommunication[]
   deals                       Deal[]
   transcriptionParticipations TranscriptionSessionParticipant[]
+  meetingAttendances          MeetingAttendee[]
   screenshots                 CrmContactScreenshot[]
   enrichments                 CrmContactEnrichment[]
 
@@ -3100,6 +3894,7 @@ model KeyResult {
   comments  KeyResultComment[] // Discussion comments on this key result
   projects  KeyResultProject[] // Projects linked to this key result
   features  KeyResultFeature[] // Features linked to this key result (ADR-0050)
+  decisions Decision[] // Decisions scoped to this key result (ADR-0060)
 
   @@index([goalId])
   @@index([userId])
@@ -3601,11 +4396,16 @@ model Assistant {
   instructions String?  @db.Text // Operating instructions
   userContext  String?  @db.Text // About the user/team
   isDefault    Boolean  @default(false)
+  /// The Assistant's principal — an owned ExternalAgent with a shadow user and a
+  /// workspace membership, which is what makes it an assignee (ADR-0067).
+  /// Required: the migration backfills every existing row before setting NOT NULL.
+  externalAgentId String   @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy     User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
+  externalAgent ExternalAgent  @relation(fields: [externalAgentId], references: [id], onDelete: Cascade)
   contentDrafts ContentDraft[]
 
   @@index([workspaceId])
@@ -4073,10 +4873,34 @@ model Product {
   projects          Project[]
   ticketSyncConfigs TicketSyncConfig[]
   featureDrafts     MeetingFeatureDraft[]
+  epics             Epic[]
+  repositories      WorkspaceRepository[]
+  cycles            List[]                @relation("ProductCycles")
+  ceremonies        Ceremony[]
+  decisions         Decision[]
+  overviewSummary   ProductOverviewSummary?
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
   @@index([createdById])
+}
+
+// Cached AI summary for the product Overview tab. One row per product, holding
+// the latest summary. Regenerated on demand when the underlying facts change
+// (inputHash differs) and the row is at least an hour old, or when it is more
+// than 24h old. See src/plugins/product/server/overviewSummaryService.ts.
+model ProductOverviewSummary {
+  id          String   @id @default(cuid())
+  productId   String   @unique
+  summary     String   @db.Text
+  risk        String?  @db.Text
+  inputHash   String
+  model       String
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 // Feature lifecycle (Features V2): Idea -> Defined -> In progress -> Live ->
@@ -4160,6 +4984,9 @@ model Feature {
   comments            FeatureComment[]
   pages               FeaturePage[]
   keyResultLinks      KeyResultFeature[] // Key results this feature executes (ADR-0050)
+  adrLinks            AdrTicketLink[]
+  decisionLinks       DecisionLink[]
+  meetingLinks        MeetingFeature[]
 
   @@index([productId])
   @@index([goalId])
@@ -4167,6 +4994,25 @@ model Feature {
   @@index([status])
   @@index([areaId])
   @@index([sourceTranscriptionId])
+}
+
+/// A Meeting discussed a Feature. Many-to-many and hand-set from the meeting
+/// page or the Add Meeting modal - distinct from `Feature.sourceTranscriptionId`,
+/// which is provenance (the one meeting a Feature was *ideated from*). Both ends
+/// must sit in the same workspace; the write path enforces it.
+model MeetingFeature {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  featureId              String
+  createdById            String
+  createdAt              DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+  feature              Feature              @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy            User                 @relation("MeetingFeatureCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([transcriptionSessionId, featureId])
+  @@index([featureId])
 }
 
 /// A candidate Feature ideated from a meeting, held OUTSIDE the feature registry
@@ -4500,7 +5346,15 @@ model Ticket {
   number    Int          @default(0)
   shortId   String?
   title     String
-  body      String?
+  // Ticket body (the ADR-0024 storage model, as Feature.description/-Doc):
+  // `bodyDoc` is the canonical ProseMirror document the editor reads/writes;
+  // `body` is the derived Markdown projection for off-island readers (CLI,
+  // agents, Notion sync, card previews). `bodyDoc` stays null until the ticket
+  // is first opened in the rich editor (lazy migration). `docVersion` powers
+  // the optimistic-concurrency stale-write guard.
+  body       String?
+  bodyDoc    Json?
+  docVersion Int          @default(0)
   type      TicketType   @default(FEATURE)
   status    TicketStatus @default(BACKLOG)
   priority  Int?
@@ -4541,6 +5395,10 @@ model Ticket {
   depsIn    TicketDependency[] @relation("TicketDepsIn")
   tags      TicketTag[]
   syncs     TicketSync[]
+  adrLinks  AdrTicketLink[]
+  decisionLinks DecisionLink[]
+
+  timeResolutionRules TimeResolutionRule[]
 
   @@unique([productId, number])
   @@unique([productId, shortId])
@@ -4595,14 +5453,27 @@ model TicketComment {
   ticketId  String
   authorId  String
   content   String   @db.Text
+  // Anchored-comment threading (ADR-0024, as FeatureComment): `threadId`
+  // matches a `comment` mark in `Ticket.bodyDoc` (null = plain activity-feed
+  // comment), `parentId` hangs replies off a thread root, `quotedText`
+  // snapshots the highlighted text so an orphaned thread still renders, and
+  // `resolvedAt` closes the thread.
+  threadId   String?
+  parentId   String?
+  quotedText String?
+  resolvedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  author User   @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  ticket  Ticket          @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author  User            @relation("TicketCommentAuthor", fields: [authorId], references: [id])
+  parent  TicketComment?  @relation("TicketCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies TicketComment[] @relation("TicketCommentReplies")
 
   @@index([ticketId])
   @@index([authorId])
+  @@index([threadId])
+  @@index([parentId])
 }
 
 model Retrospective {
@@ -4865,6 +5736,9 @@ model WorkspaceRepository {
   fullName       String
   installationId String?
   addedById      String?
+  /// Optional product assignment (Decision Log): ADRs derive their product
+  /// through the repo. Null = workspace-level repo (e.g. shared architecture).
+  productId      String?
   syncStatus     String    @default("pending")
   lastSyncedAt   DateTime?
   createdAt      DateTime  @default(now())
@@ -4872,10 +5746,15 @@ model WorkspaceRepository {
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   addedBy     User?       @relation("WorkspaceRepositoryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+  product     Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  adrSyncConfigs AdrSyncConfig[]
+  adrDocuments   AdrDocument[]
 
   @@unique([workspaceId, fullName])
   @@index([workspaceId])
   @@index([integrationId])
+  @@index([productId])
 }
 
 model TicketSyncConfig {
@@ -4909,19 +5788,26 @@ model TicketSyncConfig {
 }
 
 model TicketSync {
-  id           String    @id @default(cuid())
-  configId     String
-  ticketId     String
-  provider     String    @default("notion")
+  id              String    @id @default(cuid())
+  configId        String
+  ticketId        String
+  provider        String    @default("notion")
   /// Remote identity — the Notion page id.
-  externalId   String
-  externalUrl  String?
+  externalId      String
+  externalUrl     String?
   /// Field values at last successful sync (three-way merge base).
-  snapshot     Json?
-  lastSyncedAt DateTime  @default(now())
-  tombstonedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  snapshot        Json?
+  lastSyncedAt    DateTime  @default(now())
+  tombstonedAt    DateTime?
+  /// Stamped when the OUTBOUND push created this Notion page (ADR-0046 full
+  /// mirror). Null means the page is human-authored — imported or adopted —
+  /// and its CONTENT is never machine-writable. This is the only trustworthy
+  /// provenance signal: the run ledger's `action: "created"` is ambiguous
+  /// (inbound uses it for "created a ticket", outbound for "created a page")
+  /// and reading it as page provenance destroyed human content once already.
+  remoteCreatedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   config   TicketSyncConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
   ticket   Ticket              @relation(fields: [ticketId], references: [id], onDelete: Cascade)
@@ -4988,6 +5874,291 @@ model TicketSyncRun {
   triggeredBy   User?            @relation("TicketSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
   revertedByRun TicketSyncRun?   @relation("TicketSyncRunRevertedBy", fields: [revertedByRunId], references: [id], onDelete: SetNull)
   revertedRuns  TicketSyncRun[]  @relation("TicketSyncRunRevertedBy")
+
+  @@index([configId, startedAt])
+  @@index([triggeredById])
+}
+
+// ── Decision Log (cross-repo ADR projection) ────────────────────────────────
+// Read-only projection of ADR markdown files from enrolled GitHub repos. Git
+// is the source of truth; every row here is derived and re-derivable, except
+// AdrTicketLink which is user-authored linkage and must survive repo
+// disconnection. Documents are only ever soft-deleted (deletedAt).
+
+enum AdrStatus {
+  PROPOSED
+  ACCEPTED
+  SUPERSEDED
+  DEPRECATED
+  UNKNOWN
+}
+
+enum AdrLinkType {
+  SUPERSEDES
+  MENTIONS
+}
+
+model AdrSyncConfig {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  repositoryId String
+  /// Workspace-unique label prefix; ADRs render as `SHORTCODE-NUMBER`
+  /// (e.g. API-0003). A label, not a key — collisions are flagged, not refused.
+  shortCode    String
+  /// Repo-relative directories searched for ADR markdown files.
+  adrPaths     String[] @default(["docs/adr"])
+  /// Null means DISCONNECTED — disconnect is a soft state change, never a row
+  /// delete, so documents, links and run history always survive (ADR-0042).
+  integrationId String?
+  enabled       Boolean  @default(true)
+  /// Git tree SHA(s) covering adrPaths at the last successful pull — the sync
+  /// short-circuit key: unchanged tree ⇒ zero file fetches for this repo.
+  lastTreeSha   String?
+  /// Default-branch head commit at the last successful pull; GitHub deep links
+  /// pin here rather than at HEAD.
+  lastCommitSha String?
+  lastSyncedAt  DateTime?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repository  WorkspaceRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  integration Integration?        @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  createdBy   User                @relation("AdrSyncConfigCreatedBy", fields: [createdById], references: [id])
+  runs        AdrSyncRun[]
+
+  @@unique([workspaceId, repositoryId])
+  @@unique([workspaceId, shortCode])
+  @@index([repositoryId])
+  @@index([integrationId])
+  @@index([createdById])
+}
+
+model AdrDocument {
+  id           String    @id @default(cuid())
+  repositoryId String
+  /// Repo-relative file path — the stable half of the natural key.
+  path         String
+  /// Sequence number parsed from the filename (`0003-...`); null when absent.
+  number       Int?
+  slug         String?
+  title        String
+  status       AdrStatus @default(UNKNOWN)
+  /// Verbatim status string from the file (drives SUPERSEDES derivation).
+  statusRaw    String?
+  decidedAt    DateTime?
+  /// Full markdown content as last synced.
+  body         String    @db.Text
+  /// Git blob SHA from the tree listing — an unchanged blob is skipped
+  /// without a content fetch.
+  contentHash  String
+  /// Blob SHA last seen for this file.
+  lastSeenSha  String
+  /// Set when the file vanished from the repo; documents are never hard-deleted.
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  repository  WorkspaceRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  linksFrom   AdrLink[]           @relation("AdrLinkFrom")
+  linksTo     AdrLink[]           @relation("AdrLinkTo")
+  ticketLinks AdrTicketLink[]
+  /// Decisions formalised as this ADR (ADR-0060); the link lives on Decision.
+  decisions   Decision[]
+
+  @@unique([repositoryId, path])
+  @@index([repositoryId, deletedAt])
+}
+
+model AdrLink {
+  id        String      @id @default(cuid())
+  type      AdrLinkType
+  /// SUPERSEDES points from superseder to superseded.
+  fromId    String
+  toId      String
+  /// The matched line supporting a MENTIONS edge ("detected" provenance).
+  evidence  String?
+  createdAt DateTime    @default(now())
+
+  from AdrDocument @relation("AdrLinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   AdrDocument @relation("AdrLinkTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, type])
+  @@index([toId])
+}
+
+model AdrTicketLink {
+  id          String   @id @default(cuid())
+  adrId       String
+  ticketId    String?
+  featureId   String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  adr       AdrDocument @relation(fields: [adrId], references: [id], onDelete: Cascade)
+  ticket    Ticket?     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  feature   Feature?    @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  createdBy User        @relation("AdrTicketLinkCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([adrId, ticketId])
+  @@unique([adrId, featureId])
+  @@index([ticketId])
+  @@index([featureId])
+}
+
+// ---------------------------------------------------------------------------
+// Decisions (ADR-0060). Workspace-owned, writable decision records that sit
+// beside git-projected ADRs (`AdrDocument`, untouched and read-only) in one
+// Decision Log. An "open question" is a Decision in OPEN status; a draft is a
+// Decision the extractor proposed and nobody has confirmed yet.
+// ---------------------------------------------------------------------------
+
+enum DecisionStatus {
+  OPEN
+  PROPOSED
+  ACCEPTED
+  SUPERSEDED
+  DEPRECATED
+}
+
+enum DecisionReviewState {
+  DRAFT
+  CONFIRMED
+  REJECTED
+}
+
+enum DecisionSource {
+  MEETING
+  MANUAL
+  AGENT
+}
+
+model Decision {
+  id                     String              @id @default(cuid())
+  workspaceId            String
+  /// From `Workspace.decisionCounter`; rendered as `D-` + zero-padded number,
+  /// never stored as a label.
+  number                 Int
+  statement              String
+  /// Markdown (ADR-0017) with ADR headings (context, alternatives, consequences).
+  body                   String?             @db.Text
+  status                 DecisionStatus      @default(PROPOSED)
+  /// Drafts are invisible everywhere except the source meeting's draft views.
+  reviewState            DecisionReviewState @default(CONFIRMED)
+  source                 DecisionSource      @default(MANUAL)
+  decidedAt              DateTime?
+  ownerId                String?
+  createdById            String
+  confirmedById          String?
+  confirmedAt            DateTime?
+  /// The recorded meeting this decision came from (provenance).
+  transcriptionSessionId String?
+  /// The ceremony occurrence this decision is an output of (ADR-0059).
+  occurrenceId           String?
+  productId              String?
+  projectId              String?
+  goalId                 Int?
+  keyResultId            String?
+  /// The decision that replaced this one (status SUPERSEDED).
+  supersededById         String?
+  /// "Formalised as" — the ADR this decision became through a pull request.
+  adrDocumentId          String?
+  /// URL of the open "Draft ADR" pull request until the sync links the document.
+  pendingAdrPrUrl        String?
+  /// Quoted transcript turns `{ turnIndex, speaker, startTime, text }[]` (ADR-0032).
+  evidence               Json                @default("[]")
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  workspace            Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner                User?                 @relation("DecisionOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy            User                  @relation("DecisionCreatedBy", fields: [createdById], references: [id])
+  confirmedBy          User?                 @relation("DecisionConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
+  transcriptionSession TranscriptionSession? @relation(fields: [transcriptionSessionId], references: [id], onDelete: SetNull)
+  occurrence           CeremonyOccurrence?   @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+  product              Product?              @relation(fields: [productId], references: [id], onDelete: SetNull)
+  project              Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  goal                 Goal?                 @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  keyResult            KeyResult?            @relation(fields: [keyResultId], references: [id], onDelete: SetNull)
+  supersededBy         Decision?             @relation("DecisionSupersedes", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersedes           Decision[]            @relation("DecisionSupersedes")
+  adrDocument          AdrDocument?          @relation(fields: [adrDocumentId], references: [id], onDelete: SetNull)
+  deciders             DecisionDecider[]
+  links                DecisionLink[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status])
+  @@index([ownerId])
+  @@index([transcriptionSessionId])
+  @@index([occurrenceId])
+  @@index([projectId])
+  @@index([productId])
+  @@index([reviewState])
+}
+
+/// Who made the decision. A decider may be an external meeting participant
+/// with no User, hence the optional `userId` and the name/email pair.
+model DecisionDecider {
+  id         String   @id @default(cuid())
+  decisionId String
+  userId     String?
+  name       String
+  email      String?
+  decision   Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([decisionId, email])
+  @@index([userId])
+}
+
+/// "Implemented by" links to tickets, features and actions (mirrors
+/// `AdrTicketLink`). Exactly one of the three target columns is set per row.
+model DecisionLink {
+  id          String   @id @default(cuid())
+  decisionId  String
+  ticketId    String?
+  featureId   String?
+  actionId    String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  decision  Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  ticket    Ticket?  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  feature   Feature? @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  action    Action?  @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("DecisionLinkCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([decisionId, ticketId])
+  @@unique([decisionId, featureId])
+  @@unique([decisionId, actionId])
+  @@index([ticketId])
+  @@index([featureId])
+  @@index([actionId])
+}
+
+model AdrSyncRun {
+  id         String    @id @default(cuid())
+  configId   String
+  /// manual | cron | webhook
+  trigger    String
+  /// running | success | unchanged | error
+  status     String    @default("running")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  created    Int       @default(0)
+  updated    Int       @default(0)
+  skipped    Int       @default(0)
+  deleted    Int       @default(0)
+  failed     Int       @default(0)
+  /// Per-file outcomes: [{ path, action, reason? }]
+  items      Json?
+  /// Who triggered the run; null for cron runs.
+  triggeredById String?
+
+  config      AdrSyncConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  triggeredBy User?         @relation("AdrSyncRunTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
 
   @@index([configId, startedAt])
   @@index([triggeredById])

@@ -10,11 +10,11 @@ web
 
 ## Users
 
-Small, AI-first product teams - founders and their first collaborators - who coordinate goals, outcomes, and execution across humans and AI agents. The primary users are experts fluent in tools like Linear and Notion who live in this app daily; agents are first-class actors on the same surfaces (they file tickets, comment, and run automations). The team building Exponential dogfoods it as its own tracker, so the builders are also the heaviest users.
+Small, AI-first product teams - founders and their first collaborators - who coordinate goals, projects, and execution across humans and AI agents. The primary users are experts fluent in tools like Linear and Notion who live in this app daily; agents are first-class actors on the same surfaces (they file tickets, comment, and run automations). The team building Exponential dogfoods it as its own tracker, so the builders are also the heaviest users.
 
 ## Product Purpose
 
-Exponential is the operating system for AI-native organizations: goals cascade into outcomes, outcomes into actions and tickets, and AI agents handle execution alongside people. It replaces the scatter of project tracker + CRM + meeting notes + OKR sheet with one connected workspace. Success is a team that steers by outcomes while the mechanical work coordinates itself.
+Exponential is the operating system for AI-native organizations: goals cascade into projects, projects into actions and tickets, and AI agents handle execution alongside people. It replaces the scatter of project tracker + CRM + meeting notes + OKR sheet with one connected workspace. Success is a team that steers by goals while the mechanical work coordinates itself.
 
 ## Positioning
 

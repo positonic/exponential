@@ -47,23 +47,6 @@ export function FirefliesSummaryDisplay({ summary }: FirefliesSummaryProps) {
 function renderSummarySections(summary: FirefliesSummary) {
   return (
     <>
-      {summary.keywords && summary.keywords.length > 0 && (
-        <Accordion.Item value="keywords">
-          <Accordion.Control>
-            <Title order={5}>Keywords</Title>
-          </Accordion.Control>
-          <Accordion.Panel>
-            <Group gap="xs">
-              {summary.keywords.map((keyword: string, index: number) => (
-                <Badge key={index} variant="light" size="sm">
-                  {keyword}
-                </Badge>
-              ))}
-            </Group>
-          </Accordion.Panel>
-        </Accordion.Item>
-      )}
-
       {summary.action_items &&
         (Array.isArray(summary.action_items)
           ? summary.action_items.length > 0
@@ -100,9 +83,10 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Overview</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.overview}
-            </Text>
+            {/* Prose fields may be plain text or markdown (the summarizer
+                emits **bold** / lists in the overview). Compact keeps typed
+                line breaks, so plain text renders exactly as it did before. */}
+            <MarkdownRenderer content={summary.overview} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -113,9 +97,7 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Short Summary</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.short_summary}
-            </Text>
+            <MarkdownRenderer content={summary.short_summary} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -126,9 +108,7 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Gist</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.gist}
-            </Text>
+            <MarkdownRenderer content={summary.gist} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -159,10 +139,12 @@ function renderSummarySections(summary: FirefliesSummary) {
           <Accordion.Panel>
             {summary.detailed_breakdown?.trim() ? (
               // Rich themed write-up (markdown). Older summaries that predate
-              // this field fall back to the flat bullet list below.
+              // this field fall back to the flat bullet list below. Compact,
+              // not prose: prose renders `##` as full-size article headings,
+              // which dwarf the accordion's own section titles.
               <MarkdownRenderer
                 content={summary.detailed_breakdown}
-                variant="prose"
+                variant="compact"
               />
             ) : (
               <List>
@@ -183,9 +165,7 @@ function renderSummarySections(summary: FirefliesSummary) {
             <Title order={5}>Outline</Title>
           </Accordion.Control>
           <Accordion.Panel>
-            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-              {summary.outline}
-            </Text>
+            <MarkdownRenderer content={summary.outline} variant="compact" />
           </Accordion.Panel>
         </Accordion.Item>
       )}
@@ -216,6 +196,23 @@ function renderSummarySections(summary: FirefliesSummary) {
                 ),
               )}
             </List>
+          </Accordion.Panel>
+        </Accordion.Item>
+      )}
+
+      {summary.keywords && summary.keywords.length > 0 && (
+        <Accordion.Item value="keywords">
+          <Accordion.Control>
+            <Title order={5}>Keywords</Title>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Group gap="xs">
+              {summary.keywords.map((keyword: string, index: number) => (
+                <Badge key={index} variant="light" size="sm">
+                  {keyword}
+                </Badge>
+              ))}
+            </Group>
           </Accordion.Panel>
         </Accordion.Item>
       )}

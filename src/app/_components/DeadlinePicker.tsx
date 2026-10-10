@@ -9,6 +9,7 @@ import {
   Select,
 } from "@mantine/core";
 import { DatePicker } from "@mantine/dates";
+import { calendarDropdownStyles } from "~/styles/mantineTheme";
 import { useMediaQuery } from "@mantine/hooks";
 import { IconCalendar, IconX } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
@@ -254,6 +255,8 @@ export function DeadlinePicker({
       onClose={() => setOpened(false)}
       disabled={disabled}
       middlewares={{ flip: true, shift: true }}
+      // Hand-rolled Popover — see the note in UnifiedDatePicker.
+      styles={{ dropdown: calendarDropdownStyles }}
     >
       <Popover.Target>
         <UnstyledButton
@@ -282,12 +285,6 @@ export function DeadlinePicker({
               highlightToday={true}
               firstDayOfWeek={1}
               styles={{
-                calendarHeader: {
-                  backgroundColor: "var(--color-bg-secondary)",
-                },
-                month: {
-                  backgroundColor: "var(--color-bg-secondary)",
-                },
                 day: {
                   width: 36,
                   height: 36,

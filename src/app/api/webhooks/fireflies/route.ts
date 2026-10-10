@@ -1,7 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
+import { safeSignatureEquals } from '~/server/utils/webhookSignature';
 import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
+import { attachMeetingToOccurrence } from '~/server/services/ceremonies/autoAttach';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
 import { decryptFromBase64 } from '~/server/utils/encryption';
@@ -57,9 +59,9 @@ function verifySignatureWithApiKey(payload: string, signature: string, apiKey: s
     
     // Format as expected by Fireflies (with sha256= prefix)
     const expectedSignature = `sha256=${computedSignature}`;
-    
+
     // Constant-time comparison to prevent timing attacks
-    return signature === expectedSignature;
+    return safeSignatureEquals(signature, expectedSignature);
   } catch (error) {
     console.error('Error verifying signature:', error);
     return false;
@@ -442,6 +444,9 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       });
       console.log(`✅ Created new transcription session: ${sessionId}`);
       isNewSession = true;
+      // Ceremony auto-attach (ADR-0059): by title alias against the user's
+      // workspaces' occurrences around the meeting date. Never throws.
+      await attachMeetingToOccurrence(db, transcriptionSession);
     }
 
     // 5. Create notification for new transcriptions

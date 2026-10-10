@@ -8,6 +8,7 @@ import {
   Textarea,
   Select,
   Badge,
+  Loader,
   Group,
   Stack,
   ActionIcon,
@@ -32,6 +33,7 @@ import {
   IconPhoto,
   IconChevronLeft,
   IconChevronRight,
+  IconLock,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
@@ -44,12 +46,14 @@ import { ActivityFeed } from "~/app/_components/shared/ActivityFeed";
 import { useActionActivity } from "~/hooks/useActionActivity";
 import { useWorkspaceMentionCandidates } from "~/hooks/useWorkspaceMentionCandidates";
 import { AssignActionModal } from "./AssignActionModal";
+import { AgentRunPill } from "./actions/AgentRunPill";
 import { DeadlinePicker } from "./DeadlinePicker";
 import { UnifiedDatePicker } from "./UnifiedDatePicker";
 import { TagSelector } from "./TagSelector";
 import { useImagePaste } from "~/hooks/useImagePaste";
 import { InlineImageRenderer } from "./shared/InlineImageRenderer";
 import { HTMLContent } from "./HTMLContent";
+import { toPlainText } from "~/lib/content/plainText";
 
 const KANBAN_STATUS_OPTIONS = [
   { value: "BACKLOG", label: "Backlog" },
@@ -306,9 +310,16 @@ export function ActionDetailContent({
           </Breadcrumbs>
         </Group>
 
-        {/* Status Badge */}
+        {/* Status Badge — a spinning ring while an Assistant's run is live (ADR-0067) */}
         <Group mb="md">
-          {action.kanbanStatus && (
+          {action.activeRun ? (
+            <Group gap={6} data-testid="action-running-ring">
+              <Loader size={14} />
+              <Text size="xs" className="text-text-secondary">
+                {action.activeRun.agent.name} is working
+              </Text>
+            </Group>
+          ) : action.kanbanStatus && (
             <Badge color={statusColor} variant="light" size="sm">
               {KANBAN_STATUS_OPTIONS.find(
                 (s) => s.value === action.kanbanStatus,
@@ -434,6 +445,9 @@ export function ActionDetailContent({
 
         <Divider className="border-border-primary" mb="lg" />
 
+        {/* Agent run (ADR-0067): what the assigned Assistant is doing or did */}
+        <AgentRunPill actionId={actionId} activeRunId={action.activeRun?.id ?? null} />
+
         {/* Activity / Discussion */}
         <div>
           <Text className="text-text-primary font-semibold" size="sm" mb="md">
@@ -447,6 +461,7 @@ export function ActionDetailContent({
             onEditComment={activity.editComment}
             onDeleteImage={activity.deleteImage}
             mentionNames={activity.mentionNames}
+            mentionCandidates={activity.mentionCandidates}
             emptyMessage="No comments yet. Start the discussion!"
           />
 
@@ -612,6 +627,36 @@ export function ActionDetailContent({
               <Badge size="xs" variant="light">
                 {action.epic.name}
               </Badge>
+            </PropertyRow>
+          )}
+
+          {/* Blocked by (ADR-0062): every blocker, open ones highlighted */}
+          {action.depsOut.length > 0 && (
+            <PropertyRow icon={<IconLock size={16} />} label="Blocked by">
+              <Group gap="xs">
+                {action.depsOut.map((dep) => {
+                  const isOpen = dep.dependsOn.status === "ACTIVE";
+                  const badge = (
+                    <Badge
+                      size="xs"
+                      variant="light"
+                      color={isOpen ? "red" : "gray"}
+                      td={isOpen ? undefined : "line-through"}
+                    >
+                      {/* The badge sits inside a Link below, so it shows the
+                          text of a legacy-HTML name, not a nested anchor. */}
+                      {toPlainText(dep.dependsOn.name) || "Untitled"}
+                    </Badge>
+                  );
+                  return workspace?.slug ? (
+                    <Link key={dep.id} href={`/w/${workspace.slug}/actions/${dep.dependsOn.id}`}>
+                      {badge}
+                    </Link>
+                  ) : (
+                    <span key={dep.id}>{badge}</span>
+                  );
+                })}
+              </Group>
             </PropertyRow>
           )}
 

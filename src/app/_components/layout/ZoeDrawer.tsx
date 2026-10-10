@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
 import clsx from "clsx";
 import { Avatar, Menu, Tooltip } from "@mantine/core";
 import {
@@ -29,16 +28,25 @@ import {
   isLocalWikiAvailable,
 } from "~/lib/localWiki";
 import { api } from "~/trpc/react";
+import { reportHandledError } from "~/lib/reportHandledError";
 import classes from "./ZoeDrawer.module.css";
+import type ManyChatDefault from "../ManyChat";
 
-const ManyChat = dynamic(() => import("../ManyChat"), {
-  ssr: false,
-  loading: () => (
+type ManyChatComponent = typeof ManyChatDefault;
+
+const loadManyChat = () => import("../ManyChat").then((m) => m.default);
+
+function ChatLoading({ failed }: { failed: boolean }) {
+  return (
     <div className="flex h-full items-center justify-center">
-      <div className="animate-pulse text-text-muted">Loading chat…</div>
+      {failed ? (
+        <div className="text-text-muted">Chat couldn’t load. Close and reopen Zoe to try again.</div>
+      ) : (
+        <div className="animate-pulse text-text-muted">Loading chat…</div>
+      )}
     </div>
-  ),
-});
+  );
+}
 
 function formatRelativeTime(date: Date): string {
   const diffMs = Date.now() - new Date(date).getTime();
@@ -80,6 +88,58 @@ export function ZoeDrawer() {
   const effectiveWorkspaceId = overrideWorkspaceId ?? urlWorkspaceId;
 
   const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
+
+  // ManyChat mounts on the drawer's first open and then stays mounted (it
+  // keeps its own state and releases the mic on close). Mounted while closed,
+  // it ran its queries and created a conversation on every page view.
+  const [hasOpened, setHasOpened] = useState(isOpen);
+  if (isOpen && !hasOpened) setHasOpened(true);
+
+  // The chat code loads once the page is idle, off the page-load path, and is
+  // held as a plain component rather than next/dynamic: a lazy component
+  // suspends on its first render even when its chunk is already loaded, which
+  // would flash the loading state on every first open.
+  // `loadAttempt` 0 means not requested yet; each increment is one import. A
+  // failed load (a flaky network, a stale chunk after a deploy) is retried the
+  // next time the drawer opens rather than leaving it stuck for the session.
+  const [ManyChat, setManyChat] = useState<ManyChatComponent | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(isOpen ? 1 : 0);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen && !ManyChat && (loadAttempt === 0 || loadFailed)) {
+      setLoadFailed(false);
+      setLoadAttempt(loadAttempt + 1);
+    }
+  }
+
+  useEffect(() => {
+    const request = () => setLoadAttempt((attempt) => attempt || 1);
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(request);
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(request, 200);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  useEffect(() => {
+    if (loadAttempt === 0) return;
+    let cancelled = false;
+    loadManyChat().then(
+      (component) => {
+        if (!cancelled) setManyChat(() => component);
+      },
+      (error: unknown) => {
+        reportHandledError(error, { area: "zoe-drawer.load-chat" });
+        if (!cancelled) setLoadFailed(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAttempt]);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
 
   // Cmd+J toggle + Esc close. With a Zoe canvas engagement active, ⌘J is the
@@ -450,11 +510,16 @@ export function ZoeDrawer() {
 
         {/* Body: ManyChat handles its own scroll + composer */}
         <div className={classes.zoeBody}>
-          <ManyChat
-            projectId={projectId ?? undefined}
-            workspaceId={effectiveWorkspaceId ?? undefined}
-            defaultAgentId={defaultAgent?.id}
-          />
+          {hasOpened &&
+            (ManyChat ? (
+              <ManyChat
+                projectId={projectId ?? undefined}
+                workspaceId={effectiveWorkspaceId ?? undefined}
+                defaultAgentId={defaultAgent?.id}
+              />
+            ) : (
+              <ChatLoading failed={loadFailed} />
+            ))}
         </div>
       </div>
     </div>

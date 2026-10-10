@@ -30,6 +30,9 @@ import TipTapLink from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import DOMPurify from "dompurify";
 import { api } from "~/trpc/react";
+import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
+import { effortOptions, effortPillLabel } from "~/types/effort";
+import { SizeSuggestionChip } from "~/app/_components/product/SizeSuggestionChip";
 import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import "@mantine/tiptap/styles.css";
 
@@ -130,6 +133,9 @@ export function CreateTicketModal({
   const [assigneeId, setAssigneeId] = useState<string | null>(null);
   const [cycleId, setCycleId] = useState<string | null>(null);
   const [points, setPoints] = useState<string>("");
+  const effortUnit = useWorkspaceEffortUnit();
+  // Points accepted from the AI suggestion, for provenance (links.sizeSource).
+  const [acceptedPoints, setAcceptedPoints] = useState<number | null>(null);
 
   // overflow
   const [epicId, setEpicId] = useState<string | null>(null);
@@ -155,7 +161,7 @@ export function CreateTicketModal({
 
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
-      await utils.product.ticket.list.invalidate({ productId });
+      await utils.product.ticket.listSummaries.invalidate({ productId });
       resetForm();
       onClose();
       router.push(`${basePath}/${ticket.id}`);
@@ -171,6 +177,7 @@ export function CreateTicketModal({
     setAssigneeId(null);
     setCycleId(null);
     setPoints("");
+    setAcceptedPoints(null);
     setEpicId(null);
     setFeatureId(null);
     setBranchName("");
@@ -196,6 +203,10 @@ export function CreateTicketModal({
       status,
       priority: priority != null ? Number(priority) : undefined,
       points: points ? Number(points) : undefined,
+      links:
+        acceptedPoints != null && points === String(acceptedPoints)
+          ? { sizeSource: "ai" }
+          : undefined,
       assigneeId: assigneeId ?? undefined,
       featureId: featureId ?? undefined,
       epicId: epicId ?? undefined,
@@ -381,10 +392,13 @@ export function CreateTicketModal({
           </Pill>
 
           {/* Effort */}
-          <Pill icon={<IconFlame size={14} />} label={points || "Effort"}>
-            {[1, 2, 3, 5, 8, 13].map((n) => (
-              <Menu.Item key={n} onClick={() => setPoints(String(n))}>
-                {n}
+          <Pill
+            icon={<IconFlame size={14} />}
+            label={effortPillLabel(points ? Number(points) : null, effortUnit)}
+          >
+            {effortOptions(effortUnit).map((o) => (
+              <Menu.Item key={o.value} onClick={() => setPoints(String(o.value))}>
+                {o.label}
               </Menu.Item>
             ))}
             {points && (
@@ -394,6 +408,18 @@ export function CreateTicketModal({
               </>
             )}
           </Pill>
+
+          <SizeSuggestionChip
+            productId={productId}
+            title={title}
+            body={editor?.getText() ?? ""}
+            effortUnit={effortUnit}
+            value={points ? Number(points) : null}
+            onAccept={(p) => {
+              setPoints(String(p));
+              setAcceptedPoints(p);
+            }}
+          />
 
           {/* Conditionally shown extras */}
           {showEpic && (

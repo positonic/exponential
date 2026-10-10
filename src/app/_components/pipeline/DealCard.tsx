@@ -61,6 +61,11 @@ export function DealCard({ deal, isDragging, onClick }: DealCardProps) {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isSortDragging ? 0.5 : 1,
+    // Passing a `style` prop replaces the theme's Card defaultProps.style
+    // wholesale, so re-state the surface tokens or the card falls back to
+    // Mantine's built-in gray dark surface instead of the app palette.
+    backgroundColor: 'var(--color-bg-elevated)',
+    borderColor: 'var(--color-border-primary)',
   };
 
   const contactName = [deal.contact?.firstName, deal.contact?.lastName]
@@ -74,7 +79,7 @@ export function DealCard({ deal, isDragging, onClick }: DealCardProps) {
       {...attributes}
       {...listeners}
       className={`cursor-grab transition-shadow duration-200 hover:shadow-md ${
-        isDragging ? "shadow-lg ring-2 ring-blue-400" : ""
+        isDragging ? "shadow-lg ring-2 ring-border-focus" : ""
       }`}
       padding="sm"
       radius="md"

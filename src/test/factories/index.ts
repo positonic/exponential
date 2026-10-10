@@ -203,30 +203,6 @@ export async function createGoal(
   return db.goal.create({ data: attrs });
 }
 
-// ── Outcome Factory ──────────────────────────────────────────────────
-
-interface OutcomeAttrs {
-  description: string;
-  userId: string;
-  workspaceId?: string;
-  type?: string;
-  dueDate?: Date;
-}
-
-export const outcomeFactory = Factory.define<OutcomeAttrs>(({ sequence }) => ({
-  description: `Test Outcome ${sequence}`,
-  userId: "", // must be overridden
-  type: "daily",
-}));
-
-export async function createOutcome(
-  db: PrismaClient,
-  overrides: Partial<OutcomeAttrs> & { userId: string },
-) {
-  const attrs = outcomeFactory.build(overrides);
-  return db.outcome.create({ data: attrs });
-}
-
 // ── Team Factory ─────────────────────────────────────────────────────
 
 interface TeamAttrs {
@@ -452,18 +428,24 @@ export async function createCycle(
   overrides: {
     workspaceId: string;
     createdById: string;
+    productId?: string;
     name?: string;
     slug?: string;
+    startDate?: Date;
+    endDate?: Date;
   },
 ) {
   return db.list.create({
     data: {
       workspaceId: overrides.workspaceId,
       createdById: overrides.createdById,
+      productId: overrides.productId,
       name: overrides.name ?? `Test Cycle ${uid()}`,
       slug: overrides.slug ?? `test-cycle-${uid()}`,
       listType: "SPRINT",
       status: "PLANNED",
+      startDate: overrides.startDate,
+      endDate: overrides.endDate,
     },
   });
 }

@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 
-import { db as dbInstance } from "~/server/db";
+import type { db as dbInstance } from "~/server/db";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
   uploadFile,
@@ -25,6 +25,10 @@ import {
 import { extractText } from "~/lib/document-parser";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { DocumentSource } from "~/server/services/embedding/sources/DocumentSource";
+import {
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
+} from "~/server/services/access";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -47,28 +51,6 @@ const MAX_LIST_LIMIT = 200;
 const PRESIGNED_URL_TTL_SECONDS = 3600;
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Verify the caller is a member of the workspace. Throws FORBIDDEN if not.
- */
-async function assertWorkspaceMember(
-  db: Prisma.TransactionClient | typeof dbInstance,
-  userId: string,
-  workspaceId: string,
-): Promise<void> {
-  const membership = await db.workspaceUser.findUnique({
-    where: {
-      userId_workspaceId: { userId, workspaceId },
-    },
-    select: { userId: true },
-  });
-  if (!membership) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You are not a member of this workspace",
-    });
-  }
-}
 
 /**
  * Fetch a document and confirm it lives in the given workspace.
@@ -110,7 +92,7 @@ export const documentRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await assertWorkspaceMember(ctx.db, userId, input.workspaceId);
+      await assertWorkspaceWriteRole(ctx.db, userId, input.workspaceId);
 
       const document = await ctx.db.document.create({
         data: {
@@ -145,7 +127,7 @@ export const documentRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await assertWorkspaceMember(ctx.db, userId, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, userId, input.workspaceId);
 
       const limit = input.limit ?? DEFAULT_LIST_LIMIT;
 
@@ -187,7 +169,7 @@ export const documentRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await assertWorkspaceMember(ctx.db, userId, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, userId, input.workspaceId);
       return getDocumentInWorkspace(ctx.db, input.id, input.workspaceId);
     }),
 
@@ -204,7 +186,7 @@ export const documentRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await assertWorkspaceMember(ctx.db, userId, input.workspaceId);
+      await assertWorkspaceMembership(ctx.db, userId, input.workspaceId);
 
       const doc = await getDocumentInWorkspace(
         ctx.db,
@@ -265,7 +247,7 @@ export const documentRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await assertWorkspaceMember(ctx.db, userId, input.workspaceId);
+      await assertWorkspaceWriteRole(ctx.db, userId, input.workspaceId);
 
       // Step 1: create the Document row up-front so we can attribute
       // failures to a real id (and surface them via the row's
@@ -401,7 +383,7 @@ export const documentRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      await assertWorkspaceMember(ctx.db, userId, input.workspaceId);
+      await assertWorkspaceWriteRole(ctx.db, userId, input.workspaceId);
 
       const doc = await getDocumentInWorkspace(
         ctx.db,

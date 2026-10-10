@@ -80,15 +80,62 @@ function firstPersonEmail(
   return prop.people?.[0]?.person?.email ?? null;
 }
 
+/**
+ * Safety stop for the back-link probe's pagination. 100 rows per page, so this
+ * covers 500 pages carrying one ticket's back-link — pathological by any
+ * measure, and the bound keeps a mis-scoped filter from paging a whole
+ * database.
+ */
+const BACKLINK_PROBE_MAX_PAGES = 5;
+
 export class NotionTicketSyncAdapter
   implements TicketSyncRemoteAdapter, TicketPushAdapter
 {
+  /**
+   * Per-instance memo of `getRawDatabaseById`. A backfill drain builds one
+   * adapter per run and then asks for the same database's schema once per
+   * ticket — through getWriteSchema, the back-link probe, and the cycle
+   * lookup. Without this, mirroring N tickets costs ~3N schema fetches
+   * against a ~3 req/s API. An adapter is scoped to a single run, so the
+   * schema cannot go stale in any way that matters.
+   */
+  private readonly rawDatabaseCache = new Map<
+    string,
+    Promise<{ properties: Record<string, unknown> }>
+  >();
+
+  /**
+   * The last page fetched with its blocks. Inbound reads an unlinked page's
+   * links and then, if it imports it, its body — the same page, back to back.
+   * Remembering one page makes that a single fetch.
+   */
+  private lastPageFetch: {
+    externalId: string;
+    result: Promise<{ page: unknown; blocks: unknown[] }>;
+  } | null = null;
+
   constructor(
     private readonly notion: NotionService,
     private readonly propertyNames: PropertyNames,
     /** Our integration's bot user id, for echo suppression. */
     private readonly botId: string | null,
   ) {}
+
+  private getRawDatabase(
+    databaseId: string,
+  ): Promise<{ properties: Record<string, unknown> }> {
+    const cached = this.rawDatabaseCache.get(databaseId);
+    if (cached) return cached;
+    // Cache the PROMISE, not the result: concurrent callers within one run
+    // then share a single in-flight request instead of racing three of them.
+    const pending = this.notion.getRawDatabaseById(databaseId).catch((err) => {
+      // A failed fetch must not be memoised — the next call should retry.
+      this.rawDatabaseCache.delete(databaseId);
+      throw err;
+    }) as Promise<{ properties: Record<string, unknown> }>;
+    this.rawDatabaseCache.set(databaseId, pending);
+    return pending;
+  }
 
   async queryRows(params: {
     databaseId: string;
@@ -201,10 +248,22 @@ export class NotionTicketSyncAdapter
     };
   }
 
+  private getPageWithBlocks(
+    externalId: string,
+  ): Promise<{ page: unknown; blocks: unknown[] }> {
+    if (this.lastPageFetch?.externalId !== externalId) {
+      this.lastPageFetch = {
+        externalId,
+        result: this.notion.getPageWithBlocks(externalId),
+      };
+    }
+    return this.lastPageFetch.result;
+  }
+
   /** Flatten the page's blocks into plain-text-with-markdown-accents. */
   async getPageBody(externalId: string): Promise<string | null> {
     try {
-      const { blocks } = await this.notion.getPageWithBlocks(externalId);
+      const { blocks } = await this.getPageWithBlocks(externalId);
       const lines: string[] = [];
       for (const block of blocks as Array<Record<string, unknown>>) {
         const line = renderBlock(block);
@@ -215,6 +274,56 @@ export class NotionTicketSyncAdapter
     } catch {
       // Body is copy-on-create nicety, never worth failing the row over.
       return null;
+    }
+  }
+
+  /**
+   * Every absolute URL on the page: url-typed property values, linked text in
+   * any property, and linked text, bookmarks and link previews anywhere in the
+   * body — including inside toggles, columns and nested lists. Used to
+   * recognise a hand-written page that links to an existing ticket.
+   *
+   * Returns no links when the page can't be read OR can't be read completely
+   * (nesting too deep or too wide to scan cheaply). Missing a second ticket
+   * link could adopt the page into the wrong ticket, while no links just
+   * imports it as before — the safe failure.
+   */
+  async getPageLinks(externalId: string): Promise<string[]> {
+    try {
+      const { page, blocks } = await this.getPageWithBlocks(externalId);
+      const urls: string[] = [];
+      const properties = ((page as { properties?: Record<string, unknown> })
+        .properties ?? {}) as Record<string, Record<string, unknown>>;
+      for (const prop of Object.values(properties)) {
+        if (prop.type === "url" && typeof prop.url === "string") urls.push(prop.url);
+        if (prop.type === "rich_text") urls.push(...richTextLinks(prop.rich_text));
+        if (prop.type === "title") urls.push(...richTextLinks(prop.title));
+      }
+
+      const pending = [
+        { blocks: blocks as Array<Record<string, unknown>>, depth: 0 },
+      ];
+      let childFetches = 0;
+      for (let level = pending.shift(); level; level = pending.shift()) {
+        for (const block of level.blocks) {
+          urls.push(...blockLinks(block));
+          if (block.has_children !== true || !descendsInto(block)) continue;
+          if (
+            level.depth >= LINK_SCAN_MAX_DEPTH ||
+            childFetches >= LINK_SCAN_MAX_CHILD_FETCHES
+          ) {
+            return []; // incomplete scan — see the doc comment
+          }
+          childFetches++;
+          pending.push({
+            blocks: await this.notion.listBlockChildren(block.id as string),
+            depth: level.depth + 1,
+          });
+        }
+      }
+      return urls;
+    } catch {
+      return [];
     }
   }
 
@@ -241,7 +350,7 @@ export class NotionTicketSyncAdapter
 
   /** The target database's property schema: type + option names per property. */
   async getWriteSchema(databaseId: string): Promise<NotionDbSchema> {
-    const { properties } = await this.notion.getRawDatabaseById(databaseId);
+    const { properties } = await this.getRawDatabase(databaseId);
     const schema: NotionDbSchema = {};
     for (const [name, raw] of Object.entries(properties)) {
       const prop = raw as {
@@ -278,14 +387,14 @@ export class NotionTicketSyncAdapter
     cycleProperty: string,
     name: string,
   ): Promise<string | null> {
-    const { properties } = await this.notion.getRawDatabaseById(databaseId);
-    const relation = (properties as Record<string, unknown>)[cycleProperty] as
+    const { properties } = await this.getRawDatabase(databaseId);
+    const relation = properties[cycleProperty] as
       | { type?: string; relation?: { database_id?: string } }
       | undefined;
     const targetDbId = relation?.relation?.database_id;
     if (relation?.type !== "relation" || !targetDbId) return null;
 
-    const target = await this.notion.getRawDatabaseById(targetDbId);
+    const target = await this.getRawDatabase(targetDbId);
     const titleProp = Object.entries(target.properties).find(
       ([, p]) => (p as { type?: string }).type === "title",
     )?.[0];
@@ -305,6 +414,91 @@ export class NotionTicketSyncAdapter
           .toLowerCase() === wanted,
     );
     return match?.id ?? null;
+  }
+
+  /**
+   * Rows in the target database whose back-link property equals `ticketUrl` —
+   * the pre-create probe for a page we already created for this ticket.
+   *
+   * Returns null when the database has no url-typed property under that name,
+   * so the caller can tell "cannot check" from "checked, found nothing". Only
+   * this adapter's create path ever writes that property with that URL, which
+   * is what makes the match exact rather than a guess. Trashed pages are
+   * excluded by the query itself; archived ones are filtered here.
+   */
+  async findPagesByBacklink(
+    databaseId: string,
+    backlinkProperty: string,
+    ticketUrl: string,
+  ): Promise<Array<{ externalId: string; url: string | null }> | null> {
+    const { properties } = await this.getRawDatabase(databaseId);
+    const prop = properties[backlinkProperty] as
+      | { type?: string }
+      | undefined;
+    if (prop?.type !== "url") return null;
+
+    // Page the whole result set. A single page of 25 would both truncate the
+    // "reconcile the others" list and — because archived rows are filtered
+    // client-side, AFTER the cap — let a page of trashed rows hide the live
+    // match and cause a duplicate create.
+    const live: Array<{ externalId: string; url: string | null }> = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < BACKLINK_PROBE_MAX_PAGES; page++) {
+      const res = await this.notion.queryDatabase({
+        databaseId,
+        filter: { property: backlinkProperty, url: { equals: ticketUrl } },
+        pageSize: 100,
+        startCursor: cursor,
+      });
+      for (const p of res.results as RawNotionPage[]) {
+        if (!p.archived && !p.in_trash) {
+          live.push({ externalId: p.id, url: p.url ?? null });
+        }
+      }
+      if (!res.hasMore || !res.nextCursor) break;
+      cursor = res.nextCursor;
+    }
+    return live;
+  }
+
+  /**
+   * Rows whose title matches `title` — used ONLY to warn a human in the
+   * backfill preview, never to drive an automatic create/adopt decision.
+   * Titles are user-editable, mutate in place, and are not unique, so they
+   * are a hint for a person and nothing more.
+   *
+   * Notion's `title.equals` filter is exact and case-sensitive; the client
+   * side re-checks case-insensitively after trimming.
+   */
+  async findPagesByTitle(
+    databaseId: string,
+    title: string,
+  ): Promise<Array<{ externalId: string; url: string | null }>> {
+    const wanted = title.trim().toLowerCase();
+    if (!wanted) return [];
+
+    const { properties } = await this.getRawDatabase(databaseId);
+    const titleProp = Object.entries(properties).find(
+      ([, p]) => (p as { type?: string }).type === "title",
+    )?.[0];
+
+    const page = await this.notion.queryDatabase({
+      databaseId,
+      filter: titleProp
+        ? { property: titleProp, title: { equals: title.trim() } }
+        : undefined,
+      pageSize: 25,
+    });
+
+    return (page.results as RawNotionPage[])
+      .filter((p) => !p.archived && !p.in_trash)
+      .filter(
+        (p) =>
+          NotionService.extractTitleFromProperties(p.properties ?? {})
+            .trim()
+            .toLowerCase() === wanted,
+      )
+      .map((p) => ({ externalId: p.id, url: p.url ?? null }));
   }
 
   /** Resolve a Notion workspace person id by email, or null when unmatched. */
@@ -331,11 +525,6 @@ export class NotionTicketSyncAdapter
     });
     return { externalId: id, url };
   }
-
-  /** Trash (archive) a page — the outbound half of archive ↔ archive. */
-  async archivePage(externalId: string): Promise<void> {
-    await this.notion.archivePage(externalId);
-  }
 }
 
 /** A Notion API "object not found" error (a deleted/moved page). */
@@ -350,6 +539,40 @@ function isNotFound(error: unknown): boolean {
 
 interface RichTextItem {
   plain_text?: string;
+  /** Link target of linked text or a mention; null for plain text. */
+  href?: string | null;
+}
+
+/** Body nesting the link scan follows before giving up (toggle in a column in a list…). */
+const LINK_SCAN_MAX_DEPTH = 4;
+/** Child-block fetches one page's link scan may spend (~3 req/s API). */
+const LINK_SCAN_MAX_CHILD_FETCHES = 25;
+
+/** Links on one block: linked text, plus a bookmark / link preview target. */
+function blockLinks(block: Record<string, unknown>): string[] {
+  const type = block.type as string | undefined;
+  if (!type) return [];
+  const payload = block[type] as { rich_text?: unknown; url?: unknown } | undefined;
+  const urls = richTextLinks(payload?.rich_text);
+  if (
+    (type === "bookmark" || type === "link_preview") &&
+    typeof payload?.url === "string"
+  ) {
+    urls.push(payload.url);
+  }
+  return urls;
+}
+
+/** Sub-pages and inline databases are other pages, not this page's content. */
+function descendsInto(block: Record<string, unknown>): boolean {
+  return block.type !== "child_page" && block.type !== "child_database";
+}
+
+function richTextLinks(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return (value as RichTextItem[]).flatMap((t) =>
+    typeof t.href === "string" ? [t.href] : [],
+  );
 }
 
 function richText(value: unknown): string {
@@ -394,18 +617,21 @@ function renderBlock(block: Record<string, unknown>): string | null {
  * Returns null (with a reason) when the credential is unusable — callers
  * surface that as a connection error, not a crash.
  */
-export async function createNotionTicketSyncAdapter(
+/**
+ * Resolve a working NotionService (and bot id) for a Notion integration's
+ * stored credential. Shared by the sync adapter factory and maintenance
+ * paths (e.g. the body re-render repair) that need raw block access the
+ * adapter interfaces deliberately don't expose.
+ */
+export async function resolveNotionServiceForIntegration(
   db: PrismaClient,
-  config: {
-    integrationId: string;
-    propertyNames: unknown;
-  },
+  integrationId: string,
 ): Promise<
-  | { ok: true; adapter: NotionTicketSyncAdapter }
+  | { ok: true; notion: NotionService; botId: string | null }
   | { ok: false; error: string }
 > {
   const integration = await db.integration.findFirst({
-    where: { id: config.integrationId, provider: "notion" },
+    where: { id: integrationId, provider: "notion" },
     include: {
       credentials: { select: { key: true, keyType: true, isEncrypted: true } },
     },
@@ -453,12 +679,31 @@ export async function createNotionTicketSyncAdapter(
     }
   }
 
+  return { ok: true, notion: new NotionService(accessToken), botId };
+}
+
+export async function createNotionTicketSyncAdapter(
+  db: PrismaClient,
+  config: {
+    integrationId: string;
+    propertyNames: unknown;
+  },
+): Promise<
+  | { ok: true; adapter: NotionTicketSyncAdapter }
+  | { ok: false; error: string }
+> {
+  const resolved = await resolveNotionServiceForIntegration(
+    db,
+    config.integrationId,
+  );
+  if (!resolved.ok) return resolved;
+
   return {
     ok: true,
     adapter: new NotionTicketSyncAdapter(
-      new NotionService(accessToken),
+      resolved.notion,
       resolvePropertyNames(config.propertyNames),
-      botId,
+      resolved.botId,
     ),
   };
 }

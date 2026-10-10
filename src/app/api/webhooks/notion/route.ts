@@ -1,5 +1,6 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
+import { safeSignatureEquals } from "~/server/utils/webhookSignature";
 
 import { db } from "~/server/db";
 import {
@@ -113,8 +114,5 @@ function verifySignature(raw: string, header: string, secret: string): boolean {
   const expected = `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`;
   const provided = header.includes("=") ? header : `sha256=${header}`;
 
-  const expectedBuf = Buffer.from(expected);
-  const providedBuf = Buffer.from(provided);
-  if (expectedBuf.length !== providedBuf.length) return false;
-  return timingSafeEqual(expectedBuf, providedBuf);
+  return safeSignatureEquals(provided, expected);
 }

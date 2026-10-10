@@ -22,7 +22,7 @@ interface GoogleAccountRow {
 /**
  * Choose which Google account to use when a user has connected more than one.
  * Prefers (in order): an account that has the required scope, an account with a
- * refresh token, then the account granting the most scopes. This keeps Gmail/CRM
+ * refresh token, then the account granting the most scopes. This keeps CRM
  * features working even after the user adds a calendar-only second Google account.
  */
 function pickBestGoogleAccount<T extends GoogleAccountRow>(

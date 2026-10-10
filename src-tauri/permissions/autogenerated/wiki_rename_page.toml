@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wiki-rename-page"
+description = "Enables the wiki_rename_page command without any pre-configured scope."
+commands.allow = ["wiki_rename_page"]
+
+[[permission]]
+identifier = "deny-wiki-rename-page"
+description = "Denies the wiki_rename_page command without any pre-configured scope."
+commands.deny = ["wiki_rename_page"]

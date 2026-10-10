@@ -9,7 +9,7 @@ interface PricingSectionProps {
 const features = [
   "Full platform access",
   "AI features included",
-  "Unlimited goals & outcomes",
+  "Unlimited goals & projects",
   "Team collaboration",
   "Weekly planning rituals",
   "No credit card required",
@@ -17,7 +17,7 @@ const features = [
 
 export function PricingSection({ id }: PricingSectionProps) {
   return (
-    <section id={id} className="bg-background-primary py-20 md:py-28">
+    <section id={id} className="bg-surface-secondary py-20 md:py-28">
       <Container size="sm">
         <div className="text-center mb-12">
           <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
@@ -29,7 +29,7 @@ export function PricingSection({ id }: PricingSectionProps) {
         </div>
 
         {/* Pricing Card */}
-        <div className="bg-surface-secondary border-2 border-accent-indigo/40 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
+        <div className="bg-background-primary border-2 border-accent-indigo/40 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
           {/* Background decoration */}
           <div
             className="absolute inset-0 pointer-events-none"

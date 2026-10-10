@@ -2,6 +2,8 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
+import { buildTranscriptionAccessWhere } from "~/server/services/access/resolvers/transcriptionResolver";
 import type {
   EmbeddingSource,
   EmbeddingResult,
@@ -52,6 +54,23 @@ export interface KnowledgeSearchOptions {
   projectId?: string;
   sourceTypes?: ("transcription" | "resource" | "document" | "page")[];
   participantEmail?: string;
+  /**
+   * Restrict `page` chunks to Pages this user can view (the
+   * `buildKnowledgePageAccessWhere` rule). Workspace scope alone is NOT page
+   * access — restricted-project Pages live in the workspace too — so every
+   * caller that searches page chunks on someone's behalf must pass this.
+   * Fails closed: without it, page chunks are excluded entirely.
+   */
+  pageViewerId?: string;
+  /**
+   * Restrict `transcription` chunks to Meetings this user can view (the
+   * `buildTranscriptionAccessWhere` rule). Workspace scope alone is NOT
+   * Meeting access — restricted-project Meetings live in the workspace too —
+   * so every caller that searches transcription chunks on someone's behalf
+   * must pass this. Fails closed: without it, transcription chunks are
+   * excluded entirely.
+   */
+  transcriptionViewerId?: string;
   limit?: number;
   similarityThreshold?: number;
 }
@@ -496,6 +515,11 @@ export class KnowledgeService {
    *      per-utterance speaker filter — proper per-speaker filtering requires
    *      Fireflies-aware chunking that populates `KnowledgeChunk.speakerEmail`,
    *      which is out of scope for this PR.
+   *   - `pageViewerId` — keep `page` chunks only for Pages this user can view;
+   *      omitted, page chunks are dropped (fail closed)
+   *   - `transcriptionViewerId` — keep `transcription` chunks only for
+   *      Meetings this user can view; omitted, they are dropped (fail closed).
+   *      ANDed with `participantEmail`, which can only narrow the result.
    */
   async search(
     query: string,
@@ -507,6 +531,8 @@ export class KnowledgeService {
       projectId,
       sourceTypes,
       participantEmail,
+      pageViewerId,
+      transcriptionViewerId,
       limit = 10,
     } = options;
 
@@ -551,6 +577,51 @@ export class KnowledgeService {
           )
         )`
       : Prisma.empty;
+
+    // Page access: workspace scope isn't enough (restricted-project Pages share
+    // the workspace), so resolve the viewable set through the page access
+    // where-builder and keep only those Pages' chunks. With no viewer to check
+    // against, page chunks are dropped — a caller that forgets the option
+    // fails closed instead of leaking. Skipped when the search can't return
+    // page chunks at all.
+    const searchesPages = !sourceTypes?.length || sourceTypes.includes("page");
+    let pageAccessCondition = Prisma.empty;
+    if (searchesPages && !pageViewerId) {
+      pageAccessCondition = Prisma.sql`AND kc."sourceType" <> 'page'`;
+    } else if (searchesPages && pageViewerId) {
+      const viewable = await this.db.knowledgePage.findMany({
+        where: {
+          AND: [{ workspaceId }, buildKnowledgePageAccessWhere(pageViewerId)],
+        },
+        select: { id: true },
+      });
+      const viewableIds = viewable.map((p) => p.id);
+      pageAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'page' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
+    }
+
+    // Meeting access: same shape as pages. Restricted-project Meetings share
+    // the workspace, so resolve the viewable sessions through the Meeting
+    // access where-builder and keep only their chunks. This is ANDed with the
+    // participant filter above: `participantEmail` names whose meetings to
+    // search, never who may see them.
+    const searchesTranscriptions =
+      !sourceTypes?.length || sourceTypes.includes("transcription");
+    let transcriptionAccessCondition = Prisma.empty;
+    if (searchesTranscriptions && !transcriptionViewerId) {
+      transcriptionAccessCondition = Prisma.sql`AND kc."sourceType" <> 'transcription'`;
+    } else if (searchesTranscriptions && transcriptionViewerId) {
+      const viewable = await this.db.transcriptionSession.findMany({
+        where: {
+          AND: [
+            { workspaceId },
+            buildTranscriptionAccessWhere(transcriptionViewerId),
+          ],
+        },
+        select: { id: true },
+      });
+      const viewableIds = viewable.map((s) => s.id);
+      transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
+    }
 
     // Execute vector search with parameterized query
     const results = await this.db.$queryRaw<
@@ -597,6 +668,8 @@ export class KnowledgeService {
         ${projectCondition}
         ${sourceTypeCondition}
         ${participantCondition}
+        ${pageAccessCondition}
+        ${transcriptionAccessCondition}
       ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}
     `;

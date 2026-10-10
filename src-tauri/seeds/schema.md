@@ -30,6 +30,33 @@ without the `.md`, so `[[people/ada]]` points at `people/ada.md`. Link generousl
 A link to a page that doesn't exist yet is fine and useful: it marks something
 worth writing.
 
+## Renaming and deleting
+
+These two do deliberately opposite things to the links pointing at a page, and
+the difference is worth knowing before you reach for either.
+
+**Renaming a page rewrites every `[[wikilink]]` that pointed at it.** The page
+still exists — it just lives somewhere else — so leaving the old links behind
+would turn each one into a claim that nobody has written that page, which is
+false. Links are rewritten to the canonical form without the `.md`. The move and
+every edit it caused land as a single commit, so `git show` reads it as one
+change and `git revert` undoes all of it. The page keeps its history: `git log
+--follow` tracks it across the rename.
+
+The one exception is deliberate: `[[wikilinks]]` written inside code spans or
+fenced blocks are left alone, because that is documentation of the syntax — this
+file included — rather than navigation.
+
+**Deleting a page leaves inbound links alone.** They become links to a page
+nobody has written, which is exactly right: deleting a page is a statement that
+its subject shouldn't have one, and a red link is how the wiki records that and
+how the next reader finds out. Delete removes only the file you name — never a
+folder, never recursively. It stays in the git history, so it is recoverable.
+
+If you are about to rename a page, prefer it to writing a new page and deleting
+the old one: the rename keeps the history and the links, and the two-step
+version loses both.
+
 ## For the librarian
 
 **Answering.** Search before you answer. Look in `index.md` first, follow

@@ -286,6 +286,27 @@ export class FakeSyncDb {
           const t = this.tickets.get(args.where.id);
           return Promise.resolve(t ? this.ticketView(t) : null);
         },
+        // The page-link adoption lookup: a product ticket by number, with its
+        // sync links for the provider.
+        findFirst: (args: {
+          where: { productId: string; number: number };
+          select: { syncs: { where: { provider: string } } };
+        }) => {
+          const t = [...this.tickets.values()].find(
+            (ticket) => ticket.number === args.where.number,
+          );
+          if (!t || args.where.productId !== this.config.productId) {
+            return Promise.resolve(null);
+          }
+          const syncs = [...this.syncs.values()]
+            .filter(
+              (s) =>
+                s.ticketId === t.id &&
+                s.provider === args.select.syncs.where.provider,
+            )
+            .map((s) => ({ id: s.id }));
+          return Promise.resolve({ id: t.id, syncs });
+        },
         update: (args: WhereById & { data: Record<string, unknown> }) => {
           const t = this.mustGetTicket(args.where.id);
           for (const key of [

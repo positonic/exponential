@@ -27,12 +27,6 @@ const featureColumns: FeatureColumn[] = [
         href: "/features/goals",
       },
       {
-        icon: "🎯",
-        title: "Outcomes",
-        description: "Measurable results at any time horizon",
-        href: "/features/outcomes",
-      },
-      {
         icon: "📈",
         title: "OKRs",
         description: "Objectives & Key Results tracking",
@@ -58,7 +52,7 @@ const featureColumns: FeatureColumn[] = [
       {
         icon: "✓",
         title: "Actions",
-        description: "Tasks that connect to outcomes",
+        description: "Tasks that connect to your goals",
         href: "/features/actions",
       },
       {
@@ -126,9 +120,9 @@ const featureColumns: FeatureColumn[] = [
       },
       {
         icon: "📊",
-        title: "Weekly Planning",
+        title: "Team Weekly Review",
         description: "See what everyone and every agent is doing",
-        href: "/features/weekly-planning",
+        href: "/features/team-weekly-review",
       },
       {
         icon: "📆",
@@ -140,7 +134,8 @@ const featureColumns: FeatureColumn[] = [
   },
 ];
 
-const integrations = [
+const integrations: { icon: string; name: string; href?: string }[] = [
+  { icon: "🤖", name: "Claude", href: "/features/integrations/claude" },
   { icon: "💬", name: "Slack" },
   { icon: "📝", name: "Notion" },
   { icon: "🐙", name: "GitHub" },
@@ -169,9 +164,10 @@ export function FeaturesMenu() {
         />
       </button>
 
-      {/* Dropdown */}
-      {isOpen && (
-        <>
+      {/* Dropdown — always in the HTML and hidden with CSS, so crawlers see
+          the feature-page links (a conditional render left the homepage with
+          no links to them at all). */}
+      <div className={isOpen ? undefined : "hidden"}>
           {/* Invisible bridge to prevent menu from closing */}
           <div className="absolute top-full left-0 h-4 w-full" />
 
@@ -216,15 +212,26 @@ export function FeaturesMenu() {
                   Integrations
                 </span>
                 <div className="flex items-center gap-4">
-                  {integrations.map((integration) => (
-                    <span
-                      key={integration.name}
-                      className="flex items-center gap-1.5 text-text-secondary text-sm"
-                    >
-                      <span>{integration.icon}</span>
-                      {integration.name}
-                    </span>
-                  ))}
+                  {integrations.map((integration) =>
+                    integration.href ? (
+                      <Link
+                        key={integration.name}
+                        href={integration.href}
+                        className="flex items-center gap-1.5 text-text-secondary text-sm hover:text-text-primary transition-colors"
+                      >
+                        <span>{integration.icon}</span>
+                        {integration.name}
+                      </Link>
+                    ) : (
+                      <span
+                        key={integration.name}
+                        className="flex items-center gap-1.5 text-text-secondary text-sm"
+                      >
+                        <span>{integration.icon}</span>
+                        {integration.name}
+                      </span>
+                    ),
+                  )}
                   <span className="text-text-muted text-sm italic">
                     More coming...
                   </span>
@@ -232,8 +239,7 @@ export function FeaturesMenu() {
               </div>
             </div>
           </div>
-        </>
-      )}
+      </div>
     </div>
   );
 }

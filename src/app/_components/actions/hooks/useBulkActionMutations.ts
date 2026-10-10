@@ -8,7 +8,8 @@ interface BulkContext {
 
 interface BulkRescheduleInput {
   actionIds: string[];
-  dueDate: Date | null;
+  /** New do-date. Pushes an earlier deadline forward; `null` clears both. */
+  date: Date | null;
   /** Label shown in the toast (e.g. "Tomorrow"). */
   label?: string;
   /** When true, fires `dailyPlan.markProcessedOverdue` after success. */
@@ -92,7 +93,7 @@ export function useBulkActionMutations(
   return {
     bulkReschedule: ({
       actionIds,
-      dueDate,
+      date,
       label,
       fromOverdue,
       onSuccess,
@@ -100,12 +101,12 @@ export function useBulkActionMutations(
     }) => {
       if (actionIds.length === 0) return;
       reschedule.mutate(
-        { actionIds, dueDate },
+        { actionIds, date },
         {
           onSuccess: (data) => {
             notifications.show({
-              title: dueDate ? "Bulk reschedule complete" : "Due date removed",
-              message: dueDate
+              title: date ? "Bulk reschedule complete" : "Due date removed",
+              message: date
                 ? `Rescheduled ${data.count} action${data.count === 1 ? "" : "s"}${label ? ` to ${label}` : ""}`
                 : `Cleared due date from ${data.count} action${data.count === 1 ? "" : "s"}`,
               color: "green",

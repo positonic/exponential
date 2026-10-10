@@ -8,7 +8,10 @@ import NotionProvider from "next-auth/providers/notion";
 import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
-import { sendMagicLinkEmail, sendWelcomeEmail, sendWelcomeWithMagicLinkEmail } from "~/server/services/EmailService";
+import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
+import { sendFirstLoginWelcomeEmail, sendSignInCodeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
+import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
+import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
 /**
@@ -20,94 +23,6 @@ import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
  * (`getConfiguredProviders`) so the UI button stays in sync.
  */
 export const MICROSOFT_LOGIN_ENABLED = false;
-
-/**
- * Auto-accept any pending workspace and team invitations matching this user's
- * email. Covers the case where an invitee signs up (or signs in) via a route
- * other than the invite accept page — e.g. OAuth, direct magic link, or a
- * magic link whose callbackUrl no longer points at /invite/<token>.
- *
- * Returns the workspaceId of the first accepted invite, if any (caller may
- * want to set it as the user's default workspace).
- */
-async function acceptPendingInvitationsForUser(
-  userId: string,
-  email: string
-): Promise<string | null> {
-  const now = new Date();
-  let firstAcceptedWorkspaceId: string | null = null;
-
-  try {
-    const pendingWorkspaceInvites = await db.workspaceInvitation.findMany({
-      where: { email, status: "pending", expiresAt: { gt: now } },
-      orderBy: { createdAt: "asc" },
-    });
-
-    for (const invitation of pendingWorkspaceInvites) {
-      try {
-        await db.$transaction([
-          db.workspaceInvitation.update({
-            where: { id: invitation.id },
-            data: { status: "accepted", acceptedAt: now },
-          }),
-          db.workspaceUser.upsert({
-            where: {
-              userId_workspaceId: {
-                userId,
-                workspaceId: invitation.workspaceId,
-              },
-            },
-            create: {
-              userId,
-              workspaceId: invitation.workspaceId,
-              role: invitation.role,
-            },
-            update: {},
-          }),
-        ]);
-        if (!firstAcceptedWorkspaceId) {
-          firstAcceptedWorkspaceId = invitation.workspaceId;
-        }
-      } catch (error) {
-        console.error(
-          `[Auth] Failed to auto-accept workspace invitation ${invitation.id}:`,
-          error
-        );
-      }
-    }
-
-    const pendingTeamInvites = await db.teamInvitation.findMany({
-      where: { email, status: "pending", expiresAt: { gt: now } },
-    });
-
-    for (const invitation of pendingTeamInvites) {
-      try {
-        await db.$transaction([
-          db.teamInvitation.update({
-            where: { id: invitation.id },
-            data: { status: "accepted", acceptedAt: now },
-          }),
-          db.teamUser.upsert({
-            where: {
-              userId_teamId: { userId, teamId: invitation.teamId },
-            },
-            create: { userId, teamId: invitation.teamId, role: invitation.role },
-            update: {},
-          }),
-        ]);
-      } catch (error) {
-        console.error(
-          `[Auth] Failed to auto-accept team invitation ${invitation.id}:`,
-          error
-        );
-      }
-    }
-  } catch (error) {
-    console.error("[Auth] Failed to process pending invitations:", error);
-  }
-
-  return firstAcceptedWorkspaceId;
-}
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -196,7 +111,21 @@ export const authConfig = {
     Postmark({
       apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? "",
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
-      sendVerificationRequest: async ({ identifier, url }) => {
+      /**
+       * Email sign-in delivers a typed **Sign-in code**, never a link
+       * ([ADR-0056](../../../docs/adr/0056-sign-in-codes-replace-magic-links.md)).
+       * Corporate mail scanners follow URLs in email and the token is
+       * single-use, so a link is spent before the recipient ever clicks it.
+       *
+       * `generateVerificationToken` replaces Auth.js's `randomString(32)` with
+       * something a human can retype. Everything downstream is untouched: the
+       * token is still hashed into `VerificationToken`, still single-use, and
+       * the ordinary callback still creates the user and fires
+       * `events.createUser` (personal workspace + pending-invite acceptance).
+       */
+      generateVerificationToken: generateSignInCode,
+      maxAge: SIGN_IN_CODE_TTL_SECONDS,
+      sendVerificationRequest: async ({ identifier, token, expires }) => {
         if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
           throw new Error(
             'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
@@ -210,18 +139,71 @@ export const authConfig = {
           });
 
           if (existingUser) {
-            // Returning user - send simple magic link email
-            await sendMagicLinkEmail(identifier, url);
+            // Returning user - send the bare sign-in code
+            await sendSignInCodeEmail(identifier, token);
           } else {
-            // New user - send welcome email with magic link embedded
-            await sendWelcomeWithMagicLinkEmail(identifier, url);
+            // New user - send welcome email with the code embedded
+            await sendWelcomeWithSignInCodeEmail(identifier, token);
           }
         } catch (error) {
           console.error(
-            `[Auth] Failed to send verification email to ${identifier} (url: ${url}):`,
+            `[Auth] Failed to send sign-in code email to ${identifier}:`,
             error
           );
           throw error;
+        }
+
+        try {
+          // Retire this address's older codes, because the entropy argument in
+          // ADR-0056 assumes one live code per identifier and Auth.js's
+          // `sendToken` never retires the previous row. Without this, N
+          // requests leave N simultaneously-valid codes and the odds of a
+          // blind guess landing scale linearly with N — on an endpoint we
+          // can't rate limit. `expires` is issue time + maxAge, so "older" is
+          // exactly "expires sooner".
+          //
+          // Strictly after the send, and that ordering is load-bearing: Auth.js
+          // writes the new row via `Promise.all` whether or not the send throws,
+          // so retiring first would answer a failed send by destroying the code
+          // the user could still have typed and replacing it with one that never
+          // arrived. Leaving them with nothing is worse than leaving them with
+          // two.
+          //
+          // Retiring a still-unused code is otherwise the point, not a side
+          // effect: ask for a second code and the first stops working. The
+          // comparison is strict, so this can never delete the row for the code
+          // just sent.
+          //
+          // Deliberately not keyed off the token hash, which would identify
+          // "mine" exactly: that means re-deriving `sha256(token + secret)`,
+          // and if `AUTH_SECRET` ever becomes an array for rotation the hash
+          // silently diverges and this deletes the live row instead of the
+          // stale ones — sign-in breaks for everyone. The residual cost of the
+          // timestamp approach is far smaller: two near-simultaneous requests
+          // for one address, on instances whose clocks disagree by more than
+          // the gap between them, can retire the newer code instead of the
+          // older. The user asks for another code.
+          //
+          // Emails only: legacy API-key rows share this table under an
+          // `api-key:<userId>:<uid>` identifier, which never matches.
+          await db.verificationToken.deleteMany({
+            where: { identifier, expires: { lt: expires } },
+          });
+        } catch (error) {
+          // Its own catch, and it deliberately does not rethrow: by this point
+          // the code is in the user's inbox. Letting a failed cleanup escape
+          // would surface as "we couldn't send that email, so no code is on
+          // its way" — telling someone holding a working code to go and get
+          // another one. Failing to retire the old ones just leaves the
+          // pre-ADR-0056 status quo of more than one live code.
+          //
+          // Not routed through `reportHandledError`: it pulls in
+          // `@sentry/nextjs`, and `middleware.ts` drags this whole config into
+          // the Edge bundle. Revisit once the Edge-safe config split lands.
+          console.error(
+            `[Auth] Sent a sign-in code to ${identifier} but could not retire the older ones:`,
+            error
+          );
         }
       },
     }),
@@ -329,16 +311,9 @@ export const authConfig = {
         },
       });
 
-      // If no user exists, allow sign in (new user - will need onboarding)
+      // If no user exists, allow sign in. The Welcome email fires from
+      // events.createUser — once per user, on any provider — not from here.
       if (!existingUser) {
-        // Send welcome email to new OAuth users only (magic link users already got theirs)
-        // The 'postmark' provider is used for magic link auth
-        if (account?.provider && account.provider !== "postmark") {
-          // Pass provider as-is to handle all configured OAuth providers (google, discord, notion, etc.)
-          sendWelcomeEmail(user.email, user.name, account.provider).catch((error) => {
-            console.error("[Auth] Failed to send welcome email:", error);
-          });
-        }
         return true;
       }
 
@@ -349,7 +324,7 @@ export const authConfig = {
       });
 
       // Auto-accept any pending invitations that arrived after the user signed up
-      await acceptPendingInvitationsForUser(existingUser.id, user.email);
+      await acceptPendingInvitationsForUser(db, existingUser.id, user.email);
 
       // If user exists and this is the same provider they used before, allow sign in
       if (existingUser && account?.provider) {
@@ -437,15 +412,49 @@ export const authConfig = {
       // Prefer an invited workspace as the user's default so they land there
       // instead of their empty Personal workspace after sign-up.
       const firstAcceptedWorkspaceId = await acceptPendingInvitationsForUser(
+        db,
         user.id,
         user.email
       );
       if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
-        await db.user.update({
-          where: { id: user.id },
-          data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
-        });
+        try {
+          await db.user.update({
+            where: { id: user.id },
+            data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
+          });
+        } catch (error) {
+          // Best-effort: landing in Personal instead of the invited workspace
+          // must not cost the user their only Welcome email below.
+          console.error("[Auth] Failed to set invited workspace as default:", error);
+        }
       }
+
+      // The Welcome email — the single onboarding email a user ever receives.
+      // Sent from here because this event fires exactly once per user, after
+      // the first successful sign-in on any provider; the sign-in code emails
+      // stay minimal by design (see CONTEXT.md, "Welcome email"). Invited
+      // users get a frame naming their first accepted workspace and inviter,
+      // and the task-layer bullet names the chat tool that workspace actually
+      // uses (resolved in `resolveWelcomeEmailContext`, which never throws).
+      //
+      // Awaited deliberately: this event runs inside the sign-in request on
+      // Vercel, and a detached promise races the lambda freeze — the send
+      // could silently never happen. The `.catch` still guarantees a failed
+      // send can't block account creation. Not routed through
+      // `reportHandledError` for the same Edge-bundle reason as in
+      // `sendVerificationRequest` above.
+      const context: WelcomeEmailContext = firstAcceptedWorkspaceId
+        ? await resolveWelcomeEmailContext(db, firstAcceptedWorkspaceId, user.email)
+        : {};
+
+      await sendFirstLoginWelcomeEmail({
+        to: user.email,
+        name: user.name,
+        invited: context.invited,
+        chatTools: context.chatTools,
+      }).catch((error) => {
+        console.error("[Auth] Failed to send welcome email:", error);
+      });
     },
   },
 } satisfies NextAuthConfig;

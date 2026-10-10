@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Modal,
   Stack,
@@ -11,7 +11,6 @@ import {
   Progress,
   Badge,
   Alert,
-  List,
   Divider,
   Paper,
 } from "@mantine/core";
@@ -21,11 +20,10 @@ import {
   IconMail,
   IconAlertCircle,
   IconCheck,
-  IconBrandGoogle,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
-import { notifications } from "@mantine/notifications";
 import { subMonths, subYears } from "date-fns";
+import { GooglePremiumFeature } from "~/app/_components/GooglePremiumFeature";
 
 interface ImportDialogProps {
   opened: boolean;
@@ -41,6 +39,27 @@ interface DateRange {
   end: Date;
 }
 
+interface ImportProgress {
+  phase: "GMAIL" | "CALENDAR" | null;
+  processed: number;
+  created: number;
+  updated: number;
+  errorCount: number;
+  errors: string[];
+}
+
+const PHASE_LABELS: Record<"GMAIL" | "CALENDAR", string> = {
+  GMAIL: "Importing Google Contacts…",
+  CALENDAR: "Importing calendar attendees…",
+};
+
+/**
+ * Safety valve on the step loop: far above any real import (each step
+ * covers a Google page), but keeps a misbehaving server from spinning the
+ * client forever. Retry resumes the same batch, so hitting it loses nothing.
+ */
+const MAX_STEPS_PER_RUN = 2000;
+
 export function ImportDialog({
   opened,
   onClose,
@@ -52,7 +71,17 @@ export function ImportDialog({
     start: subYears(new Date(), 1),
     end: new Date(),
   });
-  const [batchId, setBatchId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  // The server batch carries the resume cursor (Google page tokens), so
+  // retrying with the same batchId continues where the failed step stopped.
+  const batchIdRef = useRef<string | null>(null);
+  // Generation counter for the step loop: closing the dialog (including the
+  // title-bar X), unmounting, or starting a new run bumps it, and a loop
+  // whose id no longer matches stops dead. Without this, a loop surviving
+  // handleClose would see the nulled batchIdRef and silently restart the
+  // whole import into a fresh batch.
+  const runSeqRef = useRef(0);
 
   // Check Google connection
   const { data: connection, isLoading: connectionLoading } =
@@ -61,42 +90,56 @@ export function ImportDialog({
       { enabled: opened }
     );
 
-  // Import mutation
-  const importMutation = api.crmContact.importContacts.useMutation({
-    onSuccess: (data) => {
-      setBatchId(data.batchId);
-      setStep("progress");
-    },
-    onError: (error) => {
-      notifications.show({
-        title: "Import Failed",
-        message: error.message,
-        color: "red",
-        icon: <IconAlertCircle />,
-      });
-    },
-  });
+  const importMutation = api.crmContact.importContacts.useMutation();
 
-  // Poll import status
-  const { data: importStatus } = api.crmContact.getImportStatus.useQuery(
-    { batchId: batchId ?? "" },
-    {
-      enabled: step === "progress" && batchId !== null,
-      refetchInterval: 2000, // Poll every 2 seconds
-    }
-  );
-
-  // Handle import completion
-  useEffect(() => {
-    if (importStatus?.status === "COMPLETED" || importStatus?.status === "PARTIAL_SUCCESS") {
+  // Drive the import step by step, sequentially; each step fetches one slice
+  // from Google, processes it inside its own request, and returns the
+  // batch's cumulative counters. Background processing doesn't survive
+  // serverless, so the client is the loop.
+  const runImport = async () => {
+    const runId = ++runSeqRef.current;
+    setStep("progress");
+    setImportError(null);
+    try {
+      let completed = false;
+      let steps = 0;
+      while (!completed) {
+        if (runId !== runSeqRef.current) return; // dialog closed or rerun
+        if (++steps > MAX_STEPS_PER_RUN) {
+          throw new Error("The import is taking unusually long");
+        }
+        const result = await importMutation.mutateAsync({
+          workspaceId,
+          source,
+          dateRange:
+            source === "CALENDAR" || source === "BOTH" ? dateRange : undefined,
+          batchId: batchIdRef.current,
+        });
+        if (runId !== runSeqRef.current) return;
+        batchIdRef.current = result.batchId;
+        completed = result.completed;
+        setProgress({
+          phase: result.phase,
+          processed: result.processedContacts,
+          created: result.newContacts,
+          updated: result.updatedContacts,
+          errorCount: result.errorCount,
+          errors: result.errors,
+        });
+      }
       setStep("success");
+    } catch (error) {
+      if (runId !== runSeqRef.current) return;
+      setImportError(
+        error instanceof Error ? error.message : "The import was interrupted",
+      );
     }
-  }, [importStatus?.status]);
+  };
 
   // Determine initial step based on connection
   useEffect(() => {
     if (!connectionLoading && opened) {
-      if (connection && connection.hasAllScopes && connection.hasRefreshToken) {
+      if (connection?.hasAllScopes && connection.hasRefreshToken) {
         setStep("options");  // Has Google with all scopes → Go to import options
       } else {
         setStep("connect");  // No Google or missing scopes/refresh token → Show connect step
@@ -106,40 +149,25 @@ export function ImportDialog({
 
   // Reset state on close
   const handleClose = () => {
+    runSeqRef.current++; // stop a live step loop before resetting its refs
     setStep("connect");
     setSource("BOTH");
     setDateRange({
       start: subYears(new Date(), 1),
       end: new Date(),
     });
-    setBatchId(null);
+    setProgress(null);
+    setImportError(null);
+    batchIdRef.current = null;
     onClose();
-  };
-
-  // Handle OAuth redirect - request CRM scopes (calendar + contacts + gmail)
-  const handleConnectGoogle = () => {
-    const returnUrl = window.location.pathname;
-    window.location.href = `/api/auth/google-calendar?type=crm&returnUrl=${encodeURIComponent(returnUrl)}`;
   };
 
   // Handle import start
   const handleStartImport = () => {
-    importMutation.mutate({
-      workspaceId,
-      source,
-      dateRange: source === "CALENDAR" || source === "BOTH" ? dateRange : undefined,
-    });
+    batchIdRef.current = null;
+    setProgress(null);
+    void runImport();
   };
-
-  // Calculate progress percentage
-  const progressPercentage =
-    importStatus?.totalContacts ?? 0 > 0
-      ? Math.round(
-          ((importStatus?.processedContacts ?? 0) /
-            (importStatus?.totalContacts ?? 1)) *
-            100
-        )
-      : 0;
 
   return (
     <Modal
@@ -147,70 +175,18 @@ export function ImportDialog({
       onClose={handleClose}
       title="Import Contacts"
       size="lg"
-      closeOnClickOutside={step !== "progress"}
-      closeOnEscape={step !== "progress"}
+      withCloseButton={step !== "progress" || importError !== null}
+      closeOnClickOutside={step !== "progress" || importError !== null}
+      closeOnEscape={step !== "progress" || importError !== null}
     >
       <Stack gap="lg">
-        {/* Connect Step */}
+        {/* Connect step: there is deliberately no connect button. Requesting
+            the contacts scope is paused while Google's OAuth verification is
+            in progress (see googleScopes.ts), so new grants cannot be
+            started — only accounts that already granted access can import,
+            and those skip straight to the options step. */}
         {step === "connect" && (
-          <>
-            {connection && (!connection.hasAllScopes || !connection.hasRefreshToken) ? (
-              <Alert icon={<IconAlertCircle />} color="yellow" mb="md">
-                <Stack gap="xs">
-                  <Text size="sm" fw={500}>
-                    Additional permissions required
-                  </Text>
-                  <Text size="sm">
-                    {!connection.hasRefreshToken
-                      ? "Your Google connection is missing the refresh token needed for importing contacts. "
-                      : "Your Google account needs additional permissions to import contacts. "}
-                    Please reconnect to grant the required access.
-                  </Text>
-                </Stack>
-              </Alert>
-            ) : (
-              <Text size="sm" c="dimmed">
-                Connect your Google account to import contacts from Gmail and
-                Google Calendar.
-              </Text>
-            )}
-
-            <Paper p="md" withBorder>
-              <Stack gap="sm">
-                <Group gap="xs">
-                  <IconBrandGoogle size={20} />
-                  <Text fw={500}>Google Account</Text>
-                </Group>
-                <Text size="sm" c="dimmed">
-                  We&apos;ll request access to:
-                </Text>
-                <List size="sm" spacing="xs">
-                  <List.Item>
-                    <strong>Google Contacts</strong> - Read your contacts
-                  </List.Item>
-                  <List.Item>
-                    <strong>Gmail</strong> - Read email metadata (read-only)
-                  </List.Item>
-                  <List.Item>
-                    <strong>Google Calendar</strong> - Read calendar events
-                  </List.Item>
-                </List>
-              </Stack>
-            </Paper>
-
-            <Alert icon={<IconAlertCircle />} color="blue">
-              Your data is encrypted and stored securely. We only access
-              information necessary for contact management.
-            </Alert>
-
-            <Button
-              leftSection={<IconBrandGoogle />}
-              onClick={handleConnectGoogle}
-              loading={connectionLoading}
-            >
-              {connection ? "Reconnect Google Account" : "Connect Google Account"}
-            </Button>
-          </>
+          <GooglePremiumFeature feature="contacts" variant="alert" />
         )}
 
         {/* Options Step */}
@@ -234,7 +210,7 @@ export function ImportDialog({
                       <IconMail size={16} />
                       <IconCalendar size={16} />
                       <Text size="sm">
-                        <strong>Gmail & Calendar</strong> - Import from both
+                        <strong>Contacts & Calendar</strong> - Import from both
                         sources (Recommended)
                       </Text>
                     </Group>
@@ -247,12 +223,12 @@ export function ImportDialog({
                     <Group gap="xs">
                       <IconMail size={16} />
                       <Text size="sm">
-                        <strong>Gmail Contacts Only</strong> - Import from
-                        Google Contacts
+                        <strong>Google Contacts Only</strong> - Import from
+                        your saved contacts
                       </Text>
                     </Group>
                   }
-                  description="Import saved contacts from your Gmail address book"
+                  description="Import saved contacts from your Google Contacts address book"
                 />
                 <Radio
                   value="CALENDAR"
@@ -372,7 +348,10 @@ export function ImportDialog({
         {step === "progress" && (
           <>
             <Text size="sm" c="dimmed">
-              Importing your contacts... This may take a few minutes.
+              {progress?.phase
+                ? PHASE_LABELS[progress.phase]
+                : "Importing your contacts…"}{" "}
+              This may take a few minutes.
             </Text>
 
             <Stack gap="md">
@@ -382,14 +361,16 @@ export function ImportDialog({
                     Progress
                   </Text>
                   <Text size="sm" c="dimmed">
-                    {importStatus?.processedContacts ?? 0} of{" "}
-                    {importStatus?.totalContacts ?? 0} contacts
+                    {progress?.processed ?? 0} contacts processed
                   </Text>
                 </Group>
+                {/* Google doesn't announce a total upfront (calendar
+                    contacts are discovered page by page), so the bar is
+                    indeterminate: full-width, animated while running. */}
                 <Progress
-                  value={progressPercentage}
+                  value={100}
                   size="lg"
-                  animated
+                  animated={importError === null}
                   striped
                 />
               </div>
@@ -399,45 +380,59 @@ export function ImportDialog({
                   <Group justify="space-between">
                     <Text size="sm">Status:</Text>
                     <Badge
-                      color={
-                        importStatus?.status === "IN_PROGRESS"
-                          ? "blue"
-                          : "gray"
-                      }
+                      color={importError === null ? "blue" : "red"}
                       variant="light"
                     >
-                      {importStatus?.status ?? "PENDING"}
+                      {importError === null ? "IN_PROGRESS" : "INTERRUPTED"}
                     </Badge>
                   </Group>
                   <Group justify="space-between">
                     <Text size="sm">New Contacts:</Text>
                     <Text size="sm" fw={500}>
-                      {importStatus?.newContacts ?? 0}
+                      {progress?.created ?? 0}
                     </Text>
                   </Group>
                   <Group justify="space-between">
                     <Text size="sm">Updated Contacts:</Text>
                     <Text size="sm" fw={500}>
-                      {importStatus?.updatedContacts ?? 0}
+                      {progress?.updated ?? 0}
                     </Text>
                   </Group>
-                  {(importStatus?.errorCount ?? 0) > 0 && (
+                  {(progress?.errorCount ?? 0) > 0 && (
                     <Group justify="space-between">
                       <Text size="sm" c="red">
                         Errors:
                       </Text>
                       <Text size="sm" fw={500} c="red">
-                        {importStatus?.errorCount}
+                        {progress?.errorCount}
                       </Text>
                     </Group>
                   )}
                 </Stack>
               </Paper>
 
-              <Alert icon={<IconAlertCircle />} color="blue">
-                Please keep this window open while importing. You can continue
-                working in other tabs.
-              </Alert>
+              {importError !== null ? (
+                <Alert
+                  icon={<IconAlertCircle />}
+                  color="red"
+                  title="Import interrupted"
+                >
+                  <Stack gap="xs" align="flex-start">
+                    <Text size="sm">
+                      {importError} — nothing was lost; Retry continues from
+                      where it stopped.
+                    </Text>
+                    <Button size="xs" onClick={() => void runImport()}>
+                      Retry
+                    </Button>
+                  </Stack>
+                </Alert>
+              ) : (
+                <Alert icon={<IconAlertCircle />} color="blue">
+                  Please keep this window open while importing. You can
+                  continue working in other tabs.
+                </Alert>
+              )}
             </Stack>
           </>
         )}
@@ -458,7 +453,7 @@ export function ImportDialog({
                 <Group justify="space-between">
                   <Text size="sm">Total Processed:</Text>
                   <Text size="sm" fw={500}>
-                    {importStatus?.processedContacts ?? 0}
+                    {progress?.processed ?? 0}
                   </Text>
                 </Group>
                 <Group justify="space-between">
@@ -466,7 +461,7 @@ export function ImportDialog({
                     New Contacts:
                   </Text>
                   <Text size="sm" fw={500} c="green">
-                    {importStatus?.newContacts ?? 0}
+                    {progress?.created ?? 0}
                   </Text>
                 </Group>
                 <Group justify="space-between">
@@ -474,31 +469,40 @@ export function ImportDialog({
                     Updated Contacts:
                   </Text>
                   <Text size="sm" fw={500} c="blue">
-                    {importStatus?.updatedContacts ?? 0}
+                    {progress?.updated ?? 0}
                   </Text>
                 </Group>
-                {(importStatus?.errorCount ?? 0) > 0 && (
+                {(progress?.errorCount ?? 0) > 0 && (
                   <>
                     <Group justify="space-between">
                       <Text size="sm" c="red">
                         Errors:
                       </Text>
                       <Text size="sm" fw={500} c="red">
-                        {importStatus?.errorCount}
+                        {progress?.errorCount}
                       </Text>
                     </Group>
                     <Alert icon={<IconAlertCircle />} color="yellow" mt="xs">
                       Some contacts could not be imported. This is usually due
                       to missing email addresses or invalid data.
                     </Alert>
+                    {(progress?.errors.length ?? 0) > 0 && (
+                      <Stack gap={2} mt="xs">
+                        {progress?.errors.map((line, i) => (
+                          <Text key={i} size="xs" c="dimmed">
+                            {line}
+                          </Text>
+                        ))}
+                      </Stack>
+                    )}
                   </>
                 )}
               </Stack>
             </Paper>
 
             <Text size="sm" c="dimmed">
-              Connection scores are being calculated in the background based on
-              interaction recency and frequency.
+              Connection scores are calculated as each contact&apos;s meetings
+              are imported.
             </Text>
 
             <Button onClick={handleClose} fullWidth>

@@ -1,14 +1,21 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { assertWorkspaceMember } from "./product";
+import { assertWorkspaceAccess, type WorkspaceAccessLevel } from "./product";
 import type { PrismaClient } from "@prisma/client";
+import { canEditWorkspaceContent } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 
 /**
  * Cycles are thin wrappers around the existing `List` model with
  * `listType = SPRINT`. This router exposes only the fields the Product
  * plugin cares about (dates, goal, achievements, ticket count).
+ *
+ * Cycles are scoped to a product via `List.productId` — different products
+ * run independent cycle timelines, so overlap validation and auto-generation
+ * only consider cycles of the same product. `productId = null` marks a legacy
+ * workspace-shared cycle: visible on every product's Cycles tab, but never a
+ * date conflict for a product-scoped cycle.
  */
 
 // ---------------------------------------------------------------------------
@@ -19,10 +26,11 @@ async function loadCycleWithAccess(
   db: PrismaClient,
   userId: string,
   cycleId: string,
+  level: WorkspaceAccessLevel,
 ) {
   const cycle = await db.list.findUnique({
     where: { id: cycleId },
-    select: { id: true, workspaceId: true, listType: true },
+    select: { id: true, workspaceId: true, productId: true, listType: true },
   });
   if (!cycle) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Cycle not found" });
@@ -33,7 +41,7 @@ async function loadCycleWithAccess(
       message: "List is not a cycle (listType must be SPRINT)",
     });
   }
-  await assertWorkspaceMember(db, userId, cycle.workspaceId);
+  await assertWorkspaceAccess(db, userId, cycle.workspaceId, level);
   return cycle;
 }
 
@@ -153,18 +161,27 @@ async function reconcileCycleStatuses(
  * - Names are auto-assigned as "Cycle N" (incrementing).
  * - Generates up to `config.lookahead` cycles into the future
  *   from today.
+ *
+ * When `productId` is set, only that product's cycles (plus legacy
+ * workspace-shared ones, which still count as coverage) are considered,
+ * and new cycles are created scoped to that product.
  */
 async function ensureUpcomingCycles(
   db: PrismaClient,
   workspaceId: string,
   userId: string,
+  productId: string | null,
   config: CycleConfig = DEFAULT_CONFIG,
 ): Promise<void> {
   if (!config.enabled) return;
 
   // Fetch all existing cycles ordered by end date
   const existing = await db.list.findMany({
-    where: { workspaceId, listType: "SPRINT" },
+    where: {
+      workspaceId,
+      listType: "SPRINT",
+      ...(productId ? { OR: [{ productId }, { productId: null }] } : {}),
+    },
     orderBy: { endDate: "asc" },
     select: { id: true, name: true, startDate: true, endDate: true, status: true },
   });
@@ -255,6 +272,7 @@ async function ensureUpcomingCycles(
     await db.list.create({
       data: {
         workspaceId,
+        productId,
         createdById: userId,
         name: c.name,
         slug,
@@ -276,27 +294,38 @@ export const cycleRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
+        /**
+         * Scope to one product's cycles. Legacy workspace-shared cycles
+         * (productId null) are always included so pre-migration cycles stay
+         * visible. Omit to list every cycle in the workspace.
+         */
+        productId: z.string().optional(),
         status: z.enum(["PLANNED", "ACTIVE", "COMPLETED", "ARCHIVED"]).optional(),
         /** Pass false to skip auto-generation (e.g. when paused) */
         autoCreate: z.boolean().optional().default(true),
       }),
     )
     .query(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      const membership = await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "view",
       );
 
-      // Reconcile statuses based on current date (always runs)
+      // Reconcile statuses based on current date (always runs). This is
+      // derived state - the same for every caller - not authored content.
       await reconcileCycleStatuses(ctx.db, input.workspaceId);
 
-      // Lazy-generate upcoming cycles if auto-create is on
-      if (input.autoCreate) {
+      // Lazy-generate upcoming cycles if auto-create is on. Generation
+      // creates shared workspace rows attributed to the caller, so a
+      // read-only viewer lists cycles but never creates them.
+      if (input.autoCreate && canEditWorkspaceContent(membership.role)) {
         await ensureUpcomingCycles(
           ctx.db,
           input.workspaceId,
           ctx.session.user.id,
+          input.productId ?? null,
           DEFAULT_CONFIG,
         );
       }
@@ -305,6 +334,9 @@ export const cycleRouter = createTRPCRouter({
         where: {
           workspaceId: input.workspaceId,
           listType: "SPRINT",
+          ...(input.productId
+            ? { OR: [{ productId: input.productId }, { productId: null }] }
+            : {}),
           ...(input.status ? { status: input.status } : {}),
         },
         orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
@@ -317,8 +349,9 @@ export const cycleRouter = createTRPCRouter({
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id);
-
+      // Single fetch instead of loadCycleWithAccess + refetch: each DB round
+      // trip is sequential latency on the page's critical path, so assert
+      // access against the already-loaded row.
       const cycle = await ctx.db.list.findUnique({
         where: { id: input.id },
         include: {
@@ -348,6 +381,7 @@ export const cycleRouter = createTRPCRouter({
       if (!cycle || cycle.listType !== "SPRINT") {
         throw new TRPCError({ code: "NOT_FOUND", message: "Cycle not found" });
       }
+      await assertWorkspaceAccess(ctx.db, ctx.session.user.id, cycle.workspaceId, "view");
       return cycle;
     }),
 
@@ -355,6 +389,8 @@ export const cycleRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string(),
+        /** Product this cycle belongs to. Omit for a workspace-shared cycle. */
+        productId: z.string().optional(),
         name: boundedText("Name", 120, { min: 1 }).optional(),
         slug: boundedText("Slug", 60).optional(),
         description: boundedText("Description", TEXT_LIMITS.MEDIUM).optional(),
@@ -364,11 +400,25 @@ export const cycleRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertWorkspaceMember(
+      await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         input.workspaceId,
+        "edit",
       );
+
+      if (input.productId) {
+        const product = await ctx.db.product.findUnique({
+          where: { id: input.productId },
+          select: { workspaceId: true },
+        });
+        if (!product || product.workspaceId !== input.workspaceId) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Product not found in this workspace",
+          });
+        }
+      }
 
       if (input.startDate && input.endDate && input.endDate <= input.startDate) {
         throw new TRPCError({
@@ -377,11 +427,18 @@ export const cycleRouter = createTRPCRouter({
         });
       }
 
-      // Auto-name if not provided
+      // Auto-name if not provided (numbering scoped like the Cycles tab list:
+      // this product's cycles plus legacy shared ones)
       let name = input.name?.trim();
       if (!name) {
         const existing = await ctx.db.list.findMany({
-          where: { workspaceId: input.workspaceId, listType: "SPRINT" },
+          where: {
+            workspaceId: input.workspaceId,
+            listType: "SPRINT",
+            ...(input.productId
+              ? { OR: [{ productId: input.productId }, { productId: null }] }
+              : {}),
+          },
           select: { name: true },
         });
         const nextNum = maxCycleNumber(existing.map((c) => c.name)) + 1;
@@ -408,6 +465,9 @@ export const cycleRouter = createTRPCRouter({
           where: {
             workspaceId: input.workspaceId,
             listType: "SPRINT",
+            // Cycles only conflict within the same product — other products
+            // (and legacy workspace-shared cycles) run independent timelines.
+            productId: input.productId ?? null,
             // Cancelled cycles are dead — they shouldn't block new dates
             status: { not: "ARCHIVED" },
             ...(input.startDate ? { endDate: { gt: input.startDate } } : {}),
@@ -426,6 +486,7 @@ export const cycleRouter = createTRPCRouter({
       return ctx.db.list.create({
         data: {
           workspaceId: input.workspaceId,
+          productId: input.productId,
           createdById: ctx.session.user.id,
           name,
           slug,
@@ -455,7 +516,7 @@ export const cycleRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const cycle = await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id);
+      const cycle = await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
 
       // If dates are changing, validate no overlap
       if (input.startDate !== undefined || input.endDate !== undefined) {
@@ -479,6 +540,9 @@ export const cycleRouter = createTRPCRouter({
               workspaceId: cycle.workspaceId,
               listType: "SPRINT",
               id: { not: input.id },
+              // Cycles only conflict within the same product — other products
+              // (and legacy workspace-shared cycles) run independent timelines.
+              productId: cycle.productId,
               // Cancelled cycles are dead — they shouldn't block new dates
               status: { not: "ARCHIVED" },
               ...(newStart ? { endDate: { gt: newStart } } : {}),
@@ -505,7 +569,7 @@ export const cycleRouter = createTRPCRouter({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id);
+      await loadCycleWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       await ctx.db.list.delete({ where: { id: input.id } });
       return { success: true };
     }),

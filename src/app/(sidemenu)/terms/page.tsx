@@ -18,7 +18,7 @@ export default function TermsOfUse() {
         <p className="text-text-secondary mb-4">
           Welcome to {PRODUCT_NAME} (&quot;we,&quot; &quot;us,&quot; or &quot;our&quot;). {PRODUCT_NAME} is an AI-powered productivity
           and project management platform designed to help individuals and teams organize their work,
-          set goals, track outcomes, and collaborate effectively. By accessing or using our service
+          set goals, track progress, and collaborate effectively. By accessing or using our service
           at exponential.im (the &quot;Service&quot;), you agree to be bound by these Terms of Service
           (&quot;Terms&quot;). Please read them carefully before using our Service.
         </p>
@@ -60,7 +60,7 @@ export default function TermsOfUse() {
         </p>
         <ul className="list-disc pl-5 text-text-secondary space-y-2">
           <li>Project and task management with priorities, statuses, and deadlines.</li>
-          <li>Goal setting and outcome tracking aligned with strategic objectives.</li>
+          <li>Goal setting and progress tracking aligned with strategic objectives.</li>
           <li>AI-powered assistance for task planning, content analysis, and workflow automation.</li>
           <li>Team collaboration through shared workspaces, projects, and reviews.</li>
           <li>Integrations with third-party services (Slack, Google Calendar, GitHub, and others).</li>

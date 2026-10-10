@@ -21,7 +21,7 @@
  *  - **Workspace guests are not assignable to tickets.** A guest (project-only
  *    `ProjectMember`, no `WorkspaceUser` row) is refused by
  *    `getWorkspaceMembership`, which is the same resolver behind
- *    `assertWorkspaceMember` — the gate on every ticket read. A guest therefore
+ *    `assertWorkspaceAccess` — the gate on every ticket read. A guest therefore
  *    cannot open the ticket at all, so assigning one is both useless and a
  *    leak. Excluding them keeps the assignable set a subset of the reader set.
  *  - **External-agent shadow users need no exception.** ADR-0049 gives each
@@ -102,4 +102,67 @@ export async function canAssignToUnscopedAction(
     select: { id: true },
   });
   return sharedTeam !== null;
+}
+
+/**
+ * The user shape every assignee picker renders. One `select` so the two
+ * roster procedures (`getAssignableUsers`, `getAssignableUsersForContext`)
+ * cannot drift, and so an Assistant's shadow user (ADR-0067) carries enough
+ * for the picker to label it "{name} · {owner}'s assistant" without a second
+ * query: `isAgent` plus the owner resolved through the External agent row.
+ */
+export const ASSIGNABLE_USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  image: true,
+  isAgent: true,
+  externalAgentShadow: {
+    select: {
+      assistant: {
+        select: {
+          emoji: true,
+          createdBy: { select: { id: true, name: true } },
+        },
+      },
+    },
+  },
+} as const;
+
+export interface AssignableUser {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  isAgent: boolean;
+  /** Set when this user is an Assistant's principal: who it belongs to. */
+  assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
+}
+
+type AssignableUserRow = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  isAgent: boolean;
+  externalAgentShadow: {
+    assistant: {
+      emoji: string | null;
+      createdBy: { id: string; name: string | null };
+    } | null;
+  } | null;
+};
+
+export function toAssignableUser(row: AssignableUserRow): AssignableUser {
+  const assistant = row.externalAgentShadow?.assistant ?? null;
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    image: row.image,
+    isAgent: row.isAgent,
+    assistantOwner: assistant
+      ? { id: assistant.createdBy.id, name: assistant.createdBy.name, emoji: assistant.emoji }
+      : null,
+  };
 }

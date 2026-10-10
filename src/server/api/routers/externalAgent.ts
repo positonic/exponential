@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
+import { deleteExternalAgentPrincipal } from "~/server/services/assistant/principal";
 
 /**
  * External-agent management (ADR-0049).
@@ -15,6 +17,15 @@ import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
  */
 
 const MAX_KEYS_PER_AGENT = 10;
+// The base64 payload expands by roughly 4/3 inside the tRPC JSON request.
+// 3 MB stays below Vercel's 4.5 MB function request-body ceiling.
+const MAX_AVATAR_BYTES = 3 * 1024 * 1024;
+const MAX_AVATAR_BASE64_LENGTH = Math.ceil((MAX_AVATAR_BYTES * 4) / 3) + 4;
+const AVATAR_EXTENSIONS = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+} as const;
 
 async function requireOwnedAgent(
   db: PrismaClient | Prisma.TransactionClient,
@@ -23,7 +34,10 @@ async function requireOwnedAgent(
 ) {
   const agent = await db.externalAgent.findFirst({
     where: { id: agentId, ownerId },
-    include: { shadowUser: { select: { id: true } } },
+    include: {
+      shadowUser: { select: { id: true, image: true } },
+      assistant: { select: { id: true } },
+    },
   });
   if (!agent) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
@@ -51,6 +65,7 @@ export const externalAgentRouter = createTRPCRouter({
         shadowUser: {
           select: {
             id: true,
+            image: true,
             workspaceMemberships: {
               select: {
                 role: true,
@@ -59,6 +74,10 @@ export const externalAgentRouter = createTRPCRouter({
             },
           },
         },
+        // An Assistant's principal (ADR-0067) is managed from Settings →
+        // Assistant; the list labels it rather than hiding it, so the owner can
+        // still see its keys and memberships here.
+        assistant: { select: { id: true } },
       },
     });
 
@@ -68,6 +87,8 @@ export const externalAgentRouter = createTRPCRouter({
       description: agent.description,
       createdAt: agent.createdAt,
       shadowUserId: agent.shadowUserId,
+      assistantId: agent.assistant?.id ?? null,
+      avatarUrl: agent.shadowUser.image,
       keys: agent.keys,
       workspaces: agent.shadowUser.workspaceMemberships.map((m) => ({
         id: m.workspace.id,
@@ -104,32 +125,71 @@ export const externalAgentRouter = createTRPCRouter({
       });
     }),
 
+  uploadAvatar: humanOnlyProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        base64Data: z.string().min(1).max(MAX_AVATAR_BASE64_LENGTH),
+        contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
+
+      if (Buffer.byteLength(input.base64Data, "base64") > MAX_AVATAR_BYTES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Avatar must be 3MB or smaller",
+        });
+      }
+
+      const extension = AVATAR_EXTENSIONS[input.contentType];
+      const filename = `external-agent-avatars/${agent.id}-${Date.now()}.${extension}`;
+      const blob = await uploadToBlob(input.base64Data, filename, input.contentType);
+
+      let updatedUser: { image: string | null };
+      try {
+        updatedUser = await ctx.db.user.update({
+          where: { id: agent.shadowUserId },
+          data: { image: blob.url },
+          select: { image: true },
+        });
+      } catch (error) {
+        await deleteFromBlob(blob.url).catch(() => undefined);
+        throw error;
+      }
+
+      if (agent.shadowUser.image && agent.shadowUser.image !== blob.url) {
+        await deleteFromBlob(agent.shadowUser.image).catch(() => undefined);
+      }
+
+      return { avatarUrl: updatedUser.image };
+    }),
+
   delete: humanOnlyProcedure
     .input(z.object({ agentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
 
-      // Credentials and memberships always die with the agent.
-      await ctx.db.$transaction([
-        ctx.db.externalAgentKey.deleteMany({ where: { agentId: agent.id } }),
-        ctx.db.workspaceUser.deleteMany({ where: { userId: agent.shadowUserId } }),
-        ctx.db.externalAgent.delete({ where: { id: agent.id } }),
-      ]);
+      // An Assistant's principal lives and dies with the Assistant (ADR-0067):
+      // deleting it here would leave an Assistant that cannot be assigned.
+      if (agent.assistant) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This agent is your Assistant — delete it from Settings → Assistant instead",
+        });
+      }
 
-      // The shadow user row is removed only when nothing references it: if the
-      // agent authored content (Action.createdById etc.), the restricted FKs
-      // block deletion and we keep the row — inert (no keys, no memberships,
-      // no login) but preserving historical attribution.
-      try {
-        await ctx.db.user.delete({ where: { id: agent.shadowUserId } });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          (error.code === "P2003" || error.code === "P2014")
-        ) {
-          return { success: true, shadowUserRetained: true };
-        }
-        throw error;
+      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
+      if (result.shadowUserRetained) {
+        return { success: true, shadowUserRetained: true };
+      }
+
+      // A retained shadow user still needs its image for historical
+      // attribution. Once the row is gone, the blob is unreachable and can be
+      // cleaned up without affecting deletion if storage is temporarily down.
+      if (result.orphanedImage) {
+        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
       }
       return { success: true, shadowUserRetained: false };
     }),

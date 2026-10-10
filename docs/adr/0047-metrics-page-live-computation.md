@@ -20,6 +20,32 @@ goal below is temporarily unmet on the agent side; realigning the agent onto the
 (or confirming it should stay Action-based) is a tracked follow-up. Everything else below stands:
 still live-computed, still no `SprintMetrics` persistence, still merged-PR-turnaround-only.
 
+**Amended — 2026-08-07 (all-cycles roll-up).** The page's headline is now the **all-cycles**
+roll-up — every cycle's Ticket metrics summed, with a line chart tracking each metric across
+cycles — and the single-cycle view moved below it behind the cycle dropdown. This extends the v1
+scope line below ("single workspace-wide roll-up per cycle"); it does not change the decision.
+Still live-computed, still Ticket-based, still nothing persisted to `SprintMetrics`. The new
+`getAllCyclesMetrics` is **batched** — one query for the cycles, one for all their tickets, one
+pass over the workspace's merged PRs — rather than 3N queries, because "recomputing 5–10 cycles is
+cheap" stops being true if each cycle costs its own round trips. Cycles with no tickets are
+excluded from the series, and a PR falling inside two overlapping cycle windows is counted once in
+the roll-up. The bar-list "velocity trend" widget was removed: the chart is a strictly better
+version of it. `getVelocityTrend` remains on the router, now unused by the UI.
+
+**Amended — 2026-10-01 (per-person contributions + member filter).** This lifts the v1 "no
+per-person slicing" line below. A page-wide **member filter** (`?members=` in the URL, multi-select)
+narrows every number to the selected people, and both tiers gain a **Contributors** table (one row
+per member, plus "Unassigned"). Attribution: a Ticket counts toward its **assignee**; a merged PR or
+pushed commit toward the member whose GitHub login authored it; confirmed time toward who logged
+it — PRs/commits/time only inside the cycle window(s). Filtering keeps the same cycles on the trend
+chart (zeros where the members had nothing) so the x-axis doesn't shift. Still live, still batched
+(`getContributions` is a fixed handful of queries regardless of member count), still nothing
+persisted. **Known gap:** member ↔ GitHub login reuses the `github_metadata.githubUsername` lookup
+the standup drafts already use (`resolveGithubLogins`), which in practice links only the member who
+connected GitHub. `CONTEXT.md` says the real mapping is the OAuth-verified **GitHub identity claim**
+(`User.githubLogin`), still unbuilt; once it exists, `resolveGithubLogins` should read it instead —
+members without a link show "—", never a guessed number.
+
 ## Context
 
 The app already has a sprint-analytics backend built for the Mastra PM agent, reached
@@ -83,3 +109,42 @@ recomputing 5–10 completed cycles is cheap.
 - Historical velocity reflects each cycle's actions' *current* final state, not a frozen snapshot —
   if a long-closed cycle's actions are later edited, its historical number shifts. Accepted for v1
   (closed-cycle actions are effectively immutable in practice).
+
+## Amendment (2026-10-09): delivery flow is the headline
+
+**Problem.** The page headlined velocity *per cycle* (completed-ticket count + summed `Ticket.points`).
+In the `exponential` product 9 of 587 tickets sit in a cycle and 0 carry points, so the headline was a
+chart over nothing. The product Overview already derived the two numbers that need neither cycles nor
+estimates — weekly completed throughput and median cycle time — from `WorkspaceActivityEvent`
+status moves, but the Metrics page did not show them.
+
+**Decision.**
+- A new tier, **Delivery flow**, sits at the top of the page: completed tickets per week (trailing 12
+  weeks, trailing-4-week average as the number) and cycle-time **p50 / p85** (first `IN_PROGRESS` →
+  first `DONE`/`DEPLOYED` after the last reopen), for every ticket in the workspace, member filter
+  respected. New procedure `sprintAnalytics.getDeliveryFlow` → `SprintAnalyticsService.getDeliveryFlow`.
+- The derivation lives in **one module**, `src/server/services/deliveryFlow.ts` (`finishedAtFromEvents`,
+  `startedAtFromEvents`, `cycleTimesMs`, `weeklyCompleted`, `percentile`, `computeDeliveryFlow`). The
+  Overview loader now calls it instead of its own inline copies, so the Overview's median and the
+  Metrics page's p50 are the same computation over the same events. Same principle as the original
+  ADR: one implementation, one answer.
+- Finish times come from the **event log**, not `Ticket.completedAt`. Until prime.swan (ticket 689) the
+  column was re-stamped on every completed-status save and read as "last edited at". `completedAt`
+  (then `updatedAt`) remains the fallback only for tickets with no status event, and the UI says how
+  many completions were dated that way.
+- Still computed live on request; `SprintMetrics` stays dormant. The cycle tiers are unchanged and
+  move below the new headline.
+
+**Consequences.** The page has real numbers in any workspace that finishes tickets, with no sizing and
+no cycle discipline required. Sizing (ticket cosmic.dune onward) becomes a calibration layer on top of
+this — size versus actual cycle time — rather than the velocity unit itself.
+
+
+### Addendum (2026-10-09): size versus actual
+
+`getDeliveryFlow` also returns `sizes`: the window's completions bucketed by `Ticket.points` in the
+workspace's `effortUnit`, each with p50 / p85 cycle time (needing the same 3-sample minimum), an
+*Unsized* bucket so coverage is visible, and up to ten outliers — tickets whose cycle time exceeded
+their size's p85, worst first. `computeSizeCalibration` lives in the shared module. The ticket
+forms now honour `effortUnit` (ticket cosmic.dune), sizes are AI-suggested on create (inner.lotus)
+and backfilled by classification (dusty.cloud); this view is why those exist.

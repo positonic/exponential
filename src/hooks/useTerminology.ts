@@ -15,10 +15,6 @@ export interface Terminology {
   whyThisGoal: string;
   whatIsYourGoal: string;
 
-  // Weekly outcomes
-  weeklyOutcome: string;
-  weeklyOutcomes: string;
-
   // OKR-specific (only for team/org)
   keyResult: string;
   keyResults: string;
@@ -29,8 +25,6 @@ export interface Terminology {
   showOkrFeatures: boolean;
   showKeyResults: boolean;
 
-  // Outcome types to show for this workspace type
-  visibleOutcomeTypes: Array<'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual' | 'life' | 'problem'>;
 }
 
 const personalTerminology: Terminology = {
@@ -46,10 +40,6 @@ const personalTerminology: Terminology = {
   whyThisGoal: 'Why this goal?',
   whatIsYourGoal: "What's your goal?",
 
-  // Weekly outcomes become "Weekly Focus"
-  weeklyOutcome: 'Weekly Focus',
-  weeklyOutcomes: 'Weekly Focus',
-
   // OKR terminology hidden for personal
   keyResult: '',
   keyResults: '',
@@ -60,8 +50,6 @@ const personalTerminology: Terminology = {
   showOkrFeatures: false,
   showKeyResults: false,
 
-  // Simpler outcome types for personal users
-  visibleOutcomeTypes: ['daily', 'weekly', 'monthly'],
 };
 
 const teamTerminology: Terminology = {
@@ -77,10 +65,6 @@ const teamTerminology: Terminology = {
   whyThisGoal: 'Why this objective?',
   whatIsYourGoal: "What's your objective?",
 
-  // Standard outcome terminology
-  weeklyOutcome: 'Weekly Outcome',
-  weeklyOutcomes: 'Weekly Outcomes',
-
   // Full OKR terminology
   keyResult: 'Key Result',
   keyResults: 'Key Results',
@@ -91,8 +75,6 @@ const teamTerminology: Terminology = {
   showOkrFeatures: true,
   showKeyResults: true,
 
-  // Full outcome types for teams
-  visibleOutcomeTypes: ['daily', 'weekly', 'monthly', 'quarterly', 'annual'],
 };
 
 /**
@@ -100,6 +82,11 @@ const teamTerminology: Terminology = {
  *
  * - Personal workspaces: Human-friendly language (Goals, Weekly Focus)
  * - Team/Organization workspaces: Professional OKR terminology (Objectives, Key Results)
+ *
+ * Key Results are the one part of this that is separately switchable: the
+ * `enableKeyResults` workspace setting overrides the type-based default, so a
+ * personal workspace can turn them on (and a team can turn them off) without
+ * changing any of the other wording.
  */
 export function useTerminology(): Terminology {
   const { workspace } = useWorkspace();
@@ -111,8 +98,25 @@ export function useTerminology(): Terminology {
   }
 
   const isPersonal = workspace.type === 'personal';
+  const base = isPersonal ? personalTerminology : teamTerminology;
 
-  return isPersonal ? personalTerminology : teamTerminology;
+  // null = no explicit setting, so fall back to the workspace-type default.
+  const keyResultsEnabled = workspace.enableKeyResults ?? !isPersonal;
+  if (keyResultsEnabled === base.showKeyResults) {
+    return base;
+  }
+
+  // The override only moves the KR flags and labels — goals stay "Goals" in a
+  // personal workspace even with Key Results switched on.
+  return {
+    ...base,
+    keyResult: keyResultsEnabled ? 'Key Result' : '',
+    keyResults: keyResultsEnabled ? 'Key Results' : '',
+    okr: keyResultsEnabled ? 'OKR' : '',
+    okrs: keyResultsEnabled ? 'OKRs' : '',
+    showOkrFeatures: keyResultsEnabled,
+    showKeyResults: keyResultsEnabled,
+  };
 }
 
 /**

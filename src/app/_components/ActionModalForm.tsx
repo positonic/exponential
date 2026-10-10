@@ -14,7 +14,7 @@ import { SprintSelector } from './SprintSelector';
 import { EpicSelector } from './EpicSelector';
 import { EffortEstimateInput } from './EffortEstimateInput';
 import { DependencyPicker } from './DependencyPicker';
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, type ReactNode } from 'react';
 import { useBountiesEnabled } from '~/hooks/useBountiesEnabled';
 
 export interface PastedScreenshot {
@@ -86,6 +86,8 @@ interface ActionModalFormProps {
   pastedScreenshots?: PastedScreenshot[];
   onScreenshotPaste?: (screenshot: PastedScreenshot) => void;
   onScreenshotRemove?: (id: string) => void;
+  /** Extra content rendered above the footer (e.g. the Time section). */
+  extraSection?: ReactNode;
 }
 
 export function ActionModalForm({
@@ -147,8 +149,14 @@ export function ActionModalForm({
   pastedScreenshots,
   onScreenshotPaste,
   onScreenshotRemove,
+  extraSection,
 }: ActionModalFormProps) {
-  const projects = api.project.getAll.useQuery({});
+  // Scoped to the form's workspace when it has one: the tag and sprint
+  // pickers list the context workspace's rows, and the server attaches them
+  // in the same transaction as the Action resolved against the project's
+  // workspace — a project from another workspace would refuse the whole
+  // create with a containment error the user cannot act on.
+  const projects = api.project.getAll.useQuery(workspaceId ? { workspaceId } : {});
   const taskSchedules = api.taskSchedule.list.useQuery(
     { workspaceId: workspaceId ?? '' },
     { enabled: !!workspaceId && !!setScheduleId }
@@ -748,6 +756,8 @@ export function ActionModalForm({
           </div>
         );
       })()}
+
+      {extraSection}
 
       <div className="border-t border-border-primary p-4 mt-4">
         <Group justify="space-between">

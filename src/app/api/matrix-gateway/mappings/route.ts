@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { db } from "~/server/db";
+import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 
 /**
  * /api/matrix-gateway/mappings
@@ -44,7 +45,7 @@ function checkGatewaySecret(request: NextRequest): NextResponse | null {
 
 async function getOrCreateMatrixIntegration() {
   const existing = await db.integration.findFirst({
-    where: { provider: "matrix", status: "ACTIVE", userId: null },
+    where: SHARED_MATRIX_INTEGRATION_WHERE,
   });
   if (existing) return existing;
   return db.integration.create({
@@ -53,6 +54,10 @@ async function getOrCreateMatrixIntegration() {
       type: "MESSAGING",
       provider: "matrix",
       status: "ACTIVE",
+      // Explicitly system-scoped: SHARED_MATRIX_INTEGRATION_WHERE only finds
+      // this row again while both userId and workspaceId stay null.
+      userId: null,
+      workspaceId: null,
       description:
         "System integration anchoring Matrix Gateway pairing mappings (ADR-0043)",
     },
@@ -124,7 +129,7 @@ export async function GET(request: NextRequest) {
     if (denied) return denied;
 
     const integration = await db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     if (!integration) {
       // Nothing has paired yet — the Integration row is created on first POST.
@@ -164,7 +169,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const integration = await db.integration.findFirst({
-      where: { provider: "matrix", status: "ACTIVE", userId: null },
+      where: SHARED_MATRIX_INTEGRATION_WHERE,
     });
     if (!integration) {
       return NextResponse.json({ deleted: 0 });
