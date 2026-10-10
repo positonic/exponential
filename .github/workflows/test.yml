@@ -187,6 +187,9 @@ jobs:
       # key hashes the lockfile plus the build inputs; the restore key falls
       # back to the newest cache for the same lockfile, so a PR reuses the
       # cache of whatever built last and only recompiles what changed.
+      # A PR can only read caches from its own branch or from main, and this
+      # workflow never runs on main, so cache-warm.yml keeps main's copy
+      # (and main's node_modules cache) fresh for new PRs.
       # next/font/local writes nothing here, but next/font/google used to
       # store fetched fonts in it — that fetch is gone (fonts are vendored),
       # not merely cached.

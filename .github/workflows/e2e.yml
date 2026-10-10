@@ -82,8 +82,10 @@ jobs:
       - name: Run E2E suite
         run: npm run test:e2e
 
+      # failure() alone would miss a job that hit timeout-minutes (that
+      # counts as cancelled), which is exactly when the report matters most.
       - name: Upload Playwright report
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
