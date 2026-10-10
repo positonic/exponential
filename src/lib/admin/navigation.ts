@@ -5,6 +5,7 @@ import {
   IconStar,
   IconBulb,
   IconUsers,
+  IconDatabase,
 } from "@tabler/icons-react";
 import type { ElementType } from "react";
 
@@ -47,6 +48,11 @@ export const adminNavigation: AdminNavSection[] = [
         title: "Feature Requests",
         href: "/admin/feature-requests",
         icon: IconBulb,
+      },
+      {
+        title: "Knowledge index",
+        href: "/admin/knowledge-index",
+        icon: IconDatabase,
       },
     ],
   },
