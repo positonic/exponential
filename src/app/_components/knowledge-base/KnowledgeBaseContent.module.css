@@ -1,0 +1,189 @@
+/* Knowledge page — follows the workspace home's command layout
+   (WorkspaceHomeConceptD.module.css): centred stage, one large search box,
+   small-caps column headings, quiet single-line rows. */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 80px 40px 100px;
+  flex: 1;
+}
+
+.inputWrap {
+  width: 100%;
+  max-width: 640px;
+  position: relative;
+}
+
+.input:focus {
+  border-color: var(--brand-500) !important;
+  box-shadow: 0 0 0 4px var(--color-brand-glow) !important;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  background: transparent;
+  transition: border-color 120ms, color 120ms, background 120ms;
+  cursor: pointer;
+}
+
+.chip[data-active='true'] {
+  border-color: var(--brand-500);
+  color: var(--brand-400);
+  background: var(--color-brand-subtle);
+}
+
+.colHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+/* Small text buttons sitting in a column heading ("+ Save link", "History"). */
+.headingAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: color 120ms;
+}
+
+.headingAction:hover,
+.headingAction[data-active='true'] {
+  color: var(--brand-400);
+}
+
+/* Full-bleed row: 16px wider than its column and pulled 8px left so the hover
+   background extends past the text (same trick as the home page's rows). The
+   row is a plain container — the link and the action buttons are siblings
+   inside it, never nested. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px;
+  margin: 0 -8px;
+  width: calc(100% + 16px);
+  min-height: 38px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  transition: background 120ms;
+}
+
+.row:hover,
+.row:focus-within {
+  background: var(--color-bg-secondary);
+}
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 9px 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.rowTitle {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+
+/* Muted text that follows the title on the same line (search snippets). */
+.rowSnippet {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.rowLabel {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.rowIcon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+/* Row actions stay out of sight until the row is hovered or focused. */
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.row:hover .rowActions,
+.row:focus-within .rowActions,
+.rowActions[data-visible='true'] {
+  opacity: 1;
+}
+
+.empty {
+  padding: 9px 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* Touch screens have no hover: keep row actions visible. */
+@media (hover: none) {
+  .rowActions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1023px) {
+  .stage {
+    padding: 60px 24px 80px;
+  }
+}
+
+@media (max-width: 767px) {
+  .stage {
+    padding: 40px 16px 60px;
+  }
+
+  .rowSnippet {
+    display: none;
+  }
+}
