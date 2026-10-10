@@ -136,6 +136,11 @@ export function AssignActionModal({
   const assignMutation = api.action.assign.useMutation({
     onSuccess: () => {
       // Invalidate relevant queries to refresh the UI
+      if (actionId) {
+        void utils.action.getById.invalidate({ id: actionId });
+        // Assigning an Assistant starts an Agent run (ADR-0067).
+        void utils.agentRun.listForAction.invalidate({ actionId });
+      }
       void utils.action.getAll.invalidate();
       void utils.action.getProjectActions.invalidate();
       void utils.action.getKanbanActions.invalidate();
@@ -161,6 +166,10 @@ export function AssignActionModal({
   const unassignMutation = api.action.unassign.useMutation({
     onSuccess: () => {
       // Invalidate relevant queries to refresh the UI
+      if (actionId) {
+        void utils.action.getById.invalidate({ id: actionId });
+        void utils.agentRun.listForAction.invalidate({ actionId });
+      }
       void utils.action.getAll.invalidate();
       void utils.action.getProjectActions.invalidate();
       void utils.action.getKanbanActions.invalidate();

@@ -446,7 +446,7 @@ export function ActionDetailContent({
         <Divider className="border-border-primary" mb="lg" />
 
         {/* Agent run (ADR-0067): what the assigned Assistant is doing or did */}
-        <AgentRunPill actionId={actionId} />
+        <AgentRunPill actionId={actionId} activeRunId={action.activeRun?.id ?? null} />
 
         {/* Activity / Discussion */}
         <div>

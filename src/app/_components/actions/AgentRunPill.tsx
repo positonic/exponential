@@ -45,7 +45,14 @@ function verbFor(run: Run): "Working" | "Worked for" | "Stopped" | "Waiting on o
  * run is live, and invalidates the action when the run leaves the live set
  * so the title spinner and any comments the run posted refresh together.
  */
-export function AgentRunPill({ actionId }: { actionId: string }) {
+export function AgentRunPill({
+  actionId,
+  activeRunId,
+}: {
+  actionId: string;
+  /** The action query's live run, if any — starts polling before this query has seen it. */
+  activeRunId?: string | null;
+}) {
   const utils = api.useUtils();
   const cancel = api.agentRun.cancel.useMutation({
     onSuccess: () => {
@@ -55,7 +62,12 @@ export function AgentRunPill({ actionId }: { actionId: string }) {
   });
   const { data: runs } = api.agentRun.listForAction.useQuery(
     { actionId },
-    { refetchInterval: (query) => (hasLiveRun(query.state.data) ? 2000 : false) },
+    {
+      refetchInterval: (query) =>
+        hasLiveRun(query.state.data) || (activeRunId && !query.state.data?.some((r) => r.id === activeRunId))
+          ? 2000
+          : false,
+    },
   );
   const latest = runs?.[0];
   const live = latest ? LIVE.has(latest.status) : false;

@@ -26,17 +26,34 @@ const STUB_OUTPUT = {
   usage: { totalTokens: 42 },
 };
 
+/** The dev server Playwright started (playwright.config.ts PORT). */
+const APP_URL = `http://localhost:${process.env.E2E_PORT ?? 3100}`;
+
 let stub: http.Server;
 const stubCalls: Array<{ url: string; body: unknown; auth: string | null }> = [];
+const callbackResults: Array<{ status: number; body: string }> = [];
 
 test.beforeAll(async () => {
   stub = http.createServer((req, res) => {
     let raw = "";
     req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
     req.on("end", () => {
-      stubCalls.push({ url: req.url ?? "", body: raw ? JSON.parse(raw) : null, auth: req.headers.authorization ?? null });
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify(STUB_OUTPUT));
+      void (async () => {
+        const auth = req.headers.authorization ?? null;
+        stubCalls.push({ url: req.url ?? "", body: raw ? JSON.parse(raw) : null, auth });
+        // Behave like the real run agent's first tool: call back into the app
+        // with the run token, so the app writes a run event (the transcript).
+        if (auth) {
+          const cb = await fetch(`${APP_URL}/api/trpc/mastra.reportProgress`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: auth },
+            body: JSON.stringify({ json: { text: "Reading the venue shortlist" } }),
+          });
+          callbackResults.push({ status: cb.status, body: (await cb.text()).slice(0, 300) });
+        }
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(STUB_OUTPUT));
+      })();
     });
   });
   await new Promise<void>((resolve) => stub.listen(E2E_MASTRA_STUB_PORT, "127.0.0.1", resolve));
@@ -47,8 +64,8 @@ test.afterAll(async () => {
 });
 
 test("assigning your Assistant starts a run: spinner, then the pill flips from Queued to Worked for", async ({ page, request }) => {
-  await page.goto(fixture.assistantActionUrl);
-  await expect(page.getByText(fixture.assistantActionName).first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await page.goto(fixture.agentRunActionUrl);
+  await expect(page.getByText(fixture.agentRunActionName).first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
 
   // Assign from the modal.
   await page.getByText("Unassigned").click();
@@ -82,7 +99,7 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   const body = call!.body as { messages: Array<{ role: string; content: string }>; memory: { thread: { id: string } } };
   expect(body.messages[0]!.role).toBe("system");
   expect(body.messages[0]!.content).toContain(`Name: ${fixture.assistantName}`);
-  expect(body.messages[1]!.content).toContain(fixture.assistantActionName);
+  expect(body.messages[1]!.content).toContain(fixture.agentRunActionName);
   expect(body.memory.thread.id).toMatch(/^action-/);
 
   // The pill polls every 2 s while live and flips once the run finished.
@@ -91,8 +108,14 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   await expect(page.getByTestId("action-running-ring")).toHaveCount(0);
   await expect(pill.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 
+  // The stub's callback was accepted with the run token: the app wrote the event.
+  expect(callbackResults).toHaveLength(1);
+  expect(callbackResults[0]!.status, callbackResults[0]!.body).toBe(200);
+
   // The owner sees the transcript; the summary is on the pill's tooltip.
   await expect(page.getByTestId("agent-run-transcript")).toBeVisible();
+  await page.getByTestId("agent-run-transcript").getByRole("button").click();
+  await expect(page.getByText("Reading the venue shortlist")).toBeVisible();
   await pill.hover();
   await expect(page.getByText(STUB_OUTPUT.text)).toBeVisible();
 });
