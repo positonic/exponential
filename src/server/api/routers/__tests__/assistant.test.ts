@@ -92,6 +92,7 @@ const ownedAssistant = {
   id: ASSISTANT_ID,
   workspaceId: WORKSPACE_ID,
   createdById: OWNER_ID,
+  externalAgentId: "agent-1",
   name: "Aria",
   emoji: "✨",
   personality: "Warm, direct, allergic to filler.",
@@ -131,8 +132,15 @@ describe("assistant router — ownership (cross-tenant IDOR)", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // Mutations are humanOnly: the caller is a human (not an agent principal).
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     stubOwnershipScopedLookup(dbMock);
+    dbMock.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) =>
+      cb(dbMock)) as never);
     dbMock.assistant.update.mockResolvedValue(ownedAssistant as never);
+    // A rename propagates to the principal (ADR-0067); the shadow user is resolved from it.
+    dbMock.externalAgent.update.mockResolvedValue({ shadowUserId: "shadow-1" } as never);
+    dbMock.user.update.mockResolvedValue({} as never);
     dbMock.assistant.delete.mockResolvedValue(ownedAssistant as never);
     dbMock.assistant.updateMany.mockResolvedValue({ count: 0 } as never);
   });
@@ -189,6 +197,8 @@ describe("assistant router — per-user default scoping", () => {
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
+    // Mutations are humanOnly: the caller is a human (not an agent principal).
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     // Direct workspace membership, as `getWorkspaceMembership` reads it.
     dbMock.workspaceUser.findUnique.mockResolvedValue({
       role: "owner",

@@ -1,9 +1,15 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
+import {
+  createAssistantPrincipal,
+  deleteExternalAgentPrincipal,
+  renameAssistantPrincipal,
+} from "~/server/services/assistant/principal";
+import { deleteFromBlob } from "~/lib/blob";
 
 /**
  * Assistants are **per user, per workspace** — each member of a workspace gets
@@ -17,11 +23,20 @@ import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssista
  *    assistant. This matches how the Telegram and Matrix gateways resolve the
  *    default assistant (`{ createdById, isDefault }`).
  *
+ * Mutations are `humanOnlyProcedure`: an Assistant owns an External agent
+ * principal (ADR-0067), so creating, renaming or deleting one is agent
+ * management, which ADR-0049 keeps out of reach of agent principals.
+ *
  * `personality`, `instructions`, and `userContext` are free-text private
  * content injected verbatim into the system prompt by /api/chat/stream, so
  * read access is as sensitive as write access — `getById` and `list` are
  * guarded on the same terms as the mutations.
  */
+/** What the settings page needs from the principal: which engine runs its Agent runs. */
+const ASSISTANT_PRINCIPAL_INCLUDE = {
+  externalAgent: { select: { id: true, executor: true, shadowUserId: true } },
+} as const;
+
 async function getOwnedAssistantOrThrow(
   db: PrismaClient,
   id: string,
@@ -29,6 +44,7 @@ async function getOwnedAssistantOrThrow(
 ) {
   const assistant = await db.assistant.findFirst({
     where: { id, createdById: userId },
+    include: ASSISTANT_PRINCIPAL_INCLUDE,
   });
   if (!assistant) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Assistant not found" });
@@ -38,7 +54,7 @@ async function getOwnedAssistantOrThrow(
 
 export const assistantRouter = createTRPCRouter({
   /** Create a new assistant owned by the calling user */
-  create: protectedProcedure
+  create: humanOnlyProcedure
     .input(
       z.object({
         workspaceId: z.string(),
@@ -63,18 +79,31 @@ export const assistantRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.assistant.create({
-        data: {
-          ...data,
+      // An Assistant is a principal (ADR-0067): shadow user → External agent →
+      // workspace membership → Assistant, in one transaction so a half-made
+      // Assistant can never exist. `requireWorkspaceMembership("edit")` above
+      // already guarantees the owner is a non-viewer member, which is the
+      // delegation-invariant precondition for the membership row.
+      return ctx.db.$transaction(async (tx) => {
+        const { externalAgentId } = await createAssistantPrincipal(tx, {
+          name: data.name,
+          ownerId: userId,
           workspaceId,
-          createdById: userId,
-          isDefault,
-        },
+        });
+        return tx.assistant.create({
+          data: {
+            ...data,
+            workspaceId,
+            createdById: userId,
+            isDefault,
+            externalAgentId,
+          },
+        });
       });
     }),
 
   /** Update an assistant owned by the calling user */
-  update: protectedProcedure
+  update: humanOnlyProcedure
     .input(
       z.object({
         id: z.string(),
@@ -104,12 +133,20 @@ export const assistantRouter = createTRPCRouter({
         });
       }
 
-      return ctx.db.assistant.update({
-        where: { id },
-        data: {
-          ...data,
-          ...(isDefault !== undefined && { isDefault }),
-        },
+      const renamed = data.name !== undefined && data.name !== existing.name;
+      return ctx.db.$transaction(async (tx) => {
+        // The principal answers to the Assistant's name (ADR-0067).
+        if (renamed) {
+          await renameAssistantPrincipal(tx, existing.externalAgentId, data.name!);
+        }
+        return tx.assistant.update({
+          where: { id },
+          data: {
+            ...data,
+            ...(isDefault !== undefined && { isDefault }),
+          },
+          include: ASSISTANT_PRINCIPAL_INCLUDE,
+        });
       });
     }),
 
@@ -145,6 +182,7 @@ export const assistantRouter = createTRPCRouter({
           createdById: ctx.session.user.id,
           isDefault: true,
         },
+        include: ASSISTANT_PRINCIPAL_INCLUDE,
       });
     }),
 
@@ -156,16 +194,31 @@ export const assistantRouter = createTRPCRouter({
     return findGatewayAssistant(ctx.db, ctx.session.user.id);
   }),
 
-  /** Delete an assistant owned by the calling user */
-  delete: protectedProcedure
+  /**
+   * Delete an assistant owned by the calling user — and its principal. The
+   * Assistant row itself goes with the External agent (FK cascade); the shadow
+   * user is kept when it authored content, so attribution survives (ADR-0067).
+   */
+  delete: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
-      return ctx.db.assistant.delete({ where: { id: input.id } });
+      const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
+      const agent = await ctx.db.externalAgent.findUnique({
+        where: { id: assistant.externalAgentId },
+        select: { id: true, shadowUserId: true, shadowUser: { select: { image: true } } },
+      });
+      if (!agent) {
+        return ctx.db.assistant.delete({ where: { id: input.id } });
+      }
+      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
+      if (result.orphanedImage) {
+        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
+      }
+      return assistant;
     }),
 
   /** Set one of the calling user's assistants as their workspace default */
-  setDefault: protectedProcedure
+  setDefault: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const userId = ctx.session.user.id;

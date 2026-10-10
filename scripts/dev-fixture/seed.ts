@@ -17,6 +17,7 @@
 import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { encryptString } from "../../src/server/utils/encryption";
+import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
 
 export const FIXTURE = {
   userEmail: "dev-fixture@exponential.test",
@@ -71,6 +72,13 @@ export const FIXTURE = {
   /** A workspace tag, so the create-action modals' tag picker has something to pick. */
   tagName: "Fixture label",
   tagSlug: "fixture-label",
+  /**
+   * Assistants as assignees (ADR-0067): the fixture user's own Assistant, the
+   * colleague's, and an unassigned action to hand to one from the Assign modal.
+   */
+  assistantName: "Aria",
+  colleagueAssistantName: "Max",
+  assistantActionName: "Find a venue for the fixture offsite",
 } as const;
 
 export interface SeededFixture {
@@ -105,6 +113,12 @@ export interface SeededFixture {
   /** A workspace tag the create-action modals can attach. */
   tagId: string;
   tagName: string;
+  /** The fixture user's Assistant and the colleague's, both members of the workspace. */
+  assistantName: string;
+  colleagueAssistantName: string;
+  /** App-relative URL of the unassigned action the Assign-to-Assistant spec hands over. */
+  assistantActionUrl: string;
+  assistantActionName: string;
   /** The confirmed decision logged against that meeting. */
   decisionId: string;
   /** Its rendered label (`D-0001` on a fresh workspace). */
@@ -361,6 +375,60 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "member" },
     create: { userId: colleague.id, workspaceId: workspace.id, role: "member" },
   });
+  // One Assistant each for the fixture user and the colleague, so the Assign
+  // modal has "your assistant" to pin first and a teammate's to group below.
+  // Each Assistant owns an External agent whose shadow user is a workspace
+  // member (ADR-0067) — created through the same service `assistant.create`
+  // uses, so the fixture can never drift from the product path.
+  async function ensureAssistant(ownerId: string, name: string) {
+    const existing = await db.assistant.findFirst({
+      where: { workspaceId: workspace.id, createdById: ownerId, name },
+      select: { id: true },
+    });
+    if (existing) return existing;
+    return db.$transaction(async (tx) => {
+      const { externalAgentId } = await createAssistantPrincipal(tx, {
+        name,
+        ownerId,
+        workspaceId: workspace.id,
+      });
+      return tx.assistant.create({
+        data: {
+          name,
+          emoji: "✨",
+          personality: `${name} is warm, direct and allergic to filler.`,
+          workspaceId: workspace.id,
+          createdById: ownerId,
+          isDefault: true,
+          externalAgentId,
+        },
+        select: { id: true },
+      });
+    });
+  }
+  await ensureAssistant(user.id, FIXTURE.assistantName);
+  await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
+
+  // The action the spec assigns. Re-seeding clears its assignees so the spec
+  // always starts from "Unassigned".
+  let assistantAction = await db.action.findFirst({
+    where: { workspaceId: workspace.id, name: FIXTURE.assistantActionName },
+    select: { id: true },
+  });
+  if (!assistantAction) {
+    assistantAction = await db.action.create({
+      data: {
+        name: FIXTURE.assistantActionName,
+        workspaceId: workspace.id,
+        createdById: user.id,
+        status: "ACTIVE",
+        priority: "Quick",
+      },
+      select: { id: true },
+    });
+  }
+  await db.actionAssignee.deleteMany({ where: { actionId: assistantAction.id } });
+
   // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
   // in development; without it the contact is seeded email-less (the app
   // couldn't store one either) and the scheduling spec skips itself, rather
@@ -882,6 +950,10 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   return {
     tagId: tag.id,
     tagName: FIXTURE.tagName,
+    assistantName: FIXTURE.assistantName,
+    colleagueAssistantName: FIXTURE.colleagueAssistantName,
+    assistantActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${assistantAction.id}`,
+    assistantActionName: FIXTURE.assistantActionName,
     ceremonyId: ceremony.id,
     occurrenceId: occurrence.id,
     meetingUrl: `/recording/${meeting.id}`,

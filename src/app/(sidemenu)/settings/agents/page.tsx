@@ -37,6 +37,7 @@ import {
   IconRobotFace,
   IconTrash,
 } from '@tabler/icons-react';
+import Link from 'next/link';
 import { api } from '~/trpc/react';
 
 // tRPC carries the image as base64 JSON. Keep the encoded request comfortably
@@ -273,19 +274,32 @@ export default function ExternalAgentsPage() {
                 </div>
                 <Text fw={600}>{agent.name}</Text>
                 <Badge variant="light" size="sm">
-                  agent
+                  {agent.assistantId ? "assistant" : "agent"}
                 </Badge>
               </Group>
-              <Tooltip label="Delete agent (keys and workspace access are removed)">
-                <ActionIcon
-                  variant="subtle"
-                  color="red"
-                  onClick={() => deleteAgent.mutate({ agentId: agent.id })}
-                  loading={deleteAgent.isPending}
-                >
-                  <IconTrash size={16} />
-                </ActionIcon>
-              </Tooltip>
+              {agent.assistantId ? (
+                <Tooltip label="Your Assistant's principal — rename or delete it from Settings → Assistant">
+                  <Button
+                    component={Link}
+                    href="/settings/assistant"
+                    size="compact-xs"
+                    variant="subtle"
+                  >
+                    Manage in Assistant settings
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Tooltip label="Delete agent (keys and workspace access are removed)">
+                  <ActionIcon
+                    variant="subtle"
+                    color="red"
+                    onClick={() => deleteAgent.mutate({ agentId: agent.id })}
+                    loading={deleteAgent.isPending}
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
             </Group>
             {agent.description && (
               <Text size="sm" c="dimmed">

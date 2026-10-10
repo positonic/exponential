@@ -119,7 +119,10 @@ describe("externalAgent.uploadAvatar", () => {
     expect(result).toEqual({ avatarUrl: NEW_AVATAR_URL });
     expect(db.externalAgent.findFirst).toHaveBeenCalledWith({
       where: { id: AGENT_ID, ownerId: OWNER_ID },
-      include: { shadowUser: { select: { id: true, image: true } } },
+      include: {
+        shadowUser: { select: { id: true, image: true } },
+        assistant: { select: { id: true } },
+      },
     });
     expect(blobMocks.uploadToBlob).toHaveBeenCalledWith(
       expect.any(String),
