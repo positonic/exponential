@@ -7,13 +7,19 @@ import type { DocContent, DocNavSection, DocSearchEntry } from "./types";
 import { extractHeadings } from "./extractHeadings";
 import { buildDocsNavigation, buildDocsSearchIndex, DOCS_DIR, listDocPages } from "./content";
 import { getLastUpdated } from "./lastUpdated";
-
-const DOCS_PATH = DOCS_DIR;
+import { isMethodPath, isMethodPublished } from "./method";
 
 export async function getDocContent(
-  slug: string[]
+  slug: string[],
+  docsDir: string = DOCS_DIR,
 ): Promise<DocContent | null> {
+  const DOCS_PATH = docsDir;
   const slugPath = slug.join("/");
+
+  // The method stays dark until its release manifest says `published`. The
+  // page list already leaves it out, but this function reads files straight
+  // from the URL slug, so it has to refuse on its own.
+  if (isMethodPath(slugPath) && !isMethodPublished(docsDir)) return null;
 
   // Try different file paths
   const possiblePaths = [
@@ -67,8 +73,8 @@ export async function getDocContent(
   return null;
 }
 
-export async function getAllDocSlugs(): Promise<string[][]> {
-  return listDocPages()
+export async function getAllDocSlugs(docsDir: string = DOCS_DIR): Promise<string[][]> {
+  return listDocPages(docsDir)
     .map((p) => p.slug)
     .filter((slug) => slug.length > 0);
 }

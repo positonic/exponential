@@ -1,0 +1,8 @@
+{
+  "$comment": "Release manifest for the Exponential Method (content/docs/method). While status is draft the method is dark on /docs and served only to preview workspaces through agentGuidance.method. Publishing: set status to published, publishedAt and contentHash (npm run docs:check prints the hash), in a PR after founder review. A published version never changes: bump version for any text change and append the old release to history.",
+  "version": "0.1.0",
+  "status": "draft",
+  "publishedAt": null,
+  "contentHash": null,
+  "history": []
+}
