@@ -257,8 +257,14 @@ export const mastraRouter = createTRPCRouter({
    * The audience is `mastra-agents`, the same claim the Mastra server's JWT
    * middleware already verifies for every other agent call; this grants no
    * capability that a normal chat turn doesn't already have.
+   *
+   * Human-only (ADR-0049 §6): JWT minting is on the External-agent denylist,
+   * because a revocable `exp_agent_` key must not be exchangeable for a
+   * stateless token that outlives the key's revocation. Callers are browser
+   * chat surfaces running as a human session (ManyChat's local wiki, the
+   * client-tools dev spike).
    */
-  mintAgentToken: protectedProcedure
+  mintAgentToken: humanOnlyProcedure
     .output(
       z.object({
         token: z.string(),
