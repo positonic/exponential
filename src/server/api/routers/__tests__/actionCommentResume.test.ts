@@ -115,6 +115,23 @@ describe("actionComment.addComment resumes a waiting run", () => {
     expect(dispatchMock).not.toHaveBeenCalled();
   });
 
+  it("mentioning an unassigned Assistant posts the comment, starts no run, and reports it", async () => {
+    db.agentRun.findMany.mockResolvedValue([] as never);
+    db.actionComment.create.mockResolvedValue({ id: "c-12", author: { id: OWNER, name: "James", image: null } } as never);
+    db.user.findMany.mockResolvedValue([{ id: "aria-shadow", name: "Aria" }] as never);
+    db.actionAssignee.findMany.mockResolvedValue([] as never);
+
+    const result = await createMockCaller({ userId: OWNER, db }).actionComment.addComment({
+      actionId: ACTION,
+      content: "@[Aria](aria-shadow) please look",
+    });
+
+    expect(db.actionComment.create).toHaveBeenCalledTimes(1);
+    expect(db.agentRun.create).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: "c-12", unstartedAssistants: [{ id: "aria-shadow", name: "Aria" }] });
+  });
+
   it("the owner's comment when the latest run already finished resumes nothing", async () => {
     db.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
     db.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", ownerId: OWNER, executor: "MASTRA" }] as never);

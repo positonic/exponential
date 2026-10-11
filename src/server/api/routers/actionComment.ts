@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
 import { createActionComment } from "~/server/services/actions/comments";
 import { resumeWaitingRunsOnReply } from "~/server/services/agentRuns/enqueue";
+import { findUnstartedAssistantMentions } from "~/server/services/agentRuns/unstartedMentions";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { after } from "next/server";
 import { deleteFromBlob } from "~/lib/blob";
@@ -83,7 +84,15 @@ export const actionCommentRouter = createTRPCRouter({
         after(() => triggerDispatch());
       }
 
-      return comment;
+      // A mention never starts a run (decided 2026-10-11): name the mentioned
+      // Assistants that are not assigned, so the author can be offered the
+      // assignment instead of waiting on a run that will not come.
+      const unstartedAssistants = await findUnstartedAssistantMentions(ctx.db, {
+        actionId: input.actionId,
+        content: input.content,
+      });
+
+      return { ...comment, unstartedAssistants };
     }),
 
   deleteComment: protectedProcedure

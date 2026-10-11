@@ -53,7 +53,7 @@ Each row carries a `mentionSyntax` field — the ready-to-paste token — plus `
 
 That distinction matters if you ever write the markup by hand: the name-only form `@[Andi Stanner]` only resolves against **direct** members, so team-based members must be mentioned by id. `mentionSyntax` is always the id form and always works.
 
-Mentions naming a non-member are silently dropped by the server — comment content never leaks outside the workspace. Mentioning an Assistant notifies nobody and starts no Agent run: only assigning the Action to it does.
+Mentions naming a non-member are silently dropped by the server — comment content never leaks outside the workspace. Mentioning an Assistant notifies nobody and starts no Agent run: only assigning the Action to it does. An Action comment's response lists the mentioned Assistants it did not start (`unstartedAssistants`), so the author can assign them instead.
 
 ## Finding the entity id
 

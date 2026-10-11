@@ -5,6 +5,15 @@ import type { EmitNotificationInput, NotificationContent } from "./types";
 /** Parse mentions in `@[Name](userId)` (or legacy `@[Name]`) form. */
 const MENTION_WITH_ID_REGEX = /@\[([^\]]+)\](?:\(([^)]+)\))?/g;
 
+/** The user ids named by `@[Name](id)` mentions, deduped; legacy `@[Name]` is ignored. */
+export function parseMentionIds(content: string): string[] {
+  const ids = new Set<string>();
+  for (const match of content.matchAll(new RegExp(MENTION_WITH_ID_REGEX.source, "g"))) {
+    if (match[2]) ids.add(match[2]);
+  }
+  return [...ids];
+}
+
 /**
  * Extract mentioned user ids from comment content. `@[Name](id)` yields the id
  * directly; legacy `@[Name]` (no id) is resolved by name against workspace
