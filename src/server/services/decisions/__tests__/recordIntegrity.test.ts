@@ -23,7 +23,7 @@ vi.mock("~/server/services/access/resolvers/decisionResolver", () => ({
 const recordActivity = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity }));
 
-import { confirmDraft, setStatus, updateDecision } from "../decisionService";
+import { confirmDraft, createDecision, setStatus, updateDecision } from "../decisionService";
 
 const WORKSPACE_ID = "ws-1";
 const PERSON_ID = "u-1";
@@ -105,6 +105,44 @@ describe("record integrity: agents cannot move or rewrite a confirmed decision",
       await expect(
         setStatus(db, { decisionId: ROW.id, workspaceId: WORKSPACE_ID, userId: PERSON_ID, principal: HUMAN, status: "ACCEPTED" }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+  });
+
+  describe("createDecision: drafted and labelled by principal, not by source", () => {
+    function withCreate() {
+      db.$transaction.mockImplementation(async (fn: unknown) => (fn as (tx: PrismaClient) => Promise<unknown>)(db));
+      db.workspace.update.mockResolvedValue({ decisionCounter: 4 } as never);
+      db.decision.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: "dec-4", number: 4, ...args.data })) as never);
+    }
+    const created = () => (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    const create = (principal: Principal, source?: "MANUAL" | "MEETING" | "AGENT") =>
+      createDecision(db, { workspaceId: WORKSPACE_ID, createdById: principal.userId, statement: "Ship it", status: "ACCEPTED", source, principal });
+
+    it.each(AGENT_PRINCIPALS)("%s logs a draft labelled AGENT even when it says MANUAL or says nothing", async (_label, principal) => {
+      for (const source of [undefined, "MANUAL"] as const) {
+        withCreate();
+        db.decision.create.mockClear();
+        await create(principal, source);
+        expect(created()).toMatchObject({ reviewState: "DRAFT", source: "AGENT", confirmedById: null, confirmedAt: null });
+      }
+      expect(recordActivity).not.toHaveBeenCalled();
+    });
+
+    it("Zoe's draft names the person she acts for as decider; an agent's names nobody", async () => {
+      withCreate();
+      await create(ZOE);
+      expect(created().deciders).toMatchObject({ create: [expect.objectContaining({ userId: PERSON_ID })] });
+
+      db.decision.create.mockClear();
+      await create(AGENT);
+      expect(created().deciders).toBeUndefined();
+    });
+
+    it("a person's decision is confirmed by them and logged by hand", async () => {
+      withCreate();
+      await create(HUMAN);
+      expect(created()).toMatchObject({ reviewState: "CONFIRMED", source: "MANUAL", confirmedById: PERSON_ID });
     });
   });
 

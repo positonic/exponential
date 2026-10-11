@@ -211,6 +211,7 @@ describe("decision router", () => {
 
     it("is NOT human-only: an agent principal member may create (ADR-0016) — as a draft", async () => {
       db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+      db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
       withWorkspaceRole(db, "member");
       withTransaction(db);
       db.workspace.update.mockResolvedValue({ decisionCounter: 7 } as never);
@@ -475,6 +476,7 @@ describe("decision router", () => {
           email: "dev@example.test",
           isAgent,
         } as never);
+        db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
         db.workspace.update.mockResolvedValue({ decisionCounter: 3 } as never);
         db.decision.create.mockResolvedValue({
           id: "dec-3",
@@ -502,14 +504,39 @@ describe("decision router", () => {
         expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
       });
 
-      it("source AGENT from a human session (Zoe acting as the user) is a DRAFT too", async () => {
+      it("source AGENT from a human session is a DRAFT too", async () => {
         withCreate(false);
         await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source: "AGENT" });
         expect(createData().reviewState).toBe("DRAFT");
         expect(createData().confirmedById).toBeNull();
       });
 
-      it("an agent key is an agent principal without a user lookup", async () => {
+      const callerWithToken = (tokenType: string) =>
+        createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient, tokenType });
+
+      it.each(["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+        "Zoe acting for a person (%s) is drafted by principal, whatever source she sends or omits",
+        async (tokenType) => {
+          for (const source of [undefined, "MANUAL", "MEETING"] as const) {
+            withCreate(false);
+            db.decision.create.mockClear();
+            await callerWithToken(tokenType).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source });
+            expect(createData().reviewState).toBe("DRAFT");
+            expect(createData().confirmedById).toBeNull();
+            // Never "Logged by hand": the label comes from the principal.
+            expect(createData().source).toBe("AGENT");
+          }
+        },
+      );
+
+      it("an agent principal cannot stamp its decision MANUAL", async () => {
+        withCreate(true);
+        await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source: "MANUAL" });
+        expect(createData().reviewState).toBe("DRAFT");
+        expect(createData().source).toBe("AGENT");
+      });
+
+      it("an agent key is an agent principal whatever the user row says", async () => {
         withCreate(false);
         await createMockCaller({
           userId: USER_ID,
@@ -523,6 +550,7 @@ describe("decision router", () => {
         withCreate(false);
         await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x" });
         expect(createData().reviewState).toBe("CONFIRMED");
+        expect(createData().source).toBe("MANUAL");
         expect(createData().confirmedById).toBe(USER_ID);
         expect(db.workspaceActivityEvent.create).toHaveBeenCalled();
       });

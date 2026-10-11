@@ -50,7 +50,8 @@ import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
  *   through the same service seam (ADR-0016). The `adr` router stays
  *   human-only and read-only; nothing here touches ADR content.
  * - an agent may propose, never publish: a decision created by an agent
- *   principal or with `source: AGENT` is born a draft, and `confirmDraft` is
+ *   principal (`resolvePrincipal`: an agent, or Zoe/a gateway acting for a
+ *   person) or with `source: AGENT` is born a draft, and `confirmDraft` is
  *   human-only, so a person always stands behind a confirmed decision. Nor
  *   may an agent move a confirmed decision's status or rewrite what it says
  *   (`setStatus`, `updateDecision`; record integrity, ADR-0071).
@@ -162,24 +163,6 @@ async function assertLinkableActions(
     });
   }
   return rows.map((row) => row.id);
-}
-
-/**
- * Whether the caller is an agent principal — an External agent's key, or a
- * shadow user (`User.isAgent`) behind a JWT. The same test
- * `humanOnlyProcedure` applies, without the throw.
- */
-async function isAgentPrincipal(
-  db: PrismaClient,
-  userId: string,
-  tokenType: string | undefined,
-): Promise<boolean> {
-  if (tokenType === "agent-key") return true;
-  const principal = await db.user.findUnique({
-    where: { id: userId },
-    select: { isAgent: true },
-  });
-  return principal?.isAgent === true;
 }
 
 /** Throwing wrapper around the decision resolver for one row. */
@@ -515,9 +498,11 @@ export const decisionRouter = createTRPCRouter({
     }),
 
   /**
-   * Log a confirmed decision — by hand from the Decision Log or a meeting
-   * page, or by Zoe (source AGENT). Meeting-linked decisions need edit
-   * access to the meeting; the label comes from the workspace sequence.
+   * Log a decision — confirmed when a person logs it by hand from the
+   * Decision Log or a meeting page; a draft labelled AGENT when an agent
+   * principal logs it, Zoe acting for a person included (decided by the
+   * credential, not by `source`). Meeting-linked decisions need edit access
+   * to the meeting; the label comes from the workspace sequence.
    */
   create: protectedProcedure
     .input(
@@ -617,19 +602,14 @@ export const decisionRouter = createTRPCRouter({
         ctx.session.user.id,
         input.actionIds ?? [],
       );
-      const creatorIsAgent = await isAgentPrincipal(
-        ctx.db,
-        ctx.session.user.id,
-        ctx.tokenType,
-      );
       const decision = await createDecision(ctx.db, {
         ...input,
         actionIds,
         evidence,
         createdById: ctx.session.user.id,
-        // An agent proposes; a person confirms (`confirmDraft`).
-        asDraft: creatorIsAgent || input.source === "AGENT",
-        creatorIsAgent,
+        // An agent proposes; a person confirms (`confirmDraft`). Zoe acting
+        // for a person is drafted by her credential, not by `source`.
+        principal: await resolvePrincipal(ctx),
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
