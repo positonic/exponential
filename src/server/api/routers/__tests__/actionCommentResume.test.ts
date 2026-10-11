@@ -79,7 +79,7 @@ describe("actionComment.addComment resumes a waiting run", () => {
 
     await createMockCaller({ userId: OWNER, db }).actionComment.addComment({ actionId: ACTION, content: "19 Nov works." });
 
-    expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { ownerId: OWNER, assistant: { isNot: null } } });
+    expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { ownerId: OWNER, assistant: { is: { retiredAt: null } } } });
     expect(db.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
       data: { actionId: ACTION, agentId: "agent-1", requestedById: OWNER, predecessorId: "run-1", wakeCommentId: "c-9" },
     });

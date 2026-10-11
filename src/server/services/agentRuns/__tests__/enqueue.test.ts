@@ -40,7 +40,7 @@ describe("enqueueAgentRunsForAssignees", () => {
   it("only an Assistant's principal gets a run — plain External agents keep picking actions up themselves", async () => {
     await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
     expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
-      where: { shadowUserId: { in: [SHADOW] }, assistant: { isNot: null } },
+      where: { shadowUserId: { in: [SHADOW] }, assistant: { is: { retiredAt: null } } },
     });
   });
 
@@ -148,5 +148,30 @@ describe("resumeWaitingRunsOnOwnerReply", () => {
     db.externalAgent.findMany.mockResolvedValue([] as never);
     expect(await resumeWaitingRunsOnOwnerReply(db, { actionId: ACTION, authorId: "teammate", commentId: "c" })).toEqual([]);
     expect(db.agentRun.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("a retired Assistant is never run-eligible (ADR-0072)", () => {
+  const db = mockDeep<PrismaClient>();
+
+  beforeEach(() => {
+    mockReset(db);
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+  });
+
+  it("assignment filters on a non-retired Assistant, not merely an Assistant", async () => {
+    await enqueueAgentRunsForAssignees(db, { actionId: "action-1", userIds: ["shadow-1"], requestedById: "human-1" });
+
+    const where = db.externalAgent.findMany.mock.calls[0]?.[0]?.where;
+    expect(where).toEqual({ shadowUserId: { in: ["shadow-1"] }, assistant: { is: { retiredAt: null } } });
+    expect(db.agentRun.create).not.toHaveBeenCalled();
+  });
+
+  it("an owner's reply resumes only non-retired Assistants' runs", async () => {
+    await resumeWaitingRunsOnOwnerReply(db, { actionId: "action-1", authorId: "owner-1", commentId: "c-1" });
+
+    const where = db.externalAgent.findMany.mock.calls[0]?.[0]?.where;
+    expect(where).toEqual({ ownerId: "owner-1", assistant: { is: { retiredAt: null } } });
+    expect(db.agentRun.create).not.toHaveBeenCalled();
   });
 });
