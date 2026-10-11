@@ -13,7 +13,7 @@
 import crypto from "crypto";
 import type { PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { buildProjectAccessWhere } from "~/server/services/access";
+import { buildProjectAccessWhere, getWorkspaceMembership } from "~/server/services/access";
 import {
   assembleScopeInstructions,
   type InstructionScope,
@@ -40,7 +40,8 @@ export interface LoadedScopeInstructions {
  * Fetches the AI instructions in scope, server-side by ID (never trusted from
  * the client).
  *
- * - The workspace requires direct membership, else FORBIDDEN.
+ * - The workspace requires membership (direct or team-linked, through the
+ *   central resolver), else FORBIDDEN.
  * - The project is read through `buildProjectAccessWhere`, so a spoofed or
  *   inaccessible `projectId` yields no project (and no text).
  * - A visible project in a different workspace than `workspaceId` is
@@ -53,16 +54,14 @@ export async function loadScopeInstructions(
 ): Promise<LoadedScopeInstructions> {
   let workspace: LoadedScopeInstructions["workspace"] = null;
   if (opts.workspaceId) {
-    const membership = await db.workspaceUser.findFirst({
-      where: { workspaceId: opts.workspaceId, userId: opts.userId },
-      include: {
-        workspace: {
-          select: { id: true, slug: true, name: true, type: true, description: true, aiInstructions: true },
-        },
-      },
-    });
+    // The central resolver: direct membership or a team linked to the workspace.
+    const membership = await getWorkspaceMembership(db, opts.userId, opts.workspaceId);
     if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: WORKSPACE_ACCESS_DENIED_MESSAGE });
-    workspace = membership.workspace;
+    workspace = await db.workspace.findUnique({
+      where: { id: opts.workspaceId },
+      select: { id: true, slug: true, name: true, type: true, description: true, aiInstructions: true },
+    });
+    if (!workspace) throw new TRPCError({ code: "FORBIDDEN", message: WORKSPACE_ACCESS_DENIED_MESSAGE });
   }
 
   let project: LoadedScopeInstructions["project"] = null;

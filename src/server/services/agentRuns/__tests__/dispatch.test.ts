@@ -194,8 +194,9 @@ describe("AI instructions in a run", () => {
   });
 
   it("sends the workspace's and project's assembled AI instructions as a system message next to the persona", async () => {
-    db.workspaceUser.findFirst.mockResolvedValue({
-      workspace: { id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: "Weekly review on Fridays." },
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: "ws-1" } as never);
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: "Weekly review on Fridays.",
     } as never);
     db.project.findFirst.mockResolvedValue({
       id: "proj-1",
@@ -215,15 +216,16 @@ describe("AI instructions in a run", () => {
       ]),
     );
     // Read as the run's shadow user, scoped to the action's workspace and project.
-    expect(db.workspaceUser.findFirst.mock.calls[0]?.[0]).toMatchObject({
-      where: { workspaceId: "ws-1", userId: "shadow-1" },
+    expect(db.workspaceUser.findUnique.mock.calls[0]?.[0]).toMatchObject({
+      where: { userId_workspaceId: { userId: "shadow-1", workspaceId: "ws-1" } },
     });
     expect(db.project.findFirst.mock.calls[0]?.[0]).toMatchObject({ where: { id: "proj-1" } });
   });
 
   it("sends no extra message when no scope has instructions", async () => {
-    db.workspaceUser.findFirst.mockResolvedValue({
-      workspace: { id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: null },
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: "ws-1" } as never);
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: null,
     } as never);
     db.project.findFirst.mockResolvedValue(null);
 
@@ -233,7 +235,8 @@ describe("AI instructions in a run", () => {
   });
 
   it("runs without instructions, and reports it, when the shadow user can't read the workspace", async () => {
-    db.workspaceUser.findFirst.mockResolvedValue(null);
+    db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.teamUser.findFirst.mockResolvedValue(null);
 
     const result = await dispatchQueuedRuns(db, new Date());
 

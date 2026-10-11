@@ -82,13 +82,16 @@ function caller(db: DeepMockProxy<PrismaClient>, opts: { tokenType?: string; age
   return createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient, ...opts });
 }
 
+/** A direct member of WS, whose workspace carries `aiInstructions`. */
 function withWorkspace(db: DeepMockProxy<PrismaClient>, aiInstructions: string | null) {
-  db.workspaceUser.findFirst.mockResolvedValue({
-    userId: USER_ID,
-    workspaceId: WS.id,
-    role: "member",
-    workspace: { ...WS, aiInstructions },
-  } as never);
+  db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: WS.id } as never);
+  db.workspace.findUnique.mockResolvedValue({ ...WS, aiInstructions } as never);
+}
+
+/** Not a member of WS, directly or through a team. */
+function withoutMembership(db: DeepMockProxy<PrismaClient>) {
+  db.workspaceUser.findUnique.mockResolvedValue(null);
+  db.teamUser.findFirst.mockResolvedValue(null);
 }
 
 function withProject(
@@ -145,10 +148,11 @@ describe("agentGuidance.context", () => {
   });
 
   it("refuses a non-member with FORBIDDEN", async () => {
-    db.workspaceUser.findFirst.mockResolvedValue(null);
+    withoutMembership(db);
     await expect(caller(db).agentGuidance.context({ workspaceId: WS.id })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+    expect(db.workspace.findUnique).not.toHaveBeenCalled();
     expect(db.project.findFirst).not.toHaveBeenCalled();
   });
 
@@ -216,7 +220,7 @@ describe("loadScopeInstructions (the chat route's fetch)", () => {
   it("loads nothing when no scope is asked for", async () => {
     const loaded = await loadScopeInstructions(db as unknown as PrismaClient, { userId: USER_ID });
     expect(loaded).toEqual({ workspace: null, project: null });
-    expect(db.workspaceUser.findFirst).not.toHaveBeenCalled();
+    expect(db.workspaceUser.findUnique).not.toHaveBeenCalled();
     expect(db.project.findFirst).not.toHaveBeenCalled();
   });
 
@@ -238,11 +242,11 @@ describe("loadScopeInstructions (the chat route's fetch)", () => {
     expect(loaded.project).toEqual({ id: PROJECT.id, name: "Launch", aiInstructions: "Ship small." });
   });
 
-  it("checks direct membership of the workspace", async () => {
-    withWorkspace(db, null);
-    await loadScopeInstructions(db as unknown as PrismaClient, { userId: USER_ID, workspaceId: WS.id });
-    expect(db.workspaceUser.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { workspaceId: WS.id, userId: USER_ID } }),
-    );
+  it("admits a team-linked member through the central resolver", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.teamUser.findFirst.mockResolvedValue({ role: "member", team: { workspaceId: WS.id } } as never);
+    db.workspace.findUnique.mockResolvedValue({ ...WS, aiInstructions: "Team rules." } as never);
+    const loaded = await loadScopeInstructions(db as unknown as PrismaClient, { userId: USER_ID, workspaceId: WS.id });
+    expect(loaded.workspace?.aiInstructions).toBe("Team rules.");
   });
 });
