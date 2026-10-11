@@ -722,19 +722,18 @@ interface ExistingDecider {
  * Returns the nested `deciders` write for the caller's own update, so the
  * claim lands with the transition, or undefined when nothing changes. The
  * delete names the agent rows that were read, never "all deciders", so a
- * decider someone else added meanwhile is not swept away with them. Only a person acting through their own login claims:
- * `actorIsAgent` is the caller's knowledge from the token (an agent key, or
- * Zoe acting for the person), and the user row's `isAgent` flag is checked
- * here as well, so every caller gets the same answer.
+ * decider someone else added meanwhile is not swept away with them. Only a
+ * person acting through their own login gets here: `setStatus` and
+ * `confirmDraft` refuse every agent principal first. The user row's `isAgent`
+ * flag is checked as well, so a shadow user is never seated.
  */
 async function claimDeciderWrite(
   db: PrismaClient,
-  actor: { userId: string; actorIsAgent?: boolean },
+  userId: string,
   existing: ExistingDecider[],
 ): Promise<Prisma.DecisionUpdateInput["deciders"]> {
-  if (actor.actorIsAgent) return undefined;
   const person = await db.user.findUnique({
-    where: { id: actor.userId },
+    where: { id: userId },
     select: { id: true, name: true, email: true, isAgent: true },
   });
   if (!person || person.isAgent) return undefined;
@@ -940,7 +939,7 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
 
   const deciders =
     input.status === "ACCEPTED"
-      ? await claimDeciderWrite(db, { userId: input.userId, actorIsAgent: false }, current.deciders)
+      ? await claimDeciderWrite(db, input.userId, current.deciders)
       : undefined;
 
   const decision = await db.decision.update({
@@ -999,7 +998,7 @@ async function applyDraftResolution(
     evidence: Prisma.JsonValue;
   },
   userId: string,
-  opts: { status?: DecisionStatus; actorIsAgent?: boolean } = {},
+  opts: { status?: DecisionStatus } = {},
 ) {
   const target = await db.decision.findFirst({
     where: { id: draft.supersededById, workspaceId: draft.workspaceId, reviewState: "CONFIRMED" },
@@ -1061,7 +1060,7 @@ async function applyDraftResolution(
   // Accepting the answer is deciding it; leaving it open or proposed is not.
   const deciders =
     status === "ACCEPTED"
-      ? await claimDeciderWrite(db, { userId, actorIsAgent: opts.actorIsAgent }, target.deciders)
+      ? await claimDeciderWrite(db, userId, target.deciders)
       : undefined;
   const decision = await db.$transaction(async (tx) => {
     // Claim the draft first, conditionally: of two concurrent confirms only
@@ -1206,14 +1205,14 @@ async function confirmDraftAttempt(
       db,
       { ...current, supersededById: current.supersededById },
       input.userId,
-      { status: input.status, actorIsAgent: isAgentActing(input.principal) },
+      { status: input.status },
     );
   }
   const status = input.status ?? current.status;
   const statusChanged = status !== current.status;
   const deciders =
     status === "ACCEPTED"
-      ? await claimDeciderWrite(db, { userId: input.userId, actorIsAgent: isAgentActing(input.principal) }, current.deciders)
+      ? await claimDeciderWrite(db, input.userId, current.deciders)
       : undefined;
   const now = new Date();
   const decision = await db.$transaction(async (tx) => {
