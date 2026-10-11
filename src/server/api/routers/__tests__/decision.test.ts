@@ -1494,9 +1494,14 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
       deciders: [],
       ...overrides,
     };
-    db.decision.findFirst.mockImplementation(((args: { where: { id?: string; number?: number } }) =>
+    db.decision.findFirst.mockImplementation(((args: {
+      where: { id?: string; number?: number; reviewState?: { not?: string } };
+    }) =>
       Promise.resolve(
-        args.where.id === row.id || args.where.number === row.number ? row : null,
+        (args.where.id === row.id || args.where.number === row.number) &&
+          args.where.reviewState?.not !== row.reviewState
+          ? row
+          : null,
       )) as never);
     db.decision.findUniqueOrThrow.mockResolvedValue({
       ...row,
@@ -1609,7 +1614,9 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
       const result = await caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "d-0006" });
 
       expect(db.decision.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { workspaceId: WORKSPACE_ID, number: 6 } }),
+        expect.objectContaining({
+          where: { workspaceId: WORKSPACE_ID, number: 6, reviewState: { not: "REJECTED" } },
+        }),
       );
       expect(db.decision.findUniqueOrThrow).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: "dec-6" } }),
@@ -1624,6 +1631,36 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
         caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" }),
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(db.decision.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it("a viewer cannot reach a rejected draft, by label or by id", async () => {
+      withWorkspaceRole(db, "viewer");
+      withRow({ reviewState: "REJECTED" });
+      await expect(
+        caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      // By id the row loads, but a rejected draft keeps draft visibility —
+      // it never falls through to confirmed-row (workspace-wide) access.
+      await expect(
+        caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        caller(db).decision.adrDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(db.decision.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it("an editor can still clear a rejected draft by id", async () => {
+      withWorkspaceRole(db, "member");
+      withRow({ reviewState: "REJECTED" });
+      db.decision.delete.mockResolvedValue({} as never);
+      await expect(
+        caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).resolves.toEqual({ id: "dec-6" });
+      // A label never resolves to a rejected row, even for an editor.
+      await expect(
+        caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
     });
 
     it("a label in another workspace's sequence is not found", async () => {

@@ -92,8 +92,10 @@ const accessSubjectSelect = {
  * Load the row a procedure acts on, by id or by its `D-0006` label (any
  * case, any zero padding). A label resolves within the workspace and
  * includes drafts — the caller still runs `ensureDecisionAccess`, which is
- * what keeps a draft to the people who may confirm it. Always hand the
- * service `subject.id`, never the raw reference.
+ * what keeps a draft to the people who may confirm it. Rejected rows are
+ * never resolved by label: a label is something people read and pass
+ * around, and a rejected draft is a refusal, not a decision. Always hand
+ * the service `subject.id`, never the raw reference.
  */
 async function loadDecisionSubject(
   db: PrismaClient,
@@ -102,7 +104,10 @@ async function loadDecisionSubject(
 ) {
   const number = parseDecisionLabel(decisionRef);
   const decision = await db.decision.findFirst({
-    where: number !== null ? { workspaceId, number } : { id: decisionRef, workspaceId },
+    where:
+      number !== null
+        ? { workspaceId, number, reviewState: { not: "REJECTED" } }
+        : { id: decisionRef, workspaceId },
     select: accessSubjectSelect,
   });
   if (!decision) {
