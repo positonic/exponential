@@ -16,7 +16,7 @@ import { after } from "next/server";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere, requireProjectAccess } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -2250,18 +2250,11 @@ export const actionRouter = createTRPCRouter({
     .input(z.object({
       projectId: z.string(),
     }))
+    // Writes kanbanStatus/kanbanOrder across the whole project, so the
+    // caller — person or agent — must be able to edit the project
+    // (authorized agency, ADR-0071).
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
-      // Writes kanbanStatus/kanbanOrder across the whole project, so the
-      // caller — person or agent — must be able to edit the project
-      // (authorized agency, ADR-0071).
-      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
-      if (!canEditProject(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have permission to edit this project's board",
-        });
-      }
-
       // Get all actions in this project without kanban orders
       const actionsWithoutOrder = await ctx.db.action.findMany({
         where: {
