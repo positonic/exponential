@@ -21,6 +21,7 @@ import {
   type JWTTokenType,
 } from "~/server/utils/jwt";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { conflictFromError } from "~/server/services/revisions/revisionConflict";
 
 /**
  * 1. CONTEXT
@@ -222,6 +223,10 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
         ...shape.data,
         zodError:
           error.cause instanceof ZodError ? error.cause.flatten() : null,
+        // A compare-and-set write that lost: the structured revision conflict
+        // (entity, id, field, expected and current revision) so clients can
+        // re-read and reconcile rather than parse the message.
+        conflict: conflictFromError(error),
       },
     };
   },

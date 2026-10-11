@@ -11,6 +11,14 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import {
+  assertBaseRevision,
+  conflictAfterMiss,
+  isCompareAndSetMiss,
+  RevisionConflictError,
+  toConflictTRPCError,
+  withConflictAsTRPC,
+} from "~/server/services/revisions/revisionConflict";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
 import { uploadToBlob } from "~/lib/blob";
@@ -205,6 +213,12 @@ const scopeStatusEnum = z.enum([
   "SHIPPED",
   "DEPRECATED",
 ]);
+
+/** A Feature's current `docVersion`, or null when it is gone. */
+async function readFeatureDocVersion(db: PrismaClient, id: string): Promise<number | null> {
+  const row = await db.feature.findUnique({ where: { id }, select: { docVersion: true } });
+  return row?.docVersion ?? null;
+}
 
 /**
  * Load a feature and verify workspace access via its product. Shared with the
@@ -699,23 +713,67 @@ export const featureRouter = createTRPCRouter({
       // whose text is gone becomes orphaned, as an editor deletion would.
       let syncDoc = descriptionDoc === undefined && rest.description !== undefined;
       let previousDoc: JSONContent | null = null;
+      let storedDocVersion = 0;
+      let descriptionUnchanged = false;
       if (syncDoc) {
         // Re-sending the stored Markdown unchanged (agents retry-write a lot)
         // must not rewrite the doc: it would bump `docVersion` for nothing
-        // and hand every open editor tab a spurious CONFLICT.
+        // and hand every open editor tab a spurious CONFLICT. Nor is the text
+        // written back: unguarded, it would undo a save landing meanwhile.
         const current = await ctx.db.feature.findUnique({
           where: { id },
-          select: { description: true, descriptionDoc: true },
+          select: { description: true, descriptionDoc: true, docVersion: true },
         });
         if (!current) {
           // Deleted between the access check and this read - fail the same
           // way the access check would have.
           throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
         }
-        if (current.description === rest.description) syncDoc = false;
+        if (current.description === rest.description) {
+          syncDoc = false;
+          descriptionUnchanged = true;
+        }
         previousDoc = current.descriptionDoc as JSONContent | null;
+        storedDocVersion = current.docVersion;
       }
-      let data: Prisma.FeatureUncheckedUpdateInput = rest;
+      // A Markdown write that carries the `baseVersion` it read is a
+      // compare-and-set on `docVersion` (ADR-0071 change integrity): a stale
+      // base leaves the feature unchanged and returns a structured CONFLICT.
+      // Optional for now; without it the write bumps `docVersion` as before.
+      // An unchanged re-send rewrites nothing, so it is never a conflict.
+      const markdownBaseVersion = syncDoc ? baseVersion : undefined;
+      if (markdownBaseVersion !== undefined) {
+        await withConflictAsTRPC(async () =>
+          assertBaseRevision({
+            entity: "feature",
+            id,
+            field: "description",
+            storedRevision: storedDocVersion,
+            baseRevision: markdownBaseVersion,
+          }),
+        );
+      }
+      const writeWhere =
+        markdownBaseVersion !== undefined
+          ? { id, docVersion: markdownBaseVersion }
+          : { id };
+      // The WHERE above closes the race with a save landing after the check.
+      const rethrowMarkdownMiss = async (error: unknown): Promise<never> => {
+        if (markdownBaseVersion === undefined || !isCompareAndSetMiss(error)) {
+          throw error;
+        }
+        throw await conflictAfterMiss({
+          entity: "feature",
+          id,
+          field: "description",
+          expectedRevision: markdownBaseVersion,
+          readCurrentRevision: () => readFeatureDocVersion(ctx.db, id),
+        });
+      };
+      const { description: _unchangedDescription, ...restWithoutDescription } = rest;
+      let data: Prisma.FeatureUncheckedUpdateInput = descriptionUnchanged
+        ? restWithoutDescription
+        : rest;
       if (syncDoc) {
         try {
           data = {
@@ -782,13 +840,15 @@ export const featureRouter = createTRPCRouter({
       // status). Runs in one transaction with the feature update below so a
       // failed feature write cannot leave scopes deprecated on their own.
       if (input.status === "DEPRECATED" && deprecateScopes) {
-        const [, updated] = await ctx.db.$transaction([
-          ctx.db.featureScope.updateMany({
-            where: { featureId: id, status: "SHIPPED" },
-            data: { status: "DEPRECATED" },
-          }),
-          ctx.db.feature.update({ where: { id }, data }),
-        ]);
+        const [, updated] = await ctx.db
+          .$transaction([
+            ctx.db.featureScope.updateMany({
+              where: { featureId: id, status: "SHIPPED" },
+              data: { status: "DEPRECATED" },
+            }),
+            ctx.db.feature.update({ where: writeWhere, data }),
+          ])
+          .catch(rethrowMarkdownMiss);
         await recordFeatureEvent();
         return updated;
       }
@@ -810,13 +870,20 @@ export const featureRouter = createTRPCRouter({
           baseVersion,
         });
         if (!decision.accept) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
+          throw toConflictTRPCError(
+            new RevisionConflictError(
+              {
+                entity: "feature",
+                id,
+                field: "description",
+                expectedRevision: baseVersion,
+                currentRevision: current?.docVersion ?? 0,
+              },
               decision.reason === "stale"
                 ? "This PRD was updated in another tab or by another member. Reload to get the latest version."
                 : "Stale document version - reload and try again.",
-          });
+            ),
+          );
         }
         // Atomic compare-and-set: the WHERE on docVersion closes the read→write
         // race so two concurrent saves can't both bump from the same base.
@@ -829,8 +896,12 @@ export const featureRouter = createTRPCRouter({
           },
         });
         if (res.count === 0) {
-          throw new TRPCError({
-            code: "CONFLICT",
+          throw await conflictAfterMiss({
+            entity: "feature",
+            id,
+            field: "description",
+            expectedRevision: baseVersion,
+            readCurrentRevision: () => readFeatureDocVersion(ctx.db, id),
             message:
               "This PRD was updated concurrently. Reload to get the latest version.",
           });
@@ -838,10 +909,9 @@ export const featureRouter = createTRPCRouter({
         return { id, docVersion: decision.nextVersion };
       }
 
-      const updated = await ctx.db.feature.update({
-        where: { id },
-        data,
-      });
+      const updated = await ctx.db.feature
+        .update({ where: writeWhere, data })
+        .catch(rethrowMarkdownMiss);
       await recordFeatureEvent();
       return updated;
     }),

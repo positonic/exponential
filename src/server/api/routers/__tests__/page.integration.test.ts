@@ -386,6 +386,36 @@ describe("page router", () => {
       expect(stored.bodyDoc).toBeNull();
       expect(stored.docVersion).toBe(1);
     });
+
+    it("two concurrent writes from the same base: one lands, the other gets CONFLICT and changes nothing", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "pg-md-race" });
+      const page = await createPage(db, { createdById: owner.id, workspaceId: ws.id });
+      const caller = createTestCaller(owner.id);
+
+      const results = await Promise.allSettled(
+        ["first", "second"].map((body) =>
+          caller.page.update({ id: page.id, body, baseVersion: 0 }),
+        ),
+      );
+
+      const landed = results.filter((r) => r.status === "fulfilled");
+      const refused = results.filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+      expect(landed).toHaveLength(1);
+      expect(refused).toHaveLength(1);
+      const error = refused[0]!.reason as TRPCError;
+      expect(error.code).toBe("CONFLICT");
+      expect(error.cause).toMatchObject({
+        conflict: { entity: "page", id: page.id, expectedRevision: 0, currentRevision: 1 },
+      });
+
+      const winner = results.findIndex((r) => r.status === "fulfilled");
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.docVersion).toBe(1);
+      expect(stored.body).toBe(winner === 0 ? "first" : "second");
+    });
   });
 
   describe("page links — the PageLink index behind tree / parentCrumb / children", () => {

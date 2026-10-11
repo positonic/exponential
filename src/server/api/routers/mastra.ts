@@ -4087,6 +4087,10 @@ export const mastraRouter = createTRPCRouter({
         title: z.string().min(1).optional(),
         body: z.string().min(1).optional(),
         includeInSearch: z.boolean().optional(),
+        // The page's `docVersion` when Zoe read it. With it, a body edit is
+        // a compare-and-set: a newer save makes page.update throw CONFLICT
+        // (`data.conflict`) instead of being overwritten (ADR-0071).
+        baseVersion: z.number().int().min(0).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4096,6 +4100,7 @@ export const mastraRouter = createTRPCRouter({
         title: input.title,
         body: input.body,
         includeInSearch: input.includeInSearch,
+        baseVersion: input.baseVersion,
       });
       // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
       // the metadata path and returns the full record (not the {id, docVersion}
@@ -4110,6 +4115,7 @@ export const mastraRouter = createTRPCRouter({
           workspaceId: updated.workspaceId,
           projectId: updated.projectId,
           includeInSearch: updated.includeInSearch,
+          docVersion: updated.docVersion,
         },
       };
     }),
