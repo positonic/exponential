@@ -973,6 +973,21 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
+      // Agent principals always hold `member` (ADR-0049 §3): never admin, and
+      // no viewer tier. Reject rather than coerce, so the caller learns the rule.
+      if (input.role !== "member") {
+        const target = await ctx.db.user.findUnique({
+          where: { id: input.userId },
+          select: { isAgent: true },
+        });
+        if (target?.isAgent) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Agents always hold the member role in a workspace",
+          });
+        }
+      }
+
       // Update role
       const updatedMember = await ctx.db.workspaceUser.update({
         where: {
