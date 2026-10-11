@@ -267,20 +267,21 @@ describe("assistant router — per-user default scoping", () => {
     expect(dbMock.assistant.findMany).not.toHaveBeenCalled();
   });
 
-  it("only unsets the caller's own defaults when creating a new default", async () => {
+  it("refuses to create a second Assistant for a person who has one, writing nothing (ADR-0072)", async () => {
+    // findFirst resolves the caller's existing Assistant (beforeEach).
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
-    await caller.assistant.create({
-      workspaceId: WORKSPACE_ID,
-      name: "Aria",
-      personality: "Warm, direct.",
-      isDefault: true,
-    });
-
-    expect(dbMock.assistant.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ createdById: OWNER_ID }),
+    await expect(
+      caller.assistant.create({
+        workspaceId: WORKSPACE_ID,
+        name: "Aria",
+        personality: "Warm, direct.",
+        isDefault: true,
       }),
-    );
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    expect(dbMock.assistant.updateMany).not.toHaveBeenCalled();
+    expect(dbMock.assistant.create).not.toHaveBeenCalled();
+    expect(dbMock.user.create).not.toHaveBeenCalled();
   });
 });

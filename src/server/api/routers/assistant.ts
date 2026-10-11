@@ -5,8 +5,9 @@ import { TRPCError } from "@trpc/server";
 import { blankToNull } from "~/server/utils/blankToNull";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
+import { ensureAssistantForUser } from "~/server/services/assistant/ensureAssistant";
+import { resolveAssistantForUser } from "~/server/services/assistant/resolveAssistant";
 import {
-  createAssistantPrincipal,
   deleteExternalAgentPrincipal,
   renameAssistantPrincipal,
 } from "~/server/services/assistant/principal";
@@ -76,7 +77,11 @@ async function getOwnedAssistantOrThrow(
 }
 
 export const assistantRouter = createTRPCRouter({
-  /** Create a new assistant owned by the calling user */
+  /**
+   * Personalise the calling user's Assistant for the first time — the
+   * "persona save" first need (ADR-0072). A person has at most one Assistant,
+   * so this refuses when they already have one: edit it with `update`.
+   */
   create: humanOnlyProcedure
     .input(
       z.object({
@@ -86,43 +91,32 @@ export const assistantRouter = createTRPCRouter({
         personality: z.string().min(1).max(10000),
         instructions: z.string().max(10000).optional(),
         userContext: z.string().max(5000).optional(),
+        /** Ignored: a person's only Assistant is always their default (ADR-0072). */
         isDefault: z.boolean().optional().default(false),
       })
     )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ input, ctx }) => {
-      const { workspaceId, isDefault, ...data } = input;
+      const { workspaceId, isDefault: _isDefault, ...persona } = input;
       const userId = ctx.session.user.id;
 
-      // Unset only *this user's* existing default — never a co-member's.
-      if (isDefault) {
-        await ctx.db.assistant.updateMany({
-          where: { workspaceId, createdById: userId, isDefault: true },
-          data: { isDefault: false },
+      const existing = await resolveAssistantForUser(ctx.db, userId);
+      if (existing) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `You already have an Assistant, ${existing.name}. One Assistant works across all your workspaces.`,
         });
       }
 
-      // An Assistant is a principal (ADR-0067): shadow user → External agent →
-      // workspace membership → Assistant, in one transaction so a half-made
-      // Assistant can never exist. `requireWorkspaceMembership("edit")` above
-      // already guarantees the owner is a non-viewer member, which is the
-      // delegation-invariant precondition for the membership row.
-      return ctx.db.$transaction(async (tx) => {
-        const { externalAgentId } = await createAssistantPrincipal(tx, {
-          name: data.name,
-          ownerId: userId,
-          workspaceId,
-        });
-        return tx.assistant.create({
-          data: {
-            ...data,
-            workspaceId,
-            createdById: userId,
-            isDefault,
-            externalAgentId,
-          },
-        });
+      // An Assistant is a principal (ADR-0067), created in one transaction.
+      // `requireWorkspaceMembership("edit")` above already guarantees the
+      // owner is a non-viewer member, which is the delegation-invariant
+      // precondition for the membership row.
+      const { assistant } = await ensureAssistantForUser(ctx.db, userId, {
+        workspaceId,
+        ...persona,
       });
+      return assistant;
     }),
 
   /** Update an assistant owned by the calling user */
