@@ -89,7 +89,7 @@ function normaliseDeciders(deciders: DecisionDeciderInput[]): DecisionDeciderInp
 /** The include every detail read uses, so the shape is stable across surfaces. */
 export const decisionDetailInclude = {
   owner: { select: { id: true, name: true, email: true, image: true } },
-  createdBy: { select: { id: true, name: true } },
+  createdBy: { select: { id: true, name: true, isAgent: true } },
   confirmedBy: { select: { id: true, name: true } },
   deciders: {
     select: { id: true, userId: true, name: true, email: true },
@@ -430,6 +430,8 @@ export const decisionListSelect = {
   },
   transcriptionSession: { select: { id: true, title: true } },
   supersededBy: { select: { id: true, number: true } },
+  // Names who logged an AGENT row: Zoe, or the External agent / Assistant.
+  createdBy: { select: { name: true, isAgent: true } },
   _count: { select: { links: true, deciders: true } },
 } satisfies Prisma.DecisionSelect;
 
