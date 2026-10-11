@@ -10,7 +10,7 @@ Issues and PRDs for this repo live in [Exponential](https://www.exponential.im).
 
 ## This repo's coordinates
 
-- **Workspace**: `syntrofi` (CUID `cmk01wbrb000arzxzj8zy4czg`)
+- **Workspace**: `exponential` (CUID `cmv2lygf10001l506o0hxqoes`) — the product moved here from `syntrofi` on 2026-10-10
 - **Product**: `exponential` (CUID `cmp2ztu9y0003jv04kk2l8sm0`)
 - **Default feature**: _none_ — tickets in this repo roll up under multiple features (Activity dashboard, Coaching layout, Test Harness, …). Pass `--feature <feature-cuid>` explicitly when creating tickets that belong to a specific feature.
 

@@ -126,7 +126,7 @@ silently bill the wrong account.
 | --- | --- | --- | --- |
 | `EXPONENTIAL_API_URL` | yes | — | e.g. `https://www.exponential.im` |
 | `EXPONENTIAL_PRODUCT` | yes | — | Product slug or CUID whose backlog to scan |
-| `EXPONENTIAL_WORKSPACE` | yes | — | Workspace slug or CUID (e.g. `syntrofi`). Required — the CLI resolves `--label` slugs against the workspace, so label filtering fails without it even with a CUID product. |
+| `EXPONENTIAL_WORKSPACE` | yes | — | Workspace slug or CUID (e.g. `exponential`). Required — the CLI resolves `--label` slugs against the workspace, so label filtering fails without it even with a CUID product. |
 | `AI_BUILDER_MODEL` | no | `z-ai/glm-5.2` | Coding-agent model, as the endpoint names it |
 | `AI_BUILDER_BASE_URL` | no | `https://openrouter.ai/api` | Anthropic-compatible endpoint. Note `/api`, **not** `/api/v1` — the SDK appends its own path. Set to `https://api.anthropic.com` to talk to Anthropic directly (then `AI_BUILDER_MODEL` must be an Anthropic model id, and the workflow switches the auth header to `x-api-key` automatically); clearing the var just restores the OpenRouter default. |
 | `AI_BUILDER_MAX_USD` | no | `2` | Per-run spend ceiling passed to `--max-budget-usd`. Binds only if the CLI can price the model (see *Cost controls*) |

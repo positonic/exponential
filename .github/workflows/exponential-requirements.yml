@@ -20,7 +20,7 @@ on:
 env:
   EXPO_API_URL: https://www.exponential.im
   EXPO_PRODUCT: exponential
-  EXPO_WORKSPACE: syntrofi
+  EXPO_WORKSPACE: exponential
 jobs:
   tick-requirements:
     if: github.event.pull_request.merged == true
