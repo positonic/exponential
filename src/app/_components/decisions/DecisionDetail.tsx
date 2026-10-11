@@ -198,12 +198,25 @@ export function DecisionDetail({
             <Group gap="xs" mt="sm">
               <Button
                 size="xs"
-                loading={confirmDraft.isPending}
-                disabled={rejectDraft.isPending}
+                loading={confirmDraft.isPending && confirmDraft.variables?.status === undefined}
+                disabled={confirmDraft.isPending || rejectDraft.isPending}
                 onClick={() => confirmDraft.mutate({ workspaceId, decisionId: decision.id })}
               >
                 Confirm
               </Button>
+              {decision.status !== "ACCEPTED" ? (
+                <Button
+                  size="xs"
+                  variant="light"
+                  loading={confirmDraft.isPending && confirmDraft.variables?.status === "ACCEPTED"}
+                  disabled={confirmDraft.isPending || rejectDraft.isPending}
+                  onClick={() =>
+                    confirmDraft.mutate({ workspaceId, decisionId: decision.id, status: "ACCEPTED" })
+                  }
+                >
+                  Confirm as accepted
+                </Button>
+              ) : null}
               <Button
                 size="xs"
                 variant="subtle"

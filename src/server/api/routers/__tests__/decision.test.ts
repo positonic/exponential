@@ -1350,18 +1350,20 @@ describe("decision router", () => {
 
     it("publishes a plain draft in place and records `confirmed`", async () => {
       db.decision.findFirst.mockResolvedValue(DRAFT as never);
-      db.decision.update.mockResolvedValue({ ...DRAFT, reviewState: "CONFIRMED", supersededBy: null } as never);
+      db.decision.updateMany.mockResolvedValue({ count: 1 } as never);
+      db.decision.findUniqueOrThrow.mockResolvedValue({ ...DRAFT, reviewState: "CONFIRMED", supersededBy: null } as never);
 
       const result = await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" });
 
       expect(result.label).toBe("D-0009");
-      expect(db.decision.update).toHaveBeenCalledWith(
+      // Conditional on the row still being a draft (concurrent confirms).
+      expect(db.decision.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "draft-1" },
+          where: { id: "draft-1", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" },
           data: expect.objectContaining({ reviewState: "CONFIRMED", confirmedById: USER_ID }),
         }),
       );
-      expect(db.decision.delete).not.toHaveBeenCalled();
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
       expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: "confirmed", entityId: "draft-1" }) }),
       );
@@ -1378,7 +1380,7 @@ describe("decision router", () => {
         status: "ACCEPTED",
         supersededBy: null,
       } as never);
-      db.decision.delete.mockResolvedValue({} as never);
+      db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
 
       const result = await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" });
 
@@ -1391,7 +1393,9 @@ describe("decision router", () => {
       expect(update.data.body).toBe("## Context\nraised\n\n## Resolution\nThe peek drawer ships first\n\n## Context\nsaid so");
       // Same meeting: the draft's quote joins the target's evidence.
       expect(update.data.evidence).toEqual([...OPEN_TARGET.evidence, ...DRAFT.evidence]);
-      expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "draft-1", workspaceId: WORKSPACE_ID } });
+      expect(db.decision.deleteMany).toHaveBeenCalledWith({
+        where: { id: "draft-1", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" },
+      });
       expect(db.decision.create).not.toHaveBeenCalled();
       expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1427,7 +1431,7 @@ describe("decision router", () => {
         caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" }),
       ).rejects.toThrow(/no longer available/i);
       expect(db.decision.update).not.toHaveBeenCalled();
-      expect(db.decision.delete).not.toHaveBeenCalled();
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
     });
   });
 
@@ -1460,6 +1464,322 @@ describe("decision router", () => {
       await expect(
         caller(db).decision.listForMeeting({ transcriptionSessionId: MEETING_ID }),
       ).rejects.toThrow(/meeting not found/i);
+    });
+  });
+});
+
+/**
+ * Accepting sets the decider, `confirmDraft`'s optional status, and D-number
+ * lookup. The decider rule itself lives in the service (and is pinned in
+ * `services/decisions/__tests__/acceptSetsDecider.test.ts`); these tests pin
+ * that the router hands it the resolved row and the right principal.
+ */
+describe("decision router — accept, confirm-with-status, label lookup", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const PERSON = { id: USER_ID, name: "James", email: "james@example.test", isAgent: false };
+
+  /** A meeting-less, project-less row — an agent-logged draft by default. */
+  function withRow(overrides: Record<string, unknown> = {}) {
+    const row = {
+      id: "dec-6",
+      workspaceId: WORKSPACE_ID,
+      number: 6,
+      statement: "Grill answers are logged as drafts",
+      status: "PROPOSED",
+      reviewState: "DRAFT",
+      decidedAt: null,
+      supersededById: null,
+      source: "AGENT",
+      transcriptionSessionId: null,
+      transcriptionSession: null,
+      projectId: null,
+      body: null,
+      evidence: [],
+      deciders: [],
+      ...overrides,
+    };
+    db.decision.findFirst.mockImplementation(((args: {
+      where: { id?: string; number?: number; reviewState?: { not?: string } };
+    }) =>
+      Promise.resolve(
+        (args.where.id === row.id || args.where.number === row.number) &&
+          args.where.reviewState?.not !== row.reviewState
+          ? row
+          : null,
+      )) as never);
+    // What the row looks like after this call's writes, for the reads after.
+    let written: Record<string, unknown> = { ...row, supersededBy: null, supersedes: [] };
+    db.decision.findUniqueOrThrow.mockImplementation((() => Promise.resolve(written)) as never);
+    db.decision.update.mockImplementation(((args: { data: Record<string, unknown> }) => {
+      written = { ...written, ...args.data };
+      return Promise.resolve(written);
+    }) as never);
+    // A confirm's conditional DRAFT → CONFIRMED write.
+    db.decision.updateMany.mockImplementation(((args: { data: Record<string, unknown> }) => {
+      written = { ...written, ...args.data };
+      return Promise.resolve({ count: 1 });
+    }) as never);
+    return row;
+  }
+  /**
+   * The first write's target and everything written, merged: a confirm is a
+   * conditional `updateMany` (+ an `update` when it claims the decider) in
+   * one transaction; a status change or edit is one `update`.
+   */
+  const updateArgs = () => {
+    const calls = [...db.decision.updateMany.mock.calls, ...db.decision.update.mock.calls].map(
+      (call) => call[0] as { where: Record<string, unknown>; data: Record<string, unknown> },
+    );
+    return { where: calls[0]!.where, data: Object.assign({}, ...calls.map((c) => c.data)) as Record<string, unknown> };
+  };
+  const clearWrites = () => {
+    db.decision.update.mockClear();
+    db.decision.updateMany.mockClear();
+  };
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.workspaceActivityEvent.create.mockResolvedValue({} as never);
+    withTransaction(db);
+    // The caller is a person: humanOnlyProcedure and the service's own
+    // principal lookup both read this.
+    db.user.findUnique.mockResolvedValue(PERSON as never);
+  });
+
+  describe("confirmDraft with a status", () => {
+    it("confirms and accepts in one write, making the person the decider", async () => {
+      withWorkspaceRole(db, "member");
+      withRow();
+
+      const result = await caller(db).decision.confirmDraft({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-6",
+        status: "ACCEPTED",
+      });
+
+      expect(db.decision.updateMany).toHaveBeenCalledTimes(1);
+      expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" });
+      expect(updateArgs().data).toMatchObject({
+        reviewState: "CONFIRMED",
+        confirmedById: USER_ID,
+        status: "ACCEPTED",
+        deciders: { create: [{ userId: USER_ID, name: "James", email: "james@example.test" }] },
+      });
+      expect(result.status).toBe("ACCEPTED");
+      const actions = db.workspaceActivityEvent.create.mock.calls.map(
+        (call) => (call[0] as { data: { action: string } }).data.action,
+      );
+      expect(actions).toEqual(["confirmed", "accepted"]);
+    });
+
+    it("refuses SUPERSEDED with BAD_REQUEST — it needs a successor", async () => {
+      withWorkspaceRole(db, "member");
+      withRow();
+      await expect(
+        caller(db).decision.confirmDraft({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "SUPERSEDED",
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(db.decision.update).not.toHaveBeenCalled();
+    });
+
+    it("on an already-confirmed row, applies only the status change", async () => {
+      withWorkspaceRole(db, "member");
+      withRow({
+        reviewState: "CONFIRMED",
+        deciders: [{ id: "decider-agent", userId: "agent-1", user: { isAgent: true } }],
+      });
+
+      await caller(db).decision.confirmDraft({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "dec-6",
+        status: "ACCEPTED",
+      });
+
+      expect(updateArgs().data).toMatchObject({
+        status: "ACCEPTED",
+        deciders: {
+          deleteMany: { id: { in: ["decider-agent"] } },
+          create: [expect.objectContaining({ userId: USER_ID })],
+        },
+      });
+      expect(updateArgs().data).not.toHaveProperty("reviewState");
+    });
+  });
+
+  describe("setStatus and the decider", () => {
+    it("a person accepting becomes the decider", async () => {
+      withWorkspaceRole(db, "member");
+      withRow({ reviewState: "CONFIRMED" });
+      await caller(db).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status: "ACCEPTED" });
+      expect(updateArgs().data).toMatchObject({
+        status: "ACCEPTED",
+        deciders: { create: [expect.objectContaining({ userId: USER_ID })] },
+      });
+    });
+
+    const callerWithToken = (tokenType: string | undefined) =>
+      createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient, tokenType });
+
+    it.each(["agent-key", "agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+      "setStatus through a %s token never seats the person, whatever the user row says",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow({ reviewState: "CONFIRMED" });
+        await callerWithToken(tokenType).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "ACCEPTED",
+        });
+        expect(updateArgs().data.status).toBe("ACCEPTED");
+        expect(updateArgs().data).not.toHaveProperty("deciders");
+      },
+    );
+
+    it.each(["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+      "confirmDraft through a %s token (Zoe acting for the person) confirms but seats nobody",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow();
+        await callerWithToken(tokenType).decision.confirmDraft({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "ACCEPTED",
+        });
+        expect(updateArgs().data).toMatchObject({ reviewState: "CONFIRMED", status: "ACCEPTED" });
+        expect(updateArgs().data).not.toHaveProperty("deciders");
+      },
+    );
+
+    it.each([undefined, "api-token", "extension-token", "device-token"])(
+      "a person's own login (%s) does claim the seat",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow({ reviewState: "CONFIRMED" });
+        await callerWithToken(tokenType).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "ACCEPTED",
+        });
+        expect(updateArgs().data).toHaveProperty("deciders");
+      },
+    );
+  });
+
+  describe("lookup by D-number", () => {
+    it("get resolves a label, case-insensitively, to the workspace row — drafts included", async () => {
+      withWorkspaceRole(db, "member");
+      withRow({ reviewState: "DRAFT" });
+
+      const result = await caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "d-0006" });
+
+      expect(db.decision.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { workspaceId: WORKSPACE_ID, number: 6, reviewState: { not: "REJECTED" } },
+        }),
+      );
+      expect(db.decision.findUniqueOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "dec-6" } }),
+      );
+      expect(result.label).toBe("D-0006");
+    });
+
+    it("still enforces access: a viewer cannot see a draft by its label", async () => {
+      withWorkspaceRole(db, "viewer");
+      withRow({ reviewState: "DRAFT" });
+      await expect(
+        caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(db.decision.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it("a viewer cannot reach a rejected draft, by label or by id", async () => {
+      withWorkspaceRole(db, "viewer");
+      withRow({ reviewState: "REJECTED" });
+      await expect(
+        caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      // By id the row loads, but a rejected draft keeps draft visibility —
+      // it never falls through to confirmed-row (workspace-wide) access.
+      await expect(
+        caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(
+        caller(db).decision.adrDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(db.decision.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it("an editor can still clear a rejected draft by id", async () => {
+      withWorkspaceRole(db, "member");
+      withRow({ reviewState: "REJECTED" });
+      db.decision.delete.mockResolvedValue({} as never);
+      await expect(
+        caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).resolves.toEqual({ id: "dec-6" });
+      // A label never resolves to a rejected row, even for an editor.
+      await expect(
+        caller(db).decision.deleteDraft({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
+
+    it("a label in another workspace's sequence is not found", async () => {
+      withWorkspaceRole(db, "member");
+      withRow();
+      await expect(
+        caller(db).decision.get({ workspaceId: WORKSPACE_ID, decisionId: "D-0099" }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
+
+    it("confirmDraft, setStatus and update hand the service the resolved id, not the label", async () => {
+      withWorkspaceRole(db, "member");
+      withRow();
+      await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" });
+      expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" });
+
+      clearWrites();
+      withRow({ reviewState: "CONFIRMED" });
+      await caller(db).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "D-6", status: "DEPRECATED" });
+      expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID });
+
+      clearWrites();
+      await caller(db).decision.update({ workspaceId: WORKSPACE_ID, decisionId: "d-0006", statement: "Renamed" });
+      expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID });
+    });
+
+    it("setStatus resolves a successor named by label to its id", async () => {
+      withWorkspaceRole(db, "member");
+      const row = withRow({ reviewState: "CONFIRMED", status: "ACCEPTED" });
+      const successor = { ...row, id: "dec-7", number: 7 };
+      db.decision.findFirst.mockImplementation(((args: { where: { id?: string; number?: number } }) =>
+        Promise.resolve(
+          args.where.id === row.id || args.where.number === 6
+            ? row
+            : args.where.id === successor.id || args.where.number === 7
+              ? successor
+              : null,
+        )) as never);
+
+      await caller(db).decision.setStatus({
+        workspaceId: WORKSPACE_ID,
+        decisionId: "D-0006",
+        status: "SUPERSEDED",
+        supersededById: "D-0007",
+      });
+
+      expect(updateArgs().data).toMatchObject({ status: "SUPERSEDED", supersededById: "dec-7" });
+    });
+
+    it("a viewer cannot change status by label either", async () => {
+      withWorkspaceRole(db, "viewer");
+      withRow({ reviewState: "CONFIRMED" });
+      await expect(
+        caller(db).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "D-0006", status: "ACCEPTED" }),
+      ).rejects.toThrow();
+      expect(db.decision.update).not.toHaveBeenCalled();
     });
   });
 });

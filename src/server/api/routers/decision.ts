@@ -29,7 +29,7 @@ import {
   unlinkEntity,
   updateDecision,
 } from "~/server/services/decisions/decisionService";
-import { formatDecisionLabel } from "~/lib/decision-label";
+import { formatDecisionLabel, parseDecisionLabel } from "~/lib/decision-label";
 import { buildAdrDraft } from "~/server/services/decisions/renderAdrMarkdown";
 import { settleDraftReviewNotification } from "~/server/services/decisions/settleDraftReviewNotification";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
@@ -88,13 +88,26 @@ const accessSubjectSelect = {
   },
 } as const;
 
+/**
+ * Load the row a procedure acts on, by id or by its `D-0006` label (any
+ * case, any zero padding). A label resolves within the workspace and
+ * includes drafts — the caller still runs `ensureDecisionAccess`, which is
+ * what keeps a draft to the people who may confirm it. Rejected rows are
+ * never resolved by label: a label is something people read and pass
+ * around, and a rejected draft is a refusal, not a decision. Always hand
+ * the service `subject.id`, never the raw reference.
+ */
 async function loadDecisionSubject(
   db: PrismaClient,
   workspaceId: string,
-  decisionId: string,
+  decisionRef: string,
 ) {
+  const number = parseDecisionLabel(decisionRef);
   const decision = await db.decision.findFirst({
-    where: { id: decisionId, workspaceId },
+    where:
+      number !== null
+        ? { workspaceId, number, reviewState: { not: "REJECTED" } }
+        : { id: decisionRef, workspaceId },
     select: accessSubjectSelect,
   });
   if (!decision) {
@@ -160,6 +173,30 @@ async function isAgentPrincipal(
     select: { isAgent: true },
   });
   return principal?.isAgent === true;
+}
+
+/**
+ * Token types that mean an agent is doing the acting even when the session
+ * user is a person: an External agent's key, Zoe's agent-context JWT, the
+ * chat gateways (Zoe answering in WhatsApp / Telegram / Matrix) and a voice
+ * session. Accepting a decision makes the actor its decider, and that seat
+ * belongs to a person acting through their own login — Zoe accepting on
+ * someone's behalf is not that person deciding (ADR-0070). Personal API
+ * tokens (the CLI), the extension, devices and browser sessions are the
+ * person themselves.
+ */
+const AGENT_ACTOR_TOKEN_TYPES: ReadonlySet<string> = new Set([
+  "agent-key",
+  "agent-context",
+  "whatsapp-gateway",
+  "telegram-gateway",
+  "matrix-gateway",
+  "voice-session",
+]);
+
+/** Whether the caller's token says an agent, not the person, is acting. */
+function isAgentActorToken(tokenType: string | undefined): boolean {
+  return tokenType !== undefined && AGENT_ACTOR_TOKEN_TYPES.has(tokenType);
 }
 
 /** Throwing wrapper around the decision resolver for one row. */
@@ -781,6 +818,7 @@ export const decisionRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
+      let supersededById = input.supersededById ?? null;
       if (input.status === "SUPERSEDED" && input.supersededById) {
         const successor = await loadDecisionSubject(
           ctx.db,
@@ -788,13 +826,18 @@ export const decisionRouter = createTRPCRouter({
           input.supersededById,
         );
         await ensureDecisionAccess(ctx.db, ctx.session.user.id, successor, "view");
+        // The successor may have been named by label; the service takes ids.
+        supersededById = successor.id;
       }
       const decision = await setStatus(ctx.db, {
         decisionId: subject.id,
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
         status: input.status,
-        supersededById: input.supersededById ?? null,
+        supersededById,
+        // Accepting makes a person the decider — only through their own
+        // login, never Zoe or an agent acting for them.
+        actorIsAgent: isAgentActorToken(ctx.tokenType),
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
@@ -802,18 +845,36 @@ export const decisionRouter = createTRPCRouter({
   /**
    * Publish a draft into the log. Human-only: confirming is the person
    * standing behind the decision, so an agent cannot confirm its own (or any)
-   * draft.
+   * draft. An optional `status` moves it in the same call ("confirm as
+   * accepted"); on an already-confirmed row only that status change applies.
+   * A person accepting through their own login becomes the decider when no
+   * person is one yet; Zoe or a gateway confirming on their behalf does not
+   * seat them (`isAgentActorToken`).
    */
   confirmDraft: humanOnlyProcedure
-    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        decisionId: z.string(),
+        status: decisionStatusSchema.optional(),
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
+      if (input.status === "SUPERSEDED") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A decision is superseded by choosing its successor — confirm it first, then change its status",
+        });
+      }
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
       const decision = await confirmDraft(ctx.db, {
         decisionId: subject.id,
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
+        status: input.status,
+        actorIsAgent: isAgentActorToken(ctx.tokenType),
       });
       await settleDraftReviewAfter(ctx.db, subject);
       return { ...decision, label: formatDecisionLabel(decision.number) };

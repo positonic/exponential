@@ -103,7 +103,10 @@ export async function getDecisionAccess(
     hasProjectAccess: projectAccessInfo ? hasProjectAccess(projectAccessInfo) : false,
     canEditProject: projectAccessInfo ? canEditProject(projectAccessInfo) : false,
     workspaceRole: membership?.role ?? null,
-    isDraft: decision.reviewState === "DRAFT",
+    // A rejected draft is still an unreviewed (possibly hallucinated) agent
+    // or extractor output, so it keeps draft visibility: only the people who
+    // may confirm it. It must never fall through to confirmed-row access.
+    isDraft: decision.reviewState !== "CONFIRMED",
   };
 }
 

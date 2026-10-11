@@ -3,6 +3,8 @@ import {
   buildDecisionAccessWhereAcrossWorkspaces,
   buildProjectAccessWhere,
   buildWorkspaceAccessWhere,
+  canEditDecision,
+  getDecisionAccess,
 } from "~/server/services/access";
 import { myOverdueActionsWhere } from "~/server/services/actions/myActionsWhere";
 import { buildActionAccessWhere } from "~/server/services/access";
@@ -243,6 +245,8 @@ export async function listWaitingOnMe(
           number: true,
           statement: true,
           createdAt: true,
+          workspaceId: true,
+          projectId: true,
           workspace: { select: { slug: true, name: true } },
           createdBy: { select: { name: true, isAgent: true } },
         },
@@ -324,6 +328,27 @@ export async function listWaitingOnMe(
     ticketRows.map((t) => ({ prUrl: t.prUrl, workspaceId: t.product.workspaceId })),
   );
 
+  // Confirm is gated like the draft's own banner: on edit access to the
+  // decision. These drafts are meeting-less, so access turns on the workspace
+  // role and the project alone — resolve each pair once.
+  const editableByScope = new Map<string, Promise<boolean>>();
+  const agentDraftEditable = await Promise.all(
+    agentDraftRows.map((row) => {
+      const key = `${row.workspaceId}:${row.projectId ?? ""}`;
+      let editable = editableByScope.get(key);
+      if (!editable) {
+        editable = getDecisionAccess(db, userId, {
+          workspaceId: row.workspaceId,
+          projectId: row.projectId,
+          reviewState: "DRAFT",
+          transcriptionSession: null,
+        }).then(canEditDecision);
+        editableByScope.set(key, editable);
+      }
+      return editable;
+    }),
+  );
+
   // The WHERE already selected exactly the overdue set on the viewer's day;
   // only order it. Re-bucketing with partitionActions would re-derive "today"
   // in the server's timezone and drop rows the count includes.
@@ -340,9 +365,10 @@ export async function listWaitingOnMe(
       ...m,
       draftCount: _count.decisions,
     })),
-    agentDrafts: agentDraftRows.map(({ number, createdBy, ...d }) => ({
+    agentDrafts: agentDraftRows.map(({ number, createdBy, ...d }, index) => ({
       ...d,
       label: formatDecisionLabel(number),
+      canEdit: agentDraftEditable[index] ?? false,
       // Your own Assistant is named; a draft Zoe logged as you is "Zoe".
       authorName: createdBy.isAgent ? (createdBy.name ?? "Your assistant") : "Zoe",
     })),
