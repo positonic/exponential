@@ -1,8 +1,16 @@
 name: PR Agent
 #
-# Reactivated 2026-10-08 with a funded ANTHROPIC_KEY. It was parked from
-# 2026-10-02 because the old key ran out of credit and every run reported a red
-# check having reviewed nothing. This check is not required on main.
+# Review-only on GLM 5.3 through OpenRouter, pinned to Z.AI's own endpoint (the
+# model, fallback and routing live in .pr_agent.toml). This check is not
+# required on main, but pr-agent-automerge.yml listens for this workflow by
+# name — keep `name: PR Agent` and the job name `PR Agent review`.
+#
+# Moved off Claude Opus 5 on 2026-10-11. Opus ran describe + review + improve
+# on every push: 4 calls, about $0.75 a push, so $100 of credit lasted three
+# days (Oct 8–11), and the August key had drained the same way. One review
+# call on GLM 5.3 is roughly $0.06. Describe is off because sessions write
+# their own PR bodies; improve is off because its suggestions never scored
+# above 7 here and the gate no longer reads them.
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, synchronize]
@@ -29,18 +37,13 @@ jobs:
         uses: qodo-ai/pr-agent@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC.KEY: ${{ secrets.ANTHROPIC_KEY }}
-          # Repo-level behaviour is version-controlled in .pr_agent.toml.
-          # Model selection is kept here so the secret/model live together.
-          config.model: "anthropic/claude-opus-5"
-          # Point the fallback at another Anthropic model so PR-Agent never
-          # falls back to OpenAI (which would require an OPENAI_API_KEY).
-          config.fallback_models: '["anthropic/claude-sonnet-4-6"]'
-          # Needed if the image's litellm has no registry entry for the model.
-          config.custom_model_max_tokens: "200000"
+          OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Model, fallback and provider routing are in .pr_agent.toml, not here:
+          # PR-Agent applies the repo file after these env vars, so a model set
+          # here is silently overridden by the one in the file.
           github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "true"
-          github_action_config.auto_improve: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
 
       - name: Confirm a review was actually produced
@@ -71,7 +74,7 @@ jobs:
             --jq "[.[] | select(.created_at >= \"${SINCE}\") | .body] | .[]" \
             > /tmp/pr_agent_comments.txt
           if grep -qiE 'failed to (generate|review)' /tmp/pr_agent_comments.txt; then
-            echo "::error title=PR-Agent produced no review::The action ran but every model call failed, so this PR was NOT reviewed. Check the step log for the provider error — it is usually an exhausted API credit balance on the ANTHROPIC_KEY secret."
+            echo "::error title=PR-Agent produced no review::The action ran but every model call failed, so this PR was NOT reviewed. Check the step log for the provider error — it is usually an exhausted credit balance on the OPENROUTER_API_KEY secret."
             grep -iE 'failed to (generate|review)' /tmp/pr_agent_comments.txt | head -5
             exit 1
           fi
