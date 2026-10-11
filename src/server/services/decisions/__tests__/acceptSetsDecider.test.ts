@@ -155,7 +155,7 @@ describe("accepting sets the decider", () => {
       expect(activityActions()).toEqual(["confirmed", "accepted"]);
     });
 
-    it("confirming without a status still makes the person the decider", async () => {
+    it("confirming a draft born ACCEPTED, without a status, makes the person the decider", async () => {
       withRow({ reviewState: "DRAFT", status: "ACCEPTED", deciders: [] });
       await confirm();
       expect(updateData()).toMatchObject({ reviewState: "CONFIRMED", deciders: { create: [PERSON_AS_DECIDER] } });
@@ -163,11 +163,15 @@ describe("accepting sets the decider", () => {
       expect(activityActions()).toEqual(["confirmed"]);
     });
 
-    it("confirming an OPEN question names no decider — nobody has decided it yet", async () => {
-      withRow({ reviewState: "DRAFT", status: "OPEN", deciders: [] });
-      await confirm();
-      expect(updateData()).not.toHaveProperty("deciders");
-    });
+    it.each(["OPEN", "PROPOSED", "DEPRECATED"] as const)(
+      "confirming a draft that ends %s names no decider — confirming is not deciding",
+      async (status) => {
+        withRow({ reviewState: "DRAFT", status: "PROPOSED", deciders: [] });
+        await confirm(status);
+        expect(updateData()).not.toHaveProperty("deciders");
+        expect(db.user.findUnique).not.toHaveBeenCalled();
+      },
+    );
 
     it("stamps decidedAt when confirming a draft that was born ACCEPTED", async () => {
       withRow({ reviewState: "DRAFT", status: "ACCEPTED", decidedAt: null });

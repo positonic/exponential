@@ -699,8 +699,8 @@ interface ExistingDecider {
 }
 
 /**
- * A person who accepts or confirms a decision that no person stands behind
- * becomes its decider (CONTEXT.md "Decision"). Agents log decisions as drafts
+ * A person who accepts a decision that no person stands behind becomes its
+ * decider (CONTEXT.md "Decision"). Agents log decisions as drafts
  * with no decider (ADR-0070), and decisions logged before that rule may name
  * the agent itself; either way the person accepting it is the one who
  * decided. Human deciders already named — including external meeting
@@ -909,8 +909,8 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
  * and (same meeting) its evidence — and removes the draft row, so the log
  * gains an answer, not a duplicate (ADR-0060 decision 4). A target that is
  * no longer open keeps its status; the draft is still absorbed. An explicit
- * `status` from the reviewer wins over both, and the reviewer claims the
- * decider seat when nobody human holds it.
+ * `status` from the reviewer wins over both, and when the result is
+ * ACCEPTED the reviewer claims the decider seat if nobody human holds it.
  */
 async function applyDraftResolution(
   db: PrismaClient,
@@ -985,10 +985,9 @@ async function applyDraftResolution(
   const resolves = target.status === "OPEN" || target.status === "PROPOSED";
   const status: DecisionStatus = opts.status ?? (resolves ? "ACCEPTED" : target.status);
   const statusChanged = status !== target.status;
-  // Confirming is a person standing behind the answer — except an OPEN
-  // question, which nobody has decided yet.
+  // Accepting the answer is deciding it; leaving it open or proposed is not.
   const deciders =
-    status !== "OPEN"
+    status === "ACCEPTED"
       ? await claimDeciderWrite(db, { userId, actorIsAgent: opts.actorIsAgent }, target.deciders)
       : undefined;
   const decision = await db.$transaction(async (tx) => {
@@ -1041,9 +1040,10 @@ export interface ConfirmDraftInput {
 }
 
 /**
- * Publish a draft, optionally moving it to `status` in the same write. A
- * person confirming a decision that no person stands behind becomes its
- * decider (unless it is an OPEN question — nobody has decided that yet).
+ * Publish a draft, optionally moving it to `status` in the same write. When
+ * the result is ACCEPTED, a person confirming a decision that no person
+ * stands behind becomes its decider, as {@link setStatus} does; confirming
+ * an OPEN or PROPOSED draft is publishing it, not deciding it.
  *
  * Idempotent on the confirm: a confirmed row records nothing — unless a
  * different `status` is asked for, which is then applied exactly as
@@ -1113,7 +1113,7 @@ export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
   const status = input.status ?? current.status;
   const statusChanged = status !== current.status;
   const deciders =
-    status !== "OPEN" ? await claimDeciderWrite(db, input, current.deciders) : undefined;
+    status === "ACCEPTED" ? await claimDeciderWrite(db, input, current.deciders) : undefined;
   const decision = await db.decision.update({
     where: { id: current.id },
     data: {
