@@ -245,6 +245,16 @@ describe("page.update: Markdown-source writes are conflict-checked", () => {
     );
   });
 
+  it("re-sending the stored body with a stale base is not a conflict (nothing is overwritten)", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+
+    await caller.page.update({ id: PAGE_ID, body: "original", baseVersion: 1 });
+
+    expect(db.knowledgePage.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: PAGE_ID } }),
+    );
+  });
+
   it("a metadata-only update ignores baseVersion", async () => {
     const caller = createMockCaller({ userId: OWNER, db });
 

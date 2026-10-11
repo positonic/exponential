@@ -893,29 +893,32 @@ export const pageRouter = createTRPCRouter({
       // triggers) — or, when the old doc has comment marks, derive it here so
       // they can be carried across (below).
       const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
-      // The Markdown path is checked only when the caller sent the revision it
-      // read. Fail fast here; the WHERE on docVersion below closes the race.
-      const markdownBaseVersion = markdownSourceWrite ? baseVersion : undefined;
-      if (markdownBaseVersion !== undefined) {
-        await withConflictAsTRPC(async () =>
-          assertBaseRevision({
-            entity: "page",
-            id,
-            field: "body",
-            storedRevision: page.docVersion,
-            baseRevision: markdownBaseVersion,
-          }),
-        );
-      }
       // Nulling the doc would take every comment mark with it, orphaning the
       // page's anchored threads. When there are marks to keep, derive the doc
       // here instead and carry them across wherever their text survived.
       let carriedDoc: JSONContent | null = null;
+      let markdownBaseVersion: number | undefined;
       if (markdownSourceWrite) {
         const stored = await ctx.db.knowledgePage.findUnique({
           where: { id },
-          select: { bodyDoc: true },
+          select: { bodyDoc: true, body: true },
         });
+        // The Markdown path is checked only when the caller sent the revision
+        // it read and the body actually changes (an unchanged re-send
+        // overwrites nothing, as on features and tickets). Fail fast here;
+        // the WHERE on docVersion below closes the race.
+        if (baseVersion !== undefined && stored?.body !== body) {
+          markdownBaseVersion = baseVersion;
+          await withConflictAsTRPC(async () =>
+            assertBaseRevision({
+              entity: "page",
+              id,
+              field: "body",
+              storedRevision: page.docVersion,
+              baseRevision: baseVersion,
+            }),
+          );
+        }
         const storedDoc = stored?.bodyDoc as JSONContent | null | undefined;
         if (docHasCommentMarks(storedDoc)) {
           try {
@@ -1010,36 +1013,36 @@ export const pageRouter = createTRPCRouter({
       // A Markdown-source write replaces the doc (carried, or nulled for lazy
       // re-derivation), so its links are re-derived with it; a metadata-only
       // update leaves the doc and its links alone.
-      let updated;
-      try {
-        updated = markdownSourceWrite
-          ? await ctx.db.$transaction(async (tx) => {
-              // With a base version the update is a compare-and-set: a save
-              // that landed since the check above makes it miss (P2025) and
-              // the transaction writes nothing.
-              const row = await tx.knowledgePage.update({
+      const guardedBase = markdownBaseVersion;
+      const updated = markdownSourceWrite
+        ? await ctx.db.$transaction(async (tx) => {
+            // With a base version the update is a compare-and-set: a save
+            // that landed since the check above makes it miss (P2025) and
+            // the transaction writes nothing.
+            const row = await tx.knowledgePage
+              .update({
                 where:
-                  markdownBaseVersion !== undefined
-                    ? { id, docVersion: markdownBaseVersion }
+                  guardedBase !== undefined
+                    ? { id, docVersion: guardedBase }
                     : { id },
                 data,
+              })
+              .catch(async (error: unknown) => {
+                if (guardedBase === undefined || !isCompareAndSetMiss(error)) {
+                  throw error;
+                }
+                throw await conflictAfterMiss({
+                  entity: "page",
+                  id,
+                  field: "body",
+                  expectedRevision: guardedBase,
+                  readCurrentRevision: () => readPageDocVersion(ctx.db, id),
+                });
               });
-              await syncPageLinks(tx, id, carriedDoc);
-              return row;
-            })
-          : await ctx.db.knowledgePage.update({ where: { id }, data });
-      } catch (error) {
-        if (markdownBaseVersion === undefined || !isCompareAndSetMiss(error)) {
-          throw error;
-        }
-        throw await conflictAfterMiss({
-          entity: "page",
-          id,
-          field: "body",
-          expectedRevision: markdownBaseVersion,
-          readCurrentRevision: () => readPageDocVersion(ctx.db, id),
-        });
-      }
+            await syncPageLinks(tx, id, carriedDoc);
+            return row;
+          })
+        : await ctx.db.knowledgePage.update({ where: { id }, data });
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
       // doesn't take the bodyDoc save path above, so cover it here too.

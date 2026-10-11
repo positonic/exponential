@@ -214,17 +214,17 @@ const scopeStatusEnum = z.enum([
   "DEPRECATED",
 ]);
 
-/**
- * Load a feature and verify workspace access via its product. Shared with the
- * featureComment router so comments reuse the exact same access gate. Pass
- * `"edit"` from every mutation - `"view"` admits read-only viewers.
- */
 /** A Feature's current `docVersion`, or null when it is gone. */
 async function readFeatureDocVersion(db: PrismaClient, id: string): Promise<number | null> {
   const row = await db.feature.findUnique({ where: { id }, select: { docVersion: true } });
   return row?.docVersion ?? null;
 }
 
+/**
+ * Load a feature and verify workspace access via its product. Shared with the
+ * featureComment router so comments reuse the exact same access gate. Pass
+ * `"edit"` from every mutation - `"view"` admits read-only viewers.
+ */
 export async function loadFeatureWithAccess(
   db: PrismaClient,
   userId: string,
