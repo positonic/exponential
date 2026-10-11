@@ -818,7 +818,7 @@ export const decisionRouter = createTRPCRouter({
    * accepted"); on an already-confirmed row only that status change applies.
    * A person accepting through their own login becomes the decider when no
    * person is one yet. Zoe and the gateways never get here: their tokens are
-   * agent-acting (`isAgentActorToken`), which `humanOnlyProcedure` refuses.
+   * agent credentials (`resolvePrincipal`), which `humanOnlyProcedure` refuses.
    */
   confirmDraft: humanOnlyProcedure
     .input(
