@@ -21,6 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { IconAlertCircle, IconCheck, IconCopy } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
+import { canDelegateFromRole } from '~/lib/agentDelegation';
 
 /**
  * The description is the agent's fallback Remit (ADR-0068 §3): Zoe routes
@@ -31,9 +32,6 @@ const DESCRIPTION_HELP = 'Zoe uses this to route tasks when the agent holds no P
 const DESCRIPTION_MAX = 5000;
 
 const DEFAULT_KEY_LABEL = 'default';
-
-/** Roles that may delegate member access to an agent (ADR-0049). */
-const DELEGATING_ROLES = new Set(['owner', 'admin', 'member']);
 
 export interface EditableAgent {
   id: string;
@@ -113,9 +111,7 @@ export function AgentDrawer({ opened, onClose, editing }: AgentDrawerProps) {
   });
 
   // Workspaces the server would refuse (viewer, project guest) are left out.
-  const grantable = workspaces.filter(
-    (ws) => ws.currentUserRole !== null && DELEGATING_ROLES.has(ws.currentUserRole),
-  );
+  const grantable = workspaces.filter((ws) => canDelegateFromRole(ws.currentUserRole));
   const selected = new Set(form.values.workspaceIds);
   const allSelected = grantable.length > 0 && grantable.every((ws) => selected.has(ws.id));
 

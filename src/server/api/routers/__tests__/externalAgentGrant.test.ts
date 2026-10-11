@@ -173,6 +173,20 @@ describe("externalAgent.grantWorkspaces", () => {
     expect(db.workspaceUser.upsert).not.toHaveBeenCalled();
   });
 
+  it("refuses a role it doesn't know — delegation is an allowlist", async () => {
+    // `WorkspaceUser.role` is a free string; a role added later must not
+    // become delegable just because it isn't literally "viewer".
+    db.workspaceUser.findMany.mockResolvedValue(
+      memberships([{ workspaceId: "ws-1", role: "guest" }]),
+    );
+    db.workspace.findMany.mockResolvedValue([{ name: "Partners" }] as never);
+
+    await expect(
+      caller(db).externalAgent.grantWorkspaces({ agentId: AGENT_ID, workspaceIds: ["ws-1"] }),
+    ).rejects.toThrow(/Partners/);
+    expect(db.workspaceUser.upsert).not.toHaveBeenCalled();
+  });
+
   it("deduplicates repeated ids instead of tripping the all-or-nothing check", async () => {
     db.workspaceUser.findMany.mockResolvedValue(
       memberships([{ workspaceId: "ws-1", role: "member" }]),
@@ -260,13 +274,15 @@ describe("externalAgent.create — one-step setup", () => {
 
     expect(result.secret).toMatch(/^exp_agent_/);
     expect(result.granted).toBe(2);
-    for (const workspaceId of ["ws-1", "ws-2"]) {
-      expect(db.workspaceUser.upsert).toHaveBeenCalledWith({
-        where: { userId_workspaceId: { userId: SHADOW_ID, workspaceId } },
-        create: { userId: SHADOW_ID, workspaceId, role: "member" },
-        update: { role: "member" },
-      });
-    }
+    // One batched insert, always at `member` — not a serial loop of upserts.
+    expect(db.workspaceUser.createMany).toHaveBeenCalledTimes(1);
+    expect(db.workspaceUser.createMany).toHaveBeenCalledWith({
+      data: [
+        { userId: SHADOW_ID, workspaceId: "ws-1", role: "member" },
+        { userId: SHADOW_ID, workspaceId: "ws-2", role: "member" },
+      ],
+    });
+    expect(db.workspaceUser.upsert).not.toHaveBeenCalled();
     // Only the hash is stored — never the secret itself.
     const keyData = db.externalAgentKey.create.mock.calls[0]![0].data;
     expect(keyData).toMatchObject({ agentId: AGENT_ID, name: "laptop" });
@@ -300,7 +316,7 @@ describe("externalAgent.create — one-step setup", () => {
 
     expect(result).toMatchObject({ secret: null, granted: 0 });
     expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
-    expect(db.workspaceUser.upsert).not.toHaveBeenCalled();
+    expect(db.workspaceUser.createMany).not.toHaveBeenCalled();
     expect(db.externalAgentKey.create).not.toHaveBeenCalled();
   });
 });
