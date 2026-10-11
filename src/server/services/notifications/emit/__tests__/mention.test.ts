@@ -87,7 +87,7 @@ describe("emitNotification — Mention", () => {
     );
   });
 
-  it("notifies no one when the only mentioned id is a non-member (or agent)", async () => {
+  it("notifies no one when the only mentioned id is a non-member", async () => {
     // Membership-filtered query returns nobody.
     db.user.findMany.mockResolvedValue([] as never);
 
@@ -100,6 +100,29 @@ describe("emitNotification — Mention", () => {
 
     expect(db.notification.create).not.toHaveBeenCalled();
     expect(NotificationServiceFactory.createService).not.toHaveBeenCalled();
+  });
+
+  it("never notifies an Assistant's shadow user, though it is a workspace member (nobody reads it)", async () => {
+    // The recipient query excludes Assistant principals; Postgres returns nobody.
+    db.user.findMany.mockResolvedValue([] as never);
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      actorUserId: "author1",
+      subject: subject({ commentContent: "@[Aria](assistant-shadow) please look" }),
+      db,
+    });
+
+    expect(db.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: { in: ["assistant-shadow"] },
+          NOT: { externalAgentShadow: { is: { assistant: { isNot: null } } } },
+        }),
+      }),
+    );
+    expect(db.notification.create).not.toHaveBeenCalled();
+    expect(db.notificationDelivery.create).not.toHaveBeenCalled();
   });
 
   it("skips users already mentioned before an edit (only new mentions notify)", async () => {

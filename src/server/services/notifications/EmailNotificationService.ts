@@ -5,6 +5,7 @@ import { ZulipNotificationService } from "~/server/services/notifications/ZulipN
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { listKnowledgePageViewers } from "~/server/services/access/resolvers/knowledgePageResolver";
+import { NOT_AN_ASSISTANT_PRINCIPAL } from "~/server/services/notifications/emit/mention";
 
 const BASE_URL = process.env.NEXTAUTH_URL ?? getPublicBaseUrlFromEnv();
 
@@ -203,8 +204,9 @@ async function fanOutMentionNotifications(
     : null;
 
   // Filter out the comment author (don't notify yourself) and anyone already
-  // mentioned before an edit. Non-member ids (e.g. mentioned agents) never
-  // match a User row below, so they drop out.
+  // mentioned before an edit. Non-member ids, and an Assistant's shadow user
+  // (a member nobody reads mail for), never match a User row below, so they
+  // drop out.
   const recipientIds = mentionedUserIds.filter(
     (id) =>
       id !== commentAuthorId &&
@@ -229,6 +231,7 @@ async function fanOutMentionNotifications(
           { workspaceMemberships: { some: { workspaceId } } },
           { teams: { some: { team: { workspaceId } } } },
         ],
+        ...NOT_AN_ASSISTANT_PRINCIPAL,
       },
       select: { id: true, name: true, email: true },
     }),
