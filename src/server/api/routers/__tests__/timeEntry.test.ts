@@ -231,6 +231,49 @@ describe("timeEntry.create — ADR-0061 owner carve-out", () => {
     expect(recordActivity).toHaveBeenCalledTimes(1);
   });
 
+  it.each(ZOE_TOKEN_TYPES)(
+    "a %s token writes the person's entry, forced to PROPOSED with no agent author",
+    async (tokenType) => {
+      arrangeAction(db, OWNER_ID);
+      db.timeEntry.create.mockResolvedValue(entryRow({ createdByAgentId: null, source: "manual" }) as never);
+
+      await callerWithToken(db, tokenType).timeEntry.create({
+        actionId: ACTION_ID,
+        startedAt: START,
+        endedAt: END,
+        status: "CONFIRMED", // asked for, refused
+      });
+
+      expect(db.externalAgent.findUnique).not.toHaveBeenCalled();
+      expect(db.timeEntry.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId: OWNER_ID, createdByAgentId: null, status: "PROPOSED" }),
+        }),
+      );
+      expect(db.action.update).not.toHaveBeenCalled();
+      expect(recordActivity).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(PERSON_TOKEN_TYPES)("a %s token is the person, so the entry is CONFIRMED", async (tokenType) => {
+    arrangeAction(db, OWNER_ID);
+    db.timeEntry.create.mockResolvedValue(
+      entryRow({ status: "CONFIRMED", createdByAgentId: null, source: "manual" }) as never,
+    );
+
+    await callerWithToken(db, tokenType).timeEntry.create({ actionId: ACTION_ID, startedAt: START, endedAt: END });
+
+    expect(db.timeEntry.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: OWNER_ID, createdByAgentId: null, status: "CONFIRMED" }),
+      }),
+    );
+    expect(db.action.update).toHaveBeenCalledWith({
+      where: { id: ACTION_ID },
+      data: { timeSpentMins: { increment: 68 } },
+    });
+  });
+
   it("access runs against the owner: an Action only the shadow user can see is NOT_FOUND", async () => {
     arrangeAgent(db);
     arrangeAction(db, SHADOW_ID); // created by the agent, invisible to the owner
@@ -315,6 +358,56 @@ describe("timeEntry.upsertBySourceRef", () => {
     expect(db.timeEntry.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ userId: OWNER_ID, createdByAgentId: AGENT_ID, status: "PROPOSED" }),
+      }),
+    );
+  });
+
+  it.each(ZOE_TOKEN_TYPES)(
+    "a %s token → the person's entry, PROPOSED with no agent author, reconciled against manual time",
+    async (tokenType) => {
+      arrangeRows([], []);
+      db.timeEntry.create.mockResolvedValue(
+        entryRow({ sourceRef: "zoe:s1#0", createdByAgentId: null, source: "manual" }) as never,
+      );
+
+      const result = await callerWithToken(db, tokenType).timeEntry.upsertBySourceRef({
+        actionId: ACTION_ID,
+        startedAt: START,
+        endedAt: END,
+        status: "CONFIRMED", // asked for, refused
+        sourceRef: "zoe:s1#0",
+      });
+
+      expect(result.outcome).toBe("created");
+      expect(db.externalAgent.findUnique).not.toHaveBeenCalled();
+      // Family read, then the manual-time read only Proposed time gets.
+      expect(db.timeEntry.findMany).toHaveBeenCalledTimes(2);
+      expect(db.timeEntry.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId: OWNER_ID, createdByAgentId: null, status: "PROPOSED" }),
+        }),
+      );
+      expect(db.action.update).not.toHaveBeenCalled();
+      expect(recordActivity).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(PERSON_TOKEN_TYPES)("a %s token is the person, so the entry is CONFIRMED", async (tokenType) => {
+    arrangeRows([], []);
+    db.timeEntry.create.mockResolvedValue(
+      entryRow({ sourceRef: "cli:s1", status: "CONFIRMED", createdByAgentId: null, source: "manual" }) as never,
+    );
+
+    await callerWithToken(db, tokenType).timeEntry.upsertBySourceRef({
+      actionId: ACTION_ID,
+      startedAt: START,
+      endedAt: END,
+      sourceRef: "cli:s1",
+    });
+
+    expect(db.timeEntry.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: OWNER_ID, createdByAgentId: null, status: "CONFIRMED" }),
       }),
     );
   });
