@@ -58,6 +58,14 @@ export interface CreateDecisionInput {
    * contract every other id on this input has).
    */
   actionIds?: string[];
+  /**
+   * Born as a draft awaiting a person's confirmation rather than confirmed by
+   * its creator. The router sets it for agent-authored decisions: an agent
+   * may propose a decision, never publish one it "confirmed" itself.
+   */
+  asDraft?: boolean;
+  /** The creator is an agent principal, so never defaults in as a decider. */
+  creatorIsAgent?: boolean;
 }
 
 /** Dedupe deciders on email (the DB unique) and drop blank names. */
@@ -225,7 +233,8 @@ export async function assertScopeInWorkspace(
 }
 
 /**
- * Create a confirmed decision. For a meeting-linked decision the meeting
+ * Create a decision — confirmed, or a draft when `asDraft` (agent-authored,
+ * awaiting a person's confirmation). For a meeting-linked decision the meeting
  * supplies the defaults the PRD asks for: decided-at = meeting date,
  * deciders = participants, occurrence and project = the meeting's. The
  * label number is taken from `Workspace.decisionCounter` inside the same
@@ -277,6 +286,15 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
 
   // A decision logged by hand with no deciders named is the creator's own
   // call; Zoe logs on the session user's behalf, so the same default holds.
+  // Two exceptions: an open question has no deciders yet, and an agent
+  // principal is never the one who decided.
+  if (
+    !input.transcriptionSessionId &&
+    deciders === null &&
+    (input.status === "OPEN" || input.creatorIsAgent)
+  ) {
+    deciders = [];
+  }
   if (!input.transcriptionSessionId && deciders === null) {
     const creator = await db.user.findUnique({
       where: { id: input.createdById },
@@ -311,13 +329,15 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
         statement: input.statement.trim(),
         body: input.body?.trim() ? input.body : null,
         status: input.status ?? "PROPOSED",
-        reviewState: "CONFIRMED",
+        reviewState: input.asDraft ? "DRAFT" : "CONFIRMED",
         source,
         decidedAt,
         ownerId: input.ownerId ?? null,
         createdById: input.createdById,
-        confirmedById: input.createdById,
-        confirmedAt: new Date(),
+        // A draft is confirmed later by the person who reviews it
+        // (`confirmDraft` stamps them), never by its author up front.
+        confirmedById: input.asDraft ? null : input.createdById,
+        confirmedAt: input.asDraft ? null : new Date(),
         transcriptionSessionId: input.transcriptionSessionId ?? null,
         occurrenceId,
         productId: input.productId ?? null,
@@ -348,6 +368,10 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
       include: decisionDetailInclude,
     });
   });
+
+  // The feed is filtered on workspaceId alone, so a draft's statement would
+  // leak to people who may not see it. `confirmDraft` records the event.
+  if (input.asDraft) return decision;
 
   await recordActivity(db, {
     workspaceId: input.workspaceId,

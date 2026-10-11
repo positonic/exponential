@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  Alert,
   Anchor,
   Badge,
+  Button,
   Divider,
   Group,
   Paper,
@@ -12,6 +14,8 @@ import {
 } from "@mantine/core";
 import { IconMicrophone, IconPencil, IconQuote } from "@tabler/icons-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { notifications } from "@mantine/notifications";
 import { DecisionActionsPanel } from "~/app/_components/decisions/DecisionActionsPanel";
 import { DecisionLinksPanel } from "~/app/_components/decisions/DecisionLinksPanel";
 import { DecisionScopePanel } from "~/app/_components/decisions/DecisionScopePanel";
@@ -30,7 +34,8 @@ import { api } from "~/trpc/react";
  * A Decision's content (ADR-0060): statement, status, provenance (the
  * meeting and ceremony it came from, with each evidence quote deep-linked
  * to its transcript turn), deciders, the supersession chain and links. An
- * accepted decision also offers "Draft ADR" — the file it would become.
+ * accepted decision also offers "Draft ADR" — the file it would become. An
+ * agent-logged draft carries a confirm / reject banner for its reviewer.
  * Shared by the full page at `/decisions/d/[decisionId]` and the Decision
  * Log's peek drawer, so the two can never drift apart.
  */
@@ -64,6 +69,27 @@ export function DecisionDetail({
     { workspaceId, decisionId },
     { enabled: !!workspaceId && !!decisionId },
   );
+  const router = useRouter();
+  const utils = api.useUtils();
+  const onReviewError = (error: { message: string }) =>
+    notifications.show({ title: "Couldn't review the draft", message: error.message, color: "red" });
+  const confirmDraft = api.decision.confirmDraft.useMutation({
+    onSuccess: async () => {
+      await Promise.all([
+        utils.decision.get.invalidate({ workspaceId, decisionId }),
+        utils.decision.list.invalidate(),
+        utils.inbox.invalidate(),
+      ]);
+    },
+    onError: onReviewError,
+  });
+  const rejectDraft = api.decision.rejectDraft.useMutation({
+    onSuccess: async () => {
+      await utils.inbox.invalidate();
+      router.push(`/w/${workspaceSlug}/decisions`);
+    },
+    onError: onReviewError,
+  });
 
   if (isLoading) return <DetailPreview preview={preview} />;
 
@@ -161,6 +187,37 @@ export function DecisionDetail({
           ) : null}
         </Group>
       </Group>
+
+      {decision.reviewState === "DRAFT" ? (
+        <Alert color="yellow" variant="light" mt="md" title="Draft — not in the Decision Log yet">
+          <Text size="sm">
+            An agent proposed this. It stays out of the Decision Log, and out of
+            every count, until a person confirms it.
+          </Text>
+          {decision.canEdit ? (
+            <Group gap="xs" mt="sm">
+              <Button
+                size="xs"
+                loading={confirmDraft.isPending}
+                disabled={rejectDraft.isPending}
+                onClick={() => confirmDraft.mutate({ workspaceId, decisionId: decision.id })}
+              >
+                Confirm
+              </Button>
+              <Button
+                size="xs"
+                variant="subtle"
+                color="gray"
+                loading={rejectDraft.isPending}
+                disabled={confirmDraft.isPending}
+                onClick={() => rejectDraft.mutate({ workspaceId, decisionId: decision.id })}
+              >
+                Reject
+              </Button>
+            </Group>
+          ) : null}
+        </Alert>
+      ) : null}
 
       <Stack gap={4} mt="md">
         {meeting ? (

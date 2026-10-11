@@ -12,10 +12,13 @@
  *   narrows it to the project's allowlist).
  * - Editing follows the same paths at edit strength: meeting edit access,
  *   project edit access, or a non-viewer workspace role.
- * - Drafts (`reviewState = DRAFT`) are invisible everywhere except the source
- *   meeting's own views, and only to people who may edit that meeting. The
- *   bulk WHERE therefore matches CONFIRMED rows only; `listForMeeting` adds
- *   drafts per row after a `canEditTranscription` check.
+ * - Drafts (`reviewState = DRAFT`) never reach a bulk read. A meeting draft
+ *   is visible only in the source meeting's own views, to people who may
+ *   edit that meeting; a meeting-less draft (agent-authored) only to people
+ *   who may edit it — they are the ones who can confirm it. The bulk WHERE
+ *   therefore matches CONFIRMED rows only; `listForMeeting` adds drafts per
+ *   row after a `canEditTranscription` check, and the Inbox lists agent
+ *   drafts to their reviewer.
  *
  * Every list/aggregate read over Decisions goes through
  * `buildDecisionAccessWhere`; routers must not carry inline permission logic.
@@ -106,8 +109,11 @@ export async function getDecisionAccess(
 
 /** Check if the user can view this decision. */
 export function canViewDecision(access: DecisionAccessInfo): boolean {
-  // A draft is only visible to people who may edit its source meeting.
-  if (access.isDraft) return access.hasMeeting && access.canEditMeeting;
+  // A draft is only visible to people who may confirm it: editors of its
+  // source meeting, or for a meeting-less (agent) draft, its editors.
+  if (access.isDraft) {
+    return access.hasMeeting ? access.canEditMeeting : canEditDecision(access);
+  }
   if (access.hasMeeting) return access.canViewMeeting;
   if (access.hasProject) return access.hasProjectAccess;
   return access.workspaceRole !== null;

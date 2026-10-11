@@ -174,9 +174,24 @@ export function WaitingOnMeTab() {
 
       <Section
         label="Draft decisions to review"
-        shown={data.draftReviews.length}
-        total={counts.draftReviews}
+        shown={data.draftReviews.length + data.agentDrafts.length}
+        total={counts.draftReviews + counts.agentDrafts}
       >
+        {data.agentDrafts.map((draft) => (
+          <Row
+            key={draft.id}
+            href={`/w/${draft.workspace.slug}/decisions/d/${draft.id}`}
+            icon={<IconRobot size={14} stroke={1.75} />}
+            label={draft.statement}
+            sub={withWorkspace(draft.workspace, `${draft.label} · logged by ${draft.authorName}`)}
+            meta={
+              <>
+                <span className="wsa-item__chip">Draft</span>
+                {compactAge(draft.createdAt)}
+              </>
+            }
+          />
+        ))}
         {data.draftReviews.map((meeting) => (
           <Row
             key={meeting.id}

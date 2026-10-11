@@ -49,15 +49,19 @@ describe("canViewDecision", () => {
     expect(canViewDecision(access({ workspaceRole: null }))).toBe(false);
   });
 
-  it("drafts are visible only to people who may edit the source meeting", () => {
+  it("drafts are visible only to people who may confirm them", () => {
     expect(
       canViewDecision(access({ isDraft: true, hasMeeting: true, canViewMeeting: true, canEditMeeting: true })),
     ).toBe(true);
     expect(
       canViewDecision(access({ isDraft: true, hasMeeting: true, canViewMeeting: true, canEditMeeting: false })),
     ).toBe(false);
-    // A draft without a meeting has no draft view to live in.
-    expect(canViewDecision(access({ isDraft: true, workspaceRole: "owner" }))).toBe(false);
+    // A meeting-less (agent) draft: its editors, who are the ones who can confirm it.
+    expect(canViewDecision(access({ isDraft: true, workspaceRole: "member" }))).toBe(true);
+    expect(canViewDecision(access({ isDraft: true, workspaceRole: "viewer" }))).toBe(false);
+    expect(
+      canViewDecision(access({ isDraft: true, hasProject: true, hasProjectAccess: true, canEditProject: false, workspaceRole: "owner" })),
+    ).toBe(false);
   });
 });
 
