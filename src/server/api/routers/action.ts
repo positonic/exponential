@@ -478,10 +478,17 @@ export const actionRouter = createTRPCRouter({
       // and not inside `createAction`: the kick needs a request scope
       // (`after()` throws outside one) that the module's voice, cron and
       // webhook callers do not have, and none of them attaches assignees.
+      // The row is committed by now, so a failure here must not fail the
+      // create: the modal would report "Failed to Create Action" and a retry
+      // would write a second row. Log it and report 0 instead; the owner
+      // can still assign (idempotent) to start the run.
       const runs = await enqueueAgentRunsForAssignees(ctx.db, {
         actionId: created.id,
         userIds: input.assigneeIds ?? [],
         requestedById: ctx.session.user.id,
+      }).catch((err: unknown) => {
+        console.error("[agentRuns] enqueue on create failed:", err);
+        return [];
       });
       if (runs.some((r) => r.executor === "MASTRA")) {
         after(() => triggerDispatch());

@@ -1536,6 +1536,27 @@ describe("action router (mocked)", () => {
       expect(dispatchMock).toHaveBeenCalledTimes(1);
     });
 
+    it("still returns the created action, with 0 runs, when the enqueue itself fails", async () => {
+      // The row is already committed; failing the create here would make the
+      // modal retry and write a duplicate.
+      stubCreateWithAssignees([assistantShadowId]);
+      dbMock.externalAgent.findMany.mockRejectedValue(new Error("db hiccup"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: [assistantShadowId],
+      });
+
+      expect(result.id).toBe("a1");
+      expect(result.agentRunsQueued).toBe(0);
+      expect(dispatchMock).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
     it("queues a LOCAL_CLI run without kicking the hosted dispatcher", async () => {
       stubCreateWithAssignees([assistantShadowId]);
       dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "LOCAL_CLI" }] as never);

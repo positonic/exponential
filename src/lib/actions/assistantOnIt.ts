@@ -17,8 +17,11 @@ export interface AssistantOnItToast {
 /**
  * Null when no run started, so the caller shows nothing (a human assignee,
  * a parked action, a run already live: the server reported 0). The name is
- * the first agent-principal assignee's; a run only ever starts for one, and
- * an Assistant with no display name is still "Your Assistant".
+ * the first agent-principal assignee's, and an Assistant with no display
+ * name is still "Your Assistant". Accepted edge: the response does not say
+ * which agent got the run, so a create that attaches a plain External agent
+ * ahead of an Assistant names the former; nothing a create modal does today
+ * produces that pair.
  */
 export function assistantOnItToast(
   created: CreatedActionForToast,
