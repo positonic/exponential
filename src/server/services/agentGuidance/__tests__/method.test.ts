@@ -91,6 +91,13 @@ describe("while the method is a draft", () => {
     expect(await getDocContent(["method"], dir)).toBeNull();
   });
 
+  it("does not render through a dot or decoded-slash slug that normalises to it", async () => {
+    // Next decodes %2F inside a catch-all segment: /docs/.%2Fmethod → ["./method"].
+    expect(await getDocContent(["./method"], dir)).toBeNull();
+    expect(await getDocContent(["x/../method"], dir)).toBeNull();
+    expect(await getDocContent([".", "method"], dir)).toBeNull();
+  });
+
   it("stays visible to the docs tooling", () => {
     const pages = listDocPages(dir, { includeUnpublishedMethod: true });
     expect(pages.map((p) => p.href).sort()).toEqual(["/docs", "/docs/method"]);

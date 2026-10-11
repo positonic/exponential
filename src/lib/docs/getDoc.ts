@@ -17,8 +17,12 @@ export async function getDocContent(
 
   // The method stays dark until its release manifest says `published`. The
   // page list already leaves it out, but this function reads files straight
-  // from the URL slug, so it has to refuse on its own.
-  if (isMethodPath(slugPath) && !isMethodPublished(docsDir)) return null;
+  // from the URL slug, so it has to refuse on its own. The check runs on the
+  // normalised path below too: Next decodes `%2F` inside a catch-all segment,
+  // so `/docs/.%2Fmethod` arrives as `["./method"]` and only path.join turns
+  // it into `method/index.md`.
+  const isMethodDark = !isMethodPublished(docsDir);
+  if (isMethodDark && isMethodPath(slugPath)) return null;
 
   // Try different file paths
   const possiblePaths = [
@@ -44,6 +48,7 @@ export async function getDocContent(
     // candidate and 404 the whole docs section.
     const relativeToDocs = path.relative(path.resolve(docsDir), path.resolve(filePath));
     if (relativeToDocs.startsWith("..") || path.isAbsolute(relativeToDocs)) continue;
+    if (isMethodDark && isMethodPath(relativeToDocs)) continue;
     // `_meta.json`, `_redirects.json` and `_drafts/` are not pages.
     if (path.basename(filePath).startsWith("_") || relativeToDocs.split(path.sep).some((s) => s.startsWith("_"))) continue;
 
