@@ -5,26 +5,20 @@
 
 -- Step 1 — agents hold `member` and nothing else (ADR-0049 §3). Before PR #915
 -- an owner could make an agent `admin` or `viewer`; correct any such row.
--- Admin/owner → member. Viewer → member where the agent's owner holds a
--- delegating role there (`DELEGATING_WORKSPACE_ROLES`: owner, admin, member —
--- the delegation invariant), else the membership is removed, as
--- `cascadeOwnerRoleChanged` would have done.
+-- An External agent's row above or below `member` is first removed where its
+-- owner no longer holds a delegating role in that workspace
+-- (`DELEGATING_WORKSPACE_ROLES`: owner, admin, member — the delegation
+-- invariant, as `cascadeOwnerRoleChanged` would have done). Every remaining
+-- agent row that is not `member` becomes `member`.
 DO $$
 DECLARE
-  demoted INT;
   removed INT;
-  promoted INT;
+  corrected INT;
 BEGIN
-  UPDATE "WorkspaceUser" wu
-  SET "role" = 'member'
-  FROM "User" u
-  WHERE u."id" = wu."userId" AND u."isAgent" AND wu."role" IN ('admin', 'owner');
-  GET DIAGNOSTICS demoted = ROW_COUNT;
-
   DELETE FROM "WorkspaceUser" wu
   USING "ExternalAgent" ea
   WHERE ea."shadowUserId" = wu."userId"
-    AND wu."role" = 'viewer'
+    AND wu."role" <> 'member'
     AND NOT EXISTS (
       SELECT 1 FROM "WorkspaceUser" o
       WHERE o."userId" = ea."ownerId"
@@ -35,12 +29,12 @@ BEGIN
 
   UPDATE "WorkspaceUser" wu
   SET "role" = 'member'
-  FROM "ExternalAgent" ea
-  WHERE ea."shadowUserId" = wu."userId" AND wu."role" = 'viewer';
-  GET DIAGNOSTICS promoted = ROW_COUNT;
+  FROM "User" u
+  WHERE u."id" = wu."userId" AND u."isAgent" AND wu."role" <> 'member';
+  GET DIAGNOSTICS corrected = ROW_COUNT;
 
-  RAISE NOTICE 'Agent roles: % admin/owner row(s) set to member, % viewer row(s) removed, % viewer row(s) set to member',
-    demoted, removed, promoted;
+  RAISE NOTICE 'Agent roles: % row(s) removed (owner cannot delegate there), % row(s) set to member',
+    removed, corrected;
 END $$;
 
 -- Step 2 — each person keeps one Assistant; the rest are retired into it.
