@@ -484,7 +484,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
 
   // The actions the specs assign. Re-seeding clears their assignees and
   // Agent runs so each spec starts from "Unassigned" and a fresh run rather
-  // than coalescing onto a leftover one.
+  // than coalescing onto a leftover one, and reopens them: the agent-run spec
+  // ends on Mark done, and a completed action starts no run on the next pass.
   async function ensureUnassignedAction(name: string) {
     let action = await db.action.findFirst({
       where: { workspaceId: workspace.id, name },
@@ -494,6 +495,11 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       action = await db.action.create({
         data: { name, workspaceId: workspace.id, createdById: user.id, status: "ACTIVE", priority: "Quick" },
         select: { id: true },
+      });
+    } else {
+      await db.action.update({
+        where: { id: action.id },
+        data: { status: "ACTIVE", completedAt: null, kanbanStatus: null },
       });
     }
     await db.actionAssignee.deleteMany({ where: { actionId: action.id } });

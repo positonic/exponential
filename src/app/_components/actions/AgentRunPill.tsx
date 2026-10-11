@@ -139,6 +139,7 @@ export function AgentRunPill({
         mb="md"
         className="inline-flex rounded-full border border-border-primary bg-surface-secondary"
         data-testid="agent-run-pill"
+        data-run-id={latest.id}
         data-status={latest.status}
         data-waiting-for-runner={latest.waitingForRunner ? "true" : undefined}
       >
