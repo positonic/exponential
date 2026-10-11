@@ -169,6 +169,33 @@ describe("accepting sets the decider", () => {
       expect(updateData()).not.toHaveProperty("deciders");
     });
 
+    it("stamps decidedAt when confirming a draft that was born ACCEPTED", async () => {
+      withRow({ reviewState: "DRAFT", status: "ACCEPTED", decidedAt: null });
+      await confirm();
+      expect(updateData().decidedAt).toBeInstanceOf(Date);
+
+      // A date the draft already carries is kept.
+      db.decision.update.mockClear();
+      const decided = new Date("2026-10-01T09:00:00.000Z");
+      withRow({ reviewState: "DRAFT", status: "ACCEPTED", decidedAt: decided });
+      await confirm("ACCEPTED");
+      expect(updateData()).not.toHaveProperty("decidedAt");
+    });
+
+    it("an already-confirmed ACCEPTED row with no date gains one, and nothing else", async () => {
+      withRow({ reviewState: "CONFIRMED", status: "ACCEPTED", decidedAt: null });
+      await confirm("ACCEPTED");
+      expect(db.decision.update).toHaveBeenCalledTimes(1);
+      expect(updateData()).toEqual({ decidedAt: expect.any(Date) });
+      expect(recordActivity).not.toHaveBeenCalled();
+
+      // Dated already: a true no-op.
+      db.decision.update.mockClear();
+      withRow({ reviewState: "CONFIRMED", status: "ACCEPTED", decidedAt: new Date() });
+      await confirm();
+      expect(db.decision.update).not.toHaveBeenCalled();
+    });
+
     it("refuses SUPERSEDED, which needs a successor, before reading anything", async () => {
       withRow({ reviewState: "DRAFT" });
       await expect(confirm("SUPERSEDED")).rejects.toMatchObject({ code: "BAD_REQUEST" });

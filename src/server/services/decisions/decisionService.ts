@@ -1045,9 +1045,10 @@ export interface ConfirmDraftInput {
  * person confirming a decision that no person stands behind becomes its
  * decider (unless it is an OPEN question — nobody has decided that yet).
  *
- * Idempotent on the confirm: a confirmed row is returned unchanged and
- * records nothing — unless a different `status` is asked for, which is then
- * applied exactly as {@link setStatus} would (so a client may call
+ * Idempotent on the confirm: a confirmed row records nothing — unless a
+ * different `status` is asked for, which is then applied exactly as
+ * {@link setStatus} would — and only gains a `decidedAt` if it is ACCEPTED
+ * without one. Accepting always stamps the date (so a client may call
  * `confirmDraft(id, { status: ACCEPTED })` on any row). A draft that resolves
  * an open decision is applied to that decision instead of being published as
  * a new row (see {@link applyDraftResolution}), and `status` lands on the
@@ -1075,6 +1076,16 @@ export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
         userId: input.userId,
         status: input.status,
         actorIsAgent: input.actorIsAgent,
+      });
+    }
+    // An accepted decision always carries the date it was decided; a row
+    // confirmed before that was enforced gets it now. No event — nothing
+    // the feed would show has changed.
+    if (current.status === "ACCEPTED" && !current.decidedAt) {
+      return db.decision.update({
+        where: { id: current.id, workspaceId: input.workspaceId },
+        data: { decidedAt: new Date() },
+        include: decisionDetailInclude,
       });
     }
     return db.decision.findUniqueOrThrow({
@@ -1110,7 +1121,9 @@ export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
       confirmedById: input.userId,
       confirmedAt: new Date(),
       ...(statusChanged ? { status } : {}),
-      ...(statusChanged && status === "ACCEPTED" && !current.decidedAt ? { decidedAt: new Date() } : {}),
+      // Accepted is decided: stamp the date whether the draft was born
+      // ACCEPTED (an agent's usual draft) or is being moved there now.
+      ...(status === "ACCEPTED" && !current.decidedAt ? { decidedAt: new Date() } : {}),
       ...(deciders ? { deciders } : {}),
     },
     include: decisionDetailInclude,
