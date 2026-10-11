@@ -83,6 +83,8 @@ export const FIXTURE = {
   assistantActionName: "Find a venue for the fixture offsite",
   /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
   agentRunActionName: "Draft the fixture offsite agenda",
+  /** A third, for the mention spec: mentioning an unassigned Assistant offers the assignment. */
+  mentionActionName: "Book the fixture offsite dinner",
   /**
    * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
    * modal has a title to show under Aria and the settings page has one row.
@@ -136,6 +138,9 @@ export interface SeededFixture {
   /** Its twin for the agent-run spec (ADR-0067), reset to unassigned with no runs on each seed. */
   agentRunActionUrl: string;
   agentRunActionName: string;
+  /** Its twin for the mention spec (decided 2026-10-11), unassigned with no runs on each seed. */
+  mentionActionUrl: string;
+  mentionActionName: string;
   /** The seeded Position (ADR-0068), held by `assistantName` alone on every seed. */
   positionTitle: string;
   /** App-relative URL of the workspace settings page (Positions live on its Members section). */
@@ -493,10 +498,12 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     }
     await db.actionAssignee.deleteMany({ where: { actionId: action.id } });
     await db.agentRun.deleteMany({ where: { actionId: action.id } });
+    await db.actionComment.deleteMany({ where: { actionId: action.id } });
     return action;
   }
   const assistantAction = await ensureUnassignedAction(FIXTURE.assistantActionName);
   const agentRunAction = await ensureUnassignedAction(FIXTURE.agentRunActionName);
+  const mentionAction = await ensureUnassignedAction(FIXTURE.mentionActionName);
 
   // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
   // in development; without it the contact is seeded email-less (the app
@@ -1026,6 +1033,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     assistantActionName: FIXTURE.assistantActionName,
     agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
     agentRunActionName: FIXTURE.agentRunActionName,
+    mentionActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${mentionAction.id}`,
+    mentionActionName: FIXTURE.mentionActionName,
     positionTitle: FIXTURE.positionTitle,
     workspaceSettingsUrl: `/w/${FIXTURE.workspaceSlug}/settings`,
     ceremonyId: ceremony.id,

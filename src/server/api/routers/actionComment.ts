@@ -36,7 +36,8 @@ export const actionCommentRouter = createTRPCRouter({
       return ctx.db.actionComment.findMany({
         where: { actionId: input.actionId },
         include: {
-          author: { select: { id: true, name: true, image: true } },
+          // isAgent: an Assistant's comments (its questions) render as an agent's.
+          author: { select: { id: true, name: true, image: true, isAgent: true } },
         },
         orderBy: { createdAt: "asc" },
       });
