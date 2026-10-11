@@ -803,10 +803,12 @@ describe("ticket router — initBodyDoc (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     stubMembership(dbMock, true);
-    dbMock.ticket.findUnique.mockResolvedValue(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { id: "ticket-1", productId, updatedAt: lastEdited, product: { workspaceId } } as any,
-    );
+    dbMock.ticket.findUnique.mockResolvedValue({
+      id: "ticket-1",
+      productId,
+      updatedAt: lastEdited,
+      product: { workspaceId },
+    } as never);
     dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
   });
 
