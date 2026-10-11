@@ -4,22 +4,22 @@ description: Give Claude and other MCP clients tools over your workspace, or bui
 section: developers
 order: 4
 icon: IconRobot
-updated: 2026-10-09
+updated: 2026-10-11
 ---
 
 Two ways to put Exponential inside software you already use. The **MCP server** (`exponential-mcp`) exposes your workspaces, projects, actions, meetings and goals as tools to any Model Context Protocol client, such as Claude Desktop or Claude Code, so you can ask "what is on my plate today?" in a chat and have the answer come from your real data. The **SDK** (`exponential-sdk`) is the TypeScript client both the MCP server and the CLI are built on, for when you are writing your own script or service.
 
-Both act as *you*, with a JWT token from [Settings → API keys](/settings/api-keys). If you want an agent to have its own identity and attribution instead, give it an [external agent](/docs/developers/external-agents) key; the SDK accepts that too.
+The MCP server signs in with an [external agent](/docs/developers/external-agents) key, so what Claude does in your workspace is attributed to the agent rather than to you. The SDK accepts the same keys, or a JWT token from [Settings → API keys](/settings/api-keys) when a script should act as *you*.
 
 ## Where to find it
 
 - MCP server: the `exponential-mcp` package on npm ([github.com/positonic/exponential-mcp](https://github.com/positonic/exponential-mcp)).
 - SDK: the `exponential-sdk` package on npm ([github.com/positonic/exponential-sdk](https://github.com/positonic/exponential-sdk)).
-- The key they use: [Settings → API keys](/settings/api-keys).
+- The key the MCP server uses: [Settings → Agents → New agent](/settings/agents/new).
 
 ## How to connect Claude with the MCP server
 
-1. Create a **JWT Token** under [Settings → API keys](/settings/api-keys) and copy it.
+1. Open [/settings/agents/new](/settings/agents/new), name the agent (for example "Claude"), pick its workspaces and click **Create agent**. Copy the key it shows.
 2. In a terminal, run the setup and paste the key when asked:
 
    ```bash
@@ -42,6 +42,35 @@ Both act as *you*, with a JWT token from [Settings → API keys](/settings/api-k
 
    The `serve` argument is required. Reload the window afterwards.
 4. Check the setup with `exponential-mcp doctor`, which also prints a configuration snippet for your machine; `exponential-mcp config` shows where the key is stored.
+
+### One key per app
+
+`init` stores one key that every app on your machine shares. To give Claude and Codex separate identities, create an agent for each and set its key in that app's MCP configuration — `EXPONENTIAL_API_KEY` takes precedence over the stored key.
+
+Claude (`claude_desktop_config.json` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "exponential": {
+      "command": "npx",
+      "args": ["-y", "exponential-mcp", "serve"],
+      "env": { "EXPONENTIAL_API_KEY": "exp_agent_..." }
+    }
+  }
+}
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.exponential]
+command = "npx"
+args = ["-y", "exponential-mcp", "serve"]
+env = { EXPONENTIAL_API_KEY = "exp_agent_..." }
+```
+
+Restart each app afterwards. Running `init` again rewrites Claude Desktop's entry and drops its `env`, so add the key back if you re-run it.
 
 Then ask Claude: "What projects am I working on?", "Add an action to call John tomorrow", "Summarise yesterday's leadership sync", "Which key results are off track?"
 
@@ -103,10 +132,13 @@ The client has one namespace per object: `workspaces`, `projects`, `actions` (an
 Claude Desktop (configured by `init`) and Claude Code (via `.mcp.json`). Any other MCP client that can run a local command works with the same `serve` command.
 
 **Is the key sent to the MCP client?**
-No. The key stays in the local config store; the server reads it when it starts.
+No. The key stays in the local config store (or the app's MCP configuration, if you set `EXPONENTIAL_API_KEY` there); the server reads it when it starts.
 
 **Does the MCP server see every workspace?**
-Every workspace the key's owner is a member of. Scope tools with a workspace id when it matters.
+Only the workspaces you added the agent to. Add or remove them on the agent's card under [Settings → Agents](/settings/agents).
+
+**Can I still use a personal API token?**
+Yes — a JWT token from [Settings → API keys](/settings/api-keys) works too, but then everything Claude does is attributed to you.
 
 **Can I use the SDK from Python?**
 Not yet. The SDK is TypeScript; other languages can call the same HTTP API with the bearer token.

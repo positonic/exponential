@@ -67,8 +67,8 @@ export const integrations: IntegrationData[] = [
     ],
     setupSteps: [
       {
-        title: "Create an API key",
-        body: "In Exponential, open Settings → API keys and create a JWT token. The MCP server acts as you, with the same access you have in the app.",
+        title: "Create an agent and copy its key",
+        body: "In Exponential, open Settings → Agents → New agent, name it, pick the workspaces it may work in and click Create agent. Its work is attributed to the agent, not to you.",
       },
       {
         title: "Claude Desktop: run the setup",
