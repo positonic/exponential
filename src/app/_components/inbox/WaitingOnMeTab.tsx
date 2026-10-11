@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
-import { Skeleton, UnstyledButton } from '@mantine/core';
+import { useState, type ReactNode } from 'react';
+import { Button, Skeleton, UnstyledButton } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
   IconClockExclamation,
   IconFlag,
@@ -32,6 +33,7 @@ function Section({
   shown,
   total,
   more,
+  action,
   children,
 }: {
   label: string;
@@ -39,6 +41,8 @@ function Section({
   total: number;
   /** Where the full list lives, when the tab shows only the first rows. */
   more?: { href: string; label: string };
+  /** A bulk control for the section's rows, beside the label. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   if (total === 0) return null;
@@ -49,17 +53,20 @@ function Section({
           {label}
           <span className="wsa-sub__badge">{total}</span>
         </span>
-        {total > shown && (
-          <span className="wsa-item__meta">
-            {more ? (
-              <Link href={more.href} className="wsa-sub__action">
-                {more.label}
-              </Link>
-            ) : (
-              `Showing ${shown} of ${total}`
-            )}
-          </span>
-        )}
+        <span className="inline-flex items-center gap-2">
+          {total > shown && (
+            <span className="wsa-item__meta">
+              {more ? (
+                <Link href={more.href} className="wsa-sub__action">
+                  {more.label}
+                </Link>
+              ) : (
+                `Showing ${shown} of ${total}`
+              )}
+            </span>
+          )}
+          {action}
+        </span>
       </div>
       {children}
     </>
@@ -88,6 +95,69 @@ function Row({
       </span>
       <span className="wsa-item__meta">{meta}</span>
     </UnstyledButton>
+  );
+}
+
+interface ConfirmableDraft {
+  id: string;
+  workspaceId: string;
+  label: string;
+}
+
+/**
+ * "Confirm all" for the agent drafts listed in the tab — the ones the user may
+ * edit, which is the same gate as the Confirm button on a draft's own page.
+ * Confirms one at a time so a single refusal (the draft was rejected
+ * elsewhere, access changed) only skips that row; the button counts progress
+ * and the failures are listed when the run ends.
+ */
+function ConfirmAllDraftsButton({ drafts }: { drafts: ConfirmableDraft[] }) {
+  const utils = api.useUtils();
+  const confirmDraft = api.decision.confirmDraft.useMutation();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  if (drafts.length === 0) return null;
+
+  const confirmAll = async () => {
+    const batch = [...drafts];
+    const failures: string[] = [];
+    setProgress({ done: 0, total: batch.length });
+    for (const [index, draft] of batch.entries()) {
+      try {
+        await confirmDraft.mutateAsync({ workspaceId: draft.workspaceId, decisionId: draft.id });
+      } catch (error) {
+        failures.push(`${draft.label}: ${error instanceof Error ? error.message : 'could not be confirmed'}`);
+      }
+      setProgress({ done: index + 1, total: batch.length });
+    }
+    setProgress(null);
+    await Promise.all([utils.inbox.invalidate(), utils.decision.invalidate()]);
+    const confirmed = batch.length - failures.length;
+    if (failures.length > 0) {
+      notifications.show({
+        title: `Confirmed ${confirmed} of ${batch.length} drafts`,
+        message: failures.join('\n'),
+        color: 'red',
+        autoClose: false,
+      });
+    } else {
+      notifications.show({
+        title: `Confirmed ${confirmed} ${confirmed === 1 ? 'draft' : 'drafts'}`,
+        message: 'They are in the Decision Log now.',
+        color: 'green',
+      });
+    }
+  };
+
+  return (
+    <Button
+      size="compact-xs"
+      variant="light"
+      disabled={progress !== null}
+      onClick={() => void confirmAll()}
+    >
+      {progress ? `Confirming ${progress.done}/${progress.total}…` : 'Confirm all'}
+    </Button>
   );
 }
 
@@ -176,6 +246,11 @@ export function WaitingOnMeTab() {
         label="Draft decisions to review"
         shown={data.draftReviews.length + data.agentDrafts.length}
         total={counts.draftReviews + counts.agentDrafts}
+        action={
+          <ConfirmAllDraftsButton
+            drafts={data.agentDrafts.filter((draft) => draft.canEdit)}
+          />
+        }
       >
         {data.agentDrafts.map((draft) => (
           <Row

@@ -210,6 +210,31 @@ describe("listWaitingOnMe", () => {
     ]);
   });
 
+  it("marks which agent drafts the user may confirm, resolving each workspace once", async () => {
+    const ws = { slug: "acme", name: "Acme" };
+    db.decision.findMany.mockResolvedValueOnce([] as never).mockResolvedValueOnce([
+      { id: "a1", number: 5, statement: "Use Redis", createdAt: TODAY, workspaceId: "w1", projectId: null, workspace: ws, createdBy: { name: "Robo", isAgent: true } },
+      { id: "a2", number: 6, statement: "Cut scope", createdAt: TODAY, workspaceId: "w1", projectId: null, workspace: ws, createdBy: { name: "Robo", isAgent: true } },
+      { id: "a3", number: 2, statement: "Elsewhere", createdAt: TODAY, workspaceId: "w2", projectId: null, workspace: ws, createdBy: { name: "Robo", isAgent: true } },
+    ] as never);
+    // A member of w1 (may confirm), a viewer of w2 (may not).
+    db.workspaceUser.findUnique.mockImplementation(((args: { where: { userId_workspaceId: { workspaceId: string } } }) =>
+      Promise.resolve(
+        args.where.userId_workspaceId.workspaceId === "w1"
+          ? { role: "member", workspaceId: "w1" }
+          : { role: "viewer", workspaceId: "w2" },
+      )) as never);
+
+    const { agentDrafts } = await listWaitingOnMe(db, USER, TODAY);
+
+    expect(agentDrafts.map((d) => [d.id, d.workspaceId, d.canEdit])).toEqual([
+      ["a1", "w1", true],
+      ["a2", "w1", true],
+      ["a3", "w2", false],
+    ]);
+    expect(db.workspaceUser.findUnique).toHaveBeenCalledTimes(2);
+  });
+
   it("reports each meeting's draft count", async () => {
     db.transcriptionSession.findMany.mockResolvedValue([
       { id: "m1", title: "Standup", createdAt: TODAY, workspace: null, _count: { decisions: 3 } },
