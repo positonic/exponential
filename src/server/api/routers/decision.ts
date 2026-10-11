@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
-import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
+import {
+  createTRPCRouter,
+  humanOnlyProcedure,
+  isAgentActorToken,
+  protectedProcedure,
+} from "~/server/api/trpc";
 import {
   buildActionAccessWhere,
   buildDecisionAccessWhere,
@@ -173,30 +178,6 @@ async function isAgentPrincipal(
     select: { isAgent: true },
   });
   return principal?.isAgent === true;
-}
-
-/**
- * Token types that mean an agent is doing the acting even when the session
- * user is a person: an External agent's key, Zoe's agent-context JWT, the
- * chat gateways (Zoe answering in WhatsApp / Telegram / Matrix) and a voice
- * session. Accepting a decision makes the actor its decider, and that seat
- * belongs to a person acting through their own login — Zoe accepting on
- * someone's behalf is not that person deciding (ADR-0070). Personal API
- * tokens (the CLI), the extension, devices and browser sessions are the
- * person themselves.
- */
-const AGENT_ACTOR_TOKEN_TYPES: ReadonlySet<string> = new Set([
-  "agent-key",
-  "agent-context",
-  "whatsapp-gateway",
-  "telegram-gateway",
-  "matrix-gateway",
-  "voice-session",
-]);
-
-/** Whether the caller's token says an agent, not the person, is acting. */
-function isAgentActorToken(tokenType: string | undefined): boolean {
-  return tokenType !== undefined && AGENT_ACTOR_TOKEN_TYPES.has(tokenType);
 }
 
 /** Throwing wrapper around the decision resolver for one row. */
@@ -848,8 +829,8 @@ export const decisionRouter = createTRPCRouter({
    * draft. An optional `status` moves it in the same call ("confirm as
    * accepted"); on an already-confirmed row only that status change applies.
    * A person accepting through their own login becomes the decider when no
-   * person is one yet; Zoe or a gateway confirming on their behalf does not
-   * seat them (`isAgentActorToken`).
+   * person is one yet. Zoe and the gateways never get here: their tokens are
+   * agent-acting (`isAgentActorToken`), which `humanOnlyProcedure` refuses.
    */
   confirmDraft: humanOnlyProcedure
     .input(

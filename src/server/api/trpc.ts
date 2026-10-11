@@ -15,7 +15,11 @@ import { type Session } from "next-auth";
 
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
-import { SECURITY_FIX_TIMESTAMP, CURRENT_SECURITY_VERSION } from "~/server/utils/jwt";
+import {
+  SECURITY_FIX_TIMESTAMP,
+  CURRENT_SECURITY_VERSION,
+  type JWTTokenType,
+} from "~/server/utils/jwt";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 
 /**
@@ -275,21 +279,57 @@ export const protectedProcedure = t.procedure
   });
 
 /**
- * Human-only procedure (ADR-0049)
+ * Who is acting behind each token type. `agent`: an agent is doing the
+ * acting even when the session user is a person — an External agent's key,
+ * Zoe's agent-context JWT, the chat gateways (Zoe answering in WhatsApp /
+ * Telegram / Matrix) and a voice session. `person`: the person themselves —
+ * personal API tokens (the CLI), the extension, devices.
  *
- * The denylist gate for External-agent principals: JWT-minting procedures,
- * workspace-membership mutations, integration/credential management, and
- * agent management itself. Keyed on the *principal* (the DB `isAgent` flag),
- * not on how the caller authenticated — so even a credential laundered into
- * another token type still cannot reach these procedures. The `tokenType`
- * check is just a fast path that skips the DB read for the common case.
+ * Exhaustive over `JWTTokenType`, so a new token type (a new Zoe surface)
+ * does not compile until someone classifies it.
+ */
+const TOKEN_ACTOR: Record<JWTTokenType | "agent-key", "agent" | "person"> = {
+  "agent-key": "agent",
+  "agent-context": "agent",
+  "whatsapp-gateway": "agent",
+  "telegram-gateway": "agent",
+  "matrix-gateway": "agent",
+  "voice-session": "agent",
+  "api-token": "person",
+  "extension-token": "person",
+  "device-token": "person",
+};
+
+/**
+ * Whether the caller's token says an agent, not the person, is acting. No
+ * token type is a browser session (the person). A type this map doesn't
+ * know counts as an agent, so the check fails closed.
+ */
+export function isAgentActorToken(tokenType: string | undefined): boolean {
+  if (tokenType === undefined) return false;
+  return !Object.hasOwn(TOKEN_ACTOR, tokenType) || TOKEN_ACTOR[tokenType as keyof typeof TOKEN_ACTOR] === "agent";
+}
+
+/**
+ * Human-only procedure (ADR-0049, ADR-0070)
+ *
+ * The denylist gate for anything only a person may do: JWT-minting
+ * procedures, workspace-membership mutations, integration/credential
+ * management, agent management, and confirming what an agent proposed.
+ * Two checks:
+ * - the token: any agent-acting token type (`isAgentActorToken`) is refused,
+ *   including Zoe's tokens that carry the person as session user — Zoe acting
+ *   for someone is not that person acting;
+ * - the principal: a shadow user (`User.isAgent`) is refused however it
+ *   authenticated, so a credential laundered into another token type still
+ *   cannot reach these procedures.
  */
 export const humanOnlyProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   const FORBIDDEN_FOR_AGENTS = new TRPCError({
     code: "FORBIDDEN",
-    message: "This operation is not available to external agents",
+    message: "Only a person can do this, signed in as themselves — agents (including Zoe) cannot",
   });
-  if (ctx.tokenType === "agent-key") {
+  if (isAgentActorToken(ctx.tokenType)) {
     throw FORBIDDEN_FOR_AGENTS;
   }
   const principal = await ctx.db.user.findUnique({

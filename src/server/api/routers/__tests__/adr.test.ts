@@ -167,7 +167,7 @@ describe("adr router authz", () => {
         withWorkspaceRole(db, "owner");
 
         await expect(call(caller(db))).rejects.toThrow(
-          /not available to external agents/i,
+          /only a person can do this/i,
         );
       });
     }

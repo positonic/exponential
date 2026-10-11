@@ -1639,8 +1639,39 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
       },
     );
 
-    it.each(["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
-      "confirmDraft through a %s token (Zoe acting for the person) confirms but seats nobody",
+    it.each(["agent-key", "agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+      "confirmDraft through a %s token is refused, even with a person as session user (ADR-0070)",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow();
+        await expect(
+          callerWithToken(tokenType).decision.confirmDraft({
+            workspaceId: WORKSPACE_ID,
+            decisionId: "dec-6",
+            status: "ACCEPTED",
+          }),
+        ).rejects.toMatchObject({
+          code: "FORBIDDEN",
+          message: expect.stringMatching(/only a person can do this/i),
+        });
+        // Refused on the token alone: no principal lookup, no write.
+        expect(db.user.findUnique).not.toHaveBeenCalled();
+        expect(db.decision.updateMany).not.toHaveBeenCalled();
+        expect(db.decision.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it("confirmDraft through a token type nobody classified is refused — the gate fails closed", async () => {
+      withWorkspaceRole(db, "member");
+      withRow();
+      await expect(
+        callerWithToken("slack-gateway").decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.decision.updateMany).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, "api-token", "extension-token", "device-token"])(
+      "confirmDraft through a person's own login (%s) confirms",
       async (tokenType) => {
         withWorkspaceRole(db, "member");
         withRow();
@@ -1649,8 +1680,7 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
           decisionId: "dec-6",
           status: "ACCEPTED",
         });
-        expect(updateArgs().data).toMatchObject({ reviewState: "CONFIRMED", status: "ACCEPTED" });
-        expect(updateArgs().data).not.toHaveProperty("deciders");
+        expect(updateArgs().data).toMatchObject({ reviewState: "CONFIRMED", confirmedById: USER_ID });
       },
     );
 
