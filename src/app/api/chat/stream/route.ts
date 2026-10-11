@@ -32,12 +32,11 @@ import {
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
-import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
 import {
+  assembleLoadedScope,
   loadScopeInstructions,
-  scopeInstructionsFor,
   type LoadedScopeInstructions,
-} from "~/server/services/agentGuidance/context";
+} from "~/server/services/agentGuidance";
 import {
   pickModelTier,
   isHaikuTier,
@@ -401,7 +400,7 @@ export async function POST(req: Request) {
     // → specific: workspace first, then the in-scope project last so it wins on
     // conflict. With no project in scope (global drawer, /agent), only the
     // workspace applies. Empty scopes are skipped by the assembler.
-    const scopeInstructionsBlock = assembleScopeInstructions(scopeInstructionsFor(scope));
+    const scopeInstructionsBlock = assembleLoadedScope(scope);
     if (scopeInstructionsBlock) {
       promptSizeChars.scopeInstructions = scopeInstructionsBlock.length;
       finalMessages = [

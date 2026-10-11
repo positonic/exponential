@@ -3,8 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { generateJWT } from "~/server/utils/jwt";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
-import { loadScopeInstructions, scopeInstructionsFor } from "~/server/services/agentGuidance/context";
-import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
+import { assembleLoadedScope, loadScopeInstructions } from "~/server/services/agentGuidance";
 import { onRunFinished } from "./finish";
 
 /**
@@ -168,7 +167,7 @@ export async function loadRunScopeInstructions(
       workspaceId: input.workspaceId,
       projectId: input.projectId,
     });
-    return assembleScopeInstructions(scopeInstructionsFor(loaded));
+    return assembleLoadedScope(loaded);
   } catch (err) {
     if (!(err instanceof TRPCError)) throw err;
     reportHandledErrorServer(err, {

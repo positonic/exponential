@@ -91,6 +91,11 @@ export function scopeInstructionsFor(loaded: LoadedScopeInstructions): ScopeInst
   ];
 }
 
+/** The demoted block chat, agent runs and `getContext` all inject; null when no scope has text. */
+export function assembleLoadedScope(loaded: LoadedScopeInstructions): string | null {
+  return assembleScopeInstructions(scopeInstructionsFor(loaded));
+}
+
 export interface ContextInstruction {
   scope: InstructionScope;
   /** The workspace or project the text belongs to. */
@@ -146,7 +151,7 @@ export async function getContext(
     project: loaded.project ? { id: loaded.project.id, name: loaded.project.name } : null,
     authority: "guidance",
     instructions,
-    assembled: assembleScopeInstructions(scopes),
+    assembled: assembleLoadedScope(loaded),
     revision: contextRevision(instructions),
     generatedAt: (opts.now ?? new Date()).toISOString(),
   };

@@ -13,7 +13,6 @@ export async function getDocContent(
   slug: string[],
   docsDir: string = DOCS_DIR,
 ): Promise<DocContent | null> {
-  const DOCS_PATH = docsDir;
   const slugPath = slug.join("/");
 
   // The method stays dark until its release manifest says `published`. The
@@ -23,13 +22,13 @@ export async function getDocContent(
 
   // Try different file paths
   const possiblePaths = [
-    path.join(DOCS_PATH, `${slugPath}.md`),
-    path.join(DOCS_PATH, slugPath, "index.md"),
+    path.join(docsDir, `${slugPath}.md`),
+    path.join(docsDir, slugPath, "index.md"),
   ];
 
   // Special case for root /docs
   if (slug.length === 0 || (slug.length === 1 && slug[0] === "")) {
-    possiblePaths.unshift(path.join(DOCS_PATH, "index.md"));
+    possiblePaths.unshift(path.join(docsDir, "index.md"));
   }
 
   for (const filePath of possiblePaths) {
@@ -40,10 +39,10 @@ export async function getDocContent(
     // ADRs — sits a couple of levels up from `content/docs`.
     //
     // Compare structurally rather than by string prefix, so the check holds
-    // however DOCS_PATH comes to be declared — relative, or with a trailing
+    // however docsDir comes to be declared — relative, or with a trailing
     // separator, either of which would make a `startsWith` test reject every
     // candidate and 404 the whole docs section.
-    const relativeToDocs = path.relative(path.resolve(DOCS_PATH), path.resolve(filePath));
+    const relativeToDocs = path.relative(path.resolve(docsDir), path.resolve(filePath));
     if (relativeToDocs.startsWith("..") || path.isAbsolute(relativeToDocs)) continue;
     // `_meta.json`, `_redirects.json` and `_drafts/` are not pages.
     if (path.basename(filePath).startsWith("_") || relativeToDocs.split(path.sep).some((s) => s.startsWith("_"))) continue;

@@ -18,6 +18,7 @@ export {
   parseMethodPreviewSlugs,
 } from "./preview";
 export {
+  assembleLoadedScope,
   contextRevision,
   getContext,
   loadScopeInstructions,
