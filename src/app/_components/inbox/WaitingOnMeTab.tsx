@@ -105,8 +105,11 @@ interface ConfirmableDraft {
 }
 
 /**
- * "Confirm all" for the agent drafts listed in the tab — the ones the user may
- * edit, which is the same gate as the Confirm button on a draft's own page.
+ * "Confirm these N" for the agent drafts listed in the tab — the ones the user
+ * may edit, which is the same gate as the Confirm button on a draft's own
+ * page. N is exactly what it will confirm: the section's badge also counts
+ * meeting drafts (reviewed on the meeting page) and rows past the tab's cap,
+ * so the button names its own count rather than claiming "all".
  * Confirms one at a time so a single refusal (the draft was rejected
  * elsewhere, access changed) only skips that row; the button counts progress
  * and the failures are listed when the run ends.
@@ -156,7 +159,11 @@ function ConfirmAllDraftsButton({ drafts }: { drafts: ConfirmableDraft[] }) {
       disabled={progress !== null}
       onClick={() => void confirmAll()}
     >
-      {progress ? `Confirming ${progress.done}/${progress.total}…` : 'Confirm all'}
+      {progress
+        ? `Confirming ${progress.done}/${progress.total}…`
+        : drafts.length === 1
+          ? 'Confirm this one'
+          : `Confirm these ${drafts.length}`}
     </Button>
   );
 }
