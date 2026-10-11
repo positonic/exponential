@@ -224,6 +224,50 @@ describe("accepting sets the decider", () => {
       expect(activityActions()).toEqual(["accepted"]);
     });
 
+    function withResolution(targetOverrides: Record<string, unknown> = {}) {
+      const target = {
+        id: "dec-2",
+        number: 2,
+        statement: "Open question",
+        status: "OPEN",
+        body: null,
+        decidedAt: null,
+        transcriptionSessionId: null,
+        evidence: [],
+        projectId: null,
+        workspaceId: WORKSPACE_ID,
+        reviewState: "CONFIRMED",
+        transcriptionSession: null,
+        deciders: [],
+        ...targetOverrides,
+      };
+      db.decision.findFirst
+        .mockResolvedValueOnce({ ...ROW, reviewState: "DRAFT", supersededById: "dec-2" } as never)
+        .mockResolvedValueOnce(target as never);
+      getDecisionAccess.mockResolvedValue({});
+      canEditDecision.mockReturnValue(true);
+      db.decision.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+        Promise.resolve({ ...target, ...args.data, supersededBy: null })) as never);
+      db.decision.delete.mockResolvedValue({} as never);
+      return target;
+    }
+
+    it.each(["OPEN", "PROPOSED"] as const)(
+      "a resolution left %s gets no decided date and no decider",
+      async (status) => {
+        withResolution({ status: "OPEN" });
+        await confirm(status);
+        expect(updateData()).not.toHaveProperty("decidedAt");
+        expect(updateData()).not.toHaveProperty("deciders");
+      },
+    );
+
+    it("a resolution that accepts the target dates it", async () => {
+      withResolution({ status: "OPEN" });
+      await confirm();
+      expect(updateData()).toMatchObject({ status: "ACCEPTED", decidedAt: expect.any(Date) });
+    });
+
     it("applies the status to the decision a resolution draft resolves", async () => {
       const target = {
         id: "dec-2",

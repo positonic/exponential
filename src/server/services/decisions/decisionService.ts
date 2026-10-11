@@ -997,7 +997,11 @@ async function applyDraftResolution(
         // Leaving SUPERSEDED drops the successor, as `setStatus` does.
         ...(statusChanged ? { status, supersededById: null } : {}),
         body,
-        decidedAt: target.decidedAt ?? draft.decidedAt ?? new Date(),
+        // An open or proposed decision has not been decided, so it gets no
+        // decided date; every other outcome keeps or gains one.
+        ...(status !== "OPEN" && status !== "PROPOSED"
+          ? { decidedAt: target.decidedAt ?? draft.decidedAt ?? new Date() }
+          : {}),
         evidence: evidence as unknown as Prisma.InputJsonValue,
         ...(deciders ? { deciders } : {}),
       },
