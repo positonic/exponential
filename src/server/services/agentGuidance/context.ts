@@ -52,24 +52,36 @@ export async function loadScopeInstructions(
   db: PrismaClient,
   opts: { userId: string; workspaceId?: string | null; projectId?: string | null },
 ): Promise<LoadedScopeInstructions> {
+  // Three independent reads, run together: this sits on the chat hot path.
+  // Nothing from the workspace row or the project is returned unless the
+  // membership check passes.
+  const [membership, workspaceRow, row] = await Promise.all([
+    opts.workspaceId ? getWorkspaceMembership(db, opts.userId, opts.workspaceId) : null,
+    opts.workspaceId
+      ? db.workspace.findUnique({
+          where: { id: opts.workspaceId },
+          select: { id: true, slug: true, name: true, type: true, description: true, aiInstructions: true },
+        })
+      : null,
+    opts.projectId
+      ? db.project.findFirst({
+          where: { id: opts.projectId, ...buildProjectAccessWhere(opts.userId) },
+          select: { id: true, name: true, workspaceId: true, aiInstructions: true },
+        })
+      : null,
+  ]);
+
   let workspace: LoadedScopeInstructions["workspace"] = null;
   if (opts.workspaceId) {
     // The central resolver: direct membership or a team linked to the workspace.
-    const membership = await getWorkspaceMembership(db, opts.userId, opts.workspaceId);
-    if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: WORKSPACE_ACCESS_DENIED_MESSAGE });
-    workspace = await db.workspace.findUnique({
-      where: { id: opts.workspaceId },
-      select: { id: true, slug: true, name: true, type: true, description: true, aiInstructions: true },
-    });
-    if (!workspace) throw new TRPCError({ code: "FORBIDDEN", message: WORKSPACE_ACCESS_DENIED_MESSAGE });
+    if (!membership || !workspaceRow) {
+      throw new TRPCError({ code: "FORBIDDEN", message: WORKSPACE_ACCESS_DENIED_MESSAGE });
+    }
+    workspace = workspaceRow;
   }
 
   let project: LoadedScopeInstructions["project"] = null;
   if (opts.projectId) {
-    const row = await db.project.findFirst({
-      where: { id: opts.projectId, ...buildProjectAccessWhere(opts.userId) },
-      select: { id: true, name: true, workspaceId: true, aiInstructions: true },
-    });
     if (row && opts.workspaceId && row.workspaceId && row.workspaceId !== opts.workspaceId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: PROJECT_NOT_IN_WORKSPACE_MESSAGE });
     }

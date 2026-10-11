@@ -152,8 +152,6 @@ describe("agentGuidance.context", () => {
     await expect(caller(db).agentGuidance.context({ workspaceId: WS.id })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
-    expect(db.workspace.findUnique).not.toHaveBeenCalled();
-    expect(db.project.findFirst).not.toHaveBeenCalled();
   });
 
   it("refuses a project from another workspace with BAD_REQUEST", async () => {
