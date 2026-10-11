@@ -257,3 +257,24 @@ export function checkMethodReleaseAgainstBase(base: MethodRelease, next: MethodR
 
   return problems;
 }
+
+/**
+ * The method folder must hold exactly the documents the hash covers: a page
+ * outside `METHOD_DOCUMENTS` would go live on /docs under a published version
+ * without changing its hash (and agents would never receive it), and a
+ * missing one would leave the release incomplete.
+ */
+export function checkMethodDocuments(methodSlugs: string[][]): string[] {
+  const expected = new Set(METHOD_DOCUMENTS.map((d) => d.slug.join("/")));
+  const present = new Set(methodSlugs.map((s) => s.join("/")));
+  const problems: string[] = [];
+  for (const slug of present) {
+    if (!expected.has(slug)) {
+      problems.push(`content/docs/${slug} is not one of the method's documents (METHOD_DOCUMENTS in src/lib/docs/method.ts)`);
+    }
+  }
+  for (const doc of METHOD_DOCUMENTS) {
+    if (!present.has(doc.slug.join("/"))) problems.push(`the method's ${doc.id} document (content/docs/${doc.slug.join("/")}) is missing`);
+  }
+  return problems;
+}

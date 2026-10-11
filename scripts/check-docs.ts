@@ -26,6 +26,7 @@ import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
 import {
   checkMethodRelease,
+  checkMethodDocuments,
   checkMethodReleaseAgainstBase,
   collectMethodDocuments,
   computeMethodHash,
@@ -283,9 +284,10 @@ function main() {
   // The method's release manifest: a published version must never change (D-0015).
   const methodPages = pages.filter((p) => isMethodPath(p.slug.join("/")));
   let methodSummary = "";
-  if (methodPages.length > 0) {
-    const manifest = path.relative(ROOT, path.join(DOCS_DIR, METHOD_DIR, METHOD_RELEASE_FILE));
-    const release = readMethodRelease(DOCS_DIR);
+  const manifest = path.relative(ROOT, path.join(DOCS_DIR, METHOD_DIR, METHOD_RELEASE_FILE));
+  const release = readMethodRelease(DOCS_DIR);
+  if (methodPages.length > 0 || release) {
+    for (const message of checkMethodDocuments(methodPages.map((p) => p.slug))) fail(manifest, 1, message);
     if (!release) {
       fail(manifest, 1, "content/docs/method has pages but no readable release manifest");
     } else {

@@ -8,6 +8,7 @@ import os from "os";
 import path from "path";
 import { listDocPages } from "../content";
 import {
+  checkMethodDocuments,
   checkMethodRelease,
   checkMethodReleaseAgainstBase,
   collectMethodDocuments,
@@ -160,6 +161,27 @@ describe("checkMethodReleaseAgainstBase", () => {
     expect(checkMethodReleaseAgainstBase(base, published({ version: "0.2.0", contentHash: HASH_B }))).toContain(
       "history is append-only: the base branch's entries must stay, unchanged and in order",
     );
+  });
+});
+
+describe("checkMethodDocuments", () => {
+  const ALL = [["method"], ["method", "glossary"], ["method", "agent-principles"]];
+
+  it("accepts exactly the three documents", () => {
+    expect(checkMethodDocuments(ALL)).toEqual([]);
+  });
+
+  it("fails a page the hash does not cover", () => {
+    expect(checkMethodDocuments([...ALL, ["method", "faq"]])).toEqual([
+      "content/docs/method/faq is not one of the method's documents (METHOD_DOCUMENTS in src/lib/docs/method.ts)",
+    ]);
+  });
+
+  it("fails a missing document, including when all are gone", () => {
+    expect(checkMethodDocuments(ALL.slice(0, 2))).toEqual([
+      "the method's agent-principles document (content/docs/method/agent-principles) is missing",
+    ]);
+    expect(checkMethodDocuments([])).toHaveLength(3);
   });
 });
 
