@@ -1348,7 +1348,7 @@ describe("action router (mocked)", () => {
       stubMembers([callerId]);
       dbMock.action.create.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { id: "a1", name: "Mine", workspaceId, project: null } as any,
+        { id: "a1", name: "Mine", workspaceId, project: null, assignees: [] } as any,
       );
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -1360,7 +1360,7 @@ describe("action router (mocked)", () => {
     it("needs no membership probe when no workspaceId is supplied", async () => {
       dbMock.action.create.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { id: "a1", name: "Personal", workspaceId: null, project: null } as any,
+        { id: "a1", name: "Personal", workspaceId: null, project: null, assignees: [] } as any,
       );
 
       const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -1851,7 +1851,7 @@ describe("action router (mocked)", () => {
           id: "a1",
           name: "Mine",
           workspaceId: "w1",
-          project: null,
+          project: null, assignees: [],
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
 
@@ -1881,7 +1881,7 @@ describe("action router (mocked)", () => {
           id: "a1",
           name: "Scoped",
           workspaceId: "w-legit",
-          project: null,
+          project: null, assignees: [],
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
 
@@ -2093,7 +2093,7 @@ describe("action router (mocked)", () => {
         priority: "Quick",
         status: "ACTIVE",
         dueDate: null,
-        project: null,
+        project: null, assignees: [],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
 

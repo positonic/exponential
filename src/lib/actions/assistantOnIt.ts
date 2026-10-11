@@ -28,6 +28,7 @@ export function assistantOnItToast(
 ): AssistantOnItToast | null {
   if (created.agentRunsQueued <= 0) return null;
   const agent = created.assignees.find((a) => a.user.isAgent);
-  const who = agent?.user.name?.trim() ? agent.user.name : "Your Assistant";
+  const name = agent?.user.name?.trim() ?? "";
+  const who = name.length > 0 ? name : "Your Assistant";
   return { title: `${who} is on it`, message: `Working on "${created.name}"` };
 }
