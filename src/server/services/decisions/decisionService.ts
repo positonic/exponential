@@ -19,7 +19,7 @@ import type {
   PrismaClient,
 } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { recordActivity } from "~/server/services/activity/recordActivity";
+import { recordActivity, type ActivityAction } from "~/server/services/activity/recordActivity";
 import { formatDecisionLabel } from "~/lib/decision-label";
 import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 // Imported from the resolver module rather than the access barrel: the
@@ -674,6 +674,68 @@ function activityTitle(decision: { number: number; statement: string }): string 
   return `${formatDecisionLabel(decision.number)} ${decision.statement}`;
 }
 
+/** The activity action a move into `status` records, so the feed reads as a lifecycle. */
+function statusActivityAction(status: DecisionStatus): ActivityAction {
+  switch (status) {
+    case "ACCEPTED":
+      return "accepted";
+    case "SUPERSEDED":
+      return "superseded";
+    case "DEPRECATED":
+      return "deprecated";
+    default:
+      return "status_changed";
+  }
+}
+
+/** Who currently stands behind a decision, as the decider claim needs it. */
+const deciderClaimSelect = {
+  deciders: { select: { userId: true, user: { select: { isAgent: true } } } },
+} satisfies Prisma.DecisionSelect;
+
+interface ExistingDecider {
+  userId: string | null;
+  user: { isAgent: boolean } | null;
+}
+
+/**
+ * A person who accepts or confirms a decision that no person stands behind
+ * becomes its decider (CONTEXT.md "Decision"). Agents log decisions as drafts
+ * with no decider (ADR-0070), and decisions logged before that rule may name
+ * the agent itself; either way the person accepting it is the one who
+ * decided. Human deciders already named — including external meeting
+ * participants, who have no account — are left alone.
+ *
+ * Returns the nested `deciders` write for the caller's own status update, so
+ * the claim lands in the same write as the transition, or undefined when
+ * nothing changes. An agent principal never claims: `actorIsAgent` is the
+ * caller's knowledge (an agent-key token), and the user row's `isAgent` flag
+ * is checked here as well, so every caller gets the same answer.
+ */
+async function claimDeciderWrite(
+  db: PrismaClient,
+  actor: { userId: string; actorIsAgent?: boolean },
+  existing: ExistingDecider[],
+): Promise<Prisma.DecisionUpdateInput["deciders"]> {
+  if (actor.actorIsAgent) return undefined;
+  const person = await db.user.findUnique({
+    where: { id: actor.userId },
+    select: { id: true, name: true, email: true, isAgent: true },
+  });
+  if (!person || person.isAgent) return undefined;
+  // A decider with no account is an external meeting participant — a person.
+  if (existing.some((decider) => decider.user?.isAgent !== true)) return undefined;
+  const [decider] = normaliseDeciders([
+    { userId: person.id, name: person.name ?? person.email ?? "Unknown", email: person.email },
+  ]);
+  if (!decider) return undefined;
+  return {
+    // Only agent principals are left here; the person replaces them.
+    ...(existing.length > 0 ? { deleteMany: {} } : {}),
+    create: [{ userId: decider.userId ?? null, name: decider.name, email: decider.email ?? null }],
+  };
+}
+
 export interface UpdateDecisionPatch {
   statement?: string;
   body?: string | null;
@@ -741,20 +803,28 @@ export interface SetStatusInput {
   status: DecisionStatus;
   /** Required for SUPERSEDED: the confirmed decision in the same workspace that replaces this one. */
   supersededById?: string | null;
+  /**
+   * The caller already knows the actor is an agent principal (an agent-key
+   * token). The service also checks `User.isAgent`; this only covers what
+   * the user row cannot show.
+   */
+  actorIsAgent?: boolean;
 }
 
 /**
  * Move a confirmed decision along its lifecycle. SUPERSEDED needs the
  * successor (same workspace, confirmed, not itself) and is the only status
  * that keeps `supersededById`; leaving SUPERSEDED clears it. Accepting a
- * decision that has no date stamps it now. Each terminal transition records
- * its own activity action (accepted / superseded / deprecated) so the feed
- * reads as a lifecycle; OPEN and PROPOSED are a plain status change.
+ * decision that has no date stamps it now, and a person accepting one that
+ * no person stands behind becomes its decider ({@link claimDeciderWrite}).
+ * Each terminal transition records its own activity action (accepted /
+ * superseded / deprecated) so the feed reads as a lifecycle; OPEN and
+ * PROPOSED are a plain status change.
  */
 export async function setStatus(db: PrismaClient, input: SetStatusInput) {
   const current = await db.decision.findFirst({
     where: { id: input.decisionId, workspaceId: input.workspaceId },
-    select: transitionSelect,
+    select: { ...transitionSelect, ...deciderClaimSelect },
   });
   if (!current) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
@@ -794,30 +864,28 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
     supersededById = successor.id;
   }
 
+  const deciders =
+    input.status === "ACCEPTED"
+      ? await claimDeciderWrite(db, input, current.deciders)
+      : undefined;
+
   const decision = await db.decision.update({
     where: { id: current.id, workspaceId: input.workspaceId },
     data: {
       status: input.status,
       supersededById,
       ...(input.status === "ACCEPTED" && !current.decidedAt ? { decidedAt: new Date() } : {}),
+      ...(deciders ? { deciders } : {}),
     },
     include: decisionDetailInclude,
   });
 
-  const action =
-    input.status === "ACCEPTED"
-      ? "accepted"
-      : input.status === "SUPERSEDED"
-        ? "superseded"
-        : input.status === "DEPRECATED"
-          ? "deprecated"
-          : "status_changed";
   await recordActivity(db, {
     workspaceId: decision.workspaceId,
     userId: input.userId,
     entityType: "decision",
     entityId: decision.id,
-    action,
+    action: statusActivityAction(input.status),
     metadata: {
       title: activityTitle(decision),
       label: formatDecisionLabel(decision.number),
@@ -839,7 +907,9 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
  * — accepted, with the draft's statement and quotes folded into its body
  * and (same meeting) its evidence — and removes the draft row, so the log
  * gains an answer, not a duplicate (ADR-0060 decision 4). A target that is
- * no longer open keeps its status; the draft is still absorbed.
+ * no longer open keeps its status; the draft is still absorbed. An explicit
+ * `status` from the reviewer wins over both, and the reviewer claims the
+ * decider seat when nobody human holds it.
  */
 async function applyDraftResolution(
   db: PrismaClient,
@@ -855,6 +925,7 @@ async function applyDraftResolution(
     evidence: Prisma.JsonValue;
   },
   userId: string,
+  opts: { status?: DecisionStatus; actorIsAgent?: boolean } = {},
 ) {
   const target = await db.decision.findFirst({
     where: { id: draft.supersededById, workspaceId: draft.workspaceId, reviewState: "CONFIRMED" },
@@ -876,6 +947,7 @@ async function applyDraftResolution(
       workspaceId: true,
       reviewState: true,
       transcriptionSession: { select: { id: true, userId: true, projectId: true, workspaceId: true } },
+      ...deciderClaimSelect,
     },
   });
   // NOT_FOUND either way, so a target the caller may not see is
@@ -910,14 +982,24 @@ async function applyDraftResolution(
   const body = target.body?.trim() ? `${target.body.trim()}\n\n${resolution}` : resolution;
 
   const resolves = target.status === "OPEN" || target.status === "PROPOSED";
+  const status: DecisionStatus = opts.status ?? (resolves ? "ACCEPTED" : target.status);
+  const statusChanged = status !== target.status;
+  // Confirming is a person standing behind the answer — except an OPEN
+  // question, which nobody has decided yet.
+  const deciders =
+    status !== "OPEN"
+      ? await claimDeciderWrite(db, { userId, actorIsAgent: opts.actorIsAgent }, target.deciders)
+      : undefined;
   const decision = await db.$transaction(async (tx) => {
     const updated = await tx.decision.update({
       where: { id: target.id, workspaceId: draft.workspaceId },
       data: {
-        ...(resolves ? { status: "ACCEPTED" } : {}),
+        // Leaving SUPERSEDED drops the successor, as `setStatus` does.
+        ...(statusChanged ? { status, supersededById: null } : {}),
         body,
         decidedAt: target.decidedAt ?? draft.decidedAt ?? new Date(),
         evidence: evidence as unknown as Prisma.InputJsonValue,
+        ...(deciders ? { deciders } : {}),
       },
       include: decisionDetailInclude,
     });
@@ -930,7 +1012,7 @@ async function applyDraftResolution(
     userId,
     entityType: "decision",
     entityId: decision.id,
-    action: resolves ? "accepted" : "updated",
+    action: statusChanged ? statusActivityAction(status) : "updated",
     metadata: {
       title: activityTitle(decision),
       label: formatDecisionLabel(decision.number),
@@ -943,25 +1025,57 @@ async function applyDraftResolution(
   return decision;
 }
 
+export interface ConfirmDraftInput {
+  decisionId: string;
+  workspaceId: string;
+  userId: string;
+  /**
+   * Move the decision to this status in the same call (e.g. confirm as
+   * ACCEPTED). SUPERSEDED is refused: it needs a successor, which is
+   * `setStatus`'s job.
+   */
+  status?: DecisionStatus;
+  /** See {@link SetStatusInput.actorIsAgent}. */
+  actorIsAgent?: boolean;
+}
+
 /**
- * Publish a draft (V2 extraction writes drafts; V1 only exposes the seam).
- * Idempotent: confirming a confirmed row returns it unchanged and records
- * nothing. A draft that resolves an open decision is applied to that
- * decision instead of being published as a new row (see
- * {@link applyDraftResolution}).
+ * Publish a draft, optionally moving it to `status` in the same write. A
+ * person confirming a decision that no person stands behind becomes its
+ * decider (unless it is an OPEN question — nobody has decided that yet).
+ *
+ * Idempotent on the confirm: a confirmed row is returned unchanged and
+ * records nothing — unless a different `status` is asked for, which is then
+ * applied exactly as {@link setStatus} would (so a client may call
+ * `confirmDraft(id, { status: ACCEPTED })` on any row). A draft that resolves
+ * an open decision is applied to that decision instead of being published as
+ * a new row (see {@link applyDraftResolution}), and `status` lands on the
+ * decision that comes back.
  */
-export async function confirmDraft(
-  db: PrismaClient,
-  input: { decisionId: string; workspaceId: string; userId: string },
-) {
+export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
+  if (input.status === "SUPERSEDED") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "A decision is superseded by choosing its successor — confirm it first, then change its status",
+    });
+  }
   const current = await db.decision.findFirst({
     where: { id: input.decisionId, workspaceId: input.workspaceId },
-    select: { ...transitionSelect, body: true, evidence: true },
+    select: { ...transitionSelect, body: true, evidence: true, ...deciderClaimSelect },
   });
   if (!current) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
   }
   if (current.reviewState === "CONFIRMED") {
+    if (input.status && input.status !== current.status) {
+      return setStatus(db, {
+        decisionId: current.id,
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        status: input.status,
+        actorIsAgent: input.actorIsAgent,
+      });
+    }
     return db.decision.findUniqueOrThrow({
       where: { id: current.id },
       include: decisionDetailInclude,
@@ -977,14 +1091,26 @@ export async function confirmDraft(
     });
   }
   if (current.supersededById) {
-    return applyDraftResolution(db, { ...current, supersededById: current.supersededById }, input.userId);
+    return applyDraftResolution(
+      db,
+      { ...current, supersededById: current.supersededById },
+      input.userId,
+      { status: input.status, actorIsAgent: input.actorIsAgent },
+    );
   }
+  const status = input.status ?? current.status;
+  const statusChanged = status !== current.status;
+  const deciders =
+    status !== "OPEN" ? await claimDeciderWrite(db, input, current.deciders) : undefined;
   const decision = await db.decision.update({
     where: { id: current.id },
     data: {
       reviewState: "CONFIRMED",
       confirmedById: input.userId,
       confirmedAt: new Date(),
+      ...(statusChanged ? { status } : {}),
+      ...(statusChanged && status === "ACCEPTED" && !current.decidedAt ? { decidedAt: new Date() } : {}),
+      ...(deciders ? { deciders } : {}),
     },
     include: decisionDetailInclude,
   });
@@ -1001,6 +1127,24 @@ export async function confirmDraft(
       source: decision.source,
     },
   });
+  // The status change gets the same lifecycle entry `setStatus` records.
+  if (statusChanged) {
+    await recordActivity(db, {
+      workspaceId: decision.workspaceId,
+      userId: input.userId,
+      entityType: "decision",
+      entityId: decision.id,
+      action: statusActivityAction(status),
+      metadata: {
+        title: activityTitle(decision),
+        label: formatDecisionLabel(decision.number),
+        from: current.status,
+        to: decision.status,
+        supersededById: null,
+        supersededByLabel: null,
+      },
+    });
+  }
   return decision;
 }
 
