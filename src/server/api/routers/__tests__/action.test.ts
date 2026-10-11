@@ -1498,6 +1498,44 @@ describe("action router (mocked)", () => {
       expect(dispatchMock).not.toHaveBeenCalled();
     });
 
+    it("create-then-assign of the same Assistant starts exactly one run", async () => {
+      // A caller that creates with the Assistant attached and then assigns it
+      // again (a second click, a chat tool that assigns after creating) must
+      // not start a second run. Two guards, each sufficient on its own: the
+      // assignee is already on the row, so `assign` does not even look up a
+      // principal; and were it to, the live-run read (backed by the partial
+      // unique index) coalesces.
+      stubCreateWithAssignees([assistantShadowId]);
+      dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const created = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: [assistantShadowId],
+      });
+      expect(created.agentRunsQueued).toBe(1);
+
+      // `assign` on the same action: edit access passes, the Assistant is
+      // already an assignee.
+      dbMock.action.findUnique.mockResolvedValue({
+        id: "a1", name: "Delegate", projectId: null, teamId: null, workspaceId,
+        status: "ACTIVE", kanbanStatus: null,
+      } as never);
+      dbMock.action.findFirst.mockResolvedValue({ id: "a1" } as never);
+      dbMock.actionAssignee.findMany.mockResolvedValue([{ userId: assistantShadowId }] as never);
+      const assigned = await caller.action.assign({ actionId: "a1", userIds: [assistantShadowId] });
+      expect(assigned.agentRunsQueued).toBe(0);
+
+      // And if the assignee row were somehow missing, the live run coalesces.
+      dbMock.actionAssignee.findMany.mockResolvedValue([] as never);
+      dbMock.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
+      const again = await caller.action.assign({ actionId: "a1", userIds: [assistantShadowId] });
+      expect(again.agentRunsQueued).toBe(0);
+
+      expect(dbMock.agentRun.create).toHaveBeenCalledTimes(1);
+      expect(dispatchMock).toHaveBeenCalledTimes(1);
+    });
+
     it("queues a LOCAL_CLI run without kicking the hosted dispatcher", async () => {
       stubCreateWithAssignees([assistantShadowId]);
       dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "LOCAL_CLI" }] as never);
