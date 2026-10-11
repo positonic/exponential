@@ -8,6 +8,7 @@ import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
+import { InboxPeekDrawer, inboxPeekLinkProps } from './InboxPeek';
 
 type Run = RouterOutputs['inbox']['delegated']['live'][number];
 
@@ -55,7 +56,7 @@ function Section({ label, shown, total, children }: { label: string; shown: numb
 function Row({ run, icon, sub, meta, actions }: { run: Run; icon: ReactNode; sub: string; meta: ReactNode; actions?: ReactNode }) {
   return (
     <div className="flex items-center gap-2" data-testid={`delegated-row-${run.id}`} data-status={run.status}>
-      <UnstyledButton component={Link} href={actionHref(run)} className="wsa-item flex-1">
+      <UnstyledButton component={Link} href={actionHref(run)} className="wsa-item flex-1" {...inboxPeekLinkProps(actionHref(run))}>
         <span className="wsa-item__icon">{icon}</span>
         <span className="wsa-item__label">
           {toPlainText(run.action.name)}
@@ -202,6 +203,10 @@ export function DelegatedTab() {
           />
         ))}
       </Section>
+
+      <InboxPeekDrawer
+        hrefs={[...data.live, ...data.waiting, ...data.unreviewed, ...data.reviewed].map(actionHref)}
+      />
     </section>
   );
 }

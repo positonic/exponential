@@ -32,6 +32,7 @@ import {
 } from '~/server/services/notifications/emit/constants';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
+import { InboxPeekDrawer, inboxPeekLinkProps } from './InboxPeek';
 
 const PAGE_SIZE = 20;
 
@@ -170,7 +171,11 @@ export function NotificationsTab() {
             return (
               <div key={notification.id} className="flex items-center gap-1">
                 {notification.deeplink ? (
-                  <Link href={notification.deeplink} className="wsa-item min-w-0 flex-1">
+                  <Link
+                    href={notification.deeplink}
+                    className="wsa-item min-w-0 flex-1"
+                    {...inboxPeekLinkProps(notification.deeplink)}
+                  >
                     {row}
                   </Link>
                 ) : (
@@ -205,6 +210,10 @@ export function NotificationsTab() {
           )}
         </>
       )}
+
+      <InboxPeekDrawer
+        hrefs={notifications.flatMap((n) => (n.deeplink ? [n.deeplink] : []))}
+      />
     </section>
   );
 }
