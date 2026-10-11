@@ -51,6 +51,10 @@ improves guidance; it enforces nothing. Until enforcement exists for a principle
 claim it is enforced. ADR-0070 (agents propose decisions; people confirm) is the first enforced
 piece of record integrity.
 
+What is enforced today, where, by which test, and what remains guidance is tracked row by row in the
+audit matrix, [`dev-docs/AGENT_PRINCIPLES_AUDIT.md`](../../dev-docs/AGENT_PRINCIPLES_AUDIT.md). A
+principle is described as enforced only when every one of its rows there is `enforced`.
+
 ## Rejected
 
 - **Most specific wins, everywhere.** Lets any workspace turn off the record's core guarantees with
