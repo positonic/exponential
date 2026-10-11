@@ -38,11 +38,16 @@ interface EditMemberRoleModalProps {
   onSuccess?: () => void;
 }
 
+const MEMBER_OPTION = { value: "member", label: "Member - Can view and edit content" };
+
 const ROLE_OPTIONS = [
   { value: "admin", label: "Admin - Can manage members and settings" },
-  { value: "member", label: "Member - Can view and edit content" },
+  MEMBER_OPTION,
   { value: "viewer", label: "Viewer - Read-only access" },
 ];
+
+/** Agents always hold `member` (ADR-0049 §3); the server rejects anything else. */
+const AGENT_ROLE_OPTIONS = [MEMBER_OPTION];
 
 function initials(label: string): string {
   return label.trim().charAt(0).toUpperCase() || "?";
@@ -152,11 +157,17 @@ export function EditMemberRoleModal({
             label="Role"
             value={role}
             onChange={(val) => setRole((val as EditableRole) ?? "member")}
-            data={ROLE_OPTIONS}
+            data={member?.isAgent ? AGENT_ROLE_OPTIONS : ROLE_OPTIONS}
+            description={
+              member?.isAgent
+                ? "Agents always hold the Member role."
+                : undefined
+            }
             classNames={{
               input:
                 "bg-surface-primary border-border-primary text-text-primary",
               label: "text-text-secondary",
+              description: "text-text-muted",
               dropdown: "bg-surface-secondary border-border-primary",
             }}
           />

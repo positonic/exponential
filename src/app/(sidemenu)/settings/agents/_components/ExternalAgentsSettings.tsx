@@ -40,6 +40,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '~/trpc/react';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { canDelegateFromRole } from '~/lib/agentDelegation';
 import { AgentDrawer, type EditableAgent } from './AgentDrawer';
 
 const AGENTS_PATH = '/settings/agents';
@@ -152,10 +153,13 @@ export function ExternalAgentsSettings() {
   });
 
   // Only offer workspaces the agent isn't already in — re-granting is a no-op
-  // server-side, but listing them reads as if the agent lacked access.
+  // server-side, but listing them reads as if the agent lacked access — and
+  // that the server would let you delegate from (viewers and guests can't).
   const grantAgent = agents.find((agent) => agent.id === grantAgentId);
   const grantedWorkspaceIds = new Set(grantAgent?.workspaces.map((ws) => ws.id) ?? []);
-  const grantableWorkspaces = workspaces.filter((ws) => !grantedWorkspaceIds.has(ws.id));
+  const grantableWorkspaces = workspaces.filter(
+    (ws) => !grantedWorkspaceIds.has(ws.id) && canDelegateFromRole(ws.currentUserRole),
+  );
   // Membership, not a length match: the agent list can refetch while the modal is
   // open, shrinking `grantableWorkspaces` while a now-ungrantable id lingers in the
   // selection — the counts would agree without every workspace actually being picked.
