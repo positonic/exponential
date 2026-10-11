@@ -21,6 +21,7 @@ import {
   deleteDraft,
   linkEntity,
   listForAdr,
+  listForFeature,
   listForMeeting,
   listForWorkspace,
   rejectDraft,
@@ -624,6 +625,22 @@ export const decisionRouter = createTRPCRouter({
         ctx.db,
         buildDecisionAccessWhere(ctx.session.user.id, input.workspaceId),
         input.adrDocumentId,
+      );
+    }),
+
+  /**
+   * Decisions linked "implemented by" one feature, for the feature page.
+   * Same visibility as `list`: confirmed only, through the resolver. An OPEN
+   * decision linked here reads as a question raised on the feature.
+   */
+  listForFeature: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), featureId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      return listForFeature(
+        ctx.db,
+        buildDecisionAccessWhere(ctx.session.user.id, input.workspaceId),
+        input.featureId,
       );
     }),
 

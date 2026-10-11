@@ -52,6 +52,7 @@ import { FeatureDocsSection } from "~/app/_components/product/FeatureDocsSection
 import { FeatureScopesSection } from "~/app/_components/product/FeatureScopesSection";
 import { FeatureRequirementsSection } from "~/app/_components/product/FeatureRequirementsSection";
 import { FeatureTicketsSection } from "~/app/_components/product/FeatureTicketsSection";
+import { FeatureDecisionsSection } from "~/app/_components/product/FeatureDecisionsSection";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
 import {
   ActivityFilterMenu,
@@ -337,6 +338,14 @@ export default function FeatureDetailPage() {
               ticketsPath={`/w/${workspace?.slug}/products/${productSlug}/tickets`}
             />
           </CollapsibleSection>
+
+          {/* Decisions - linked "implemented by" this feature (ADR-0060).
+              Hidden until something is linked. */}
+          <FeatureDecisionsSection
+            featureId={featureId}
+            workspaceId={workspaceId}
+            workspaceSlug={workspace?.slug}
+          />
 
           {/* Docs - Knowledge pages (PRDs, research, technical specs) linked
               to this feature. The body above stays the living description;

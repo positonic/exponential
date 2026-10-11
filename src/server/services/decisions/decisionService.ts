@@ -1111,6 +1111,32 @@ export async function unlinkEntity(db: PrismaClient, input: { linkId: string; wo
 }
 
 /**
+ * Decisions linked "implemented by" one feature, for the feature page's
+ * Decisions section. Goes through the caller's resolver clause like every
+ * other bulk read, so drafts and decisions the caller may not see never
+ * surface on the feature.
+ */
+export async function listForFeature(
+  db: PrismaClient,
+  accessWhere: Prisma.DecisionWhereInput,
+  featureId: string,
+) {
+  const rows = await db.decision.findMany({
+    where: { AND: [accessWhere, { links: { some: { featureId } } }] },
+    select: decisionListSelect,
+    orderBy: [{ number: "asc" }],
+  });
+  return rows.map((row) => ({
+    ...row,
+    label: formatDecisionLabel(row.number),
+    evidenceCount: Array.isArray(row.evidence) ? row.evidence.length : 0,
+    supersededBy: row.supersededBy
+      ? { id: row.supersededBy.id, label: formatDecisionLabel(row.supersededBy.number) }
+      : null,
+  }));
+}
+
+/**
  * Decisions formalised as one ADR ("Decided in" on the ADR page). Goes
  * through the caller's resolver clause like every other bulk read.
  */
