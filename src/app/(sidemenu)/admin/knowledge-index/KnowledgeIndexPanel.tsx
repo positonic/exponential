@@ -208,7 +208,12 @@ export function KnowledgeIndexPanel() {
         <StatCard
           title="Meetings indexed"
           value={transcriptions?.indexed}
-          detail={`of ${(transcriptions?.total ?? 0).toLocaleString()} with a transcript`}
+          detail={
+            `of ${(transcriptions?.total ?? 0).toLocaleString()} with a transcript` +
+            ((transcriptions?.indexedWithoutWorkspace ?? 0) > 0
+              ? ` · ${(transcriptions?.indexedWithoutWorkspace ?? 0).toLocaleString()} personal, not searchable`
+              : '')
+          }
           icon={<IconMicrophone size={24} />}
           isLoading={isLoading}
         />

@@ -71,12 +71,17 @@ interface CreateIntegrationForm {
   emailSmtpHost?: string;
 }
 
+// Select value for "no workspace": Mantine's Select treats '' as no selection.
+const PERSONAL_MEETINGS = 'personal';
+
 interface EditIntegrationForm {
   name: string;
   description?: string;
   allowTeamMemberAccess?: boolean;
   // Slack-specific fields for editing
   appId?: string;
+  // Fireflies: workspace new imports are filed into (PERSONAL_MEETINGS = none)
+  meetingWorkspaceId?: string;
 }
 
 const PROVIDER_OPTIONS = [
@@ -460,12 +465,30 @@ export default function IntegrationsClient() {
     },
   });
 
+  // Only the owner of a personal Fireflies integration chooses where its
+  // meetings are filed (the server enforces the same rule).
+  const canChooseMeetingWorkspace =
+    integrationDetails?.provider === 'fireflies' && integrationDetails.scope === 'personal';
+
+  // Workspaces you can file meetings into: full members only, never guests or
+  // viewers — mirrors the server's canEditWorkspaceContent check.
+  const { data: workspacesForMeetings } = api.workspace.list.useQuery(undefined, {
+    enabled: canChooseMeetingWorkspace,
+  });
+  const meetingWorkspaceOptions = [
+    { value: PERSONAL_MEETINGS, label: 'Personal (only you and attendees)' },
+    ...(workspacesForMeetings ?? [])
+      .filter((w) => w.currentUserRole && w.currentUserRole !== 'guest' && w.currentUserRole !== 'viewer')
+      .map((w) => ({ value: w.id, label: w.name })),
+  ];
+
   const editForm = useForm<EditIntegrationForm>({
     initialValues: {
       name: '',
       description: '',
       allowTeamMemberAccess: false,
       appId: '',
+      meetingWorkspaceId: PERSONAL_MEETINGS,
     },
     validate: {
       name: (value) => value.trim().length === 0 ? 'Integration name is required' : null,
@@ -487,6 +510,7 @@ export default function IntegrationsClient() {
         description: integrationDetails.description || '',
         allowTeamMemberAccess: integrationDetails.allowTeamMemberAccess || false,
         appId: integrationDetails.appId || '',
+        meetingWorkspaceId: integrationDetails.meetingWorkspaceId ?? PERSONAL_MEETINGS,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -555,6 +579,14 @@ export default function IntegrationsClient() {
       description: values.description,
       appId: values.appId,
       allowTeamMemberAccess: values.allowTeamMemberAccess,
+      ...(canChooseMeetingWorkspace
+        ? {
+            meetingWorkspaceId:
+              values.meetingWorkspaceId && values.meetingWorkspaceId !== PERSONAL_MEETINGS
+                ? values.meetingWorkspaceId
+                : null,
+          }
+        : {}),
     });
   };
 
@@ -1203,6 +1235,16 @@ export default function IntegrationsClient() {
                   description="Team members will automatically have access to configure this integration in their projects"
                   {...editForm.getInputProps('allowTeamMemberAccess', { type: 'checkbox' })}
                 />
+
+                {canChooseMeetingWorkspace && (
+                  <Select
+                    label="File new meetings into"
+                    description="Everyone in the workspace can see meetings filed into it, unless you move one into a restricted project. Meetings that match a ceremony go to that ceremony's workspace instead. Meetings already imported stay where they are."
+                    data={meetingWorkspaceOptions}
+                    allowDeselect={false}
+                    {...editForm.getInputProps('meetingWorkspaceId')}
+                  />
+                )}
 
                 {integrationDetails.provider === 'slack' && (
                   <>

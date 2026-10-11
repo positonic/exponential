@@ -5,6 +5,8 @@ import {
   canEditProject,
   getTranscriptionAccess,
   canEditTranscription,
+  canEditWorkspaceContent,
+  getWorkspaceMembership,
 } from "~/server/services/access";
 import { dropStrandedMeetingFeatureLinks } from "./meetingFeatures";
 
@@ -241,4 +243,37 @@ export async function assignMeetingPlacement(
   });
 
   return { count, projectId, workspaceId };
+}
+
+/**
+ * File a freshly imported, still-unplaced Meeting into its owner's chosen
+ * default Workspace (the Fireflies integration's "File new meetings into"
+ * setting). Opt-in by design: a Workspace-level Meeting is visible to every
+ * member, so an import is never moved out of Personal unless its owner asked.
+ *
+ * Runs after ceremony auto-attach, so a ceremony match — the more specific
+ * placement — wins; the write only touches a Meeting that is still without a
+ * Workspace and a Project. The owner must still be a member (direct or via a
+ * team) of the target Workspace: someone who has left it keeps getting
+ * Personal imports rather than filing into a Workspace they can no longer see.
+ *
+ * Returns the Workspace the Meeting was filed into, or null when it stays put.
+ */
+export async function fileImportIntoDefaultWorkspace(
+  db: PrismaClient,
+  input: { meetingId: string; ownerUserId: string; workspaceId: string | null },
+): Promise<string | null> {
+  const { meetingId, ownerUserId, workspaceId } = input;
+  if (!workspaceId) return null;
+
+  // Re-checked on every import: the owner may since have been demoted to
+  // guest or viewer, and a Workspace Meeting is visible to every member.
+  const membership = await getWorkspaceMembership(db, ownerUserId, workspaceId);
+  if (!canEditWorkspaceContent(membership?.role ?? null)) return null;
+
+  const { count } = await db.transcriptionSession.updateMany({
+    where: { id: meetingId, userId: ownerUserId, workspaceId: null, projectId: null },
+    data: { workspaceId, updatedAt: new Date() },
+  });
+  return count > 0 ? workspaceId : null;
 }

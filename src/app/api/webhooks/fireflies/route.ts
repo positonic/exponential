@@ -4,6 +4,7 @@ import { safeSignatureEquals } from '~/server/utils/webhookSignature';
 import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
 import { attachMeetingToOccurrence } from '~/server/services/ceremonies/autoAttach';
+import { fileFirefliesImport } from '~/server/services/meetings/firefliesDefaultWorkspace';
 import { FirefliesService, type FirefliesTranscript } from '~/server/services/FirefliesService';
 import { getEmbeddingTriggerService } from '~/server/services/embedding';
 import { decryptFromBase64 } from '~/server/utils/encryption';
@@ -447,6 +448,14 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
       // Ceremony auto-attach (ADR-0059): by title alias against the user's
       // workspaces' occurrences around the meeting date. Never throws.
       await attachMeetingToOccurrence(db, transcriptionSession);
+      // Still unplaced → the integration's opt-in default workspace, if set.
+      // Before the embedding trigger below, so chunks get the right scope.
+      // Never throws.
+      await fileFirefliesImport(db, {
+        meetingId: transcriptionSession.id,
+        ownerUserId: user.id,
+        integrationId: firefliesIntegration.integrationId,
+      });
     }
 
     // 5. Create notification for new transcriptions

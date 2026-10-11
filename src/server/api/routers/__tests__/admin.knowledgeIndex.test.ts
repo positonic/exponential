@@ -160,8 +160,8 @@ describe("admin knowledge index procedures", () => {
   it("returns stats with orphan chunks counted separately", async () => {
     db.$queryRaw
       .mockResolvedValueOnce([
-        { sourceType: "transcription", total: 10, indexed: 6, pendingWithoutOwner: 1, chunkedWithoutText: 0 },
-        { sourceType: "resource", total: 1, indexed: 1, pendingWithoutOwner: 0, chunkedWithoutText: 1 },
+        { sourceType: "transcription", total: 10, indexed: 6, pendingWithoutOwner: 1, indexedWithoutWorkspace: 2, chunkedWithoutText: 0 },
+        { sourceType: "resource", total: 1, indexed: 1, pendingWithoutOwner: 0, indexedWithoutWorkspace: 0, chunkedWithoutText: 1 },
       ])
       .mockResolvedValueOnce([
         { sourceType: "resource", chunks: 5, sources: 3, orphanChunks: 2, orphanSources: 1 },
@@ -175,6 +175,7 @@ describe("admin knowledge index procedures", () => {
       indexed: 6,
       pending: 4,
       pendingWithoutOwner: 1,
+      indexedWithoutWorkspace: 2,
       chunkedWithoutText: 0,
     });
     // The "2 / 1, -1 pending" case: chunks for a deleted resource are orphans,
@@ -190,8 +191,8 @@ describe("summarizeKnowledgeIndex", () => {
   it("never reports negative numbers, even from inconsistent rows", () => {
     const stats = summarizeKnowledgeIndex(
       [
-        { sourceType: "transcription", total: 1, indexed: 3, pendingWithoutOwner: 5, chunkedWithoutText: -2 },
-        { sourceType: "resource", total: -1, indexed: 2, pendingWithoutOwner: 0, chunkedWithoutText: 0 },
+        { sourceType: "transcription", total: 1, indexed: 3, pendingWithoutOwner: 5, indexedWithoutWorkspace: 9, chunkedWithoutText: -2 },
+        { sourceType: "resource", total: -1, indexed: 2, pendingWithoutOwner: 0, indexedWithoutWorkspace: 0, chunkedWithoutText: 0 },
       ],
       [{ sourceType: "page", chunks: -1, sources: -1, orphanChunks: -1, orphanSources: -1 }],
     );
@@ -207,6 +208,7 @@ describe("summarizeKnowledgeIndex", () => {
     for (const n of numbers) expect(n).toBeGreaterThanOrEqual(0);
     expect(stats.transcriptions.indexed).toBeLessThanOrEqual(stats.transcriptions.total);
     expect(stats.transcriptions.pendingWithoutOwner).toBeLessThanOrEqual(stats.transcriptions.pending);
+    expect(stats.transcriptions.indexedWithoutWorkspace).toBeLessThanOrEqual(stats.transcriptions.indexed);
   });
 
   it("returns zeros when there are no rows", () => {
