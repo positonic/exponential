@@ -26,6 +26,8 @@ import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidenc
 // barrel pulls in the Prisma singleton at module load.
 import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
 import { buildActionEditWhere } from "~/server/services/access/resolvers/actionResolver";
+import type { Principal } from "~/server/services/access/principal";
+import { isCompareAndSetMiss } from "~/server/services/revisions/revisionConflict";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -753,18 +755,68 @@ export interface UpdateDecisionPatch {
   adrDocumentId?: string | null;
 }
 
-/** Edit a decision's content and scope. Status has its own path (`setStatus`). */
+/**
+ * The fields that say what was decided. Once a person has confirmed a
+ * decision, only a person may rewrite them (record integrity, ADR-0071).
+ * Scope and links (owner, product, project, objective, key result, ADR) are
+ * filing, not the decision itself, and stay open to agents (ADR-0016).
+ */
+const COMMITMENT_FIELDS = ["statement", "body", "decidedAt"] as const satisfies ReadonlyArray<
+  keyof UpdateDecisionPatch
+>;
+
+/** An agent, or an agent working under a person's identity (Zoe, gateways, voice). */
+function isAgentActing(principal: Principal): boolean {
+  return principal.kind !== "human";
+}
+
+const AGENT_CANNOT_CHANGE_CONFIRMED =
+  "Only a person can confirm a decision or change a confirmed one, signed in as themselves. Agents (including Zoe) propose the change as a new draft decision instead";
+
+/**
+ * Edit a decision's content and scope. Status has its own path (`setStatus`).
+ * An agent principal may edit a draft, and may file a confirmed decision,
+ * but may not rewrite what a confirmed decision says ({@link COMMITMENT_FIELDS}).
+ */
 export async function updateDecision(
   db: PrismaClient,
-  input: { decisionId: string; workspaceId: string; userId: string; patch: UpdateDecisionPatch },
+  input: {
+    decisionId: string;
+    workspaceId: string;
+    userId: string;
+    principal: Principal;
+    patch: UpdateDecisionPatch;
+  },
 ) {
   const { patch } = input;
+  const rewritesCommitment = COMMITMENT_FIELDS.some((field) => patch[field] !== undefined);
+  const guardsCommitment = isAgentActing(input.principal) && rewritesCommitment;
+  if (guardsCommitment) {
+    const current = await db.decision.findFirst({
+      where: { id: input.decisionId, workspaceId: input.workspaceId },
+      select: { reviewState: true },
+    });
+    if (!current) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+    }
+    if (current.reviewState === "CONFIRMED") {
+      throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
+    }
+  }
   await assertScopeInWorkspace(db, input.workspaceId, patch);
   // Defence in depth (house rule: data is workspace-scoped): the row is
   // addressed by id AND workspace, so a caller that skipped the scoped
-  // pre-load cannot reach across workspaces.
-  const decision = await db.decision.update({
-    where: { id: input.decisionId, workspaceId: input.workspaceId },
+  // pre-load cannot reach across workspaces. An agent's content edit is also
+  // conditional on the row still not being confirmed, so a person confirming
+  // between the read above and this write turns it into a miss rather than a
+  // rewrite of the confirmed decision.
+  const decision = await db.decision
+    .update({
+      where: {
+        id: input.decisionId,
+        workspaceId: input.workspaceId,
+        ...(guardsCommitment ? { reviewState: { not: "CONFIRMED" as const } } : {}),
+      },
     data: {
       ...(patch.statement !== undefined ? { statement: patch.statement.trim() } : {}),
       ...(patch.body !== undefined ? { body: patch.body?.trim() ? patch.body : null } : {}),
@@ -777,7 +829,13 @@ export async function updateDecision(
       ...(patch.adrDocumentId !== undefined ? { adrDocumentId: patch.adrDocumentId } : {}),
     },
     include: decisionDetailInclude,
-  });
+    })
+    .catch((error: unknown) => {
+      if (guardsCommitment && isCompareAndSetMiss(error)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
+      }
+      throw error;
+    });
   // Only confirmed decisions reach the feed. `createDraftDecision` writes no
   // event for exactly this reason — the feed is filtered on workspaceId with
   // no per-entity resolver, so an event here would show an unreviewed (and
@@ -807,12 +865,8 @@ export interface SetStatusInput {
   status: DecisionStatus;
   /** Required for SUPERSEDED: the confirmed decision in the same workspace that replaces this one. */
   supersededById?: string | null;
-  /**
-   * The caller knows from the token that an agent is acting — an agent key,
-   * or Zoe / a gateway acting on a person's behalf. The service also checks
-   * `User.isAgent`; this covers what the user row cannot show.
-   */
-  actorIsAgent?: boolean;
+  /** Who is acting, from the verified credential (`resolvePrincipal`). */
+  principal: Principal;
 }
 
 /**
@@ -838,6 +892,12 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
       code: "BAD_REQUEST",
       message: "Confirm the draft before changing its status",
     });
+  }
+  // Record integrity (ADR-0071): moving a confirmed decision — accepting a
+  // proposal above all — is a person's call. An agent proposes the change as
+  // a draft decision for a person to confirm (ADR-0070).
+  if (isAgentActing(input.principal)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
   }
 
   let supersededById: string | null = null;
@@ -870,7 +930,7 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
 
   const deciders =
     input.status === "ACCEPTED"
-      ? await claimDeciderWrite(db, input, current.deciders)
+      ? await claimDeciderWrite(db, { userId: input.userId, actorIsAgent: false }, current.deciders)
       : undefined;
 
   const decision = await db.decision.update({
@@ -1051,8 +1111,8 @@ export interface ConfirmDraftInput {
    * `setStatus`'s job.
    */
   status?: DecisionStatus;
-  /** See {@link SetStatusInput.actorIsAgent}. */
-  actorIsAgent?: boolean;
+  /** Who is acting, from the verified credential (`resolvePrincipal`). Only a person confirms. */
+  principal: Principal;
 }
 
 /**
@@ -1071,6 +1131,11 @@ export interface ConfirmDraftInput {
  * decision that comes back.
  */
 export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
+  // The router is `humanOnlyProcedure` too; the service holds the rule so no
+  // other caller can publish a draft as an agent (ADR-0070).
+  if (isAgentActing(input.principal)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
+  }
   return confirmDraftAttempt(db, input, { afterLostRace: false });
 }
 
@@ -1099,7 +1164,7 @@ async function confirmDraftAttempt(
         workspaceId: input.workspaceId,
         userId: input.userId,
         status: input.status,
-        actorIsAgent: input.actorIsAgent,
+        principal: input.principal,
       });
     }
     // An accepted decision always carries the date it was decided; a row
@@ -1131,13 +1196,15 @@ async function confirmDraftAttempt(
       db,
       { ...current, supersededById: current.supersededById },
       input.userId,
-      { status: input.status, actorIsAgent: input.actorIsAgent },
+      { status: input.status, actorIsAgent: isAgentActing(input.principal) },
     );
   }
   const status = input.status ?? current.status;
   const statusChanged = status !== current.status;
   const deciders =
-    status === "ACCEPTED" ? await claimDeciderWrite(db, input, current.deciders) : undefined;
+    status === "ACCEPTED"
+      ? await claimDeciderWrite(db, { userId: input.userId, actorIsAgent: isAgentActing(input.principal) }, current.deciders)
+      : undefined;
   const now = new Date();
   const decision = await db.$transaction(async (tx) => {
     // DRAFT → CONFIRMED only if it is still a draft. A concurrent confirm

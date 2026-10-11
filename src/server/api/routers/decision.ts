@@ -4,7 +4,6 @@ import type { PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
   humanOnlyProcedure,
-  isAgentActorToken,
   protectedProcedure,
 } from "~/server/api/trpc";
 import {
@@ -35,6 +34,7 @@ import {
   updateDecision,
 } from "~/server/services/decisions/decisionService";
 import { formatDecisionLabel, parseDecisionLabel } from "~/lib/decision-label";
+import { resolvePrincipal } from "~/server/services/access/principal";
 import { buildAdrDraft } from "~/server/services/decisions/renderAdrMarkdown";
 import { settleDraftReviewNotification } from "~/server/services/decisions/settleDraftReviewNotification";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
@@ -51,7 +51,9 @@ import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
  *   human-only and read-only; nothing here touches ADR content.
  * - an agent may propose, never publish: a decision created by an agent
  *   principal or with `source: AGENT` is born a draft, and `confirmDraft` is
- *   human-only, so a person always stands behind a confirmed decision.
+ *   human-only, so a person always stands behind a confirmed decision. Nor
+ *   may an agent move a confirmed decision's status or rewrite what it says
+ *   (`setStatus`, `updateDecision`; record integrity, ADR-0071).
  * - reads gate at workspace `view` (viewers may read what the resolver lets
  *   them see); writes gate at workspace `edit` plus the per-row resolver
  *   check (meeting edit access for meeting-linked rows).
@@ -632,7 +634,10 @@ export const decisionRouter = createTRPCRouter({
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
 
-  /** Edit content and scope. Status changes go through `setStatus`. */
+  /**
+   * Edit content and scope. Status changes go through `setStatus`. An agent
+   * principal may not rewrite what a confirmed decision says.
+   */
   update: protectedProcedure
     .input(
       z.object({
@@ -658,6 +663,8 @@ export const decisionRouter = createTRPCRouter({
         decisionId: subject.id,
         workspaceId,
         userId: ctx.session.user.id,
+        // Agents may not rewrite a confirmed decision (record integrity).
+        principal: await resolvePrincipal(ctx),
         patch,
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
@@ -784,7 +791,8 @@ export const decisionRouter = createTRPCRouter({
 
   /**
    * Lifecycle transition. SUPERSEDED requires `supersededById`, which must
-   * be a decision the caller may read in the same workspace.
+   * be a decision the caller may read in the same workspace. A person's act:
+   * agent principals, Zoe included, are refused by the service.
    */
   setStatus: protectedProcedure
     .input(
@@ -816,9 +824,9 @@ export const decisionRouter = createTRPCRouter({
         userId: ctx.session.user.id,
         status: input.status,
         supersededById,
-        // Accepting makes a person the decider — only through their own
-        // login, never Zoe or an agent acting for them.
-        actorIsAgent: isAgentActorToken(ctx.tokenType),
+        // Only a person moves a confirmed decision (record integrity), and
+        // accepting makes them the decider. Agents, Zoe included, are refused.
+        principal: await resolvePrincipal(ctx),
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
@@ -855,7 +863,7 @@ export const decisionRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
         status: input.status,
-        actorIsAgent: isAgentActorToken(ctx.tokenType),
+        principal: await resolvePrincipal(ctx),
       });
       await settleDraftReviewAfter(ctx.db, subject);
       return { ...decision, label: formatDecisionLabel(decision.number) };
