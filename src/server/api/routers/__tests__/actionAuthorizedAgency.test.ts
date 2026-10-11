@@ -180,3 +180,65 @@ describe("action.initializeKanbanOrders requires edit access to the project", ()
     });
   });
 });
+
+describe("action.upsertBySource checks edit access on the row it refreshes", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const EXISTING_ID = "action-existing";
+
+  /** The matched row, as getActionAccess reads it. */
+  function arrangeExisting(opts: { createdById: string; projectId?: string | null; assigneeIds?: string[] }) {
+    db.action.findFirst.mockResolvedValue({ id: EXISTING_ID } as never);
+    db.action.findUnique.mockResolvedValue({
+      createdById: opts.createdById,
+      projectId: opts.projectId ?? null,
+      assignees: (opts.assigneeIds ?? []).map((userId) => ({ userId })),
+    } as never);
+    db.action.update.mockResolvedValue({ id: EXISTING_ID, name: "v2", workspaceId: WS_ID, project: null } as never);
+  }
+
+  const upsert = {
+    sourceType: "claude-session",
+    sourceId: "s1",
+    name: "v2",
+    workspaceId: WS_ID,
+  };
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    // Every caller here is a workspace writer: assertCanWriteToWorkspace passes.
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: WS_ID } as never);
+  });
+
+  it("a workspace writer without access to the existing row is refused, and the row is untouched", async () => {
+    arrangeExisting({ createdById: PERSON_ID });
+    await expect(personCaller(db, STRANGER_ID).action.upsertBySource(upsert)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(db.action.update).not.toHaveBeenCalled();
+    expect(db.action.create).not.toHaveBeenCalled();
+  });
+
+  it("an agent key that is a workspace writer but cannot edit the row is refused (bypass route)", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: PERSON_ID } as never);
+    arrangeExisting({ createdById: PERSON_ID });
+    await expect(agentCaller(db).action.upsertBySource(upsert)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.action.update).not.toHaveBeenCalled();
+  });
+
+  it("the row's creator refreshes it", async () => {
+    arrangeExisting({ createdById: PERSON_ID });
+    const result = await personCaller(db).action.upsertBySource(upsert);
+    expect(result.outcome).toBe("updated");
+    expect(db.action.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: EXISTING_ID }, data: expect.objectContaining({ name: "v2" }) }),
+    );
+  });
+
+  it("an assignee of the row refreshes it", async () => {
+    arrangeExisting({ createdById: PERSON_ID, assigneeIds: [STRANGER_ID] });
+    const result = await personCaller(db, STRANGER_ID).action.upsertBySource(upsert);
+    expect(result.outcome).toBe("updated");
+  });
+});

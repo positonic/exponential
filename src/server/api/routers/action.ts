@@ -3097,6 +3097,17 @@ export const actionRouter = createTRPCRouter({
       });
 
       if (existing) {
+        // Writing to the workspace is not editing this row: the source pair
+        // can match an Action someone else owns. The caller — person or
+        // agent — must be able to edit it (authorized agency, ADR-0071).
+        const rowAccess = await getActionAccess(ctx.db, userId, existing.id);
+        if (!rowAccess || !canEditAction(rowAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have permission to edit this action",
+          });
+        }
+
         const action = await ctx.db.action.update({
           where: { id: existing.id },
           data: {

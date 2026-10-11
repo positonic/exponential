@@ -531,6 +531,8 @@ describe("action.upsertBySource", () => {
   it("an agent refreshing an existing Action also assigns its owner, idempotently", async () => {
     arrangeAgent(db);
     db.action.findFirst.mockResolvedValue({ id: "action-existing" } as never);
+    // The agent made the matched row, so it may refresh it (row edit check).
+    db.action.findUnique.mockResolvedValue({ createdById: SHADOW_ID, projectId: null, assignees: [] } as never);
     db.action.update.mockResolvedValue({ ...created, id: "action-existing" } as never);
 
     await agentCaller(db).action.upsertBySource({
@@ -637,6 +639,8 @@ describe("action.upsertBySource", () => {
 
   it("match on (workspace, sourceType, sourceId) → name refreshed, no second Action", async () => {
     db.action.findFirst.mockResolvedValue({ id: "action-existing" } as never);
+    // The caller made the matched row, so it may refresh it (row edit check).
+    db.action.findUnique.mockResolvedValue({ createdById: OWNER_ID, projectId: null, assignees: [] } as never);
     db.action.update.mockResolvedValue({ ...created, id: "action-existing", name: "v2" } as never);
 
     const result = await humanCaller(db).action.upsertBySource({
