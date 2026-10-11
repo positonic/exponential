@@ -14,6 +14,7 @@ import { DOCS_DIR } from "~/lib/docs/content";
 import { isMethodPublished } from "~/lib/docs/method";
 import {
   canPreviewDraftMethod,
+  getContext,
   getMethod,
   parseMethodPreviewSlugs,
 } from "~/server/services/agentGuidance";
@@ -40,4 +41,15 @@ export const agentGuidanceRouter = createTRPCRouter({
       if (!method) throw new TRPCError({ code: "NOT_FOUND", message: NO_PUBLISHED_METHOD_MESSAGE });
       return method;
     }),
+
+  /**
+   * The selected workspace's (and optional project's) AI instructions, marked
+   * as guidance and assembled exactly as chat assembles them. Requires
+   * membership of the workspace; a project outside it is BAD_REQUEST.
+   */
+  context: protectedProcedure
+    .input(z.object({ workspaceId: z.string().min(1), projectId: z.string().min(1).optional() }))
+    .query(({ ctx, input }) =>
+      getContext(ctx.db, { userId: ctx.session.user.id, workspaceId: input.workspaceId, projectId: input.projectId }),
+    ),
 });

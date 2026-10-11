@@ -17,3 +17,14 @@ export {
   DEFAULT_METHOD_PREVIEW_WORKSPACE_SLUGS,
   parseMethodPreviewSlugs,
 } from "./preview";
+export {
+  contextRevision,
+  getContext,
+  loadScopeInstructions,
+  PROJECT_NOT_IN_WORKSPACE_MESSAGE,
+  scopeInstructionsFor,
+  WORKSPACE_ACCESS_DENIED_MESSAGE,
+  type ContextInstruction,
+  type ContextPayload,
+  type LoadedScopeInstructions,
+} from "./context";
