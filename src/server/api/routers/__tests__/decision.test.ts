@@ -1183,6 +1183,51 @@ describe("decision router", () => {
     });
   });
 
+  describe("listForFeature", () => {
+    it("filters through the resolver (CONFIRMED only) and by the feature link", async () => {
+      withWorkspaceRole(db, "viewer");
+      db.decision.findMany.mockResolvedValue([] as never);
+
+      await caller(db).decision.listForFeature({ workspaceId: WORKSPACE_ID, featureId: "feat-1" });
+
+      const args = db.decision.findMany.mock.calls[0]![0]!;
+      const where = args.where as { AND: Array<Record<string, unknown>> };
+      const accessWhere = where.AND[0] as { workspaceId: string; reviewState: string; OR: unknown[] };
+      // Same clause as `list`: drafts never reach the feature page.
+      expect(accessWhere.workspaceId).toBe(WORKSPACE_ID);
+      expect(accessWhere.reviewState).toBe("CONFIRMED");
+      expect(accessWhere.OR).toHaveLength(3);
+      expect(where.AND[1]).toEqual({ links: { some: { featureId: "feat-1" } } });
+      expect(args.orderBy).toEqual([{ number: "asc" }]);
+    });
+
+    it("labels rows with their D-number", async () => {
+      withWorkspaceRole(db, "member");
+      db.decision.findMany.mockResolvedValue([
+        { id: "dec-1", number: 1, statement: "Ship it", status: "ACCEPTED", evidence: [], supersededBy: null },
+        { id: "dec-4", number: 4, statement: "Which store?", status: "OPEN", evidence: null, supersededBy: null },
+      ] as never);
+
+      const rows = await caller(db).decision.listForFeature({
+        workspaceId: WORKSPACE_ID,
+        featureId: "feat-1",
+      });
+
+      expect(rows.map((r) => [r.label, r.status])).toEqual([
+        ["D-0001", "ACCEPTED"],
+        ["D-0004", "OPEN"],
+      ]);
+    });
+
+    it("denies a non-member", async () => {
+      withWorkspaceRole(db, null);
+      await expect(
+        caller(db).decision.listForFeature({ workspaceId: WORKSPACE_ID, featureId: "feat-1" }),
+      ).rejects.toThrow();
+      expect(db.decision.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe("confirmDraft", () => {
     const DRAFT = {
       id: "draft-1",
