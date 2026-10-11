@@ -202,3 +202,58 @@ export function checkMethodRelease(release: MethodRelease, computedHash: string)
 
   return problems;
 }
+
+/**
+ * The rules that need the previous release, which a single commit can't
+ * check on its own: comparing against the manifest on the base branch stops
+ * someone editing published text and pasting the new hash into `contentHash`,
+ * or rewriting `history`. Returns one message per broken rule; empty is OK.
+ *
+ * - `history` only grows: the base's entries are a prefix of the new ones.
+ * - Once published, the method stays published. A new version is released in
+ *   one PR (text, version bump, hash, `publishedAt`, old release appended to
+ *   history); a draft would take the published version offline.
+ * - Under the same version, `contentHash` and `publishedAt` never change.
+ * - A bumped version appends the base release to `history`.
+ */
+export function checkMethodReleaseAgainstBase(base: MethodRelease, next: MethodRelease): string[] {
+  const problems: string[] = [];
+  const baseHistory = Array.isArray(base.history) ? base.history : [];
+  const nextHistory = Array.isArray(next.history) ? next.history : [];
+  const sameEntry = (a: MethodReleaseHistoryEntry | undefined, b: MethodReleaseHistoryEntry | undefined) =>
+    !!a && !!b && a.version === b.version && a.contentHash === b.contentHash && a.publishedAt === b.publishedAt;
+
+  if (!baseHistory.every((entry, i) => sameEntry(entry, nextHistory[i]))) {
+    problems.push("history is append-only: the base branch's entries must stay, unchanged and in order");
+  }
+
+  if (base.status !== "published") return problems;
+
+  if (next.status !== "published") {
+    problems.push(
+      `version ${base.version} is published; the method can't go back to draft. ` +
+        "Release a new version in one PR: change the text, bump the version, set contentHash and publishedAt, " +
+        "and append the old release to history.",
+    );
+  }
+
+  if (next.version === base.version) {
+    if (next.contentHash !== base.contentHash) {
+      problems.push(
+        `published version ${base.version} was released with ${base.contentHash}; ` +
+          "its text and contentHash can't change. Bump the version instead.",
+      );
+    }
+    if (next.publishedAt !== base.publishedAt) {
+      problems.push(`published version ${base.version} keeps its publishedAt (${base.publishedAt})`);
+    }
+  } else if (
+    base.contentHash &&
+    base.publishedAt &&
+    !nextHistory.some((e) => sameEntry(e, { version: base.version, contentHash: base.contentHash!, publishedAt: base.publishedAt! }))
+  ) {
+    problems.push(`the previous release ${base.version} must be appended to history`);
+  }
+
+  return problems;
+}

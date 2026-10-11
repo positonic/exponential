@@ -21,10 +21,12 @@
  */
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
 import {
   checkMethodRelease,
+  checkMethodReleaseAgainstBase,
   collectMethodDocuments,
   computeMethodHash,
   isMethodPath,
@@ -32,6 +34,7 @@ import {
   METHOD_DIR,
   METHOD_RELEASE_FILE,
   readMethodRelease,
+  type MethodRelease,
 } from "../src/lib/docs/method";
 import { extractHeadings } from "../src/lib/docs/extractHeadings";
 import { DEFAULT_NAV_LAYOUT, NAV_ITEM_CONFIG } from "../src/lib/navLayout";
@@ -135,6 +138,31 @@ function workspaceRouteSegments(): Set<string> {
       .filter((e) => e.isDirectory() && !e.name.startsWith("_") && !e.name.startsWith("["))
       .map((e) => e.name),
   );
+}
+
+/**
+ * The release manifest on the base branch (`METHOD_RELEASE_BASE_REF`, default
+ * `origin/main`), or null when git can't resolve it (a shallow clone without
+ * the base fetched, or the manifest is new there). CI fetches the base first.
+ */
+function baseMethodRelease(manifest: string): { ref: string; release: MethodRelease } | null {
+  const ref = process.env.METHOD_RELEASE_BASE_REF ?? "origin/main";
+  let raw: string;
+  try {
+    raw = execFileSync("git", ["show", `${ref}:${manifest.split(path.sep).join("/")}`], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    console.warn(`check-docs: no method release manifest at ${ref}; skipping the base-branch immutability check`);
+    return null;
+  }
+  try {
+    return { ref, release: JSON.parse(raw) as MethodRelease };
+  } catch {
+    fail(manifest, 1, `the manifest at ${ref} does not parse`);
+    return null;
+  }
 }
 
 function main() {
@@ -263,7 +291,9 @@ function main() {
     } else {
       const hash = computeMethodHash(collectMethodDocuments(methodPages));
       for (const message of checkMethodRelease(release, hash)) fail(manifest, 1, message);
-      methodSummary = `; method ${release.version} (${release.status}) ${hash}`;
+      const base = baseMethodRelease(manifest);
+      if (base) for (const message of checkMethodReleaseAgainstBase(base.release, release)) fail(manifest, 1, `vs ${base.ref}: ${message}`);
+      methodSummary = `; method ${release.version} (${release.status}) ${hash}${base ? `, checked against ${base.ref}` : ""}`;
     }
   }
 

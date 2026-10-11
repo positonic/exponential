@@ -9,6 +9,7 @@ import path from "path";
 import { listDocPages } from "../content";
 import {
   checkMethodRelease,
+  checkMethodReleaseAgainstBase,
   collectMethodDocuments,
   compareSemver,
   computeMethodHash,
@@ -106,6 +107,59 @@ describe("checkMethodRelease", () => {
 
   it("fails a version that is not MAJOR.MINOR.PATCH", () => {
     expect(checkMethodRelease(release({ version: "v1" }), HASH_A)).toEqual(['version "v1" is not MAJOR.MINOR.PATCH']);
+  });
+});
+
+describe("checkMethodReleaseAgainstBase", () => {
+  const V1 = { version: "0.1.0", contentHash: HASH_A, publishedAt: "2026-11-01T00:00:00.000Z" };
+
+  it("accepts any change while the base is a draft", () => {
+    expect(checkMethodReleaseAgainstBase(release(), release({ version: "0.2.0" }))).toEqual([]);
+    expect(checkMethodReleaseAgainstBase(release(), published())).toEqual([]);
+  });
+
+  it("accepts an unchanged published release", () => {
+    expect(checkMethodReleaseAgainstBase(published(), published())).toEqual([]);
+  });
+
+  it("fails published text re-hashed under the same version", () => {
+    const problems = checkMethodReleaseAgainstBase(published(), published({ contentHash: HASH_B }));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("published version 0.1.0 was released with");
+  });
+
+  it("fails a changed publishedAt under the same version", () => {
+    expect(
+      checkMethodReleaseAgainstBase(published(), published({ publishedAt: "2027-01-01T00:00:00.000Z" })),
+    ).toEqual(["published version 0.1.0 keeps its publishedAt (2026-11-01T00:00:00.000Z)"]);
+  });
+
+  it("fails a published method going back to draft", () => {
+    const problems = checkMethodReleaseAgainstBase(published(), release({ version: "0.2.0", history: [V1] }));
+    expect(problems.some((p) => p.includes("can't go back to draft"))).toBe(true);
+  });
+
+  it("accepts a new version that appends the base release to history", () => {
+    const next = published({ version: "0.2.0", contentHash: HASH_B, publishedAt: "2026-12-01T00:00:00.000Z", history: [V1] });
+    expect(checkMethodReleaseAgainstBase(published(), next)).toEqual([]);
+  });
+
+  it("fails a new version that drops the base release from history", () => {
+    const next = published({ version: "0.2.0", contentHash: HASH_B, publishedAt: "2026-12-01T00:00:00.000Z" });
+    expect(checkMethodReleaseAgainstBase(published(), next)).toEqual([
+      "the previous release 0.1.0 must be appended to history",
+    ]);
+  });
+
+  it("fails history that was rewritten or truncated", () => {
+    const base = published({ version: "0.2.0", contentHash: HASH_B, history: [V1] });
+    const rewritten = published({ version: "0.2.0", contentHash: HASH_B, history: [{ ...V1, contentHash: HASH_C }] });
+    expect(checkMethodReleaseAgainstBase(base, rewritten)).toContain(
+      "history is append-only: the base branch's entries must stay, unchanged and in order",
+    );
+    expect(checkMethodReleaseAgainstBase(base, published({ version: "0.2.0", contentHash: HASH_B }))).toContain(
+      "history is append-only: the base branch's entries must stay, unchanged and in order",
+    );
   });
 });
 

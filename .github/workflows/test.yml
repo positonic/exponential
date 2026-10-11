@@ -57,6 +57,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/npm-install
+      # docs:check compares the method's release manifest with the base
+      # branch's, so a published version can't change under the same number.
+      - run: git fetch --no-tags --depth=1 origin main
       - run: npm run docs:check
 
   # The Tauri shell's Rust tests. Worth its own job rather than being left to
