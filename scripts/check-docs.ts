@@ -21,8 +21,22 @@
  */
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
+import {
+  checkMethodRelease,
+  checkMethodDocuments,
+  checkMethodReleaseAgainstBase,
+  collectMethodDocuments,
+  computeMethodHash,
+  isMethodPath,
+  isMethodPublished,
+  METHOD_DIR,
+  METHOD_RELEASE_FILE,
+  readMethodRelease,
+  type MethodRelease,
+} from "../src/lib/docs/method";
 import { extractHeadings } from "../src/lib/docs/extractHeadings";
 import { DEFAULT_NAV_LAYOUT, NAV_ITEM_CONFIG } from "../src/lib/navLayout";
 
@@ -127,6 +141,31 @@ function workspaceRouteSegments(): Set<string> {
   );
 }
 
+/**
+ * The release manifest on the base branch (`METHOD_RELEASE_BASE_REF`, default
+ * `origin/main`), or null when git can't resolve it (a shallow clone without
+ * the base fetched, or the manifest is new there). CI fetches the base first.
+ */
+function baseMethodRelease(manifest: string): { ref: string; release: MethodRelease } | null {
+  const ref = process.env.METHOD_RELEASE_BASE_REF ?? "origin/main";
+  let raw: string;
+  try {
+    raw = execFileSync("git", ["show", `${ref}:${manifest.split(path.sep).join("/")}`], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    console.warn(`check-docs: no method release manifest at ${ref}; skipping the base-branch immutability check`);
+    return null;
+  }
+  try {
+    return { ref, release: JSON.parse(raw) as MethodRelease };
+  } catch {
+    fail(manifest, 1, `the manifest at ${ref} does not parse`);
+    return null;
+  }
+}
+
 function main() {
   problems.push(...frontmatterErrors());
   const goSegments = workspaceRouteSegments();
@@ -134,8 +173,14 @@ function main() {
   if (fs.existsSync(path.join(DOCS_DIR, "_last-updated.json"))) {
     fail("content/docs/_last-updated.json", 1, "replaced by per-page `updated` frontmatter — delete this file");
   }
-  const pages = listDocPages(DOCS_DIR);
+  // Draft method pages (content/docs/method) are checked like any page, but
+  // while the method is unpublished only other method pages may link to them:
+  // a link from a public page would 404.
+  const pages = listDocPages(DOCS_DIR, { includeUnpublishedMethod: true });
+  const methodIsDark = !isMethodPublished(DOCS_DIR);
+  const isDarkMethodPage = (p: { slug: string[] }) => methodIsDark && isMethodPath(p.slug.join("/"));
   const byHref = new Map(pages.map((p) => [p.href, p]));
+  const publicByHref = new Map(pages.filter((p) => !isDarkMethodPage(p)).map((p) => [p.href, p]));
   const headingIds = new Map(pages.map((p) => [p.href, new Set(extractHeadings(p.content).map((h) => h.id))]));
   const labels = allowedSidebarLabels();
 
@@ -145,6 +190,7 @@ function main() {
   const ABSOLUTE_SELF_RE = /^https?:\/\/(www\.)?exponential\.im(\/|$)/;
 
   for (const page of pages) {
+    const linkable = isDarkMethodPage(page) ? byHref : publicByHref;
     const text = stripCode(page.content);
     const file = page.filePath;
     // `page.content` has the frontmatter removed; report line numbers in the file.
@@ -192,9 +238,15 @@ function main() {
       }
       if (cleanPath === "/docs" || cleanPath.startsWith("/docs/")) {
         const href = cleanPath.replace(/\/$/, "") || "/docs";
-        const target = byHref.get(href);
+        const target = linkable.get(href);
         if (!target) {
-          fail(file, line, `broken docs link ${url}`);
+          fail(
+            file,
+            line,
+            byHref.has(href)
+              ? `link ${url}: the method is unpublished (content/docs/method/_release.json), so the page 404s`
+              : `broken docs link ${url}`,
+          );
           continue;
         }
         if (anchor !== undefined && !headingIds.get(href)?.has(anchor)) {
@@ -229,12 +281,30 @@ function main() {
     }
   }
 
+  // The method's release manifest: a published version must never change (D-0015).
+  const methodPages = pages.filter((p) => isMethodPath(p.slug.join("/")));
+  let methodSummary = "";
+  const manifest = path.relative(ROOT, path.join(DOCS_DIR, METHOD_DIR, METHOD_RELEASE_FILE));
+  const release = readMethodRelease(DOCS_DIR);
+  if (methodPages.length > 0 || release) {
+    for (const message of checkMethodDocuments(methodPages.map((p) => p.slug))) fail(manifest, 1, message);
+    if (!release) {
+      fail(manifest, 1, "content/docs/method has pages but no readable release manifest");
+    } else {
+      const hash = computeMethodHash(collectMethodDocuments(methodPages));
+      for (const message of checkMethodRelease(release, hash)) fail(manifest, 1, message);
+      const base = baseMethodRelease(manifest);
+      if (base) for (const message of checkMethodReleaseAgainstBase(base.release, release)) fail(manifest, 1, `vs ${base.ref}: ${message}`);
+      methodSummary = `; method ${release.version} (${release.status}) ${hash}${base ? `, checked against ${base.ref}` : ""}`;
+    }
+  }
+
   const redirectsFile = path.join(DOCS_DIR, "_redirects.json");
   if (fs.existsSync(redirectsFile)) {
     const { redirects } = JSON.parse(fs.readFileSync(redirectsFile, "utf-8")) as { redirects: Record<string, string> };
     for (const [source, destination] of Object.entries(redirects)) {
       const rel = path.relative(ROOT, redirectsFile);
-      if (!byHref.has(destination.split("#")[0]!)) fail(rel, 1, `redirect ${source} → ${destination}: target page does not exist`);
+      if (!publicByHref.has(destination.split("#")[0]!)) fail(rel, 1, `redirect ${source} → ${destination}: target page does not exist`);
       if (byHref.has(source)) fail(rel, 1, `redirect source ${source} is also a live page — remove one`);
     }
   }
@@ -245,7 +315,9 @@ function main() {
     console.error(`\ncheck-docs: ${problems.length} problem(s) across ${pages.length} pages`);
     process.exit(1);
   }
-  console.log(`check-docs: ${pages.length} pages OK (links, anchors, assets, sidebar labels, frontmatter, last-updated)`);
+  console.log(
+    `check-docs: ${pages.length} pages OK (links, anchors, assets, sidebar labels, frontmatter, last-updated, method release)${methodSummary}`,
+  );
 }
 
 main();

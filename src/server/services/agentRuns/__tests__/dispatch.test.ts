@@ -11,6 +11,8 @@ import type { PrismaClient } from "@prisma/client";
 // The finish hook (notification, activity, time entry) is covered by finish.test.ts.
 const finishMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("../finish", () => ({ onRunFinished: (...args: unknown[]) => finishMock(...args) }));
+const reportHandledErrorServer = vi.hoisted(() => vi.fn());
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
 import jwt from "jsonwebtoken";
 
 vi.hoisted(() => {
@@ -20,6 +22,7 @@ vi.hoisted(() => {
 });
 
 const { dispatchQueuedRuns, countToolCalls, buildPersonaMessage } = await import("../dispatch");
+const { assembleScopeInstructions } = await import("~/server/services/ai/scopeInstructions");
 
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 const fetchMock = vi.fn();
@@ -169,6 +172,97 @@ describe("dispatchQueuedRuns", () => {
 
     expect(result.claimed).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("AI instructions in a run", () => {
+  function sentMessages(): Array<{ role: string; content: string }> {
+    const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    return (JSON.parse(init.body) as { messages: Array<{ role: string; content: string }> }).messages;
+  }
+
+  beforeEach(() => {
+    mockReset(db);
+    fetchMock.mockReset();
+    reportHandledErrorServer.mockReset();
+    db.agentRun.findMany.mockResolvedValue([{ id: RUN }] as never);
+    db.agentRun.updateMany.mockResolvedValue({ count: 1 } as never);
+    db.agentRun.findUniqueOrThrow
+      .mockResolvedValueOnce({ ...runRow, action: { ...runRow.action, projectId: "proj-1" } } as never)
+      .mockResolvedValueOnce({ status: "RUNNING", summary: null, readyToClose: false, toolCallCount: 0 } as never);
+    mastraReplies({ text: "Done." });
+  });
+
+  it("sends the workspace's and project's assembled AI instructions as a system message next to the persona", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: "ws-1" } as never);
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: "Weekly review on Fridays.",
+    } as never);
+    db.project.findFirst.mockResolvedValue({
+      id: "proj-1",
+      name: "Offsite",
+      workspaceId: "ws-1",
+      aiInstructions: "Keep it under budget.",
+    } as never);
+
+    await dispatchQueuedRuns(db, new Date());
+
+    const messages = sentMessages();
+    expect(messages.map((m) => m.role)).toEqual(["system", "system", "user"]);
+    expect(messages[1]!.content).toBe(
+      assembleScopeInstructions([
+        { scope: "workspace", label: "Workspace", instructions: "Weekly review on Fridays." },
+        { scope: "project", label: "Project", instructions: "Keep it under budget." },
+      ]),
+    );
+    // Read as the run's shadow user, scoped to the action's workspace and project.
+    expect(db.workspaceUser.findUnique.mock.calls[0]?.[0]).toMatchObject({
+      where: { userId_workspaceId: { userId: "shadow-1", workspaceId: "ws-1" } },
+    });
+    expect(db.project.findFirst.mock.calls[0]?.[0]).toMatchObject({ where: { id: "proj-1" } });
+  });
+
+  it("sends no extra message when no scope has instructions", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: "ws-1" } as never);
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: null,
+    } as never);
+    db.project.findFirst.mockResolvedValue({ id: "proj-1", name: "Offsite", workspaceId: "ws-1", aiInstructions: null } as never);
+
+    await dispatchQueuedRuns(db, new Date());
+
+    expect(sentMessages().map((m) => m.role)).toEqual(["system", "user"]);
+    expect(reportHandledErrorServer).not.toHaveBeenCalled();
+  });
+
+  it("keeps the workspace scope and reports it when the action's project is hidden from the shadow user", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: "ws-1" } as never);
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: "Weekly review on Fridays.",
+    } as never);
+    db.project.findFirst.mockResolvedValue(null); // restricted project: not visible
+
+    await dispatchQueuedRuns(db, new Date());
+
+    expect(sentMessages().map((m) => m.role)).toEqual(["system", "system", "user"]);
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ area: "agentRuns.scopeInstructions", kind: "PROJECT_NOT_VISIBLE" }),
+    );
+  });
+
+  it("runs without instructions, and reports it, when the shadow user can't read the workspace", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue(null);
+    db.teamUser.findFirst.mockResolvedValue(null);
+
+    const result = await dispatchQueuedRuns(db, new Date());
+
+    expect(result.succeeded).toEqual([RUN]);
+    expect(sentMessages().map((m) => m.role)).toEqual(["system", "user"]);
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ area: "agentRuns.scopeInstructions", kind: "FORBIDDEN" }),
+    );
   });
 });
 

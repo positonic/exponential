@@ -10,6 +10,8 @@ import type { PrismaClient } from "@prisma/client";
 // The finish hook (notification, activity, time entry) is covered by finish.test.ts.
 const finishMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("../finish", () => ({ onRunFinished: (...args: unknown[]) => finishMock(...args) }));
+// dispatch.ts reports a run's unreadable scope; the reporter pulls in ~/server/db.
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: vi.fn() }));
 
 vi.hoisted(() => {
   process.env.AUTH_SECRET ??= "test-secret-for-unit-tests";

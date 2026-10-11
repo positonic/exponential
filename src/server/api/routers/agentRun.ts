@@ -5,7 +5,7 @@ import { getActionAccess, canViewAction, buildActionEditWhere } from "~/server/s
 import { appendRunEvent, appendRunEvents } from "~/server/services/agentRuns/events";
 import { onRunFinished } from "~/server/services/agentRuns/finish";
 import { requireAgentKeyPrincipal, requireClaimedRunForRunner } from "~/server/services/agentRuns/callbacks";
-import { loadRunBrief, LOCAL_RUNNER_CLOSING } from "~/server/services/agentRuns/dispatch";
+import { buildRunMessages, loadRunBrief, LOCAL_RUNNER_CLOSING } from "~/server/services/agentRuns/dispatch";
 import { createActionComment } from "~/server/services/actions/comments";
 import { isWaitingForRunner } from "~/server/services/agentRuns/presentation";
 
@@ -174,7 +174,9 @@ export const agentRunRouter = createTRPCRouter({
         // Build the brief before the guarded write: a failure here (a deleted
         // action, a bad row) must leave the run QUEUED for the next claim,
         // never stranded RUNNING until the sweep times it out.
-        const { run, system, brief } = await loadRunBrief(ctx.db, next.id, { closing: LOCAL_RUNNER_CLOSING });
+        const { run, system, scopeInstructions, brief } = await loadRunBrief(ctx.db, next.id, {
+          closing: LOCAL_RUNNER_CLOSING,
+        });
         const now = new Date();
         const claimed = await ctx.db.agentRun.updateMany({
           where: { id: next.id, status: "QUEUED" },
@@ -212,11 +214,8 @@ export const agentRunRouter = createTRPCRouter({
             project: run.action.project,
           },
           owner: run.agent.owner,
-          /** The persona system message and the brief, as the hosted executor would send them. */
-          messages: [
-            { role: "system" as const, content: system },
-            { role: "user" as const, content: brief },
-          ],
+          /** The persona, the scope's AI instructions and the brief, as the hosted executor sends them. */
+          messages: buildRunMessages({ system, scopeInstructions, brief }),
         };
       }
       return null;

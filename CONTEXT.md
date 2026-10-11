@@ -660,8 +660,12 @@ _Avoid_: Heartbeat (Paperclip's timer model), job, task, session (a chat **Threa
 ### Agent guidance
 
 **Agent principles**:
-The product-wide statement of how Exponential expects any agent — **Zoe**, an **Assistant**, an **External agent**, or a client such as Claude or ChatGPT — to work in a workspace: four **Fixed principles** plus defaults a team may tailor. Its official text is a **Page**; it never names one workspace's documents (decisions 2026-10-11, D-0003, D-0006, D-0012).
+The product-wide statement of how Exponential expects any agent — **Zoe**, an **Assistant**, an **External agent**, or a client such as Claude or ChatGPT — to work in a workspace: four **Fixed principles** plus defaults a team may tailor. Its canonical text is versioned Markdown in git, `content/docs/method/agent-principles.md`, published together with the Exponential Method and its glossary under one **Method version** (D-0014); the working-draft **Page** it started as is superseded once the method is published. It never names one workspace's documents (decisions 2026-10-11, D-0003, D-0006, D-0012).
 _Avoid_: Agent contract, charter, agent brief ("brief" is the **Daily brief**), system prompt.
+
+**Method version**:
+The semantic version of the Exponential Method as one released artifact (the method, its glossary and the **Agent principles**, in `content/docs/method/`), recorded with a content hash in `_release.json`. Once published a version is immutable: the same version always names the same text and hash, and CI fails a change to published text without a version bump (D-0015). Agents load it through `agentGuidance.method`; until publication it stays a draft, served only to preview workspaces.
+_Avoid_: Method release (the manifest is the release record, not the term), edition, revision (a **context** revision is the AI-instructions hash).
 
 **AI instructions**:
 A workspace's or project's own guidance for agents (`aiInstructions`; Settings label "Instructions") — how *this* team works. Background guidance, never authority: it can tailor the defaults of the **Agent principles** but cannot override a **Fixed principle**, grant authority, or authorise moving data. Between scopes, the narrower (project) wins ([ADR-0071](docs/adr/0071-agent-principles-fixed-invariants.md)).

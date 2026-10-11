@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import { extractHeadings } from "./extractHeadings";
 import { parseUpdatedField } from "./lastUpdated";
+import { isMethodPath, isMethodPublished } from "./method";
 
 export const DOCS_DIR = path.join(process.cwd(), "content/docs");
 export const DOCS_BASE = "/docs";
@@ -58,13 +59,24 @@ function toMeta(data: Record<string, unknown>): DocPageMeta {
   };
 }
 
+export interface ListDocPagesOptions {
+  /**
+   * Include `method/**` even while the method's release manifest says
+   * `draft`. Only the docs tooling (`check-docs`, `docs-last-updated`) and the
+   * agent-guidance service pass this; everything public inherits the gate.
+   */
+  includeUnpublishedMethod?: boolean;
+}
+
 /**
  * Every Markdown page under `content/docs`, in filesystem order. Files and
  * folders whose name starts with `_` are ignored (`_meta.json`,
- * `_redirects.json`, drafts).
+ * `_redirects.json`, drafts). The method (`method/**`) is left out until it
+ * is published (see `method.ts`), unless `includeUnpublishedMethod` is set.
  */
-export function listDocPages(docsDir: string = DOCS_DIR): DocPage[] {
+export function listDocPages(docsDir: string = DOCS_DIR, options: ListDocPagesOptions = {}): DocPage[] {
   const pages: DocPage[] = [];
+  const skipMethod = !options.includeUnpublishedMethod && !isMethodPublished(docsDir);
 
   function walk(dir: string, prefix: string[]) {
     let entries: fs.Dirent[];
@@ -76,6 +88,7 @@ export function listDocPages(docsDir: string = DOCS_DIR): DocPage[] {
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.name.startsWith("_") || entry.name.startsWith(".")) continue;
       const full = path.join(dir, entry.name);
+      if (skipMethod && prefix.length === 0 && isMethodPath(entry.name)) continue;
       if (entry.isDirectory()) {
         walk(full, [...prefix, entry.name]);
         continue;

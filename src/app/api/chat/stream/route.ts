@@ -1,4 +1,5 @@
 import { MastraClient } from "@mastra/client-js";
+import { TRPCError } from "@trpc/server";
 import { RequestContext } from "@mastra/core/di";
 import type { MessageListInput } from "@mastra/core/agent/message-list";
 
@@ -31,8 +32,11 @@ import {
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
-import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
-import { buildProjectAccessWhere } from "~/server/services/access";
+import {
+  assembleLoadedScope,
+  loadScopeInstructions,
+  type LoadedScopeInstructions,
+} from "~/server/services/agentGuidance";
 import {
   pickModelTier,
   isHaikuTier,
@@ -265,54 +269,46 @@ export async function POST(req: Request) {
       ],
     ];
     
-    // Verify workspace access and fetch workspace details for agent context.
-    // `aiInstructions` is fetched here, server-side by workspace ID (demoted
-    // scope-instructions ADR) — never trusted from the client — for the block.
-    let workspaceInfo: { slug: string; name: string; type: string; description: string | null } | null = null;
-    let workspaceAiInstructions: string | null = null;
-    if (workspaceId) {
-      const workspaceAccess = await db.workspaceUser.findFirst({
-        where: {
-          workspaceId,
-          userId: session.user.id,
-        },
-        include: { workspace: { select: { slug: true, name: true, type: true, description: true, aiInstructions: true } } },
-      });
-
-      if (!workspaceAccess) {
+    // Verify workspace access and fetch the in-scope AI instructions for the
+    // demoted scope-instruction block. `loadScopeInstructions` is shared with
+    // the agentGuidance context capability, so both assemble identical text:
+    // `aiInstructions` is fetched server-side by ID (never trusted from the
+    // client); the project goes through buildProjectAccessWhere, so a spoofed
+    // projectId can't leak another project's text; and a project outside the
+    // workspace is rejected.
+    let scope: LoadedScopeInstructions = { workspace: null, project: null };
+    try {
+      scope = await loadScopeInstructions(db, { userId: session.user.id, workspaceId, projectId });
+    } catch (error) {
+      if (error instanceof TRPCError && (error.code === "FORBIDDEN" || error.code === "BAD_REQUEST")) {
         return new Response(
           JSON.stringify({
-            error: "Forbidden: You do not have access to this workspace"
+            error: error.code === "FORBIDDEN"
+              ? "Forbidden: You do not have access to this workspace"
+              : `Bad request: ${error.message}`,
           }),
           {
-            status: 403,
+            status: error.code === "FORBIDDEN" ? 403 : 400,
             headers: { "Content-Type": "application/json" },
           }
         );
       }
+      throw error;
+    }
 
+    let workspaceInfo: { slug: string; name: string; type: string; description: string | null } | null = null;
+    if (workspaceId) {
       entries.push(["workspaceId", workspaceId]);
-      if (workspaceAccess.workspace) {
-        const { aiInstructions, ...navInfo } = workspaceAccess.workspace;
-        workspaceInfo = navInfo;
-        workspaceAiInstructions = aiInstructions;
-        entries.push(["workspaceSlug", workspaceAccess.workspace.slug]);
-        entries.push(["workspaceName", workspaceAccess.workspace.name]);
-        entries.push(["workspaceType", workspaceAccess.workspace.type]);
+      if (scope.workspace) {
+        const { slug, name, type, description } = scope.workspace;
+        workspaceInfo = { slug, name, type, description };
+        entries.push(["workspaceSlug", slug]);
+        entries.push(["workspaceName", name]);
+        entries.push(["workspaceType", type]);
       }
     }
-    let projectAiInstructions: string | null = null;
     if (projectId) {
       entries.push(["projectId", projectId]);
-
-      // Fetch the in-scope project's `aiInstructions` server-side by ID for the
-      // demoted scope-instruction block. Scoped by buildProjectAccessWhere so a
-      // spoofed projectId can't leak another project's instruction text.
-      const projectScope = await db.project.findFirst({
-        where: { id: projectId, ...buildProjectAccessWhere(session.user.id) },
-        select: { aiInstructions: true },
-      });
-      projectAiInstructions = projectScope?.aiInstructions ?? null;
 
       // Look up project's configured Slack channel so agent knows where to search
       const projectSlackConfig = await db.slackChannelConfig.findUnique({
@@ -404,10 +400,7 @@ export async function POST(req: Request) {
     // → specific: workspace first, then the in-scope project last so it wins on
     // conflict. With no project in scope (global drawer, /agent), only the
     // workspace applies. Empty scopes are skipped by the assembler.
-    const scopeInstructionsBlock = assembleScopeInstructions([
-      { scope: 'workspace', label: 'Workspace', instructions: workspaceAiInstructions },
-      { scope: 'project', label: 'Project', instructions: projectAiInstructions },
-    ]);
+    const scopeInstructionsBlock = assembleLoadedScope(scope);
     if (scopeInstructionsBlock) {
       promptSizeChars.scopeInstructions = scopeInstructionsBlock.length;
       finalMessages = [
