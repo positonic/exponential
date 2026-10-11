@@ -12,21 +12,16 @@
  */
 import { DOCS_DIR, listDocPages } from "~/lib/docs/content";
 import {
+  collectMethodDocuments,
   computeMethodHash,
-  METHOD_DOCUMENTS,
   readMethodRelease,
-  type MethodDocumentId,
+  type MethodDocumentContent,
 } from "~/lib/docs/method";
 
 export const METHOD_CANONICAL_REPO = "positonic/exponential";
 export const METHOD_CANONICAL_PATH = "content/docs/method";
 
-export interface MethodDocument {
-  id: MethodDocumentId;
-  title: string;
-  href: string;
-  markdown: string;
-}
+export type MethodDocument = MethodDocumentContent;
 
 export interface MethodPayload {
   version: string;
@@ -60,15 +55,7 @@ export function getMethod({ includeDraft, docsDir = DOCS_DIR }: GetMethodOptions
   const isPublished = release.status === "published";
   if (!isPublished && !includeDraft) return null;
 
-  const pages = listDocPages(docsDir, { includeUnpublishedMethod: true });
-  const bySlug = new Map(pages.map((p) => [p.slug.join("/"), p]));
-
-  const documents: MethodDocument[] = [];
-  for (const doc of METHOD_DOCUMENTS) {
-    const page = bySlug.get(doc.slug.join("/"));
-    if (!page) continue;
-    documents.push({ id: doc.id, title: page.meta.title, href: page.href, markdown: page.content });
-  }
+  const documents = collectMethodDocuments(listDocPages(docsDir, { includeUnpublishedMethod: true }));
   if (documents.length === 0) return null;
 
   return {

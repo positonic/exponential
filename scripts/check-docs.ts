@@ -23,7 +23,16 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
-import { isMethodPath, isMethodPublished } from "../src/lib/docs/method";
+import {
+  checkMethodRelease,
+  collectMethodDocuments,
+  computeMethodHash,
+  isMethodPath,
+  isMethodPublished,
+  METHOD_DIR,
+  METHOD_RELEASE_FILE,
+  readMethodRelease,
+} from "../src/lib/docs/method";
 import { extractHeadings } from "../src/lib/docs/extractHeadings";
 import { DEFAULT_NAV_LAYOUT, NAV_ITEM_CONFIG } from "../src/lib/navLayout";
 
@@ -243,6 +252,21 @@ function main() {
     }
   }
 
+  // The method's release manifest: a published version must never change (D-0015).
+  const methodPages = pages.filter((p) => isMethodPath(p.slug.join("/")));
+  let methodSummary = "";
+  if (methodPages.length > 0) {
+    const manifest = path.relative(ROOT, path.join(DOCS_DIR, METHOD_DIR, METHOD_RELEASE_FILE));
+    const release = readMethodRelease(DOCS_DIR);
+    if (!release) {
+      fail(manifest, 1, "content/docs/method has pages but no readable release manifest");
+    } else {
+      const hash = computeMethodHash(collectMethodDocuments(methodPages));
+      for (const message of checkMethodRelease(release, hash)) fail(manifest, 1, message);
+      methodSummary = `; method ${release.version} (${release.status}) ${hash}`;
+    }
+  }
+
   const redirectsFile = path.join(DOCS_DIR, "_redirects.json");
   if (fs.existsSync(redirectsFile)) {
     const { redirects } = JSON.parse(fs.readFileSync(redirectsFile, "utf-8")) as { redirects: Record<string, string> };
@@ -259,7 +283,9 @@ function main() {
     console.error(`\ncheck-docs: ${problems.length} problem(s) across ${pages.length} pages`);
     process.exit(1);
   }
-  console.log(`check-docs: ${pages.length} pages OK (links, anchors, assets, sidebar labels, frontmatter, last-updated)`);
+  console.log(
+    `check-docs: ${pages.length} pages OK (links, anchors, assets, sidebar labels, frontmatter, last-updated, method release)${methodSummary}`,
+  );
 }
 
 main();

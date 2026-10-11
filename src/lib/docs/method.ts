@@ -15,6 +15,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import type { DocPage } from "./types";
 
 /** The folder under `content/docs` that holds the method. */
 export const METHOD_DIR = "method";
@@ -88,4 +89,116 @@ export function computeMethodHash(pages: { title: string; markdown: string }[]):
     hash.update(`${title.length}:${title}\n${body.length}:${body}\n`);
   }
   return `sha256:${hash.digest("hex")}`;
+}
+
+export interface MethodDocumentContent {
+  id: MethodDocumentId;
+  title: string;
+  href: string;
+  /** The page's Markdown body, frontmatter excluded: exactly what /docs renders. */
+  markdown: string;
+}
+
+/**
+ * The method's documents from a docs page list, in the fixed order. Missing
+ * documents are skipped. Shared by the agent-guidance service and docs:check
+ * so both hash exactly the same text.
+ */
+export function collectMethodDocuments(pages: DocPage[]): MethodDocumentContent[] {
+  const bySlug = new Map(pages.map((p) => [p.slug.join("/"), p]));
+  const documents: MethodDocumentContent[] = [];
+  for (const doc of METHOD_DOCUMENTS) {
+    const page = bySlug.get(doc.slug.join("/"));
+    if (!page) continue;
+    documents.push({ id: doc.id, title: page.meta.title, href: page.href, markdown: page.content });
+  }
+  return documents;
+}
+
+const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** Compares two `MAJOR.MINOR.PATCH` versions; null when either is not one. */
+export function compareSemver(a: string, b: string): number | null {
+  const ma = SEMVER_RE.exec(a);
+  const mb = SEMVER_RE.exec(b);
+  if (!ma || !mb) return null;
+  for (let i = 1; i <= 3; i++) {
+    const diff = Number(ma[i]) - Number(mb[i]);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/**
+ * The release manifest's immutability rules (D-0015), checked by
+ * `npm run docs:check`. Returns one message per broken rule; empty is OK.
+ *
+ * - A published version's text never changes: the hash computed from the
+ *   files must equal the recorded `contentHash`.
+ * - `history` versions are unique and strictly increasing, and the current
+ *   version is newer than all of them, so one version never names two texts.
+ */
+export function checkMethodRelease(release: MethodRelease, computedHash: string): string[] {
+  const problems: string[] = [];
+
+  if (!SEMVER_RE.test(release.version)) {
+    problems.push(`version "${release.version}" is not MAJOR.MINOR.PATCH`);
+  }
+  if (release.status !== "draft" && release.status !== "published") {
+    problems.push(`status must be "draft" or "published", not "${String(release.status)}"`);
+  }
+
+  if (release.status === "published") {
+    if (!release.publishedAt) problems.push("a published release needs publishedAt");
+    if (!release.contentHash) {
+      problems.push(`a published release needs contentHash (the files hash to ${computedHash})`);
+    } else if (release.contentHash !== computedHash) {
+      problems.push(
+        `published version ${release.version} changed: contentHash is ${release.contentHash} but the files hash to ${computedHash}. ` +
+          "A published version is immutable; bump the version and append the old release to history.",
+      );
+    }
+  }
+
+  const history = Array.isArray(release.history) ? release.history : [];
+  if (!Array.isArray(release.history)) problems.push("history must be an array");
+
+  const seen = new Map<string, string>();
+  history.forEach((entry, i) => {
+    const previous = seen.get(entry.version);
+    if (previous !== undefined) {
+      problems.push(
+        previous === entry.contentHash
+          ? `history lists version ${entry.version} twice`
+          : `history version ${entry.version} reappears with a different hash`,
+      );
+    }
+    seen.set(entry.version, entry.contentHash);
+    if (i > 0) {
+      const order = compareSemver(history[i - 1]!.version, entry.version);
+      if (order === null) problems.push(`history version "${entry.version}" is not MAJOR.MINOR.PATCH`);
+      else if (order >= 0) {
+        problems.push(`history versions must strictly increase: ${history[i - 1]!.version} then ${entry.version}`);
+      }
+    }
+  });
+
+  const latest = history[history.length - 1];
+  if (latest) {
+    const reused = seen.get(release.version);
+    if (reused !== undefined) {
+      problems.push(
+        reused === computedHash && release.status === "published"
+          ? `version ${release.version} is both current and in history`
+          : `version ${release.version} was already published with hash ${reused}; bump the version`,
+      );
+    } else {
+      const order = compareSemver(latest.version, release.version);
+      if (order !== null && order >= 0) {
+        problems.push(`version ${release.version} must be newer than the last published version ${latest.version}`);
+      }
+    }
+  }
+
+  return problems;
 }
