@@ -5,9 +5,10 @@
 
 -- Step 1 — agents hold `member` and nothing else (ADR-0049 §3). Before PR #915
 -- an owner could make an agent `admin` or `viewer`; correct any such row.
--- Admin/owner → member. Viewer → member where the agent's owner is a
--- non-viewer member of that workspace (the delegation invariant), else the
--- membership is removed, as `cascadeOwnerRoleChanged` would have done.
+-- Admin/owner → member. Viewer → member where the agent's owner holds a
+-- delegating role there (`DELEGATING_WORKSPACE_ROLES`: owner, admin, member —
+-- the delegation invariant), else the membership is removed, as
+-- `cascadeOwnerRoleChanged` would have done.
 DO $$
 DECLARE
   demoted INT;
@@ -28,7 +29,7 @@ BEGIN
       SELECT 1 FROM "WorkspaceUser" o
       WHERE o."userId" = ea."ownerId"
         AND o."workspaceId" = wu."workspaceId"
-        AND o."role" <> 'viewer'
+        AND o."role" IN ('owner', 'admin', 'member')
     );
   GET DIAGNOSTICS removed = ROW_COUNT;
 
