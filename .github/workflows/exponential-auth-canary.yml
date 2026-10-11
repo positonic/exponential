@@ -71,9 +71,14 @@ jobs:
           exponential auth login --token "$EXPO_TOKEN" --api-url "$EXPO_API_URL"
           exponential auth whoami
           # Read through the product the promote/requirements hooks actually use.
-          exponential tickets list \
-            --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" \
-            --status QA --json > /tmp/canary.json
+          # The CLI writes its error object to STDOUT, so echo the file on
+          # failure -- otherwise the step dies with a bare "exit 1".
+          if ! exponential tickets list \
+                 --product "$EXPO_PRODUCT" --workspace "$EXPO_WORKSPACE" \
+                 --status QA --json > /tmp/canary.json; then
+            echo "::error title=Exponential CLI failed::$(head -c 800 /tmp/canary.json)"
+            exit 1
+          fi
           # Assert the SHAPE, not the count. `.tickets | length` would be 0 for
           # an error payload like {"error":{"code":"UNAUTHORIZED"}} too, and
           # `jq -e` exits 0 on a 0, so that check would pass on a failure. An
