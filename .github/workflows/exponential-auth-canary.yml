@@ -35,7 +35,7 @@ permissions:
 env:
   EXPO_API_URL: https://www.exponential.im
   EXPO_PRODUCT: exponential
-  EXPO_WORKSPACE: syntrofi
+  EXPO_WORKSPACE: exponential
   ISSUE_TITLE: "EXPONENTIAL_TOKEN is not authenticating"
   # This job deliberately runs no actions/checkout -- it needs no source. But
   # that leaves `gh` with no git remote to infer the repository from, so every

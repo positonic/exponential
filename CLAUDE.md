@@ -657,7 +657,7 @@ Copy the prompt content into a new Claude session, then provide your inputs. See
 ## Task Tracking
 
 **Exponential is the single source of truth for work items** (features, bugs, PRDs, tickets) —
-workspace `syntrofi` / product `exponential`, via the `exponential` CLI and the `/to-prd`,
+workspace `exponential` / product `exponential`, via the `exponential` CLI and the `/to-prd`,
 `/to-robo-prd`, `/to-tickets`, `/start-ticket`, `/ship-ticket` skills. Feature work goes
 `/to-prd` → `/to-robo-prd` → `/to-tickets` (one ticket per scope, slices as ordered actions)
 so the backlog stays human-readable; `/to-expo` is manual-only and reserved for loose plans
@@ -688,7 +688,7 @@ Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-prd
 
 ### Issue tracker
 
-Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `syntrofi` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `exponential` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 
 ### Commenting and @mentions
 
