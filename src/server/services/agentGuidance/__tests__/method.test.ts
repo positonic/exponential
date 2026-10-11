@@ -120,10 +120,36 @@ describe("while the method is a draft", () => {
 });
 
 describe("once the method is published", () => {
-  beforeEach(() => writeRelease("published"));
+  beforeEach(() => {
+    writeRelease("published");
+    write(
+      "method/glossary.md",
+      "---\ntitle: Glossary\ndescription: Terms\nupdated: 2026-10-11\n---\n\n- **Drift:** a gap between reality and the record.\r\n",
+    );
+    write(
+      "method/agent-principles.md",
+      "---\ntitle: Agent principles\ndescription: How agents work\nupdated: 2026-10-11\n---\n\n## Fixed principles\n\n1. **Record integrity.**\n",
+    );
+  });
+
+  it("returns, page for page, the content /docs/method renders, in the fixed order", async () => {
+    const method = getMethod({ includeDraft: false, docsDir: dir })!;
+    expect(method.documents.map((d) => d.id)).toEqual(["method", "glossary", "agent-principles"]);
+    for (const doc of method.documents) {
+      const rendered = await getDocContent(doc.href.replace(/^\/docs\//, "").split("/"), dir);
+      expect(rendered).not.toBeNull();
+      expect(doc.markdown).toBe(rendered!.content);
+      expect(doc.title).toBe(rendered!.meta.title);
+    }
+  });
 
   it("appears on /docs and is served to anyone", async () => {
-    expect(listDocPages(dir).map((p) => p.href).sort()).toEqual(["/docs", "/docs/method"]);
+    expect(listDocPages(dir).map((p) => p.href).sort()).toEqual([
+      "/docs",
+      "/docs/method",
+      "/docs/method/agent-principles",
+      "/docs/method/glossary",
+    ]);
     expect(await getDocContent(["method"], dir)).not.toBeNull();
     expect(getMethod({ includeDraft: false, docsDir: dir })).toMatchObject({
       status: "published",

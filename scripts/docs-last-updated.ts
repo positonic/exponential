@@ -50,7 +50,8 @@ function stamp(file: string, date: string): boolean {
   return true;
 }
 
-const pages = listDocPages(DOCS_DIR);
+// The draft method (content/docs/method) is dark on /docs but still dated.
+const pages = listDocPages(DOCS_DIR, { includeUnpublishedMethod: true });
 
 if (process.argv.includes("--staged")) {
   const staged = new Set(

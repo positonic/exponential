@@ -23,6 +23,7 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { listDocPages, DOCS_DIR } from "../src/lib/docs/content";
+import { isMethodPath, isMethodPublished } from "../src/lib/docs/method";
 import { extractHeadings } from "../src/lib/docs/extractHeadings";
 import { DEFAULT_NAV_LAYOUT, NAV_ITEM_CONFIG } from "../src/lib/navLayout";
 
@@ -134,8 +135,14 @@ function main() {
   if (fs.existsSync(path.join(DOCS_DIR, "_last-updated.json"))) {
     fail("content/docs/_last-updated.json", 1, "replaced by per-page `updated` frontmatter — delete this file");
   }
-  const pages = listDocPages(DOCS_DIR);
+  // Draft method pages (content/docs/method) are checked like any page, but
+  // while the method is unpublished only other method pages may link to them:
+  // a link from a public page would 404.
+  const pages = listDocPages(DOCS_DIR, { includeUnpublishedMethod: true });
+  const methodIsDark = !isMethodPublished(DOCS_DIR);
+  const isDarkMethodPage = (p: { slug: string[] }) => methodIsDark && isMethodPath(p.slug.join("/"));
   const byHref = new Map(pages.map((p) => [p.href, p]));
+  const publicByHref = new Map(pages.filter((p) => !isDarkMethodPage(p)).map((p) => [p.href, p]));
   const headingIds = new Map(pages.map((p) => [p.href, new Set(extractHeadings(p.content).map((h) => h.id))]));
   const labels = allowedSidebarLabels();
 
@@ -145,6 +152,7 @@ function main() {
   const ABSOLUTE_SELF_RE = /^https?:\/\/(www\.)?exponential\.im(\/|$)/;
 
   for (const page of pages) {
+    const linkable = isDarkMethodPage(page) ? byHref : publicByHref;
     const text = stripCode(page.content);
     const file = page.filePath;
     // `page.content` has the frontmatter removed; report line numbers in the file.
@@ -192,9 +200,15 @@ function main() {
       }
       if (cleanPath === "/docs" || cleanPath.startsWith("/docs/")) {
         const href = cleanPath.replace(/\/$/, "") || "/docs";
-        const target = byHref.get(href);
+        const target = linkable.get(href);
         if (!target) {
-          fail(file, line, `broken docs link ${url}`);
+          fail(
+            file,
+            line,
+            byHref.has(href)
+              ? `link ${url}: the method is unpublished (content/docs/method/_release.json), so the page 404s`
+              : `broken docs link ${url}`,
+          );
           continue;
         }
         if (anchor !== undefined && !headingIds.get(href)?.has(anchor)) {
@@ -234,7 +248,7 @@ function main() {
     const { redirects } = JSON.parse(fs.readFileSync(redirectsFile, "utf-8")) as { redirects: Record<string, string> };
     for (const [source, destination] of Object.entries(redirects)) {
       const rel = path.relative(ROOT, redirectsFile);
-      if (!byHref.has(destination.split("#")[0]!)) fail(rel, 1, `redirect ${source} → ${destination}: target page does not exist`);
+      if (!publicByHref.has(destination.split("#")[0]!)) fail(rel, 1, `redirect ${source} → ${destination}: target page does not exist`);
       if (byHref.has(source)) fail(rel, 1, `redirect source ${source} is also a live page — remove one`);
     }
   }
