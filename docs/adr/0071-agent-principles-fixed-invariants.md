@@ -15,9 +15,9 @@ and clients such as Claude or ChatGPT over MCP or the CLI — a shared statement
 (`Workspace.aiInstructions` / `Project.aiInstructions`) describing how *they* work.
 
 Between workspace and project instructions the narrower scope wins. Applying that rule to Agent
-principles versus AI instructions would let one line of workspace text ("mark actions done once
-the email is sent; don't wait") switch off the commitments that make the operating record
-trustworthy. AI instructions are a loosely gated text box, already treated as guidance rather than
+principles versus AI instructions would let one line of workspace text ("mark the Action complete
+as soon as you've tried to send it, even if the send failed or its outcome is unknown") switch off
+the commitments that make the operating record trustworthy. AI instructions are a loosely gated text box, already treated as guidance rather than
 authority.
 
 ## Decision
@@ -30,7 +30,8 @@ Fixed principles are product invariants. No AI instructions can disable them:
    as an observed fact.
 2. **Evidence-based completion** — keep authorization, attempt and outcome distinct; claim
    completion only as far as the evidence supports, measured against the actual commitment. This
-   is not "always wait for a person": a successful send completes "Send the proposal".
+   is not "always wait for a person": a successful send completes "Send the proposal". Equally, a
+   person confirming completion is approval, not evidence that the promised outcome occurred.
 3. **Authorized agency** — act only within authenticated permissions and explicitly delegated
    authority, with an identifiable accountable person.
 4. **Change integrity** — keep attribution and history; detect and resolve conflicting updates
@@ -46,10 +47,24 @@ after the fact, or authorise moving data; where data lives belongs to deployment
 configuration.
 
 Enforcement belongs in the shared application layer, so it holds equally through MCP, the CLI and
-the UI. Delivering the principles to agents (MCP instructions, `get_method`, AI instructions)
-improves guidance; it enforces nothing. Until enforcement exists for a principle, copy must not
-claim it is enforced. ADR-0070 (agents propose decisions; people confirm) is the first enforced
-piece of record integrity.
+the UI — and it covers what the application can actually guarantee: permissions, lifecycle
+transitions, required evidence fields, attribution, and conflict checks on persisted records and
+operations. It cannot guarantee that an agent's conversational prose never presents an
+interpretation as fact, nor that a supplied evidence field truly proves completion; those parts
+remain guidance. Each principle is therefore tracked in an audit matrix (principle → governed
+operations → enforcement → tests → remaining limits), and copy may call a rule enforced only once
+tests cover it. Delivering the principles to agents (MCP instructions, `get_method`, AI
+instructions) improves guidance; it enforces nothing. ADR-0070 (agents propose decisions; people
+confirm) is the first enforced piece of record integrity.
+
+**Known limit — identity.** Enforcement that distinguishes agents from people depends on the
+server knowing which principal is acting. An agent key is verifiable; a `source: AGENT` label is
+not, and an agent running with a person's credential is indistinguishable from that person. Where a
+workflow deliberately does that — the grilling skills' closing step confirms decisions with the
+developer's own CLI login after explicit consent in chat (Decision Log D-0013) — the guarantee is
+procedural (consent step plus a narrow hook gate), not enforced. The target is for agents always to
+act under their own identity, recording a person's conversational decisions under an explicit,
+revocable delegation with the person's words quoted as evidence.
 
 ## Rejected
 
