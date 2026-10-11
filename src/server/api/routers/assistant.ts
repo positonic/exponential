@@ -7,11 +7,8 @@ import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
 import { ensureAssistantForUser } from "~/server/services/assistant/ensureAssistant";
 import { resolveAssistantForUser } from "~/server/services/assistant/resolveAssistant";
-import {
-  deleteExternalAgentPrincipal,
-  renameAssistantPrincipal,
-} from "~/server/services/assistant/principal";
-import { deleteFromBlob } from "~/lib/blob";
+import { renameAssistantPrincipal } from "~/server/services/assistant/principal";
+import { retireAssistant } from "~/server/services/assistant/retire";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 
 /** Same ceiling as `externalAgent.createKey`: an Assistant's principal is an External agent. */
@@ -236,25 +233,18 @@ export const assistantRouter = createTRPCRouter({
   }),
 
   /**
-   * Delete an assistant owned by the calling user — and its principal. The
-   * Assistant row itself goes with the External agent (FK cascade); the shadow
-   * user is kept when it authored content, so attribution survives (ADR-0067).
+   * "Delete" the calling user's Assistant: it is **retired**, never deleted
+   * (ADR-0072). Deleting its External agent would cascade-delete every Agent
+   * run it performed (`AgentRun.agentId` is `onDelete: Cascade`); retiring it
+   * keeps the principal, so its history stays attributed, while revoking its
+   * keys and memberships, unassigning it from open Actions and stopping its
+   * runs. The person may then create a new Assistant.
    */
   delete: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
-      const agent = await ctx.db.externalAgent.findUnique({
-        where: { id: assistant.externalAgentId },
-        select: { id: true, shadowUserId: true, shadowUser: { select: { image: true } } },
-      });
-      if (!agent) {
-        return ctx.db.assistant.delete({ where: { id: input.id } });
-      }
-      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
-      if (result.orphanedImage) {
-        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
-      }
+      await retireAssistant(ctx.db, { assistantId: assistant.id });
       return assistant;
     }),
 
