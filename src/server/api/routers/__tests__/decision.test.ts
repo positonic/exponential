@@ -1661,6 +1661,15 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
       },
     );
 
+    it("confirmDraft through a token type nobody classified is refused — the gate fails closed", async () => {
+      withWorkspaceRole(db, "member");
+      withRow();
+      await expect(
+        callerWithToken("slack-gateway").decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.decision.updateMany).not.toHaveBeenCalled();
+    });
+
     it.each([undefined, "api-token", "extension-token", "device-token"])(
       "confirmDraft through a person's own login (%s) confirms",
       async (tokenType) => {

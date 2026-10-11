@@ -15,7 +15,11 @@ import { type Session } from "next-auth";
 
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
-import { SECURITY_FIX_TIMESTAMP, CURRENT_SECURITY_VERSION } from "~/server/utils/jwt";
+import {
+  SECURITY_FIX_TIMESTAMP,
+  CURRENT_SECURITY_VERSION,
+  type JWTTokenType,
+} from "~/server/utils/jwt";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 
 /**
@@ -275,24 +279,35 @@ export const protectedProcedure = t.procedure
   });
 
 /**
- * Token types that mean an agent is doing the acting even when the session
- * user is a person: an External agent's key, Zoe's agent-context JWT, the
- * chat gateways (Zoe answering in WhatsApp / Telegram / Matrix) and a voice
- * session. Personal API tokens (the CLI), the extension, devices and browser
- * sessions are the person themselves.
+ * Who is acting behind each token type. `agent`: an agent is doing the
+ * acting even when the session user is a person — an External agent's key,
+ * Zoe's agent-context JWT, the chat gateways (Zoe answering in WhatsApp /
+ * Telegram / Matrix) and a voice session. `person`: the person themselves —
+ * personal API tokens (the CLI), the extension, devices.
+ *
+ * Exhaustive over `JWTTokenType`, so a new token type (a new Zoe surface)
+ * does not compile until someone classifies it.
  */
-const AGENT_ACTOR_TOKEN_TYPES: ReadonlySet<string> = new Set([
-  "agent-key",
-  "agent-context",
-  "whatsapp-gateway",
-  "telegram-gateway",
-  "matrix-gateway",
-  "voice-session",
-]);
+const TOKEN_ACTOR: Record<JWTTokenType | "agent-key", "agent" | "person"> = {
+  "agent-key": "agent",
+  "agent-context": "agent",
+  "whatsapp-gateway": "agent",
+  "telegram-gateway": "agent",
+  "matrix-gateway": "agent",
+  "voice-session": "agent",
+  "api-token": "person",
+  "extension-token": "person",
+  "device-token": "person",
+};
 
-/** Whether the caller's token says an agent, not the person, is acting. */
+/**
+ * Whether the caller's token says an agent, not the person, is acting. No
+ * token type is a browser session (the person). A type this map doesn't
+ * know counts as an agent, so the check fails closed.
+ */
 export function isAgentActorToken(tokenType: string | undefined): boolean {
-  return tokenType !== undefined && AGENT_ACTOR_TOKEN_TYPES.has(tokenType);
+  if (tokenType === undefined) return false;
+  return !Object.hasOwn(TOKEN_ACTOR, tokenType) || TOKEN_ACTOR[tokenType as keyof typeof TOKEN_ACTOR] === "agent";
 }
 
 /**
