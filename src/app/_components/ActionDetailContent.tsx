@@ -76,12 +76,17 @@ const STATUS_COLORS: Record<string, string> = {
 interface ActionDetailContentProps {
   actionId: string;
   workspaceSlug: string;
+  /** "peek" stacks the properties under the content and drops the page's
+   *  back link and breadcrumb, for the inbox's side drawer. */
+  variant?: "page" | "peek";
 }
 
 export function ActionDetailContent({
   actionId,
   workspaceSlug,
+  variant = "page",
 }: ActionDetailContentProps) {
+  const isPeek = variant === "peek";
   const router = useRouter();
   const { data: session } = useSession();
   const { workspace } = useWorkspace();
@@ -258,57 +263,65 @@ export function ActionDetailContent({
 
   return (
     <>
-    <div className="flex min-h-0 flex-col lg:h-[calc(100vh-60px)] lg:flex-row">
+    <div
+      className={
+        isPeek
+          ? "flex min-h-0 flex-col"
+          : "flex min-h-0 flex-col lg:h-[calc(100vh-60px)] lg:flex-row"
+      }
+    >
       {/* Left Panel - Main Content */}
-      <div className="flex-1 min-w-0 px-4 py-6 lg:overflow-y-auto lg:px-8">
+      <div className={isPeek ? "min-w-0" : "flex-1 min-w-0 px-4 py-6 lg:overflow-y-auto lg:px-8"}>
         {/* Breadcrumb + Back */}
-        <Group gap="md" mb="lg">
-          <ActionIcon
-            variant="subtle"
-            component={Link}
-            href={`/w/${workspaceSlug}/actions`}
-            onClick={(e: React.MouseEvent) => {
-              // Use browser back if there's a same-origin referrer (user navigated here)
-              if (document.referrer && new URL(document.referrer).origin === window.location.origin) {
-                e.preventDefault();
-                router.back();
-              }
-              // Otherwise the Link navigates to the actions list
-            }}
-            className="text-text-muted hover:text-text-primary"
-          >
-            <IconArrowLeft size={18} />
-          </ActionIcon>
-          <Breadcrumbs
-            classNames={{
-              separator: "text-text-muted",
-            }}
-          >
-            <Anchor
+        {!isPeek && (
+          <Group gap="md" mb="lg">
+            <ActionIcon
+              variant="subtle"
               component={Link}
               href={`/w/${workspaceSlug}/actions`}
-              size="sm"
+              onClick={(e: React.MouseEvent) => {
+                // Use browser back if there's a same-origin referrer (user navigated here)
+                if (document.referrer && new URL(document.referrer).origin === window.location.origin) {
+                  e.preventDefault();
+                  router.back();
+                }
+                // Otherwise the Link navigates to the actions list
+              }}
               className="text-text-muted hover:text-text-primary"
             >
-              {workspace?.name ?? "Workspace"}
-            </Anchor>
-            {action.project && (
+              <IconArrowLeft size={18} />
+            </ActionIcon>
+            <Breadcrumbs
+              classNames={{
+                separator: "text-text-muted",
+              }}
+            >
               <Anchor
                 component={Link}
-                href={`/w/${workspaceSlug}/projects/${action.project.slug ?? action.project.id}`}
+                href={`/w/${workspaceSlug}/actions`}
                 size="sm"
                 className="text-text-muted hover:text-text-primary"
               >
-                {action.project.name}
+                {workspace?.name ?? "Workspace"}
               </Anchor>
-            )}
-            <HTMLContent
-              html={action.name}
-              className="text-text-secondary text-sm truncate"
-              compactUrls
-            />
-          </Breadcrumbs>
-        </Group>
+              {action.project && (
+                <Anchor
+                  component={Link}
+                  href={`/w/${workspaceSlug}/projects/${action.project.slug ?? action.project.id}`}
+                  size="sm"
+                  className="text-text-muted hover:text-text-primary"
+                >
+                  {action.project.name}
+                </Anchor>
+              )}
+              <HTMLContent
+                html={action.name}
+                className="text-text-secondary text-sm truncate"
+                compactUrls
+              />
+            </Breadcrumbs>
+          </Group>
+        )}
 
         {/* Status Badge — a spinning ring while an Assistant's run is live (ADR-0067) */}
         <Group mb="md">
@@ -475,7 +488,13 @@ export function ActionDetailContent({
       </div>
 
       {/* Right Panel - Properties Sidebar */}
-      <div className="w-full shrink-0 border-t border-border-primary p-6 bg-surface-secondary/30 lg:w-80 lg:border-t-0 lg:border-l lg:overflow-y-auto">
+      <div
+        className={
+          isPeek
+            ? "mt-8 rounded-md border border-border-primary p-5 bg-surface-secondary/30"
+            : "w-full shrink-0 border-t border-border-primary p-6 bg-surface-secondary/30 lg:w-80 lg:border-t-0 lg:border-l lg:overflow-y-auto"
+        }
+      >
         <Text
           className="text-text-muted uppercase tracking-wider font-semibold"
           size="xs"

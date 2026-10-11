@@ -16,6 +16,10 @@ import { compactAge } from '~/app/_components/product/overview/overviewShared';
 import { ticketDisplayId, ticketUrlId } from '~/lib/fun-ids';
 import { toPlainText } from '~/lib/content/plainText';
 import { overdueAnchor } from '~/lib/actions/partition';
+import type { RouterOutputs } from '~/trpc/react';
+import { InboxPeekDrawer, inboxPeekLinkProps } from './InboxPeek';
+
+type WaitingOnMe = RouterOutputs['inbox']['waitingOnMe'];
 
 interface WorkspaceRef {
   slug: string;
@@ -25,6 +29,28 @@ interface WorkspaceRef {
 /** "Acme · …" — every row names its workspace, since the tab spans them all. */
 function withWorkspace(workspace: WorkspaceRef | null, detail: string): string {
   return workspace ? `${workspace.name} · ${detail}` : detail;
+}
+
+const hrefs = {
+  assistantQuestion: (q: WaitingOnMe['assistantQuestions'][number]) =>
+    q.action.workspace ? `/w/${q.action.workspace.slug}/actions/${q.action.id}` : '/inbox?tab=delegated',
+  decision: (d: WaitingOnMe['decisions'][number]) => `/w/${d.workspace.slug}/decisions/d/${d.id}`,
+  draftReview: (m: WaitingOnMe['draftReviews'][number]) => `/recording/${m.id}`,
+  qaTicket: (t: WaitingOnMe['qaTickets'][number]) =>
+    `/w/${t.workspace.slug}/products/${t.product.slug}/tickets/${ticketUrlId(t)}`,
+  overdueAction: (a: WaitingOnMe['overdueActions'][number]) =>
+    a.workspace ? `/w/${a.workspace.slug}/actions/${a.id}` : '/today',
+};
+
+/** Every row's href in on-screen order, for the peek's prev/next. */
+function rowHrefs(data: WaitingOnMe): string[] {
+  return [
+    ...data.assistantQuestions.map(hrefs.assistantQuestion),
+    ...data.decisions.map(hrefs.decision),
+    ...data.draftReviews.map(hrefs.draftReview),
+    ...data.qaTickets.map(hrefs.qaTicket),
+    ...data.overdueActions.map(hrefs.overdueAction),
+  ];
 }
 
 function Section({
@@ -80,7 +106,7 @@ function Row({
   meta: ReactNode;
 }) {
   return (
-    <UnstyledButton component={Link} href={href} className="wsa-item">
+    <UnstyledButton component={Link} href={href} className="wsa-item" {...inboxPeekLinkProps(href)}>
       <span className="wsa-item__icon">{icon}</span>
       <span className="wsa-item__label">
         {label}
@@ -135,7 +161,7 @@ export function WaitingOnMeTab() {
         {data.assistantQuestions.map((q) => (
           <Row
             key={q.id}
-            href={q.action.workspace ? `/w/${q.action.workspace.slug}/actions/${q.action.id}` : '/inbox?tab=delegated'}
+            href={hrefs.assistantQuestion(q)}
             icon={<IconRobot size={14} stroke={1.75} />}
             label={toPlainText(q.action.name)}
             sub={withWorkspace(q.action.workspace, `${q.assistantName} is waiting for your reply on the action`)}
@@ -153,7 +179,7 @@ export function WaitingOnMeTab() {
         {data.decisions.map((decision) => (
           <Row
             key={decision.id}
-            href={`/w/${decision.workspace.slug}/decisions/d/${decision.id}`}
+            href={hrefs.decision(decision)}
             icon={<IconFlag size={14} stroke={1.75} />}
             label={decision.statement}
             sub={withWorkspace(
@@ -195,7 +221,7 @@ export function WaitingOnMeTab() {
         {data.draftReviews.map((meeting) => (
           <Row
             key={meeting.id}
-            href={`/recording/${meeting.id}`}
+            href={hrefs.draftReview(meeting)}
             icon={<IconMicrophone size={14} stroke={1.75} />}
             label={`${meeting.draftCount} draft ${meeting.draftCount === 1 ? 'decision' : 'decisions'}`}
             sub={withWorkspace(meeting.workspace, meeting.title ?? 'Untitled meeting')}
@@ -208,7 +234,7 @@ export function WaitingOnMeTab() {
         {data.qaTickets.map((ticket) => (
           <Row
             key={ticket.id}
-            href={`/w/${ticket.workspace.slug}/products/${ticket.product.slug}/tickets/${ticketUrlId(ticket)}`}
+            href={hrefs.qaTicket(ticket)}
             icon={<IconTicket size={14} stroke={1.75} />}
             label={ticket.title}
             sub={withWorkspace(
@@ -240,7 +266,7 @@ export function WaitingOnMeTab() {
           return (
             <Row
               key={action.id}
-              href={action.workspace ? `/w/${action.workspace.slug}/actions/${action.id}` : '/today'}
+              href={hrefs.overdueAction(action)}
               icon={<IconClockExclamation size={14} stroke={1.75} />}
               // Legacy HTML / Markdown name inside an anchor row: text only.
               label={toPlainText(action.name)}
@@ -254,6 +280,8 @@ export function WaitingOnMeTab() {
           );
         })}
       </Section>
+
+      <InboxPeekDrawer hrefs={rowHrefs(data)} />
     </section>
   );
 }

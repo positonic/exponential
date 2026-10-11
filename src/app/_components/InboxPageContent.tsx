@@ -64,6 +64,8 @@ export function InboxPageContent() {
   function setTab(next: string | null) {
     const params = new URLSearchParams(searchParams.toString());
     const value = parseTab(next);
+    // An open peek belongs to the tab it was opened from.
+    params.delete("peek");
     if (value === "notifications") params.delete("tab");
     else params.set("tab", value);
     const qs = params.toString();
