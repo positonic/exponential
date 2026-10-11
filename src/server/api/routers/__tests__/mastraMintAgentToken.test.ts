@@ -89,10 +89,14 @@ describe("mastra.mintAgentToken — human-only (ADR-0049 §6)", () => {
   });
 
   it("refuses an agent principal even when it presents another token type", async () => {
+    // A person-classified token type, so the token gate passes and only the
+    // isAgent principal lookup can produce the refusal (agent-context would be
+    // refused by the token gate first, ADR-0070).
     dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
-    const caller = createMockCaller({ userId: USER_ID, db: dbMock, tokenType: "agent-context" });
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock, tokenType: "api-token" });
 
     await expect(caller.mastra.mintAgentToken()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.user.findUnique).toHaveBeenCalled();
   });
 
   it("still mints a short-lived token for a human", async () => {
