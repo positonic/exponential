@@ -461,14 +461,44 @@ export const actionRouter = createTRPCRouter({
     // tags, assignees and sprint with the create and gets them in one
     // transaction; an external caller may still create and then attach.
     .input(actionWriteSchema.merge(actionCreateAttachmentsSchema))
-    .mutation(({ ctx, input }) =>
-      createAction(actionWriteDeps(ctx), {
+    .mutation(async ({ ctx, input }) => {
+      const created = await createAction(actionWriteDeps(ctx), {
         ...input,
         // The *who* is createdById (for an agent, its shadow user; ADR-0049),
         // the *how* is source, named from the principal.
         source: sourceForPrincipal(ctx.tokenType),
-      }),
-    ),
+      });
+
+      // Assigning an Assistant starts an Agent run (ADR-0067), and attaching
+      // it on create is an assignment: the same hook as `assign`, after the
+      // commit, with the same skips (humans, plain External agents, a parked
+      // action, a live run) and the same post-response kick so the mutation
+      // never waits on Mastra. Every assignee is new to a fresh row, so no
+      // prior-assignee filter. Deliberately in the router, next to `assign`,
+      // and not inside `createAction`: the kick needs a request scope
+      // (`after()` throws outside one) that the module's voice, cron and
+      // webhook callers do not have, and none of them attaches assignees.
+      // The row is committed by now, so a failure here must not fail the
+      // create: the modal would report "Failed to Create Action" and a retry
+      // would write a second row. Log it and report 0 instead; the owner
+      // can still assign (idempotent) to start the run.
+      const runs = await enqueueAgentRunsForAssignees(ctx.db, {
+        actionId: created.id,
+        userIds: input.assigneeIds ?? [],
+        requestedById: ctx.session.user.id,
+      }).catch((err: unknown) => {
+        console.error("[agentRuns] enqueue on create failed:", err);
+        return [];
+      });
+      if (runs.some((r) => r.executor === "MASTRA")) {
+        after(() => triggerDispatch());
+      }
+
+      // `agentRunsQueued` as on `assign` (Agent PRD D8.2): the runs this
+      // call actually started, 0 on every skip, so the modal (and a CLI or
+      // chat caller) can say honestly whether the Assistant is on it.
+      return { ...created, agentRunsQueued: runs.length };
+    }),
 
   /**
    * Idempotently ensure a "Do daily plan" prompt Action exists for today.

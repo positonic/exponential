@@ -40,7 +40,9 @@ import type { ActionWriteDeps } from "./types";
 export const createdActionInclude = {
   assignees: {
     include: {
-      user: { select: { id: true, name: true, email: true, image: true } },
+      // `isAgent` lets a create surface name the Assistant it just started
+      // ("Aria is on it") from the response alone, with no second query.
+      user: { select: { id: true, name: true, email: true, image: true, isAgent: true } },
     },
   },
   project: true,

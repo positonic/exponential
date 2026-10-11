@@ -1374,6 +1374,8 @@ describe("action router (mocked)", () => {
       // A member creating in their own workspace; the tag, the colleague and
       // the sprint all live there.
       stubMembers([callerId, "user-colleague"]);
+      // The colleague is human, so the create's assignment hook starts no run.
+      dbMock.externalAgent.findMany.mockResolvedValue([] as never);
       dbMock.tag.findMany.mockResolvedValue([{ id: "tag-1" }] as never);
       dbMock.list.findUnique.mockResolvedValue({ id: "list-1", workspaceId } as never);
       const row = { id: "a1", name: "Tracer", workspaceId, projectId: null, project: null };
@@ -1405,6 +1407,172 @@ describe("action router (mocked)", () => {
       });
       expect(result.tags).toHaveLength(1);
       expect(result.assignees).toHaveLength(1);
+    });
+
+    // ── Assistant assignee on create starts an Agent run (ADR-0067) ─────
+    // The modal attaches assignees with the create, so this is an assignment
+    // path too; `agentRunsQueued` mirrors `assign` and is 0 on every skip.
+
+    const assistantShadowId = "assistant-shadow";
+
+    /** A member creating in their workspace with `assigneeIds`, every one a
+     *  member there (containment passes). The re-read after the transaction
+     *  carries the assignee rows the enqueue reads its user ids from. */
+    function stubCreateWithAssignees(userIds: string[]) {
+      stubMembers([callerId, ...userIds]);
+      const row = { id: "a1", name: "Delegate", workspaceId, projectId: null, project: null };
+      dbMock.action.create.mockResolvedValue(row as never);
+      dbMock.action.findUniqueOrThrow.mockResolvedValue({
+        ...row,
+        tags: [],
+        assignees: userIds.map((userId) => ({
+          userId,
+          user: { id: userId, name: userId, email: null, image: null, isAgent: userId === assistantShadowId },
+        })),
+      } as never);
+      // The enqueue's own reads: the fresh row is ACTIVE and unparked, and
+      // nothing is live on it yet.
+      dbMock.action.findUnique.mockResolvedValue({ status: "ACTIVE", kanbanStatus: null } as never);
+      dbMock.agentRun.findMany.mockResolvedValue([] as never);
+      dbMock.agentRun.create.mockResolvedValue({ id: "run-1", agentId: "agent-1", executor: "MASTRA" } as never);
+      dispatchMock.mockClear();
+    }
+
+    it("queues one Agent run and kicks the dispatcher when an Assistant is assigned on create", async () => {
+      stubCreateWithAssignees([assistantShadowId]);
+      dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: [assistantShadowId],
+      });
+
+      expect(result.agentRunsQueued).toBe(1);
+      expect(result.id).toBe("a1");
+      expect(result.assignees[0]?.user.isAgent).toBe(true);
+      // Only an Assistant's principal: the same gate as `assign`.
+      expect(dbMock.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
+        where: { shadowUserId: { in: [assistantShadowId] }, assistant: { isNot: null } },
+      });
+      expect(dbMock.agentRun.create).toHaveBeenCalledTimes(1);
+      expect(dbMock.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
+        data: { actionId: "a1", agentId: "agent-1", requestedById: callerId, executor: "MASTRA" },
+      });
+      // Handed to the dispatcher after the response, never awaited inline.
+      expect(dispatchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("reports 0 runs and no kick when the assignee is a human", async () => {
+      stubCreateWithAssignees(["user-colleague"]);
+      dbMock.externalAgent.findMany.mockResolvedValue([] as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: ["user-colleague"],
+      });
+
+      expect(result.agentRunsQueued).toBe(0);
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalled();
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+      expect(dispatchMock).not.toHaveBeenCalled();
+    });
+
+    it("costs nothing extra on a create with no assignees", async () => {
+      stubMembers([callerId]);
+      dbMock.action.create.mockResolvedValue(
+        { id: "a1", name: "Solo", workspaceId, projectId: null, project: null, assignees: [] } as never,
+      );
+      dispatchMock.mockClear();
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({ name: "Solo", workspaceId });
+
+      expect(result.agentRunsQueued).toBe(0);
+      // Not even a principal lookup: there is nobody to start a run for.
+      expect(dbMock.externalAgent.findMany).not.toHaveBeenCalled();
+      expect(dbMock.agentRun.create).not.toHaveBeenCalled();
+      expect(dispatchMock).not.toHaveBeenCalled();
+    });
+
+    it("create-then-assign of the same Assistant starts exactly one run", async () => {
+      // A caller that creates with the Assistant attached and then assigns it
+      // again (a second click, a chat tool that assigns after creating) must
+      // not start a second run. Two guards, each sufficient on its own: the
+      // assignee is already on the row, so `assign` does not even look up a
+      // principal; and were it to, the live-run read (backed by the partial
+      // unique index) coalesces.
+      stubCreateWithAssignees([assistantShadowId]);
+      dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const created = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: [assistantShadowId],
+      });
+      expect(created.agentRunsQueued).toBe(1);
+
+      // `assign` on the same action: edit access passes, the Assistant is
+      // already an assignee.
+      dbMock.action.findUnique.mockResolvedValue({
+        id: "a1", name: "Delegate", projectId: null, teamId: null, workspaceId,
+        status: "ACTIVE", kanbanStatus: null,
+      } as never);
+      dbMock.action.findFirst.mockResolvedValue({ id: "a1" } as never);
+      dbMock.actionAssignee.findMany.mockResolvedValue([{ userId: assistantShadowId }] as never);
+      const assigned = await caller.action.assign({ actionId: "a1", userIds: [assistantShadowId] });
+      expect(assigned.agentRunsQueued).toBe(0);
+
+      // And if the assignee row were somehow missing, the live run coalesces.
+      dbMock.actionAssignee.findMany.mockResolvedValue([] as never);
+      dbMock.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
+      const again = await caller.action.assign({ actionId: "a1", userIds: [assistantShadowId] });
+      expect(again.agentRunsQueued).toBe(0);
+
+      expect(dbMock.agentRun.create).toHaveBeenCalledTimes(1);
+      expect(dispatchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("still returns the created action, with 0 runs, when the enqueue itself fails", async () => {
+      // The row is already committed; failing the create here would make the
+      // modal retry and write a duplicate.
+      stubCreateWithAssignees([assistantShadowId]);
+      dbMock.externalAgent.findMany.mockRejectedValue(new Error("db hiccup"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: [assistantShadowId],
+      });
+
+      expect(result.id).toBe("a1");
+      expect(result.agentRunsQueued).toBe(0);
+      expect(dispatchMock).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    it("queues a LOCAL_CLI run without kicking the hosted dispatcher", async () => {
+      stubCreateWithAssignees([assistantShadowId]);
+      dbMock.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "LOCAL_CLI" }] as never);
+      dbMock.agentRun.create.mockResolvedValue({ id: "run-1", agentId: "agent-1", executor: "LOCAL_CLI" } as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const result = await caller.action.create({
+        name: "Delegate",
+        workspaceId,
+        assigneeIds: [assistantShadowId],
+      });
+
+      expect(result.agentRunsQueued).toBe(1);
+      expect(dbMock.agentRun.create).toHaveBeenCalledTimes(1);
+      // The owner's own runner claims it; nothing to send to Mastra.
+      expect(dispatchMock).not.toHaveBeenCalled();
     });
 
     it("refuses a tag from another workspace through the procedure, leaving no row", async () => {
