@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, humanOnlyProcedure, protectedProcedure } from "~/server/api/trpc";
 import {
   buildActionAccessWhere,
   buildDecisionAccessWhere,
@@ -44,6 +44,9 @@ import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
  * - `protectedProcedure`, deliberately NOT human-only: Zoe logs decisions
  *   through the same service seam (ADR-0016). The `adr` router stays
  *   human-only and read-only; nothing here touches ADR content.
+ * - an agent may propose, never publish: a decision created by an agent
+ *   principal or with `source: AGENT` is born a draft, and `confirmDraft` is
+ *   human-only, so a person always stands behind a confirmed decision.
  * - reads gate at workspace `view` (viewers may read what the resolver lets
  *   them see); writes gate at workspace `edit` plus the per-row resolver
  *   check (meeting edit access for meeting-linked rows).
@@ -139,6 +142,24 @@ async function assertLinkableActions(
     });
   }
   return rows.map((row) => row.id);
+}
+
+/**
+ * Whether the caller is an agent principal — an External agent's key, or a
+ * shadow user (`User.isAgent`) behind a JWT. The same test
+ * `humanOnlyProcedure` applies, without the throw.
+ */
+async function isAgentPrincipal(
+  db: PrismaClient,
+  userId: string,
+  tokenType: string | undefined,
+): Promise<boolean> {
+  if (tokenType === "agent-key") return true;
+  const principal = await db.user.findUnique({
+    where: { id: userId },
+    select: { isAgent: true },
+  });
+  return principal?.isAgent === true;
 }
 
 /** Throwing wrapper around the decision resolver for one row. */
@@ -576,11 +597,19 @@ export const decisionRouter = createTRPCRouter({
         ctx.session.user.id,
         input.actionIds ?? [],
       );
+      const creatorIsAgent = await isAgentPrincipal(
+        ctx.db,
+        ctx.session.user.id,
+        ctx.tokenType,
+      );
       const decision = await createDecision(ctx.db, {
         ...input,
         actionIds,
         evidence,
         createdById: ctx.session.user.id,
+        // An agent proposes; a person confirms (`confirmDraft`).
+        asDraft: creatorIsAgent || input.source === "AGENT",
+        creatorIsAgent,
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
@@ -770,8 +799,12 @@ export const decisionRouter = createTRPCRouter({
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
 
-  /** Publish a draft into the log (the seam V2's review card will call). */
-  confirmDraft: protectedProcedure
+  /**
+   * Publish a draft into the log. Human-only: confirming is the person
+   * standing behind the decision, so an agent cannot confirm its own (or any)
+   * draft.
+   */
+  confirmDraft: humanOnlyProcedure
     .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {

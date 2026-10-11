@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   buildDecisionAccessWhereAcrossWorkspaces,
+  buildProjectAccessWhere,
   buildWorkspaceAccessWhere,
 } from "~/server/services/access";
 import { myOverdueActionsWhere } from "~/server/services/actions/myActionsWhere";
@@ -17,7 +18,9 @@ import { formatDecisionLabel } from "~/lib/decision-label";
  *   on (confirmed only, through the decision resolver).
  * - **Draft decisions to review** — meetings the user owns with AI-extracted
  *   drafts awaiting confirm/reject (the same person the "draft decisions to
- *   review" notification goes to).
+ *   review" notification goes to), and meeting-less drafts an agent logged
+ *   for them: by their own Assistant / External agent, or by Zoe acting as
+ *   them (`source: AGENT`).
  * - **QA tickets** that are theirs to promote — the `yourWork.waitingOnYou`
  *   rule, widened to every workspace they belong to.
  * - **Overdue actions** — the `/today` overdue bucket (ADR-0034).
@@ -60,6 +63,31 @@ export function meetingsWithDraftsToReviewWhere(
     userId,
     archivedAt: null,
     decisions: { some: { reviewState: "DRAFT" } },
+  };
+}
+
+/**
+ * Meeting-less draft decisions an agent logged that are the user's to
+ * confirm or reject: authored by an agent they own, or by Zoe acting as them.
+ * Meeting drafts are reviewed per meeting (above), so they are left out here.
+ * Scoped to what the user can still reach — workspace membership, and the
+ * project when there is one.
+ */
+export function agentDraftsToReviewWhere(
+  userId: string,
+): Prisma.DecisionWhereInput {
+  return {
+    AND: [
+      { reviewState: "DRAFT", transcriptionSessionId: null },
+      {
+        OR: [
+          { createdById: userId },
+          { createdBy: { externalAgentShadow: { ownerId: userId } } },
+        ],
+      },
+      { workspace: buildWorkspaceAccessWhere(userId) },
+      { OR: [{ projectId: null }, { project: buildProjectAccessWhere(userId) }] },
+    ],
   };
 }
 
@@ -132,6 +160,7 @@ export function assistantQuestionsWaitingOnMeWhere(userId: string): Prisma.Agent
 export interface WaitingOnMeCounts {
   decisions: number;
   draftReviews: number;
+  agentDrafts: number;
   qaTickets: number;
   overdueActions: number;
   assistantQuestions: number;
@@ -144,12 +173,13 @@ export async function countWaitingOnMe(
   userId: string,
   startOfToday: Date,
 ): Promise<WaitingOnMeCounts> {
-  const [decisions, draftReviews, qaTickets, overdueActions, assistantQuestions] =
+  const [decisions, draftReviews, agentDrafts, qaTickets, overdueActions, assistantQuestions] =
     await Promise.all([
       db.decision.count({ where: decisionsAwaitingMeWhere(userId) }),
       db.transcriptionSession.count({
         where: meetingsWithDraftsToReviewWhere(userId),
       }),
+      db.decision.count({ where: agentDraftsToReviewWhere(userId) }),
       db.ticket.count({ where: qaTicketsWaitingOnMeWhere(userId) }),
       db.action.count({ where: myOverdueActionsWhere(userId, startOfToday) }),
       db.agentRun.count({ where: assistantQuestionsWaitingOnMeWhere(userId) }),
@@ -157,10 +187,12 @@ export async function countWaitingOnMe(
   return {
     decisions,
     draftReviews,
+    agentDrafts,
     qaTickets,
     overdueActions,
     assistantQuestions,
-    total: decisions + draftReviews + qaTickets + overdueActions + assistantQuestions,
+    total:
+      decisions + draftReviews + agentDrafts + qaTickets + overdueActions + assistantQuestions,
   };
 }
 
@@ -170,7 +202,7 @@ export async function listWaitingOnMe(
   userId: string,
   startOfToday: Date,
 ) {
-  const [counts, decisionRows, meetingRows, ticketRows, actionRows, questionRows] =
+  const [counts, decisionRows, meetingRows, agentDraftRows, ticketRows, actionRows, questionRows] =
     await Promise.all([
       countWaitingOnMe(db, userId, startOfToday),
       db.decision.findMany({
@@ -200,6 +232,19 @@ export async function listWaitingOnMe(
           _count: {
             select: { decisions: { where: { reviewState: "DRAFT" } } },
           },
+        },
+      }),
+      db.decision.findMany({
+        where: agentDraftsToReviewWhere(userId),
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: WAITING_ROW_CAP,
+        select: {
+          id: true,
+          number: true,
+          statement: true,
+          createdAt: true,
+          workspace: { select: { slug: true, name: true } },
+          createdBy: { select: { name: true, isAgent: true } },
         },
       }),
       db.ticket.findMany({
@@ -294,6 +339,12 @@ export async function listWaitingOnMe(
     draftReviews: meetingRows.map(({ _count, ...m }) => ({
       ...m,
       draftCount: _count.decisions,
+    })),
+    agentDrafts: agentDraftRows.map(({ number, createdBy, ...d }) => ({
+      ...d,
+      label: formatDecisionLabel(number),
+      // Your own Assistant is named; a draft Zoe logged as you is "Zoe".
+      authorName: createdBy.isAgent ? (createdBy.name ?? "Your assistant") : "Zoe",
     })),
     qaTickets: ticketRows.map(({ prUrl, product, ...t }) => ({
       ...t,

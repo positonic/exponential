@@ -209,8 +209,7 @@ describe("decision router", () => {
       expect(db.decision.create).not.toHaveBeenCalled();
     });
 
-    it("is NOT human-only: an agent principal member may create (ADR-0016)", async () => {
-      // humanOnlyProcedure would read user.isAgent; the decision router never asks.
+    it("is NOT human-only: an agent principal member may create (ADR-0016) — as a draft", async () => {
       db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
       withWorkspaceRole(db, "member");
       withTransaction(db);
@@ -228,14 +227,8 @@ describe("decision router", () => {
         workspaceId: WORKSPACE_ID,
         statement: "Ship it",
         status: "ACCEPTED",
-        source: "AGENT",
       });
       expect(result.label).toBe("D-0007");
-      // The creator lookup (deciders default) may read the user, but never isAgent.
-      for (const call of db.user.findUnique.mock.calls) {
-        const select = (call[0] as { select?: Record<string, unknown> }).select ?? {};
-        expect(select).not.toHaveProperty("isAgent");
-      }
     });
   });
 
@@ -470,6 +463,98 @@ describe("decision router", () => {
       expect(data.deciders).toEqual({
         create: [{ userId: USER_ID, name: "Dev Fixture", email: "dev@example.test" }],
       });
+    });
+
+    describe("agent-authored decisions are drafts a person confirms", () => {
+      function withCreate(isAgent: boolean) {
+        withWorkspaceRole(db, "member");
+        withTransaction(db);
+        db.user.findUnique.mockResolvedValue({
+          id: USER_ID,
+          name: "Dev Fixture",
+          email: "dev@example.test",
+          isAgent,
+        } as never);
+        db.workspace.update.mockResolvedValue({ decisionCounter: 3 } as never);
+        db.decision.create.mockResolvedValue({
+          id: "dec-3",
+          number: 3,
+          statement: "x",
+          status: "ACCEPTED",
+          source: "AGENT",
+          transcriptionSessionId: null,
+        } as never);
+      }
+      const createData = () =>
+        (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+
+      it("an agent principal's decision is a DRAFT nobody has confirmed, with no feed event", async () => {
+        withCreate(true);
+        await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", status: "ACCEPTED" });
+
+        const data = createData();
+        expect(data.reviewState).toBe("DRAFT");
+        expect(data.confirmedById).toBeNull();
+        expect(data.confirmedAt).toBeNull();
+        // The agent is never defaulted in as the decider.
+        expect(data.deciders).toBeUndefined();
+        // The feed has no per-entity resolver, so a draft writes no event.
+        expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
+      });
+
+      it("source AGENT from a human session (Zoe acting as the user) is a DRAFT too", async () => {
+        withCreate(false);
+        await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source: "AGENT" });
+        expect(createData().reviewState).toBe("DRAFT");
+        expect(createData().confirmedById).toBeNull();
+      });
+
+      it("an agent key is an agent principal without a user lookup", async () => {
+        withCreate(false);
+        await createMockCaller({
+          userId: USER_ID,
+          db: db as unknown as PrismaClient,
+          tokenType: "agent-key",
+        }).decision.create({ workspaceId: WORKSPACE_ID, statement: "x" });
+        expect(createData().reviewState).toBe("DRAFT");
+      });
+
+      it("a person's manual decision stays CONFIRMED by its creator", async () => {
+        withCreate(false);
+        await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x" });
+        expect(createData().reviewState).toBe("CONFIRMED");
+        expect(createData().confirmedById).toBe(USER_ID);
+        expect(db.workspaceActivityEvent.create).toHaveBeenCalled();
+      });
+
+      it("an agent principal cannot confirm a draft", async () => {
+        withWorkspaceRole(db, "member");
+        db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+        await expect(
+          caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+        expect(db.decision.update).not.toHaveBeenCalled();
+      });
+    });
+
+    it("an OPEN question gets no default deciders — nobody has decided yet", async () => {
+      withWorkspaceRole(db, "member");
+      withTransaction(db);
+      db.user.findUnique.mockResolvedValue({ id: USER_ID, name: "Dev Fixture", email: "dev@example.test" } as never);
+      db.workspace.update.mockResolvedValue({ decisionCounter: 4 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-4",
+        number: 4,
+        statement: "Which store?",
+        status: "OPEN",
+        source: "MANUAL",
+        transcriptionSessionId: null,
+      } as never);
+
+      await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "Which store?", status: "OPEN" });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.deciders).toBeUndefined();
     });
 
     it("refuses a birth state of SUPERSEDED or DEPRECATED", async () => {
