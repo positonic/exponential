@@ -86,7 +86,7 @@ describe("confirmDraft", () => {
     // Nothing partial: the target keeps its status and the draft survives for
     // the reviewer to reject or log by hand.
     expect(db.decision.update).not.toHaveBeenCalled();
-    expect(db.decision.delete).not.toHaveBeenCalled();
+    expect(db.decision.deleteMany).not.toHaveBeenCalled();
   });
 
   it("applies the resolution when the caller may edit the target", async () => {
@@ -96,11 +96,15 @@ describe("confirmDraft", () => {
     getDecisionAccess.mockResolvedValue({ hasMeeting: true, canEditMeeting: true });
     canEditDecision.mockReturnValue(true);
     db.decision.update.mockResolvedValue({ ...TARGET, status: "ACCEPTED", supersededBy: null } as never);
-    db.decision.delete.mockResolvedValue({} as never);
+    db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
 
     const result = await confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1" });
 
     expect(result.id).toBe("open-1");
-    expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "draft-1", workspaceId: WORKSPACE_ID } });
+    // Conditional on the row still being a draft, so a concurrent confirm
+    // cannot absorb it twice.
+    expect(db.decision.deleteMany).toHaveBeenCalledWith({
+      where: { id: "draft-1", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" },
+    });
   });
 });

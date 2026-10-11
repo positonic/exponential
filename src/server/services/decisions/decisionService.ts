@@ -690,10 +690,11 @@ function statusActivityAction(status: DecisionStatus): ActivityAction {
 
 /** Who currently stands behind a decision, as the decider claim needs it. */
 const deciderClaimSelect = {
-  deciders: { select: { userId: true, user: { select: { isAgent: true } } } },
+  deciders: { select: { id: true, userId: true, user: { select: { isAgent: true } } } },
 } satisfies Prisma.DecisionSelect;
 
 interface ExistingDecider {
+  id: string;
   userId: string | null;
   user: { isAgent: boolean } | null;
 }
@@ -706,9 +707,10 @@ interface ExistingDecider {
  * decided. Human deciders already named — including external meeting
  * participants, who have no account — are left alone.
  *
- * Returns the nested `deciders` write for the caller's own status update, so
- * the claim lands in the same write as the transition, or undefined when
- * nothing changes. Only a person acting through their own login claims:
+ * Returns the nested `deciders` write for the caller's own update, so the
+ * claim lands with the transition, or undefined when nothing changes. The
+ * delete names the agent rows that were read, never "all deciders", so a
+ * decider someone else added meanwhile is not swept away with them. Only a person acting through their own login claims:
  * `actorIsAgent` is the caller's knowledge from the token (an agent key, or
  * Zoe acting for the person), and the user row's `isAgent` flag is checked
  * here as well, so every caller gets the same answer.
@@ -730,9 +732,10 @@ async function claimDeciderWrite(
     { userId: person.id, name: person.name ?? person.email ?? "Unknown", email: person.email },
   ]);
   if (!decider) return undefined;
+  const agentDeciderIds = existing.map((row) => row.id);
   return {
     // Only agent principals are left here; the person replaces them.
-    ...(existing.length > 0 ? { deleteMany: {} } : {}),
+    ...(agentDeciderIds.length > 0 ? { deleteMany: { id: { in: agentDeciderIds } } } : {}),
     create: [{ userId: decider.userId ?? null, name: decider.name, email: decider.email ?? null }],
   };
 }
@@ -991,7 +994,13 @@ async function applyDraftResolution(
       ? await claimDeciderWrite(db, { userId, actorIsAgent: opts.actorIsAgent }, target.deciders)
       : undefined;
   const decision = await db.$transaction(async (tx) => {
-    const updated = await tx.decision.update({
+    // Claim the draft first, conditionally: of two concurrent confirms only
+    // one removes it, and only that one rewrites the target.
+    const { count } = await tx.decision.deleteMany({
+      where: { id: draft.id, workspaceId: draft.workspaceId, reviewState: "DRAFT" },
+    });
+    if (count === 0) return null;
+    return tx.decision.update({
       where: { id: target.id, workspaceId: draft.workspaceId },
       data: {
         // Leaving SUPERSEDED drops the successor, as `setStatus` does.
@@ -1007,9 +1016,12 @@ async function applyDraftResolution(
       },
       include: decisionDetailInclude,
     });
-    await tx.decision.delete({ where: { id: draft.id, workspaceId: draft.workspaceId } });
-    return updated;
   });
+  // Another confirm absorbed this draft first: return the target as it now
+  // stands, idempotently, and record nothing.
+  if (!decision) {
+    return db.decision.findUniqueOrThrow({ where: { id: target.id }, include: decisionDetailInclude });
+  }
 
   await recordActivity(db, {
     workspaceId: draft.workspaceId,
@@ -1059,6 +1071,14 @@ export interface ConfirmDraftInput {
  * decision that comes back.
  */
 export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
+  return confirmDraftAttempt(db, input, { afterLostRace: false });
+}
+
+async function confirmDraftAttempt(
+  db: PrismaClient,
+  input: ConfirmDraftInput,
+  attempt: { afterLostRace: boolean },
+): ReturnType<typeof setStatus> {
   if (input.status === "SUPERSEDED") {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -1118,20 +1138,41 @@ export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
   const statusChanged = status !== current.status;
   const deciders =
     status === "ACCEPTED" ? await claimDeciderWrite(db, input, current.deciders) : undefined;
-  const decision = await db.decision.update({
-    where: { id: current.id },
-    data: {
-      reviewState: "CONFIRMED",
-      confirmedById: input.userId,
-      confirmedAt: new Date(),
-      ...(statusChanged ? { status } : {}),
-      // Accepted is decided: stamp the date whether the draft was born
-      // ACCEPTED (an agent's usual draft) or is being moved there now.
-      ...(status === "ACCEPTED" && !current.decidedAt ? { decidedAt: new Date() } : {}),
-      ...(deciders ? { deciders } : {}),
-    },
-    include: decisionDetailInclude,
+  const now = new Date();
+  const decision = await db.$transaction(async (tx) => {
+    // DRAFT → CONFIRMED only if it is still a draft. A concurrent confirm
+    // waits on the row lock, then matches nothing and settles below as an
+    // already-confirmed row — never a second decider insert (P2002).
+    const { count } = await tx.decision.updateMany({
+      where: { id: current.id, workspaceId: input.workspaceId, reviewState: "DRAFT" },
+      data: {
+        reviewState: "CONFIRMED",
+        confirmedById: input.userId,
+        confirmedAt: now,
+        ...(statusChanged ? { status } : {}),
+        // Accepted is decided: stamp the date whether the draft was born
+        // ACCEPTED (an agent's usual draft) or is being moved there now.
+        ...(status === "ACCEPTED" && !current.decidedAt ? { decidedAt: now } : {}),
+      },
+    });
+    if (count === 0) return null;
+    return deciders
+      ? tx.decision.update({
+          where: { id: current.id, workspaceId: input.workspaceId },
+          data: { deciders },
+          include: decisionDetailInclude,
+        })
+      : tx.decision.findUniqueOrThrow({ where: { id: current.id }, include: decisionDetailInclude });
   });
+  if (!decision) {
+    // Lost the race: re-read and settle as the row now stands (confirmed →
+    // idempotent; rejected → refused). A row still a draft after losing
+    // would mean something else is rewriting it — refuse rather than loop.
+    if (attempt.afterLostRace) {
+      throw new TRPCError({ code: "CONFLICT", message: "The draft changed while it was being confirmed — try again" });
+    }
+    return confirmDraftAttempt(db, input, { afterLostRace: true });
+  }
   await recordActivity(db, {
     workspaceId: decision.workspaceId,
     userId: input.userId,

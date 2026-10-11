@@ -1350,18 +1350,20 @@ describe("decision router", () => {
 
     it("publishes a plain draft in place and records `confirmed`", async () => {
       db.decision.findFirst.mockResolvedValue(DRAFT as never);
-      db.decision.update.mockResolvedValue({ ...DRAFT, reviewState: "CONFIRMED", supersededBy: null } as never);
+      db.decision.updateMany.mockResolvedValue({ count: 1 } as never);
+      db.decision.findUniqueOrThrow.mockResolvedValue({ ...DRAFT, reviewState: "CONFIRMED", supersededBy: null } as never);
 
       const result = await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" });
 
       expect(result.label).toBe("D-0009");
-      expect(db.decision.update).toHaveBeenCalledWith(
+      // Conditional on the row still being a draft (concurrent confirms).
+      expect(db.decision.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: "draft-1" },
+          where: { id: "draft-1", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" },
           data: expect.objectContaining({ reviewState: "CONFIRMED", confirmedById: USER_ID }),
         }),
       );
-      expect(db.decision.delete).not.toHaveBeenCalled();
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
       expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: "confirmed", entityId: "draft-1" }) }),
       );
@@ -1378,7 +1380,7 @@ describe("decision router", () => {
         status: "ACCEPTED",
         supersededBy: null,
       } as never);
-      db.decision.delete.mockResolvedValue({} as never);
+      db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
 
       const result = await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" });
 
@@ -1391,7 +1393,9 @@ describe("decision router", () => {
       expect(update.data.body).toBe("## Context\nraised\n\n## Resolution\nThe peek drawer ships first\n\n## Context\nsaid so");
       // Same meeting: the draft's quote joins the target's evidence.
       expect(update.data.evidence).toEqual([...OPEN_TARGET.evidence, ...DRAFT.evidence]);
-      expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "draft-1", workspaceId: WORKSPACE_ID } });
+      expect(db.decision.deleteMany).toHaveBeenCalledWith({
+        where: { id: "draft-1", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" },
+      });
       expect(db.decision.create).not.toHaveBeenCalled();
       expect(db.workspaceActivityEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1427,7 +1431,7 @@ describe("decision router", () => {
         caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "draft-1" }),
       ).rejects.toThrow(/no longer available/i);
       expect(db.decision.update).not.toHaveBeenCalled();
-      expect(db.decision.delete).not.toHaveBeenCalled();
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
     });
   });
 
@@ -1503,17 +1507,35 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
           ? row
           : null,
       )) as never);
-    db.decision.findUniqueOrThrow.mockResolvedValue({
-      ...row,
-      supersededBy: null,
-      supersedes: [],
-    } as never);
-    db.decision.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
-      Promise.resolve({ ...row, ...args.data, supersededBy: null })) as never);
+    // What the row looks like after this call's writes, for the reads after.
+    let written: Record<string, unknown> = { ...row, supersededBy: null, supersedes: [] };
+    db.decision.findUniqueOrThrow.mockImplementation((() => Promise.resolve(written)) as never);
+    db.decision.update.mockImplementation(((args: { data: Record<string, unknown> }) => {
+      written = { ...written, ...args.data };
+      return Promise.resolve(written);
+    }) as never);
+    // A confirm's conditional DRAFT → CONFIRMED write.
+    db.decision.updateMany.mockImplementation(((args: { data: Record<string, unknown> }) => {
+      written = { ...written, ...args.data };
+      return Promise.resolve({ count: 1 });
+    }) as never);
     return row;
   }
-  const updateArgs = () =>
-    db.decision.update.mock.calls[0]![0] as { where: Record<string, unknown>; data: Record<string, unknown> };
+  /**
+   * The first write's target and everything written, merged: a confirm is a
+   * conditional `updateMany` (+ an `update` when it claims the decider) in
+   * one transaction; a status change or edit is one `update`.
+   */
+  const updateArgs = () => {
+    const calls = [...db.decision.updateMany.mock.calls, ...db.decision.update.mock.calls].map(
+      (call) => call[0] as { where: Record<string, unknown>; data: Record<string, unknown> },
+    );
+    return { where: calls[0]!.where, data: Object.assign({}, ...calls.map((c) => c.data)) as Record<string, unknown> };
+  };
+  const clearWrites = () => {
+    db.decision.update.mockClear();
+    db.decision.updateMany.mockClear();
+  };
 
   beforeEach(() => {
     db = getDbMock();
@@ -1536,8 +1558,8 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
         status: "ACCEPTED",
       });
 
-      expect(db.decision.update).toHaveBeenCalledTimes(1);
-      expect(updateArgs().where).toEqual({ id: "dec-6" });
+      expect(db.decision.updateMany).toHaveBeenCalledTimes(1);
+      expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" });
       expect(updateArgs().data).toMatchObject({
         reviewState: "CONFIRMED",
         confirmedById: USER_ID,
@@ -1566,7 +1588,10 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
 
     it("on an already-confirmed row, applies only the status change", async () => {
       withWorkspaceRole(db, "member");
-      withRow({ reviewState: "CONFIRMED", deciders: [{ userId: "agent-1", user: { isAgent: true } }] });
+      withRow({
+        reviewState: "CONFIRMED",
+        deciders: [{ id: "decider-agent", userId: "agent-1", user: { isAgent: true } }],
+      });
 
       await caller(db).decision.confirmDraft({
         workspaceId: WORKSPACE_ID,
@@ -1576,7 +1601,10 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
 
       expect(updateArgs().data).toMatchObject({
         status: "ACCEPTED",
-        deciders: { deleteMany: {}, create: [expect.objectContaining({ userId: USER_ID })] },
+        deciders: {
+          deleteMany: { id: { in: ["decider-agent"] } },
+          create: [expect.objectContaining({ userId: USER_ID })],
+        },
       });
       expect(updateArgs().data).not.toHaveProperty("reviewState");
     });
@@ -1710,14 +1738,14 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
       withWorkspaceRole(db, "member");
       withRow();
       await caller(db).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "D-0006" });
-      expect(updateArgs().where).toEqual({ id: "dec-6" });
+      expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID, reviewState: "DRAFT" });
 
-      db.decision.update.mockClear();
+      clearWrites();
       withRow({ reviewState: "CONFIRMED" });
       await caller(db).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "D-6", status: "DEPRECATED" });
       expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID });
 
-      db.decision.update.mockClear();
+      clearWrites();
       await caller(db).decision.update({ workspaceId: WORKSPACE_ID, decisionId: "d-0006", statement: "Renamed" });
       expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID });
     });
