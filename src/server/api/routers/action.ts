@@ -484,7 +484,7 @@ export const actionRouter = createTRPCRouter({
       // can still assign (idempotent) to start the run.
       const runs = await enqueueAgentRunsForAssignees(ctx.db, {
         actionId: created.id,
-        userIds: input.assigneeIds ?? [],
+        userIds: created.assignees.map((a) => a.userId),
         requestedById: ctx.session.user.id,
       }).catch((err: unknown) => {
         console.error("[agentRuns] enqueue on create failed:", err);
