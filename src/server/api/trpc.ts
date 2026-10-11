@@ -22,6 +22,7 @@ import {
 } from "~/server/utils/jwt";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { conflictFromError } from "~/server/services/revisions/revisionConflict";
+import { isPersonCredential, resolvePrincipal, type Principal } from "~/server/services/access/principal";
 
 /**
  * 1. CONTEXT
@@ -316,32 +317,42 @@ export function isAgentActorToken(tokenType: string | undefined): boolean {
 }
 
 /**
- * Human-only procedure (ADR-0049, ADR-0070)
+ * Human-only procedure (ADR-0049, ADR-0070, ADR-0071)
  *
  * The denylist gate for anything only a person may do: JWT-minting
  * procedures, workspace-membership mutations, integration/credential
  * management, agent management, and confirming what an agent proposed.
- * Two checks:
- * - the token: any agent-acting token type (`isAgentActorToken`) is refused,
- *   including Zoe's tokens that carry the person as session user — Zoe acting
- *   for someone is not that person acting;
- * - the principal: a shadow user (`User.isAgent`) is refused however it
- *   authenticated, so a credential laundered into another token type still
- *   cannot reach these procedures.
+ *
+ * A thin call to `resolvePrincipal`: only a `human` principal passes. An
+ * `agent` (a shadow user, however it authenticated — a credential laundered
+ * into another token type still resolves to the agent) and an
+ * `agent_for_human` (Zoe's agent-context JWT, the chat gateways, voice — Zoe
+ * acting for someone is not that person acting) are refused. A token type the
+ * resolver does not know resolves to `agent_for_human`, so the gate fails
+ * closed. `isPersonCredential` — the resolver's own list of person
+ * credentials — lets the gate refuse every other token type before any DB
+ * lookup.
  */
 export const humanOnlyProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   const FORBIDDEN_FOR_AGENTS = new TRPCError({
     code: "FORBIDDEN",
     message: "Only a person can do this, signed in as themselves — agents (including Zoe) cannot",
   });
-  if (isAgentActorToken(ctx.tokenType)) {
+  // Fast path: a credential that can never resolve to a person is refused
+  // before the resolver's lookups.
+  if (!isPersonCredential(ctx.tokenType)) {
     throw FORBIDDEN_FOR_AGENTS;
   }
-  const principal = await ctx.db.user.findUnique({
-    where: { id: ctx.session.user.id },
-    select: { isAgent: true },
-  });
-  if (principal?.isAgent) {
+  let principal: Principal;
+  try {
+    principal = await resolvePrincipal(ctx);
+  } catch (error) {
+    // The resolver refuses a shadow user with no owning agent; to the caller
+    // that is the same answer as any other agent.
+    if (error instanceof TRPCError && error.code === "FORBIDDEN") throw FORBIDDEN_FOR_AGENTS;
+    throw error;
+  }
+  if (principal.kind !== "human") {
     throw FORBIDDEN_FOR_AGENTS;
   }
   return next();
