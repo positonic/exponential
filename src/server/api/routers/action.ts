@@ -16,7 +16,7 @@ import { after } from "next/server";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
-import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere } from "~/server/services/access";
+import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere, requireProjectAccess } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
@@ -2250,6 +2250,10 @@ export const actionRouter = createTRPCRouter({
     .input(z.object({
       projectId: z.string(),
     }))
+    // Writes kanbanStatus/kanbanOrder across the whole project, so the
+    // caller — person or agent — must be able to edit the project
+    // (authorized agency, ADR-0071).
+    .use(requireProjectAccess("edit"))
     .mutation(async ({ ctx, input }) => {
       // Get all actions in this project without kanban orders
       const actionsWithoutOrder = await ctx.db.action.findMany({
@@ -3086,6 +3090,17 @@ export const actionRouter = createTRPCRouter({
       });
 
       if (existing) {
+        // Writing to the workspace is not editing this row: the source pair
+        // can match an Action someone else owns. The caller — person or
+        // agent — must be able to edit it (authorized agency, ADR-0071).
+        const rowAccess = await getActionAccess(ctx.db, userId, existing.id);
+        if (!rowAccess || !canEditAction(rowAccess)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You do not have permission to edit this action",
+          });
+        }
+
         const action = await ctx.db.action.update({
           where: { id: existing.id },
           data: {
