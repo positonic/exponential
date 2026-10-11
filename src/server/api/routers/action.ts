@@ -171,7 +171,9 @@ export const actionRouter = createTRPCRouter({
           syncs: true,
           ...activeRunInclude,
           assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+            // isAgent: an Assistant assignee renders as an agent, and the
+            // comment box can tell an assigned Assistant from one it may offer.
+            include: { user: { select: { id: true, name: true, email: true, image: true, isAgent: true } } },
           },
           createdBy: { select: { id: true, name: true, email: true, image: true } },
           tags: { include: { tag: true } },
@@ -1608,7 +1610,7 @@ export const actionRouter = createTRPCRouter({
         where: { id: input.actionId },
         include: {
           assignees: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+            include: { user: { select: { id: true, name: true, email: true, image: true, isAgent: true } } },
           },
           project: true,
         },

@@ -119,35 +119,60 @@ export async function cancelQueuedRunsForUnassigned(
 }
 
 /**
- * Resume on owner reply (Agent PRD D6): the owner of an External agent comments
- * on an action whose latest run by that agent is WAITING_ON_OWNER → a new run
- * with `predecessorId` and `wakeCommentId`, requested by the owner. An agent's
- * own comment never resumes anything (the run tool does not call this), and a
- * second reply while the resumed run is live is coalesced like any other.
- * Returns the runs it created (one per waiting agent of the author).
+ * Resume on reply (Agent PRD D6, widened 2026-10-11): a comment on an action
+ * whose latest run by some agent is WAITING_ON_OWNER starts a new run with
+ * `predecessorId` and `wakeCommentId` when its author is **the person the run
+ * asked** (whoever assigned the Action — `resolveRunQuestionRecipient`) **or
+ * the agent's owner**. A bystander's comment resumes nothing: it would be
+ * consumed as the answer. An agent's own comment never resumes anything (the
+ * run tool does not call this), and a second reply while the resumed run is
+ * live is coalesced like any other.
+ *
+ * The successor keeps the waiting run's requester, so the person who asked
+ * for the work stays the one its next question goes to; a run nobody
+ * requested takes the replier.
+ *
+ * Returns the runs it created (one per waiting agent the author may answer).
  */
-export async function resumeWaitingRunsOnOwnerReply(
+export async function resumeWaitingRunsOnReply(
   db: Db,
   input: { actionId: string; authorId: string; commentId: string },
 ): Promise<Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }>> {
-  const agents = await db.externalAgent.findMany({
-    where: { ownerId: input.authorId, ...RUN_ELIGIBLE_AGENT_WHERE },
-    select: { id: true, executor: true },
+  // Candidate agents: those with a waiting run on this action that the author
+  // was asked, or owns. Whether that run is still each agent's latest is
+  // checked per agent below.
+  const waiting = await db.agentRun.findMany({
+    where: {
+      actionId: input.actionId,
+      status: "WAITING_ON_OWNER",
+      agent: RUN_ELIGIBLE_AGENT_WHERE,
+      OR: [{ requestedById: input.authorId }, { agent: { ownerId: input.authorId } }],
+    },
+    select: { agentId: true },
   });
-  if (!agents?.length) return [];
+  const agentIds = [...new Set((waiting ?? []).map((r) => r.agentId))];
+  if (agentIds.length === 0) return [];
+
+  const agents = await db.externalAgent.findMany({
+    where: { id: { in: agentIds } },
+    select: { id: true, ownerId: true, executor: true },
+  });
 
   const created: Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }> = [];
   for (const agent of agents) {
     const latest = await db.agentRun.findFirst({
       where: { actionId: input.actionId, agentId: agent.id },
       orderBy: { createdAt: "desc" },
-      select: { id: true, status: true },
+      select: { id: true, status: true, requestedById: true },
     });
     if (!latest || latest.status !== "WAITING_ON_OWNER") continue;
+    // The latest waiting run must itself be one the author may answer.
+    const asked = latest.requestedById ?? agent.ownerId;
+    if (input.authorId !== asked && input.authorId !== agent.ownerId) continue;
     const run = await createRunOrCoalesce(db, {
       actionId: input.actionId,
       agentId: agent.id,
-      requestedById: input.authorId,
+      requestedById: latest.requestedById ?? input.authorId,
       executor: agent.executor,
       predecessorId: latest.id,
       wakeCommentId: input.commentId,

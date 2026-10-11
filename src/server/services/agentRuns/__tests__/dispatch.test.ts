@@ -21,7 +21,7 @@ vi.hoisted(() => {
   process.env.SKIP_ENV_VALIDATION ??= "true";
 });
 
-const { dispatchQueuedRuns, countToolCalls, buildPersonaMessage } = await import("../dispatch");
+const { dispatchQueuedRuns, countToolCalls, buildPersonaMessage, buildActionBrief, LOCAL_RUNNER_CLOSING } = await import("../dispatch");
 const { assembleScopeInstructions } = await import("~/server/services/ai/scopeInstructions");
 
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
@@ -279,6 +279,42 @@ describe("helpers", () => {
     expect(text).toContain('<user_data type="personality">\nWarm.');
     expect(text).toContain('<user_data type="instructions">\nBe brief.');
     expect(text).not.toContain("user_context");
+  });
+});
+
+describe("buildActionBrief — who a question goes to (decided 2026-10-11)", () => {
+  const base = {
+    action: { id: "a1", name: "Book the offsite", description: null, dueDate: null, project: null },
+    ownerName: "James",
+    requesterName: "Ana",
+    askName: "Ana",
+    predecessorSummary: null,
+    wakeComment: null,
+  };
+
+  it("names the person a question goes to", () => {
+    const brief = buildActionBrief(base);
+    expect(brief).toContain("Assigned by Ana.");
+    expect(brief).toContain("Your owner is James.");
+    expect(brief).toContain("If you need to ask a question, it goes to Ana.");
+  });
+
+  it("says who replied when a reply resumed the run", () => {
+    const brief = buildActionBrief({
+      ...base,
+      predecessorSummary: "Asked which venue.",
+      wakeComment: "The Lisbon one.",
+      wakeCommentAuthorName: "Ana",
+    });
+    expect(brief).toContain("Ana replied:\nThe Lisbon one.");
+    expect(brief).not.toContain("Your owner replied");
+  });
+
+  it("hosted and local runs get the same brief, bar the closing protocol line", () => {
+    const hosted = buildActionBrief(base).split("\n\n");
+    const local = buildActionBrief({ ...base, closing: LOCAL_RUNNER_CLOSING }).split("\n\n");
+    expect(local.slice(0, -1)).toEqual(hosted.slice(0, -1));
+    expect(LOCAL_RUNNER_CLOSING).not.toContain("owner");
   });
 });
 

@@ -20,6 +20,7 @@ export async function requireLiveRunForCaller(
       status: true,
       actionId: true,
       toolCallCount: true,
+      requestedById: true,
       agent: { select: { id: true, ownerId: true, shadowUserId: true } },
     },
   });
@@ -68,7 +69,7 @@ export async function requireClaimedRunForRunner(
 ) {
   const run = await db.agentRun.findFirst({
     where: { id: input.runId, agentId: input.agentId },
-    select: { id: true, status: true, actionId: true, claimedBy: true, toolCallCount: true },
+    select: { id: true, status: true, actionId: true, claimedBy: true, toolCallCount: true, requestedById: true },
   });
   if (!run) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Run not found" });
