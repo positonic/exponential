@@ -10,6 +10,7 @@ describe("findUnstartedAssistantMentions (decided 2026-10-11: a mention never st
 
   beforeEach(() => {
     mockReset(db);
+    db.action.findUnique.mockResolvedValue({ workspaceId: "ws-1", project: null } as never);
   });
 
   it("names a mentioned Assistant that is not assigned to the action", async () => {
@@ -22,14 +23,41 @@ describe("findUnstartedAssistantMentions (decided 2026-10-11: a mention never st
     });
 
     expect(result).toEqual([{ id: "aria-shadow", name: "Aria" }]);
-    // Only Assistant principals among the mentioned ids qualify.
+    // Only Assistant principals that belong to the action's workspace qualify.
     expect(db.user.findMany).toHaveBeenCalledWith({
       where: {
         id: { in: ["aria-shadow", "ana"] },
         externalAgentShadow: { is: { assistant: { isNot: null } } },
+        OR: [
+          { workspaceMemberships: { some: { workspaceId: "ws-1" } } },
+          { teams: { some: { team: { workspaceId: "ws-1" } } } },
+        ],
       },
       select: { id: true, name: true },
     });
+  });
+
+  it("uses the project's workspace for an action filed only under a project", async () => {
+    db.action.findUnique.mockResolvedValue({ workspaceId: null, project: { workspaceId: "ws-p" } } as never);
+    db.user.findMany.mockResolvedValue([] as never);
+
+    await findUnstartedAssistantMentions(db, { actionId: ACTION, content: "@[Aria](aria-shadow) go" });
+
+    expect(db.user.findMany.mock.calls[0]?.[0]?.where).toMatchObject({
+      OR: [
+        { workspaceMemberships: { some: { workspaceId: "ws-p" } } },
+        { teams: { some: { team: { workspaceId: "ws-p" } } } },
+      ],
+    });
+  });
+
+  it("offers nothing on an action with no workspace, reading no users", async () => {
+    db.action.findUnique.mockResolvedValue({ workspaceId: null, project: null } as never);
+
+    await expect(
+      findUnstartedAssistantMentions(db, { actionId: ACTION, content: "@[Aria](aria-shadow) go" }),
+    ).resolves.toEqual([]);
+    expect(db.user.findMany).not.toHaveBeenCalled();
   });
 
   it("leaves out an Assistant already assigned — assignment, not the mention, runs it", async () => {
