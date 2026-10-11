@@ -2251,6 +2251,17 @@ export const actionRouter = createTRPCRouter({
       projectId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Writes kanbanStatus/kanbanOrder across the whole project, so the
+      // caller — person or agent — must be able to edit the project
+      // (authorized agency, ADR-0071).
+      const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.projectId);
+      if (!canEditProject(access)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You don't have permission to edit this project's board",
+        });
+      }
+
       // Get all actions in this project without kanban orders
       const actionsWithoutOrder = await ctx.db.action.findMany({
         where: {
