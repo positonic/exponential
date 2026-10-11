@@ -283,6 +283,7 @@ describe("search router — knowledge (mocked)", () => {
       userId: callerId,
       pageViewerId: callerId,
       transcriptionViewerId: callerId,
+      resourceViewerId: callerId,
       limit: 20,
     });
   });

@@ -150,10 +150,11 @@ export const knowledgeChunkRouter = createTRPCRouter({
       //    so the agent can find context across all members of the workspace
       //    (pre-meeting briefs need to surface chunks regardless of who
       //    originally ingested the transcript). Access still applies per
-      //    source: `pageViewerId` keeps only Pages the caller can view and
-      //    `transcriptionViewerId` only Meetings they can view, so restricted
-      //    Pages and restricted-project Meetings don't reach the agent through
-      //    search. A brief needs no more than that: `transcription.findRelated`
+      //    source: `pageViewerId` keeps only Pages the caller can view,
+      //    `transcriptionViewerId` only Meetings they can view, and
+      //    `resourceViewerId` only Resources they own, so restricted Pages,
+      //    restricted-project Meetings and other members' private Resources
+      //    don't reach the agent through search. A brief needs no more than that: `transcription.findRelated`
       //    already returns only Meetings the caller can view.
       const sourceTypes = input.sourceType ? [input.sourceType] : undefined;
 
@@ -164,6 +165,9 @@ export const knowledgeChunkRouter = createTRPCRouter({
         participantEmail: input.participantEmail,
         pageViewerId: userId,
         transcriptionViewerId: userId,
+        // Resources are private to their owner: the agent finds the caller's
+        // own saved pages and notes, never another member's.
+        resourceViewerId: userId,
         limit: input.limit,
       });
 

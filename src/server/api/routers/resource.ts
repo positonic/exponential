@@ -532,6 +532,7 @@ export const resourceRouter = createTRPCRouter({
       const results = await knowledgeService.search(input.query, {
         workspaceId: input.workspaceId,
         userId,
+        resourceViewerId: userId,
         projectId: input.projectId,
         sourceTypes: ["resource"],
         limit: input.limit,

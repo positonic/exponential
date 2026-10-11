@@ -575,6 +575,7 @@ export const searchRouter = createTRPCRouter({
         userId,
         pageViewerId: userId,
         transcriptionViewerId: userId,
+        resourceViewerId: userId,
         limit: input.limit * KNOWLEDGE_CHUNKS_PER_RESULT,
       });
     } catch (error) {
