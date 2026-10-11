@@ -96,6 +96,7 @@ async function loadTicketWithAccess(
       cycleId: true,
       scopeId: true,
       assigneeId: true,
+      updatedAt: true,
       product: { select: { workspaceId: true } },
     },
   });
@@ -927,18 +928,36 @@ export const ticketRouter = createTRPCRouter({
    * canonical `bodyDoc` (ADR-0024, as feature.initDescriptionDoc). The client
    * converts Markdown → ProseMirror JSON (the codec needs the editor schema)
    * and posts the result here on first open. Idempotent and write-once: if
-   * `bodyDoc` is already set, the existing document wins. `body` and
-   * `docVersion` stay untouched.
+   * `bodyDoc` is already set, the existing document wins. `body`,
+   * `docVersion` and `updatedAt` stay untouched.
    */
   initBodyDoc: protectedProcedure
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
+      const existing = await loadTicketWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+        "edit",
+      );
       // Conditional write, not read-then-write: an editor save or a Markdown
       // API write landing in between must win over this migration.
+      //
+      // This runs on first *open*, so it must not count as an edit: `@updatedAt`
+      // would otherwise bump the row and send it to the back of updatedAt-ordered
+      // queues (inbox "Waiting on me"). Write the loaded value back, and guard on
+      // it so a real edit racing in between is never rolled back — the migration
+      // just skips and retries on the next open.
       const res = await ctx.db.ticket.updateMany({
-        where: { id: input.id, bodyDoc: { equals: Prisma.DbNull } },
-        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+        where: {
+          id: input.id,
+          bodyDoc: { equals: Prisma.DbNull },
+          updatedAt: existing.updatedAt,
+        },
+        data: {
+          bodyDoc: input.doc as Prisma.InputJsonValue,
+          updatedAt: existing.updatedAt,
+        },
       });
       return { migrated: res.count > 0 };
     }),

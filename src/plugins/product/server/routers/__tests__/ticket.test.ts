@@ -793,3 +793,45 @@ describe("ticket router — getByRef (mocked)", () => {
     expect(dbMock.workspaceActivityEvent.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe("ticket router — initBodyDoc (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const lastEdited = new Date("2026-09-01T09:00:00Z");
+  const doc = { type: "doc", content: [{ type: "paragraph" }] };
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubMembership(dbMock, true);
+    dbMock.ticket.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "ticket-1", productId, updatedAt: lastEdited, product: { workspaceId } } as any,
+    );
+    dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("preserves updatedAt so merely opening a ticket is not an edit", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.initBodyDoc({ id: "ticket-1", doc }),
+    ).resolves.toEqual({ migrated: true });
+
+    expect(dbMock.ticket.findUnique.mock.calls[0]?.[0]?.select).toMatchObject({
+      updatedAt: true,
+    });
+    const args = dbMock.ticket.updateMany.mock.calls[0]?.[0];
+    expect(args?.data).toEqual({ bodyDoc: doc, updatedAt: lastEdited });
+    // Guarded on the loaded value: a concurrent edit makes this a no-op
+    // instead of rolling its updatedAt back.
+    expect(args?.where).toMatchObject({ id: "ticket-1", updatedAt: lastEdited });
+  });
+
+  it("reports not migrated when the guarded write matches nothing", async () => {
+    dbMock.ticket.updateMany.mockResolvedValue({ count: 0 });
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.initBodyDoc({ id: "ticket-1", doc }),
+    ).resolves.toEqual({ migrated: false });
+  });
+});
