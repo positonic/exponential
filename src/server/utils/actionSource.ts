@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import type { ActionSource } from "~/server/services/actions/schema";
+import type { Principal, PrincipalSurface } from "~/server/services/access/principal";
 
 /**
  * Derive an Action's `source` from the caller's JWT token type.
@@ -42,4 +43,43 @@ export function resolveAgentActionSource(tokenType: string | undefined): ActionS
     });
   }
   return "agent";
+}
+
+/** Surfaces a person reaches the API through, by the action source they name. */
+const HUMAN_SURFACE_SOURCES: Partial<Record<PrincipalSurface, ActionSource>> = {
+  web: "ui",
+  device: "ui",
+  extension: "ui",
+  "api-token": "cli",
+};
+
+/** Surfaces an agent works on for a person, where the surface itself is the source. */
+const AGENT_FOR_HUMAN_SURFACE_SOURCES: Partial<Record<PrincipalSurface, ActionSource>> = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+  matrix: "matrix",
+  voice: "voice",
+};
+
+/**
+ * The `source` an Action records, from the verified principal
+ * (`resolvePrincipal`), never from a label the caller sends (D-0016;
+ * ADR-0071 change integrity: attribution).
+ *
+ * - A person: the UI (browser, native app, extension) or the CLI (their own
+ *   API token).
+ * - An agent (External agent key, Assistant run): `agent`.
+ * - An agent acting for a person: the chat gateway or voice surface it came
+ *   through; Zoe in the web chat, or any surface not named here, is `agent`.
+ *   Never `ui`: Zoe acting for someone is not that person clicking.
+ */
+export function actionSourceForPrincipal(principal: Principal): ActionSource {
+  switch (principal.kind) {
+    case "human":
+      return HUMAN_SURFACE_SOURCES[principal.surface] ?? "ui";
+    case "agent":
+      return "agent";
+    case "agent_for_human":
+      return AGENT_FOR_HUMAN_SURFACE_SOURCES[principal.surface] ?? "agent";
+  }
 }

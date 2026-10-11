@@ -18,6 +18,8 @@ import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere, requireProjectAccess } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { resolvePrincipal, type Principal } from "~/server/services/access/principal";
+import { actionSourceForPrincipal } from "~/server/utils/actionSource";
 import { uploadToBlob } from "~/lib/blob";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
@@ -55,30 +57,26 @@ import {
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 
 /**
- * Which surface a session-authenticated write came from, by principal: an
- * external-agent key is an agent (ADR-0049), a personal API token is the
- * CLI / SDK, anything else (browser session, extension, device) is the UI.
- */
-function sourceForPrincipal(tokenType: string | undefined): ActionSource {
-  if (tokenType === "agent-key") return "agent";
-  if (tokenType === "api-token") return "cli";
-  return "ui";
-}
-
-/**
  * `quickCreate` keeps its free-form `source` input (the iOS shortcut has sent
  * its legacy default for years), but `createAction` only accepts the closed
- * set. A value in the set passes through; the legacy `ios-shortcut` default
- * is the iOS shortcut, as is any call authenticated by an x-api-key header;
- * anything else is named from the principal.
+ * set. An agent principal never chooses: its source comes from the verified
+ * principal, so it cannot stamp `ui` or `cli` (D-0016). For a person, a value
+ * in the set passes through; the legacy `ios-shortcut` default is the iOS
+ * shortcut, as is any call authenticated by an x-api-key header; anything
+ * else is named from the principal.
  */
 function resolveQuickCreateSource(
   requested: string,
-  ctx: { tokenType?: string; viaApiKey: boolean },
+  caller: Principal | { kind: "api-key"; userIsAgent: boolean },
 ): ActionSource {
+  // x-api-key: a durable key with no session behind it. A person's is the
+  // iOS shortcut; a shadow user's is still the agent.
+  if (caller.kind === "api-key") return caller.userIsAgent ? "agent" : "ios";
+  const principal = caller;
+  if (principal.kind !== "human") return actionSourceForPrincipal(principal);
   if (isActionSource(requested)) return requested;
-  if (requested === "ios-shortcut" || ctx.viaApiKey) return "ios";
-  return sourceForPrincipal(ctx.tokenType);
+  if (requested === "ios-shortcut") return "ios";
+  return actionSourceForPrincipal(principal);
 }
 
 /** The viewer's local day, `[start, end)` — both ends, for DST-change days. */
@@ -465,8 +463,8 @@ export const actionRouter = createTRPCRouter({
       const created = await createAction(actionWriteDeps(ctx), {
         ...input,
         // The *who* is createdById (for an agent, its shadow user; ADR-0049),
-        // the *how* is source, named from the principal.
-        source: sourceForPrincipal(ctx.tokenType),
+        // the *how* is source, named from the verified principal.
+        source: actionSourceForPrincipal(await resolvePrincipal(ctx)),
       });
 
       // Assigning an Assistant starts an Agent run (ADR-0067), and attaching
@@ -2421,10 +2419,12 @@ export const actionRouter = createTRPCRouter({
           status: "ACTIVE",
           scheduledStart: parsed.scheduledStart ?? undefined,
           dueDate: parsed.dueDate ?? undefined,
-          source: resolveQuickCreateSource(input.source, {
-            tokenType: ctx.tokenType,
-            viaApiKey: !ctx.session?.user?.id,
-          }),
+          source: resolveQuickCreateSource(
+            input.source,
+            ctx.session?.user?.id
+              ? await resolvePrincipal(ctx)
+              : { kind: "api-key", userIsAgent: user.isAgent },
+          ),
         },
       );
 
