@@ -1,12 +1,15 @@
 # PR-Agent (Qodo) configuration — version-controlled review behaviour.
 # Full reference: https://qodo-merge-docs.qodo.ai/usage-guide/configuration_options/
-# Env-level settings (model + ANTHROPIC.KEY) live in .github/workflows/pr_agent.yml.
+# The API key (OPENROUTER.KEY) and which tools run (review only) live in
+# .github/workflows/pr_agent.yml. The model lives here, not there: PR-Agent applies
+# this file after the workflow's env vars, so this file wins on any key both set.
+# PR-Agent reads this file from main, so a change here only takes effect once merged.
 
 [config]
-# Keep both the primary and fallback on Anthropic so PR-Agent never tries to
-# initialise an OpenAI client (which would require OPENAI_API_KEY).
-model = "anthropic/claude-opus-5"
-fallback_models = ["anthropic/claude-sonnet-4-6"]
+# GLM 5.3 through OpenRouter. Both models are OpenRouter ones, so PR-Agent never
+# needs an Anthropic or OpenAI key. GLM 5.2 is the same price on Z.AI's endpoint.
+model = "openrouter/z-ai/glm-5.3"
+fallback_models = ["openrouter/z-ai/glm-5.2"]
 # Declared so PR-Agent can budget the diff even when the bundled litellm build
 # predates this model and has no registry entry for it (without this, an
 # unregistered model errors during token counting). This is only the ceiling —
@@ -14,6 +17,14 @@ fallback_models = ["anthropic/claude-sonnet-4-6"]
 custom_model_max_tokens = 200000
 # Markdown rendering of the model's suggestions.
 publish_output = true
+
+[openrouter]
+# Serve GLM only from Z.AI's own endpoint. GLM is an open model and OpenRouter
+# otherwise routes to the cheapest of ~40 hosts, some running cut-down (fp4)
+# builds, and each of them would see our diffs. Z.AI's price is $1.40 / $4.40 per
+# million tokens. If Z.AI is down the call fails rather than moving to another
+# host, and the check goes red.
+provider_only = ["z-ai"]
 
 [pr_reviewer]
 # Concise, focused review. Flip these on if you want more.
@@ -77,13 +88,15 @@ An automated merge gate reads these tags: a [blocker] holds the PR for a human, 
 """
 
 [pr_description]
-# Auto-generate a structured description + walkthrough.
+# Structured description + walkthrough. Not run automatically (pr_agent.yml is
+# review-only); applies when someone comments `/describe` on a PR.
 publish_description_as_comment = false
 add_original_user_description = true
 generate_ai_title = false
 
 [pr_code_suggestions]
-# Improvement suggestions ("/improve"). Keep the volume sane.
+# Improvement suggestions. Not run automatically (pr_agent.yml is review-only);
+# applies when someone comments `/improve` on a PR. Keep the volume sane.
 num_code_suggestions = 4
 commitable_code_suggestions = false
 # Suggestions must themselves be committable here — a suggestion containing a hex
