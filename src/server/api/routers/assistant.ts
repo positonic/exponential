@@ -63,8 +63,10 @@ async function getOwnedAssistantOrThrow(
   id: string,
   userId: string,
 ) {
+  // A retired Assistant (ADR-0072) is gone as far as its person's API goes:
+  // it cannot be edited or given a runner key again.
   const assistant = await db.assistant.findFirst({
-    where: { id, createdById: userId },
+    where: { id, createdById: userId, retiredAt: null },
     include: ASSISTANT_PRINCIPAL_INCLUDE,
   });
   if (!assistant) {
@@ -209,6 +211,7 @@ export const assistantRouter = createTRPCRouter({
         where: {
           workspaceId: input.workspaceId,
           createdById: ctx.session.user.id,
+          retiredAt: null,
         },
         orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       });
@@ -224,6 +227,7 @@ export const assistantRouter = createTRPCRouter({
           workspaceId: input.workspaceId,
           createdById: ctx.session.user.id,
           isDefault: true,
+          retiredAt: null,
         },
         include: ASSISTANT_PRINCIPAL_INCLUDE,
       });

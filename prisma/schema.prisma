@@ -4477,6 +4477,12 @@ model Assistant {
   /// workspace membership, which is what makes it an assignee (ADR-0067).
   /// Required: the migration backfills every existing row before setting NOT NULL.
   externalAgentId String   @unique
+  /// Set when the Assistant is retired (one Assistant per person, ADR-0072). A
+  /// retired Assistant keeps its row and its principal, so the history it wrote
+  /// stays attributed, but holds no membership, no keys and is never resolved.
+  /// At most one row per `createdById` has this null: the partial unique index
+  /// "Assistant_active_per_user_key" (SQL only — Prisma cannot express it).
+  retiredAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

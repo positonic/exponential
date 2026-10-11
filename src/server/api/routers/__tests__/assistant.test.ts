@@ -211,7 +211,7 @@ describe("assistant router — per-user default scoping", () => {
     dbMock.assistant.update.mockResolvedValue(ownedAssistant as never);
   });
 
-  it("scopes getDefault to the calling user, not just the workspace", async () => {
+  it("scopes getDefault to the calling user's non-retired assistant, not just the workspace", async () => {
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
     await caller.assistant.getDefault({ workspaceId: WORKSPACE_ID });
@@ -221,12 +221,13 @@ describe("assistant router — per-user default scoping", () => {
         where: expect.objectContaining({
           workspaceId: WORKSPACE_ID,
           createdById: OWNER_ID,
+          retiredAt: null,
         }),
       }),
     );
   });
 
-  it("scopes list to the calling user, not just the workspace", async () => {
+  it("scopes list to the calling user's non-retired assistants, not just the workspace", async () => {
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
     await caller.assistant.list({ workspaceId: WORKSPACE_ID });
@@ -236,7 +237,20 @@ describe("assistant router — per-user default scoping", () => {
         where: expect.objectContaining({
           workspaceId: WORKSPACE_ID,
           createdById: OWNER_ID,
+          retiredAt: null,
         }),
+      }),
+    );
+  });
+
+  it("never loads a retired assistant for an id-addressed mutation (ADR-0072)", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.update({ id: ASSISTANT_ID, emoji: "🦊" });
+
+    expect(dbMock.assistant.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: ASSISTANT_ID, createdById: OWNER_ID, retiredAt: null },
       }),
     );
   });
