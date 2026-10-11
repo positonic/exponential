@@ -230,6 +230,81 @@ describe("externalAgent.grantWorkspaces", () => {
   });
 });
 
+describe("externalAgent.create — one-step setup", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    arrangeOwner(db);
+    // Interactive transaction: run the callback against the same mock.
+    db.$transaction.mockImplementation((async (fn: (tx: PrismaClient) => unknown) =>
+      fn(db as unknown as PrismaClient)) as never);
+    db.user.create.mockResolvedValue({ id: SHADOW_ID } as never);
+    db.externalAgent.create.mockResolvedValue({ id: AGENT_ID, name: "Claude Code" } as never);
+  });
+
+  it("creates the agent, grants its workspaces and mints a display-once key together", async () => {
+    db.workspaceUser.findMany.mockResolvedValue(
+      memberships([
+        { workspaceId: "ws-1", role: "owner" },
+        { workspaceId: "ws-2", role: "member" },
+      ]),
+    );
+
+    const result = await caller(db).externalAgent.create({
+      name: "Claude Code",
+      workspaceIds: ["ws-1", "ws-2"],
+      keyName: "laptop",
+    });
+
+    expect(result.secret).toMatch(/^exp_agent_/);
+    expect(result.granted).toBe(2);
+    for (const workspaceId of ["ws-1", "ws-2"]) {
+      expect(db.workspaceUser.upsert).toHaveBeenCalledWith({
+        where: { userId_workspaceId: { userId: SHADOW_ID, workspaceId } },
+        create: { userId: SHADOW_ID, workspaceId, role: "member" },
+        update: { role: "member" },
+      });
+    }
+    // Only the hash is stored — never the secret itself.
+    const keyData = db.externalAgentKey.create.mock.calls[0]![0].data;
+    expect(keyData).toMatchObject({ agentId: AGENT_ID, name: "laptop" });
+    expect(JSON.stringify(keyData)).not.toContain(result.secret!);
+  });
+
+  it("writes nothing when one workspace cannot be delegated", async () => {
+    db.workspaceUser.findMany.mockResolvedValue(
+      memberships([
+        { workspaceId: "ws-1", role: "member" },
+        { workspaceId: "ws-2", role: "viewer" },
+      ]),
+    );
+    db.workspace.findMany.mockResolvedValue([{ name: "Coaching" }] as never);
+
+    await expect(
+      caller(db).externalAgent.create({
+        name: "Claude Code",
+        workspaceIds: ["ws-1", "ws-2"],
+        keyName: "laptop",
+      }),
+    ).rejects.toThrow(/Coaching/);
+
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.user.create).not.toHaveBeenCalled();
+    expect(db.externalAgentKey.create).not.toHaveBeenCalled();
+  });
+
+  it("still creates a bare agent when no workspaces or key are asked for", async () => {
+    const result = await caller(db).externalAgent.create({ name: "Hermes", keyName: "  " });
+
+    expect(result).toMatchObject({ secret: null, granted: 0 });
+    expect(db.workspaceUser.findMany).not.toHaveBeenCalled();
+    expect(db.workspaceUser.upsert).not.toHaveBeenCalled();
+    expect(db.externalAgentKey.create).not.toHaveBeenCalled();
+  });
+});
+
 describe("externalAgent.delete — an Assistant's principal is protected (ADR-0067)", () => {
   let db: DeepMockProxy<PrismaClient>;
 

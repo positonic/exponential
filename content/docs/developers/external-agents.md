@@ -4,7 +4,7 @@ description: Connect third-party AI agents to Exponential as first-class team me
 icon: IconRobotFace
 order: 2
 sidebarTitle: External agents
-updated: 2026-10-10
+updated: 2026-10-11
 ---
 
 External agents let you connect autonomous AI software — [Hermes Agent](https://hermes-agent.nousresearch.com/), MCP clients, custom scripts, anything that can send an HTTP request — to Exponential **as its own identity**, not as you. When your agent creates an action, the action says the *agent* created it, and the workspace's activity feed and members list show it with an **agent** badge. This is different from Zoe, who works *with* you in a conversation and acts as you with your confirmation.
@@ -13,14 +13,17 @@ External agents let you connect autonomous AI software — [Hermes Agent](https:
 
 ## Where to find it
 
-[Settings → Agents](/settings/agents) (user menu → **Settings** → **Agents**).
+[Settings → Agents](/settings/agents) (user menu → **Settings** → **Agents**). To go straight to the create form, open [/settings/agents/new](/settings/agents/new).
 
 ## How to create an agent
 
-1. Click **New agent**, give it a **Name** ("Hermes", "Standup Bot") and an optional **Description**, then click **Create**.
-2. Next to **Workspaces**, click **Add**, tick the workspaces it may work in and confirm. The agent joins each one as a **member**; you can only grant workspaces where you have at least member access yourself.
-3. Under **Keys**, click **New key**, give it a **Label** (for example "laptop") and click **Create key**.
-4. Copy the key now — it starts with `exp_agent_` and is never shown again. Click **Done**.
+1. Click **New agent** (or open [/settings/agents/new](/settings/agents/new)). A panel opens on the right.
+2. Give it a **Name** ("Hermes", "Claude Code") and an optional description of the work it should get.
+3. Pick its **Workspaces**. The agent joins each one as a **member**; only workspaces where you have at least member access yourself are offered.
+4. Keep or change the **Key label** (for example "laptop") and click **Create agent**. Clear the label to create the agent without a key.
+5. Copy the key now — it starts with `exp_agent_` and is never shown again. Click **Done**.
+
+To add more workspaces or keys later, use **Add** next to **Workspaces** and **New key** under **Keys** on the agent's card.
 
 ## How to point your software at Exponential
 
