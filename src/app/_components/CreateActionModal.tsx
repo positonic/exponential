@@ -14,6 +14,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
 import { useActionAttachments } from '~/hooks/useActionAttachments';
 import { buildCreateActionPayload } from '~/lib/actions/createActionPayload';
+import { assistantOnItToast } from '~/lib/actions/assistantOnIt';
 
 export function CreateActionModal({ viewName, projectId: propProjectId, children, initialName, onActionCreated, externalOpened, onExternalClose }: { viewName: string; projectId?: string; children?: React.ReactNode; initialName?: string; onActionCreated?: (actionId: string) => void; externalOpened?: boolean; onExternalClose?: () => void }) {
   const { data: session } = useSession();
@@ -282,6 +283,12 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       // This submission's own selections - not whatever is being composed now,
       // and not the cleared form. See useActionAttachments.
       attachments.apply(variables, data.id);
+
+      // An Assistant picked as assignee starts an Agent run on create
+      // (ADR-0067); the modal is already closed, so the toast is the only
+      // place the user learns work began.
+      const onIt = assistantOnItToast(data);
+      if (onIt) notifications.show({ ...onIt, color: "green" });
 
       onActionCreated?.(data.id);
       onExternalClose?.();
