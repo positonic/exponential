@@ -143,15 +143,20 @@ export async function mergedPrLookup(
 }
 
 /**
- * Assistant questions (ADR-0067): the latest run of one of MY Assistants on an
- * action is waiting on me — it asked by comment and paused. "Latest" means no
- * resume run has been created from it (`successors: none`); my reply on the
- * action creates one and the question leaves this list.
+ * Assistant questions (ADR-0067, widened 2026-10-11): an Assistant's latest
+ * run on an action asked **me** and paused. A run asks the person who
+ * assigned the Action, or the Assistant's owner when nobody did
+ * (`resolveRunQuestionRecipient`), so this is that rule as a filter: I
+ * requested the run, or nobody did and the Assistant is mine. The owner of an
+ * Assistant whose run asked someone else still sees it under Delegated (and
+ * may still answer it), just not here. "Latest" means no resume run has been
+ * created from it (`successors: none`); a reply on the action creates one and
+ * the question leaves this list.
  */
 export function assistantQuestionsWaitingOnMeWhere(userId: string): Prisma.AgentRunWhereInput {
   return {
     status: "WAITING_ON_OWNER",
-    agent: { ownerId: userId },
+    OR: [{ requestedById: userId }, { requestedById: null, agent: { ownerId: userId } }],
     successors: { none: {} },
     // Owning the Assistant is not a read grant on the action (same rule as
     // the Delegated tab): a revoked membership takes the question with it.

@@ -255,6 +255,35 @@ describe("mastra.askOwner", () => {
     expect(result).toMatchObject({ stop: true, status: "WAITING_ON_OWNER", commentId: "c1" });
   });
 
+  it("asks the person who assigned the Action, not the owner, when someone else assigned it", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ ...liveRun, requestedById: "assigner-1" } as never);
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "assigner-1", name: "Ana" } as never);
+
+    await runCaller(db).mastra.askOwner({ question: "Which venue?" });
+
+    expect(db.user.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: "assigner-1" },
+      select: { id: true, name: true },
+    });
+    expect(db.actionComment.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { content: "@[Ana](assigner-1) Which venue?" },
+    });
+    expect(db.agentRunEvent.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { payload: { tool: "ask-owner", commentId: "c1", recipientId: "assigner-1" } },
+    });
+  });
+
+  it("a run cancelled mid-flight posts nothing: the guarded park comes first", async () => {
+    db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
+
+    const result = await runCaller(db).mastra.askOwner({ question: "q?" });
+
+    expect(result).toEqual({ stop: true, status: "WAITING_ON_OWNER", commentId: null });
+    expect(db.actionComment.create).not.toHaveBeenCalled();
+    expect(db.agentRunEvent.create).not.toHaveBeenCalled();
+    expect(mentionMock).not.toHaveBeenCalled();
+  });
+
   it("strips mention-breaking characters from the owner's display name", async () => {
     db.user.findUniqueOrThrow.mockResolvedValue({ id: "owner-1", name: "James [Ops] (he)" } as never);
     await runCaller(db).mastra.askOwner({ question: "q?" });

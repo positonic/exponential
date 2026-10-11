@@ -8,9 +8,10 @@ import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
 /**
  * The canonical @mention candidate list for comment composers inside a
  * workspace: direct workspace members + members of teams linked to the
- * workspace (deduped) + Mastra agents. Agents are taggable badges only;
- * notifications go to human workspace members (the server drops non-member
- * ids on fan-out).
+ * workspace (deduped) + Mastra agents. A member who is an agent principal (an
+ * Assistant's or External agent's shadow user, `isAgent`) is labelled an
+ * agent, like the Mastra ones. Mentioning an Assistant notifies nobody and
+ * starts no run — assignment does (the server says so and offers it).
  *
  * Must be rendered under a WorkspaceProvider (any `/w/[workspaceSlug]/`
  * route). ActionDetailContent calls it directly; every other comment surface
@@ -38,7 +39,7 @@ export function useWorkspaceMentionCandidates(): MentionCandidate[] {
         members.push({
           id: m.user.id,
           name: m.user.name ?? m.user.email ?? "Unknown",
-          type: "member" as const,
+          type: m.user.isAgent ? ("agent" as const) : ("member" as const),
           image: m.user.image,
         });
       }

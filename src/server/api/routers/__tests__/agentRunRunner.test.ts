@@ -304,6 +304,19 @@ describe("agentRun.heartbeat / appendEvents / finish resolve the run through the
     expect(db.agentRun.updateMany.mock.invocationCallOrder[0]).toBeLessThan(db.actionComment.create.mock.invocationCallOrder[0]!);
   });
 
+  it("finish WAITING_ON_OWNER asks whoever assigned the Action, with the same markup as ask-owner", async () => {
+    db.agentRun.findFirst.mockResolvedValue({ id: RUN, status: "RUNNING", actionId: ACTION, claimedBy: RUNNER, toolCallCount: 1, requestedById: "assigner-1" } as never);
+    db.user.findUniqueOrThrow.mockResolvedValue({ id: "assigner-1", name: "Ana" } as never);
+    db.actionComment.create.mockResolvedValue({ id: "c1", author: { id: SHADOW, name: "Aria", image: null } } as never);
+    db.action.findUnique.mockResolvedValue({ workspaceId: "ws-1", project: null } as never);
+
+    await runner(db).agentRun.finish({ runId: RUN, status: "WAITING_ON_OWNER", question: "Which venue?" });
+
+    expect(db.actionComment.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { content: "@[Ana](assigner-1) Which venue?" },
+    });
+  });
+
   it("finish WAITING_ON_OWNER after a cancel landed posts no mention and no transcript entry", async () => {
     db.agentRun.findFirst.mockResolvedValue({ id: RUN, status: "RUNNING", actionId: ACTION, claimedBy: RUNNER, toolCallCount: 1 } as never);
     db.agentRun.updateMany.mockResolvedValue({ count: 0 } as never);
