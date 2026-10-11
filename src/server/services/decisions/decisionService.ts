@@ -708,9 +708,10 @@ interface ExistingDecider {
  *
  * Returns the nested `deciders` write for the caller's own status update, so
  * the claim lands in the same write as the transition, or undefined when
- * nothing changes. An agent principal never claims: `actorIsAgent` is the
- * caller's knowledge (an agent-key token), and the user row's `isAgent` flag
- * is checked here as well, so every caller gets the same answer.
+ * nothing changes. Only a person acting through their own login claims:
+ * `actorIsAgent` is the caller's knowledge from the token (an agent key, or
+ * Zoe acting for the person), and the user row's `isAgent` flag is checked
+ * here as well, so every caller gets the same answer.
  */
 async function claimDeciderWrite(
   db: PrismaClient,
@@ -804,9 +805,9 @@ export interface SetStatusInput {
   /** Required for SUPERSEDED: the confirmed decision in the same workspace that replaces this one. */
   supersededById?: string | null;
   /**
-   * The caller already knows the actor is an agent principal (an agent-key
-   * token). The service also checks `User.isAgent`; this only covers what
-   * the user row cannot show.
+   * The caller knows from the token that an agent is acting — an agent key,
+   * or Zoe / a gateway acting on a person's behalf. The service also checks
+   * `User.isAgent`; this covers what the user row cannot show.
    */
   actorIsAgent?: boolean;
 }

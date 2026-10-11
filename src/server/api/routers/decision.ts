@@ -175,6 +175,30 @@ async function isAgentPrincipal(
   return principal?.isAgent === true;
 }
 
+/**
+ * Token types that mean an agent is doing the acting even when the session
+ * user is a person: an External agent's key, Zoe's agent-context JWT, the
+ * chat gateways (Zoe answering in WhatsApp / Telegram / Matrix) and a voice
+ * session. Accepting a decision makes the actor its decider, and that seat
+ * belongs to a person acting through their own login — Zoe accepting on
+ * someone's behalf is not that person deciding (ADR-0070). Personal API
+ * tokens (the CLI), the extension, devices and browser sessions are the
+ * person themselves.
+ */
+const AGENT_ACTOR_TOKEN_TYPES: ReadonlySet<string> = new Set([
+  "agent-key",
+  "agent-context",
+  "whatsapp-gateway",
+  "telegram-gateway",
+  "matrix-gateway",
+  "voice-session",
+]);
+
+/** Whether the caller's token says an agent, not the person, is acting. */
+function isAgentActorToken(tokenType: string | undefined): boolean {
+  return tokenType !== undefined && AGENT_ACTOR_TOKEN_TYPES.has(tokenType);
+}
+
 /** Throwing wrapper around the decision resolver for one row. */
 async function ensureDecisionAccess(
   db: PrismaClient,
@@ -811,8 +835,9 @@ export const decisionRouter = createTRPCRouter({
         userId: ctx.session.user.id,
         status: input.status,
         supersededById,
-        // Accepting makes a person the decider; an agent key never is one.
-        actorIsAgent: ctx.tokenType === "agent-key",
+        // Accepting makes a person the decider — only through their own
+        // login, never Zoe or an agent acting for them.
+        actorIsAgent: isAgentActorToken(ctx.tokenType),
       });
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
@@ -822,7 +847,9 @@ export const decisionRouter = createTRPCRouter({
    * standing behind the decision, so an agent cannot confirm its own (or any)
    * draft. An optional `status` moves it in the same call ("confirm as
    * accepted"); on an already-confirmed row only that status change applies.
-   * The confirming person becomes the decider when no person is one yet.
+   * A person accepting through their own login becomes the decider when no
+   * person is one yet; Zoe or a gateway confirming on their behalf does not
+   * seat them (`isAgentActorToken`).
    */
   confirmDraft: humanOnlyProcedure
     .input(
@@ -847,6 +874,7 @@ export const decisionRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         userId: ctx.session.user.id,
         status: input.status,
+        actorIsAgent: isAgentActorToken(ctx.tokenType),
       });
       await settleDraftReviewAfter(ctx.db, subject);
       return { ...decision, label: formatDecisionLabel(decision.number) };

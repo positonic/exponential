@@ -1593,17 +1593,52 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
       });
     });
 
-    it("an agent key accepting is never the decider, whatever its user row says", async () => {
-      withWorkspaceRole(db, "member");
-      withRow({ reviewState: "CONFIRMED" });
-      await createMockCaller({
-        userId: USER_ID,
-        db: db as unknown as PrismaClient,
-        tokenType: "agent-key",
-      }).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status: "ACCEPTED" });
-      expect(updateArgs().data.status).toBe("ACCEPTED");
-      expect(updateArgs().data).not.toHaveProperty("deciders");
-    });
+    const callerWithToken = (tokenType: string | undefined) =>
+      createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient, tokenType });
+
+    it.each(["agent-key", "agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+      "setStatus through a %s token never seats the person, whatever the user row says",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow({ reviewState: "CONFIRMED" });
+        await callerWithToken(tokenType).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "ACCEPTED",
+        });
+        expect(updateArgs().data.status).toBe("ACCEPTED");
+        expect(updateArgs().data).not.toHaveProperty("deciders");
+      },
+    );
+
+    it.each(["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+      "confirmDraft through a %s token (Zoe acting for the person) confirms but seats nobody",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow();
+        await callerWithToken(tokenType).decision.confirmDraft({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "ACCEPTED",
+        });
+        expect(updateArgs().data).toMatchObject({ reviewState: "CONFIRMED", status: "ACCEPTED" });
+        expect(updateArgs().data).not.toHaveProperty("deciders");
+      },
+    );
+
+    it.each([undefined, "api-token", "extension-token", "device-token"])(
+      "a person's own login (%s) does claim the seat",
+      async (tokenType) => {
+        withWorkspaceRole(db, "member");
+        withRow({ reviewState: "CONFIRMED" });
+        await callerWithToken(tokenType).decision.setStatus({
+          workspaceId: WORKSPACE_ID,
+          decisionId: "dec-6",
+          status: "ACCEPTED",
+        });
+        expect(updateArgs().data).toHaveProperty("deciders");
+      },
+    );
   });
 
   describe("lookup by D-number", () => {
