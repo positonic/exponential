@@ -1851,7 +1851,8 @@ describe("action router (mocked)", () => {
           id: "a1",
           name: "Mine",
           workspaceId: "w1",
-          project: null, assignees: [],
+          project: null,
+          assignees: [],
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
 
@@ -1881,7 +1882,8 @@ describe("action router (mocked)", () => {
           id: "a1",
           name: "Scoped",
           workspaceId: "w-legit",
-          project: null, assignees: [],
+          project: null,
+          assignees: [],
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
 
@@ -2093,7 +2095,8 @@ describe("action router (mocked)", () => {
         priority: "Quick",
         status: "ACTIVE",
         dueDate: null,
-        project: null, assignees: [],
+        project: null,
+        assignees: [],
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
 
