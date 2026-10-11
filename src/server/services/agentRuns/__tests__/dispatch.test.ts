@@ -227,11 +227,28 @@ describe("AI instructions in a run", () => {
     db.workspace.findUnique.mockResolvedValue({
       id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: null,
     } as never);
-    db.project.findFirst.mockResolvedValue(null);
+    db.project.findFirst.mockResolvedValue({ id: "proj-1", name: "Offsite", workspaceId: "ws-1", aiInstructions: null } as never);
 
     await dispatchQueuedRuns(db, new Date());
 
     expect(sentMessages().map((m) => m.role)).toEqual(["system", "user"]);
+    expect(reportHandledErrorServer).not.toHaveBeenCalled();
+  });
+
+  it("keeps the workspace scope and reports it when the action's project is hidden from the shadow user", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: "ws-1" } as never);
+    db.workspace.findUnique.mockResolvedValue({
+      id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null, aiInstructions: "Weekly review on Fridays.",
+    } as never);
+    db.project.findFirst.mockResolvedValue(null); // restricted project: not visible
+
+    await dispatchQueuedRuns(db, new Date());
+
+    expect(sentMessages().map((m) => m.role)).toEqual(["system", "system", "user"]);
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ area: "agentRuns.scopeInstructions", kind: "PROJECT_NOT_VISIBLE" }),
+    );
   });
 
   it("runs without instructions, and reports it, when the shadow user can't read the workspace", async () => {

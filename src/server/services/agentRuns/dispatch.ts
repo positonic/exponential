@@ -167,6 +167,15 @@ export async function loadRunScopeInstructions(
       workspaceId: input.workspaceId,
       projectId: input.projectId,
     });
+    if (input.projectId && !loaded.project) {
+      // The project is hidden from the shadow user (restricted, or moved out
+      // of the workspace): the run goes ahead with the workspace scope only.
+      reportHandledErrorServer(new Error("Agent run could not read its action's project AI instructions"), {
+        area: "agentRuns.scopeInstructions",
+        kind: "PROJECT_NOT_VISIBLE",
+        context: { runId: input.runId, workspaceId: input.workspaceId ?? "", projectId: input.projectId },
+      });
+    }
     return assembleLoadedScope(loaded);
   } catch (err) {
     if (!(err instanceof TRPCError)) throw err;
