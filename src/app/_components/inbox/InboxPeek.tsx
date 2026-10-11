@@ -99,7 +99,7 @@ export function InboxPeekDrawer({ hrefs }: { hrefs: string[] }) {
 }
 
 function PeekContent({ target }: { target: InboxPeekTarget }) {
-  if (target.kind === 'meeting') return <MeetingDetailContainer id={target.id} />;
+  if (target.kind === 'meeting') return <MeetingInWorkspace id={target.id} />;
   return (
     <WorkspaceProvider initialWorkspaceSlug={target.workspaceSlug}>
       {target.kind === 'action' ? (
@@ -136,6 +136,23 @@ function NotFound({ what }: { what: string }) {
     <Text size="sm" className="text-text-muted">
       {what} not found, or you no longer have access to it.
     </Text>
+  );
+}
+
+/**
+ * Meeting hrefs carry no workspace, but its children read one (the actions
+ * list offers that workspace's lists): wait for the meeting, then render it
+ * in its own. Same query as MeetingDetailContainer, so one fetch.
+ */
+function MeetingInWorkspace({ id }: { id: string }) {
+  const { data: meeting, isLoading } = api.transcription.getDetail.useQuery({ id });
+  if (isLoading) return <LoadingBody />;
+  const slug = meeting?.workspace?.slug;
+  if (!slug) return <MeetingDetailContainer id={id} />;
+  return (
+    <WorkspaceProvider initialWorkspaceSlug={slug}>
+      <MeetingDetailContainer id={id} />
+    </WorkspaceProvider>
   );
 }
 
