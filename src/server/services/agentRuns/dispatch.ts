@@ -1,6 +1,10 @@
 import type { PrismaClient } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 import { generateJWT } from "~/server/utils/jwt";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { loadScopeInstructions, scopeInstructionsFor } from "~/server/services/agentGuidance/context";
+import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
 import { onRunFinished } from "./finish";
 
 /**
@@ -144,6 +148,54 @@ export function buildActionBrief(input: {
   return lines.filter(Boolean).join("\n\n");
 }
 
+/**
+ * The workspace's and project's AI instructions for a run, assembled exactly
+ * as chat assembles them (demoted `<user_data>` guidance, ADR-0071), read as
+ * the run's shadow user. Null when no scope has text.
+ *
+ * A scope the shadow user can't read (it lost membership, or the action's
+ * project moved out of the workspace) runs without instructions rather than
+ * failing the run; the gap is reported.
+ */
+export async function loadRunScopeInstructions(
+  db: PrismaClient,
+  input: { shadowUserId: string; runId: string; workspaceId: string | null; projectId: string | null },
+): Promise<string | null> {
+  if (!input.workspaceId && !input.projectId) return null;
+  try {
+    const loaded = await loadScopeInstructions(db, {
+      userId: input.shadowUserId,
+      workspaceId: input.workspaceId,
+      projectId: input.projectId,
+    });
+    return assembleScopeInstructions(scopeInstructionsFor(loaded));
+  } catch (err) {
+    if (!(err instanceof TRPCError)) throw err;
+    reportHandledErrorServer(err, {
+      area: "agentRuns.scopeInstructions",
+      kind: err.code,
+      context: { runId: input.runId, workspaceId: input.workspaceId ?? "", projectId: input.projectId ?? "" },
+    });
+    return null;
+  }
+}
+
+/**
+ * The messages a run starts from: the persona, the scope's AI instructions
+ * (when there are any) as a second system message, then the brief.
+ */
+export function buildRunMessages(input: {
+  system: string;
+  scopeInstructions: string | null;
+  brief: string;
+}): Array<{ role: "system" | "user"; content: string }> {
+  return [
+    { role: "system", content: input.system },
+    ...(input.scopeInstructions ? [{ role: "system" as const, content: input.scopeInstructions }] : []),
+    { role: "user", content: input.brief },
+  ];
+}
+
 /** The closing line a local runner's brief ends with: the runner reports through `agentRun.finish`. */
 export const LOCAL_RUNNER_CLOSING =
   "Do the work, then finish with a short public summary and whether the action is ready to close " +
@@ -151,7 +203,8 @@ export const LOCAL_RUNNER_CLOSING =
 
 /**
  * Everything an executor needs to start a run: the run row with its action,
- * agent, requester and predecessor, the persona system message and the brief.
+ * agent, requester and predecessor, the persona system message, the scope's
+ * AI instructions and the brief.
  * Shared by the hosted dispatcher and `agentRun.claim` (V2) so a local runner
  * works from exactly the brief Mastra would have.
  */
@@ -186,9 +239,17 @@ export async function loadRunBrief(db: PrismaClient, runId: string, options: { c
     userContext: null,
   };
 
+  const scopeInstructions = await loadRunScopeInstructions(db, {
+    shadowUserId: run.agent.shadowUser.id,
+    runId: run.id,
+    workspaceId: run.action.workspaceId,
+    projectId: run.action.projectId,
+  });
+
   return {
     run,
     system: buildPersonaMessage(persona),
+    scopeInstructions,
     brief: buildActionBrief({
       action: run.action,
       ownerName: run.agent.owner.name,
@@ -212,7 +273,7 @@ async function runOne(
   db: PrismaClient,
   runId: string,
 ): Promise<"SUCCEEDED" | "WAITING_ON_OWNER" | "CANCELLED"> {
-  const { run, system, brief } = await loadRunBrief(db, runId);
+  const { run, system, scopeInstructions, brief } = await loadRunBrief(db, runId);
 
   const shadow = run.agent.shadowUser;
   // The run acts as the Assistant's own principal: every write the callbacks
@@ -223,10 +284,7 @@ async function runOne(
     { tokenType: "agent-context", expiryMinutes: RUN_JWT_MINUTES, extraClaims: { runId: run.id } },
   );
 
-  const messages = [
-    { role: "system", content: system },
-    { role: "user", content: brief },
-  ];
+  const messages = buildRunMessages({ system, scopeInstructions, brief });
 
   const res = await fetch(`${MASTRA_API_URL}/api/agents/assistantRunAgent/generate`, {
     method: "POST",
