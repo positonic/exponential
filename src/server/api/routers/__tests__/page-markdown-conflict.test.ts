@@ -253,3 +253,48 @@ describe("page.update: Markdown-source writes are conflict-checked", () => {
     expect(store).toMatchObject({ docVersion: 3, writes: 1 });
   });
 });
+
+describe("mastra.updatePage: Zoe's page edits go through the same compare-and-set", () => {
+  const db = getDbMock();
+  let store: StoredPage;
+
+  beforeEach(() => {
+    mockReset(db);
+    store = { docVersion: 7, body: "human's newer edit", writes: 0 };
+    installPage(db, store);
+  });
+
+  it("forwards baseVersion: a stale base is a CONFLICT and the newer edit stands", async () => {
+    const zoe = createMockCaller({ userId: OWNER, db, tokenType: "agent-context" });
+
+    const error = await conflictOf(
+      zoe.mastra.updatePage({ pageId: PAGE_ID, body: "Zoe's rewrite", baseVersion: 6 }),
+    );
+
+    expect(error.cause).toMatchObject({
+      conflict: { entity: "page", id: PAGE_ID, expectedRevision: 6, currentRevision: 7 },
+    });
+    expect(store).toMatchObject({ body: "human's newer edit", docVersion: 7, writes: 0 });
+  });
+
+  it("a current base lands and returns the new docVersion for the next edit", async () => {
+    const zoe = createMockCaller({ userId: OWNER, db, tokenType: "agent-context" });
+
+    const result = await zoe.mastra.updatePage({
+      pageId: PAGE_ID,
+      body: "Zoe's rewrite",
+      baseVersion: 7,
+    });
+
+    expect(result.page).toMatchObject({ id: PAGE_ID, docVersion: 8 });
+    expect(store).toMatchObject({ body: "Zoe's rewrite", docVersion: 8 });
+  });
+
+  it("without a base Zoe's edit lands as before (optional until clients send it)", async () => {
+    const zoe = createMockCaller({ userId: OWNER, db, tokenType: "agent-context" });
+
+    await zoe.mastra.updatePage({ pageId: PAGE_ID, body: "Zoe's rewrite" });
+
+    expect(store).toMatchObject({ body: "Zoe's rewrite", docVersion: 8 });
+  });
+});

@@ -117,3 +117,34 @@ export function isCompareAndSetMiss(error: unknown): boolean {
     error.code === "P2025"
   );
 }
+
+/**
+ * The error to throw after a compare-and-set write missed: re-read the
+ * current revision and report a structured CONFLICT, or NOT_FOUND when the
+ * row is gone.
+ */
+export async function conflictAfterMiss(args: {
+  entity: RevisionEntity;
+  id: string;
+  field?: string;
+  expectedRevision: number;
+  readCurrentRevision: () => Promise<number | null>;
+  message?: string;
+}): Promise<TRPCError> {
+  const currentRevision = await args.readCurrentRevision();
+  if (currentRevision === null) {
+    return new TRPCError({ code: "NOT_FOUND", message: `The ${args.entity} no longer exists` });
+  }
+  return toConflictTRPCError(
+    new RevisionConflictError(
+      {
+        entity: args.entity,
+        id: args.id,
+        ...(args.field ? { field: args.field } : {}),
+        expectedRevision: args.expectedRevision,
+        currentRevision,
+      },
+      args.message,
+    ),
+  );
+}

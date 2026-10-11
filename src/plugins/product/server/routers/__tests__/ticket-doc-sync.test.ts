@@ -332,3 +332,86 @@ describe("ticket.initBodyDoc — lazy migration (mocked)", () => {
     expect(result).toEqual({ migrated: false });
   });
 });
+
+describe("ticket.update — Markdown writes are conflict-checked when they carry baseVersion", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubTicketAccess(dbMock, { body: "stored", docVersion: 4 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.ticket.update.mockResolvedValue({ id: ticketId } as any);
+  });
+
+  it("a matching base writes as a compare-and-set on docVersion", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.ticket.update({ id: ticketId, body: "edit", baseVersion: 4 });
+
+    const args = dbMock.ticket.update.mock.calls[0]?.[0];
+    expect(args?.where).toEqual({ id: ticketId, docVersion: 4 });
+    expect(args?.data).toMatchObject({ body: "edit", docVersion: { increment: 1 } });
+  });
+
+  it("a stale base is refused with a structured conflict and writes nothing", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-key" });
+
+    const error = await caller.product.ticket
+      .update({ id: ticketId, body: "edit", baseVersion: 3 })
+      .then(() => null, (e: unknown) => e);
+
+    expect(error).toMatchObject({
+      code: "CONFLICT",
+      cause: {
+        conflict: {
+          kind: "revision_conflict",
+          entity: "ticket",
+          id: ticketId,
+          field: "body",
+          expectedRevision: 3,
+          currentRevision: 4,
+        },
+      },
+    });
+    expect(dbMock.ticket.update).not.toHaveBeenCalled();
+    expect(dbMock.ticket.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("a save landing after the check makes the compare-and-set miss: CONFLICT, not an overwrite", async () => {
+    dbMock.ticket.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record to update not found.", {
+        code: "P2025",
+        clientVersion: "test",
+      }),
+    );
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    // Every read after the access check sees the newer version.
+    dbMock.ticket.findUnique
+      .mockResolvedValueOnce(accessTicket({ body: "stored", docVersion: 4 }))
+      .mockResolvedValue(accessTicket({ body: "newer", docVersion: 5 }));
+
+    await expect(
+      caller.product.ticket.update({ id: ticketId, body: "mine", baseVersion: 4 }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      cause: { conflict: { expectedRevision: 4, currentRevision: 5 } },
+    });
+  });
+
+  it("without a base the Markdown write lands unconditionally, as before", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.ticket.update({ id: ticketId, body: "cli edit" });
+
+    expect(dbMock.ticket.update.mock.calls[0]?.[0]?.where).toEqual({ id: ticketId });
+  });
+
+  it("a metadata-only update with a stale base is not a conflict", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.ticket.update({ id: ticketId, title: "Renamed", baseVersion: 0 });
+
+    expect(dbMock.ticket.update.mock.calls[0]?.[0]?.where).toEqual({ id: ticketId });
+  });
+});

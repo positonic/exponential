@@ -15,6 +15,14 @@ import {
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import {
+  assertBaseRevision,
+  conflictAfterMiss,
+  isCompareAndSetMiss,
+  RevisionConflictError,
+  toConflictTRPCError,
+  withConflictAsTRPC,
+} from "~/server/services/revisions/revisionConflict";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import {
   anchorThreadInStoredDoc,
@@ -64,6 +72,12 @@ const ticketStatusEnum = z.enum([
 ]);
 
 type TicketStatusValue = z.infer<typeof ticketStatusEnum>;
+
+/** A Ticket's current `docVersion`, or null when it is gone. */
+async function readTicketDocVersion(db: PrismaClient, id: string): Promise<number | null> {
+  const row = await db.ticket.findUnique({ where: { id }, select: { docVersion: true } });
+  return row?.docVersion ?? null;
+}
 
 async function loadTicketWithAccess(
   db: PrismaClient,
@@ -768,6 +782,23 @@ export const ticketRouter = createTRPCRouter({
         bodyDoc === undefined &&
         rest.body !== undefined &&
         rest.body !== previousTicket.body;
+      // A Markdown write that carries the `baseVersion` it read is a
+      // compare-and-set on `docVersion` (ADR-0071 change integrity): a stale
+      // base leaves the ticket unchanged and returns a structured CONFLICT.
+      // Optional for now; without it the write bumps `docVersion` as before.
+      // An unchanged re-send rewrites nothing, so it is never a conflict.
+      const markdownBaseVersion = syncDoc ? baseVersion : undefined;
+      if (markdownBaseVersion !== undefined) {
+        await withConflictAsTRPC(async () =>
+          assertBaseRevision({
+            entity: "ticket",
+            id,
+            field: "body",
+            storedRevision: previousTicket.docVersion,
+            baseRevision: markdownBaseVersion,
+          }),
+        );
+      }
       if (syncDoc) {
         const previousDoc = await ctx.db.ticket.findUnique({
           where: { id },
@@ -803,13 +834,20 @@ export const ticketRouter = createTRPCRouter({
           baseVersion,
         });
         if (!decision.accept) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
+          throw toConflictTRPCError(
+            new RevisionConflictError(
+              {
+                entity: "ticket",
+                id,
+                field: "body",
+                expectedRevision: baseVersion,
+                currentRevision: previousTicket.docVersion,
+              },
               decision.reason === "stale"
                 ? "This ticket was updated in another tab or by another member. Reload to get the latest version."
                 : "Stale document version - reload and try again.",
-          });
+            ),
+          );
         }
         // Atomic compare-and-set: the WHERE on docVersion closes the
         // read→write race so two concurrent saves can't both bump from the
@@ -823,8 +861,12 @@ export const ticketRouter = createTRPCRouter({
           },
         });
         if (res.count === 0) {
-          throw new TRPCError({
-            code: "CONFLICT",
+          throw await conflictAfterMiss({
+            entity: "ticket",
+            id,
+            field: "body",
+            expectedRevision: baseVersion,
+            readCurrentRevision: () => readTicketDocVersion(ctx.db, id),
             message:
               "This ticket was updated concurrently. Reload to get the latest version.",
           });
@@ -838,10 +880,28 @@ export const ticketRouter = createTRPCRouter({
         // otherwise hand the editor a base that silently absorbs it.
         updatedTicket = { ...row, docVersion: decision.nextVersion };
       } else {
-        updatedTicket = await ctx.db.ticket.update({
-          where: { id },
-          data,
-        });
+        // With a Markdown base version the WHERE closes the race with a save
+        // landing after the check above: a miss writes nothing.
+        updatedTicket = await ctx.db.ticket
+          .update({
+            where:
+              markdownBaseVersion !== undefined
+                ? { id, docVersion: markdownBaseVersion }
+                : { id },
+            data,
+          })
+          .catch(async (error: unknown) => {
+            if (markdownBaseVersion === undefined || !isCompareAndSetMiss(error)) {
+              throw error;
+            }
+            throw await conflictAfterMiss({
+              entity: "ticket",
+              id,
+              field: "body",
+              expectedRevision: markdownBaseVersion,
+              readCurrentRevision: () => readTicketDocVersion(ctx.db, id),
+            });
+          });
       }
 
       // T7: workspace activity feed instrumentation.

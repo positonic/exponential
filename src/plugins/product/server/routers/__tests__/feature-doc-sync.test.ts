@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 
 // Seed env vars before any module imports — `vi.hoisted` runs before regular
 // top-level statements. Mirrors ticket.test.ts.
@@ -283,5 +283,126 @@ describe("feature.update — Markdown-only description sync (mocked)", () => {
       docVersion: { increment: 1 },
     });
     expect(result).toEqual({ id: featureId, docVersion: 1 });
+  });
+});
+
+describe("feature.update — Markdown writes are conflict-checked when they carry baseVersion", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  function storedFeature(docVersion: number) {
+    dbMock.feature.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      {
+        id: featureId,
+        productId: "prod-1",
+        product: { workspaceId },
+        description: "stored body",
+        descriptionDoc: null,
+        docVersion,
+        status: "DEFINED",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any,
+    );
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubFeatureAccess(dbMock);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.feature.update.mockResolvedValue({ id: featureId } as any);
+  });
+
+  it("a matching base writes as a compare-and-set on docVersion", async () => {
+    storedFeature(5);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.feature.update({
+      id: featureId,
+      description: "agent edit",
+      baseVersion: 5,
+    });
+
+    const args = dbMock.feature.update.mock.calls[0]?.[0];
+    expect(args?.where).toEqual({ id: featureId, docVersion: 5 });
+    expect(args?.data).toMatchObject({ docVersion: { increment: 1 } });
+  });
+
+  it("a stale base is refused with a structured conflict and writes nothing", async () => {
+    storedFeature(6);
+    const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-key" });
+
+    const error = await caller.product.feature
+      .update({ id: featureId, description: "agent edit", baseVersion: 5 })
+      .then(() => null, (e: unknown) => e);
+
+    expect(error).toMatchObject({
+      code: "CONFLICT",
+      cause: {
+        conflict: {
+          kind: "revision_conflict",
+          entity: "feature",
+          id: featureId,
+          field: "description",
+          expectedRevision: 5,
+          currentRevision: 6,
+        },
+      },
+    });
+    expect(dbMock.feature.update).not.toHaveBeenCalled();
+  });
+
+  it("a save landing after the check makes the compare-and-set miss: CONFLICT, not an overwrite", async () => {
+    storedFeature(5);
+    dbMock.feature.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Record to update not found.", {
+        code: "P2025",
+        clientVersion: "test",
+      }),
+    );
+    // The re-read after the miss sees the newer version.
+    dbMock.feature.findUnique
+      .mockResolvedValueOnce(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: featureId, productId: "prod-1", product: { workspaceId } } as any,
+      )
+      .mockResolvedValueOnce(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { description: "stored body", descriptionDoc: null, docVersion: 5 } as any,
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValueOnce({ status: "DEFINED" } as any)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockResolvedValueOnce({ docVersion: 6 } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.product.feature.update({ id: featureId, description: "mine", baseVersion: 5 }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      cause: { conflict: { expectedRevision: 5, currentRevision: 6 } },
+    });
+  });
+
+  it("without a base the Markdown write lands unconditionally, as before", async () => {
+    storedFeature(9);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.feature.update({ id: featureId, description: "cli edit" });
+
+    expect(dbMock.feature.update.mock.calls[0]?.[0]?.where).toEqual({ id: featureId });
+  });
+
+  it("re-sending the stored Markdown with a stale base is not a conflict (nothing is rewritten)", async () => {
+    storedFeature(9);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.product.feature.update({
+      id: featureId,
+      description: "stored body",
+      baseVersion: 2,
+    });
+
+    expect(dbMock.feature.update.mock.calls[0]?.[0]?.where).toEqual({ id: featureId });
   });
 });

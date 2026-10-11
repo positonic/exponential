@@ -19,6 +19,7 @@ import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
 import {
   assertBaseRevision,
+  conflictAfterMiss,
   isCompareAndSetMiss,
   RevisionConflictError,
   toConflictTRPCError,
@@ -206,6 +207,15 @@ export async function loadPageForAccess(db: PrismaClient, id: string) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
   }
   return page;
+}
+
+/** A Page's current `docVersion`, or null when it is gone. */
+async function readPageDocVersion(db: PrismaClient, id: string): Promise<number | null> {
+  const row = await db.knowledgePage.findUnique({
+    where: { id },
+    select: { docVersion: true },
+  });
+  return row?.docVersion ?? null;
 }
 
 /** Throw unless the user has view/edit access (shared with the pageComment router). */
@@ -981,22 +991,15 @@ export const pageRouter = createTRPCRouter({
           },
         });
         if (!written) {
-          const current = await ctx.db.knowledgePage.findUnique({
-            where: { id },
-            select: { docVersion: true },
-          });
-          throw toConflictTRPCError(
-            new RevisionConflictError(
-              {
-                entity: "page",
-                id,
-                field: "body",
-                expectedRevision: baseVersion,
-                currentRevision: current?.docVersion ?? page.docVersion,
-              },
+          throw await conflictAfterMiss({
+            entity: "page",
+            id,
+            field: "body",
+            expectedRevision: baseVersion,
+            readCurrentRevision: () => readPageDocVersion(ctx.db, id),
+            message:
               "This page was updated concurrently. Reload to get the latest version.",
-            ),
-          );
+          });
         }
         // Body changed → re-index after a settle delay (embeds, or clears when
         // includeInSearch is off / body emptied). Fire-and-forget.
@@ -1029,22 +1032,13 @@ export const pageRouter = createTRPCRouter({
         if (markdownBaseVersion === undefined || !isCompareAndSetMiss(error)) {
           throw error;
         }
-        const current = await ctx.db.knowledgePage.findUnique({
-          where: { id },
-          select: { docVersion: true },
+        throw await conflictAfterMiss({
+          entity: "page",
+          id,
+          field: "body",
+          expectedRevision: markdownBaseVersion,
+          readCurrentRevision: () => readPageDocVersion(ctx.db, id),
         });
-        if (!current) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
-        }
-        throw toConflictTRPCError(
-          new RevisionConflictError({
-            entity: "page",
-            id,
-            field: "body",
-            expectedRevision: markdownBaseVersion,
-            currentRevision: current.docVersion,
-          }),
-        );
       }
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
