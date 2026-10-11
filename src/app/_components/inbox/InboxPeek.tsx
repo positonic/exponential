@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Skeleton, Stack, Text } from '@mantine/core';
 import { api } from '~/trpc/react';
@@ -70,12 +70,24 @@ export function InboxPeekDrawer({ hrefs }: { hrefs: string[] }) {
   // an item can clear or reorder its row (and opening a ticket the first
   // time writes its body doc, bumping it to the end of the oldest-first QA
   // list), which would otherwise strand the drawer with no neighbours.
-  const peekable = hrefs.filter((h) => parseInboxPeekHref(h));
+  // Unique: several notifications can point at one item, and a repeat
+  // would make next step onto the same href and stall.
+  const peekable = [...new Set(hrefs.filter((h) => parseInboxPeekHref(h)))];
   const [openRows, setOpenRows] = useState<string[] | null>(null);
   if (target && !openRows && href && peekable.includes(href)) setOpenRows(peekable);
   if (!target && openRows) setOpenRows(null);
   const rows = openRows ?? peekable;
   const index = href ? rows.indexOf(href) : -1;
+  // Whatever was done in the drawer (completing an action, promoting a
+  // ticket) may clear its row. On the close itself, not in onClose, so
+  // closing with Back refreshes too.
+  const isOpen = !!target;
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !isOpen) void utils.inbox.invalidate();
+    wasOpen.current = isOpen;
+  }, [isOpen, utils]);
+
   const prev = index > 0 ? rows[index - 1] : undefined;
   const next = index !== -1 ? rows[index + 1] : undefined;
 
@@ -83,12 +95,7 @@ export function InboxPeekDrawer({ hrefs }: { hrefs: string[] }) {
     <PeekDrawer
       label={target ? LABELS[target.kind] : 'Details'}
       opened={!!target}
-      onClose={() => {
-        setPeek(null);
-        // Whatever was done in the drawer (completing an action, promoting
-        // a ticket) may clear its row.
-        void utils.inbox.invalidate();
-      }}
+      onClose={() => setPeek(null)}
       fullPageHref={target ? href : null}
       onPrev={prev ? () => setPeek(prev) : undefined}
       onNext={next ? () => setPeek(next) : undefined}
