@@ -473,6 +473,43 @@ describe("KnowledgeService — workspace scoping", () => {
       expect(fragments).not.toContain(`'transcription'`);
     });
 
+    it("keeps resource chunks only for resources the resourceViewerId owns, read from the live row", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", resourceViewerId: "u-7" });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      // Ownership comes from the joined Resource row (`r`), not the chunk's
+      // copied userId, so a deleted resource's orphaned chunks never match.
+      expect(fragments).toContain(`kc."sourceType" <> 'resource' OR r."userId" = `);
+      expect(fragments).not.toContain(`kc."userId" =`);
+      expect(bound).toContain("u-7");
+    });
+
+    it("drops resource chunks entirely when no resourceViewerId is given (fails closed)", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", sourceTypes: ["resource"] });
+
+      const { fragments } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain(`AND kc."sourceType" <> 'resource'`);
+    });
+
+    it("adds no resource condition when the search can't return resource chunks", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", sourceTypes: ["document"] });
+
+      const { fragments } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).not.toContain(`'resource'`);
+    });
+
     it("applies meeting access on top of participantEmail — the email narrows, it never grants", async () => {
       const { db, queryRawCalls, setQueryRawResult, setViewableMeetings } = buildFakeDb();
       setQueryRawResult([]);

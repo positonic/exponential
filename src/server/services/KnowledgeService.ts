@@ -71,6 +71,15 @@ export interface KnowledgeSearchOptions {
    * excluded entirely.
    */
   transcriptionViewerId?: string;
+  /**
+   * Restrict `resource` chunks to Resources this user owns. Resources are
+   * private to their owner (`resource.list`/`resource.get` filter on
+   * `userId`), so workspace scope alone would hand one member's saved pages
+   * and notes to every other member. Checked against the live Resource row,
+   * not the chunk's copied `userId`. Fails closed: without it, resource chunks
+   * are excluded entirely.
+   */
+  resourceViewerId?: string;
   limit?: number;
   similarityThreshold?: number;
 }
@@ -520,6 +529,8 @@ export class KnowledgeService {
    *   - `transcriptionViewerId` — keep `transcription` chunks only for
    *      Meetings this user can view; omitted, they are dropped (fail closed).
    *      ANDed with `participantEmail`, which can only narrow the result.
+   *   - `resourceViewerId` — keep `resource` chunks only for Resources this
+   *      user owns; omitted, they are dropped (fail closed)
    */
   async search(
     query: string,
@@ -533,6 +544,7 @@ export class KnowledgeService {
       participantEmail,
       pageViewerId,
       transcriptionViewerId,
+      resourceViewerId,
       limit = 10,
     } = options;
 
@@ -623,6 +635,18 @@ export class KnowledgeService {
       transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
     }
 
+    // Resource access: owner only. The query already joins the live Resource
+    // row (`r`), so ownership is read from it rather than from the chunk — a
+    // deleted Resource's orphaned chunks never match.
+    const searchesResources =
+      !sourceTypes?.length || sourceTypes.includes("resource");
+    let resourceAccessCondition = Prisma.empty;
+    if (searchesResources && !resourceViewerId) {
+      resourceAccessCondition = Prisma.sql`AND kc."sourceType" <> 'resource'`;
+    } else if (searchesResources && resourceViewerId) {
+      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR r."userId" = ${resourceViewerId})`;
+    }
+
     // Execute vector search with parameterized query
     const results = await this.db.$queryRaw<
       Array<{
@@ -670,6 +694,7 @@ export class KnowledgeService {
         ${participantCondition}
         ${pageAccessCondition}
         ${transcriptionAccessCondition}
+        ${resourceAccessCondition}
       ORDER BY kc.embedding <=> ${embeddingStr}::vector
       LIMIT ${limit}
     `;

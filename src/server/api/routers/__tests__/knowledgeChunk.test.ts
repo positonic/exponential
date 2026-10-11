@@ -384,6 +384,28 @@ describe("knowledgeChunk router (mocked)", () => {
       );
     });
 
+    it("restricts resource chunks to the caller's own resources (resourceViewerId)", async () => {
+      stubMembership(true);
+      mockSearch.mockResolvedValue([]);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      // Both the agent's unfiltered search and an explicit `resource` request
+      // must stay owner-only.
+      await caller.knowledgeChunk.semanticSearch({ query: "x", workspaceId });
+      await caller.knowledgeChunk.semanticSearch({ query: "x", workspaceId, sourceType: "resource" });
+
+      expect(mockSearch).toHaveBeenNthCalledWith(
+        1,
+        "x",
+        expect.objectContaining({ resourceViewerId: callerId }),
+      );
+      expect(mockSearch).toHaveBeenNthCalledWith(
+        2,
+        "x",
+        expect.objectContaining({ resourceViewerId: callerId, sourceTypes: ["resource"] }),
+      );
+    });
+
     it("keeps the caller's meeting access when filtering by participantEmail", async () => {
       stubMembership(true);
       mockSearch.mockResolvedValue([]);

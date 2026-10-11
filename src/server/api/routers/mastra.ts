@@ -1715,9 +1715,11 @@ export const mastraRouter = createTRPCRouter({
         const searchResults = await knowledgeService.search(input.query, {
           workspaceId: input.workspaceId,
           userId,
-          // Own chunks are own pages/meetings today; keep access explicit anyway.
+          // Own chunks are own pages/meetings/resources today; keep access
+          // explicit anyway.
           pageViewerId: userId,
           transcriptionViewerId: userId,
+          resourceViewerId: userId,
           projectId: input.projectId,
           sourceTypes: input.sourceTypes,
           limit: input.topK,
