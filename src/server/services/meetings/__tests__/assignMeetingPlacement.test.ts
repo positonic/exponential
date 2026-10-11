@@ -17,12 +17,14 @@ import {
   assignMeetingPlacement,
   resolveMeetingWorkspace,
   rehomeProjectMeetings,
+  fileImportIntoDefaultWorkspace,
 } from "../assignMeetingPlacement";
 import {
   getProjectAccess,
   canEditProject,
   getTranscriptionAccess,
   canEditTranscription,
+  getWorkspaceMembership,
 } from "~/server/services/access";
 
 vi.mock("~/server/services/access", () => ({
@@ -30,6 +32,7 @@ vi.mock("~/server/services/access", () => ({
   canEditProject: vi.fn(),
   getTranscriptionAccess: vi.fn(),
   canEditTranscription: vi.fn(),
+  getWorkspaceMembership: vi.fn(),
 }));
 
 const db = mockDeep<PrismaClient>();
@@ -386,5 +389,69 @@ describe("rehomeProjectMeetings", () => {
 
     expect(result).toEqual({ meetings: 0, actions: 2 });
     expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("fileImportIntoDefaultWorkspace", () => {
+  beforeEach(() => {
+    vi.mocked(getWorkspaceMembership).mockReset();
+  });
+
+  it("does nothing when no default workspace is set", async () => {
+    const result = await fileImportIntoDefaultWorkspace(db, {
+      meetingId: "m1",
+      ownerUserId: USER,
+      workspaceId: null,
+    });
+
+    expect(result).toBeNull();
+    expect(getWorkspaceMembership).not.toHaveBeenCalled();
+    expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("leaves the meeting Personal when the owner is no longer a member", async () => {
+    vi.mocked(getWorkspaceMembership).mockResolvedValue(null);
+
+    const result = await fileImportIntoDefaultWorkspace(db, {
+      meetingId: "m1",
+      ownerUserId: USER,
+      workspaceId: "ws-left",
+    });
+
+    expect(result).toBeNull();
+    expect(getWorkspaceMembership).toHaveBeenCalledWith(db, USER, "ws-left");
+    expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("files only a still-unplaced meeting the owner owns", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(getWorkspaceMembership).mockResolvedValue({ role: "member", workspaceId: "ws-1" } as any);
+
+    const result = await fileImportIntoDefaultWorkspace(db, {
+      meetingId: "m1",
+      ownerUserId: USER,
+      workspaceId: "ws-1",
+    });
+
+    expect(result).toBe("ws-1");
+    const call = db.transcriptionSession.updateMany.mock.calls[0]?.[0];
+    // A ceremony match (or anything else) that already placed it wins.
+    expect(call?.where).toEqual({ id: "m1", userId: USER, workspaceId: null, projectId: null });
+    expect(call?.data).toMatchObject({ workspaceId: "ws-1" });
+  });
+
+  it("reports no filing when the guard matched nothing (already placed)", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(getWorkspaceMembership).mockResolvedValue({ role: "member", workspaceId: "ws-1" } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.updateMany as any).mockResolvedValue({ count: 0 });
+
+    const result = await fileImportIntoDefaultWorkspace(db, {
+      meetingId: "m1",
+      ownerUserId: USER,
+      workspaceId: "ws-1",
+    });
+
+    expect(result).toBeNull();
   });
 });

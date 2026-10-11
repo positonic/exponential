@@ -140,6 +140,11 @@ Transcript writes mark the Meeting `embeddingStatus = 'pending'`: the device rec
 Fireflies webhook still embeds immediately as a fast path. `failed` rows are not retried
 automatically — use **Index Now** on the Knowledge Base page.
 
+Fireflies imports land **Personal** (no workspace) unless the integration owner sets
+**File new meetings into** in the integration's edit modal; Personal meetings are skipped by
+the sweep because no workspace-scoped search could return them. The admin
+`/admin/knowledge-index` page counts any that were indexed anyway as "personal, not searchable".
+
 ## KnowledgeService
 
 The `KnowledgeService` (`src/server/services/KnowledgeService.ts`) provides core functionality:

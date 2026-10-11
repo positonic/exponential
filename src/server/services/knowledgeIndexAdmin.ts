@@ -27,6 +27,11 @@ export interface SourceIndexStats {
 export interface TranscriptionIndexStats extends SourceIndexStats {
   /** Pending rows with no userId; embedding refuses these, so backfill skips them. */
   pendingWithoutOwner: number;
+  /**
+   * Indexed rows with no Workspace (Personal meetings). Knowledge search is
+   * always workspace-scoped, so these have chunks no search can return.
+   */
+  indexedWithoutWorkspace: number;
 }
 
 export interface ChunkSourceBreakdown {
@@ -54,6 +59,8 @@ interface SourceRow {
   total: number;
   indexed: number;
   pendingWithoutOwner: number;
+  /** Transcriptions only; 0 for other sources. */
+  indexedWithoutWorkspace: number;
   chunkedWithoutText: number;
 }
 
@@ -95,6 +102,10 @@ export function summarizeKnowledgeIndex(
         transcriptions.pending,
         nonNegative(transcriptionRow?.pendingWithoutOwner ?? 0),
       ),
+      indexedWithoutWorkspace: Math.min(
+        transcriptions.indexed,
+        nonNegative(transcriptionRow?.indexedWithoutWorkspace ?? 0),
+      ),
     },
     resources: toSourceStats(sourceRows.find((r) => r.sourceType === "resource")),
     chunksBySource,
@@ -110,11 +121,13 @@ export async function getKnowledgeIndexStats(db: PrismaClient): Promise<Knowledg
       COUNT(*) FILTER (WHERE x.has_text)::int AS "total",
       COUNT(*) FILTER (WHERE x.has_text AND x.has_chunks)::int AS "indexed",
       COUNT(*) FILTER (WHERE x.has_text AND NOT x.has_chunks AND NOT x.has_owner)::int AS "pendingWithoutOwner",
+      COUNT(*) FILTER (WHERE x.has_text AND x.has_chunks AND NOT x.has_workspace)::int AS "indexedWithoutWorkspace",
       COUNT(*) FILTER (WHERE NOT x.has_text AND x.has_chunks)::int AS "chunkedWithoutText"
     FROM (
       SELECT
         COALESCE(t."transcription" ~ '[^[:space:]]', false) AS has_text,
         t."userId" IS NOT NULL AS has_owner,
+        t."workspaceId" IS NOT NULL AS has_workspace,
         EXISTS (
           SELECT 1 FROM "KnowledgeChunk" kc
           WHERE kc."sourceType" = 'transcription' AND kc."sourceId" = t."id"
@@ -126,6 +139,7 @@ export async function getKnowledgeIndexStats(db: PrismaClient): Promise<Knowledg
       COUNT(*) FILTER (WHERE x.has_text)::int AS "total",
       COUNT(*) FILTER (WHERE x.has_text AND x.has_chunks)::int AS "indexed",
       0 AS "pendingWithoutOwner",
+      0 AS "indexedWithoutWorkspace",
       COUNT(*) FILTER (WHERE NOT x.has_text AND x.has_chunks)::int AS "chunkedWithoutText"
     FROM (
       SELECT

@@ -16,6 +16,11 @@ import {
   fetchZulipStreams,
 } from "~/server/services/notifications/ZulipNotificationService";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
+import { getWorkspaceMembership } from "~/server/services/access";
+import {
+  readFirefliesMeetingWorkspaceId,
+  withFirefliesMeetingWorkspaceId,
+} from "~/server/services/meetings/firefliesDefaultWorkspace";
 
 /**
  * Admin procedure - extends protectedProcedure with isAdmin check
@@ -2371,6 +2376,11 @@ export const integrationRouter = createTRPCRouter({
         credentials,
         appId: appIdCredential?.key || "", // Safe to return APP_ID
         allowTeamMemberAccess: integration.allowTeamMemberAccess,
+        // Fireflies "File new meetings into" (null = Personal).
+        meetingWorkspaceId:
+          integration.provider === "fireflies"
+            ? readFirefliesMeetingWorkspaceId(integration.providerConfig)
+            : null,
       };
     }),
 
@@ -2385,6 +2395,8 @@ export const integrationRouter = createTRPCRouter({
         appId: z.string().optional(),
         // Team access control
         allowTeamMemberAccess: z.boolean().optional(),
+        // Fireflies: the workspace new imports are filed into (null = Personal).
+        meetingWorkspaceId: z.string().min(1).nullable().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -2441,6 +2453,40 @@ export const integrationRouter = createTRPCRouter({
             message: "Only team owners and admins can edit team integrations",
           });
         }
+      }
+
+      // Where Fireflies imports land. A Workspace-level Meeting is visible to
+      // every member, so only the owner of a personal integration — whose
+      // recordings these are — may choose, and only a workspace they belong to.
+      if (input.meetingWorkspaceId !== undefined) {
+        if (integration.provider !== "fireflies" || integration.userId !== ctx.session.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the owner of a personal Fireflies integration can choose where its meetings are filed",
+          });
+        }
+        if (input.meetingWorkspaceId) {
+          const membership = await getWorkspaceMembership(
+            ctx.db,
+            ctx.session.user.id,
+            input.meetingWorkspaceId,
+          );
+          if (!membership) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "You are not a member of that workspace",
+            });
+          }
+        }
+        await ctx.db.integration.update({
+          where: { id: input.integrationId },
+          data: {
+            providerConfig: withFirefliesMeetingWorkspaceId(
+              integration.providerConfig,
+              input.meetingWorkspaceId,
+            ),
+          },
+        });
       }
 
       // Update integration basic info
