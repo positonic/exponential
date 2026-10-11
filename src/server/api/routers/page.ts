@@ -17,6 +17,13 @@ import {
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { checkStaleWrite } from "~/lib/prd/stale-write";
+import {
+  assertBaseRevision,
+  isCompareAndSetMiss,
+  RevisionConflictError,
+  toConflictTRPCError,
+  withConflictAsTRPC,
+} from "~/server/services/revisions/revisionConflict";
 import { docHasCommentMarks } from "~/lib/prd/comment-anchor";
 import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { withCarriedCommentMarks } from "~/server/services/prd/anchor-comment";
@@ -829,6 +836,13 @@ export const pageRouter = createTRPCRouter({
    * ProseMirror) plus its derived Markdown `body`, guarded by an
    * optimistic-concurrency compare-and-set on `docVersion`; metadata-only
    * updates (title, project link, search toggle) skip the version dance.
+   *
+   * A Markdown-source write (`body` without `bodyDoc`, the path the CLI and
+   * Zoe take) is compare-and-set on `docVersion` too when it carries the
+   * `baseVersion` it read. A mismatch leaves the page unchanged and throws
+   * CONFLICT with `data.conflict` (ADR-0071 change integrity). `baseVersion`
+   * is optional on this path for now; without it the write bumps
+   * `docVersion` unconditionally, as before.
    */
   update: protectedProcedure
     .input(
@@ -869,6 +883,20 @@ export const pageRouter = createTRPCRouter({
       // triggers) — or, when the old doc has comment marks, derive it here so
       // they can be carried across (below).
       const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
+      // The Markdown path is checked only when the caller sent the revision it
+      // read. Fail fast here; the WHERE on docVersion below closes the race.
+      const markdownBaseVersion = markdownSourceWrite ? baseVersion : undefined;
+      if (markdownBaseVersion !== undefined) {
+        await withConflictAsTRPC(async () =>
+          assertBaseRevision({
+            entity: "page",
+            id,
+            field: "body",
+            storedRevision: page.docVersion,
+            baseRevision: markdownBaseVersion,
+          }),
+        );
+      }
       // Nulling the doc would take every comment mark with it, orphaning the
       // page's anchored threads. When there are marks to keep, derive the doc
       // here instead and carry them across wherever their text survived.
@@ -925,13 +953,20 @@ export const pageRouter = createTRPCRouter({
           baseVersion,
         });
         if (!decision.accept) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
+          throw toConflictTRPCError(
+            new RevisionConflictError(
+              {
+                entity: "page",
+                id,
+                field: "body",
+                expectedRevision: baseVersion,
+                currentRevision: page.docVersion,
+              },
               decision.reason === "stale"
                 ? "This page was updated in another tab or by another member. Reload to get the latest version."
                 : "Stale document version — reload and try again.",
-          });
+            ),
+          );
         }
         // The WHERE on docVersion closes the read→write race so two concurrent
         // saves can't both bump from the same base.
@@ -946,11 +981,22 @@ export const pageRouter = createTRPCRouter({
           },
         });
         if (!written) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "This page was updated concurrently. Reload to get the latest version.",
+          const current = await ctx.db.knowledgePage.findUnique({
+            where: { id },
+            select: { docVersion: true },
           });
+          throw toConflictTRPCError(
+            new RevisionConflictError(
+              {
+                entity: "page",
+                id,
+                field: "body",
+                expectedRevision: baseVersion,
+                currentRevision: current?.docVersion ?? page.docVersion,
+              },
+              "This page was updated concurrently. Reload to get the latest version.",
+            ),
+          );
         }
         // Body changed → re-index after a settle delay (embeds, or clears when
         // includeInSearch is off / body emptied). Fire-and-forget.
@@ -961,13 +1007,45 @@ export const pageRouter = createTRPCRouter({
       // A Markdown-source write replaces the doc (carried, or nulled for lazy
       // re-derivation), so its links are re-derived with it; a metadata-only
       // update leaves the doc and its links alone.
-      const updated = markdownSourceWrite
-        ? await ctx.db.$transaction(async (tx) => {
-            const row = await tx.knowledgePage.update({ where: { id }, data });
-            await syncPageLinks(tx, id, carriedDoc);
-            return row;
-          })
-        : await ctx.db.knowledgePage.update({ where: { id }, data });
+      let updated;
+      try {
+        updated = markdownSourceWrite
+          ? await ctx.db.$transaction(async (tx) => {
+              // With a base version the update is a compare-and-set: a save
+              // that landed since the check above makes it miss (P2025) and
+              // the transaction writes nothing.
+              const row = await tx.knowledgePage.update({
+                where:
+                  markdownBaseVersion !== undefined
+                    ? { id, docVersion: markdownBaseVersion }
+                    : { id },
+                data,
+              });
+              await syncPageLinks(tx, id, carriedDoc);
+              return row;
+            })
+          : await ctx.db.knowledgePage.update({ where: { id }, data });
+      } catch (error) {
+        if (markdownBaseVersion === undefined || !isCompareAndSetMiss(error)) {
+          throw error;
+        }
+        const current = await ctx.db.knowledgePage.findUnique({
+          where: { id },
+          select: { docVersion: true },
+        });
+        if (!current) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+        }
+        throw toConflictTRPCError(
+          new RevisionConflictError({
+            entity: "page",
+            id,
+            field: "body",
+            expectedRevision: markdownBaseVersion,
+            currentRevision: current.docVersion,
+          }),
+        );
+      }
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
       // doesn't take the bodyDoc save path above, so cover it here too.
