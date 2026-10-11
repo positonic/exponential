@@ -5,6 +5,7 @@ import {
   canEditProject,
   getTranscriptionAccess,
   canEditTranscription,
+  canEditWorkspaceContent,
   getWorkspaceMembership,
 } from "~/server/services/access";
 import { dropStrandedMeetingFeatureLinks } from "./meetingFeatures";
@@ -265,8 +266,10 @@ export async function fileImportIntoDefaultWorkspace(
   const { meetingId, ownerUserId, workspaceId } = input;
   if (!workspaceId) return null;
 
+  // Re-checked on every import: the owner may since have been demoted to
+  // guest or viewer, and a Workspace Meeting is visible to every member.
   const membership = await getWorkspaceMembership(db, ownerUserId, workspaceId);
-  if (!membership) return null;
+  if (!canEditWorkspaceContent(membership?.role ?? null)) return null;
 
   const { count } = await db.transcriptionSession.updateMany({
     where: { id: meetingId, userId: ownerUserId, workspaceId: null, projectId: null },

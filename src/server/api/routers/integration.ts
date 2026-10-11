@@ -16,7 +16,7 @@ import {
   fetchZulipStreams,
 } from "~/server/services/notifications/ZulipNotificationService";
 import { UserEmailService, detectProviderSettings, userEmailService } from "~/server/services/UserEmailService";
-import { getWorkspaceMembership } from "~/server/services/access";
+import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access";
 import {
   readFirefliesMeetingWorkspaceId,
   withFirefliesMeetingWorkspaceId,
@@ -2455,9 +2455,12 @@ export const integrationRouter = createTRPCRouter({
         }
       }
 
+      const updateData: any = {};
+
       // Where Fireflies imports land. A Workspace-level Meeting is visible to
       // every member, so only the owner of a personal integration — whose
-      // recordings these are — may choose, and only a workspace they belong to.
+      // recordings these are — may choose, and only a workspace they can write
+      // to: membership alone would admit guests and viewers.
       if (input.meetingWorkspaceId !== undefined) {
         if (integration.provider !== "fireflies" || integration.userId !== ctx.session.user.id) {
           throw new TRPCError({
@@ -2471,26 +2474,20 @@ export const integrationRouter = createTRPCRouter({
             ctx.session.user.id,
             input.meetingWorkspaceId,
           );
-          if (!membership) {
+          if (!canEditWorkspaceContent(membership?.role ?? null)) {
             throw new TRPCError({
               code: "FORBIDDEN",
-              message: "You are not a member of that workspace",
+              message: "You can only file meetings into a workspace you are a full member of",
             });
           }
         }
-        await ctx.db.integration.update({
-          where: { id: input.integrationId },
-          data: {
-            providerConfig: withFirefliesMeetingWorkspaceId(
-              integration.providerConfig,
-              input.meetingWorkspaceId,
-            ),
-          },
-        });
+        updateData.providerConfig = withFirefliesMeetingWorkspaceId(
+          integration.providerConfig,
+          input.meetingWorkspaceId,
+        );
       }
 
       // Update integration basic info
-      const updateData: any = {};
       if (input.name !== undefined) updateData.name = input.name;
       if (input.description !== undefined)
         updateData.description = input.description;

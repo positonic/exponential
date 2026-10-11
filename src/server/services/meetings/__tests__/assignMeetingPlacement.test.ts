@@ -27,12 +27,18 @@ import {
   getWorkspaceMembership,
 } from "~/server/services/access";
 
-vi.mock("~/server/services/access", () => ({
+vi.mock("~/server/services/access", async () => ({
   getProjectAccess: vi.fn(),
   canEditProject: vi.fn(),
   getTranscriptionAccess: vi.fn(),
   canEditTranscription: vi.fn(),
   getWorkspaceMembership: vi.fn(),
+  // Pure role check: keep the real one so the role rules are exercised.
+  canEditWorkspaceContent: (
+    await vi.importActual<typeof import("~/server/services/access/resolvers/workspaceResolver")>(
+      "~/server/services/access/resolvers/workspaceResolver",
+    )
+  ).canEditWorkspaceContent,
 }));
 
 const db = mockDeep<PrismaClient>();
@@ -420,6 +426,20 @@ describe("fileImportIntoDefaultWorkspace", () => {
 
     expect(result).toBeNull();
     expect(getWorkspaceMembership).toHaveBeenCalledWith(db, USER, "ws-left");
+    expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each(["guest", "viewer"])("leaves the meeting Personal when the owner is only a %s", async (role) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.mocked(getWorkspaceMembership).mockResolvedValue({ role, workspaceId: "ws-1" } as any);
+
+    const result = await fileImportIntoDefaultWorkspace(db, {
+      meetingId: "m1",
+      ownerUserId: USER,
+      workspaceId: "ws-1",
+    });
+
+    expect(result).toBeNull();
     expect(db.transcriptionSession.updateMany).not.toHaveBeenCalled();
   });
 

@@ -169,6 +169,38 @@ describe("integration router — Fireflies meeting workspace (mocked)", () => {
     expect(providerConfigWrites()).toEqual([]);
   });
 
+  it.each(["guest", "viewer"])("refuses a workspace the owner is only a %s of", async (role) => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { role, workspaceId } as any,
+    );
+
+    const caller = createMockCaller({ userId: ownerId, db: dbMock });
+    await expect(
+      caller.integration.updateIntegration({ integrationId: "int-1", meetingWorkspaceId: workspaceId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.integration.update).not.toHaveBeenCalled();
+  });
+
+  it("writes the workspace setting and the name in one update", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { role: "member", workspaceId } as any,
+    );
+
+    const caller = createMockCaller({ userId: ownerId, db: dbMock });
+    await caller.integration.updateIntegration({
+      integrationId: "int-1",
+      name: "Renamed",
+      meetingWorkspaceId: workspaceId,
+    });
+
+    expect(dbMock.integration.update).toHaveBeenCalledTimes(1);
+    expect(dbMock.integration.update.mock.calls[0]?.[0]).toMatchObject({
+      data: { name: "Renamed", providerConfig: { unrelated: true, meetingWorkspaceId: workspaceId } },
+    });
+  });
+
   it("refuses the setting on a team integration, even for a team admin", async () => {
     dbMock.teamUser.findMany.mockResolvedValue(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -470,14 +470,15 @@ export default function IntegrationsClient() {
   const canChooseMeetingWorkspace =
     integrationDetails?.provider === 'fireflies' && integrationDetails.scope === 'personal';
 
-  // Workspaces you can file meetings into: full members only, never guests.
+  // Workspaces you can file meetings into: full members only, never guests or
+  // viewers — mirrors the server's canEditWorkspaceContent check.
   const { data: workspacesForMeetings } = api.workspace.list.useQuery(undefined, {
     enabled: canChooseMeetingWorkspace,
   });
   const meetingWorkspaceOptions = [
     { value: PERSONAL_MEETINGS, label: 'Personal (only you and attendees)' },
     ...(workspacesForMeetings ?? [])
-      .filter((w) => w.currentUserRole && w.currentUserRole !== 'guest')
+      .filter((w) => w.currentUserRole && w.currentUserRole !== 'guest' && w.currentUserRole !== 'viewer')
       .map((w) => ({ value: w.id, label: w.name })),
   ];
 
