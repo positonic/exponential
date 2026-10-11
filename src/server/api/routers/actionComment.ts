@@ -3,7 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getActionAccess } from "~/server/services/access";
 import { createActionComment } from "~/server/services/actions/comments";
-import { resumeWaitingRunsOnOwnerReply } from "~/server/services/agentRuns/enqueue";
+import { resumeWaitingRunsOnReply } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { after } from "next/server";
 import { deleteFromBlob } from "~/lib/blob";
@@ -69,10 +69,12 @@ export const actionCommentRouter = createTRPCRouter({
         content: input.content,
       });
 
-      // The owner answering their Assistant's question resumes the run
-      // (ADR-0067, Agent PRD D6). Only a human's comment reaches this router;
-      // an Assistant's own comment goes through the run tool and never resumes.
-      const resumed = await resumeWaitingRunsOnOwnerReply(ctx.db, {
+      // Answering an Assistant's question resumes the run — from the person
+      // it asked (whoever assigned the Action) or its owner, never a
+      // bystander (Agent PRD D6, widened 2026-10-11). Only a human's comment
+      // reaches this router; an Assistant's own comment goes through the run
+      // tool and never resumes.
+      const resumed = await resumeWaitingRunsOnReply(ctx.db, {
         actionId: input.actionId,
         authorId: ctx.session.user.id,
         commentId: comment.id,
