@@ -3,7 +3,11 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter } from "~/server/api/trpc";
-import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import {
+  apiKeyMiddleware,
+  resolveApiKeyCallerPrincipal,
+  type ApiKeyCallerContext,
+} from "~/server/api/middleware/apiKeyAuth";
 import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
 import {
   canViewAction,
@@ -13,7 +17,6 @@ import {
   isProjectInsider,
   getWorkspaceMembership,
 } from "~/server/services/access";
-import { resolvePrincipal, type Principal } from "~/server/services/access/principal";
 
 /**
  * Who a written entry belongs to (ADR-0061), from the verified principal
@@ -28,41 +31,19 @@ import { resolvePrincipal, type Principal } from "~/server/services/access/princ
 interface TimeEntryPrincipal {
   ownerUserId: string;
   createdByAgentId: string | null;
-  /** An agent is acting, so what it writes is PROPOSED. */
-  isAgent: boolean;
+  /** An agent is acting (for itself or for the person), so what it writes is PROPOSED. */
+  writesProposed: boolean;
 }
 
-/** The slice of an `apiKeyMiddleware` context the principal needs. */
-interface TimeEntryContext {
-  db: PrismaClient;
-  userId: string;
-  session: { user: { id: string } } | null;
-  tokenType: string | undefined;
-  agentRunId?: string;
-}
-
-/**
- * `apiKeyMiddleware` also admits a durable `x-api-key` with no session. That
- * key is a person's own credential, the same standing as their API token; a
- * shadow user behind one is still caught by `User.isAgent`.
- */
-function principalFor(ctx: TimeEntryContext): Promise<Principal> {
-  return resolvePrincipal(
-    ctx.session
-      ? ctx
-      : { db: ctx.db, session: { user: { id: ctx.userId } }, tokenType: "api-token" },
-  );
-}
-
-async function resolveTimeEntryPrincipal(ctx: TimeEntryContext): Promise<TimeEntryPrincipal> {
-  const principal = await principalFor(ctx);
+async function resolveTimeEntryPrincipal(ctx: ApiKeyCallerContext): Promise<TimeEntryPrincipal> {
+  const principal = await resolveApiKeyCallerPrincipal(ctx);
   switch (principal.kind) {
     case "human":
-      return { ownerUserId: principal.userId, createdByAgentId: null, isAgent: false };
+      return { ownerUserId: principal.userId, createdByAgentId: null, writesProposed: false };
     case "agent":
-      return { ownerUserId: principal.ownerId, createdByAgentId: principal.agentId, isAgent: true };
+      return { ownerUserId: principal.ownerId, createdByAgentId: principal.agentId, writesProposed: true };
     case "agent_for_human":
-      return { ownerUserId: principal.userId, createdByAgentId: null, isAgent: true };
+      return { ownerUserId: principal.userId, createdByAgentId: null, writesProposed: true };
   }
 }
 
@@ -86,8 +67,8 @@ async function assertOwnerCanViewAction(
  * agent, or an agent acting for the person (Zoe, gateways, voice), is refused
  * whichever way it authenticated.
  */
-async function assertHumanPrincipal(ctx: TimeEntryContext): Promise<void> {
-  const principal = await principalFor(ctx);
+async function assertHumanPrincipal(ctx: ApiKeyCallerContext): Promise<void> {
+  const principal = await resolveApiKeyCallerPrincipal(ctx);
   if (principal.kind !== "human") {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -130,7 +111,7 @@ export const timeEntryRouter = createTRPCRouter({
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         source: input.source,
-        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        status: principal.writesProposed ? "PROPOSED" : (input.status ?? "CONFIRMED"),
         sourceRef: input.sourceRef,
         note: input.note,
         createdByAgentId: principal.createdByAgentId,
@@ -233,7 +214,7 @@ export const timeEntryRouter = createTRPCRouter({
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         source: input.source,
-        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        status: principal.writesProposed ? "PROPOSED" : (input.status ?? "CONFIRMED"),
         sourceRef: input.sourceRef,
         note: input.note,
         createdByAgentId: principal.createdByAgentId,

@@ -17,7 +17,7 @@ import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/s
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere, requireProjectAccess } from "~/server/services/access";
-import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
+import { apiKeyMiddleware, resolveApiKeyCallerPrincipal } from "~/server/api/middleware/apiKeyAuth";
 import { resolvePrincipal, type Principal } from "~/server/services/access/principal";
 import { actionSourceForPrincipal } from "~/server/utils/actionSource";
 import { uploadToBlob } from "~/lib/blob";
@@ -67,17 +67,26 @@ import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
  */
 function resolveQuickCreateSource(
   requested: string,
-  caller: Principal | { kind: "api-key"; userIsAgent: boolean },
+  principal: Principal,
+  viaApiKey: boolean,
 ): ActionSource {
-  // x-api-key: a durable key with no session behind it. A person's is the
-  // iOS shortcut; a shadow user's is still the agent.
-  if (caller.kind === "api-key") return caller.userIsAgent ? "agent" : "ios";
-  const principal = caller;
   if (principal.kind !== "human") return actionSourceForPrincipal(principal);
-  if (isActionSource(requested)) return requested;
-  if (requested === "ios-shortcut") return "ios";
+  // A person's durable x-api-key is the iOS shortcut.
+  if (viaApiKey || requested === "ios-shortcut") return "ios";
+  // A person may name their own surface, but never an agent's: `agent` and
+  // the gateway and voice sources say an agent wrote the row.
+  if (isActionSource(requested) && !AGENT_ACTION_SOURCES.has(requested)) return requested;
   return actionSourceForPrincipal(principal);
 }
+
+/** Sources that attribute a row to an agent; a person can't claim them. */
+const AGENT_ACTION_SOURCES: ReadonlySet<ActionSource> = new Set([
+  "agent",
+  "whatsapp",
+  "telegram",
+  "matrix",
+  "voice",
+]);
 
 /** The viewer's local day, `[start, end)` — both ends, for DST-change days. */
 const localDayInput = z
@@ -2421,9 +2430,8 @@ export const actionRouter = createTRPCRouter({
           dueDate: parsed.dueDate ?? undefined,
           source: resolveQuickCreateSource(
             input.source,
-            ctx.session?.user?.id
-              ? await resolvePrincipal(ctx)
-              : { kind: "api-key", userIsAgent: user.isAgent },
+            await resolveApiKeyCallerPrincipal(ctx),
+            !ctx.session?.user?.id,
           ),
         },
       );

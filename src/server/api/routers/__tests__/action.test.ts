@@ -2206,6 +2206,13 @@ describe("action router (mocked)", () => {
         expect(stored()).toBe(source);
       });
 
+      it.each(["agent", "whatsapp", "voice"])("a person cannot claim an agent's source (%s)", async (source) => {
+        stubAgent(false);
+        const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "api-token" });
+        await caller.action.quickCreate({ name: "x", source });
+        expect(stored()).toBe("cli");
+      });
+
       it("a shadow user behind an x-api-key is still the agent", async () => {
         stubAgent(true);
         dbMock.verificationToken.findFirst.mockResolvedValue({ userId: callerId } as never);
