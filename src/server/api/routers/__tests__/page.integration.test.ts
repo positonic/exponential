@@ -11,6 +11,8 @@ import {
   createProject,
   addWorkspaceMember,
   addProjectMember,
+  createProduct,
+  createFeature,
 } from "~/test/factories";
 
 async function createPage(
@@ -871,6 +873,118 @@ describe("page router", () => {
       });
       const members = await db.knowledgePageMember.findMany({ where: { pageId: mine.id } });
       expect(members.map((m) => m.userId)).toEqual([invitee.id]);
+    });
+  });
+
+  describe("move — re-homing a page across projects and workspaces", () => {
+    /** An owner with two workspaces, and a page in the first. */
+    async function setup(slug: string) {
+      const owner = await createUser(db);
+      const from = await createWorkspace(db, { ownerId: owner.id, slug: `${slug}-from` });
+      const to = await createWorkspace(db, { ownerId: owner.id, slug: `${slug}-to` });
+      const page = await createPage(db, { createdById: owner.id, workspaceId: from.id });
+      return { owner, from, to, page };
+    }
+
+    it("files a page under a project in its own workspace", async () => {
+      const { owner, from, page } = await setup("pg-mv-project");
+      const project = await createProject(db, { createdById: owner.id, workspaceId: from.id });
+
+      await expect(
+        createTestCaller(owner.id).page.move({ id: page.id, workspaceId: from.id, projectId: project.id }),
+      ).resolves.toEqual({ id: page.id, workspaceSlug: from.slug });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored).toMatchObject({ workspaceId: from.id, projectId: project.id });
+    });
+
+    it("moves to another workspace and drops the page's links in both directions", async () => {
+      const { owner, from, to, page } = await setup("pg-mv-cross");
+      const caller = createTestCaller(owner.id);
+      const parent = await caller.page.create({ workspaceId: from.id, title: "Parent" });
+      const child = await caller.page.create({ workspaceId: from.id, title: "Child" });
+      await saveDoc(db, owner.id, parent.id, linkDoc(page.id));
+      await saveDoc(db, owner.id, page.id, linkDoc(child.id));
+
+      await expect(
+        caller.page.move({ id: page.id, workspaceId: to.id, projectId: null }),
+      ).resolves.toEqual({ id: page.id, workspaceSlug: to.slug });
+
+      expect(await storedLinks(db, parent.id)).toEqual([]);
+      expect(await storedLinks(db, page.id)).toEqual([]);
+      expect((await caller.page.tree({ workspaceId: to.id })).map((r) => r.id)).toEqual([page.id]);
+      expect((await caller.page.tree({ workspaceId: from.id })).map((r) => r.id)).not.toContain(page.id);
+    });
+
+    it("keeps links on a move within the workspace", async () => {
+      const { owner, from, page } = await setup("pg-mv-keep");
+      const caller = createTestCaller(owner.id);
+      const parent = await caller.page.create({ workspaceId: from.id, title: "Parent" });
+      await saveDoc(db, owner.id, parent.id, linkDoc(page.id));
+      const project = await createProject(db, { createdById: owner.id, workspaceId: from.id });
+
+      await caller.page.move({ id: page.id, workspaceId: from.id, projectId: project.id });
+      expect(await storedLinks(db, parent.id)).toEqual([page.id]);
+    });
+
+    it("rejects a project that lives in a different workspace than the target", async () => {
+      const { owner, from, to, page } = await setup("pg-mv-mismatch");
+      const elsewhere = await createProject(db, { createdById: owner.id, workspaceId: from.id });
+
+      await expect(
+        createTestCaller(owner.id).page.move({ id: page.id, workspaceId: to.id, projectId: elsewhere.id }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("needs member access to the target workspace", async () => {
+      const { owner, from, page } = await setup("pg-mv-target");
+      const stranger = await createUser(db);
+      const theirs = await createWorkspace(db, { ownerId: stranger.id, slug: "pg-mv-target-theirs" });
+      const viewerOnly = await createWorkspace(db, { ownerId: stranger.id, slug: "pg-mv-target-viewer" });
+      await addWorkspaceMember(db, viewerOnly.id, owner.id, "viewer");
+      const caller = createTestCaller(owner.id);
+
+      await expect(
+        caller.page.move({ id: page.id, workspaceId: theirs.id, projectId: null }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(
+        caller.page.move({ id: page.id, workspaceId: viewerOnly.id, projectId: null }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.workspaceId).toBe(from.id);
+    });
+
+    it("refuses to take a feature-linked page out of its workspace", async () => {
+      const { owner, from, to, page } = await setup("pg-mv-feature");
+      const product = await createProduct(db, { workspaceId: from.id, createdById: owner.id });
+      const feature = await createFeature(db, { productId: product.id, createdById: owner.id });
+      await db.featurePage.create({ data: { featureId: feature.id, pageId: page.id } });
+
+      await expect(
+        createTestCaller(owner.id).page.move({ id: page.id, workspaceId: to.id, projectId: null }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
+    it("only the owner can take an invite-only page to another workspace", async () => {
+      const { owner, from, to } = await setup("pg-mv-invite");
+      const editor = await createUser(db);
+      await addWorkspaceMember(db, from.id, editor.id, "member");
+      await addWorkspaceMember(db, to.id, editor.id, "member");
+      const page = await createPage(db, { createdById: owner.id, workspaceId: from.id, isInviteOnly: true });
+      await createTestCaller(owner.id).page.invite({ id: page.id, userIds: [editor.id], role: "editor" });
+      const project = await createProject(db, { createdById: editor.id, workspaceId: from.id });
+
+      const asEditor = createTestCaller(editor.id);
+      await expect(
+        asEditor.page.move({ id: page.id, workspaceId: to.id, projectId: null }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      // Re-filing within the workspace widens nothing, so the editor may.
+      await expect(
+        asEditor.page.move({ id: page.id, workspaceId: from.id, projectId: project.id }),
+      ).resolves.toMatchObject({ id: page.id });
+
+      await createTestCaller(owner.id).page.move({ id: page.id, workspaceId: to.id, projectId: null });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored).toMatchObject({ workspaceId: to.id, projectId: null, isInviteOnly: true });
     });
   });
 });

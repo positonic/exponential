@@ -1586,10 +1586,19 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
-      await ensurePageAccess(ctx.db, userId, page, "edit");
+      const crossWorkspace = input.workspaceId !== page.workspaceId;
+      // Taking an invite-only page out of its workspace cuts off every invitee
+      // who isn't in the new one — an unshare, which is the owner's call alone
+      // (ADR-0069). Within the workspace, placement grants nothing on such a
+      // page, so an invited editor may still re-file it under a project.
+      await ensurePageAccess(
+        ctx.db,
+        userId,
+        page,
+        crossWorkspace && page.isInviteOnly ? "manage" : "edit",
+      );
       await assertCanPlacePage(ctx.db, userId, input.workspaceId, input.projectId);
 
-      const crossWorkspace = input.workspaceId !== page.workspaceId;
       if (crossWorkspace) {
         const anchors = await ctx.db.knowledgePage.findUniqueOrThrow({
           where: { id: input.id },
