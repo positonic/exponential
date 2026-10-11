@@ -12,7 +12,7 @@ on:
 env:
   EXPO_API_URL: https://www.exponential.im
   EXPO_PRODUCT: exponential
-  EXPO_WORKSPACE: syntrofi
+  EXPO_WORKSPACE: exponential
   # Docs v2 feature; the audit tickets live under it.
   EXPO_FEATURE: cmulfe1uf0009lb04n8cffez9
 jobs:
