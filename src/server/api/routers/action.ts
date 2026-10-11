@@ -71,11 +71,11 @@ function resolveQuickCreateSource(
   viaApiKey: boolean,
 ): ActionSource {
   if (principal.kind !== "human") return actionSourceForPrincipal(principal);
-  // A person's durable x-api-key is the iOS shortcut.
-  if (viaApiKey || requested === "ios-shortcut") return "ios";
   // A person may name their own surface, but never an agent's: `agent` and
   // the gateway and voice sources say an agent wrote the row.
   if (isActionSource(requested) && !AGENT_ACTION_SOURCES.has(requested)) return requested;
+  // The legacy default, and a person's durable x-api-key, are the iOS shortcut.
+  if (viaApiKey || requested === "ios-shortcut") return "ios";
   return actionSourceForPrincipal(principal);
 }
 

@@ -2213,6 +2213,24 @@ describe("action router (mocked)", () => {
         expect(stored()).toBe("cli");
       });
 
+      it("a person's x-api-key keeps a non-agent source it names, and is ios otherwise", async () => {
+        stubAgent(false);
+        dbMock.verificationToken.findFirst.mockResolvedValue({ userId: callerId } as never);
+        const { createCaller } = await import("~/server/api/root");
+        const caller = createCaller({
+          db: dbMock,
+          session: null,
+          headers: new Headers({ "x-api-key": "k" }),
+          tokenType: undefined,
+          agentRunId: undefined,
+        } as never);
+        await caller.action.quickCreate({ name: "x", source: "meeting" });
+        expect(stored()).toBe("meeting");
+        dbMock.action.create.mockClear();
+        await caller.action.quickCreate({ name: "x", source: "agent" });
+        expect(stored()).toBe("ios");
+      });
+
       it("a shadow user behind an x-api-key is still the agent", async () => {
         stubAgent(true);
         dbMock.verificationToken.findFirst.mockResolvedValue({ userId: callerId } as never);
