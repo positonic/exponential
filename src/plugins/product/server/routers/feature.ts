@@ -714,10 +714,12 @@ export const featureRouter = createTRPCRouter({
       let syncDoc = descriptionDoc === undefined && rest.description !== undefined;
       let previousDoc: JSONContent | null = null;
       let storedDocVersion = 0;
+      let descriptionUnchanged = false;
       if (syncDoc) {
         // Re-sending the stored Markdown unchanged (agents retry-write a lot)
         // must not rewrite the doc: it would bump `docVersion` for nothing
-        // and hand every open editor tab a spurious CONFLICT.
+        // and hand every open editor tab a spurious CONFLICT. Nor is the text
+        // written back: unguarded, it would undo a save landing meanwhile.
         const current = await ctx.db.feature.findUnique({
           where: { id },
           select: { description: true, descriptionDoc: true, docVersion: true },
@@ -727,7 +729,10 @@ export const featureRouter = createTRPCRouter({
           // way the access check would have.
           throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
         }
-        if (current.description === rest.description) syncDoc = false;
+        if (current.description === rest.description) {
+          syncDoc = false;
+          descriptionUnchanged = true;
+        }
         previousDoc = current.descriptionDoc as JSONContent | null;
         storedDocVersion = current.docVersion;
       }
@@ -765,7 +770,10 @@ export const featureRouter = createTRPCRouter({
           readCurrentRevision: () => readFeatureDocVersion(ctx.db, id),
         });
       };
-      let data: Prisma.FeatureUncheckedUpdateInput = rest;
+      const { description: _unchangedDescription, ...restWithoutDescription } = rest;
+      let data: Prisma.FeatureUncheckedUpdateInput = descriptionUnchanged
+        ? restWithoutDescription
+        : rest;
       if (syncDoc) {
         try {
           data = {

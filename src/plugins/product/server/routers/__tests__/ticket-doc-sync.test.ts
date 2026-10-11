@@ -238,7 +238,9 @@ describe("ticket.update — Markdown-only body sync (mocked)", () => {
     });
 
     const data = updateData(dbMock);
-    expect(data?.body).toBe(markdown);
+    // The unchanged text isn't written back either: unguarded, it would undo
+    // a save landing between the read and this write.
+    expect(data).not.toHaveProperty("body");
     expect(data?.priority).toBe(1);
     expect(data).not.toHaveProperty("bodyDoc");
     expect(data).not.toHaveProperty("docVersion");

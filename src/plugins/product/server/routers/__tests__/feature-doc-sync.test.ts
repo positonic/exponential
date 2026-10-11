@@ -228,7 +228,9 @@ describe("feature.update — Markdown-only description sync (mocked)", () => {
     });
 
     const data = updateData(dbMock);
-    expect(data?.description).toBe(markdown);
+    // The unchanged text isn't written back either: unguarded, it would undo
+    // a save landing between the read and this write.
+    expect(data).not.toHaveProperty("description");
     expect(data?.priority).toBe(1);
     expect(data).not.toHaveProperty("descriptionDoc");
     expect(data).not.toHaveProperty("docVersion");

@@ -250,9 +250,13 @@ describe("page.update: Markdown-source writes are conflict-checked", () => {
 
     await caller.page.update({ id: PAGE_ID, body: "original", baseVersion: 1 });
 
-    expect(db.knowledgePage.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: PAGE_ID } }),
-    );
+    // No docVersion bump (open editor tabs would get a spurious CONFLICT) and
+    // no body in the write (unguarded, it could undo a concurrent save).
+    expect(store).toMatchObject({ body: "original", docVersion: 3 });
+    const call = vi.mocked(db.knowledgePage.update).mock.calls[0]?.[0];
+    expect(call?.where).toEqual({ id: PAGE_ID });
+    expect(call?.data).not.toHaveProperty("body");
+    expect(call?.data).not.toHaveProperty("docVersion");
   });
 
   it("a metadata-only update ignores baseVersion", async () => {

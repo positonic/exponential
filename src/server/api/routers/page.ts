@@ -209,8 +209,15 @@ export async function loadPageForAccess(db: PrismaClient, id: string) {
   return page;
 }
 
-/** A Page's current `docVersion`, or null when it is gone. */
-async function readPageDocVersion(db: PrismaClient, id: string): Promise<number | null> {
+/**
+ * A Page's current `docVersion`, or null when it is gone. Inside a transaction
+ * pass its `tx`: a second pooled connection could wait out the transaction
+ * timeout under contention and turn the CONFLICT into a 500.
+ */
+async function readPageDocVersion(
+  db: PrismaClient | Prisma.TransactionClient,
+  id: string,
+): Promise<number | null> {
   const row = await db.knowledgePage.findUnique({
     where: { id },
     select: { docVersion: true },
@@ -892,29 +899,36 @@ export const pageRouter = createTRPCRouter({
       // the new Markdown on next open (the same lazy migration a null bodyDoc
       // triggers) — or, when the old doc has comment marks, derive it here so
       // they can be carried across (below).
-      const markdownSourceWrite = body !== undefined && bodyDoc === undefined;
+      //
+      // Re-sending the stored Markdown unchanged (agents retry-write a lot)
+      // writes nothing to the body, as on features and tickets: rewriting it
+      // would bump `docVersion` for nothing, hand every open editor tab a
+      // spurious CONFLICT, and land unguarded however stale its base was.
+      const stored =
+        body !== undefined && bodyDoc === undefined
+          ? await ctx.db.knowledgePage.findUnique({
+              where: { id },
+              select: { bodyDoc: true, body: true, docVersion: true },
+            })
+          : null;
+      const markdownSourceWrite =
+        body !== undefined && bodyDoc === undefined && stored?.body !== body;
       // Nulling the doc would take every comment mark with it, orphaning the
       // page's anchored threads. When there are marks to keep, derive the doc
       // here instead and carry them across wherever their text survived.
       let carriedDoc: JSONContent | null = null;
       let markdownBaseVersion: number | undefined;
       if (markdownSourceWrite) {
-        const stored = await ctx.db.knowledgePage.findUnique({
-          where: { id },
-          select: { bodyDoc: true, body: true },
-        });
-        // The Markdown path is checked only when the caller sent the revision
-        // it read and the body actually changes (an unchanged re-send
-        // overwrites nothing, as on features and tickets). Fail fast here;
-        // the WHERE on docVersion below closes the race.
-        if (baseVersion !== undefined && stored?.body !== body) {
+        // The Markdown path is checked when the caller sent the revision it
+        // read. Fail fast here; the WHERE on docVersion below closes the race.
+        if (baseVersion !== undefined) {
           markdownBaseVersion = baseVersion;
           await withConflictAsTRPC(async () =>
             assertBaseRevision({
               entity: "page",
               id,
               field: "body",
-              storedRevision: page.docVersion,
+              storedRevision: stored?.docVersion ?? page.docVersion,
               baseRevision: baseVersion,
             }),
           );
@@ -942,9 +956,9 @@ export const pageRouter = createTRPCRouter({
                 : { disconnect: true },
             }
           : {}),
-        ...(body !== undefined ? { body } : {}),
         ...(markdownSourceWrite
           ? {
+              body,
               bodyDoc: carriedDoc
                 ? (carriedDoc as Prisma.InputJsonValue)
                 : Prisma.DbNull,
@@ -1036,7 +1050,7 @@ export const pageRouter = createTRPCRouter({
                   id,
                   field: "body",
                   expectedRevision: guardedBase,
-                  readCurrentRevision: () => readPageDocVersion(ctx.db, id),
+                  readCurrentRevision: () => readPageDocVersion(tx, id),
                 });
               });
             await syncPageLinks(tx, id, carriedDoc);
@@ -1046,7 +1060,7 @@ export const pageRouter = createTRPCRouter({
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
       // doesn't take the bodyDoc save path above, so cover it here too.
-      if (input.body !== undefined || input.includeInSearch !== undefined) {
+      if (markdownSourceWrite || input.includeInSearch !== undefined) {
         getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
       }
       return updated;

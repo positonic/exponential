@@ -782,6 +782,11 @@ export const ticketRouter = createTRPCRouter({
         bodyDoc === undefined &&
         rest.body !== undefined &&
         rest.body !== previousTicket.body;
+      // An unchanged re-send leaves the stored body alone rather than writing
+      // the same text back unguarded over a save that lands meanwhile.
+      if (rest.body !== undefined && bodyDoc === undefined && !syncDoc) {
+        delete data.body;
+      }
       // A Markdown write that carries the `baseVersion` it read is a
       // compare-and-set on `docVersion` (ADR-0071 change integrity): a stale
       // base leaves the ticket unchanged and returns a structured CONFLICT.
