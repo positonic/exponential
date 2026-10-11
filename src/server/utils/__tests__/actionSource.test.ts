@@ -25,19 +25,27 @@ describe("deriveActionSource", () => {
 });
 
 describe("resolveAgentActionSource", () => {
+  const zoe = (surface: PrincipalSurface): Principal => ({ kind: "agent_for_human", userId: "u-1", surface });
+
   it("passes a mapped gateway token's surface through", () => {
-    expect(resolveAgentActionSource("telegram-gateway")).toBe("telegram");
+    expect(resolveAgentActionSource(zoe("telegram"), "telegram-gateway")).toBe("telegram");
   });
 
-  it("names any non-gateway principal the agent", () => {
-    expect(resolveAgentActionSource("agent-key")).toBe("agent");
-    expect(resolveAgentActionSource("api-token")).toBe("agent");
-    expect(resolveAgentActionSource(undefined)).toBe("agent");
+  it("names the source from the principal, not the token alone", () => {
+    expect(resolveAgentActionSource(zoe("agent-context"), "agent-context")).toBe("agent");
+    expect(
+      resolveAgentActionSource(
+        { kind: "agent", userId: "s-1", agentId: "a-1", ownerId: "u-1", surface: "agent-key" },
+        "agent-key",
+      ),
+    ).toBe("agent");
+    // A person's own API token is the person, not an agent.
+    expect(resolveAgentActionSource({ kind: "human", userId: "u-1", surface: "api-token" }, "api-token")).toBe("cli");
   });
 
   it("rejects an unmapped gateway token type instead of defaulting", () => {
-    expect(() => resolveAgentActionSource("signal-gateway")).toThrow(/signal-gateway/);
-    expect(() => resolveAgentActionSource("signal-gateway")).toThrowError(
+    expect(() => resolveAgentActionSource(zoe("unknown"), "signal-gateway")).toThrow(/signal-gateway/);
+    expect(() => resolveAgentActionSource(zoe("unknown"), "signal-gateway")).toThrowError(
       expect.objectContaining({ code: "BAD_REQUEST" }),
     );
   });

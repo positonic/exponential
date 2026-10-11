@@ -2746,7 +2746,8 @@ describe("action router (mocked)", () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
 
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      // Zoe's real path: an agent-context JWT whose subject is the person.
+      const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-context" });
       const { action } = await caller.mastra.createAction({
         projectId: "p1",
         name: "Ship it",
@@ -2793,6 +2794,23 @@ describe("action router (mocked)", () => {
         status: "ACTIVE",
         createdById: callerId,
       });
+    });
+
+    it.each([
+      ["agent-context", false, "agent"], // Zoe in chat, for the person
+      ["agent-context", true, "agent"], // an Assistant run's shadow user
+      ["agent-key", false, "agent"],
+      ["api-token", false, "cli"], // a person's own token is the person, not an agent
+    ] as const)("mastra.quickCreateAction names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.user.findUnique.mockResolvedValue({ id: callerId, isAgent } as any);
+      dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Buy milk", priority: "Quick", dueDate: null, scheduledStart: null, project: null } as any);
+
+      await createGatewayCaller(tokenType).mastra.quickCreateAction({ text: "Buy milk" });
+
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source });
     });
 
     it("mastra.quickCreateAction rejects an unmapped gateway token type with BAD_REQUEST and no row", async () => {

@@ -28,21 +28,25 @@ export function deriveActionSource(
 }
 
 /**
- * The source an agent-facing procedure names for a create: a mapped gateway
- * token passes its surface; an unmapped gateway token is a bug in the
- * gateway wiring and is rejected rather than mislabelled; any other
- * principal reaching an agent tool is the agent.
+ * The source an agent-facing procedure (`mastra.createAction`,
+ * `mastra.quickCreateAction`) names for a create, from the verified principal
+ * ({@link actionSourceForPrincipal}): a gateway names its surface, Zoe and
+ * Assistant runs are the agent, and a person calling with their own
+ * credential is recorded as themselves (`cli` for an API token), never as an
+ * agent. An unmapped gateway token is a bug in the gateway wiring and is
+ * rejected rather than mislabelled.
  */
-export function resolveAgentActionSource(tokenType: string | undefined): ActionSource {
-  const mapped = deriveActionSource(tokenType);
-  if (mapped) return mapped;
-  if (tokenType?.endsWith("-gateway")) {
+export function resolveAgentActionSource(
+  principal: Principal,
+  tokenType: string | undefined,
+): ActionSource {
+  if (tokenType?.endsWith("-gateway") && !deriveActionSource(tokenType)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `Unknown gateway token type "${tokenType}": no Action source is mapped for it`,
     });
   }
-  return "agent";
+  return actionSourceForPrincipal(principal);
 }
 
 /** Surfaces a person reaches the API through, by the action source they name. */
