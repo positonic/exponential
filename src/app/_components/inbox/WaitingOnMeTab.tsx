@@ -222,7 +222,7 @@ export function WaitingOnMeTab() {
       <section className="wsa-card">
         <p className="wsa-feed__empty">
           Nothing is waiting on you — no open decisions, drafts to review, QA
-          tickets, overdue actions or questions from your assistant.
+          tickets, overdue actions or questions from an assistant.
         </p>
       </section>
     );
@@ -231,7 +231,7 @@ export function WaitingOnMeTab() {
   return (
     <section className="wsa-card">
       <Section
-        label="Your assistant asked"
+        label="Assistants asked you"
         shown={data.assistantQuestions.length}
         total={counts.assistantQuestions}
       >
