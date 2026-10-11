@@ -160,6 +160,15 @@ describe("agentGuidance.context", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("loads no project scope, and no error, for a legacy project with no workspace", async () => {
+    withWorkspace(db, "Weekly review on Fridays.");
+    db.project.findFirst.mockResolvedValue({ ...PROJECT, workspaceId: null, aiInstructions: "Legacy." } as never);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.project).toBeNull();
+    expect(context.instructions.map((i) => i.scope)).toEqual(["workspace"]);
+    expect(context.assembled).not.toContain("Legacy.");
+  });
+
   it("gives no project text for a spoofed project the caller can't see", async () => {
     withWorkspace(db, "Weekly review on Fridays.");
     db.project.findFirst.mockResolvedValue(null);
@@ -209,6 +218,18 @@ describe("loadScopeInstructions (the chat route's fetch)", () => {
     expect(loaded).toEqual({ workspace: null, project: null });
     expect(db.workspaceUser.findFirst).not.toHaveBeenCalled();
     expect(db.project.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("does not reject a workspace-less legacy project in a workspace context (the chat route's 400)", async () => {
+    withWorkspace(db, null);
+    withProject(db, "Legacy.", { workspaceId: null as unknown as string });
+    const loaded = await loadScopeInstructions(db as unknown as PrismaClient, {
+      userId: USER_ID,
+      workspaceId: WS.id,
+      projectId: PROJECT.id,
+    });
+    expect(loaded.project).toBeNull();
+    expect(loaded.workspace?.id).toBe(WS.id);
   });
 
   it("keeps a project-only scope (no workspace) working", async () => {

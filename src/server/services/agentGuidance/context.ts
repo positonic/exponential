@@ -43,7 +43,9 @@ export interface LoadedScopeInstructions {
  * - The workspace requires direct membership, else FORBIDDEN.
  * - The project is read through `buildProjectAccessWhere`, so a spoofed or
  *   inaccessible `projectId` yields no project (and no text).
- * - A visible project that is not in `workspaceId` is BAD_REQUEST.
+ * - A visible project in a different workspace than `workspaceId` is
+ *   BAD_REQUEST. A legacy project with no workspace is not an error, but
+ *   loads no project scope when a workspace is given.
  */
 export async function loadScopeInstructions(
   db: PrismaClient,
@@ -69,10 +71,14 @@ export async function loadScopeInstructions(
       where: { id: opts.projectId, ...buildProjectAccessWhere(opts.userId) },
       select: { id: true, name: true, workspaceId: true, aiInstructions: true },
     });
-    if (row && opts.workspaceId && row.workspaceId !== opts.workspaceId) {
+    if (row && opts.workspaceId && row.workspaceId && row.workspaceId !== opts.workspaceId) {
       throw new TRPCError({ code: "BAD_REQUEST", message: PROJECT_NOT_IN_WORKSPACE_MESSAGE });
     }
-    project = row ? { id: row.id, name: row.name, aiInstructions: row.aiInstructions } : null;
+    // A legacy project with no workspace, opened in a workspace context, is
+    // not an error (chat must keep working), but it isn't in this workspace's
+    // scope either, so it contributes no instructions.
+    const isOutsideWorkspace = !!opts.workspaceId && row?.workspaceId == null;
+    project = row && !isOutsideWorkspace ? { id: row.id, name: row.name, aiInstructions: row.aiInstructions } : null;
   }
 
   return { workspace, project };
