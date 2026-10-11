@@ -161,19 +161,25 @@ BEGIN
       SELECT "id", "status" FROM "AgentRun"
       WHERE "agentId" = old_agent AND "status" IN ('QUEUED', 'RUNNING', 'WAITING_ON_OWNER')
     LOOP
+      -- Guarded on the status read, as `retireAssistant` is: a run that
+      -- finished meanwhile (the app is live during the migration) keeps its
+      -- result, and gets no event.
       UPDATE "AgentRun"
       SET "status" = 'CANCELLED', "finishedAt" = now(), "lastEventAt" = now()
-      WHERE "id" = run."id";
+      WHERE "id" = run."id" AND "status" = run."status";
+      GET DIAGNOSTICS n = ROW_COUNT;
 
-      INSERT INTO "AgentRunEvent" ("id", "runId", "seq", "kind", "payload")
-      VALUES (
-        replace(gen_random_uuid()::text, '-', ''),
-        run."id",
-        COALESCE((SELECT max(e."seq") FROM "AgentRunEvent" e WHERE e."runId" = run."id"), 0) + 1,
-        'status',
-        jsonb_build_object('status', 'CANCELLED', 'by', 'assistant-retired', 'was', run."status"::text)
-      );
-      runs_cancelled := runs_cancelled + 1;
+      IF n = 1 THEN
+        INSERT INTO "AgentRunEvent" ("id", "runId", "seq", "kind", "payload")
+        VALUES (
+          replace(gen_random_uuid()::text, '-', ''),
+          run."id",
+          COALESCE((SELECT max(e."seq") FROM "AgentRunEvent" e WHERE e."runId" = run."id"), 0) + 1,
+          'status',
+          jsonb_build_object('status', 'CANCELLED', 'by', 'assistant-retired', 'was', run."status"::text)
+        );
+        runs_cancelled := runs_cancelled + 1;
+      END IF;
     END LOOP;
 
     retired := retired + 1;
