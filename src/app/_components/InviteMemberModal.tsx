@@ -273,7 +273,9 @@ export function InviteMemberModal({
                   return;
                 }
                 const user = options.find((u) => u.id === value);
-                if (user) {
+                if (user && !user.email) {
+                  setError("This user has no email address and can't be invited.");
+                } else if (user) {
                   setSelectedUser(user);
                   setSearchValue(user.email ?? "");
                   setError(null);
