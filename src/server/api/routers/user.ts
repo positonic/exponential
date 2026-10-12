@@ -65,6 +65,10 @@ export const userRouter = createTRPCRouter({
             { name: { contains: input.query, mode: 'insensitive' } },
           ],
           id: { not: ctx.session.user.id },
+          // Every caller adds the picked user by email; Assistants and External
+          // agents are emailless shadow principals (ADR-0049) granted access
+          // from their own settings, so they can never be added this way.
+          isAgent: false,
           ...(input.excludeTeamId ? {
             teams: { none: { teamId: input.excludeTeamId } },
           } : {}),
