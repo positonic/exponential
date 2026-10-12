@@ -249,9 +249,10 @@ export function MeetingCardList({
       {groups.map((group) => (
         <div
           key={group.key}
-          className="grid grid-cols-[84px_minmax(0,1fr)] gap-5"
+          className="grid grid-cols-1 gap-2.5 sm:grid-cols-[84px_minmax(0,1fr)] sm:gap-5"
         >
-          <div className="sticky top-4 self-start pt-1.5">
+          {/* Phones: the day label sits above its cards rather than in a gutter */}
+          <div className="flex items-baseline gap-2 self-start sm:sticky sm:top-4 sm:block sm:pt-1.5">
             <div className="text-sm font-semibold tracking-tight text-text-primary">
               {group.dayLabel}
             </div>
@@ -311,7 +312,7 @@ export function MeetingCardList({
                       navigateToDetail();
                     }
                   }}
-                  className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-[18px] py-4 transition-colors hover:border-border-strong hover:bg-background-elevated"
+                  className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-3.5 py-4 sm:px-[18px] transition-colors hover:border-border-strong hover:bg-background-elevated"
                 >
                   {/* Checkbox + ceremony icon gutter; the title row and AI summary share one column so the summary lines up with the title */}
                   <div className="flex items-start gap-3">
@@ -335,8 +336,9 @@ export function MeetingCardList({
                       kind={session.occurrence?.ceremony.kind}
                     />
                     <div className="min-w-0 flex-1">
-                  <div className="mb-3 flex items-start gap-3">
-                    <div className="min-w-0 flex-1">
+                  {/* Phones: time / project / avatars wrap under the title instead of squeezing it */}
+                  <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+                    <div className="w-full min-w-0 sm:w-auto sm:flex-1">
                       <Link
                         href={detailHref}
                         onClick={stopBubble}
@@ -362,7 +364,7 @@ export function MeetingCardList({
                         )}
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-start gap-3">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:shrink-0 sm:flex-nowrap sm:items-start sm:gap-3">
                       {time && (
                         <div className="whitespace-nowrap text-xs leading-[22px] tabular-nums text-text-muted">
                           {time}
@@ -426,7 +428,7 @@ export function MeetingCardList({
                       {/* Kebab — on-hover surface */}
                       <div
                         onClick={stopBubble}
-                        className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                        className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 sm:ml-0 [@media(hover:none)]:opacity-100"
                       >
                         <Menu shadow="md" position="bottom-end">
                           <Menu.Target>

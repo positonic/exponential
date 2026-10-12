@@ -193,9 +193,10 @@ export function SettingsSection({
 }) {
   return (
     <div className="mb-[18px] w-full rounded-[10px] border border-border-primary bg-background-secondary">
-      <div className="flex items-start justify-between gap-3.5 border-b border-border-primary px-[22px] pt-[18px] pb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2.5 text-[15px] font-semibold tracking-[-0.005em] text-text-primary">
+      {/* Phones: the action drops under the title so the description gets the full width */}
+      <div className="flex flex-col items-start gap-3 border-b border-border-primary px-4 pt-4 pb-3 sm:flex-row sm:justify-between sm:gap-3.5 sm:px-[22px] sm:pt-[18px]">
+        <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[15px] font-semibold tracking-[-0.005em] text-text-primary">
             {Icon && (
               <span className="grid h-[26px] w-[26px] place-items-center rounded-[7px] bg-surface-tertiary text-text-secondary">
                 <Icon size={14} />
@@ -216,7 +217,7 @@ export function SettingsSection({
         </div>
         {action}
       </div>
-      <div className={flush ? '' : 'px-[22px] pt-4 pb-[18px]'}>{children}</div>
+      <div className={flush ? '' : 'px-4 pt-4 pb-[18px] sm:px-[22px]'}>{children}</div>
     </div>
   );
 }

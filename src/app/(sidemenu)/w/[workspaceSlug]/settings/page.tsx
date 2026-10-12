@@ -957,18 +957,20 @@ export default function WorkspaceSettingsPage() {
               }
               flush
             >
+              {/* Phones: three columns (member, role, actions) and positions
+                  move under the member's name, so the role isn't cut off. */}
               <div
-                className={`grid px-2 pt-3 text-[13px] ${
+                className={`grid grid-cols-[minmax(0,1fr)_auto_auto] px-0 pt-3 text-[13px] sm:px-2 ${
                   isPersonalWorkspace
-                    ? 'grid-cols-[1fr_140px_auto]'
-                    : 'grid-cols-[1fr_1fr_140px_auto]'
+                    ? 'sm:grid-cols-[minmax(0,1fr)_140px_auto]'
+                    : 'sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px_auto]'
                 }`}
               >
                 <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
                   Member
                 </div>
                 {!isPersonalWorkspace && (
-                  <div className="border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted">
+                  <div className="hidden border-b border-border-primary px-3.5 pb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-text-muted sm:block">
                     Positions
                   </div>
                 )}
@@ -989,10 +991,10 @@ export default function WorkspaceSettingsPage() {
                         {member.user.name?.charAt(0).toUpperCase() ?? 'U'}
                       </Avatar>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 text-[13px] font-medium text-text-primary truncate">
-                          {member.user.name ?? 'Unknown'}
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] font-medium text-text-primary">
+                          <span className="max-w-full truncate">{member.user.name ?? 'Unknown'}</span>
                           {member.user.isAgent && (
-                            <span className="inline-flex items-center gap-0.5 rounded border border-border-primary px-1 text-[10px] font-normal text-text-muted">
+                            <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-border-primary px-1 text-[10px] font-normal text-text-muted">
                               <IconRobotFace size={10} aria-hidden="true" />
                               agent
                             </span>
@@ -1001,11 +1003,20 @@ export default function WorkspaceSettingsPage() {
                         <div className="text-[11.5px] text-text-muted truncate">
                           {member.user.email}
                         </div>
+                        {!isPersonalWorkspace && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1 empty:hidden sm:hidden">
+                            <MemberPositionsCell
+                              held={memberPositions.get(member.userId)}
+                              isAgent={member.user.isAgent}
+                              withTestIds={false}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                     {!isPersonalWorkspace && (
                       <div
-                        className="flex flex-wrap items-center gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated"
+                        className="hidden flex-wrap items-center gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated sm:flex"
                         data-testid="member-positions"
                       >
                         <MemberPositionsCell
@@ -1014,7 +1025,7 @@ export default function WorkspaceSettingsPage() {
                         />
                       </div>
                     )}
-                    <div className="flex items-center border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                    <div className="flex items-center border-b border-border-primary px-2 py-2.5 sm:px-3.5 group-hover:bg-background-elevated">
                       <SettingsPill
                         variant={
                           member.role === 'owner'
@@ -1027,7 +1038,7 @@ export default function WorkspaceSettingsPage() {
                         {member.role}
                       </SettingsPill>
                     </div>
-                    <div className="flex items-center justify-end gap-1 border-b border-border-primary px-3.5 py-2.5 group-hover:bg-background-elevated">
+                    <div className="flex items-center justify-end gap-1 border-b border-border-primary px-2 py-2.5 sm:px-3.5 group-hover:bg-background-elevated">
                       {userRole === 'owner' && member.role !== 'owner' && (
                         <Tooltip label="Edit role">
                           <ActionIcon
@@ -1946,9 +1957,12 @@ function FeatureRow({
 function MemberPositionsCell({
   held,
   isAgent,
+  withTestIds = true,
 }: {
   held: { titles: string[]; remitGap: boolean } | undefined;
   isAgent: boolean;
+  /** Off for the phone-only copy, so each test id stays unique on the page. */
+  withTestIds?: boolean;
 }) {
   if (!held) return null;
   if (held.remitGap) {
@@ -1957,7 +1971,7 @@ function MemberPositionsCell({
       : "No Position — Zoe can't route work here";
     return (
       <Tooltip label={label}>
-        <span className="inline-flex text-brand-warning" data-testid="remit-gap" aria-label={label}>
+        <span className="inline-flex text-brand-warning" data-testid={withTestIds ? "remit-gap" : undefined} aria-label={label}>
           <IconAlertTriangle size={14} />
         </span>
       </Tooltip>

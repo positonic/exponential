@@ -10,6 +10,11 @@
 
 .viewTabs {
   display: inline-flex;
+  /* Scrolls sideways when the row is too narrow (phones) instead of pushing
+     the actions off-screen. */
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
   gap: 2px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-primary);
@@ -18,6 +23,7 @@
 }
 
 .viewTab {
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -45,8 +51,29 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
+.viewTabs::-webkit-scrollbar {
+  display: none;
+}
+
 .actions {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .topBar {
+    padding: 10px 16px;
+  }
+
+  /* Phones: only the open view keeps its label, so all four fit beside the
+     actions; the others are icons (named via aria-label). */
+  .viewTab[data-active='false'] {
+    padding: 5px 9px;
+  }
+
+  .viewTab[data-active='false'] .viewTabLabel {
+    display: none;
+  }
 }

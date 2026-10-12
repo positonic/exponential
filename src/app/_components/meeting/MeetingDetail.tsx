@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -102,6 +102,21 @@ export function MeetingDetail({
   useEffect(() => {
     setTab(urlTab);
   }, [urlTab]);
+
+  // On a phone the tab row scrolls sideways; keep the open tab in view (e.g. a
+  // shared `?tab=screenshots` link). scrollLeft, not scrollIntoView: the latter
+  // also scrolls the page's overflow-hidden ancestors.
+  const tabsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = tabsRef.current;
+    const on = nav?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!nav || !on) return;
+    const navBox = nav.getBoundingClientRect();
+    const tabBox = on.getBoundingClientRect();
+    // 32px clears the right-edge fade (.mp-tabs mask on phones).
+    if (tabBox.left < navBox.left) nav.scrollLeft -= navBox.left - tabBox.left;
+    else if (tabBox.right > navBox.right - 32) nav.scrollLeft += tabBox.right - navBox.right + 32;
+  }, [tab]);
 
   function selectTab(next: MeetingTab) {
     if (next === tab) return;
@@ -429,7 +444,7 @@ export function MeetingDetail({
           }
         />
 
-        <nav className="mp-tabs" role="tablist" aria-label="Meeting sections">
+        <nav ref={tabsRef} className="mp-tabs" role="tablist" aria-label="Meeting sections">
           <button
             role="tab"
             aria-selected={tab === "summary"}
