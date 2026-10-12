@@ -95,6 +95,22 @@
 .mp-btn--primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
 .mp-btn:disabled { opacity: 0.6; cursor: default; }
 
+/* Phones: the title gets the full width and the actions drop beneath it as
+   compact buttons, rather than squeezing the title into a sliver beside them. */
+@media (max-width: 640px) {
+  .mp-head { padding: 26px 16px 0; }
+  .mp-titlebar { flex-direction: column; gap: 14px; }
+  .mp-titlebar__main { width: 100%; }
+  .mp-title { font-size: 22px; align-items: flex-start; }
+  .mp-title__text { overflow-wrap: anywhere; }
+  .mp-title__edit { margin-top: -2px; }
+  .mp-head-actions { flex-wrap: wrap; gap: 6px; }
+  .mp-head-actions .mp-btn { height: 28px; padding: 0 10px; font-size: 12px; gap: 5px; }
+  .mp-tabs { padding: 0 8px; overflow-x: auto; scrollbar-width: none; }
+  .meeting-detail .mp-tabs::-webkit-scrollbar { display: none; }
+  .mp-tab { flex-shrink: 0; }
+}
+
 /* ============ TABS ============ */
 .mp-tabs {
   display: flex; align-items: center; gap: 2px; margin-top: 22px; padding: 0 34px;
