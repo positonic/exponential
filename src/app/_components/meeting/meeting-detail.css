@@ -99,6 +99,7 @@
    compact buttons, rather than squeezing the title into a sliver beside them. */
 @media (max-width: 640px) {
   .mp-head { padding: 26px 16px 0; }
+  .mp-crumb { margin-left: 36px; } /* clear the mobile nav's hamburger, which shares this row */
   .mp-titlebar { flex-direction: column; gap: 14px; }
   .mp-titlebar__main { width: 100%; }
   .mp-title { font-size: 22px; align-items: flex-start; }

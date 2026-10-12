@@ -871,7 +871,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
               </span>
             </Text>
           </div>
-          <Group gap="xs" wrap="nowrap" className="shrink-0">
+          <Group gap="xs" wrap="wrap" className="min-w-0 max-w-full">
             {firstFireflies ? (
               <button
                 type="button"
@@ -937,9 +937,14 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       <div className="min-w-0 flex-1">
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Stack gap="lg" align="stretch" justify="flex-start">
-            {/* Toolbar: tabs (left) + search and filter (right) inline */}
-            <Group justify="space-between" align="center" wrap="nowrap" gap="sm">
-              <Tabs.List style={{ borderBottom: 0 }}>
+            {/* Toolbar: tabs, then search and filters beneath. Seven tabs plus
+                the filters never fit one row beside the right rail, so the tab
+                row scrolls sideways rather than clipping. */}
+            <div className="flex flex-col gap-3">
+              <Tabs.List
+                className="min-w-0"
+                style={{ borderBottom: 0, flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none" }}
+              >
                 {[
                   { value: "all", label: "All", count: allCount },
                   { value: "mine", label: "Mine", count: mineCount },
@@ -951,7 +956,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 ].map((t) => {
                   const isActive = activeTab === t.value;
                   return (
-                    <Tabs.Tab key={t.value} value={t.value}>
+                    <Tabs.Tab key={t.value} value={t.value} className="shrink-0">
                       <span className="inline-flex items-center gap-2">
                         <span>{t.label}</span>
                         <span
@@ -968,11 +973,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   );
                 })}
               </Tabs.List>
-              <Group gap={6} wrap="nowrap" className="shrink-0">
+              <div className="flex w-full items-center gap-1.5">
                 {workspaceId && ceremonies.length > 0 && (
                   <Select
                     size="xs"
-                    className="w-[200px]"
+                    className="min-w-0 flex-1 md:w-[200px] md:flex-none"
                     styles={{ input: { height: 30, minHeight: 30 } }}
                     placeholder="All ceremonies"
                     aria-label="Filter by ceremony"
@@ -989,10 +994,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   placeholder="Search transcripts, people, topics..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                  rightSection={<Kbd className="mr-2 text-[10px]">⌘K</Kbd>}
+                  rightSection={<Kbd className="mr-2 text-[10px] [@media(hover:none)]:hidden">⌘K</Kbd>}
                   rightSectionWidth={44}
                   size="xs"
-                  className="w-[280px]"
+                  className="min-w-0 flex-1"
                   styles={{ input: { height: 30 } }}
                 />
                 <Menu shadow="md" position="bottom-end" width={240}>
@@ -1042,8 +1047,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 >
                   <IconSparkles size={14} className="text-accent-meetings" />
                 </ActionIcon>
-              </Group>
-            </Group>
+              </div>
+            </div>
 
             {/* Content Area */}
             {/*
