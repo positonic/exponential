@@ -106,9 +106,6 @@
   .mp-title__edit { margin-top: -2px; }
   .mp-head-actions { flex-wrap: wrap; gap: 6px; }
   .mp-head-actions .mp-btn { height: 28px; padding: 0 10px; font-size: 12px; gap: 5px; }
-  .mp-tabs { padding: 0 8px; overflow-x: auto; scrollbar-width: none; }
-  .meeting-detail .mp-tabs::-webkit-scrollbar { display: none; }
-  .mp-tab { flex-shrink: 0; }
 }
 
 /* ============ TABS ============ */
@@ -125,6 +122,12 @@
 .mp-tab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; background: var(--brand-400); border-radius: 2px 2px 0 0; }
 .mp-tab__count { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: var(--color-surface-muted); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .mp-tab.on .mp-tab__count { background: var(--mp-brand-14); color: var(--brand-400); }
+/* Phones: the tab row scrolls sideways instead of clipping its last tabs. */
+@media (max-width: 640px) {
+  .mp-tabs { padding: 0 8px; overflow-x: auto; scrollbar-width: none; }
+  .meeting-detail .mp-tabs::-webkit-scrollbar { display: none; }
+  .mp-tab { flex-shrink: 0; }
+}
 
 /* ============ BODY (two-column grid, independent scroll) ============ */
 .mp-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 312px; min-height: 0; overflow: hidden; }
