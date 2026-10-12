@@ -119,14 +119,21 @@
 }
 .mp-tab:hover { color: var(--color-text-primary); }
 .mp-tab.on { color: var(--color-text-primary); }
-.mp-tab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; background: var(--brand-400); border-radius: 2px 2px 0 0; }
+.mp-tab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 2px; background: var(--brand-400); border-radius: 2px 2px 0 0; }
 .mp-tab__count { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: var(--color-surface-muted); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .mp-tab.on .mp-tab__count { background: var(--mp-brand-14); color: var(--brand-400); }
-/* Phones: the tab row scrolls sideways instead of clipping its last tabs. */
+/* The tab row scrolls sideways rather than clipping its last tabs. */
+.mp-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.meeting-detail .mp-tabs::-webkit-scrollbar { display: none; }
+.mp-tab { flex-shrink: 0; }
+/* Phones: fade the right edge so the hidden tabs read as "scroll for more";
+   the end padding lets the last tab clear the fade once scrolled to. */
 @media (max-width: 640px) {
-  .mp-tabs { padding: 0 8px; overflow-x: auto; scrollbar-width: none; }
-  .meeting-detail .mp-tabs::-webkit-scrollbar { display: none; }
-  .mp-tab { flex-shrink: 0; }
+  .mp-tabs {
+    padding: 0 32px 0 8px;
+    -webkit-mask-image: linear-gradient(90deg, var(--color-text-primary) calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, var(--color-text-primary) calc(100% - 32px), transparent);
+  }
 }
 
 /* ============ BODY (two-column grid, independent scroll) ============ */
