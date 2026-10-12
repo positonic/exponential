@@ -58,9 +58,11 @@ export function ProductsViewTabs({ actions }: ProductsViewTabsProps) {
             href={`${prefix}${path}`}
             className={styles.viewTab}
             data-active={activeTab === value ? 'true' : 'false'}
+            aria-label={label}
+            title={label}
           >
             <Icon size={13} stroke={1.75} />
-            {label}
+            <span className={styles.viewTabLabel}>{label}</span>
           </Link>
         ))}
       </nav>
