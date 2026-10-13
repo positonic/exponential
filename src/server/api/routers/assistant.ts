@@ -5,12 +5,10 @@ import { TRPCError } from "@trpc/server";
 import { blankToNull } from "~/server/utils/blankToNull";
 import type { PrismaClient } from "@prisma/client";
 import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
-import {
-  createAssistantPrincipal,
-  deleteExternalAgentPrincipal,
-  renameAssistantPrincipal,
-} from "~/server/services/assistant/principal";
-import { deleteFromBlob } from "~/lib/blob";
+import { ensureAssistantForUser } from "~/server/services/assistant/ensureAssistant";
+import { resolveAssistantForUser } from "~/server/services/assistant/resolveAssistant";
+import { renameAssistantPrincipal } from "~/server/services/assistant/principal";
+import { retireAssistant } from "~/server/services/assistant/retire";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 
 /** Same ceiling as `externalAgent.createKey`: an Assistant's principal is an External agent. */
@@ -63,8 +61,10 @@ async function getOwnedAssistantOrThrow(
   id: string,
   userId: string,
 ) {
+  // A retired Assistant (ADR-0072) is gone as far as its person's API goes:
+  // it cannot be edited or given a runner key again.
   const assistant = await db.assistant.findFirst({
-    where: { id, createdById: userId },
+    where: { id, createdById: userId, retiredAt: null },
     include: ASSISTANT_PRINCIPAL_INCLUDE,
   });
   if (!assistant) {
@@ -74,7 +74,11 @@ async function getOwnedAssistantOrThrow(
 }
 
 export const assistantRouter = createTRPCRouter({
-  /** Create a new assistant owned by the calling user */
+  /**
+   * Personalise the calling user's Assistant for the first time — the
+   * "persona save" first need (ADR-0072). A person has at most one Assistant,
+   * so this refuses when they already have one: edit it with `update`.
+   */
   create: humanOnlyProcedure
     .input(
       z.object({
@@ -84,43 +88,32 @@ export const assistantRouter = createTRPCRouter({
         personality: z.string().min(1).max(10000),
         instructions: z.string().max(10000).optional(),
         userContext: z.string().max(5000).optional(),
+        /** Ignored: a person's only Assistant is always their default (ADR-0072). */
         isDefault: z.boolean().optional().default(false),
       })
     )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ input, ctx }) => {
-      const { workspaceId, isDefault, ...data } = input;
+      const { workspaceId, isDefault: _isDefault, ...persona } = input;
       const userId = ctx.session.user.id;
 
-      // Unset only *this user's* existing default — never a co-member's.
-      if (isDefault) {
-        await ctx.db.assistant.updateMany({
-          where: { workspaceId, createdById: userId, isDefault: true },
-          data: { isDefault: false },
+      const existing = await resolveAssistantForUser(ctx.db, userId);
+      if (existing) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `You already have an Assistant, ${existing.name}. One Assistant works across all your workspaces.`,
         });
       }
 
-      // An Assistant is a principal (ADR-0067): shadow user → External agent →
-      // workspace membership → Assistant, in one transaction so a half-made
-      // Assistant can never exist. `requireWorkspaceMembership("edit")` above
-      // already guarantees the owner is a non-viewer member, which is the
-      // delegation-invariant precondition for the membership row.
-      return ctx.db.$transaction(async (tx) => {
-        const { externalAgentId } = await createAssistantPrincipal(tx, {
-          name: data.name,
-          ownerId: userId,
-          workspaceId,
-        });
-        return tx.assistant.create({
-          data: {
-            ...data,
-            workspaceId,
-            createdById: userId,
-            isDefault,
-            externalAgentId,
-          },
-        });
+      // An Assistant is a principal (ADR-0067), created in one transaction.
+      // `requireWorkspaceMembership("edit")` above already guarantees the
+      // owner is a non-viewer member, which is the delegation-invariant
+      // precondition for the membership row.
+      const { assistant } = await ensureAssistantForUser(ctx.db, userId, {
+        workspaceId,
+        ...persona,
       });
+      return assistant;
     }),
 
   /** Update an assistant owned by the calling user */
@@ -209,6 +202,7 @@ export const assistantRouter = createTRPCRouter({
         where: {
           workspaceId: input.workspaceId,
           createdById: ctx.session.user.id,
+          retiredAt: null,
         },
         orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
       });
@@ -224,6 +218,7 @@ export const assistantRouter = createTRPCRouter({
           workspaceId: input.workspaceId,
           createdById: ctx.session.user.id,
           isDefault: true,
+          retiredAt: null,
         },
         include: ASSISTANT_PRINCIPAL_INCLUDE,
       });
@@ -238,25 +233,18 @@ export const assistantRouter = createTRPCRouter({
   }),
 
   /**
-   * Delete an assistant owned by the calling user — and its principal. The
-   * Assistant row itself goes with the External agent (FK cascade); the shadow
-   * user is kept when it authored content, so attribution survives (ADR-0067).
+   * "Delete" the calling user's Assistant: it is **retired**, never deleted
+   * (ADR-0072). Deleting its External agent would cascade-delete every Agent
+   * run it performed (`AgentRun.agentId` is `onDelete: Cascade`); retiring it
+   * keeps the principal, so its history stays attributed, while revoking its
+   * keys and memberships, unassigning it from open Actions and stopping its
+   * runs. The person may then create a new Assistant.
    */
   delete: humanOnlyProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const assistant = await getOwnedAssistantOrThrow(ctx.db, input.id, ctx.session.user.id);
-      const agent = await ctx.db.externalAgent.findUnique({
-        where: { id: assistant.externalAgentId },
-        select: { id: true, shadowUserId: true, shadowUser: { select: { image: true } } },
-      });
-      if (!agent) {
-        return ctx.db.assistant.delete({ where: { id: input.id } });
-      }
-      const result = await deleteExternalAgentPrincipal(ctx.db, agent);
-      if (result.orphanedImage) {
-        await deleteFromBlob(result.orphanedImage).catch(() => undefined);
-      }
+      await retireAssistant(ctx.db, { assistantId: assistant.id });
       return assistant;
     }),
 

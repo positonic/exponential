@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-10-09. Builds on [ADR-0049](0049-external-agents-first-class-principals.md)
+Accepted — 2026-10-09. **§1 and §3 superseded by
+[ADR-0072](0072-one-assistant-per-person.md)** (2026-10-11): an Assistant is one per person,
+not one per workspace, and an extra one is retired, never deleted. Builds on [ADR-0049](0049-external-agents-first-class-principals.md)
 (External agents as principals), [ADR-0061](0061-time-entries-belong-to-the-owner.md)
 (agent-authored time) and [ADR-0016](0016-agent-activity-writes-reuse-human-path.md)
 (Zoe acts as the user with draft-and-confirm — unchanged by this ADR).
