@@ -236,8 +236,9 @@ export function SettingsField({
   mono?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[200px_1fr_auto] items-center gap-4 border-t border-border-primary py-3 first:border-t-0 first:pt-0.5">
-      <div className="text-[12.5px] font-medium text-text-secondary">
+    // Phones: the label takes its own row so the value + action get the full width
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-t border-border-primary py-3 first:border-t-0 first:pt-0.5 sm:grid-cols-[200px_minmax(0,1fr)_auto]">
+      <div className="col-span-2 text-[12.5px] font-medium text-text-secondary sm:col-span-1">
         {label}
         {sublabel && (
           <span className="block mt-0.5 text-[11px] font-normal text-text-muted">
@@ -247,12 +248,12 @@ export function SettingsField({
       </div>
       <div
         className={`min-w-0 text-[13px] text-text-primary ${
-          mono ? 'font-mono text-[12.5px] text-text-secondary' : ''
-        }`}
+          action ? '' : 'col-span-2 sm:col-span-1'
+        } ${mono ? 'font-mono text-[12.5px] text-text-secondary break-all' : ''}`}
       >
         {children}
       </div>
-      <div className="flex justify-end">{action}</div>
+      <div className={`${action ? 'flex' : 'hidden sm:flex'} justify-end`}>{action}</div>
     </div>
   );
 }
