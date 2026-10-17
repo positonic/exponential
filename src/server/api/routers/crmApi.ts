@@ -9,6 +9,10 @@ import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { emailHashFor } from "~/server/services/crm/createCrmContact";
 import { RETIRED_PIPELINE_STATUSES } from "~/server/services/crm/pipelineDefaults";
 import {
+  createPipelineProject,
+  requireStageOnPipeline,
+} from "~/server/services/crm/pipelines";
+import {
   dispatchContactEnrichment,
   enqueueContactEnrichment,
 } from "~/server/services/crm/enrichment/dispatchContactEnrichment";
@@ -687,6 +691,24 @@ export const crmApiRouter = createTRPCRouter({
       return visible;
     }),
 
+  // Create a new pipeline (ADR-0033: a workspace holds many), seeded with the
+  // default stages. Same logic as the web app's pipeline.create.
+  pipelineCreate: apiKeyMiddleware
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        name: z.string().trim().min(1).max(120),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await verifyWorkspaceAccess(ctx.db, input.workspaceId, ctx.userId);
+      return createPipelineProject(ctx.db, {
+        workspaceId: input.workspaceId,
+        name: input.name,
+        createdById: ctx.userId,
+      });
+    }),
+
   pipelineGet: apiKeyMiddleware
     .input(
       z.object({ workspaceId: z.string(), pipelineId: z.string().optional() }),
@@ -813,6 +835,9 @@ export const crmApiRouter = createTRPCRouter({
         ctx.userId,
         input.pipelineId,
       );
+      // The stage must be on the pipeline the deal is created in, otherwise
+      // the deal would be listed on one board but placed in another's column.
+      await requireStageOnPipeline(ctx.db, input.stageId, pipeline.id);
 
       // Position at end of stage
       const lastDeal = await ctx.db.deal.findFirst({
@@ -917,6 +942,11 @@ export const crmApiRouter = createTRPCRouter({
         id: z.string(),
         stageId: z.string(),
         stageOrder: z.number().int().min(0),
+        // Move to another pipeline in the deal's workspace. Without it the
+        // stage must be on the deal's current pipeline: a stage from another
+        // board is rejected instead of leaving the deal listed on one
+        // pipeline but placed in another's column.
+        pipelineId: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -929,9 +959,26 @@ export const crmApiRouter = createTRPCRouter({
       }
       await verifyWorkspaceAccess(ctx.db, oldDeal.workspaceId, ctx.userId);
 
-      const newStage = await ctx.db.pipelineStage.findUniqueOrThrow({
-        where: { id: input.stageId },
-      });
+      // A target pipeline must be in the deal's workspace and visible to the
+      // caller (getPipelineForWorkspace checks both).
+      const targetPipelineId =
+        input.pipelineId && input.pipelineId !== oldDeal.projectId
+          ? (
+              await getPipelineForWorkspace(
+                ctx.db,
+                oldDeal.workspaceId,
+                ctx.userId,
+                input.pipelineId,
+              )
+            ).id
+          : oldDeal.projectId;
+      const isPipelineChange = targetPipelineId !== oldDeal.projectId;
+
+      const newStage = await requireStageOnPipeline(
+        ctx.db,
+        input.stageId,
+        targetPipelineId,
+      );
 
       const isStageChange = oldDeal.stageId !== input.stageId;
       const isTerminal = newStage.type === "won" || newStage.type === "lost";
@@ -939,6 +986,7 @@ export const crmApiRouter = createTRPCRouter({
       const deal = await ctx.db.deal.update({
         where: { id: input.id },
         data: {
+          ...(isPipelineChange ? { projectId: targetPipelineId } : {}),
           stageId: input.stageId,
           stageOrder: input.stageOrder,
           ...(isTerminal && !oldDeal.closedAt ? { closedAt: new Date() } : {}),
@@ -953,12 +1001,17 @@ export const crmApiRouter = createTRPCRouter({
             dealId: deal.id,
             userId: ctx.userId,
             type: isTerminal ? "CLOSED" : "STAGE_CHANGE",
-            content: `Moved from ${oldDeal.stage.name} to ${newStage.name}`,
+            content: isPipelineChange
+              ? `Moved from ${oldDeal.stage.name} to ${newStage.name} on another pipeline`
+              : `Moved from ${oldDeal.stage.name} to ${newStage.name}`,
             metadata: {
               fromStageId: oldDeal.stageId,
               fromStageName: oldDeal.stage.name,
               toStageId: input.stageId,
               toStageName: newStage.name,
+              ...(isPipelineChange
+                ? { fromPipelineId: oldDeal.projectId, toPipelineId: targetPipelineId }
+                : {}),
             },
           },
         });

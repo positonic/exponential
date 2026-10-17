@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { slugify } from "~/utils/slugify";
 import { RETIRED_PIPELINE_STATUSES } from "~/server/services/crm/pipelineDefaults";
+import {
+  createPipelineProject,
+  requireStageOnPipeline,
+} from "~/server/services/crm/pipelines";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   requireProjectAccess,
@@ -11,15 +14,6 @@ import {
   canEditProject,
 } from "~/server/services/access";
 import type { PrismaClient } from "@prisma/client";
-
-const DEFAULT_STAGES = [
-  { name: "Lead", color: "gray", order: 0, type: "active" },
-  { name: "Qualified", color: "blue", order: 1, type: "active" },
-  { name: "Proposal", color: "violet", order: 2, type: "active" },
-  { name: "Negotiation", color: "orange", order: 3, type: "active" },
-  { name: "Won", color: "green", order: 4, type: "won" },
-  { name: "Lost", color: "red", order: 5, type: "lost" },
-] as const;
 
 async function ensurePipelineProjectAccess(
   db: PrismaClient,
@@ -177,38 +171,11 @@ export const pipelineRouter = createTRPCRouter({
 
       // Always create a new, distinct pipeline (multi-pipeline, ADR-0033) —
       // no collapsing to an existing one. Each is seeded with the generic
-      // DEFAULT_STAGES; the user re-stages it via the stage editor.
-      const baseSlug = slugify(input.name) || "pipeline";
-      let slug = baseSlug;
-      let counter = 1;
-      while (await ctx.db.project.findFirst({ where: { slug } })) {
-        slug = `${baseSlug}_${counter}`;
-        counter++;
-      }
-
-      return ctx.db.project.create({
-        data: {
-          name: input.name,
-          slug,
-          type: "pipeline",
-          status: "ACTIVE",
-          priority: "NONE",
-          createdById: ctx.session.user.id,
-          workspaceId: input.workspaceId,
-          pipelineStages: {
-            create: DEFAULT_STAGES.map((stage) => ({
-              name: stage.name,
-              color: stage.color,
-              order: stage.order,
-              type: stage.type,
-            })),
-          },
-        },
-        include: {
-          pipelineStages: {
-            orderBy: { order: "asc" },
-          },
-        },
+      // default stages; the user re-stages it via the stage editor.
+      return createPipelineProject(ctx.db, {
+        workspaceId: input.workspaceId,
+        name: input.name,
+        createdById: ctx.session.user.id,
       });
     }),
 
@@ -756,9 +723,14 @@ export const pipelineRouter = createTRPCRouter({
         include: { stage: true },
       });
 
-      const newStage = await ctx.db.pipelineStage.findUniqueOrThrow({
-        where: { id: input.stageId },
-      });
+      // The board only moves deals between its own columns; a stage from
+      // another pipeline would leave the deal listed on one board but placed
+      // in another's column.
+      const newStage = await requireStageOnPipeline(
+        ctx.db,
+        input.stageId,
+        oldDeal.projectId,
+      );
 
       const isStageChange = oldDeal.stageId !== input.stageId;
       const isTerminal = newStage.type === "won" || newStage.type === "lost";
