@@ -14,6 +14,21 @@ export type LogStatus =
   | "DEPRECATED"
   | "UNKNOWN";
 
+/**
+ * Who logged an `AGENT` decision, for its "Logged by …" label: the External
+ * agent or Assistant by name when its own shadow user created it, otherwise
+ * Zoe acting for the person who is its creator. Null for a decision a person
+ * logged by hand or from a meeting.
+ */
+export function agentDecisionAuthor(decision: {
+  source: string;
+  createdBy?: { name: string | null; isAgent: boolean } | null;
+}): string | null {
+  if (decision.source !== "AGENT") return null;
+  if (decision.createdBy?.isAgent) return decision.createdBy.name ?? "an agent";
+  return "Zoe";
+}
+
 /** The Source facet: where a decision is recorded. AGENT-logged rows count as Manual. */
 export type LogSource = "code" | "meeting" | "manual";
 

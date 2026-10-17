@@ -1357,6 +1357,26 @@ describe("action router (mocked)", () => {
       expect(dbMock.action.create).toHaveBeenCalled();
     });
 
+    it.each([
+      [undefined, false, "ui"],
+      ["api-token", false, "cli"],
+      ["agent-key", false, "agent"],
+      ["agent-context", false, "agent"], // Zoe in chat, for the person: not the UI
+      ["agent-context", true, "agent"], // an Assistant run's shadow user
+      ["telegram-gateway", false, "telegram"],
+    ] as const)("names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.user.findUnique.mockResolvedValue({ id: callerId, isAgent } as any);
+      dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+      dbMock.action.create.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { id: "a1", name: "Personal", workspaceId: null, project: null, assignees: [] } as any,
+      );
+      const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType });
+      await caller.action.create({ name: "Personal" });
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source });
+    });
+
     it("needs no membership probe when no workspaceId is supplied", async () => {
       dbMock.action.create.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2148,6 +2168,85 @@ describe("action router (mocked)", () => {
       expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source: "cli" });
     });
 
+    describe("an agent principal cannot choose its source (attribution, D-0016)", () => {
+      function stubAgent(isAgent: boolean) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.user.findUnique.mockResolvedValue({ id: callerId, isAgent } as any);
+        dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        dbMock.action.create.mockResolvedValue({ id: "a1", name: "x", project: null } as any);
+      }
+      const stored = () => dbMock.action.create.mock.calls[0]![0]!.data.source;
+
+      it.each(["ui", "cli", "ios", "ios-shortcut", "meeting"])(
+        "an agent key that sends source %s is recorded as the agent",
+        async (source) => {
+          stubAgent(false);
+          const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-key" });
+          await caller.action.quickCreate({ name: "x", source });
+          expect(stored()).toBe("agent");
+        },
+      );
+
+      it("an Assistant run's shadow user stamping ui is recorded as the agent", async () => {
+        stubAgent(true);
+        const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-context", agentRunId: "run-1" });
+        await caller.action.quickCreate({ name: "x", source: "ui" });
+        expect(stored()).toBe("agent");
+      });
+
+      it.each([
+        ["agent-context", "agent"],
+        ["whatsapp-gateway", "whatsapp"],
+        ["voice-session", "voice"],
+      ])("Zoe acting for a person over %s stamping ui is recorded as %s", async (tokenType, source) => {
+        stubAgent(false);
+        const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType });
+        await caller.action.quickCreate({ name: "x", source: "ui" });
+        expect(stored()).toBe(source);
+      });
+
+      it.each(["agent", "whatsapp", "voice"])("a person cannot claim an agent's source (%s)", async (source) => {
+        stubAgent(false);
+        const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "api-token" });
+        await caller.action.quickCreate({ name: "x", source });
+        expect(stored()).toBe("cli");
+      });
+
+      it("a person's x-api-key keeps a non-agent source it names, and is ios otherwise", async () => {
+        stubAgent(false);
+        dbMock.verificationToken.findFirst.mockResolvedValue({ userId: callerId } as never);
+        const { createCaller } = await import("~/server/api/root");
+        const caller = createCaller({
+          db: dbMock,
+          session: null,
+          headers: new Headers({ "x-api-key": "k" }),
+          tokenType: undefined,
+          agentRunId: undefined,
+        } as never);
+        await caller.action.quickCreate({ name: "x", source: "meeting" });
+        expect(stored()).toBe("meeting");
+        dbMock.action.create.mockClear();
+        await caller.action.quickCreate({ name: "x", source: "agent" });
+        expect(stored()).toBe("ios");
+      });
+
+      it("a shadow user behind an x-api-key is still the agent", async () => {
+        stubAgent(true);
+        dbMock.verificationToken.findFirst.mockResolvedValue({ userId: callerId } as never);
+        const { createCaller } = await import("~/server/api/root");
+        const caller = createCaller({
+          db: dbMock,
+          session: null,
+          headers: new Headers({ "x-api-key": "k" }),
+          tokenType: undefined,
+          agentRunId: undefined,
+        } as never);
+        await caller.action.quickCreate({ name: "x", source: "ui" });
+        expect(stored()).toBe("agent");
+      });
+    });
+
     it("refuses a project the caller can only view, with FORBIDDEN and no row", async () => {
       stubUser();
       // Public project: visible, not editable. Same gate as action.create.
@@ -2672,7 +2771,8 @@ describe("action router (mocked)", () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
 
-      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      // Zoe's real path: an agent-context JWT whose subject is the person.
+      const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-context" });
       const { action } = await caller.mastra.createAction({
         projectId: "p1",
         name: "Ship it",
@@ -2719,6 +2819,23 @@ describe("action router (mocked)", () => {
         status: "ACTIVE",
         createdById: callerId,
       });
+    });
+
+    it.each([
+      ["agent-context", false, "agent"], // Zoe in chat, for the person
+      ["agent-context", true, "agent"], // an Assistant run's shadow user
+      ["agent-key", false, "agent"],
+      ["api-token", false, "cli"], // a person's own token is the person, not an agent
+    ] as const)("mastra.quickCreateAction names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.user.findUnique.mockResolvedValue({ id: callerId, isAgent } as any);
+      dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.create.mockResolvedValue({ id: "a1", name: "Buy milk", priority: "Quick", dueDate: null, scheduledStart: null, project: null } as any);
+
+      await createGatewayCaller(tokenType).mastra.quickCreateAction({ text: "Buy milk" });
+
+      expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source });
     });
 
     it("mastra.quickCreateAction rejects an unmapped gateway token type with BAD_REQUEST and no row", async () => {
