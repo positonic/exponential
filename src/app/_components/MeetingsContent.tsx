@@ -24,6 +24,7 @@ import {
   Select,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
+import { useMediaQuery } from "@mantine/hooks";
 import { api } from "~/trpc/react";
 import {
   IconMicrophone,
@@ -342,6 +343,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  // Touch screens have no ⌘K, and hiding the badge with CSS would still leave
+  // its reserved padding in the input, so drop the right section entirely.
+  const isTouch = useMediaQuery("(hover: none)");
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
@@ -942,8 +946,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 row scrolls sideways rather than clipping. */}
             <div className="flex flex-col gap-3">
               <Tabs.List
-                className="min-w-0"
-                style={{ borderBottom: 0, flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none" }}
+                className="min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                style={{ borderBottom: 0, flexWrap: "nowrap" }}
               >
                 {[
                   { value: "all", label: "All", count: allCount },
@@ -994,8 +998,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   placeholder="Search transcripts, people, topics..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                  rightSection={<Kbd className="mr-2 text-[10px] [@media(hover:none)]:hidden">⌘K</Kbd>}
-                  rightSectionWidth={44}
+                  rightSection={isTouch ? undefined : <Kbd className="mr-2 text-[10px]">⌘K</Kbd>}
+                  rightSectionWidth={isTouch ? undefined : 44}
                   size="xs"
                   className="min-w-0 flex-1"
                   styles={{ input: { height: 30 } }}
