@@ -1,6 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
+import type { PrismaClient } from "@prisma/client";
 import { publicProcedure } from "~/server/api/trpc";
+import { resolvePrincipal, type Principal } from "~/server/services/access/principal";
 
 /**
  * Middleware that authenticates via:
@@ -73,3 +75,27 @@ export const apiKeyMiddleware = publicProcedure.use(async ({ ctx, next }) => {
     },
   });
 });
+
+/** The slice of an `apiKeyMiddleware` context the principal needs. */
+export interface ApiKeyCallerContext {
+  db: PrismaClient;
+  userId: string;
+  session: { user: { id: string } } | null;
+  tokenType: string | undefined;
+  agentRunId?: string;
+}
+
+/**
+ * The verified principal behind an `apiKeyMiddleware` procedure. A session or
+ * bearer token goes straight to `resolvePrincipal`. A durable `x-api-key` has
+ * no session: it was verified by its DB lookup above and is a person's own
+ * credential, so it resolves like their API token; a shadow user behind one
+ * is still caught by `User.isAgent` (and refused if it has no owning agent).
+ */
+export function resolveApiKeyCallerPrincipal(ctx: ApiKeyCallerContext): Promise<Principal> {
+  return resolvePrincipal(
+    ctx.session
+      ? ctx
+      : { db: ctx.db, session: { user: { id: ctx.userId } }, tokenType: "api-token" },
+  );
+}

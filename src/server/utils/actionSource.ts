@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import type { ActionSource } from "~/server/services/actions/schema";
+import type { Principal, PrincipalSurface } from "~/server/services/access/principal";
 
 /**
  * Derive an Action's `source` from the caller's JWT token type.
@@ -27,19 +28,62 @@ export function deriveActionSource(
 }
 
 /**
- * The source an agent-facing procedure names for a create: a mapped gateway
- * token passes its surface; an unmapped gateway token is a bug in the
- * gateway wiring and is rejected rather than mislabelled; any other
- * principal reaching an agent tool is the agent.
+ * The source an agent-facing procedure (`mastra.createAction`,
+ * `mastra.quickCreateAction`) names for a create, from the verified principal
+ * ({@link actionSourceForPrincipal}): a gateway names its surface, Zoe and
+ * Assistant runs are the agent, and a person calling with their own
+ * credential is recorded as themselves (`cli` for an API token), never as an
+ * agent. An unmapped gateway token is a bug in the gateway wiring and is
+ * rejected rather than mislabelled.
  */
-export function resolveAgentActionSource(tokenType: string | undefined): ActionSource {
-  const mapped = deriveActionSource(tokenType);
-  if (mapped) return mapped;
-  if (tokenType?.endsWith("-gateway")) {
+export function resolveAgentActionSource(
+  principal: Principal,
+  tokenType: string | undefined,
+): ActionSource {
+  if (tokenType?.endsWith("-gateway") && !deriveActionSource(tokenType)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: `Unknown gateway token type "${tokenType}": no Action source is mapped for it`,
     });
   }
-  return "agent";
+  return actionSourceForPrincipal(principal);
+}
+
+/** Surfaces a person reaches the API through, by the action source they name. */
+const HUMAN_SURFACE_SOURCES: Partial<Record<PrincipalSurface, ActionSource>> = {
+  web: "ui",
+  device: "ui",
+  extension: "ui",
+  "api-token": "cli",
+};
+
+/** Surfaces an agent works on for a person, where the surface itself is the source. */
+const AGENT_FOR_HUMAN_SURFACE_SOURCES: Partial<Record<PrincipalSurface, ActionSource>> = {
+  whatsapp: "whatsapp",
+  telegram: "telegram",
+  matrix: "matrix",
+  voice: "voice",
+};
+
+/**
+ * The `source` an Action records, from the verified principal
+ * (`resolvePrincipal`), never from a label the caller sends (D-0016;
+ * ADR-0071 change integrity: attribution).
+ *
+ * - A person: the UI (browser, native app, extension) or the CLI (their own
+ *   API token).
+ * - An agent (External agent key, Assistant run): `agent`.
+ * - An agent acting for a person: the chat gateway or voice surface it came
+ *   through; Zoe in the web chat, or any surface not named here, is `agent`.
+ *   Never `ui`: Zoe acting for someone is not that person clicking.
+ */
+export function actionSourceForPrincipal(principal: Principal): ActionSource {
+  switch (principal.kind) {
+    case "human":
+      return HUMAN_SURFACE_SOURCES[principal.surface] ?? "ui";
+    case "agent":
+      return "agent";
+    case "agent_for_human":
+      return AGENT_FOR_HUMAN_SURFACE_SOURCES[principal.surface] ?? "agent";
+  }
 }

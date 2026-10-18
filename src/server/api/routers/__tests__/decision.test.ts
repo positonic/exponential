@@ -211,6 +211,7 @@ describe("decision router", () => {
 
     it("is NOT human-only: an agent principal member may create (ADR-0016) — as a draft", async () => {
       db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+      db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
       withWorkspaceRole(db, "member");
       withTransaction(db);
       db.workspace.update.mockResolvedValue({ decisionCounter: 7 } as never);
@@ -475,6 +476,7 @@ describe("decision router", () => {
           email: "dev@example.test",
           isAgent,
         } as never);
+        db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
         db.workspace.update.mockResolvedValue({ decisionCounter: 3 } as never);
         db.decision.create.mockResolvedValue({
           id: "dec-3",
@@ -502,14 +504,39 @@ describe("decision router", () => {
         expect(db.workspaceActivityEvent.create).not.toHaveBeenCalled();
       });
 
-      it("source AGENT from a human session (Zoe acting as the user) is a DRAFT too", async () => {
+      it("source AGENT from a human session is a DRAFT too", async () => {
         withCreate(false);
         await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source: "AGENT" });
         expect(createData().reviewState).toBe("DRAFT");
         expect(createData().confirmedById).toBeNull();
       });
 
-      it("an agent key is an agent principal without a user lookup", async () => {
+      const callerWithToken = (tokenType: string) =>
+        createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient, tokenType });
+
+      it.each(["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+        "Zoe acting for a person (%s) is drafted by principal, whatever source she sends or omits",
+        async (tokenType) => {
+          for (const source of [undefined, "MANUAL", "MEETING"] as const) {
+            withCreate(false);
+            db.decision.create.mockClear();
+            await callerWithToken(tokenType).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source });
+            expect(createData().reviewState).toBe("DRAFT");
+            expect(createData().confirmedById).toBeNull();
+            // Never "Logged by hand": the label comes from the principal.
+            expect(createData().source).toBe("AGENT");
+          }
+        },
+      );
+
+      it("an agent principal cannot stamp its decision MANUAL", async () => {
+        withCreate(true);
+        await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x", source: "MANUAL" });
+        expect(createData().reviewState).toBe("DRAFT");
+        expect(createData().source).toBe("AGENT");
+      });
+
+      it("an agent key is an agent principal whatever the user row says", async () => {
         withCreate(false);
         await createMockCaller({
           userId: USER_ID,
@@ -523,6 +550,7 @@ describe("decision router", () => {
         withCreate(false);
         await caller(db).decision.create({ workspaceId: WORKSPACE_ID, statement: "x" });
         expect(createData().reviewState).toBe("CONFIRMED");
+        expect(createData().source).toBe("MANUAL");
         expect(createData().confirmedById).toBe(USER_ID);
         expect(db.workspaceActivityEvent.create).toHaveBeenCalled();
       });
@@ -1624,20 +1652,97 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
     const callerWithToken = (tokenType: string | undefined) =>
       createMockCaller({ userId: USER_ID, db: db as unknown as PrismaClient, tokenType });
 
-    it.each(["agent-key", "agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
-      "setStatus through a %s token never seats the person, whatever the user row says",
-      async (tokenType) => {
+    const AGENT_TOKENS = ["agent-key", "agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"];
+    /** An agent-key caller is a shadow user with an owning External agent. */
+    const withOwningAgent = () =>
+      db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+
+    describe("record integrity: agents cannot move or rewrite a confirmed decision (ADR-0071)", () => {
+      it.each(AGENT_TOKENS)(
+        "setStatus through a %s token is refused on a confirmed decision, even with a person as session user",
+        async (tokenType) => {
+          withWorkspaceRole(db, "member");
+          withOwningAgent();
+          withRow({ reviewState: "CONFIRMED" });
+          for (const status of ["ACCEPTED", "OPEN", "DEPRECATED"] as const) {
+            await expect(
+              callerWithToken(tokenType).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status }),
+            ).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringMatching(/only a person/i) });
+          }
+          expect(db.decision.update).not.toHaveBeenCalled();
+        },
+      );
+
+      it("an agent principal's shadow user is refused on a cookie-less JWT too (User.isAgent)", async () => {
         withWorkspaceRole(db, "member");
+        withOwningAgent();
+        db.user.findUnique.mockResolvedValue({ ...PERSON, isAgent: true } as never);
         withRow({ reviewState: "CONFIRMED" });
-        await callerWithToken(tokenType).decision.setStatus({
+        await expect(
+          callerWithToken("agent-context").decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status: "ACCEPTED" }),
+        ).rejects.toMatchObject({ code: "FORBIDDEN" });
+        expect(db.decision.update).not.toHaveBeenCalled();
+      });
+
+      it.each(AGENT_TOKENS)(
+        "update through a %s token cannot rewrite a confirmed decision's statement, body or date",
+        async (tokenType) => {
+          withWorkspaceRole(db, "member");
+          withOwningAgent();
+          withRow({ reviewState: "CONFIRMED", status: "ACCEPTED" });
+          for (const patch of [{ statement: "Something else" }, { body: "New reasoning" }, { decidedAt: new Date() }]) {
+            await expect(
+              callerWithToken(tokenType).decision.update({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", ...patch }),
+            ).rejects.toMatchObject({ code: "FORBIDDEN" });
+          }
+          expect(db.decision.update).not.toHaveBeenCalled();
+        },
+      );
+
+      it("update through an agent token may still edit a draft, conditional on it staying a draft", async () => {
+        withWorkspaceRole(db, "member");
+        withRow({ reviewState: "DRAFT" });
+        await callerWithToken("agent-context").decision.update({
           workspaceId: WORKSPACE_ID,
           decisionId: "dec-6",
-          status: "ACCEPTED",
+          statement: "Grill answers are logged as drafts, always",
         });
-        expect(updateArgs().data.status).toBe("ACCEPTED");
-        expect(updateArgs().data).not.toHaveProperty("deciders");
-      },
-    );
+        expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID, reviewState: { not: "CONFIRMED" } });
+      });
+
+      it.each(AGENT_TOKENS)(
+        "confirmDraft is no bypass: a %s token cannot move a confirmed decision through it either",
+        async (tokenType) => {
+          withWorkspaceRole(db, "member");
+          withOwningAgent();
+          withRow({ reviewState: "CONFIRMED" });
+          await expect(
+            callerWithToken(tokenType).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status: "ACCEPTED" }),
+          ).rejects.toMatchObject({ code: "FORBIDDEN" });
+          expect(db.decision.update).not.toHaveBeenCalled();
+          expect(db.decision.updateMany).not.toHaveBeenCalled();
+        },
+      );
+
+      it.each([undefined, "api-token"])(
+        "a person's own login (%s) still accepts and rewrites a confirmed decision (e.g. the CLI's decisions confirm)",
+        async (tokenType) => {
+          withWorkspaceRole(db, "member");
+          withRow({ reviewState: "CONFIRMED" });
+          await callerWithToken(tokenType).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status: "ACCEPTED" });
+          expect(updateArgs().data.status).toBe("ACCEPTED");
+
+          clearWrites();
+          await callerWithToken(tokenType).decision.confirmDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", status: "DEPRECATED" });
+          expect(updateArgs().data.status).toBe("DEPRECATED");
+
+          clearWrites();
+          await callerWithToken(tokenType).decision.update({ workspaceId: WORKSPACE_ID, decisionId: "dec-6", statement: "Reworded" });
+          expect(updateArgs().data.statement).toBe("Reworded");
+          expect(updateArgs().where).toEqual({ id: "dec-6", workspaceId: WORKSPACE_ID });
+        },
+      );
+    });
 
     it.each(["agent-key", "agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
       "confirmDraft through a %s token is refused, even with a person as session user (ADR-0070)",

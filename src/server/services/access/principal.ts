@@ -13,15 +13,16 @@
  * It never reads request input. A label a caller chooses (`source`,
  * `createdBy`, …) cannot move the answer: identity comes from the credential.
  *
- * The six older helpers (`humanOnlyProcedure`, `isAgentPrincipal`,
- * `assertHumanPrincipal`, `resolveTimeEntryPrincipal`, `sourceForPrincipal`,
- * `resolveAgentActionSource`) answer the same question with different inputs.
- * They move onto this resolver one at a time, each with its own test; see
- * `dev-docs/AGENT_PRINCIPLES_AUDIT.md`.
+ * Every "person or agent?" check goes through it: `humanOnlyProcedure`, the
+ * decision service, the time-entry router and the Action source helpers
+ * (`actionSourceForPrincipal`). `isPersonCredential` is its pure pre-check.
+ * The token types it knows are the only list of who presents which token;
+ * see `dev-docs/AGENT_PRINCIPLES_AUDIT.md`.
  */
 
 import type { PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
+import type { JWTTokenType } from "~/server/utils/jwt";
 
 /** How the caller reached the API, derived from the verified credential. */
 export type PrincipalSurface =
@@ -71,20 +72,38 @@ export interface PrincipalContext {
 }
 
 /** Credentials a person presents themselves. */
-const HUMAN_SURFACES: Record<string, PrincipalSurface> = {
+const HUMAN_TOKEN_TYPES = {
   "api-token": "api-token",
   "device-token": "device",
   "extension-token": "extension",
-};
+} as const satisfies Partial<Record<JWTTokenType, PrincipalSurface>>;
 
 /** JWTs an agent presents while working under a person's identity. */
-const AGENT_FOR_HUMAN_SURFACES: Record<string, PrincipalSurface> = {
+const AGENT_FOR_HUMAN_TOKEN_TYPES = {
   "agent-context": "agent-context",
   "voice-session": "voice",
   "whatsapp-gateway": "whatsapp",
   "telegram-gateway": "telegram",
   "matrix-gateway": "matrix",
-};
+} as const satisfies Partial<Record<JWTTokenType, PrincipalSurface>>;
+
+/**
+ * Every JWT type is classified as a person's or an agent's: a new token type
+ * (a new Zoe surface) does not compile until someone adds it to one of the
+ * two maps above. (This replaces `TOKEN_ACTOR` in `trpc.ts`, which kept a
+ * second list.) An unknown type at runtime still never resolves to a human.
+ */
+type UnclassifiedJwtTokenType = Exclude<
+  JWTTokenType,
+  keyof typeof HUMAN_TOKEN_TYPES | keyof typeof AGENT_FOR_HUMAN_TOKEN_TYPES
+>;
+export type EveryJwtTokenTypeIsClassified = UnclassifiedJwtTokenType extends never ? true : never;
+const everyJwtTokenTypeIsClassified: EveryJwtTokenTypeIsClassified = true;
+void everyJwtTokenTypeIsClassified;
+
+/** The same two maps, looked up by an arbitrary (possibly unknown) token type. */
+const HUMAN_SURFACES: Readonly<Record<string, PrincipalSurface>> = HUMAN_TOKEN_TYPES;
+const AGENT_FOR_HUMAN_SURFACES: Readonly<Record<string, PrincipalSurface>> = AGENT_FOR_HUMAN_TOKEN_TYPES;
 
 /**
  * Whether a credential of this token type can ever resolve to a `human`

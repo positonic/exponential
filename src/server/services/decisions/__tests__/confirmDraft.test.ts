@@ -20,6 +20,7 @@ vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity: vi
 import { confirmDraft } from "../decisionService";
 
 const WORKSPACE_ID = "ws-1";
+const HUMAN = { kind: "human", userId: "u-1", surface: "web" } as const;
 const DRAFT = {
   id: "draft-1",
   workspaceId: WORKSPACE_ID,
@@ -64,7 +65,7 @@ describe("confirmDraft", () => {
     db.decision.findFirst.mockResolvedValue({ ...DRAFT, reviewState: "REJECTED" } as never);
 
     await expect(
-      confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1" }),
+      confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1", principal: HUMAN }),
     ).rejects.toThrow(/rejected draft cannot be confirmed/i);
     // Rejection is how a reviewer refuses a hallucinated draft, and how the
     // extractor knows not to propose it again. Confirming past it undoes both.
@@ -79,7 +80,7 @@ describe("confirmDraft", () => {
     canEditDecision.mockReturnValue(false);
 
     await expect(
-      confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1" }),
+      confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1", principal: HUMAN }),
     ).rejects.toThrow(/no longer available/i);
 
     expect(getDecisionAccess).toHaveBeenCalledWith(db, "u-1", expect.objectContaining({ id: "open-1" }));
@@ -98,7 +99,7 @@ describe("confirmDraft", () => {
     db.decision.update.mockResolvedValue({ ...TARGET, status: "ACCEPTED", supersededBy: null } as never);
     db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
 
-    const result = await confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1" });
+    const result = await confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: "u-1", principal: HUMAN });
 
     expect(result.id).toBe("open-1");
     // Conditional on the row still being a draft, so a concurrent confirm

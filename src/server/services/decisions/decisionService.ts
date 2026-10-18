@@ -26,6 +26,8 @@ import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidenc
 // barrel pulls in the Prisma singleton at module load.
 import { canEditDecision, getDecisionAccess } from "~/server/services/access/resolvers/decisionResolver";
 import { buildActionEditWhere } from "~/server/services/access/resolvers/actionResolver";
+import type { Principal } from "~/server/services/access/principal";
+import { isCompareAndSetMiss } from "~/server/services/revisions/revisionConflict";
 
 export interface DecisionDeciderInput {
   userId?: string | null;
@@ -59,13 +61,12 @@ export interface CreateDecisionInput {
    */
   actionIds?: string[];
   /**
-   * Born as a draft awaiting a person's confirmation rather than confirmed by
-   * its creator. The router sets it for agent-authored decisions: an agent
-   * may propose a decision, never publish one it "confirmed" itself.
+   * Who is creating it, from the verified credential (`resolvePrincipal`).
+   * An agent, or Zoe or a gateway acting for a person, may propose a
+   * decision, never publish one it "confirmed" itself (ADR-0070): its
+   * decision is born a draft and labelled `AGENT`, whatever `source` says.
    */
-  asDraft?: boolean;
-  /** The creator is an agent principal, so never defaults in as a decider. */
-  creatorIsAgent?: boolean;
+  principal: Principal;
 }
 
 /** Dedupe deciders on email (the DB unique) and drop blank names. */
@@ -88,7 +89,7 @@ function normaliseDeciders(deciders: DecisionDeciderInput[]): DecisionDeciderInp
 /** The include every detail read uses, so the shape is stable across surfaces. */
 export const decisionDetailInclude = {
   owner: { select: { id: true, name: true, email: true, image: true } },
-  createdBy: { select: { id: true, name: true } },
+  createdBy: { select: { id: true, name: true, isAgent: true } },
   confirmedBy: { select: { id: true, name: true } },
   deciders: {
     select: { id: true, userId: true, name: true, email: true },
@@ -233,8 +234,9 @@ export async function assertScopeInWorkspace(
 }
 
 /**
- * Create a decision — confirmed, or a draft when `asDraft` (agent-authored,
- * awaiting a person's confirmation). For a meeting-linked decision the meeting
+ * Create a decision — confirmed, or a draft when an agent principal (or a
+ * caller labelling it `source: AGENT`) logs it, awaiting a person's
+ * confirmation. For a meeting-linked decision the meeting
  * supplies the defaults the PRD asks for: decided-at = meeting date,
  * deciders = participants, occurrence and project = the meeting's. The
  * label number is taken from `Workspace.decisionCounter` inside the same
@@ -242,11 +244,19 @@ export async function assertScopeInWorkspace(
  * (the same pattern `createTicketWithNumber` uses for `Product.ticketCounter`).
  */
 export async function createDecision(db: PrismaClient, input: CreateDecisionInput) {
+  // Identity and attribution come from the credential, never the label
+  // (D-0016): an agent's decision is a draft labelled AGENT, so it never
+  // shows as "Logged by hand". A person may still label their own AGENT.
+  const agentActing = isAgentActing(input.principal);
+  const asDraft = agentActing || input.source === "AGENT";
+  /** A shadow user is never defaulted in as a decider; Zoe logs for the person. */
+  const creatorIsAgent = input.principal.kind === "agent";
   let decidedAt = input.decidedAt ?? null;
   let deciders = input.deciders ? normaliseDeciders(input.deciders) : null;
   let occurrenceId = input.occurrenceId ?? null;
   let projectId = input.projectId ?? null;
-  let source: DecisionSource = input.source ?? "MANUAL";
+  const requestedSource = agentActing ? "AGENT" : input.source;
+  let source: DecisionSource = requestedSource ?? "MANUAL";
 
   await assertScopeInWorkspace(db, input.workspaceId, input);
 
@@ -274,7 +284,7 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
     decidedAt ??= meeting.meetingDate ?? null;
     occurrenceId ??= meeting.occurrenceId ?? null;
     projectId ??= meeting.projectId ?? null;
-    if (!input.source) source = "MEETING";
+    if (!requestedSource) source = "MEETING";
     deciders ??= normaliseDeciders(
       meeting.participants.map((p) => ({
         userId: p.userId,
@@ -291,7 +301,7 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
   if (
     !input.transcriptionSessionId &&
     deciders === null &&
-    (input.status === "OPEN" || input.creatorIsAgent)
+    (input.status === "OPEN" || creatorIsAgent)
   ) {
     deciders = [];
   }
@@ -329,15 +339,15 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
         statement: input.statement.trim(),
         body: input.body?.trim() ? input.body : null,
         status: input.status ?? "PROPOSED",
-        reviewState: input.asDraft ? "DRAFT" : "CONFIRMED",
+        reviewState: asDraft ? "DRAFT" : "CONFIRMED",
         source,
         decidedAt,
         ownerId: input.ownerId ?? null,
         createdById: input.createdById,
         // A draft is confirmed later by the person who reviews it
         // (`confirmDraft` stamps them), never by its author up front.
-        confirmedById: input.asDraft ? null : input.createdById,
-        confirmedAt: input.asDraft ? null : new Date(),
+        confirmedById: asDraft ? null : input.createdById,
+        confirmedAt: asDraft ? null : new Date(),
         transcriptionSessionId: input.transcriptionSessionId ?? null,
         occurrenceId,
         productId: input.productId ?? null,
@@ -371,7 +381,7 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
 
   // The feed is filtered on workspaceId alone, so a draft's statement would
   // leak to people who may not see it. `confirmDraft` records the event.
-  if (input.asDraft) return decision;
+  if (asDraft) return decision;
 
   await recordActivity(db, {
     workspaceId: input.workspaceId,
@@ -420,6 +430,8 @@ export const decisionListSelect = {
   },
   transcriptionSession: { select: { id: true, title: true } },
   supersededBy: { select: { id: true, number: true } },
+  // Names who logged an AGENT row: Zoe, or the External agent / Assistant.
+  createdBy: { select: { name: true, isAgent: true } },
   _count: { select: { links: true, deciders: true } },
 } satisfies Prisma.DecisionSelect;
 
@@ -710,19 +722,18 @@ interface ExistingDecider {
  * Returns the nested `deciders` write for the caller's own update, so the
  * claim lands with the transition, or undefined when nothing changes. The
  * delete names the agent rows that were read, never "all deciders", so a
- * decider someone else added meanwhile is not swept away with them. Only a person acting through their own login claims:
- * `actorIsAgent` is the caller's knowledge from the token (an agent key, or
- * Zoe acting for the person), and the user row's `isAgent` flag is checked
- * here as well, so every caller gets the same answer.
+ * decider someone else added meanwhile is not swept away with them. Only a
+ * person acting through their own login gets here: `setStatus` and
+ * `confirmDraft` refuse every agent principal first. The user row's `isAgent`
+ * flag is checked as well, so a shadow user is never seated.
  */
 async function claimDeciderWrite(
   db: PrismaClient,
-  actor: { userId: string; actorIsAgent?: boolean },
+  userId: string,
   existing: ExistingDecider[],
 ): Promise<Prisma.DecisionUpdateInput["deciders"]> {
-  if (actor.actorIsAgent) return undefined;
   const person = await db.user.findUnique({
-    where: { id: actor.userId },
+    where: { id: userId },
     select: { id: true, name: true, email: true, isAgent: true },
   });
   if (!person || person.isAgent) return undefined;
@@ -753,18 +764,68 @@ export interface UpdateDecisionPatch {
   adrDocumentId?: string | null;
 }
 
-/** Edit a decision's content and scope. Status has its own path (`setStatus`). */
+/**
+ * The fields that say what was decided. Once a person has confirmed a
+ * decision, only a person may rewrite them (record integrity, ADR-0071).
+ * Scope and links (owner, product, project, objective, key result, ADR) are
+ * filing, not the decision itself, and stay open to agents (ADR-0016).
+ */
+const COMMITMENT_FIELDS = ["statement", "body", "decidedAt"] as const satisfies ReadonlyArray<
+  keyof UpdateDecisionPatch
+>;
+
+/** An agent, or an agent working under a person's identity (Zoe, gateways, voice). */
+function isAgentActing(principal: Principal): boolean {
+  return principal.kind !== "human";
+}
+
+const AGENT_CANNOT_CHANGE_CONFIRMED =
+  "Only a person can confirm a decision or change a confirmed one, signed in as themselves. Agents (including Zoe) propose the change as a new draft decision instead";
+
+/**
+ * Edit a decision's content and scope. Status has its own path (`setStatus`).
+ * An agent principal may edit a draft, and may file a confirmed decision,
+ * but may not rewrite what a confirmed decision says ({@link COMMITMENT_FIELDS}).
+ */
 export async function updateDecision(
   db: PrismaClient,
-  input: { decisionId: string; workspaceId: string; userId: string; patch: UpdateDecisionPatch },
+  input: {
+    decisionId: string;
+    workspaceId: string;
+    userId: string;
+    principal: Principal;
+    patch: UpdateDecisionPatch;
+  },
 ) {
   const { patch } = input;
+  const rewritesCommitment = COMMITMENT_FIELDS.some((field) => patch[field] !== undefined);
+  const guardsCommitment = isAgentActing(input.principal) && rewritesCommitment;
+  if (guardsCommitment) {
+    const current = await db.decision.findFirst({
+      where: { id: input.decisionId, workspaceId: input.workspaceId },
+      select: { reviewState: true },
+    });
+    if (!current) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found" });
+    }
+    if (current.reviewState === "CONFIRMED") {
+      throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
+    }
+  }
   await assertScopeInWorkspace(db, input.workspaceId, patch);
   // Defence in depth (house rule: data is workspace-scoped): the row is
   // addressed by id AND workspace, so a caller that skipped the scoped
-  // pre-load cannot reach across workspaces.
-  const decision = await db.decision.update({
-    where: { id: input.decisionId, workspaceId: input.workspaceId },
+  // pre-load cannot reach across workspaces. An agent's content edit is also
+  // conditional on the row still not being confirmed, so a person confirming
+  // between the read above and this write turns it into a miss rather than a
+  // rewrite of the confirmed decision.
+  const decision = await db.decision
+    .update({
+      where: {
+        id: input.decisionId,
+        workspaceId: input.workspaceId,
+        ...(guardsCommitment ? { reviewState: { not: "CONFIRMED" as const } } : {}),
+      },
     data: {
       ...(patch.statement !== undefined ? { statement: patch.statement.trim() } : {}),
       ...(patch.body !== undefined ? { body: patch.body?.trim() ? patch.body : null } : {}),
@@ -777,7 +838,13 @@ export async function updateDecision(
       ...(patch.adrDocumentId !== undefined ? { adrDocumentId: patch.adrDocumentId } : {}),
     },
     include: decisionDetailInclude,
-  });
+    })
+    .catch((error: unknown) => {
+      if (guardsCommitment && isCompareAndSetMiss(error)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
+      }
+      throw error;
+    });
   // Only confirmed decisions reach the feed. `createDraftDecision` writes no
   // event for exactly this reason — the feed is filtered on workspaceId with
   // no per-entity resolver, so an event here would show an unreviewed (and
@@ -807,12 +874,8 @@ export interface SetStatusInput {
   status: DecisionStatus;
   /** Required for SUPERSEDED: the confirmed decision in the same workspace that replaces this one. */
   supersededById?: string | null;
-  /**
-   * The caller knows from the token that an agent is acting — an agent key,
-   * or Zoe / a gateway acting on a person's behalf. The service also checks
-   * `User.isAgent`; this covers what the user row cannot show.
-   */
-  actorIsAgent?: boolean;
+  /** Who is acting, from the verified credential (`resolvePrincipal`). */
+  principal: Principal;
 }
 
 /**
@@ -838,6 +901,12 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
       code: "BAD_REQUEST",
       message: "Confirm the draft before changing its status",
     });
+  }
+  // Record integrity (ADR-0071): moving a confirmed decision — accepting a
+  // proposal above all — is a person's call. An agent proposes the change as
+  // a draft decision for a person to confirm (ADR-0070).
+  if (isAgentActing(input.principal)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
   }
 
   let supersededById: string | null = null;
@@ -870,7 +939,7 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
 
   const deciders =
     input.status === "ACCEPTED"
-      ? await claimDeciderWrite(db, input, current.deciders)
+      ? await claimDeciderWrite(db, input.userId, current.deciders)
       : undefined;
 
   const decision = await db.decision.update({
@@ -929,7 +998,7 @@ async function applyDraftResolution(
     evidence: Prisma.JsonValue;
   },
   userId: string,
-  opts: { status?: DecisionStatus; actorIsAgent?: boolean } = {},
+  opts: { status?: DecisionStatus } = {},
 ) {
   const target = await db.decision.findFirst({
     where: { id: draft.supersededById, workspaceId: draft.workspaceId, reviewState: "CONFIRMED" },
@@ -991,7 +1060,7 @@ async function applyDraftResolution(
   // Accepting the answer is deciding it; leaving it open or proposed is not.
   const deciders =
     status === "ACCEPTED"
-      ? await claimDeciderWrite(db, { userId, actorIsAgent: opts.actorIsAgent }, target.deciders)
+      ? await claimDeciderWrite(db, userId, target.deciders)
       : undefined;
   const decision = await db.$transaction(async (tx) => {
     // Claim the draft first, conditionally: of two concurrent confirms only
@@ -1051,8 +1120,8 @@ export interface ConfirmDraftInput {
    * `setStatus`'s job.
    */
   status?: DecisionStatus;
-  /** See {@link SetStatusInput.actorIsAgent}. */
-  actorIsAgent?: boolean;
+  /** Who is acting, from the verified credential (`resolvePrincipal`). Only a person confirms. */
+  principal: Principal;
 }
 
 /**
@@ -1071,6 +1140,11 @@ export interface ConfirmDraftInput {
  * decision that comes back.
  */
 export async function confirmDraft(db: PrismaClient, input: ConfirmDraftInput) {
+  // The router is `humanOnlyProcedure` too; the service holds the rule so no
+  // other caller can publish a draft as an agent (ADR-0070).
+  if (isAgentActing(input.principal)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: AGENT_CANNOT_CHANGE_CONFIRMED });
+  }
   return confirmDraftAttempt(db, input, { afterLostRace: false });
 }
 
@@ -1099,7 +1173,7 @@ async function confirmDraftAttempt(
         workspaceId: input.workspaceId,
         userId: input.userId,
         status: input.status,
-        actorIsAgent: input.actorIsAgent,
+        principal: input.principal,
       });
     }
     // An accepted decision always carries the date it was decided; a row
@@ -1131,13 +1205,15 @@ async function confirmDraftAttempt(
       db,
       { ...current, supersededById: current.supersededById },
       input.userId,
-      { status: input.status, actorIsAgent: input.actorIsAgent },
+      { status: input.status },
     );
   }
   const status = input.status ?? current.status;
   const statusChanged = status !== current.status;
   const deciders =
-    status === "ACCEPTED" ? await claimDeciderWrite(db, input, current.deciders) : undefined;
+    status === "ACCEPTED"
+      ? await claimDeciderWrite(db, input.userId, current.deciders)
+      : undefined;
   const now = new Date();
   const decision = await db.$transaction(async (tx) => {
     // DRAFT → CONFIRMED only if it is still a draft. A concurrent confirm

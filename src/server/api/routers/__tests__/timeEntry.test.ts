@@ -481,6 +481,102 @@ describe("timeEntry.rememberResolution", () => {
   });
 });
 
+/**
+ * The time-entry helpers decide from the verified principal (`resolvePrincipal`),
+ * not from `tokenType === "agent-key"` alone: an Assistant run's shadow user
+ * on an `agent-context` JWT is an agent, and Zoe acting for a person is an
+ * agent working under the person's identity (D-0016; ADR-0061).
+ */
+describe("timeEntry principal from the resolver", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    vi.mocked(recordActivity).mockClear();
+    withTransaction(db);
+    db.timeEntry.findFirst.mockResolvedValue(null);
+  });
+
+  const callerAs = (userId: string, tokenType: string, agentRunId?: string) =>
+    createMockCaller({ userId, db: db as unknown as PrismaClient, tokenType, agentRunId });
+  const createdData = () =>
+    (db.timeEntry.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+
+  it("an Assistant run's shadow user (agent-context + runId) logs PROPOSED time for its owner", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    arrangeAgent(db);
+    arrangeAction(db, OWNER_ID);
+    db.timeEntry.create.mockResolvedValue(entryRow() as never);
+
+    await callerAs(SHADOW_ID, "agent-context", "run-1").timeEntry.create({
+      actionId: ACTION_ID,
+      startedAt: START,
+      endedAt: END,
+      status: "CONFIRMED", // asked for, refused
+    });
+
+    expect(createdData()).toMatchObject({ userId: OWNER_ID, createdByAgentId: AGENT_ID, status: "PROPOSED" });
+  });
+
+  it.each(["agent-context", "whatsapp-gateway", "voice-session"])(
+    "Zoe acting for a person (%s) logs the person's time as PROPOSED, never confirmed",
+    async (tokenType) => {
+      db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+      arrangeAction(db, OWNER_ID);
+      db.timeEntry.create.mockResolvedValue(entryRow({ createdByAgentId: null }) as never);
+
+      await callerAs(OWNER_ID, tokenType).timeEntry.create({
+        actionId: ACTION_ID,
+        startedAt: START,
+        endedAt: END,
+        status: "CONFIRMED",
+      });
+
+      expect(createdData()).toMatchObject({ userId: OWNER_ID, createdByAgentId: null, status: "PROPOSED" });
+      expect(db.action.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a person's own API token still logs CONFIRMED time", async () => {
+    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    arrangeAction(db, OWNER_ID);
+    db.timeEntry.create.mockResolvedValue(entryRow({ status: "CONFIRMED", createdByAgentId: null }) as never);
+
+    await callerAs(OWNER_ID, "api-token").timeEntry.create({ actionId: ACTION_ID, startedAt: START, endedAt: END });
+
+    expect(createdData()).toMatchObject({ userId: OWNER_ID, createdByAgentId: null, status: "CONFIRMED" });
+  });
+
+  it.each(["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"])(
+    "confirmDay and rememberResolution through %s are FORBIDDEN, even with the person as session user",
+    async (tokenType) => {
+      db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+      await expect(
+        callerAs(OWNER_ID, tokenType).timeEntry.confirmDay({ date: new Date("2026-09-11T00:00:00") }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(
+        callerAs(OWNER_ID, tokenType).timeEntry.rememberResolution({ titlePattern: "x", projectId: "p-1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.timeEntry.findMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a shadow user behind an x-api-key is still the agent", async () => {
+    db.verificationToken.findFirst.mockResolvedValue({ userId: SHADOW_ID } as never);
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    arrangeAgent(db);
+    const caller = createCaller({
+      db: db as unknown as PrismaClient,
+      session: null,
+      headers: new Headers({ "x-api-key": "k" }),
+    });
+    await expect(caller.timeEntry.confirmDay({ date: new Date("2026-09-11T00:00:00") })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+});
+
 describe("action.upsertBySource", () => {
   let db: DeepMockProxy<PrismaClient>;
 
