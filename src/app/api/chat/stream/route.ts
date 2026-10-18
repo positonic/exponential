@@ -360,7 +360,7 @@ export async function POST(req: Request) {
     // simply doesn't resolve, and the request falls through to the default agent.
     if (assistantId) {
       const assistant = await db.assistant.findFirst({
-        where: { id: assistantId, createdById: session.user.id },
+        where: { id: assistantId, createdById: session.user.id, retiredAt: null },
       });
 
       if (assistant) {

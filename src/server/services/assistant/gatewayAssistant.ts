@@ -10,7 +10,8 @@ import { buildWorkspaceAccessWhere } from "~/server/services/access/resolvers/wo
  *  2. their most recently edited default assistant in any workspace.
  *
  * Only workspaces the user can still access count: leaving a workspace
- * doesn't delete the assistant they made there.
+ * doesn't delete the assistant they made there. A retired Assistant
+ * (ADR-0072) never counts.
  *
  * Returns identity fields only — never the persona text.
  */
@@ -24,6 +25,7 @@ export async function findGatewayAssistant(db: PrismaClient, userId: string) {
       where: {
         createdById: userId,
         isDefault: true,
+        retiredAt: null,
         workspace: buildWorkspaceAccessWhere(userId),
       },
       orderBy: { updatedAt: "desc" },
