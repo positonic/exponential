@@ -47,6 +47,7 @@ import {
 } from "~/server/services/TranscriptSummarizerService";
 import {
   buildTranscriptionAccessWhere,
+  buildTranscriptionEditWhere,
   canEditTranscription,
   canViewTranscription,
   getProjectAccess,
@@ -1911,11 +1912,16 @@ export const transcriptionRouter = createTRPCRouter({
   bulkDeleteTranscriptions: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      // Delete only transcriptions that belong to the current user
+      // Delete only the meetings the caller can edit (owner, project editor,
+      // or a write role in a project-less meeting's workspace): the bulk
+      // form of `deleteTranscription`'s access check. Other ids are skipped,
+      // not refused, and the count says how many were deleted.
       const result = await ctx.db.transcriptionSession.deleteMany({
         where: {
-          id: { in: input.ids },
-          userId: ctx.session.user.id, // Ensure user only deletes their own transcriptions
+          AND: [
+            { id: { in: input.ids } },
+            buildTranscriptionEditWhere(ctx.session.user.id),
+          ],
         },
       });
 
@@ -2749,11 +2755,14 @@ export const transcriptionRouter = createTRPCRouter({
   bulkArchiveTranscriptions: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      // Archive only transcriptions that belong to the current user
+      // Archive only the meetings the caller can edit; same scoping as
+      // `bulkDeleteTranscriptions`.
       const result = await ctx.db.transcriptionSession.updateMany({
         where: {
-          id: { in: input.ids },
-          userId: ctx.session.user.id, // Ensure user only archives their own transcriptions
+          AND: [
+            { id: { in: input.ids } },
+            buildTranscriptionEditWhere(ctx.session.user.id),
+          ],
         },
         data: {
           archivedAt: new Date(),

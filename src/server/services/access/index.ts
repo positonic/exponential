@@ -101,6 +101,7 @@ export {
   canViewTranscription,
   canEditTranscription,
   buildTranscriptionAccessWhere,
+  buildTranscriptionEditWhere,
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
 export {
