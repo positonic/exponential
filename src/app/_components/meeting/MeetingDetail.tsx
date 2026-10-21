@@ -4,11 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconGavel, IconSparkles, IconFileText, IconPhoto, IconListCheck } from "@tabler/icons-react";
+import {
+  IconGavel,
+  IconSparkles,
+  IconFileText,
+  IconPhoto,
+  IconListCheck,
+  IconNotes,
+} from "@tabler/icons-react";
 import "./meeting-detail.css";
 import { MeetingHeader } from "./MeetingHeader";
 import { PostToMatrixButton } from "~/app/_components/matrix/PostToMatrixButton";
 import { SummaryTab } from "./SummaryTab";
+import { NotesTab } from "./NotesTab";
 import { OutputsTab } from "./OutputsTab";
 import { TranscriptView } from "./TranscriptView";
 import { ScreenshotsTab } from "./ScreenshotsTab";
@@ -39,6 +47,8 @@ interface MeetingDetailProps {
   /** True while a summary is being auto-generated on view for this meeting. */
   isGeneratingSummary: boolean;
   onSaveSummary: (value: string) => Promise<void>;
+  /** Replace the meeting's human-written notes (Notes tab). */
+  onSaveNotes: (value: string) => Promise<void>;
   /** Rename the meeting; the header only offers in-place editing to editors. */
   onRenameTitle: (title: string) => Promise<void>;
   onMeetingDateChange: (value: Date | null) => void;
@@ -82,6 +92,7 @@ export function MeetingDetail({
   isIdeatingFeatures,
   isGeneratingSummary,
   onSaveSummary,
+  onSaveNotes,
   onRenameTitle,
   onMeetingDateChange,
   onProjectChange,
@@ -198,6 +209,12 @@ export function MeetingDetail({
         // `[SCREENSHOT]` markers, so it needs the body too.
         (tab === "transcript" || (tab === "screenshots" && session.screenshots.length > 0)),
     },
+  );
+  // Notes are stripped from `getDetail` with the other bodies; fetch them
+  // when their tab opens, like the transcript.
+  const notesQuery = api.transcription.getNotes.useQuery(
+    { id: session.id },
+    { enabled: tab === "notes" },
   );
 
   // Identity keys already on the meeting so the picker hides existing people.
@@ -455,6 +472,15 @@ export function MeetingDetail({
           </button>
           <button
             role="tab"
+            aria-selected={tab === "notes"}
+            className={`mp-tab ${tab === "notes" ? "on" : ""}`}
+            onClick={() => selectTab("notes")}
+            data-testid="tab-notes"
+          >
+            <IconNotes size={14} /> Notes
+          </button>
+          <button
+            role="tab"
             aria-selected={tab === "transcript"}
             className={`mp-tab ${tab === "transcript" ? "on" : ""}`}
             onClick={() => selectTab("transcript")}
@@ -503,6 +529,15 @@ export function MeetingDetail({
                 onShowOutputs={() => selectTab("outputs")}
                 onIdeateFeatures={onIdeateFeatures}
                 onRegenerate={onRegenerateSummary}
+              />
+            )}
+            {tab === "notes" && (
+              <NotesTab
+                notes={notesQuery.data?.notes ?? null}
+                isLoading={notesQuery.isLoading}
+                isError={notesQuery.isError}
+                canEdit={session.canEdit}
+                onSave={onSaveNotes}
               />
             )}
             {tab === "outputs" && (

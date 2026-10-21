@@ -1,7 +1,9 @@
 /**
- * Meeting page sections (`/recording/<id>`): Summary, Transcript, Outputs,
- * Screenshots. Outputs is where a meeting's extracted actions, decisions and
- * open questions are triaged.
+ * Meeting page sections (`/recording/<id>`): Summary, Notes, Transcript,
+ * Outputs, Screenshots. Outputs is where a meeting's extracted actions,
+ * decisions and open questions are triaged; Notes is the human-written
+ * `TranscriptionSession.notes` (the Add Meeting modal's "Notes" field), which
+ * editors can also write from the page.
  *
  * The open tab lives in the URL as `?tab=<name>` (Summary when absent) so
  * every section is linkable: the Share button copies the current tab,
@@ -9,7 +11,7 @@
  * (ADR-0060), and the screenshot narrative is shareable the same way.
  */
 
-export const MEETING_TABS = ["summary", "transcript", "outputs", "screenshots"] as const;
+export const MEETING_TABS = ["summary", "notes", "transcript", "outputs", "screenshots"] as const;
 export type MeetingTab = (typeof MEETING_TABS)[number];
 
 /** The tab the page opens on when the URL names none. */

@@ -288,6 +288,23 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     }
   }
 
+  async function handleSaveNotes(value: string) {
+    if (!session) return;
+    try {
+      await updateDetailsMutation.mutateAsync({ id: session.id, notes: value });
+      notifications.show({ title: "Saved", message: "Notes updated", color: "green" });
+      void utils.transcription.getNotes.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to update notes",
+        color: "red",
+      });
+      throw error;
+    }
+  }
+
   async function handleRenameTitle(title: string) {
     if (!session) return;
     try {
@@ -375,6 +392,7 @@ export function MeetingDetailContainer({ id }: { id: string }) {
       isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
+      onSaveNotes={handleSaveNotes}
       onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
