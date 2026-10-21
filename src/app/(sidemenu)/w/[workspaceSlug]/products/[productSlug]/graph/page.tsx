@@ -69,6 +69,18 @@ export default function ProductGraphPage() {
       { enabled: !!product?.id },
     );
 
+  // Names for the filter pills. A saved epic or cycle filter can name one
+  // no drawn ticket carries (every ticket of it completed and hidden), and
+  // the ticket-derived facets would then label it "Unknown".
+  const { data: epics } = api.epic.list.useQuery(
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
+  );
+  const { data: cycles } = api.product.cycle.list.useQuery(
+    { workspaceId: workspaceId ?? "", productId: product?.id },
+    { enabled: !!workspaceId && !!product?.id },
+  );
+
   const allTickets = graph?.tickets;
   const allEdges = graph?.blockingEdges;
   const allFeatures = graph?.features;
@@ -141,7 +153,7 @@ export default function ProductGraphPage() {
     (facet) =>
       filters[facet.key].map((value) => ({
         key: `${facet.key}-${value}`,
-        label: ticketFacetPillLabel(facet.key, value, facetOptions, { members }),
+        label: ticketFacetPillLabel(facet.key, value, facetOptions, { members, epics, cycles }),
         color: ticketFacetPillColor(facet.key, value),
         onRemove: () => toggleFilter(facet.key, value),
       })),
