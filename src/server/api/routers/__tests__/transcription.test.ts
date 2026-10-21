@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+import { buildTranscriptionEditWhere } from "~/server/services/access";
 import type { PrismaClient, TranscriptionSession, WorkspaceUser } from "@prisma/client";
 
 // Env vars must be seeded BEFORE the module graph evaluates.
@@ -1404,5 +1405,47 @@ describe("transcription router (mocked) — deleteTranscription / archiveTranscr
     await expect(
       caller.transcription.deleteTranscription({ id: "nope" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("transcription router (mocked) — bulkDeleteTranscriptions / bulkArchiveTranscriptions", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.transcriptionSession.deleteMany.mockResolvedValue({ count: 2 });
+    dbMock.transcriptionSession.updateMany.mockResolvedValue({ count: 2 });
+  });
+
+  // The bulk forms scope their write with the edit WHERE builder, not the
+  // caller's ownership, so they reach exactly the meetings the per-row
+  // archive/delete path allows (mirror-tested in transcriptionWriteWhere).
+  it("deletes the chosen ids scoped to meetings the caller can edit", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.bulkDeleteTranscriptions({ ids: ["m1", "m2"] });
+
+    expect(result).toEqual({ count: 2 });
+    expect(dbMock.transcriptionSession.deleteMany).toHaveBeenCalledWith({
+      where: {
+        AND: [{ id: { in: ["m1", "m2"] } }, buildTranscriptionEditWhere(callerId)],
+      },
+    });
+  });
+
+  it("archives the chosen ids scoped to meetings the caller can edit", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.bulkArchiveTranscriptions({ ids: ["m1", "m2"] });
+
+    expect(result).toEqual({ count: 2 });
+    expect(dbMock.transcriptionSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        AND: [{ id: { in: ["m1", "m2"] } }, buildTranscriptionEditWhere(callerId)],
+      },
+      data: expect.objectContaining({ archivedAt: expect.any(Date) }),
+    });
   });
 });
