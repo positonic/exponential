@@ -15,6 +15,7 @@ import {
   Select,
   Skeleton,
   Stack,
+  Switch,
   Text,
   Tooltip,
 } from "@mantine/core";
@@ -22,6 +23,7 @@ import {
   IconAdjustments,
   IconChevronDown,
   IconChevronRight,
+  IconCornerDownRight,
   IconDots,
   IconLayoutKanban,
   IconList,
@@ -60,7 +62,7 @@ import {
   priorityPillColor,
   priorityPillValue,
 } from "~/app/_components/product/priorityPill";
-import { TICKET_TYPES, type TicketTypeValue } from "~/lib/ticket-types";
+import type { TicketTypeValue } from "~/lib/ticket-types";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { EpicsList } from "~/app/_components/product/EpicsList";
@@ -85,6 +87,22 @@ import {
   GROUP_BY_OPTIONS,
   type GroupByField,
 } from "./ticketGrouping";
+import { nestTicketsByDependency, type NestedTicketRow } from "./ticketNesting";
+import {
+  countActiveTicketFilters,
+  deriveTicketFacetOptions,
+  EMPTY_TICKET_FILTERS,
+  matchesTicketFilters,
+  parseSavedTicketFilters,
+  TICKET_FILTER_FACETS,
+  TICKET_TYPE_COLORS,
+  TICKET_TYPE_OPTIONS,
+  ticketFacetPillColor,
+  ticketFacetPillLabel,
+  toggleTicketFilter,
+  type TicketFilterKey,
+  type TicketFilters,
+} from "~/app/_components/product/ticketFilters";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -101,41 +119,15 @@ import {
 
 const PRIORITY_LABELS = PRIORITY_LABEL_MAP;
 
-const TYPE_COLORS: Record<string, string> = {
-  BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
-};
+const TYPE_COLORS = TICKET_TYPE_COLORS;
+const TYPE_OPTIONS = TICKET_TYPE_OPTIONS;
 
 type TicketType = TicketTypeValue;
 
-const TYPE_LABELS: Record<TicketType, string> = {
-  BUG: "Bug", FEATURE: "Feature", CHORE: "Chore", IMPROVEMENT: "Improvement", SPIKE: "Spike", RESEARCH: "Research",
-};
+// The facet filters (keys, matching, options, pill labels) live in
+// ~/app/_components/product/ticketFilters and are shared with the Graph tab,
+// which reads and writes the same saved `filters` pref.
 
-const TYPE_OPTIONS = TICKET_TYPES.map((value) => ({ value, label: TYPE_LABELS[value] }));
-
-// Colours of the toolbar pills naming each applied filter.
-const FACET_PILL_COLORS: Record<Exclude<FilterKey, "status" | "type">, string> = {
-  priority: "grape", assignee: "brand", epic: "indigo", cycle: "cyan", labels: "teal",
-};
-
-// ---------------------------------------------------------------------------
-// Filters
-// ---------------------------------------------------------------------------
-
-type FilterKey = "status" | "priority" | "type" | "assignee" | "epic" | "cycle" | "labels";
-
-interface TicketFilters {
-  status: string[];
-  priority: string[];
-  type: string[];
-  assignee: string[];
-  epic: string[];
-  cycle: string[];
-  labels: string[];
-}
-
-// Arrays are never mutated in place (all updates spread), so a shared empty
-// reference is safe to use as the default / cleared state.
 /** The per-user, per-product view prefs the page persists (saveViewPrefs input). */
 interface SavedViewPrefs {
   view: string;
@@ -145,23 +137,12 @@ interface SavedViewPrefs {
   visibleColumns: string[];
   entity: "tickets" | "epics";
   filters: TicketFilters;
+  /** Table / list: nest each ticket's dependencies beneath it. */
+  nestDependencies: boolean;
 }
 
-const EMPTY_FILTERS: TicketFilters = {
-  status: [], priority: [], type: [], assignee: [], epic: [], cycle: [], labels: [],
-};
-
-const FILTER_FACET_META: Array<{ key: FilterKey; label: string }> = [
-  { key: "status", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "type", label: "Type" },
-  { key: "assignee", label: "DRI" },
-  { key: "epic", label: "Epic" },
-  { key: "cycle", label: "Cycle" },
-  { key: "labels", label: "Labels" },
-];
-
-type FacetOptions = Record<FilterKey, Array<{ value: string; label: string }>>;
+/** Indent per nesting level in the nested-dependencies view, in px. */
+const NEST_INDENT = 20;
 
 
 // ---------------------------------------------------------------------------
@@ -253,8 +234,12 @@ export default function TicketsBacklogPage() {
   const [view, setView] = useState("table");
   const [entity, setEntity] = useState<"tickets" | "epics">("tickets");
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
-  const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [nestDependencies, setNestDependencies] = useState(false);
+  // Tickets whose nested dependencies are folded away (by id, so a ticket
+  // that appears under several parents folds everywhere at once).
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(["id", "status", "title", "priority", "dri", "type", "labels", "epic", "cycle"]),
   );
@@ -302,20 +287,10 @@ export default function TicketsBacklogPage() {
         setEntity(savedPrefs.entity);
       }
       if (savedPrefs.filters && typeof savedPrefs.filters === "object") {
-        // Saved prefs are untrusted JSON - guard each facet is actually an
-        // array. Stale values (e.g. a deleted epic id) are harmless: they
-        // simply match no tickets and aren't offered in facetOptions.
-        const f = savedPrefs.filters as Partial<TicketFilters>;
-        const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
-        setFilters({
-          status: arr(f.status),
-          priority: arr(f.priority),
-          type: arr(f.type),
-          assignee: arr(f.assignee),
-          epic: arr(f.epic),
-          cycle: arr(f.cycle),
-          labels: arr(f.labels),
-        });
+        setFilters(parseSavedTicketFilters(savedPrefs.filters));
+      }
+      if (typeof savedPrefs.nestDependencies === "boolean") {
+        setNestDependencies(savedPrefs.nestDependencies);
       }
       setPrefsLoaded(true);
     }
@@ -350,6 +325,15 @@ export default function TicketsBacklogPage() {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleNodeCollapsed = (ticketId: string) => {
+    setCollapsedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
       return next;
     });
   };
@@ -617,80 +601,29 @@ export default function TicketsBacklogPage() {
 
   // ── Filters ──
   // Facet options are derived from the loaded tickets, so only values actually
-  // present in the product are offered. "none" is a synthetic value for the
-  // unset bucket (no priority / unassigned / no epic / no cycle).
-  const facetOptions = useMemo<FacetOptions>(() => {
-    const status = new Map<string, string>();
-    const priority = new Map<string, string>();
-    const type = new Map<string, string>();
-    const assignee = new Map<string, string>();
-    const epic = new Map<string, string>();
-    const cycle = new Map<string, string>();
-    const labels = new Map<string, string>();
+  // present in the product are offered.
+  const facetOptions = useMemo(() => deriveTicketFacetOptions(tickets ?? []), [tickets]);
 
-    for (const t of tickets ?? []) {
-      status.set(t.status, STATUS_LABELS[t.status] ?? t.status);
-      const pKey = t.priority == null ? "none" : String(t.priority);
-      priority.set(pKey, t.priority == null ? "No priority" : (PRIORITY_LABELS[t.priority] ?? pKey));
-      type.set(t.type, t.type.toLowerCase());
-      assignee.set(t.assignee?.id ?? "none", t.assignee?.name ?? "Unassigned");
-      epic.set(t.epic?.id ?? "none", t.epic?.name ?? "No epic");
-      cycle.set(t.cycle?.id ?? "none", t.cycle?.name ?? "No cycle");
-      for (const x of t.tags ?? []) labels.set(x.tag.id, x.tag.name);
-    }
+  const activeFilterCount = countActiveTicketFilters(filters);
 
-    const toOpts = (m: Map<string, string>) =>
-      Array.from(m, ([value, label]) => ({ value, label }));
-    // "none" always sorts last; other values alphabetical by label.
-    const alpha = (m: Map<string, string>) =>
-      toOpts(m).sort((a, b) =>
-        a.value === "none" ? 1 : b.value === "none" ? -1 : a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
-      );
-
-    return {
-      status: toOpts(status).sort((a, b) => (STATUS_ORDER[a.value] ?? 99) - (STATUS_ORDER[b.value] ?? 99)),
-      priority: toOpts(priority).sort(
-        (a, b) => (a.value === "none" ? 99 : Number(a.value)) - (b.value === "none" ? 99 : Number(b.value)),
-      ),
-      type: alpha(type),
-      assignee: alpha(assignee),
-      epic: alpha(epic),
-      cycle: alpha(cycle),
-      labels: alpha(labels),
-    };
-  }, [tickets]);
-
-  const activeFilterCount = FILTER_FACET_META.reduce((n, f) => n + filters[f.key].length, 0);
-
-  const toggleFilter = (key: FilterKey, value: string) => {
+  const toggleFilter = (key: TicketFilterKey, value: string) => {
     setFilters((prev) => {
-      const cur = prev[key];
-      const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
-      const updated = { ...prev, [key]: next };
+      const updated = toggleTicketFilter(prev, key, value);
       debouncedSave({ filters: updated });
       return updated;
     });
   };
 
   const clearFilters = () => {
-    setFilters(EMPTY_FILTERS);
-    debouncedSave({ filters: EMPTY_FILTERS });
+    setFilters(EMPTY_TICKET_FILTERS);
+    debouncedSave({ filters: EMPTY_TICKET_FILTERS });
   };
 
   // Filter + sort
   const sorted = useMemo(() => {
     if (!tickets) return [];
     const q = search.toLowerCase().trim();
-    const matchesFilters = (t: (typeof tickets)[number]) => {
-      if (filters.status.length && !filters.status.includes(t.status)) return false;
-      if (filters.priority.length && !filters.priority.includes(t.priority == null ? "none" : String(t.priority))) return false;
-      if (filters.type.length && !filters.type.includes(t.type)) return false;
-      if (filters.assignee.length && !filters.assignee.includes(t.assignee?.id ?? "none")) return false;
-      if (filters.epic.length && !filters.epic.includes(t.epic?.id ?? "none")) return false;
-      if (filters.cycle.length && !filters.cycle.includes(t.cycle?.id ?? "none")) return false;
-      if (filters.labels.length && !(t.tags ?? []).some((x) => filters.labels.includes(x.tag.id))) return false;
-      return true;
-    };
+    const matchesFilters = (t: (typeof tickets)[number]) => matchesTicketFilters(t, filters);
     const matchesSearch = (t: (typeof tickets)[number]) =>
       !q ||
       t.title.toLowerCase().includes(q) ||
@@ -728,20 +661,26 @@ export default function TicketsBacklogPage() {
     [activeTickets, groupBy],
   );
 
-  // Visible row order for shift-click range selection.
+  // Visible row order for shift-click range selection and peek prev/next.
+  // With dependencies nested it follows the tree walk; a ticket shown under
+  // several parents counts once, at its first appearance.
   const visibleIds = useMemo(() => {
     if (view === "board") return sorted.map((t) => t.id);
+    const rowIds = (items: typeof sorted) =>
+      nestDependencies
+        ? nestTicketsByDependency(items, collapsedNodes).map((r) => r.ticket.id)
+        : items.map((t) => t.id);
     const ids: string[] = [];
     for (const g of groups) {
       if (groupBy === "none" || !collapsed.has(g.key)) {
-        ids.push(...g.items.map((t) => t.id));
+        ids.push(...rowIds(g.items));
       }
     }
     if (!collapsed.has("__completed")) {
-      ids.push(...completedTickets.map((t) => t.id));
+      ids.push(...rowIds(completedTickets));
     }
-    return ids;
-  }, [view, sorted, groups, groupBy, collapsed, completedTickets]);
+    return nestDependencies ? Array.from(new Set(ids)) : ids;
+  }, [view, sorted, groups, groupBy, collapsed, completedTickets, nestDependencies, collapsedNodes]);
 
   // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
   const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/tickets`;
@@ -778,37 +717,10 @@ export default function TicketsBacklogPage() {
   };
 
   // One toolbar pill per applied filter: the deep-link params first, then each
-  // facet value picked in the Filter popover.
-  // Labels come from the page's own entity lists, not the ticket-derived
-  // facets: a saved filter can name an epic, cycle or member that no loaded
-  // ticket carries (deleted, or narrowed out by ?status=), and a raw id is no
-  // label.
-  const facetPillLabel = (key: FilterKey, value: string): string => {
-    const fromFacets = facetOptions[key].find((o) => o.value === value)?.label;
-    if (value === "none") return fromFacets ?? "None"; // "No priority", "Unassigned", "No epic"...
-    switch (key) {
-      case "status": return STATUS_LABELS[value] ?? value;
-      case "priority": {
-        const n = Number(value);
-        // 4 is the stored "No priority", which already names itself.
-        return n === 4 ? (PRIORITY_LABELS[4] ?? "No priority") : `${PRIORITY_LABELS[n] ?? value} priority`;
-      }
-      case "type": return TYPE_LABELS[value as TicketType] ?? value;
-      case "assignee":
-        return `DRI: ${members.find((m) => m.id === value)?.name ?? fromFacets ?? "Unknown member"}`;
-      case "epic":
-        return `Epic: ${(epics ?? []).find((e) => e.id === value)?.name ?? fromFacets ?? "Unknown epic"}`;
-      case "cycle":
-        return (cycles ?? []).find((c) => c.id === value)?.name ?? fromFacets ?? "Unknown cycle";
-      case "labels":
-        return fromFacets ?? "Unknown label";
-    }
-  };
-  const facetPillColor = (key: FilterKey, value: string): string => {
-    if (key === "status") return STATUS_COLORS[value] ?? "gray";
-    if (key === "type") return TYPE_COLORS[value] ?? "gray";
-    return FACET_PILL_COLORS[key];
-  };
+  // facet value picked in the Filter popover. Names come from the page's own
+  // entity lists before the ticket-derived facets (see ticketFacetPillLabel).
+  const facetPillLabel = (key: TicketFilterKey, value: string): string =>
+    ticketFacetPillLabel(key, value, facetOptions, { members, epics, cycles });
   const filterPills: ListPageFilterPill[] = [
     ...(urlStatus
       ? [{
@@ -828,11 +740,11 @@ export default function TicketsBacklogPage() {
       : []),
     // Saved facet filters wait for the tickets: labels (tags) only resolve
     // from them, and a flash of "Unknown label" on every load is noise.
-    ...(tickets ? FILTER_FACET_META : []).flatMap((facet) =>
+    ...(tickets ? TICKET_FILTER_FACETS : []).flatMap((facet) =>
       filters[facet.key].map((value) => ({
         key: `${facet.key}-${value}`,
         label: facetPillLabel(facet.key, value),
-        color: facetPillColor(facet.key, value),
+        color: ticketFacetPillColor(facet.key, value),
         onRemove: () => toggleFilter(facet.key, value),
       })),
     ),
@@ -879,11 +791,49 @@ export default function TicketsBacklogPage() {
     );
   };
 
+  type NestedRow = NestedTicketRow<(typeof sorted)[number]>;
+
+  // The slot before a title in the nested-dependencies view: a fold chevron
+  // when the ticket has nested dependencies, a corner mark on nested rows,
+  // and an empty slot otherwise so titles stay aligned.
+  const renderNestSlot = (nested: NestedRow) => (
+    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      {nested.childCount > 0 ? (
+        <button
+          type="button"
+          aria-label={nested.isCollapsed ? "Expand dependencies" : "Collapse dependencies"}
+          aria-expanded={!nested.isCollapsed}
+          className="flex h-4 w-4 items-center justify-center rounded text-text-muted hover:text-text-primary"
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation();
+            toggleNodeCollapsed(nested.ticket.id);
+          }}
+        >
+          {nested.isCollapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
+        </button>
+      ) : nested.depth > 0 ? (
+        <IconCornerDownRight size={12} className="text-text-muted opacity-60" aria-hidden />
+      ) : null}
+    </span>
+  );
+
+  // Rows for one bucket (a group, or the Completed section): flat, or the
+  // dependency tree walk when "Nest dependencies" is on.
+  const renderRows = (
+    items: typeof sorted,
+    render: (ticket: (typeof sorted)[number], nested?: NestedRow) => React.ReactNode,
+  ) =>
+    nestDependencies
+      ? nestTicketsByDependency(items, collapsedNodes).map((r) => render(r.ticket, r))
+      : items.map((t) => render(t));
+
   // List item renderer (compact, no table)
-  const renderListItem = (ticket: (typeof sorted)[number]) => (
+  const renderListItem = (ticket: (typeof sorted)[number], nested?: NestedRow) => (
     <div
-      key={ticket.id}
+      key={nested?.rowKey ?? ticket.id}
+      data-depth={nested?.depth}
       className={`group/row flex items-center gap-3 px-8 py-2 transition-colors cursor-pointer border-b border-border-primary ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
+      style={nested ? { paddingLeft: 32 + nested.depth * NEST_INDENT } : undefined}
       {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
     >
       <SelectSlot
@@ -899,6 +849,7 @@ export default function TicketsBacklogPage() {
       <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0" styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
         {STATUS_LABELS[ticket.status] ?? ticket.status}
       </Badge>
+      {nested && renderNestSlot(nested)}
       <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
         {ticket.title}
       </Text>
@@ -976,18 +927,20 @@ export default function TicketsBacklogPage() {
   const stopRowClick = (e: React.MouseEvent) => e.stopPropagation();
 
   // Shared row renderer
-  const renderRow = (ticket: (typeof sorted)[number]) => {
+  const renderRow = (ticket: (typeof sorted)[number], nested?: NestedRow) => {
     const tags = vc.has("labels") ? (ticket.tags ?? []) : [];
     const metaText = [
       vc.has("epic") ? ticket.epic?.name : null,
       vc.has("cycle") ? ticket.cycle?.name : null,
     ].filter(Boolean);
     const hasMeta = metaText.length > 0 || tags.length > 0;
+    const indent = nested ? { paddingLeft: nested.depth * NEST_INDENT } : undefined;
     return (
       <tr
-        key={ticket.id}
+        key={nested?.rowKey ?? ticket.id}
         className={`${table.tableRow} group/row`}
         data-clickable="true"
+        data-depth={nested?.depth}
         data-selected={sel.isSelected(ticket.id) ? "true" : "false"}
         {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
       >
@@ -1005,7 +958,8 @@ export default function TicketsBacklogPage() {
           </SelectSlot>
         </td>
         <td style={{ width: "100%", maxWidth: 0 }}>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2" style={indent}>
+            {nested && renderNestSlot(nested)}
             <span className={`${table.nameText} min-w-0`}>{ticket.title}</span>
             <BlockedIndicator
               openBlockerCount={ticket.openBlockerCount}
@@ -1013,7 +967,7 @@ export default function TicketsBacklogPage() {
             />
           </div>
           {hasMeta && (
-            <div className={table.nameMeta}>
+            <div className={table.nameMeta} style={indent}>
               {metaText.length > 0 && <span>{metaText.join(" · ")}</span>}
               {tags.slice(0, 3).map((t: { tag: { id: string; name: string; color: string } }) => (
                 <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
@@ -1142,7 +1096,7 @@ export default function TicketsBacklogPage() {
             {entity === "tickets" && (
               <ListPageFilterPopover
                 aria-label="Filter tickets"
-                facets={FILTER_FACET_META}
+                facets={TICKET_FILTER_FACETS}
                 options={facetOptions}
                 selected={filters}
                 activeCount={activeFilterCount}
@@ -1182,6 +1136,20 @@ export default function TicketsBacklogPage() {
                           styles={{
                             root: { flex: 1 },
                             input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-1">
+                        <Text size="xs" className="text-text-muted whitespace-nowrap">Nest dependencies</Text>
+                        <Switch
+                          size="xs"
+                          aria-label="Nest dependencies"
+                          checked={nestDependencies}
+                          disabled={view === "board"}
+                          onChange={(e) => {
+                            const on = e.currentTarget.checked;
+                            setNestDependencies(on);
+                            debouncedSave({ nestDependencies: on });
                           }}
                         />
                       </div>
@@ -1266,7 +1234,7 @@ export default function TicketsBacklogPage() {
           <div>
             {groups.map((group) => (
               groupBy === "none" ? (
-                <div key={group.key}>{group.items.map(renderListItem)}</div>
+                <div key={group.key}>{renderRows(group.items, renderListItem)}</div>
               ) : (
                 <React.Fragment key={`group-${group.key}`}>
                   <div
@@ -1279,7 +1247,7 @@ export default function TicketsBacklogPage() {
                     </Text>
                     <Badge size="xs" variant="light">{group.items.length}</Badge>
                   </div>
-                  {!collapsed.has(group.key) && group.items.map(renderListItem)}
+                  {!collapsed.has(group.key) && renderRows(group.items, renderListItem)}
                 </React.Fragment>
               )
             ))}
@@ -1293,7 +1261,7 @@ export default function TicketsBacklogPage() {
                   <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">Completed</Text>
                   <Badge size="xs" variant="light">{completedTickets.length}</Badge>
                 </div>
-                {!collapsed.has("__completed") && completedTickets.map(renderListItem)}
+                {!collapsed.has("__completed") && renderRows(completedTickets, renderListItem)}
               </>
             )}
           </div>
@@ -1326,11 +1294,11 @@ export default function TicketsBacklogPage() {
             <tbody>
               {groups.map((group) => (
                 groupBy === "none" ? (
-                  group.items.map(renderRow)
+                  renderRows(group.items, renderRow)
                 ) : (
                   <React.Fragment key={`group-${group.key}`}>
                     {renderGroupRow(group.key, group.label, group.items.map((t) => t.id))}
-                    {!collapsed.has(group.key) && group.items.map(renderRow)}
+                    {!collapsed.has(group.key) && renderRows(group.items, renderRow)}
                   </React.Fragment>
                 )
               ))}
@@ -1339,7 +1307,7 @@ export default function TicketsBacklogPage() {
               {completedTickets.length > 0 && (
                 <>
                   {renderGroupRow("__completed", "Completed", completedTickets.map((t) => t.id))}
-                  {!collapsed.has("__completed") && completedTickets.map(renderRow)}
+                  {!collapsed.has("__completed") && renderRows(completedTickets, renderRow)}
                 </>
               )}
             </tbody>

@@ -830,6 +830,8 @@ export const productRouter = createTRPCRouter({
         sortDir: z.string().optional(),
         visibleColumns: z.array(z.string()).optional(),
         entity: z.enum(["tickets", "epics"]).optional(),
+        // Backlog table / list: nest each ticket's dependencies beneath it.
+        nestDependencies: z.boolean().optional(),
         filters: z
           // Bounded so a buggy/malicious client can't bloat the persisted
           // settings JSON. Facet values are ids/enums, so these caps sit far
