@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, TranscriptionSession, WorkspaceUser } from "@prisma/client";
 
 // Env vars must be seeded BEFORE the module graph evaluates.
 vi.hoisted(() => {
@@ -1292,32 +1292,37 @@ describe("transcription router (mocked) — deleteTranscription / archiveTranscr
   let dbMock: DeepMockProxy<PrismaClient>;
   const callerId = "caller-1";
 
-  function meeting(userId: string) {
-    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+  // Typed fixtures: only the identity columns the access resolver reads
+  // (`loadTranscriptionForAccess` shape), checked against the Prisma row
+  // type so a renamed column fails here rather than silently passing.
+  function meetingRow(userId: string): TranscriptionSession {
+    const row = {
       id: "m1",
       userId,
       projectId: null,
       workspaceId: "ws-A",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
+    } satisfies Partial<TranscriptionSession>;
+    return row as TranscriptionSession;
+  }
+
+  function membershipRow(role: string): WorkspaceUser {
+    const row = { role, workspaceId: "ws-A" } satisfies Partial<WorkspaceUser>;
+    return row as WorkspaceUser;
+  }
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(meetingRow(userId));
   }
 
   function member(role: string | null) {
-    dbMock.workspaceUser.findUnique.mockResolvedValue(
-      role
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ({ role, workspaceId: "ws-A" } as any)
-        : null,
-    );
+    dbMock.workspaceUser.findUnique.mockResolvedValue(role ? membershipRow(role) : null);
   }
 
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.transcriptionSession.delete.mockResolvedValue({ id: "m1" } as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.transcriptionSession.update.mockResolvedValue({ id: "m1" } as any);
+    dbMock.transcriptionSession.delete.mockResolvedValue(meetingRow("integration-owner"));
+    dbMock.transcriptionSession.update.mockResolvedValue(meetingRow("integration-owner"));
   });
 
   // Same rule as the rest of the page: meeting edit access, not ownership,
