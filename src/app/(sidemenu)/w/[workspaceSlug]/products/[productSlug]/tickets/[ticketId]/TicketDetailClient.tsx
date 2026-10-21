@@ -58,6 +58,7 @@ import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
+import { dependencyProgress } from "~/app/_components/product/dependencyOrdering";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { useTicketPropertyMutations } from "~/app/_components/product/useTicketPropertyMutations";
@@ -545,6 +546,28 @@ export function TicketDetailClient() {
             onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
           />
 
+          {/* Depends on - the same container-list block as Actions. An
+              umbrella ticket's breakdown is a long outbound list, and the
+              sidebar's dot-plus-title rows don't carry status, PR, or
+              assignee at a glance. "Required for" stays in the sidebar: it
+              is short and reads fine there. */}
+          <CollapsibleSection
+            title="Depends on"
+            meta={dependencyProgress(ticket.dependsOn ?? []) ?? undefined}
+          >
+            <TicketDependenciesSection
+              ticketId={ticketId}
+              productId={ticket.product.id}
+              basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
+              dependsOn={ticket.dependsOn ?? []}
+              requiredFor={ticket.requiredFor ?? []}
+              variant="wide"
+              groups={["dependsOn"]}
+              productName={ticket.product.name}
+              funTicketIds={ticket.product.funTicketIds}
+            />
+          </CollapsibleSection>
+
         </Stack>
       </div>
 
@@ -633,13 +656,15 @@ export function TicketDetailClient() {
 
         <PropertyDivider />
 
-        {/* Dependencies */}
+        {/* Required for - the inbound edge only; "Depends on" lives in the
+            body next to Actions. */}
         <TicketDependenciesSection
           ticketId={ticketId}
           productId={ticket.product.id}
           basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
           dependsOn={ticket.dependsOn ?? []}
           requiredFor={ticket.requiredFor ?? []}
+          groups={["requiredFor"]}
         />
 
         <PropertyDivider />
