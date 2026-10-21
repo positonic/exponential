@@ -1,25 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Group, Select, Skeleton, Stack, Switch } from "@mantine/core";
+import { Group, Skeleton, Stack, Switch } from "@mantine/core";
 import { IconAffiliate } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
+import { useViewPrefs } from "~/hooks/useViewPrefs";
 import { EmptyState } from "~/app/_components/EmptyState";
+import {
+  ListPageFilterPills,
+  ListPageFilterPopover,
+  type ListPageFilterPill,
+} from "~/app/_components/listPage";
 import {
   DependencyGraphCanvas,
   type GraphNodeClick,
 } from "~/app/_components/product/graph/DependencyGraphCanvas";
 import { TicketDrawer } from "~/app/_components/product/graph/TicketDrawer";
+import { applyGraphFilter } from "~/app/_components/product/graph/graphFilter";
 import {
-  applyCycleFilter,
-  deriveCycleOptions,
-  hasUncycledTickets,
-  CYCLE_FILTER_ALL,
-  CYCLE_FILTER_NONE,
-  type CycleFilterValue,
-} from "~/app/_components/product/graph/cycleFilter";
+  countActiveTicketFilters,
+  deriveTicketFacetOptions,
+  EMPTY_TICKET_FILTERS,
+  matchesTicketFilters,
+  parseSavedTicketFilters,
+  TICKET_FILTER_FACETS,
+  ticketFacetPillColor,
+  ticketFacetPillLabel,
+  toggleTicketFilter,
+  type TicketFilters,
+} from "~/app/_components/product/ticketFilters";
 
 export default function ProductGraphPage() {
   const params = useParams();
@@ -27,9 +38,24 @@ export default function ProductGraphPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
   const [showCompleted, setShowCompleted] = useState(false);
-  const [cycleFilter, setCycleFilter] =
-    useState<CycleFilterValue>(CYCLE_FILTER_ALL);
   const [drawerTicketId, setDrawerTicketId] = useState<string | null>(null);
+
+  // The Backlog's facet filters, shared through the same saved view prefs: a
+  // filter applied on either tab narrows the other. Changes here save back
+  // under the same key, so the Backlog picks them up on its next mount.
+  const [filters, setFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  const { prefs: savedPrefs, isError: prefsFailed, save: savePrefs } =
+    useViewPrefs<{ filters: TicketFilters }>({ productSlug, workspaceId }, { debounceMs: 500 });
+  useEffect(() => {
+    if (savedPrefs && !prefsLoaded) {
+      setFilters(parseSavedTicketFilters(savedPrefs.filters));
+      setPrefsLoaded(true);
+    }
+  }, [savedPrefs, prefsLoaded]);
+  // Hold the canvas until the saved filters are known: a graph drawn
+  // unfiltered first would re-layout the moment they land.
+  const awaitingPrefs = !prefsLoaded && !prefsFailed;
 
   const { data: product, isLoading: isProductLoading } =
     api.product.product.getBySlug.useQuery(
@@ -47,39 +73,34 @@ export default function ProductGraphPage() {
   const allEdges = graph?.blockingEdges;
   const allFeatures = graph?.features;
 
-  const cycleOptions = useMemo(
-    () => deriveCycleOptions(allTickets ?? []),
+  const facetOptions = useMemo(
+    () => deriveTicketFacetOptions(allTickets ?? []),
     [allTickets],
   );
-  const showNoCycleOption = useMemo(
-    () => hasUncycledTickets(allTickets ?? []),
-    [allTickets],
-  );
-  // Fall back to "All" when the selected cycle drops out of the data
-  // (e.g. after toggling "Show completed").
-  const effectiveFilter =
-    cycleFilter === CYCLE_FILTER_ALL ||
-    (cycleFilter === CYCLE_FILTER_NONE && showNoCycleOption) ||
-    cycleOptions.some((c) => c.id === cycleFilter)
-      ? cycleFilter
-      : CYCLE_FILTER_ALL;
+  const activeFilterCount = countActiveTicketFilters(filters);
+  const isFiltered = activeFilterCount > 0;
 
   const { tickets: visibleTickets, dimmedTicketIds } = useMemo(
-    () => applyCycleFilter(allTickets ?? [], allEdges ?? [], effectiveFilter),
-    [allTickets, allEdges, effectiveFilter],
+    () =>
+      applyGraphFilter(
+        allTickets ?? [],
+        allEdges ?? [],
+        isFiltered ? (t) => matchesTicketFilters(t, filters) : null,
+      ),
+    [allTickets, allEdges, filters, isFiltered],
   );
 
-  // Features stay visible only while an in-cycle (non-dimmed) ticket needs
+  // Features stay visible only while a matching (non-dimmed) ticket needs
   // them; blocking edges only when both endpoints are drawn.
   const visibleFeatures = useMemo(() => {
-    if (effectiveFilter === CYCLE_FILTER_ALL) return allFeatures ?? [];
+    if (!isFiltered) return allFeatures ?? [];
     const neededFeatureIds = new Set(
       visibleTickets
         .filter((t) => !dimmedTicketIds.has(t.id) && t.featureId)
         .map((t) => t.featureId),
     );
     return (allFeatures ?? []).filter((f) => neededFeatureIds.has(f.id));
-  }, [allFeatures, visibleTickets, dimmedTicketIds, effectiveFilter]);
+  }, [allFeatures, visibleTickets, dimmedTicketIds, isFiltered]);
 
   const visibleEdges = useMemo(() => {
     const ids = new Set(visibleTickets.map((t) => t.id));
@@ -88,9 +109,43 @@ export default function ProductGraphPage() {
     );
   }, [allEdges, visibleTickets]);
 
+  const members = useMemo(
+    () =>
+      (workspace?.members ?? []).map(
+        (m: { user: { id: string; name: string | null } }) => ({
+          id: m.user.id,
+          name: m.user.name,
+        }),
+      ),
+    [workspace?.members],
+  );
+
   if (!workspace) return null;
 
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
+
+  const toggleFilter = (key: keyof TicketFilters, value: string) => {
+    setFilters((prev) => {
+      const next = toggleTicketFilter(prev, key, value);
+      savePrefs({ filters: next });
+      return next;
+    });
+  };
+  const clearFilters = () => {
+    setFilters(EMPTY_TICKET_FILTERS);
+    savePrefs({ filters: EMPTY_TICKET_FILTERS });
+  };
+
+  // Pills wait for the tickets: labels (tags) only resolve from them.
+  const filterPills: ListPageFilterPill[] = (allTickets ? TICKET_FILTER_FACETS : []).flatMap(
+    (facet) =>
+      filters[facet.key].map((value) => ({
+        key: `${facet.key}-${value}`,
+        label: ticketFacetPillLabel(facet.key, value, facetOptions, { members }),
+        color: ticketFacetPillColor(facet.key, value),
+        onRemove: () => toggleFilter(facet.key, value),
+      })),
+  );
 
   const handleNodeClick = (event: GraphNodeClick) => {
     switch (event.kind) {
@@ -109,7 +164,7 @@ export default function ProductGraphPage() {
     }
   };
 
-  if (isProductLoading || (product && isGraphLoading && !graph)) {
+  if (isProductLoading || awaitingPrefs || (product && isGraphLoading && !graph)) {
     return (
       <Stack gap="md">
         <Skeleton height={32} width={220} />
@@ -129,34 +184,30 @@ export default function ProductGraphPage() {
   }
 
   const hasTickets = (graph?.tickets.length ?? 0) > 0;
+  const hasVisibleTickets = visibleTickets.length > 0;
 
   return (
     <Stack gap="md">
-      <Group justify="flex-end">
-        {cycleOptions.length > 0 && (
-          <Select
-            aria-label="Filter by cycle"
-            size="sm"
-            w={200}
-            allowDeselect={false}
-            value={effectiveFilter}
-            onChange={(value) => setCycleFilter(value ?? CYCLE_FILTER_ALL)}
-            data={[
-              { value: CYCLE_FILTER_ALL, label: "All cycles" },
-              ...cycleOptions.map((c) => ({ value: c.id, label: c.name })),
-              ...(showNoCycleOption
-                ? [{ value: CYCLE_FILTER_NONE, label: "No cycle" }]
-                : []),
-            ]}
+      <Group justify="space-between" align="center" wrap="wrap">
+        <ListPageFilterPills pills={filterPills} onClearAll={clearFilters} />
+        <Group gap="sm" ml="auto">
+          <ListPageFilterPopover
+            aria-label="Filter tickets"
+            facets={TICKET_FILTER_FACETS}
+            options={facetOptions}
+            selected={filters}
+            activeCount={activeFilterCount}
+            onToggle={toggleFilter}
+            onClear={clearFilters}
           />
-        )}
-        <Switch
-          label="Show completed"
-          checked={showCompleted}
-          onChange={(event) => setShowCompleted(event.currentTarget.checked)}
-        />
+          <Switch
+            label="Show completed"
+            checked={showCompleted}
+            onChange={(event) => setShowCompleted(event.currentTarget.checked)}
+          />
+        </Group>
       </Group>
-      {hasTickets ? (
+      {hasVisibleTickets ? (
         <DependencyGraphCanvas
           tickets={visibleTickets}
           features={visibleFeatures}
@@ -164,6 +215,12 @@ export default function ProductGraphPage() {
           blockingEdges={visibleEdges}
           dimmedTicketIds={dimmedTicketIds}
           onNodeClick={handleNodeClick}
+        />
+      ) : hasTickets ? (
+        <EmptyState
+          icon={IconAffiliate}
+          title="No tickets match your filters"
+          message="These filters are shared with the Backlog tab. Clear them to see the whole graph."
         />
       ) : (
         <EmptyState

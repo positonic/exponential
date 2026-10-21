@@ -173,11 +173,15 @@ const TICKET_LIST_ORDER_BY: Prisma.TicketOrderByWithRelationInput[] = [
   { createdAt: "desc" },
 ];
 
-/** Swap each ticket's `depsOut` edges for its open-blocker count. */
+/**
+ * Swap each ticket's `depsOut` edges for its open-blocker count and the ids
+ * of the tickets it depends on (what the Backlog's "Nest dependencies" view
+ * nests beneath it).
+ */
 function withBlockerCounts<
   T extends {
     status: TicketStatusValue;
-    depsOut: Array<{ dependsOn: { status: TicketStatusValue } }>;
+    depsOut: Array<{ dependsOnId: string; dependsOn: { status: TicketStatusValue } }>;
   },
 >(tickets: T[]) {
   return tickets.map((t) => {
@@ -186,8 +190,9 @@ function withBlockerCounts<
     ).length;
     const isBlocked =
       openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
+    const dependsOnIds = t.depsOut.map((d) => d.dependsOnId);
     const { depsOut: _depsOut, ...rest } = t;
-    return { ...rest, openBlockerCount, isBlocked };
+    return { ...rest, openBlockerCount, isBlocked, dependsOnIds };
   });
 }
 
@@ -216,7 +221,7 @@ const TICKET_SUMMARY_SELECT = {
       tag: { select: { id: true, name: true, color: true, category: true } },
     },
   },
-  depsOut: { select: { dependsOn: { select: { status: true } } } },
+  depsOut: { select: { dependsOnId: true, dependsOn: { select: { status: true } } } },
   syncs: {
     select: {
       provider: true,
@@ -367,7 +372,7 @@ export const ticketRouter = createTRPCRouter({
           epic: { select: { id: true, name: true } },
           cycle: { select: { id: true, name: true, status: true, startDate: true, endDate: true } },
           tags: { include: { tag: true } },
-          depsOut: { select: { dependsOn: { select: { status: true } } } },
+          depsOut: { select: { dependsOnId: true, dependsOn: { select: { status: true } } } },
           _count: { select: { actions: true, comments: true } },
           syncs: {
             select: {

@@ -11,11 +11,15 @@ export interface DependencyGraphTicket {
   shortId: string | null;
   title: string;
   status: TicketStatus;
+  type: $Enums.TicketType;
   priority: number | null;
   points: number | null;
   featureId: string | null;
   cycle: { id: string; name: string } | null;
+  epic: { id: string; name: string } | null;
   assignee: { id: string; name: string | null; image: string | null } | null;
+  /** Labels (tags), for the Backlog's shared facet filters. */
+  tags: Array<{ tag: { id: string; name: string } }>;
   openBlockerCount: number;
   isBlocked: boolean;
 }
@@ -79,11 +83,14 @@ export async function buildGraph(
       shortId: true,
       title: true,
       status: true,
+      type: true,
       priority: true,
       points: true,
       featureId: true,
       cycle: { select: { id: true, name: true } },
+      epic: { select: { id: true, name: true } },
       assignee: { select: { id: true, name: true, image: true } },
+      tags: { select: { tag: { select: { id: true, name: true } } } },
       depsOut: { select: { dependsOn: { select: { status: true } } } },
     },
   });
@@ -100,11 +107,14 @@ export async function buildGraph(
       shortId: t.shortId,
       title: t.title,
       status: t.status,
+      type: t.type,
       priority: t.priority,
       points: t.points,
       featureId: t.featureId,
       cycle: t.cycle,
+      epic: t.epic,
       assignee: t.assignee,
+      tags: t.tags,
       openBlockerCount,
       isBlocked,
     };
