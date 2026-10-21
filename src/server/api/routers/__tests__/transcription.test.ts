@@ -960,7 +960,7 @@ describe("transcription router (mocked) — getById feature links", () => {
   });
 });
 
-describe("transcription router (mocked) — getDetail / getTranscript", () => {
+describe("transcription router (mocked) — getDetail / getTranscript / getNotes", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
   const callerId = "caller-1";
 
@@ -1041,6 +1041,23 @@ describe("transcription router (mocked) — getDetail / getTranscript", () => {
     await expect(caller.transcription.getTranscript({ id: "m1" })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+    await expect(caller.transcription.getNotes({ id: "m1" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("serves the notes to a viewer who does not own the meeting", async () => {
+    meeting("integration-owner");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "viewer",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getNotes({ id: "m1" });
+
+    expect(result).toEqual({ notes: "private scratch notes" });
   });
 
   it("serves the transcript to a viewer", async () => {

@@ -694,6 +694,37 @@ export const transcriptionRouter = createTRPCRouter({
       };
     }),
 
+  /**
+   * The human-written notes behind `getDetail` (which strips them with the
+   * other bodies), fetched when the Notes tab opens. Written through
+   * `updateDetails`, which takes edit access.
+   */
+  getNotes: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          notes: true,
+        },
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+
+      await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, session, "view");
+
+      return { notes: session.notes };
+    }),
+
   updateTranscription: protectedProcedure
     .input(
       z.object({

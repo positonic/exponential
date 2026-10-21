@@ -8,6 +8,7 @@ describe("meetingTabFromParam", () => {
     expect(meetingTabFromParam("transcript")).toBe("transcript");
     expect(meetingTabFromParam("screenshots")).toBe("screenshots");
     expect(meetingTabFromParam("outputs")).toBe("outputs");
+    expect(meetingTabFromParam("notes")).toBe("notes");
   });
 
   it("sends a link to the former Decisions tab to Outputs", () => {
@@ -17,7 +18,7 @@ describe("meetingTabFromParam", () => {
   it("falls back to the summary for a missing or unknown tab", () => {
     expect(meetingTabFromParam(null)).toBe("summary");
     expect(meetingTabFromParam(undefined)).toBe("summary");
-    expect(meetingTabFromParam("notes")).toBe("summary");
+    expect(meetingTabFromParam("bogus")).toBe("summary");
     expect(meetingTabFromParam("__proto__")).toBe("summary");
     expect(meetingTabFromParam("toString")).toBe("summary");
   });
