@@ -2075,12 +2075,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       const draftActions = await ctx.db.action.findMany({
         where: {
@@ -2136,12 +2136,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       if (input.actionIds.length === 0) {
         return { publishedCount: 0 };
@@ -2188,7 +2188,10 @@ export const transcriptionRouter = createTRPCRouter({
   // to the transcription, the DRAFT status and the caller, like the publish
   // mutations above, so an id from another meeting (or a published Action)
   // can't be removed through this meeting's card. Omitting `actionIds`
-  // discards every remaining draft.
+  // discards every remaining draft. Like the publish mutations, gated by
+  // Meeting *edit* access (not ownership): a meeting imported by an
+  // integration or a meeting server is owned by whoever connected it, and
+  // any member who can edit the meeting must be able to finish the review.
   discardDraftActions: protectedProcedure
     .input(
       z.object({
@@ -2208,12 +2211,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       const result = await ctx.db.action.deleteMany({
         where: {

@@ -1117,8 +1117,79 @@ describe("transcription router (mocked) — discardDraftActions", () => {
     );
   });
 
-  it("refuses a caller who does not own the meeting", async () => {
+  // The review card is gated by Meeting edit access (CONTEXT.md "Meeting
+  // visibility"), not ownership: a meeting imported by an integration or a
+  // meeting server is owned by whoever connected it, and every other member
+  // who can edit the meeting must still be able to finish the review.
+  it("lets a workspace member who does not own the meeting discard drafts", async () => {
+    meeting("integration-owner");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.action.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.discardDraftActions({
+      transcriptionId: "m1",
+      actionIds: ["a1"],
+    });
+
+    expect(result.discardedCount).toBe(2);
+    expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["a1"] }, ...draftScope },
+    });
+  });
+
+  it("refuses a workspace viewer (read-only role)", async () => {
+    meeting("integration-owner");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "viewer",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.discardDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller with no access to the meeting", async () => {
     meeting("someone-else");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.discardDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("uses project access when the meeting sits in a project", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId: "integration-owner",
+      projectId: "p1",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    // Caller is a workspace member but the project is restricted to others.
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.project.findUnique.mockResolvedValue({
+      id: "p1",
+      createdById: "someone-else",
+      workspaceId: "ws-A",
+      teamId: null,
+      isPublic: false,
+      isRestricted: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
     const caller = createMockCaller({ userId: callerId, db: dbMock });
 
     await expect(
@@ -1134,5 +1205,85 @@ describe("transcription router (mocked) — discardDraftActions", () => {
     await expect(
       caller.transcription.discardDraftActions({ transcriptionId: "nope" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("transcription router (mocked) — publishDraftActions / publishSelectedDraftActions", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  function member(role: string | null) {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      role
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ({ role, workspaceId: "ws-A" } as any)
+        : null,
+    );
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.action.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.action.count.mockResolvedValue(0);
+  });
+
+  it("lets a workspace member publish all drafts on a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findMany.mockResolvedValue([{ id: "a1" }] as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.publishDraftActions({
+      transcriptionId: "m1",
+    });
+
+    expect(result).toEqual({ publishedCount: 1 });
+    expect(dbMock.action.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "ACTIVE" } }),
+    );
+  });
+
+  it("lets a workspace member publish selected drafts on a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.publishSelectedDraftActions({
+      transcriptionId: "m1",
+      actionIds: ["a1"],
+    });
+
+    expect(result).toEqual({ publishedCount: 1 });
+  });
+
+  it("refuses a viewer and a stranger", async () => {
+    meeting("integration-owner");
+    member("viewer");
+    let caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.publishDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    member(null);
+    caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.publishSelectedDraftActions({
+        transcriptionId: "m1",
+        actionIds: ["a1"],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.updateMany).not.toHaveBeenCalled();
   });
 });
