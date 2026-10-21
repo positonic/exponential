@@ -6,7 +6,21 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { hasMinimumWorkspaceRole } from "~/server/services/access/types";
+import { hasMinimumWorkspaceRole, type WorkspaceRole } from "~/server/services/access/types";
+
+/**
+ * The rule itself, on a membership already loaded: the owner, or a workspace
+ * owner/admin. `ceremony.list` applies it to every row with one membership
+ * query; `canManageCeremony` is the one-ceremony form.
+ */
+export function canManageCeremonyAs(
+  userId: string,
+  ceremonyOwnerId: string,
+  membership: { role: WorkspaceRole } | null,
+): boolean {
+  if (ceremonyOwnerId === userId) return true;
+  return membership ? hasMinimumWorkspaceRole(membership.role, "admin") : false;
+}
 
 export async function canManageCeremony(
   db: PrismaClient,
@@ -16,5 +30,5 @@ export async function canManageCeremony(
 ): Promise<boolean> {
   if (ceremonyOwnerId === userId) return true;
   const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  return membership ? hasMinimumWorkspaceRole(membership.role, "admin") : false;
+  return canManageCeremonyAs(userId, ceremonyOwnerId, membership);
 }

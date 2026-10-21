@@ -153,7 +153,12 @@ export function MeetingOccurrencePicker({
                   <Text size="xs">{formatOccurrenceWhen(o.scheduledStart)}</Text>
                 </Combobox.Option>
               ))}
-              {canAdd && addOccurrenceAt && addable.has(group.id) && (
+              {/* No add when the group already has a tick at exactly this
+                  time — the server would refuse it as a clash. */}
+              {canAdd &&
+                addOccurrenceAt &&
+                addable.has(group.id) &&
+                !group.items.some((o) => o.scheduledStart.getTime() === addOccurrenceAt.getTime()) && (
                 <Combobox.Option
                   value={`${ADD_PREFIX}${group.id}`}
                   data-testid={`add-occurrence-${group.id}`}

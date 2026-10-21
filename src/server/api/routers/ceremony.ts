@@ -19,9 +19,8 @@ import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgen
 import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
-import { canManageCeremony } from "~/server/services/ceremonies/access";
+import { canManageCeremony, canManageCeremonyAs } from "~/server/services/ceremonies/access";
 import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
-import { hasMinimumWorkspaceRole } from "~/server/services/access/types";
 import {
   draftMyUpdate,
   getMyUpdate,
@@ -205,11 +204,11 @@ export const ceremonyRouter = createTRPCRouter({
         }),
         getWorkspaceMembership(ctx.db, userId, input.workspaceId),
       ]);
-      // The owner's bar (`canManageCeremony`): what `addOccurrence`,
-      // `rescheduleOccurrence` and skip enforce, so a picker can offer those
-      // only where they would succeed.
-      const isAdmin = membership ? hasMinimumWorkspaceRole(membership.role, "admin") : false;
-      return ceremonies.map((c) => ({ ...c, canManage: isAdmin || c.ownerId === userId }));
+      // The owner's bar — the same rule `addOccurrence`, `rescheduleOccurrence`
+      // and skip enforce through `canManageCeremony`, applied here with one
+      // membership query for the whole list — so a picker offers those
+      // actions only where they would succeed.
+      return ceremonies.map((c) => ({ ...c, canManage: canManageCeremonyAs(userId, c.ownerId, membership) }));
     }),
 
   /**
