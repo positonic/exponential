@@ -269,6 +269,7 @@ describe("ingestSentryBug", () => {
 
   describe("repeat alerts (renotifyAfterMs)", () => {
     const HOUR = 60 * 60 * 1000;
+    const READ_AT = new Date("2026-10-15T11:00:00Z");
 
     it("re-announces a recurring error once its last alert is older than the window", async () => {
       dbMock.ticket.findFirst.mockResolvedValue(
@@ -277,15 +278,17 @@ describe("ingestSentryBug", () => {
           id: "existing-ticket",
           number: 12,
           links: { sentryIssueId: "42", lastNotifiedAt: new Date(Date.now() - 2 * HOUR).toISOString() },
+          updatedAt: READ_AT,
         } as any,
       );
+      dbMock.ticket.updateMany.mockResolvedValue({ count: 1 });
 
       const result = await ingestSentryBug(dbMock, bug, { renotifyAfterMs: HOUR });
 
       expect(result).toEqual({ created: false, ticketId: "existing-ticket" });
       expect(createTicketWithNumber).not.toHaveBeenCalled();
-      expect(dbMock.ticket.update).toHaveBeenCalledWith({
-        where: { id: "existing-ticket" },
+      expect(dbMock.ticket.updateMany).toHaveBeenCalledWith({
+        where: { id: "existing-ticket", updatedAt: READ_AT },
         data: {
           links: expect.objectContaining({
             sentryIssueId: "42",
@@ -302,6 +305,26 @@ describe("ingestSentryBug", () => {
       expect(notifyZulipOfSentryBug).toHaveBeenCalledTimes(1);
     });
 
+    it("stays quiet when a concurrent request already claimed the alert", async () => {
+      dbMock.ticket.findFirst.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "existing-ticket",
+          number: 12,
+          links: { sentryIssueId: "42" },
+          updatedAt: READ_AT,
+        } as any,
+      );
+      // The row changed between our read and our write: someone else won.
+      dbMock.ticket.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await ingestSentryBug(dbMock, bug, { renotifyAfterMs: HOUR });
+
+      expect(result).toEqual({ created: false, ticketId: "existing-ticket" });
+      expect(notifyMatrixOfSentryBug).not.toHaveBeenCalled();
+      expect(notifyZulipOfSentryBug).not.toHaveBeenCalled();
+    });
+
     it("stays quiet inside the window", async () => {
       dbMock.ticket.findFirst.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -314,7 +337,7 @@ describe("ingestSentryBug", () => {
 
       await ingestSentryBug(dbMock, bug, { renotifyAfterMs: HOUR });
 
-      expect(dbMock.ticket.update).not.toHaveBeenCalled();
+      expect(dbMock.ticket.updateMany).not.toHaveBeenCalled();
       expect(notifyMatrixOfSentryBug).not.toHaveBeenCalled();
     });
 

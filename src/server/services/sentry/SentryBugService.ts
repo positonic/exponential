@@ -236,7 +236,7 @@ export async function ingestSentryBug(
       productId: product.id,
       links: { path: ["sentryIssueId"], equals: bug.issueId },
     },
-    select: { id: true, number: true, links: true },
+    select: { id: true, number: true, links: true, updatedAt: true },
   });
   const now = new Date();
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
@@ -250,15 +250,22 @@ export async function ingestSentryBug(
       isDueForRenotify(existing.links, renotifyAfterMs, now)
     ) {
       // Claim the slot before announcing, so a failed send is not retried on
-      // every request in a burst.
+      // every request in a burst. The claim is a compare-and-set on
+      // `updatedAt`: during an outage every turn fails at once, and several
+      // requests can all read the ticket as due. Only the one whose write
+      // still sees the row it read wins; the rest find it changed and stay
+      // quiet.
       const links =
         existing.links && typeof existing.links === "object" && !Array.isArray(existing.links)
           ? existing.links
           : {};
-      await db.ticket.update({
-        where: { id: existing.id },
+      const claim = await db.ticket.updateMany({
+        where: { id: existing.id, updatedAt: existing.updatedAt },
         data: { links: { ...links, lastNotifiedAt: now.toISOString() } },
       });
+      if (claim.count === 0) {
+        return { created: false, ticketId: existing.id };
+      }
       const errol = await findOrCreateErrol(db);
       const repeat = {
         workspaceId: product.workspaceId,
