@@ -1880,7 +1880,8 @@ export const transcriptionRouter = createTRPCRouter({
   deleteTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
+      // Meeting edit access, not ownership: a meeting imported by an
+      // integration or a meeting server is owned by whoever connected it.
       const transcription = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -1892,12 +1893,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to delete this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       // Delete the transcription (actions will be deleted due to onDelete: SetNull)
       await ctx.db.transcriptionSession.delete({
@@ -2678,7 +2679,8 @@ export const transcriptionRouter = createTRPCRouter({
   archiveTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
+      // Meeting edit access, not ownership: a meeting imported by an
+      // integration or a meeting server is owned by whoever connected it.
       const transcription = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -2690,12 +2692,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to archive this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       // Archive the transcription
       await ctx.db.transcriptionSession.update({
@@ -2712,7 +2714,8 @@ export const transcriptionRouter = createTRPCRouter({
   unarchiveTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
+      // Meeting edit access, not ownership: a meeting imported by an
+      // integration or a meeting server is owned by whoever connected it.
       const transcription = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -2724,12 +2727,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to unarchive this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       // Unarchive the transcription
       await ctx.db.transcriptionSession.update({

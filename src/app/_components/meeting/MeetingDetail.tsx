@@ -655,7 +655,7 @@ export function MeetingDetail({
             onShare={handleShare}
             onExportTranscript={() => void handleExportTranscript()}
             canExport={session.hasTranscript}
-            onArchive={onArchive}
+            onArchive={session.canEdit ? onArchive : undefined}
             onAddParticipant={handleAddParticipant}
             onRemoveParticipant={handleRemoveParticipant}
             removingParticipantId={

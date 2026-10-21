@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, TranscriptionSession, WorkspaceUser } from "@prisma/client";
 
 // Env vars must be seeded BEFORE the module graph evaluates.
 vi.hoisted(() => {
@@ -1302,5 +1302,107 @@ describe("transcription router (mocked) — publishDraftActions / publishSelecte
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcription router (mocked) — deleteTranscription / archiveTranscription / unarchiveTranscription", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  // Typed fixtures: only the identity columns the access resolver reads
+  // (`loadTranscriptionForAccess` shape), checked against the Prisma row
+  // type so a renamed column fails here rather than silently passing.
+  function meetingRow(userId: string): TranscriptionSession {
+    const row = {
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+    } satisfies Partial<TranscriptionSession>;
+    return row as TranscriptionSession;
+  }
+
+  function membershipRow(role: string): WorkspaceUser {
+    const row = { role, workspaceId: "ws-A" } satisfies Partial<WorkspaceUser>;
+    return row as WorkspaceUser;
+  }
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(meetingRow(userId));
+  }
+
+  function member(role: string | null) {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(role ? membershipRow(role) : null);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.transcriptionSession.delete.mockResolvedValue(meetingRow("integration-owner"));
+    dbMock.transcriptionSession.update.mockResolvedValue(meetingRow("integration-owner"));
+  });
+
+  // Same rule as the rest of the page: meeting edit access, not ownership,
+  // so a meeting a meeting server imported can be archived or deleted by
+  // the members who can edit it.
+  it("lets a workspace member archive, unarchive and delete a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(caller.transcription.archiveTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ archivedAt: expect.any(Date) }),
+      }),
+    );
+
+    await expect(caller.transcription.unarchiveTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ archivedAt: null }),
+      }),
+    );
+
+    await expect(caller.transcription.deleteTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.delete).toHaveBeenCalledWith({ where: { id: "m1" } });
+  });
+
+  it("refuses a viewer and a stranger", async () => {
+    meeting("integration-owner");
+    member("viewer");
+    let caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.archiveTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.transcription.deleteTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    member(null);
+    caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.unarchiveTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.transcriptionSession.update).not.toHaveBeenCalled();
+    expect(dbMock.transcriptionSession.delete).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.deleteTranscription({ id: "nope" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
