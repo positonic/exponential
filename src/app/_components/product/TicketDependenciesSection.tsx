@@ -37,6 +37,7 @@ import {
   withBlockedFlag,
 } from "~/app/_components/product/useTicketSummaryCache";
 import { sortOpenFirst } from "~/app/_components/product/dependencyOrdering";
+import { httpUrlOrNull } from "~/lib/safeUrl";
 
 interface LinkedTicket {
   id: string;
@@ -453,6 +454,9 @@ function DependencyRow({
   const statusLabel = STATUS_LABELS[ticket.status] ?? ticket.status;
   const statusColor = STATUS_COLORS[ticket.status] ?? "gray";
   const displayId = wide ? getDisplayId(ticket) : null;
+  // The router now only accepts http(s) here, but rows older than that
+  // guard (and anything written straight to the DB) still go through it.
+  const prHref = httpUrlOrNull(ticket.prUrl);
 
   return (
     <div
@@ -504,11 +508,11 @@ function DependencyRow({
           affordances that the sidebar's dense rows have no room for. */}
       {wide && (
         <span className="ml-auto inline-flex items-center gap-1.5 shrink-0">
-          {ticket.prUrl && (
+          {prHref && (
             <Tooltip label="Open pull request" position="top" withArrow>
               <ActionIcon
                 component="a"
-                href={ticket.prUrl}
+                href={prHref}
                 target="_blank"
                 rel="noopener noreferrer"
                 variant="subtle"

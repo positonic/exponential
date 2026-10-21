@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { httpUrlSchema } from "~/lib/safeUrl";
 import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
@@ -598,9 +599,9 @@ export const ticketRouter = createTRPCRouter({
         priority: z.number().int().min(0).max(4).optional(),
         points: z.number().optional(),
         branchName: boundedText("Branch name", TEXT_LIMITS.LABEL).optional(),
-        prUrl: z.string().url().max(500).optional(),
-        designUrl: z.string().url().max(500).optional(),
-        specUrl: z.string().url().max(500).optional(),
+        prUrl: httpUrlSchema.optional(),
+        designUrl: httpUrlSchema.optional(),
+        specUrl: httpUrlSchema.optional(),
         links: z.record(z.string(), z.string()).optional(),
         epicId: z.string().optional(),
         featureId: z.string().optional(),
@@ -708,9 +709,9 @@ export const ticketRouter = createTRPCRouter({
         priority: z.number().int().min(0).max(4).nullable().optional(),
         points: z.number().nullable().optional(),
         branchName: boundedText("Branch name", TEXT_LIMITS.LABEL).nullable().optional(),
-        prUrl: z.string().url().max(500).nullable().optional(),
-        designUrl: z.string().url().max(500).nullable().optional(),
-        specUrl: z.string().url().max(500).nullable().optional(),
+        prUrl: httpUrlSchema.nullable().optional(),
+        designUrl: httpUrlSchema.nullable().optional(),
+        specUrl: httpUrlSchema.nullable().optional(),
         links: z.record(z.string(), z.string()).nullable().optional(),
         epicId: z.string().nullable().optional(),
         featureId: z.string().nullable().optional(),
