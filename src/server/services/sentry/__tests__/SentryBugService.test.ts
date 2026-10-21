@@ -25,9 +25,14 @@ vi.mock("../sentryZulip", () => ({
   notifyZulipOfSentryBug: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../sentryMatrix", () => ({
+  notifyMatrixOfSentryBug: vi.fn(() => Promise.resolve()),
+}));
+
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { notifyZulipOfSentryBug } from "../sentryZulip";
-import { ingestSentryBug, sourceLabel } from "../SentryBugService";
+import { notifyMatrixOfSentryBug } from "../sentryMatrix";
+import { ingestSentryBug, isDueForRenotify, sourceLabel } from "../SentryBugService";
 import { type SentryBug } from "../sentryPayload";
 
 const dbMock: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
@@ -259,6 +264,97 @@ describe("ingestSentryBug", () => {
 
       expect(createTicketWithNumber).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ created: true, ticketId: "ticket-1" });
+    });
+  });
+
+  describe("repeat alerts (renotifyAfterMs)", () => {
+    const HOUR = 60 * 60 * 1000;
+
+    it("re-announces a recurring error once its last alert is older than the window", async () => {
+      dbMock.ticket.findFirst.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "existing-ticket",
+          number: 12,
+          links: { sentryIssueId: "42", lastNotifiedAt: new Date(Date.now() - 2 * HOUR).toISOString() },
+        } as any,
+      );
+
+      const result = await ingestSentryBug(dbMock, bug, { renotifyAfterMs: HOUR });
+
+      expect(result).toEqual({ created: false, ticketId: "existing-ticket" });
+      expect(createTicketWithNumber).not.toHaveBeenCalled();
+      expect(dbMock.ticket.update).toHaveBeenCalledWith({
+        where: { id: "existing-ticket" },
+        data: {
+          links: expect.objectContaining({
+            sentryIssueId: "42",
+            lastNotifiedAt: expect.any(String),
+          }),
+        },
+      });
+      expect(notifyMatrixOfSentryBug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          heading: "Still happening",
+          ticketUrl: expect.stringMatching(/\/tickets\/12$/),
+        }),
+      );
+      expect(notifyZulipOfSentryBug).toHaveBeenCalledTimes(1);
+    });
+
+    it("stays quiet inside the window", async () => {
+      dbMock.ticket.findFirst.mockResolvedValue(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {
+          id: "existing-ticket",
+          number: 12,
+          links: { sentryIssueId: "42", lastNotifiedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
+        } as any,
+      );
+
+      await ingestSentryBug(dbMock, bug, { renotifyAfterMs: HOUR });
+
+      expect(dbMock.ticket.update).not.toHaveBeenCalled();
+      expect(notifyMatrixOfSentryBug).not.toHaveBeenCalled();
+    });
+
+    it("starts the clock when it creates the ticket", async () => {
+      await ingestSentryBug(dbMock, bug, { renotifyAfterMs: HOUR });
+
+      expect(createTicketWithNumber).toHaveBeenCalledWith(
+        dbMock,
+        expect.objectContaining({
+          links: expect.objectContaining({ lastNotifiedAt: expect.any(String) }),
+        }),
+      );
+      expect(notifyMatrixOfSentryBug).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses the caller's heading on the creation announcement", async () => {
+      await ingestSentryBug(dbMock, bug, { heading: "New app error" });
+
+      expect(notifyMatrixOfSentryBug).toHaveBeenCalledWith(
+        expect.objectContaining({ heading: "New app error" }),
+      );
+    });
+  });
+
+  describe("isDueForRenotify", () => {
+    const now = new Date("2026-10-15T12:00:00Z");
+    const HOUR = 60 * 60 * 1000;
+
+    it("is due when the ticket predates the throttle (no timestamp)", () => {
+      expect(isDueForRenotify({ sentryIssueId: "42" }, HOUR, now)).toBe(true);
+      expect(isDueForRenotify(null, HOUR, now)).toBe(true);
+    });
+
+    it("compares the stored timestamp against the window", () => {
+      expect(isDueForRenotify({ lastNotifiedAt: "2026-10-15T10:59:59Z" }, HOUR, now)).toBe(true);
+      expect(isDueForRenotify({ lastNotifiedAt: "2026-10-15T11:30:00Z" }, HOUR, now)).toBe(false);
+    });
+
+    it("treats an unparseable timestamp as due rather than silencing forever", () => {
+      expect(isDueForRenotify({ lastNotifiedAt: "not a date" }, HOUR, now)).toBe(true);
     });
   });
 

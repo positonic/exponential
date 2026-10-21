@@ -55,9 +55,15 @@ export function reportHandledErrorServer(
     kind?: string;
     /** Extra context rendered in the ticket body and attached to the Sentry event. */
     context?: Record<string, string>;
+    /**
+     * Re-announce in the ops room at most once per this many ms while the
+     * error keeps recurring, instead of only when its ticket is created. For
+     * failures someone has to act on right away (see SentryBugService).
+     */
+    renotifyAfterMs?: number;
   },
 ): void {
-  const { area, kind, context } = options;
+  const { area, kind, context, renotifyAfterMs } = options;
 
   try {
     Sentry.captureException(error, {
@@ -86,6 +92,8 @@ export function reportHandledErrorServer(
   void ingestSentryBug(db, buildClientErrorBug(report), {
     body: buildClientErrorBody(report),
     labels: CLIENT_ERROR_LABELS,
+    heading: "New app error",
+    ...(renotifyAfterMs !== undefined ? { renotifyAfterMs } : {}),
   }).catch((ingestError: unknown) => {
     console.error(`[reportHandledErrorServer] could not file a bug (${area}):`, ingestError);
   });
