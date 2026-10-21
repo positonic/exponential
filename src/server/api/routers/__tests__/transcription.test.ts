@@ -1287,3 +1287,100 @@ describe("transcription router (mocked) — publishDraftActions / publishSelecte
     expect(dbMock.action.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("transcription router (mocked) — deleteTranscription / archiveTranscription / unarchiveTranscription", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  function member(role: string | null) {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      role
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ({ role, workspaceId: "ws-A" } as any)
+        : null,
+    );
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.transcriptionSession.delete.mockResolvedValue({ id: "m1" } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.transcriptionSession.update.mockResolvedValue({ id: "m1" } as any);
+  });
+
+  // Same rule as the rest of the page: meeting edit access, not ownership,
+  // so a meeting a meeting server imported can be archived or deleted by
+  // the members who can edit it.
+  it("lets a workspace member archive, unarchive and delete a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(caller.transcription.archiveTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ archivedAt: expect.any(Date) }),
+      }),
+    );
+
+    await expect(caller.transcription.unarchiveTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ archivedAt: null }),
+      }),
+    );
+
+    await expect(caller.transcription.deleteTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.delete).toHaveBeenCalledWith({ where: { id: "m1" } });
+  });
+
+  it("refuses a viewer and a stranger", async () => {
+    meeting("integration-owner");
+    member("viewer");
+    let caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.archiveTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.transcription.deleteTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    member(null);
+    caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.unarchiveTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.transcriptionSession.update).not.toHaveBeenCalled();
+    expect(dbMock.transcriptionSession.delete).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.deleteTranscription({ id: "nope" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});

@@ -79,7 +79,8 @@ interface ContextRailProps {
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
-  onArchive: () => void;
+  /** Archive the meeting; absent for viewers, who can't (the server re-checks). */
+  onArchive?: () => void;
   onAddParticipant?: () => void;
   onRemoveParticipant?: (id: string) => void;
   /** Id of the participant currently being removed, for a per-row spinner. */
@@ -414,9 +415,11 @@ export function ContextRail({
           <button className="mp-quick__btn" onClick={onExportTranscript} disabled={!canExport}>
             <IconFileExport size={13} /> Export transcript
           </button>
-          <button className="mp-quick__btn" onClick={onArchive}>
-            <IconArchive size={13} /> Archive meeting
-          </button>
+          {onArchive && (
+            <button className="mp-quick__btn" onClick={onArchive}>
+              <IconArchive size={13} /> Archive meeting
+            </button>
+          )}
         </div>
       </div>
     </aside>
