@@ -21,6 +21,7 @@ import {
 import {
   MeetingOccurrencePicker,
   formatOccurrenceWhen,
+  type MeetingCeremonyOption,
   type MeetingOccurrenceOption,
 } from "./MeetingOccurrencePicker";
 import {
@@ -67,6 +68,12 @@ interface ContextRailProps {
   /** The occurrence picker opened — fetch candidates. */
   onOccurrencePickerOpen?: () => void;
   isLoadingOccurrences?: boolean;
+  /** The workspace's ceremonies, for "Add occurrence" on a meeting held off the cadence. */
+  ceremonyOptions?: MeetingCeremonyOption[];
+  /** Create an occurrence at the meeting's date and link to it. Absent → no add option. */
+  onAddOccurrence?: (ceremonyId: string) => void;
+  /** The meeting's date: when an added occurrence would be. */
+  addOccurrenceAt?: Date;
   /** Features this meeting discussed, in link order. */
   linkedFeatures: { id: string; name: string; productName: string; href: string | null }[];
   /** Candidate features in the meeting's workspace. */
@@ -113,6 +120,9 @@ export function ContextRail({
   onOccurrenceChange,
   onOccurrencePickerOpen,
   isLoadingOccurrences,
+  ceremonyOptions,
+  onAddOccurrence,
+  addOccurrenceAt,
   linkedFeatures,
   featureOptions,
   onFeatureToggle,
@@ -244,6 +254,9 @@ export function ContextRail({
           disabled={!onOccurrenceChange}
           loading={isLoadingOccurrences}
           onOpen={onOccurrencePickerOpen}
+          ceremonies={ceremonyOptions}
+          onAddOccurrence={onAddOccurrence}
+          addOccurrenceAt={addOccurrenceAt}
         >
           {({ toggle }) => (
             <button

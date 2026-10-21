@@ -9,6 +9,7 @@ import {
   getTranscriptionAccess,
 } from "~/server/services/access/resolvers/transcriptionResolver";
 import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
+import { addOccurrence, rescheduleOccurrence } from "~/server/services/ceremonies/schedule";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 import { CEREMONY_ICON_KEYS } from "~/lib/ceremonies/icons";
@@ -402,6 +403,7 @@ export const ceremonyRouter = createTRPCRouter({
         id: true,
         scheduledStart: true,
         scheduledEnd: true,
+        cadenceStart: true,
         status: true,
         skipReason: true,
         agendaGeneratedAt: true,
@@ -431,6 +433,9 @@ export const ceremonyRouter = createTRPCRouter({
       // service so the page never hand-rolls a role list.
       const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
       const canEdit = canEditWorkspaceContent(membership?.role ?? null);
+      // Whether the caller may add or move occurrences — the owner's bar
+      // (`canManageCeremony`), the one `addOccurrence` and `rescheduleOccurrence` enforce.
+      const canManage = await canManageCeremony(ctx.db, userId, input.workspaceId, ceremony.ownerId);
 
       // Meeting visibility (ADR-0014): resolve which linked recordings the
       // caller may see; the rest are returned as existence-only stubs.
@@ -446,6 +451,7 @@ export const ceremonyRouter = createTRPCRouter({
       return {
         ...ceremony,
         canEdit,
+        canManage,
         occurrences: occurrences.map((o) => ({
           ...o,
           recordedMeetings: o.recordedMeetings.map((m) => {
@@ -750,6 +756,50 @@ export const ceremonyRouter = createTRPCRouter({
       return unskipOccurrence(ctx.db, { occurrenceId: occurrence.id, workspaceId: input.workspaceId, actorUserId: userId });
     }),
 
+  /**
+   * Add one occurrence at any time (ADR-0059 amendment, 2026-10-21): the
+   * meeting that happened off the cadence, or a tick's occurrence before the
+   * sweep gets to it. Owner (or workspace owner/admin), like skip.
+   */
+  addOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), ceremonyId: z.string(), scheduledStart: z.coerce.date() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const ceremony = await ctx.db.ceremony.findFirst({ where: { id: input.ceremonyId, workspaceId: input.workspaceId } });
+      if (!ceremony) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can add an occurrence" });
+      }
+      return addOccurrence(ctx.db, { ceremony, scheduledStart: input.scheduledStart, actorUserId: userId });
+    }),
+
+  /**
+   * Move an occurrence that has not happened yet to another time. It keeps
+   * its agenda, notes, updates and recordings, and still accounts for its
+   * cadence tick, so the sweep never re-creates the slot it left.
+   */
+  rescheduleOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), scheduledStart: z.coerce.date() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can move an occurrence" });
+      }
+      return rescheduleOccurrence(ctx.db, {
+        occurrenceId: occurrence.id,
+        workspaceId: input.workspaceId,
+        scheduledStart: input.scheduledStart,
+        actorUserId: userId,
+      });
+    }),
+
   /** Mark one agenda item resolved (or reopen it). Any non-viewer member; survives regeneration. */
   resolveAgendaItem: protectedProcedure
     .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), itemId: z.string(), resolved: z.boolean() }))
@@ -910,15 +960,24 @@ export const ceremonyRouter = createTRPCRouter({
           },
         });
         if (cadenceChanged) {
-          await tx.ceremonyOccurrence.deleteMany({
+          // Future planned ticks are regenerated from the new rule. An
+          // occurrence someone moved off its tick or added by hand is a
+          // deliberate act and stays (ADR-0059 amendment, 2026-10-21).
+          const untouched = await tx.ceremonyOccurrence.findMany({
             where: {
               ceremonyId: id,
               status: "PLANNED",
               scheduledStart: { gt: new Date() },
               scheduledMeetingId: null,
               recordedMeetings: { none: {} },
+              cadenceStart: { not: null },
             },
+            select: { id: true, scheduledStart: true, cadenceStart: true },
           });
+          const onTick = untouched.filter((o) => o.cadenceStart?.getTime() === o.scheduledStart.getTime());
+          if (onTick.length > 0) {
+            await tx.ceremonyOccurrence.deleteMany({ where: { id: { in: onTick.map((o) => o.id) } } });
+          }
         }
         return updated;
       });

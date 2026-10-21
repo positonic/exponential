@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { Badge, Button, Container, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { IconArrowLeft, IconBrandMatrix, IconCalendarX, IconSend, IconSparkles } from "@tabler/icons-react";
+import { IconArrowLeft, IconBrandMatrix, IconCalendarClock, IconCalendarX, IconSend, IconSparkles } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { useSession } from "next-auth/react";
@@ -14,6 +15,7 @@ import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUp
 import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceAsyncSummary";
 import { OccurrenceSkipBanner } from "~/app/_components/ceremonies/OccurrenceSkipBanner";
 import { OccurrenceNotes } from "~/app/_components/ceremonies/OccurrenceNotes";
+import { OccurrenceDateModal } from "~/app/_components/ceremonies/OccurrenceDateModal";
 import { useRegisterTopbarCrumbs } from "~/app/_components/layout/TopbarCrumbs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
@@ -114,6 +116,22 @@ export default function OccurrencePage() {
     });
   };
 
+  // Move (ADR-0059 amendment, 2026-10-21): the owner shifts an occurrence
+  // that has not happened yet; agenda, notes and recordings ride along.
+  const [moveOpened, setMoveOpened] = useState(false);
+  const reschedule = api.ceremony.rescheduleOccurrence.useMutation({
+    onSuccess: async (res) => {
+      setMoveOpened(false);
+      notifications.show({
+        title: "Occurrence moved",
+        message: `Now ${new Date(res.scheduledStart).toLocaleString(undefined, whenFmt)}.`,
+        color: "green",
+      });
+      await Promise.all([invalidate(), utils.ceremony.get.invalidate(), utils.ceremony.listOccurrences.invalidate()]);
+    },
+    onError: (e) => notifications.show({ title: "Couldn't move occurrence", message: e.message, color: "red" }),
+  });
+
   const resolveItem = api.ceremony.resolveAgendaItem.useMutation({
     onSuccess: async () => {
       await utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
@@ -141,6 +159,15 @@ export default function OccurrencePage() {
   const booking = occurrence.scheduledMeeting;
   const canCancel =
     isOneOff && booking?.status === "confirmed" && booking.organizerId === session?.user?.id;
+  const cadenceStart = occurrence.cadenceStart ? new Date(occurrence.cadenceStart) : null;
+  const scheduledStart = new Date(occurrence.scheduledStart);
+  const movedFrom = cadenceStart && cadenceStart.getTime() !== scheduledStart.getTime() ? cadenceStart : null;
+  const isAdHoc = !isOneOff && !cadenceStart;
+  const canMove =
+    occurrence.canGenerate &&
+    !isOneOff &&
+    !occurrence.scheduledMeetingId &&
+    (occurrence.status === "PLANNED" || occurrence.status === "AGENDA_CIRCULATED" || occurrence.status === "IN_PROGRESS");
   const attendeeNames = (booking?.attendees ?? []).map((a) => a.name).filter((n): n is string => !!n);
   return (
     <Container size="lg" py="xl">
@@ -173,6 +200,16 @@ export default function OccurrencePage() {
               <Badge variant="light">
                 {isOneOff && booking?.status === "cancelled" ? "cancelled" : occurrence.status.replace(/_/g, " ").toLowerCase()}
               </Badge>
+              {movedFrom && (
+                <Badge variant="outline" color="gray" data-testid="occurrence-moved">
+                  moved from {movedFrom.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </Badge>
+              )}
+              {isAdHoc && (
+                <Badge variant="outline" color="gray" data-testid="occurrence-ad-hoc">
+                  ad hoc
+                </Badge>
+              )}
               <Text size="sm" className="text-text-muted">
                 {occurrence.ceremony.durationMinutes} min · {isOneOff ? "organizer" : "owner"}{" "}
                 {occurrence.ceremony.owner.name ?? occurrence.ceremony.owner.email ?? "—"}
@@ -188,6 +225,16 @@ export default function OccurrencePage() {
           </div>
           {occurrence.canGenerate && occurrence.status !== "SKIPPED" && (
             <Group gap="xs">
+              {canMove && (
+                <Button
+                  variant="default"
+                  leftSection={<IconCalendarClock size={14} />}
+                  onClick={() => setMoveOpened(true)}
+                  data-testid="move-occurrence"
+                >
+                  Move
+                </Button>
+              )}
               {canCancel && booking && (
                 <Button
                   variant="default"
@@ -233,6 +280,17 @@ export default function OccurrencePage() {
             </Group>
           )}
         </Group>
+
+        <OccurrenceDateModal
+          opened={moveOpened}
+          onClose={() => setMoveOpened(false)}
+          title="Move this occurrence"
+          hint="The agenda, notes and linked recordings move with it. The cadence itself does not change."
+          submitLabel="Move"
+          initial={scheduledStart}
+          loading={reschedule.isPending}
+          onSubmit={(start) => reschedule.mutate({ workspaceId, occurrenceId: occurrence.id, scheduledStart: start })}
+        />
 
         <OccurrenceSkipBanner
           workspaceId={workspaceId}

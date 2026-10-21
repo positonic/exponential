@@ -117,3 +117,30 @@ Relaxing "recurring" costs one nullable column and a flag.
 external person known by email with an optional CRM contact, mirroring **Participant** on the
 recorded Meeting so the two match on email when a recording attaches. Availability still comes from
 members only.
+
+## Amendment: an Occurrence may be moved or added by hand (2026-10-21)
+
+Decision 2 keyed occurrences to cadence ticks: one row per tick, unique per ceremony and
+scheduled start, regenerated hourly. Real meetings drift — the standup moves to the afternoon,
+the review is held on a day the rule does not name — and a recording of the moved meeting
+could only attach to a row carrying the wrong date, or to nothing at all. Editing the cadence
+rule to match is the wrong tool: it rewrites every future tick for a one-day change.
+
+An Occurrence now records the **cadence tick it stands for** (`cadenceStart`, unique per
+ceremony, null on an ad hoc or one-off occurrence) separately from **when it is held**
+(`scheduledStart`). The owner may **move** a planned occurrence to another time — it keeps its
+tick, so the sweep never re-inserts the slot it vacated, and its agenda, notes page, async
+updates and linked recordings ride along, because a move is a property change rather than a new
+row — and may **add** an occurrence on any date; one added on a tick simply *is* that tick's
+occurrence, created early. The recording page's "Part of" picker offers "Add occurrence" per
+ceremony at the recording's own date, so attaching a meeting held off the cadence is one click.
+A one-off is never moved: its booking lives in attendees' calendars, and reschedule remains
+cancel + rebook. A cadence edit still regenerates future planned ticks, but leaves moved and ad
+hoc occurrences alone — they are deliberate acts, not derived rows.
+
+**Considered alternatives:** skipping the tick and creating a fresh occurrence at the new time
+(rejected: the agenda, notes and updates stay behind on the skipped row, and the list shows a
+tombstone for every move); a per-occurrence exception list on the ceremony, RRULE `EXDATE`-style
+(rejected: it moves scheduling state onto the definition, which occurrences deliberately snapshot
+rather than share); dropping the tick-based unique altogether (rejected: idempotent hourly
+expansion depends on it).
