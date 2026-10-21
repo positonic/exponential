@@ -40,6 +40,18 @@ export interface NestedTicketRow<T> {
 export const MAX_NESTING_DEPTH = 8;
 
 /**
+ * Rows are dependency *paths*, not tickets: a blocker shared by many parents
+ * renders under each, subtree and all, so densely shared blockers could
+ * multiply a few dozen tickets into thousands of rows in a non-virtualised
+ * table. Past this many rows the walk stops descending (the levels already
+ * open finish their siblings, so the total overshoots by at most a few
+ * rows); the rows left unexpanded report `isCollapsed` so their chevron
+ * reads as folded. Every ticket still appears at least once: roots are
+ * always emitted.
+ */
+export const MAX_NESTED_ROWS = 1500;
+
+/**
  * Walk `tickets` as a dependency tree, in the input order at every level.
  * Children of a collapsed ticket (by id, so collapsing applies to every
  * place it appears) are left out, but the row itself still reports its
@@ -101,7 +113,8 @@ export function nestTicketsByDependency<T extends NestableTicket>(
   const walk = (t: T, depth: number, ancestry: string[]) => {
     const path = [...ancestry, t.id];
     const kids = (childrenOf.get(t.id) ?? []).filter((k) => !path.includes(k.id));
-    const isCollapsed = collapsedIds.has(t.id);
+    const budgetSpent = rows.length >= MAX_NESTED_ROWS;
+    const isCollapsed = collapsedIds.has(t.id) || (budgetSpent && kids.length > 0);
     rows.push({
       ticket: t,
       depth,

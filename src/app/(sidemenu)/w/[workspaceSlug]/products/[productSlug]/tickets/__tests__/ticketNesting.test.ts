@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   nestTicketsByDependency,
+  MAX_NESTED_ROWS,
   MAX_NESTING_DEPTH,
   type NestableTicket,
 } from "../ticketNesting";
@@ -84,6 +85,32 @@ describe("nestTicketsByDependency", () => {
     const rows = nestTicketsByDependency([t("a", ["a", "b", "b"]), t("b")]);
     expect(shape(rows)).toEqual(["a@0", "b@1"]);
     expect(rows[0]!.childCount).toBe(1);
+  });
+
+  it("bounds the row count when shared blockers multiply the paths", () => {
+    // 40 tickets each depend on the same 8, which each depend on the same 4,
+    // which each depend on the same 2: 4,200 dependency paths for 54 tickets.
+    const bottom = ["b1", "b2"];
+    const mid = ["m1", "m2", "m3", "m4"];
+    const top = Array.from({ length: 8 }, (_, i) => `t${i}`);
+    const list: NestableTicket[] = [
+      ...Array.from({ length: 40 }, (_, i) => t(`p${i}`, top)),
+      ...top.map((id) => t(id, mid)),
+      ...mid.map((id) => t(id, bottom)),
+      ...bottom.map((id) => t(id)),
+    ];
+    const rows = nestTicketsByDependency(list);
+    // The budget stops descent, not emission: the levels open when it ran
+    // out finish their remaining siblings, and every root still appears, so
+    // the overshoot is a handful of rows, never another multiplication.
+    expect(rows.length).toBeLessThanOrEqual(MAX_NESTED_ROWS + list.length);
+    expect(new Set(rows.map((r) => r.ticket.id)).size).toBe(list.length);
+    // Every root is still emitted, after the budget as well as before.
+    expect(rows.filter((r) => r.depth === 0)).toHaveLength(40);
+    // Rows left unexpanded by the budget read as folded.
+    const folded = rows.filter((r) => r.isCollapsed);
+    expect(folded.length).toBeGreaterThan(0);
+    expect(folded.every((r) => r.childCount > 0)).toBe(true);
   });
 
   it("stops descending past MAX_NESTING_DEPTH", () => {
