@@ -681,6 +681,123 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("addOccurrence / rescheduleOccurrence gate on the ceremony owner", () => {
+    const OFF_TICK = new Date("2026-09-09T13:30:00.000Z");
+    const recurring = {
+      id: "cer-1",
+      workspaceId: WORKSPACE_ID,
+      name: "Daily Standup",
+      ownerId: USER_ID,
+      isOneOff: false,
+      durationMinutes: 15,
+      agendaTemplate: [],
+      ...cadence,
+    };
+
+    it("denies a viewer before touching the ceremony", async () => {
+      withWorkspaceRole(db, "viewer");
+      await expect(
+        caller(db).ceremony.addOccurrence({ workspaceId: WORKSPACE_ID, ceremonyId: "cer-1", scheduledStart: OFF_TICK }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremony.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("denies a member who is not the owner", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremony.findFirst.mockResolvedValue({ ...recurring, ownerId: "someone-else" } as never);
+      await expect(
+        caller(db).ceremony.addOccurrence({ workspaceId: WORKSPACE_ID, ceremonyId: "cer-1", scheduledStart: OFF_TICK }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremonyOccurrence.create).not.toHaveBeenCalled();
+
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-1", ceremony: { ownerId: "someone-else" } } as never);
+      await expect(
+        caller(db).ceremony.rescheduleOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1", scheduledStart: OFF_TICK }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+    });
+
+    it("lets the owner add an ad hoc occurrence off the cadence", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremony.findFirst.mockResolvedValue(recurring as never);
+      db.ceremonyOccurrence.findFirst.mockResolvedValue(null);
+      db.ceremonyOccurrence.create.mockResolvedValue({ id: "occ-new", scheduledStart: OFF_TICK, cadenceStart: null } as never);
+      db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
+
+      const res = await caller(db).ceremony.addOccurrence({ workspaceId: WORKSPACE_ID, ceremonyId: "cer-1", scheduledStart: OFF_TICK });
+
+      expect(res.id).toBe("occ-new");
+      expect(db.ceremonyOccurrence.create.mock.calls[0]![0].data).toMatchObject({
+        ceremonyId: "cer-1",
+        workspaceId: WORKSPACE_ID,
+        scheduledStart: OFF_TICK,
+        cadenceStart: null,
+      });
+    });
+
+    it("lets a workspace admin move someone else's occurrence", async () => {
+      withWorkspaceRole(db, "admin");
+      const start = new Date("2026-09-09T07:00:00.000Z");
+      db.ceremonyOccurrence.findFirst
+        .mockResolvedValueOnce({ id: "occ-1", ceremony: { ownerId: "someone-else" } } as never)
+        .mockResolvedValueOnce({
+          id: "occ-1",
+          status: "PLANNED",
+          scheduledStart: start,
+          scheduledEnd: new Date(start.getTime() + 15 * 60_000),
+          scheduledMeetingId: null,
+          ceremony: { id: "cer-1", name: "Daily Standup", timezone: "Europe/Berlin", isOneOff: false },
+        } as never)
+        .mockResolvedValueOnce(null);
+      db.ceremonyOccurrence.update.mockResolvedValue({ id: "occ-1", scheduledStart: OFF_TICK } as never);
+      db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
+
+      const res = await caller(db).ceremony.rescheduleOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1", scheduledStart: OFF_TICK });
+
+      expect(res.movedFrom).toEqual(start);
+      expect(db.ceremonyOccurrence.update.mock.calls[0]![0].data).toEqual({
+        scheduledStart: OFF_TICK,
+        scheduledEnd: new Date(OFF_TICK.getTime() + 15 * 60_000),
+      });
+    });
+  });
+
+  describe("update on a cadence change", () => {
+    it("regenerates only the planned ticks still on the cadence, keeping moved and ad hoc occurrences", async () => {
+      withWorkspaceRole(db, "member");
+      withAgendaTransactionMock(db);
+      const existing = {
+        id: "cer-1",
+        workspaceId: WORKSPACE_ID,
+        name: "Daily Standup",
+        slug: "daily-standup",
+        ownerId: USER_ID,
+        isOneOff: false,
+        isActive: true,
+        durationMinutes: 15,
+        leadTimeHours: 24,
+        agendaTemplate: [],
+        ...cadence,
+      };
+      db.ceremony.findFirst.mockResolvedValue(existing as never);
+      db.ceremony.update.mockResolvedValue({ ...existing, cadenceRule: "FREQ=WEEKLY;BYDAY=TU;BYHOUR=9;BYMINUTE=0" } as never);
+      const tick = new Date("2026-11-02T08:00:00.000Z");
+      db.ceremonyOccurrence.findMany.mockResolvedValue([
+        { id: "occ-on-tick", scheduledStart: tick, cadenceStart: tick },
+        { id: "occ-moved", scheduledStart: new Date("2026-11-10T10:00:00.000Z"), cadenceStart: new Date("2026-11-09T08:00:00.000Z") },
+      ] as never);
+      db.ceremonyOccurrence.deleteMany.mockResolvedValue({ count: 1 });
+      db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 0 });
+
+      await caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", cadenceRule: "FREQ=WEEKLY;BYDAY=TU;BYHOUR=9;BYMINUTE=0" });
+
+      // Ad hoc rows (null cadenceStart) are excluded by the query itself …
+      expect(db.ceremonyOccurrence.findMany.mock.calls[0]![0]!.where).toMatchObject({ cadenceStart: { not: null } });
+      // … and a moved row survives the delete.
+      expect(db.ceremonyOccurrence.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["occ-on-tick"] } } });
+    });
+  });
+
   describe("getOccurrence on a one-off", () => {
     it("returns isOneOff, the purpose and the booking with attendee names only", async () => {
       withWorkspaceRole(db, "member");

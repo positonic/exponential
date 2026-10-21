@@ -2654,6 +2654,12 @@ model CeremonyOccurrence {
   workspaceId          String
   scheduledStart       DateTime
   scheduledEnd         DateTime
+  /// The cadence tick this occurrence stands for (ADR-0059 amendment,
+  /// 2026-10-21). Equal to `scheduledStart` as generated; stays put when the
+  /// occurrence is moved to another time, so the hourly expansion never
+  /// re-inserts the vacated tick. Null on an ad hoc occurrence added by hand
+  /// off the cadence, and on a one-off's single occurrence.
+  cadenceStart         DateTime?
   status               CeremonyOccurrenceStatus @default(PLANNED)
   skipReason           String?
   /// The ceremony definition as it was when this occurrence was created;
@@ -2693,6 +2699,7 @@ model CeremonyOccurrence {
   updates            CeremonyOccurrenceUpdate[]
 
   @@unique([ceremonyId, scheduledStart])
+  @@unique([ceremonyId, cadenceStart])
   @@index([workspaceId, scheduledStart])
   @@index([status])
 }

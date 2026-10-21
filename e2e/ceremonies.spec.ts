@@ -35,7 +35,11 @@ test("recording page shows the ceremony occurrence it captured, and can unlink a
   await expect(partOf).toContainText("Part of a ceremony?", { timeout: FIRST_PAINT_TIMEOUT });
 
   // … and relink to the same occurrence so the fixture is left as seeded.
+  // The picker also offers "Add occurrence" per ceremony, at the recording's
+  // own date, for a meeting held off the cadence (ADR-0059 amendment,
+  // 2026-10-21) — asserted, not clicked, so no row is added to the fixture.
   await partOf.click();
+  await expect(page.getByRole("option", { name: /Add occurrence at/ }).first()).toBeVisible();
   await page.getByRole("option", { name: /Sep/ }).first().click();
   await expect(partOf).toContainText("Part of: Daily Standup", { timeout: FIRST_PAINT_TIMEOUT });
 });

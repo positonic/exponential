@@ -289,11 +289,40 @@ export function MeetingDetail({
       })),
     [occurrenceRows],
   );
+  // The ceremonies themselves, so a meeting held off the cadence can get an
+  // occurrence added at its own date and be linked in one go. Only the ones
+  // the caller may manage (owner, or workspace admin): `addOccurrence`
+  // refuses anyone else, so the option is not offered to them.
+  const { data: ceremonyRows = [] } = api.ceremony.list.useQuery(
+    { workspaceId: session.workspaceId ?? "" },
+    { enabled: occurrencePickerOpened && Boolean(session.workspaceId) },
+  );
+  const ceremonyOptions = useMemo(
+    () => ceremonyRows.filter((c) => c.canManage).map((c) => ({ id: c.id, name: c.name })),
+    [ceremonyRows],
+  );
+  const addOccurrenceAt = useMemo(
+    () => (session.meetingDate ? new Date(session.meetingDate) : new Date(session.createdAt)),
+    [session.meetingDate, session.createdAt],
+  );
   const attachOccurrence = api.ceremony.attachMeeting.useMutation({
     onSuccess: () => void utils.transcription.getDetail.invalidate({ id: session.id }),
     onError: (error) =>
       notifications.show({ title: "Couldn't link ceremony", message: error.message, color: "red" }),
   });
+  const addOccurrence = api.ceremony.addOccurrence.useMutation({
+    onSuccess: (occurrence) => {
+      attachOccurrence.mutate({ meetingId: session.id, occurrenceId: occurrence.id });
+      void utils.ceremony.listOccurrences.invalidate();
+    },
+    onError: (error) =>
+      notifications.show({ title: "Couldn't add occurrence", message: error.message, color: "red" }),
+  });
+  const meetingWorkspaceId = session.workspaceId;
+  const onAddOccurrence = meetingWorkspaceId
+    ? (ceremonyId: string) =>
+        addOccurrence.mutate({ workspaceId: meetingWorkspaceId, ceremonyId, scheduledStart: addOccurrenceAt })
+    : undefined;
   const detachOccurrence = api.ceremony.detachMeeting.useMutation({
     onSuccess: () => void utils.transcription.getDetail.invalidate({ id: session.id }),
     onError: (error) =>
@@ -647,6 +676,9 @@ export function MeetingDetail({
             onOccurrenceChange={onOccurrenceChange}
             onOccurrencePickerOpen={() => setOccurrencePickerOpened(true)}
             isLoadingOccurrences={occurrencePickerOpened && isLoadingOccurrences}
+            ceremonyOptions={ceremonyOptions}
+            onAddOccurrence={onAddOccurrence}
+            addOccurrenceAt={addOccurrenceAt}
             linkedFeatures={linkedFeatures}
             featureOptions={featureOptions}
             onFeatureToggle={onFeatureToggle}

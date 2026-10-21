@@ -95,6 +95,7 @@ export async function previewOneOffAgenda(
     workspaceId: input.workspaceId,
     scheduledStart: input.scheduledStart,
     scheduledEnd,
+    cadenceStart: null,
     status: "PLANNED",
     skipReason: null,
     definitionSnapshot: {},
