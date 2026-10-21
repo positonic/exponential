@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  agentErrorTraceContext,
   classifyProviderError,
   isNonRetryableProviderError,
 } from "../providerError";
@@ -52,5 +53,31 @@ describe("isNonRetryableProviderError", () => {
     expect(isNonRetryableProviderError("rate-limit")).toBe(false);
     expect(isNonRetryableProviderError("overloaded")).toBe(false);
     expect(isNonRetryableProviderError("unknown")).toBe(false);
+  });
+});
+
+describe("agentErrorTraceContext", () => {
+  const at = new Date("2026-10-15T11:31:48Z");
+
+  it("names the run and gives a log query bounded to a few minutes around it", () => {
+    const context = agentErrorTraceContext("ce9543c3-12a8-4c93-810b-f404b65d3b84", at);
+
+    expect(context.occurredAt).toBe("2026-10-15T11:31:48.000Z");
+    expect(context.mastraRunId).toBe("ce9543c3-12a8-4c93-810b-f404b65d3b84");
+    expect(context.mastraLogs).toBe(
+      "railway logs --service mastra --since 2026-10-15T11:29:48.000Z --until 2026-10-15T11:33:48.000Z -n 5000 | grep -B2 -A60 ce9543c3-12a8-4c93-810b-f404b65d3b84",
+    );
+  });
+
+  it("still gives the time-window query when the chunk carried no run id", () => {
+    const context = agentErrorTraceContext(undefined, at);
+
+    expect(context).not.toHaveProperty("mastraRunId");
+    expect(context.mastraLogs).not.toContain("grep");
+  });
+
+  it("fits the ticket body's per-value cap", () => {
+    const context = agentErrorTraceContext("ce9543c3-12a8-4c93-810b-f404b65d3b84", at);
+    expect(context.mastraLogs!.length).toBeLessThanOrEqual(200);
   });
 });

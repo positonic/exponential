@@ -19,6 +19,10 @@
       "schedule": "0 9 * * 1"
     },
     {
+      "path": "/api/cron/agent-health-digest",
+      "schedule": "0 7 * * *"
+    },
+    {
       "path": "/api/cron/auto-summarize-meetings",
       "schedule": "0 * * * *"
     },

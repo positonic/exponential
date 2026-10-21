@@ -55,7 +55,28 @@ announcements to **Zulip** (`sentryZulip.ts`) and **Matrix**
 (`sentryMatrix.ts`). The Matrix leg needs `MATRIX_HOMESERVER_URL`,
 `MATRIX_ACCESS_TOKEN`, and `MATRIX_SENTRY_ROOM_ID` set (see
 `.env.example`); the room must be unencrypted and the bot joined. Recurring
-errors that dedup onto an existing ticket do not re-notify.
+errors that dedup onto an existing ticket do not re-notify, with one
+exception below.
+
+### Handled app errors and agent failures
+
+Failures the app catches and smooths over (the chat's "Something went
+wrong") never reach Sentry, so `reportHandledErrorServer` files them through
+the same ingest as **"New app error"** tickets (gated on `CLIENT_ERROR_BUGS`).
+Agent-stream failures carry `mastraRunId`, `occurredAt` and a ready-to-run
+`mastraLogs` Railway command in the ticket body, so tracing one is a paste,
+not a log hunt.
+
+- **Repeat alerts.** A billing or auth provider failure (out of credit,
+  revoked key) fails every turn for everyone until someone acts, so it
+  re-announces as **"Still happening"** at most hourly while it recurs
+  (`renotifyAfterMs`; the clock is `links.lastNotifiedAt` on the ticket).
+  Everything else stays creation-only.
+- **Daily agent-health digest.** `/api/cron/agent-health-digest` (07:00 UTC)
+  reads the last 24h of `AiInteractionHistory` and posts failed turns and the
+  most frequent failing tools to the Matrix room. It catches what tickets
+  miss: a tool that errors on every call while the agent narrates around it.
+  A clean day posts nothing.
 
 ### GlitchTip senders
 

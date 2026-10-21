@@ -89,6 +89,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const result = await ingestSentryBug(db, buildClientErrorBug(report), {
       body: buildClientErrorBody(report),
       labels: CLIENT_ERROR_LABELS,
+      heading: "New app error",
     });
     return NextResponse.json({ filed: result.created, ticketId: result.ticketId });
   } catch (error) {
