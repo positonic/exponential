@@ -48,9 +48,11 @@ interface MeetingOccurrencePickerProps {
   onOpen?: () => void;
   dropdownWidth?: number | "target";
   /**
-   * The workspace's recurring ceremonies. With `onAddOccurrence`, every one
-   * gets a group — even with no tick near the meeting — ending in an
-   * "Add occurrence" option, for the meeting that was held off the cadence.
+   * The recurring ceremonies the caller may add occurrences to (owner, or
+   * workspace admin). With `onAddOccurrence`, each gets a group — even with
+   * no tick near the meeting — ending in an "Add occurrence" option, for the
+   * meeting that was held off the cadence. A ceremony with ticks in the
+   * window but not in this list shows its ticks only.
    */
   ceremonies?: MeetingCeremonyOption[];
   /** Create an occurrence of the ceremony at `addOccurrenceAt` and link the meeting to it. */
@@ -90,6 +92,7 @@ export function MeetingOccurrencePicker({
   const [search, setSearch] = useState("");
 
   const canAdd = Boolean(onAddOccurrence && addOccurrenceAt);
+  const addable = useMemo(() => new Set(ceremonies.map((c) => c.id)), [ceremonies]);
   const groups = useMemo(() => {
     const q = search.toLowerCase().trim();
     const matches = (name: string) => !q || name.toLowerCase().includes(q);
@@ -150,7 +153,7 @@ export function MeetingOccurrencePicker({
                   <Text size="xs">{formatOccurrenceWhen(o.scheduledStart)}</Text>
                 </Combobox.Option>
               ))}
-              {canAdd && addOccurrenceAt && (
+              {canAdd && addOccurrenceAt && addable.has(group.id) && (
                 <Combobox.Option
                   value={`${ADD_PREFIX}${group.id}`}
                   data-testid={`add-occurrence-${group.id}`}

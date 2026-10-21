@@ -154,7 +154,7 @@ export default function CeremonyPage() {
               moved from {new Date(o.cadenceStart).toLocaleString(undefined, whenFmt)}
             </Text>
           )}
-          {!o.cadenceStart && (
+          {!o.cadenceStart && !ceremony.isOneOff && (
             <Text size="xs" className="text-text-muted">
               ad hoc
             </Text>

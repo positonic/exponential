@@ -96,6 +96,7 @@ describe("addOccurrence", () => {
     await expect(addOccurrence(db, { ceremony: ceremony(), scheduledStart: TICK, actorUserId: "u-1" })).rejects.toMatchObject({
       code: "CONFLICT",
     });
+    // An add has no row of its own to exclude.
     expect(db.ceremonyOccurrence.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { ceremonyId: "cer-1", OR: [{ scheduledStart: TICK }, { cadenceStart: TICK }] } }),
     );
@@ -135,6 +136,22 @@ describe("rescheduleOccurrence", () => {
       db,
       expect.objectContaining({ action: "updated", metadata: expect.objectContaining({ moved: true, movedFrom: TICK.toISOString() }) }),
     );
+  });
+
+  it("can be moved back onto its own tick — the clash check excludes the row itself", async () => {
+    const db = mockDeep<PrismaClient>();
+    const movedAway = { ...planned, scheduledStart: OFF_TICK, scheduledEnd: new Date(OFF_TICK.getTime() + 15 * 60_000) };
+    db.ceremonyOccurrence.findFirst.mockResolvedValueOnce(movedAway as never).mockResolvedValueOnce(null);
+    db.ceremonyOccurrence.update.mockResolvedValue({ id: "occ-1", scheduledStart: TICK } as never);
+
+    await rescheduleOccurrence(db, { occurrenceId: "occ-1", workspaceId: "ws-1", scheduledStart: TICK, actorUserId: "u-1" });
+
+    expect(db.ceremonyOccurrence.findFirst.mock.calls[1]![0]!.where).toEqual({
+      ceremonyId: "cer-1",
+      OR: [{ scheduledStart: TICK }, { cadenceStart: TICK }],
+      id: { not: "occ-1" },
+    });
+    expect(db.ceremonyOccurrence.update).toHaveBeenCalled();
   });
 
   it("is a no-op at the same time", async () => {

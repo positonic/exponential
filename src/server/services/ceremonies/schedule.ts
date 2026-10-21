@@ -31,9 +31,18 @@ export function isCadenceTick(
   return expandOccurrences({ ...ceremony, cadenceRule: ceremony.cadenceRule }, at, at).length > 0;
 }
 
-async function assertSlotFree(db: PrismaClient, ceremonyId: string, scheduledStart: Date): Promise<void> {
+/**
+ * No other occurrence may hold the time, by start or by tick. `excludeId` is
+ * the row being moved: it keeps its own tick, so moving it back onto that
+ * tick must not read as a clash with itself.
+ */
+async function assertSlotFree(db: PrismaClient, ceremonyId: string, scheduledStart: Date, excludeId?: string): Promise<void> {
   const clash = await db.ceremonyOccurrence.findFirst({
-    where: { ceremonyId, OR: [{ scheduledStart }, { cadenceStart: scheduledStart }] },
+    where: {
+      ceremonyId,
+      OR: [{ scheduledStart }, { cadenceStart: scheduledStart }],
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
     select: { id: true },
   });
   if (clash) {
@@ -122,7 +131,7 @@ export async function rescheduleOccurrence(db: PrismaClient, input: RescheduleOc
   if (occurrence.scheduledStart.getTime() === input.scheduledStart.getTime()) {
     return { id: occurrence.id, scheduledStart: occurrence.scheduledStart, scheduledEnd: occurrence.scheduledEnd, movedFrom: null };
   }
-  await assertSlotFree(db, occurrence.ceremony.id, input.scheduledStart);
+  await assertSlotFree(db, occurrence.ceremony.id, input.scheduledStart, occurrence.id);
 
   const durationMs = occurrence.scheduledEnd.getTime() - occurrence.scheduledStart.getTime();
   const updated = await db.ceremonyOccurrence.update({

@@ -273,12 +273,17 @@ export function MeetingDetail({
     [occurrenceRows],
   );
   // The ceremonies themselves, so a meeting held off the cadence can get an
-  // occurrence added at its own date and be linked in one go.
+  // occurrence added at its own date and be linked in one go. Only the ones
+  // the caller may manage (owner, or workspace admin): `addOccurrence`
+  // refuses anyone else, so the option is not offered to them.
   const { data: ceremonyRows = [] } = api.ceremony.list.useQuery(
     { workspaceId: session.workspaceId ?? "" },
     { enabled: occurrencePickerOpened && Boolean(session.workspaceId) },
   );
-  const ceremonyOptions = useMemo(() => ceremonyRows.map((c) => ({ id: c.id, name: c.name })), [ceremonyRows]);
+  const ceremonyOptions = useMemo(
+    () => ceremonyRows.filter((c) => c.canManage).map((c) => ({ id: c.id, name: c.name })),
+    [ceremonyRows],
+  );
   const addOccurrenceAt = useMemo(
     () => (session.meetingDate ? new Date(session.meetingDate) : new Date(session.createdAt)),
     [session.meetingDate, session.createdAt],

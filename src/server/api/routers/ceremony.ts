@@ -21,6 +21,7 @@ import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/serv
 import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony } from "~/server/services/ceremonies/access";
 import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import { hasMinimumWorkspaceRole } from "~/server/services/access/types";
 import {
   draftMyUpdate,
   getMyUpdate,
@@ -189,17 +190,26 @@ export const ceremonyRouter = createTRPCRouter({
     )
     .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
-      return ctx.db.ceremony.findMany({
-        where: {
-          workspaceId: input.workspaceId,
-          // One-offs are meetings booked from a project, not part of the
-          // operating rhythm (ADR-0059 amendment, 2026-10-07).
-          isOneOff: false,
-          ...(input.includeInactive ? {} : { isActive: true }),
-        },
-        select: ceremonySummarySelect,
-        orderBy: [{ isActive: "desc" }, { name: "asc" }],
-      });
+      const userId = ctx.session.user.id;
+      const [ceremonies, membership] = await Promise.all([
+        ctx.db.ceremony.findMany({
+          where: {
+            workspaceId: input.workspaceId,
+            // One-offs are meetings booked from a project, not part of the
+            // operating rhythm (ADR-0059 amendment, 2026-10-07).
+            isOneOff: false,
+            ...(input.includeInactive ? {} : { isActive: true }),
+          },
+          select: ceremonySummarySelect,
+          orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        }),
+        getWorkspaceMembership(ctx.db, userId, input.workspaceId),
+      ]);
+      // The owner's bar (`canManageCeremony`): what `addOccurrence`,
+      // `rescheduleOccurrence` and skip enforce, so a picker can offer those
+      // only where they would succeed.
+      const isAdmin = membership ? hasMinimumWorkspaceRole(membership.role, "admin") : false;
+      return ceremonies.map((c) => ({ ...c, canManage: isAdmin || c.ownerId === userId }));
     }),
 
   /**
