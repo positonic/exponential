@@ -501,6 +501,9 @@ export const ceremonyRouter = createTRPCRouter({
           ceremonyId: true,
           scheduledStart: true,
           scheduledEnd: true,
+          // A moved occurrence still holds its tick: `addOccurrence` refuses
+          // that time too, so the meeting picker needs it to hide "Add".
+          cadenceStart: true,
           status: true,
           ceremony: { select: { id: true, name: true, kind: true } },
         },

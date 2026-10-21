@@ -286,6 +286,7 @@ export function MeetingDetail({
         ceremonyId: o.ceremonyId,
         ceremonyName: o.ceremony.name,
         scheduledStart: new Date(o.scheduledStart),
+        cadenceStart: o.cadenceStart ? new Date(o.cadenceStart) : null,
       })),
     [occurrenceRows],
   );

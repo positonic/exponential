@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Group, Modal, Stack, Text } from "@mantine/core";
 import { DateTimeField } from "~/app/_components/DateTimeField";
 
@@ -33,9 +33,14 @@ export function OccurrenceDateModal({
   onSubmit,
 }: OccurrenceDateModalProps) {
   const [value, setValue] = useState<Date | null>(initial);
+  // Seed the field only when the modal opens. `initial` is read through a
+  // ref because callers build it per render (`new Date(row.scheduledStart)`),
+  // so depending on it would reset a half-picked time on every refetch.
+  const initialRef = useRef(initial);
+  initialRef.current = initial;
   useEffect(() => {
-    if (opened) setValue(initial);
-  }, [opened, initial]);
+    if (opened) setValue(initialRef.current);
+  }, [opened]);
 
   return (
     <Modal opened={opened} onClose={onClose} title={title} size="sm" centered>
