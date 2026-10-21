@@ -134,6 +134,7 @@ const DEP_TICKET_SELECT = {
   title: true,
   status: true,
   priority: true,
+  prUrl: true,
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
 
