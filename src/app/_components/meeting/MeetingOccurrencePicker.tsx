@@ -9,6 +9,12 @@ export interface MeetingOccurrenceOption {
   ceremonyId: string;
   ceremonyName: string;
   scheduledStart: Date;
+  /**
+   * The cadence tick this occurrence stands for, or null when it was added
+   * off the cadence. A moved occurrence keeps its tick, and the server
+   * refuses a new occurrence at either time.
+   */
+  cadenceStart?: Date | null;
 }
 
 /** A ceremony the picker can add an occurrence to, even with no tick in the window. */
@@ -92,6 +98,10 @@ export function MeetingOccurrencePicker({
   const [search, setSearch] = useState("");
 
   const canAdd = Boolean(onAddOccurrence && addOccurrenceAt);
+  // Mirrors the server's clash check (`assertSlotFree`): a time is taken when
+  // any occurrence of the ceremony starts then OR still holds it as its tick.
+  const holdsTime = (o: MeetingOccurrenceOption, at: Date) =>
+    o.scheduledStart.getTime() === at.getTime() || o.cadenceStart?.getTime() === at.getTime();
   const addable = useMemo(() => new Set(ceremonies.map((c) => c.id)), [ceremonies]);
   const groups = useMemo(() => {
     const q = search.toLowerCase().trim();
@@ -153,12 +163,13 @@ export function MeetingOccurrencePicker({
                   <Text size="xs">{formatOccurrenceWhen(o.scheduledStart)}</Text>
                 </Combobox.Option>
               ))}
-              {/* No add when the group already has a tick at exactly this
-                  time — the server would refuse it as a clash. */}
+              {/* No add when an occurrence already starts at exactly this
+                  time, or was moved off it but still holds the tick — the
+                  server would refuse either as a clash. */}
               {canAdd &&
                 addOccurrenceAt &&
                 addable.has(group.id) &&
-                !group.items.some((o) => o.scheduledStart.getTime() === addOccurrenceAt.getTime()) && (
+                !group.items.some((o) => holdsTime(o, addOccurrenceAt)) && (
                 <Combobox.Option
                   value={`${ADD_PREFIX}${group.id}`}
                   data-testid={`add-occurrence-${group.id}`}

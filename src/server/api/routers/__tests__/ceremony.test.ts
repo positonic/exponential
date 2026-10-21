@@ -151,6 +151,22 @@ describe("ceremony router", () => {
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
 
+    it("lets a viewer list occurrences, with the tick each one still holds", async () => {
+      withWorkspaceRole(db, "viewer");
+      const tick = new Date("2026-09-09T07:00:00.000Z");
+      const moved = new Date("2026-09-09T13:30:00.000Z");
+      db.ceremonyOccurrence.findMany.mockResolvedValue([
+        { id: "occ-1", ceremonyId: "cer-1", scheduledStart: moved, cadenceStart: tick, ceremony: { id: "cer-1", name: "Daily Standup" } },
+      ] as never);
+      const rows = await caller(db).ceremony.listOccurrences({ workspaceId: WORKSPACE_ID, from: tick, to: moved });
+      // The picker hides "Add occurrence" at a time any occurrence holds by
+      // start OR by tick, mirroring `assertSlotFree`; it needs both.
+      expect(rows[0]).toMatchObject({ scheduledStart: moved, cadenceStart: tick });
+      expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ select: expect.objectContaining({ scheduledStart: true, cadenceStart: true }) }),
+      );
+    });
+
     it("lets a viewer list active ceremonies", async () => {
       withWorkspaceRole(db, "viewer");
       db.ceremony.findMany.mockResolvedValue([{ id: "cer-1", name: "Daily Standup" }] as never);
