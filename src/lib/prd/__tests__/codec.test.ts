@@ -60,6 +60,15 @@ describe("PRD document codec", () => {
       expect(roundTrip(md)).toBe(md);
     });
 
+    it("mermaid fences keep their language, which the editor draws as a diagram", () => {
+      const md = "```mermaid\nflowchart LR\n  A --> B\n```";
+      expect(markdownToDoc(md).content?.[0]).toMatchObject({
+        type: "codeBlock",
+        attrs: { language: "mermaid" },
+      });
+      expect(roundTrip(md)).toBe(md);
+    });
+
     it("images round-trip as a Markdown image link", () => {
       const md = "![a mockup](https://blob.example/img.png)";
       expect(roundTrip(md)).toBe(md);

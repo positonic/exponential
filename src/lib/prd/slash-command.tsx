@@ -19,6 +19,7 @@ import {
   IconListNumbers,
   IconCode,
   IconQuote,
+  IconSitemap,
   IconTable,
   type TablerIcon,
 } from "@tabler/icons-react";
@@ -87,6 +88,18 @@ const COMMANDS: SlashCommandItem[] = [
     icon: IconCode,
     run: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
+  },
+  {
+    title: "Diagram",
+    description: "Mermaid flowchart, sequence diagram…",
+    icon: IconSitemap,
+    run: ({ editor, range }) =>
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .setCodeBlock({ language: "mermaid" })
+        .run(),
   },
   {
     title: "Quote",
