@@ -18,6 +18,7 @@ import {
 import { renderPublicPageHtml } from "~/server/services/pages/public-html";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PublicThemeToggle } from "./_components/PublicThemeToggle";
+import { PublicPageBody } from "./_components/PublicPageBody";
 
 // Live content (ADR-0038): unpublish must 404 immediately, so never cache.
 export const dynamic = "force-dynamic";
@@ -248,15 +249,7 @@ export default async function PublishedPage({
           </p>
           {html ? (
             <TypographyStylesProvider>
-              {/* Server-generated from the schema-constrained ProseMirror doc
-                  after the ADR-0038 sanitization pass — the deliberate, narrow
-                  exception to the no-dangerouslySetInnerHTML rule.
-                  `prd-document` is the same class the in-app editor/viewer sets:
-                  Tailwind Preflight strips list markers and list padding, and
-                  TypographyStylesProvider has no ul/ol rules to put them back, so
-                  without it bullets and numbers vanish on the public render (it
-                  also carries the table and task-list styling). */}
-              <div className="prd-document" dangerouslySetInnerHTML={{ __html: html }} />
+              <PublicPageBody html={html} />
             </TypographyStylesProvider>
           ) : page.body ? (
             <MarkdownRenderer content={page.body} variant="prose" />

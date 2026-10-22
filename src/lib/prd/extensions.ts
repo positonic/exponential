@@ -1,5 +1,6 @@
 import type { AnyExtension, Extensions } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import CodeBlock from "@tiptap/extension-code-block";
 import Link from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskList from "@tiptap/extension-task-list";
@@ -46,13 +47,23 @@ export function buildPrdExtensions(
      * the plain base node.
      */
     pageLink?: AnyExtension;
+    /**
+     * Override for the code block — the interactive editor passes
+     * `CodeBlockWithView` (same schema + a node view that draws ```mermaid
+     * blocks as diagrams); the codec and the public render use the base node.
+     */
+    codeBlock?: AnyExtension;
   } = {},
 ): Extensions {
   return [
     StarterKit.configure({
-      // StarterKit ships a basic codeBlock; keep it (tiptap-markdown serialises
-      // it). Everything else in StarterKit is used as-is.
+      // The code block is added separately below so the editor can swap in its
+      // node view; it is StarterKit's own extension, so the schema and the
+      // tiptap-markdown serialisation are unchanged. Everything else in
+      // StarterKit is used as-is.
+      codeBlock: false,
     }),
+    options.codeBlock ?? CodeBlock,
     Link.configure({
       openOnClick: true,
       autolink: true,

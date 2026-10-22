@@ -25,6 +25,7 @@ import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { createSaveQueue } from "~/lib/prd/save-queue";
 import { selectionToMarkdown } from "~/lib/prd/selection-markdown";
 import { PageLinkWithView } from "./PageLinkView";
+import { CodeBlockWithView } from "./CodeBlockView";
 import "@mantine/tiptap/styles.css";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -454,6 +455,7 @@ export function RichDocEditor({
       ...buildPrdExtensions({
         ...(placeholder ? { placeholder } : {}),
         pageLink: PageLinkWithView,
+        codeBlock: CodeBlockWithView,
       }),
       ...(editable
         ? [SlashCommand.configure({ extraCommands: slashExtras ?? [] })]

@@ -13,6 +13,7 @@ import { remarkSoftBreaks } from "~/lib/content/remarkSoftBreaks";
 import { detectContentType } from "~/lib/content/contentFormat";
 import { MarkdownImage } from "~/app/_components/shared/MarkdownImage";
 import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
+import { MermaidDiagram } from "~/app/_components/shared/MermaidDiagram";
 
 /**
  * The canonical renderer for authored prose (ADR-0017). Markdown is the
@@ -26,8 +27,8 @@ import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
  *
  * Server-capable: the markdown path renders on the server so RSC pages keep
  * their HTML. The client-only pieces (the image lightbox, the lazily loaded
- * code highlighter) live in the separate MarkdownImage and LazyCodeHighlight
- * components.
+ * code highlighter, Mermaid diagrams) live in the separate MarkdownImage,
+ * LazyCodeHighlight and MermaidDiagram components.
  */
 
 export type MarkdownVariant = "prose" | "compact" | "inline";
@@ -102,6 +103,17 @@ function buildComponents(
           <code className="rounded bg-surface-tertiary px-1.5 py-0.5 font-mono text-sm text-text-primary">
             {children}
           </code>
+        );
+      }
+
+      // ```mermaid fences render as diagrams
+      if (language === "mermaid") {
+        return (
+          <div
+            className={`overflow-hidden rounded-lg border border-border-primary ${compact ? "my-2" : "my-4"}`}
+          >
+            <MermaidDiagram code={codeString} />
+          </div>
         );
       }
 
