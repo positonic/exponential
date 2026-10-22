@@ -53,6 +53,26 @@ export function renderMermaidSvg(
       // Don't let a parse error inject Mermaid's own error graphic into the
       // document body; the caller shows the error instead.
       suppressErrorRendering: true,
+      // Keys a diagram's own `%%{init}%%` directive or frontmatter config may
+      // not override. Mermaid's defaults, plus every styling key: `themeCSS`
+      // and the font keys reach the SVG's <style> with only a brace-balance
+      // check, which DOMPurify doesn't sanitise either — so an author could
+      // restyle a published page. Locking the theme keys also keeps diagrams
+      // following the app's light/dark scheme.
+      secure: [
+        "secure",
+        "securityLevel",
+        "startOnLoad",
+        "maxTextSize",
+        "suppressErrorRendering",
+        "maxEdges",
+        "theme",
+        "themeCSS",
+        "themeVariables",
+        "darkMode",
+        "fontFamily",
+        "altFontFamily",
+      ],
     });
     renderCount += 1;
     const { svg } = await mermaid.render(`mermaid-diagram-${renderCount}`, source);
