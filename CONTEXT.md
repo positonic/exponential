@@ -409,8 +409,16 @@ What an Objective's or Key result's status badge actually shows. Each entity sto
 _Avoid_: Conflating "health" (Objective) with "status" (Key result) — same idea, different column per entity; "status" as a single stored value (it is two columns reconciled at read).
 
 **Favourite**:
-A per-user pin of any entity, surfaced in a "Favourites" section in the left nav under "Workspaces". Stored polymorphically in `Favorite { userId, workspaceId, entityType, entityId, createdAt }` — one row per user × entity. v1 wires `entityType` `objective` and `keyResult` only (table is deliberately extensible to projects/meetings later). The Favourites section is **workspace-scoped** — it shows only favourites whose `workspaceId` matches the current workspace. Clicking a favourite opens that item's OKR drawer via its deep link. Toggled by the star CTA in the OKR detail drawer.
+A per-user pin of any entity, surfaced in a "Favourites" section of the left nav placed above the category sections (decision 2026-10-23: the most-used rows sit where they are reached first, not below the fold). Stored polymorphically in `Favorite { userId, workspaceId, entityType, entityId, createdAt }` — one row per user × entity; `entityType` is `objective`, `keyResult` or `page` (a workspace-relative path with a snapshotted label and icon). The Favourites section is **workspace-scoped** — it shows only favourites whose `workspaceId` matches the current workspace. Clicking an OKR favourite opens that item's OKR drawer via its deep link; a page favourite opens its path. Toggled by the star CTA on the entity, and removed from the sidebar row's hover control.
 _Avoid_: Star, bookmark, pin (use "favourite"; "star" only for the CTA icon itself).
+
+**Recent** (sidebar):
+The last five entity detail pages (project, goal, page, product, decision, meeting occurrence) this person opened in the current workspace *on this device*, shown as a "Recent" section between Favourites and the category sections. A per-device convenience kept in the browser (`localStorage`), not a record: it never syncs between devices and is never read server-side. List pages are not recents — they are already one click away in the nav. Decision 2026-10-23.
+_Avoid_: History (that is the activity feed), Recently viewed.
+
+**Rail** (sidebar):
+The desktop sidebar's folded state — a 56px column of icons with native tooltips, the Inbox badge reduced to a dot, and no sections, favourites or recents. Replaces hiding the sidebar entirely on desktop (decision 2026-10-23: wayfinding and the badge should survive a collapse); mobile keeps the drawer-over-backdrop. Remembered per device. Section **folds** (a section's heading closes its items) are the other collapse and live on the user's nav layout, so they follow the user between devices.
+_Avoid_: Collapsed sidebar, mini sidebar, icon mode.
 
 ### Pipeline triage
 
