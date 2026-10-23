@@ -4,8 +4,11 @@ import { NavLinks, GlobalNavLinks } from "./NavLinks";
 import { FavouritesNav } from "./FavouritesNav";
 import { RecentsNav, RecentsRecorder } from "./RecentsNav";
 import { SidebarModeProvider, type SidebarMode } from "./sidebarMode";
-import { IconMenu2, IconSearch } from "@tabler/icons-react";
-import { useState, useEffect } from 'react';
+import { IconMenu2, IconSearch, IconAdjustmentsHorizontal } from "@tabler/icons-react";
+import { useState, useEffect, useRef } from 'react';
+import { Menu } from "@mantine/core";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { SidebarCustomizePanel } from "./SidebarCustomizePanel";
 import { themes, type ValidDomain } from "~/config/themes";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { UserMenu } from "./UserMenu";
@@ -30,6 +33,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
   const [rail, setRail] = useStoredBoolean('sb-rail', false);
   const mod = useModKey();
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
+  const { workspaceId, userRole } = useWorkspace();
 
   // Auto-open sidebar on desktop only
   useEffect(() => {
@@ -41,6 +45,36 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
   }, []);
 
   const mode: SidebarMode = isDesktop && rail ? 'rail' : 'full';
+
+  // Right-click anywhere in the full-width nav opens a small context menu
+  // whose only entry switches the sidebar into customise mode (ADR-0073).
+  // The menu is anchored to an invisible target placed at the pointer. The
+  // rail has no room for the editor, so it keeps the native menu.
+  const canCustomize = !!workspaceId && userRole !== 'guest' && mode === 'full';
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [isCustomizing, setIsCustomizing] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    if (!canCustomize || isCustomizing) return;
+    // Leave the native menu alone on editable fields and on links that open
+    // outside the app (custom shortcuts), where "Copy link address" matters.
+    // In-app nav items take the customise menu, as in Notion.
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, [contenteditable="true"], a[target="_blank"]')) return;
+    event.preventDefault();
+    const rect = asideRef.current?.getBoundingClientRect();
+    setContextMenu({
+      x: event.clientX - (rect?.left ?? 0),
+      y: event.clientY - (rect?.top ?? 0),
+    });
+  };
+
+  // Switching or leaving the workspace, or folding to the rail, closes the
+  // editor, so an open panel never silently edits a different layout.
+  useEffect(() => {
+    setIsCustomizing(false);
+  }, [workspaceId, canCustomize]);
 
   // Sync sidebar state to <html> so CSS can offset the main content
   useEffect(() => {
@@ -84,7 +118,10 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         />
       )}
 
-      <aside className={`
+      <aside
+        ref={asideRef}
+        onContextMenu={handleContextMenu}
+        className={`
         app-sidebar ${mode === 'rail' ? 'app-sidebar--rail' : ''}
         flex flex-col
         h-screen
@@ -92,6 +129,31 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         transform transition-all duration-300 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
+
+        <Menu
+          opened={contextMenu !== null}
+          onChange={(opened) => { if (!opened) setContextMenu(null); }}
+          position="bottom-start"
+          offset={2}
+          shadow="md"
+          width={190}
+          withinPortal
+        >
+          <Menu.Target>
+            <div
+              aria-hidden
+              style={{ position: 'absolute', left: contextMenu?.x ?? 0, top: contextMenu?.y ?? 0, width: 1, height: 1 }}
+            />
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              leftSection={<IconAdjustmentsHorizontal size={16} />}
+              onClick={() => { setContextMenu(null); setIsCustomizing(true); }}
+            >
+              Customize sidebar
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
 
         {/* Header with workspace switcher and collapse button */}
         <div className={`sb-workspace-divider flex-shrink-0 flex items-center mt-12 lg:mt-0 ${mode === 'rail' ? 'py-1' : 'h-14'}`}>
@@ -103,6 +165,10 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           />
         </div>
 
+        {isCustomizing ? (
+          <SidebarCustomizePanel onDone={() => setIsCustomizing(false)} />
+        ) : (
+        <>
         {/* Scrollable content area */}
         <nav className="flex-1 overflow-y-auto pt-3 pb-2">
           <div className="sb-rail-hide">
@@ -135,6 +201,8 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         </nav>
 
         <UserMenu session={session} onClose={() => setIsMenuOpen(false)} />
+        </>
+        )}
       </aside>
     </SidebarModeProvider>
   );

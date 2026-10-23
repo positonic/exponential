@@ -19,6 +19,7 @@ import {
   IconFileText,
   IconChartBar,
   IconGitMerge,
+  IconLink,
   IconChevronDown,
   IconChevronRight,
   type Icon,
@@ -31,9 +32,16 @@ import { useLocalWikiAvailable } from "~/lib/wiki/useWikiBridge";
 import { WIKI_ROUTE } from "~/lib/wiki/wikiLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
-import { parseNavLayout, NAV_ITEM_CONFIG, type NavSection } from "~/lib/navLayout";
+import {
+  NAV_ITEM_CONFIG,
+  SHORTCUTS_SECTION_ID,
+  isCustomNavItem,
+  type NavItem,
+  type NavSection,
+} from "~/lib/navLayout";
+import { useWorkspaceNavLayout } from "~/hooks/useWorkspaceNavLayout";
 
-const ITEM_ICONS: Record<string, Icon> = {
+export const ITEM_ICONS: Record<string, Icon> = {
   goals: IconTarget,
   decisions: IconGavel,
   actions: IconBriefcase,
@@ -85,9 +93,11 @@ export function NavLink({ href, icon: Icon, children, count, matchSegments, titl
   const pathnameSegments = pathname.split("/").filter(Boolean);
   const routeSegments =
     pathnameSegments[0] === "w" ? pathnameSegments.slice(2) : pathnameSegments;
-  const isHrefActive = exact
+  // A custom shortcut to another site opens in a new tab and is never "active".
+  const isExternal = /^https?:\/\//i.test(href);
+  const isHrefActive = !isExternal && (exact
     ? pathname === hrefPath
-    : pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
+    : pathname === hrefPath || pathname.startsWith(`${hrefPath}/`));
 
   const isActive = matchSegments
     ? isHrefActive || matchSegments.some((segment) => routeSegments.includes(segment))
@@ -101,6 +111,8 @@ export function NavLink({ href, icon: Icon, children, count, matchSegments, titl
       className={`sb-nav-item ${variant === 'child' ? 'sb-nav-item--child' : ''} ${isActive ? 'sb-nav-item--active' : ''}`}
       aria-current={isActive ? 'page' : undefined}
       title={resolvedTitle}
+      target={isExternal ? '_blank' : undefined}
+      rel={isExternal ? 'noopener noreferrer' : undefined}
     >
       {Icon && (
         <span className="sb-nav-item__icon">
@@ -209,7 +221,8 @@ function DisclosableNavLink({
  * fold persisted on the user's nav layout so it follows them between
  * devices. A section with a single item shows no heading at all — the
  * label would cost more than it tells. The rail ignores folds and headings
- * and shows every icon.
+ * and shows every icon. The pinned shortcuts section never shows a heading:
+ * its rows sit directly under the global ones, as in Notion.
  */
 function NavSectionBlock({
   section,
@@ -219,14 +232,15 @@ function NavSectionBlock({
   workspaceSlug,
 }: {
   section: NavSection;
-  items: string[];
+  items: NavItem[];
   onToggleCollapsed: (sectionId: string) => void;
   workspaceId: string;
   workspaceSlug: string;
 }): React.ReactElement {
   const mode = useSidebarMode();
-  const showHeading = mode === 'full' && items.length > 1;
-  const collapsed = mode === 'full' && items.length > 1 && (section.collapsed ?? false);
+  const foldable = mode === 'full' && items.length > 1 && section.id !== SHORTCUTS_SECTION_ID;
+  const showHeading = foldable;
+  const collapsed = foldable && (section.collapsed ?? false);
   const itemsId = `sb-section-${section.id}`;
 
   return (
@@ -247,7 +261,15 @@ function NavSectionBlock({
       )}
       {!collapsed && (
         <div id={itemsId} className="sb-group">
-          {items.map((itemId) => {
+          {items.map((item) => {
+            if (isCustomNavItem(item)) {
+              return (
+                <NavLink key={item.id} href={item.href} icon={IconLink}>
+                  {item.label ?? item.href}
+                </NavLink>
+              );
+            }
+            const itemId = item.id;
             const config = NAV_ITEM_CONFIG[itemId];
             if (!config) return null;
             const Icon = ITEM_ICONS[itemId];
@@ -311,45 +333,33 @@ export function GlobalNavLinks(): React.ReactElement {
 }
 
 /**
- * Renders the workspace sidebar navigation from the user's persisted
- * `navLayout` preference: the configurable sections/items, with plugin
- * gating and a reduced guest view. The global rows (Inbox/Today/Time) are
- * {@link GlobalNavLinks}, so the shell can place Favourites and Recents
- * between the two.
+ * Renders the workspace sidebar navigation from the layout in effect for the
+ * current workspace (see {@link useWorkspaceNavLayout}): pinned shortcuts,
+ * then the configurable sections/items, with plugin gating and a reduced
+ * guest view. The global rows (Inbox/Today/Time) are {@link GlobalNavLinks},
+ * so the shell can place Favourites and Recents between the two.
  */
 export function NavLinks(): React.ReactElement {
   const { workspaceSlug, workspaceId, userRole } = useWorkspace();
   const isGuest = userRole === 'guest';
-  const utils = api.useUtils();
 
-  const { data: preferences } = api.navigationPreference.getPreferences.useQuery(
-    undefined,
-    { staleTime: 30 * 1000 },
-  );
   const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
     { workspaceId: workspaceId ?? undefined },
     { enabled: !!workspaceId && !isGuest, staleTime: 5 * 60 * 1000 },
   );
 
-  const layout = parseNavLayout(preferences?.navLayout ?? null);
-
-  // Folding a section writes the whole layout back, the same way the settings
-  // editor does, with the cache updated first so the fold is instant. Until
-  // the preferences have loaded, `layout` is only the defaults, and writing
-  // those back would erase the user's renames, order and hidden items — so a
-  // fold in that window is a no-op rather than a silent reset.
-  const updateNavLayout = api.navigationPreference.updateNavLayout.useMutation({
-    onSuccess: () => utils.navigationPreference.getPreferences.invalidate(),
-  });
+  // Folding a section writes the whole layout back through the per-workspace
+  // saver, so a fold made in one workspace stays there. The saver updates the
+  // cache first (the fold is instant) and refuses to write while the layout
+  // is still loading, when it would only be the defaults and would erase the
+  // user's renames, order and hidden items.
+  const { layout, saveLayout } = useWorkspaceNavLayout(workspaceId);
   const toggleCollapsed = (sectionId: string) => {
-    if (preferences === undefined) return;
-    const next = layout.map((s) =>
-      s.id === sectionId ? { ...s, collapsed: !(s.collapsed ?? false) } : s,
+    saveLayout(
+      layout.map((s) =>
+        s.id === sectionId ? { ...s, collapsed: !(s.collapsed ?? false) } : s,
+      ),
     );
-    utils.navigationPreference.getPreferences.setData(undefined, (old) =>
-      old ? { ...old, navLayout: next } : old,
-    );
-    updateNavLayout.mutate(next);
   };
 
   if (!workspaceSlug) return <></>;
@@ -372,15 +382,14 @@ export function NavLinks(): React.ReactElement {
       {layout.map((section) => {
         if (section.hidden) return null;
 
-        const visibleItems = section.items
-          .filter((item) => {
-            if (item.hidden) return false;
-            const config = NAV_ITEM_CONFIG[item.id];
-            if (!config) return false;
-            if (config.requiresPlugin && !enabledPlugins?.includes(config.requiresPlugin)) return false;
-            return true;
-          })
-          .map((item) => item.id);
+        const visibleItems = section.items.filter((item) => {
+          if (item.hidden) return false;
+          if (isCustomNavItem(item)) return true;
+          const config = NAV_ITEM_CONFIG[item.id];
+          if (!config) return false;
+          if (config.requiresPlugin && !enabledPlugins?.includes(config.requiresPlugin)) return false;
+          return true;
+        });
 
         if (visibleItems.length === 0) return null;
 

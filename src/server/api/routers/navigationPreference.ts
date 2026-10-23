@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { navLayoutSchema } from "~/lib/navLayout";
+import { requireWorkspaceMembership } from "~/server/services/access";
 
 // Valid section and item keys (legacy - kept for backwards compat with old mutations)
 const VALID_SECTIONS = ["projects", "alignment", "teams", "tools"] as const;
@@ -232,5 +233,52 @@ export const navigationPreferenceRouter = createTRPCRouter({
           showGamification: input.visible,
         },
       });
+    }),
+
+  // --- Per-workspace sidebar layout (ADR-0073) ---
+  //
+  // All three procedures gate on `requireWorkspaceMembership("view")`. That
+  // already excludes guests (project-only members): "guest" ranks below
+  // "viewer" in WORKSPACE_ROLE_HIERARCHY, so the reduced guest sidebar can
+  // neither read nor write a layout row, matching the client's `canCustomize`.
+
+  /**
+   * The caller's sidebar layout for one workspace, or null when they have not
+   * customised that workspace (the client then falls back to the user-wide
+   * `navLayout`, then to the defaults).
+   */
+  getWorkspaceLayout: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const row = await ctx.db.workspaceNavLayout.findUnique({
+        where: { userId_workspaceId: { userId: ctx.session.user.id, workspaceId: input.workspaceId } },
+        select: { navLayout: true },
+      });
+      return { navLayout: row?.navLayout ?? null };
+    }),
+
+  // Save the caller's full sidebar layout for one workspace
+  updateWorkspaceLayout: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), layout: navLayoutSchema }))
+    .use(requireWorkspaceMembership("view"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      return ctx.db.workspaceNavLayout.upsert({
+        where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
+        update: { navLayout: input.layout },
+        create: { userId, workspaceId: input.workspaceId, navLayout: input.layout },
+      });
+    }),
+
+  // Drop the per-workspace override so the workspace follows the user-wide layout again
+  resetWorkspaceLayout: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db.workspaceNavLayout.deleteMany({
+        where: { userId: ctx.session.user.id, workspaceId: input.workspaceId },
+      });
+      return { ok: true };
     }),
 });
