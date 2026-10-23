@@ -6,6 +6,7 @@ import { IconSearch } from "@tabler/icons-react";
 import { Kbd } from "@mantine/core";
 import { resolveDocIcon } from "~/lib/docs/icons";
 import { useDocsNav } from "./DocsNavProvider";
+import { SectionHeader } from "~/app/_components/ui";
 
 /**
  * The sidebar's list of sections and pages. Rendered inside the desktop
@@ -30,9 +31,7 @@ export function DocsSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
       {nav.map((section) => (
         <div key={section.id} className="mb-6">
-          <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-            {section.title}
-          </h3>
+          <SectionHeader as="h3" size="md" className="mb-2 px-3" title={section.title} />
           <ul className="space-y-1">
             {section.items.map((item) => {
               const isActive = pathname === item.href;
