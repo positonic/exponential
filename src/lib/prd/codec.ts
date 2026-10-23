@@ -1,5 +1,6 @@
 import { Editor, type JSONContent } from "@tiptap/core";
 import { PRD_EXTENSIONS } from "./extensions";
+import { separateFenceFromHtmlBlock } from "~/lib/content/fenceAfterHtml";
 
 /**
  * PRD document codec — the pure boundary between the two representations of the
@@ -48,7 +49,12 @@ function withEditor<T>(content: string | JSONContent, fn: (editor: Editor) => T)
  */
 export function markdownToDoc(markdown: string | null | undefined): JSONContent {
   if (!markdown || markdown.trim() === "") return EMPTY_DOC;
-  return withEditor(markdown, (editor) => editor.getJSON());
+  // A fence directly under a raw HTML line (an `<img>` an author sized by
+  // hand) is otherwise absorbed into the HTML block and the closing fence
+  // swallows the rest of the document — see {@link separateFenceFromHtmlBlock}.
+  return withEditor(separateFenceFromHtmlBlock(markdown), (editor) =>
+    editor.getJSON(),
+  );
 }
 
 /**

@@ -69,6 +69,29 @@ describe("PRD document codec", () => {
       expect(roundTrip(md)).toBe(md);
     });
 
+    it("a fence directly under a raw HTML line is still a code block", () => {
+      // Without the blank line CommonMark keeps the fence lines inside the
+      // HTML block and the closing fence swallows the rest of the document.
+      const md =
+        '<img src="https://blob.example/shot.png" width="600" />\n' +
+        "```mermaid\nflowchart TB\n  R[Root<br/>key] --> L\n```\n\n" +
+        "Prose after.\n\n```mermaid\nflowchart LR\n  A --> B\n```";
+      const doc = markdownToDoc(md);
+      expect(doc.content?.map((n) => n.type)).toEqual([
+        "image",
+        "codeBlock",
+        "paragraph",
+        "codeBlock",
+      ]);
+      expect(doc.content?.[1]).toMatchObject({
+        attrs: { language: "mermaid" },
+        content: [{ text: "flowchart TB\n  R[Root<br/>key] --> L" }],
+      });
+      expect(doc.content?.[2]).toMatchObject({
+        content: [{ text: "Prose after." }],
+      });
+    });
+
     it("images round-trip as a Markdown image link", () => {
       const md = "![a mockup](https://blob.example/img.png)";
       expect(roundTrip(md)).toBe(md);
