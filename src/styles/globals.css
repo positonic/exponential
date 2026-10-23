@@ -1479,7 +1479,7 @@ body {
   --ch-brand-shadow: rgba(167, 139, 250, 0.65);
 
   /* Shadows */
-  --ch-shadow-cta: 0 10px 22px -10px var(--ch-brand-shadow);
+  --ch-cta-glow: 0 10px 22px -10px var(--ch-brand-shadow);
 
   /* Type */
   --ch-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

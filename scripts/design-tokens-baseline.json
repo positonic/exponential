@@ -25,7 +25,7 @@
   "src/app/_components/knowledge-base/KnowledgeBaseContent.module.css": 2,
   "src/app/_components/layout/WorkspaceTopNav.module.css": 1,
   "src/app/_components/layout/ZoeDrawer.module.css": 15,
-  "src/app/_components/layout/sidebar.css": 3,
+  "src/app/_components/layout/sidebar.css": 10,
   "src/app/_components/listPage/ListPage.module.css": 6,
   "src/app/_components/meeting/meeting-detail.css": 13,
   "src/app/_components/pages/PagesList.module.css": 6,

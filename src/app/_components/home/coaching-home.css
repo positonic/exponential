@@ -188,7 +188,7 @@
   background: var(--ch-accent);
   color: var(--ch-bg-primary);
   border-color: transparent;
-  box-shadow: var(--ch-shadow-cta);
+  box-shadow: var(--ch-cta-glow);
   font-weight: 600;
 }
 .ch-cta--primary:hover { filter: brightness(1.08); transform: translateY(-1px); color: var(--ch-bg-primary); }
