@@ -37,9 +37,14 @@ html[data-titlebar="overlay"] {
 }
 
 /* Re-open button, shown in the same corner once the sidebar is closed —
-   so it has to clear the window controls too. */
+   so it has to clear the window controls too. Sized and placed like Notion's:
+   a 26px hit target whose centre sits on the 56px topbar's midline (28px), so
+   the icon reads as the first crumb rather than a floating control above the
+   row. WorkspaceTopbar's collapsed gutter is measured from this width. */
 .sb-toggle {
-  top: calc(0.5rem + env(safe-area-inset-top) + var(--titlebar-inset));
+  width: 26px;
+  height: 26px;
+  top: calc(15px + env(safe-area-inset-top) + var(--titlebar-inset));
 }
 
 /* ============================================================
