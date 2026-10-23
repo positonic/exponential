@@ -54,6 +54,7 @@ import { api } from '~/trpc/react';
 import Link from 'next/link';
 import { notifications } from '@mantine/notifications';
 import { EditContactDrawer } from '~/app/_components/crm/EditContactDrawer';
+import { Panel } from "~/app/_components/ui";
 
 // Helper function to get relative time
 function getRelativeTime(date: Date): string {
@@ -759,7 +760,7 @@ export default function ContactDetailPage() {
               </div>
 
               {/* Activity Section */}
-              <div className="rounded-lg border border-border-primary bg-surface-secondary">
+              <Panel padding="none">
                 <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
                   <div className="flex items-center gap-2">
                     <IconBolt size={16} className="text-text-muted" />
@@ -792,10 +793,10 @@ export default function ContactDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </Panel>
 
               {/* Emails Section */}
-              <div className="rounded-lg border border-border-primary bg-surface-secondary">
+              <Panel padding="none">
                 <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
                   <div className="flex items-center gap-2">
                     <IconMail size={16} className="text-text-muted" />
@@ -856,7 +857,7 @@ export default function ContactDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -870,7 +871,7 @@ export default function ContactDetailPage() {
                   Add interaction
                 </Button>
               </div>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary">
+              <Panel padding="none">
                 <div className="px-4 divide-y divide-border-primary">
                   {activityItems.length > 0 ? (
                     activityItems.map((item) => (
@@ -893,7 +894,7 @@ export default function ContactDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -903,7 +904,7 @@ export default function ContactDetailPage() {
                 Emails
               </Title>
               {contact.interactions?.filter((i) => i.type === 'EMAIL').length ? (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
+                <Panel padding="none" className="divide-y divide-border-primary">
                   {contact.interactions
                     .filter((i) => i.type === 'EMAIL')
                     .map((email) => (
@@ -934,14 +935,14 @@ export default function ContactDetailPage() {
                         </div>
                       </div>
                     ))}
-                </div>
+                </Panel>
               ) : (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                <Panel padding="none" className="p-12 text-center">
                   <IconMail size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
                     No emails yet
                   </Text>
-                </div>
+                </Panel>
               )}
             </div>
           )}
@@ -952,7 +953,7 @@ export default function ContactDetailPage() {
                 Telegram Messages
               </Title>
               {contact.interactions?.filter((i) => i.type === 'TELEGRAM').length ? (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
+                <Panel padding="none" className="divide-y divide-border-primary">
                   {contact.interactions
                     .filter((i) => i.type === 'TELEGRAM')
                     .map((msg) => (
@@ -980,14 +981,14 @@ export default function ContactDetailPage() {
                         </div>
                       </div>
                     ))}
-                </div>
+                </Panel>
               ) : (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                <Panel padding="none" className="p-12 text-center">
                   <IconBrandTelegram size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
                     No Telegram messages yet
                   </Text>
-                </div>
+                </Panel>
               )}
             </div>
           )}
@@ -998,7 +999,7 @@ export default function ContactDetailPage() {
                 Meetings
               </Title>
               {meetings.length ? (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
+                <Panel padding="none" className="divide-y divide-border-primary">
                   {meetings.map((meeting) => (
                     <Link
                       key={meeting.id}
@@ -1033,12 +1034,12 @@ export default function ContactDetailPage() {
                       </div>
                     </Link>
                   ))}
-                </div>
+                </Panel>
               ) : (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                <Panel padding="none" className="p-12 text-center">
                   <IconCalendar size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">No meetings yet</Text>
-                </div>
+                </Panel>
               )}
             </div>
           )}
@@ -1068,12 +1069,12 @@ export default function ContactDetailPage() {
                   </div>
                 </Link>
               ) : (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                <Panel padding="none" className="p-12 text-center">
                   <IconBuilding size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
                     No organization associated
                   </Text>
-                </div>
+                </Panel>
               )}
             </div>
           )}
@@ -1089,7 +1090,7 @@ export default function ContactDetailPage() {
                 </Button>
               </div>
               {contact.interactions?.filter((i) => i.type === 'NOTE').length ? (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary divide-y divide-border-primary">
+                <Panel padding="none" className="divide-y divide-border-primary">
                   {contact.interactions
                     .filter((i) => i.type === 'NOTE')
                     .map((note) => (
@@ -1109,14 +1110,14 @@ export default function ContactDetailPage() {
                         </Text>
                       </div>
                     ))}
-                </div>
+                </Panel>
               ) : (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                <Panel padding="none" className="p-12 text-center">
                   <IconNote size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
                     No notes yet
                   </Text>
-                </div>
+                </Panel>
               )}
             </div>
           )}
@@ -1126,7 +1127,7 @@ export default function ContactDetailPage() {
               <Title order={4} className="text-text-primary">
                 Tasks
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+              <Panel padding="none" className="p-12 text-center">
                 <IconChecklist size={40} className="text-text-muted mx-auto mb-3" />
                 <Text size="sm" className="text-text-muted">
                   No tasks yet
@@ -1134,7 +1135,7 @@ export default function ContactDetailPage() {
                 <Button variant="light" size="sm" mt="md">
                   Add Task
                 </Button>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -1143,7 +1144,7 @@ export default function ContactDetailPage() {
               <Title order={4} className="text-text-primary">
                 Files
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+              <Panel padding="none" className="p-12 text-center">
                 <IconFile size={40} className="text-text-muted mx-auto mb-3" />
                 <Text size="sm" className="text-text-muted">
                   No files attached
@@ -1151,7 +1152,7 @@ export default function ContactDetailPage() {
                 <Button variant="light" size="sm" mt="md">
                   Upload File
                 </Button>
-              </div>
+              </Panel>
             </div>
           )}
         </div>
