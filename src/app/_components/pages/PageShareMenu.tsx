@@ -401,6 +401,9 @@ export function PageShareMenu({
                     readOnly
                     tabIndex={-1}
                     aria-hidden
+                    // Decorative: every click lands on the menu item once,
+                    // instead of the switch's label + input each firing.
+                    className="pointer-events-none"
                   />
                 }
                 closeMenuOnClick={false}

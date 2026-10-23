@@ -55,7 +55,6 @@
    Shared card chrome
    -------------------------------------------------------------------------- */
 .wsa-card {
-  border: 1px solid var(--color-border-primary);
   background: var(--color-surface-secondary);
   border-radius: 12px;
   padding: 22px 24px;
@@ -106,7 +105,6 @@
   align-items: end;
   padding: 28px 30px;
   background: var(--color-surface-secondary);
-  border: 1px solid var(--color-border-primary);
   border-radius: 14px;
 }
 

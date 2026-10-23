@@ -1374,7 +1374,11 @@ body {
   --sb-text: #EAECEF;
   --sb-muted: rgba(234, 236, 239, 0.55);
   --sb-faint: rgba(234, 236, 239, 0.32);
+  /* Section labels: 11px text needs 4.5:1 on --sb-bg (≈4.6:1 here, ≈5.3:1 in
+     light), which --sb-faint misses. */
+  --sb-label: rgba(234, 236, 239, 0.50);
   --sb-wash: rgba(255, 255, 255, 0.03);
+  --sb-wash-strong: rgba(255, 255, 255, 0.06);
   /* Active row: grayscale, like Notion's selected page — a wash two steps
      past hover, with the row's text at full strength. Colour stays for
      counts and focus rings, never for "where am I". */
@@ -1403,7 +1407,9 @@ body {
   --sb-text: #212529;
   --sb-muted: rgba(33, 37, 41, 0.68);
   --sb-faint: rgba(33, 37, 41, 0.45);
+  --sb-label: rgba(33, 37, 41, 0.68);
   --sb-wash: rgba(0, 0, 0, 0.04);
+  --sb-wash-strong: rgba(0, 0, 0, 0.07);
   --sb-active: rgba(0, 0, 0, 0.06);
   --sb-active-hover: rgba(0, 0, 0, 0.08);
 }

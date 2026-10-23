@@ -166,10 +166,10 @@ describe("Meeting workspaceId is written only through the placement module", () 
       .filter((name) => sessionWriteDataBlocks(procedureBody(name)).some((b) => WRITES_WORKSPACE.test(b)));
 
     it("only the known procedures write it", () => {
-      expect(writers.sort()).toEqual(["createManualTranscription", "startSession", "updateDetails"]);
+      expect(writers.sort()).toEqual(["createManualTranscription", "startSession"]);
     });
 
-    it.each(["startSession", "createManualTranscription", "updateDetails"])(
+    it.each(["startSession", "createManualTranscription"])(
       "%s resolves the workspace rather than storing its input",
       (name) => {
         const body = procedureBody(name);

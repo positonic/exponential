@@ -16,7 +16,6 @@ import {
   IconFlag3,
   IconFlame,
   IconLink,
-  IconUser,
   IconX,
   IconCategory,
 } from "@tabler/icons-react";
@@ -32,6 +31,7 @@ import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
 import { effortOptions, effortPillLabel } from "~/types/effort";
 import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import { TagSelector } from "~/app/_components/TagSelector";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import "@mantine/tiptap/styles.css";
 
 type TicketType = "BUG" | "FEATURE" | "CHORE" | "IMPROVEMENT" | "SPIKE" | "RESEARCH";
@@ -90,7 +90,6 @@ interface EditTicketModalProps {
   ticketId: string;
   productName: string;
   workspaceId?: string;
-  assignableMembers?: { id: string; name: string | null }[];
 }
 
 export function EditTicketModal({
@@ -99,7 +98,6 @@ export function EditTicketModal({
   ticketId,
   productName,
   workspaceId,
-  assignableMembers,
 }: EditTicketModalProps) {
   const utils = api.useUtils();
 
@@ -206,9 +204,6 @@ export function EditTicketModal({
     ? PRIORITY_OPTIONS.find((o) => o.value === priority)?.label ?? "Priority"
     : "Priority";
   const typeLabel = TYPE_OPTIONS.find((o) => o.value === type)?.label ?? "Type";
-  const assigneeLabel = assigneeId
-    ? assignableMembers?.find((m) => m.id === assigneeId)?.name ?? "Assignee"
-    : "Assignee";
 
   const isLoading = ticketQuery.isLoading || tagsQuery.isLoading;
   const isSaving = updateTicket.isPending || setEntityTags.isPending;
@@ -310,23 +305,13 @@ export function EditTicketModal({
             )}
           </Pill>
 
-          <Pill icon={<IconUser size={14} />} label={assigneeLabel}>
-            {assignableMembers && assignableMembers.length > 0 ? (
-              assignableMembers.map((m) => (
-                <Menu.Item key={m.id} onClick={() => setAssigneeId(m.id)}>
-                  {m.name ?? "Unknown"}
-                </Menu.Item>
-              ))
-            ) : (
-              <Menu.Item disabled>No members</Menu.Item>
-            )}
-            {assigneeId && (
-              <>
-                <Menu.Divider />
-                <Menu.Item onClick={() => setAssigneeId(null)}>Clear</Menu.Item>
-              </>
-            )}
-          </Pill>
+          <PersonPicker
+            label="Assignee"
+            workspaceId={workspaceId}
+            value={assigneeId}
+            selectedUser={ticketQuery.data?.assignee}
+            onChange={(id) => setAssigneeId(id)}
+          />
 
           <Pill icon={<IconCategory size={14} />} label={typeLabel}>
             {TYPE_OPTIONS.map((o) => (
