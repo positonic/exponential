@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { htmlToMarkdown } from "~/lib/content/contentFormat";
 import {
   getProjectAccess,
   hasProjectAccess,
@@ -47,6 +48,51 @@ export function readTransition(
   return { readStatus: next, readAt: null };
 }
 
+/**
+ * The most article HTML a single save may carry (D-0025). A readability
+ * extract of a long article is tens of KB; a million characters is past any
+ * real page and short of what a serverless request body allows. Over the cap
+ * is rejected, never truncated — a silently cut body would read as a whole
+ * article.
+ */
+export const MAX_RAW_CONTENT_CHARS = 1_000_000;
+
+/**
+ * The text a Resource is read and indexed from: what the caller supplied as
+ * `content`, else Markdown derived from the article HTML in `rawContent`.
+ * Derivation lives here, on the server, so every client (extension, web Save
+ * link, a phone share sheet, a later URL fetcher) yields the same text
+ * (ADR-0072).
+ */
+export function deriveContent(input: {
+  content?: string;
+  rawContent?: string;
+}): string | undefined {
+  if (input.content !== undefined) return input.content;
+  if (input.rawContent) return htmlToMarkdown(input.rawContent);
+  return undefined;
+}
+
+export function countWords(text: string | undefined): number | null {
+  if (!text) return null;
+  const n = text.split(/\s+/).filter(Boolean).length;
+  return n > 0 ? n : null;
+}
+
+/**
+ * The read state a re-saved Resource lands in (D-0027). A repeat save means
+ * "put this back in my queue", so an archived or finished item returns to
+ * `to_read` — unless it is mid-read (`reading`), which a save must not
+ * interrupt. A caller that explicitly asks for `read` or `reading` gets it.
+ */
+export function resaveReadStatus(
+  requested: ReadStatus,
+  current: string,
+): ReadStatus {
+  if (requested === "to_read" && current === "reading") return "reading";
+  return requested;
+}
+
 /** The select every list-style endpoint returns for a Resource row. */
 const resourceListSelect = {
   id: true,
@@ -74,7 +120,12 @@ export const resourceRouter = createTRPCRouter({
         description: z.string().optional(),
         url: z.string().url().optional(),
         content: z.string().optional(),
-        rawContent: z.string().optional(),
+        rawContent: z
+          .string()
+          .max(MAX_RAW_CONTENT_CHARS, {
+            message: `Article body is too large (over ${MAX_RAW_CONTENT_CHARS} characters)`,
+          })
+          .optional(),
         contentType: contentTypeEnum.default("web_page"),
         mimeType: z.string().optional(),
         author: z.string().optional(),
@@ -116,17 +167,72 @@ export const resourceRouter = createTRPCRouter({
         }
       }
 
-      // Calculate word count if content is provided
-      const wordCount = input.content
-        ? input.content.split(/\s+/).filter(Boolean).length
+      const content = deriveContent(input);
+      const wordCount = countWords(content);
+      // A save "carries a body" when it brings text or article HTML; a bare
+      // link does not, and must not blank out a body saved earlier.
+      const hasBody = Boolean(content ?? input.rawContent);
+
+      // Dedupe by URL (D-0027): a URL the caller already saved is brought
+      // back to the queue and refreshed, never duplicated.
+      const existing = input.url
+        ? await ctx.db.resource.findFirst({
+            where: { userId, url: input.url },
+          })
         : null;
+
+      if (existing) {
+        const read = readTransition(
+          resaveReadStatus(input.readStatus, existing.readStatus),
+          existing.readStatus,
+          existing.readAt,
+        );
+        const resource = await ctx.db.resource.update({
+          where: { id: existing.id },
+          data: {
+            archivedAt: null,
+            ...read,
+            ...(hasBody && {
+              title: input.title,
+              content,
+              rawContent: input.rawContent,
+              contentType: input.contentType,
+              mimeType: input.mimeType,
+              wordCount,
+              fetchedAt: new Date(),
+            }),
+            ...(input.description !== undefined && { description: input.description }),
+            ...(input.author !== undefined && { author: input.author }),
+            ...(input.publishedAt !== undefined && {
+              publishedAt: new Date(input.publishedAt),
+            }),
+            ...(input.tags.length > 0 && { tags: input.tags }),
+            ...(input.projectId !== undefined && { projectId: input.projectId }),
+            ...(input.workspaceId !== undefined && { workspaceId: input.workspaceId }),
+          },
+        });
+
+        if (input.generateEmbeddings && hasBody) {
+          try {
+            const knowledgeService = getKnowledgeService(ctx.db);
+            await knowledgeService.embedResource(resource.id);
+          } catch (error) {
+            console.error(
+              `[resourceRouter] Failed to re-embed resource ${resource.id} on re-save:`,
+              error
+            );
+          }
+        }
+
+        return { resource, created: false };
+      }
 
       const resource = await ctx.db.resource.create({
         data: {
           title: input.title,
           description: input.description,
           url: input.url,
-          content: input.content,
+          content,
           rawContent: input.rawContent,
           contentType: input.contentType,
           mimeType: input.mimeType,
@@ -144,7 +250,7 @@ export const resourceRouter = createTRPCRouter({
       });
 
       // Generate embeddings if requested and content is available
-      if (input.generateEmbeddings && (input.content ?? input.rawContent)) {
+      if (input.generateEmbeddings && hasBody) {
         try {
           const knowledgeService = getKnowledgeService(ctx.db);
           await knowledgeService.embedResource(resource.id);
@@ -157,7 +263,7 @@ export const resourceRouter = createTRPCRouter({
         }
       }
 
-      return { resource };
+      return { resource, created: true };
     }),
 
   // Get a single resource by ID
