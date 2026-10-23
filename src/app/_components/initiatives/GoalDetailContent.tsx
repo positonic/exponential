@@ -38,6 +38,7 @@ import {
   IconChartBar,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { notifications } from "@mantine/notifications";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useMemo } from "react";
@@ -220,8 +221,13 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
     updateDriMutation.mutate(
       { id: goalId, driUserId },
       {
-        onError: () => {
+        onError: (err) => {
           if (previous) utils.goal.getById.setData({ id: goalId }, previous);
+          notifications.show({
+            title: "Couldn't change the DRI",
+            message: err.message,
+            color: "red",
+          });
         },
       },
     );
@@ -662,6 +668,7 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
           parentGoalId: goal.parentGoalId,
           workspaceId: goal.workspaceId,
           driUserId: goal.driUserId,
+          driUser: goal.driUser,
         }}
         trigger={<span ref={editTriggerRef} />}
         onSuccess={() => void utils.goal.getById.invalidate({ id: goalId })}
