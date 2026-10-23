@@ -61,7 +61,7 @@ export function PageOutline({ editor }: { editor: Editor | null }) {
       className="group fixed right-5 top-40 z-10 hidden xl:block"
       data-testid="page-outline"
     >
-      <div className="flex flex-col items-end gap-2 py-1 group-hover:invisible">
+      <div className="flex flex-col items-end gap-2 py-1 group-hover:invisible group-focus-within:invisible">
         {headings.map((h) => (
           <span
             key={h.pos}
@@ -70,7 +70,11 @@ export function PageOutline({ editor }: { editor: Editor | null }) {
           />
         ))}
       </div>
-      <ul className="invisible absolute right-0 top-0 w-60 rounded-md border border-border-primary bg-background-elevated py-2 shadow-md group-hover:visible">
+      {/* Revealed by opacity, not visibility, so the heading buttons stay in
+          the tab order: tabbing into the list reveals it (focus-within), the
+          same way hovering does. Pointer events follow so the hidden list
+          can't swallow clicks meant for the page. */}
+      <ul className="pointer-events-none absolute right-0 top-0 w-60 rounded-md border border-border-primary bg-background-elevated py-2 opacity-0 shadow-md transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
         {headings.map((h) => (
           <li key={h.pos}>
             <button
