@@ -2606,6 +2606,11 @@ model Ceremony {
   includeProjects Boolean      @default(true)
   /// Matrix room the agenda is posted to (V2); resolved through the workspace's server.
   matrixRoomId    String?
+  /// The video room this ceremony meets in (Syntrofi Talk, Zoom, Google Meet).
+  /// A recorder in that room looks the ceremony up by it to file the meeting
+  /// (`ceremony.matchMeetingUrl`). Matched on `meetingUrlKey`, not verbatim;
+  /// several ceremonies may share one room and the occurrence time decides.
+  meetingUrl      String?
   /// Run the meeting page's "Extract outputs" (draft actions, decisions and
   /// open questions) on every recording that attaches to one of this
   /// ceremony's occurrences, instead of waiting for someone to press the

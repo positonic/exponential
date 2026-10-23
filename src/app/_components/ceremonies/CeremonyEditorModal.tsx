@@ -26,6 +26,7 @@ import { CadencePicker } from "./CadencePicker";
 import { CeremonyIconPicker } from "./CeremonyIcon";
 import { DEFAULT_CADENCE, buildCadenceRule } from "~/lib/ceremonies/cadence";
 import { isCeremonyIconKey } from "~/lib/ceremonies/icons";
+import { meetingUrlKey } from "~/lib/ceremonies/meetingUrl";
 import {
   AGENDA_SECTION_TYPES,
   type AgendaSectionTemplate,
@@ -74,6 +75,8 @@ interface FormState {
   autoExtractOutputs: boolean;
   isActive: boolean;
   matrixRoomId: string | null;
+  /** The video room link; "" when none. */
+  meetingUrl: string;
 }
 
 /** Empty prose is stored as null, never as "". */
@@ -114,6 +117,7 @@ function emptyForm(): FormState {
     autoExtractOutputs: false,
     isActive: true,
     matrixRoomId: null,
+    meetingUrl: "",
   };
 }
 
@@ -177,6 +181,7 @@ function fromCeremony(c: CeremonyDetail): FormState {
     autoExtractOutputs: c.autoExtractOutputs,
     isActive: c.isActive,
     matrixRoomId: c.matrixRoomId,
+    meetingUrl: c.meetingUrl ?? "",
   };
 }
 
@@ -302,7 +307,9 @@ export function CeremonyEditorModal({
   });
   const saving = create.isPending || update.isPending;
 
-  const canSave = form.name.trim().length > 0 && form.cadenceRule.trim().length > 0 && form.startsOn !== null;
+  const meetingUrlInvalid = form.meetingUrl.trim() !== "" && meetingUrlKey(form.meetingUrl) === null;
+  const canSave =
+    form.name.trim().length > 0 && form.cadenceRule.trim().length > 0 && form.startsOn !== null && !meetingUrlInvalid;
 
   const submit = () => {
     if (!canSave || !form.startsOn) return;
@@ -330,6 +337,7 @@ export function CeremonyEditorModal({
       includeProjects: form.includeProjects,
       autoExtractOutputs: form.autoExtractOutputs,
       matrixRoomId: form.matrixRoomId,
+      meetingUrl: orNull(form.meetingUrl.trim()),
     };
     if (ceremonyId) update.mutate({ ...payload, id: ceremonyId, isActive: form.isActive });
     else create.mutate(payload);
@@ -398,6 +406,15 @@ export function CeremonyEditorModal({
             value={form.aliases}
             onChange={(v) => set("aliases", v)}
             placeholder="Add an alias and press Enter"
+          />
+          <TextInput
+            label="Meeting link"
+            description="The video room this ceremony meets in. A meeting recorded in that room is filed here, in this ceremony's project, without anyone choosing."
+            placeholder="https://talk.syntro.fi/rooms/standup"
+            value={form.meetingUrl}
+            onChange={(e) => set("meetingUrl", e.currentTarget.value)}
+            error={meetingUrlInvalid ? "Enter the full room link, including the room name" : undefined}
+            data-testid="ceremony-meeting-url"
           />
 
           <CadencePicker value={form.cadenceRule} onChange={(rule) => set("cadenceRule", rule)} />
