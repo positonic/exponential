@@ -34,11 +34,11 @@ import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAtta
 import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
 import {
   assertFeaturesLinkable,
-  dropStrandedMeetingFeatureLinks,
 } from "~/server/services/meetings/meetingFeatures";
 import {
   assignMeetingPlacement,
   resolveMeetingWorkspace,
+  moveMeetingToWorkspace,
 } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
@@ -649,6 +649,8 @@ export const transcriptionRouter = createTRPCRouter({
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures,
         canEdit,
+        /** Only the owner may move a workspace meeting to Personal. */
+        isOwner: session.userId === ctx.session.user.id,
         hasTranscript: Boolean(transcription),
         // Same canonical parser the Transcript tab renders with (ADR-0032).
         transcriptTurnCount: parseTranscript({
@@ -771,7 +773,6 @@ export const transcriptionRouter = createTRPCRouter({
         notes: z.string().optional(),
         summary: z.string().optional(),
         transcription: z.string().optional(),
-        workspaceId: z.string().nullable().optional(),
         meetingDate: z.date().nullable().optional(),
       }),
     )
@@ -799,7 +800,6 @@ export const transcriptionRouter = createTRPCRouter({
         notes?: string;
         summary?: string;
         transcription?: string;
-        workspaceId?: string | null;
         meetingDate?: Date | null;
         updatedAt: Date;
       } = {
@@ -817,30 +817,6 @@ export const transcriptionRouter = createTRPCRouter({
       }
       if (input.transcription !== undefined) {
         updateData.transcription = input.transcription;
-      }
-      if (input.workspaceId !== undefined) {
-        if (input.workspaceId !== null) {
-          const member = await ctx.db.workspaceUser.findUnique({
-            where: {
-              userId_workspaceId: {
-                userId: ctx.session.user.id,
-                workspaceId: input.workspaceId,
-              },
-            },
-          });
-          if (!member) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "You are not a member of this workspace",
-            });
-          }
-        }
-        // A project-linked meeting's workspace is its project's: the resolver
-        // keeps it there and rejects a workspace that disagrees.
-        updateData.workspaceId = await resolveMeetingWorkspace(ctx.db, {
-          projectId: existing.projectId,
-          workspaceId: input.workspaceId,
-        });
       }
       if (input.meetingDate !== undefined) {
         updateData.meetingDate = input.meetingDate;
@@ -880,17 +856,20 @@ export const transcriptionRouter = createTRPCRouter({
         },
       });
 
-      // Moving workspace strands feature links to the old one.
-      if (
-        updateData.workspaceId !== undefined &&
-        updateData.workspaceId !== existing.workspaceId
-      ) {
-        await dropStrandedMeetingFeatureLinks(ctx.db, {
-          meetingIds: [existing.id],
-          workspaceId: updateData.workspaceId,
-        });
-      }
       return session;
+    }),
+
+  /**
+   * Move a meeting with no project to another workspace (null = Personal).
+   * Its Actions, participants and links follow; see `moveMeetingToWorkspace`.
+   */
+  moveToWorkspace: protectedProcedure
+    .input(z.object({ id: z.string(), workspaceId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      return moveMeetingToWorkspace(ctx.db, ctx.session.user.id, {
+        meetingId: input.id,
+        workspaceId: input.workspaceId,
+      });
     }),
 
   updateTitle: protectedProcedure

@@ -4,7 +4,7 @@ description: Create actions with priorities, dates and projects, and move them a
 icon: IconChecklist
 order: 2
 sidebarTitle: Actions
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 An Action is the unit of work in Exponential: one thing to do, with a priority, an optional due date and an optional project. Actions flow through the [Inbox and Today](/docs/do/inbox-and-today), sit on project boards, and can be grouped into [Epics](/docs/do/epics) and sprints. A few UI labels still say "task" — the **Add task** button on Today, the **Projects & Tasks** tab, the **Tasks** entry in the command palette — they all mean actions.
@@ -13,7 +13,7 @@ An Action is the unit of work in Exponential: one thing to do, with a priority, 
 
 ## Where to find it
 
-**Deliver** → **Actions** in the sidebar opens the workspace board. Actions also appear on [Inbox](/inbox), [Today](/today), [Upcoming](/upcoming) and each project's **Tasks** tab. Create one from anywhere with the **Create Action** button (⌘N) above the sidebar items.
+**Work** → **Actions** in the sidebar opens the workspace board. Actions also appear on [Inbox](/inbox), [Today](/today), [Upcoming](/upcoming) and each project's **Tasks** tab. Create one from anywhere with the **Create Action** button (⌘N) above the sidebar items.
 
 ## How to create an action
 

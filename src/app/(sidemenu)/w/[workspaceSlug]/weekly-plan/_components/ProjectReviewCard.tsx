@@ -25,7 +25,7 @@ import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { NextActionCapture } from "./NextActionCapture";
 import { ProjectDateBadges } from "./ProjectDateBadges";
-import { ProjectDriBadge } from "./ProjectDriBadge";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import { KeyResultsSection } from "./KeyResultsSection";
 import { ReviewBottomBar } from "./ReviewBottomBar";
 import { WpSegmentedControl, type SegOption } from "./WpSegmentedControl";
@@ -419,10 +419,12 @@ export function ProjectReviewCard({
               </div>
             </Tooltip>
           )}
-          <ProjectDriBadge
-            projectId={project.id}
-            dri={dri}
-            onUpdate={handleDriUpdate}
+          <PersonPicker
+            label="DRI"
+            workspaceId={workspaceId}
+            value={dri?.id ?? null}
+            selectedUser={dri}
+            onChange={handleDriUpdate}
           />
         </Group>
       </Group>

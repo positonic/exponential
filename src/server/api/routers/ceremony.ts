@@ -35,6 +35,8 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
 import { ONE_OFF_SECTION_TYPES } from "~/server/services/ceremonies/oneOffPresets";
+import { findCeremonyForMeetingUrl } from "~/server/services/ceremonies/matchMeetingUrl";
+import { meetingUrlKey } from "~/lib/ceremonies/meetingUrl";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -89,6 +91,19 @@ async function assertProjectsInWorkspace(db: PrismaClient, workspaceId: string, 
   return ids;
 }
 
+/**
+ * The ceremony's video room link. Blank clears it (stored as null); anything
+ * else must be a link with a host and a path (see `meetingUrlKey`).
+ */
+const meetingUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .transform((v) => (v === "" ? null : v))
+  .refine((v) => v === null || meetingUrlKey(v) !== null, {
+    message: "Enter the full room link, e.g. https://talk.syntro.fi/rooms/standup",
+  });
+
 const agendaSectionSchema = z.object({
   key: z.string().min(1),
   type: z.string().min(1),
@@ -125,6 +140,7 @@ const ceremonyFieldsSchema = z.object({
   /** Run "Extract outputs" on every recording that attaches to an occurrence (see `meetings/autoExtractOutputs`). */
   autoExtractOutputs: z.boolean().default(false),
   matrixRoomId: z.string().nullish(),
+  meetingUrl: meetingUrlSchema.nullish(),
 });
 
 /**
@@ -507,6 +523,31 @@ export const ceremonyRouter = createTRPCRouter({
           status: true,
           ceremony: { select: { id: true, name: true, kind: true } },
         },
+      });
+    }),
+
+  /**
+   * The ceremony that meets in a video room, with the occurrence on at `at`
+   * (default now) and its project when it has exactly one — so a recorder in
+   * that room can file the meeting without anyone choosing. Searches every
+   * workspace the caller belongs to unless `workspaceId` narrows it. Null when
+   * no ceremony has this link, or several do and none is on now. Rules in
+   * `services/ceremonies/matchMeetingUrl.ts`.
+   */
+  matchMeetingUrl: protectedProcedure
+    .input(
+      z.object({
+        url: z.string().min(1).max(2000),
+        at: z.coerce.date().optional(),
+        workspaceId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return findCeremonyForMeetingUrl(ctx.db, {
+        userId: ctx.session.user.id,
+        url: input.url,
+        at: input.at ?? new Date(),
+        workspaceId: input.workspaceId,
       });
     }),
 

@@ -83,6 +83,7 @@ export async function previewOneOffAgenda(
     includeProjects: false,
     autoExtractOutputs: false,
     matrixRoomId: null,
+    meetingUrl: null,
     isActive: true,
     isOneOff: true,
     createdById: input.callerUserId,
