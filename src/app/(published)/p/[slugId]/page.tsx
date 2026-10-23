@@ -239,7 +239,7 @@ export default async function PublishedPage({
               <span className="text-text-secondary">{page.title}</span>
             </nav>
           ) : null}
-          <h1 className="mb-2 text-3xl font-bold text-text-primary">
+          <h1 className="mb-2 text-[2.5rem] font-bold leading-[1.2] tracking-[-0.01em] text-text-primary">
             {page.title}
           </h1>
           <p className="mb-8 text-sm text-text-muted">
@@ -249,7 +249,9 @@ export default async function PublishedPage({
           </p>
           {html ? (
             <TypographyStylesProvider>
-              <PublicPageBody html={html} />
+              <div className="knowledge-page">
+                <PublicPageBody html={html} />
+              </div>
             </TypographyStylesProvider>
           ) : page.body ? (
             <MarkdownRenderer content={page.body} variant="prose" />

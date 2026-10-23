@@ -56,7 +56,7 @@ export function PageSubpages({
   };
 
   return (
-    <section className="mt-8 border-t border-border-primary pt-4">
+    <section className="mt-12">
       <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
         Sub-pages
       </Text>
