@@ -89,7 +89,13 @@ vi.mock("~/server/services/KnowledgeService", () => ({
 }));
 
 import { createMockCaller } from "~/test/trpc-helpers";
-import { readTransition } from "../resource";
+import {
+  readTransition,
+  deriveContent,
+  countWords,
+  resaveReadStatus,
+  MAX_RAW_CONTENT_CHARS,
+} from "../resource";
 
 function fakeResource(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -139,6 +145,42 @@ describe("readTransition", () => {
   });
 });
 
+describe("resaveReadStatus", () => {
+  it("brings a finished or queued item back to to_read on a plain re-save", () => {
+    expect(resaveReadStatus("to_read", "read")).toBe("to_read");
+    expect(resaveReadStatus("to_read", "to_read")).toBe("to_read");
+  });
+
+  it("does not interrupt an item mid-read", () => {
+    expect(resaveReadStatus("to_read", "reading")).toBe("reading");
+  });
+
+  it("honours an explicit read or reading request", () => {
+    expect(resaveReadStatus("read", "reading")).toBe("read");
+    expect(resaveReadStatus("reading", "read")).toBe("reading");
+  });
+});
+
+describe("deriveContent / countWords", () => {
+  it("keeps caller-supplied content untouched, even when empty", () => {
+    expect(deriveContent({ content: "hi", rawContent: "<p>no</p>" })).toBe("hi");
+    expect(deriveContent({ content: "" })).toBe("");
+  });
+
+  it("derives Markdown from article HTML when content is omitted", () => {
+    const md = deriveContent({ rawContent: "<h1>Title</h1><p>Body <b>bold</b></p>" });
+    expect(md).toContain("# Title");
+    expect(md).toContain("**bold**");
+  });
+
+  it("yields nothing for a bare link", () => {
+    expect(deriveContent({})).toBeUndefined();
+    expect(countWords(undefined)).toBeNull();
+    expect(countWords("   ")).toBeNull();
+    expect(countWords("one two  three")).toBe(3);
+  });
+});
+
 describe("resource router — reading list (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
   const callerId = "caller-1";
@@ -148,6 +190,8 @@ describe("resource router — reading list (mocked)", () => {
     mockReset(dbMock);
     embedResourceMock.mockReset();
     embedResourceMock.mockResolvedValue(3);
+    // No row for the URL unless a test says otherwise (dedupe, D-0027).
+    dbMock.resource.findFirst.mockResolvedValue(null);
   });
 
   describe("create", () => {
@@ -183,6 +227,156 @@ describe("resource router — reading list (mocked)", () => {
       expect(data.readStatus).toBe("read");
       expect(data.readAt).toBeInstanceOf(Date);
       expect(embedResourceMock).toHaveBeenCalledWith("r1");
+    });
+
+    it("derives content and wordCount from article HTML and reports created: true", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "r2" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({
+        title: "An article",
+        url: "https://example.com/article",
+        rawContent: "<h1>An article</h1><p>Four words right here.</p>",
+        generateEmbeddings: false,
+      });
+
+      const data = dbMock.resource.create.mock.calls[0]![0].data;
+      expect(data.rawContent).toContain("<h1>");
+      expect(data.content).toContain("# An article");
+      // Counted on the derived Markdown, so the heading marker is a token too.
+      expect(data.wordCount).toBe(7);
+      expect(data.readStatus).toBe("to_read");
+      expect(out.created).toBe(true);
+      // Opted out of the Knowledge index (D-0026).
+      expect(embedResourceMock).not.toHaveBeenCalled();
+    });
+
+    it("embeds a derived body when the caller opts in", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "r3" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({
+        title: "An article",
+        url: "https://example.com/article",
+        rawContent: "<p>text</p>",
+        generateEmbeddings: true,
+      });
+
+      expect(embedResourceMock).toHaveBeenCalledWith("r3");
+    });
+
+    it("rejects an article body over the cap instead of truncating it", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.resource.create({
+          title: "Huge",
+          url: "https://example.com/huge",
+          rawContent: "x".repeat(MAX_RAW_CONTENT_CHARS + 1),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.resource.create).not.toHaveBeenCalled();
+      expect(dbMock.resource.update).not.toHaveBeenCalled();
+    });
+
+    describe("re-saving a URL already in the list (dedupe, D-0027)", () => {
+      it("un-archives, returns to to_read, refreshes the body, and reports created: false", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({
+            id: "old",
+            title: "example.com",
+            readStatus: "read",
+            readAt: new Date("2026-09-01T00:00:00Z"),
+            archivedAt: new Date("2026-09-02T00:00:00Z"),
+          }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        const out = await caller.resource.create({
+          title: "The real title",
+          url: "https://example.com/post",
+          rawContent: "<p>fresh body</p>",
+          generateEmbeddings: false,
+        });
+
+        expect(dbMock.resource.create).not.toHaveBeenCalled();
+        expect(dbMock.resource.findFirst).toHaveBeenCalledWith({
+          where: { userId: callerId, url: "https://example.com/post" },
+        });
+        const call = dbMock.resource.update.mock.calls[0]![0];
+        expect(call.where).toEqual({ id: "old" });
+        expect(call.data).toMatchObject({
+          archivedAt: null,
+          readStatus: "to_read",
+          readAt: null,
+          title: "The real title",
+          rawContent: "<p>fresh body</p>",
+          content: "fresh body",
+          wordCount: 2,
+        });
+        expect(out.created).toBe(false);
+        expect(embedResourceMock).not.toHaveBeenCalled();
+      });
+
+      it("does not interrupt an item that is mid-read", async () => {
+        const firstRead = new Date("2026-09-01T00:00:00Z");
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", readStatus: "reading", readAt: firstRead }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "x", url: "https://example.com/post" });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data.readStatus).toBe("reading");
+        expect(data.readAt).toEqual(firstRead);
+      });
+
+      it("a bare-link re-save keeps the existing title and body", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", title: "Kept", rawContent: "<p>kept</p>", content: "kept" }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "example.com", url: "https://example.com/post" });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data).not.toHaveProperty("title");
+        expect(data).not.toHaveProperty("content");
+        expect(data).not.toHaveProperty("rawContent");
+      });
+
+      it("honours an explicit read request and re-embeds when asked", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(fakeResource({ id: "old" }));
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({
+          title: "Reference",
+          url: "https://example.com/post",
+          content: "pasted reference text",
+          readStatus: "read",
+          generateEmbeddings: true,
+        });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data.readStatus).toBe("read");
+        expect(data.readAt).toBeInstanceOf(Date);
+        expect(embedResourceMock).toHaveBeenCalledWith("old");
+      });
+
+      it("only matches the caller's own rows", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "mine" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "x", url: "https://example.com/post" });
+
+        expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toMatchObject({ userId: callerId });
+        expect(dbMock.resource.create).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
