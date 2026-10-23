@@ -31,7 +31,7 @@ The complete list is validated in `src/env.js` in the repository. These are the 
 | `DATABASE_URL`, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY` | Required. Credentials and PII are encrypted with the key; rotate it with the documented procedure, never by replacing it. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET`, `MICROSOFT_ENTRA_ID_*`, `AUTH_POSTMARK_KEY` | Each configured provider adds a button to the sign-in page; Postmark powers the email sign-in code. |
 | `OPENAI_API_KEY`, `MASTRA_API_URL` | Zoe, meeting processing and the knowledge base need both. |
-| `WHATSAPP_GATEWAY_URL` | Enables **People WhatsApp**. The gateway must share the app's `AUTH_SECRET`, which signs the short-lived tokens the two exchange. Without it users see "Gateway not configured". |
+| `WHATSAPP_GATEWAY_URL` | Enables **Connect WhatsApp**. The gateway must share the app's `AUTH_SECRET`, which signs the short-lived tokens the two exchange. Without it users see "Gateway not configured". |
 | `SLACK_BOT_TOKEN` on the agent service | Gives Zoe Slack tools for installations that connect one shared Slack app; users on exponential.im connect their own app from Settings → Integrations instead. |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web push notifications. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Rate limiting for public endpoints. |

@@ -12,7 +12,7 @@ A chat gateway puts Zoe in a messaging app you already have open: WhatsApp, Tele
 
 ## Where to find it
 
-- WhatsApp and Telegram: [Settings → Integrations](/settings/integrations) (**People WhatsApp**, **People Telegram**). **People WhatsApp** is also on the Agents page ([**Tools → Agents**](/go/agent)).
+- WhatsApp and Telegram: [Settings → Integrations](/settings/integrations) (**Connect WhatsApp**, **Connect Telegram**). **Connect WhatsApp** is also on the Agents page ([**Tools → Agents**](/go/agent)).
 - Telegram and Matrix: [Settings → AI assistant](/settings/assistant), where each has a card with its **Default agent**.
 - Where notifications go: [Settings → Notifications](/settings/notifications).
 
@@ -30,15 +30,15 @@ WhatsApp works like WhatsApp Web: you scan a QR code and your phone stays the so
 
 ### How to connect WhatsApp
 
-1. Click **People WhatsApp**. A dialog opens with a QR code that refreshes every 15 seconds.
+1. Click **Connect WhatsApp**. A dialog opens with a QR code that refreshes every 15 seconds.
 2. On your phone, open WhatsApp → **Settings** → **Linked Devices** → **Link a Device**, and scan the code.
 3. The dialog shows your number with a green **Connected** badge.
 
-You can link more than one account with **People Another Account**; each shows as its own session with **Disconnect** and **Delete** controls. Then message the linked number as you would message a person; Zoe keeps the thread's context between messages.
+You can link more than one account with **Connect Another Account**; each shows as its own session with **Disconnect** and **Delete** controls. Then message the linked number as you would message a person; Zoe keeps the thread's context between messages.
 
 ## Telegram
 
-1. Click **People Telegram** on [Settings → Integrations](/settings/integrations) or open the **Telegram** card on [Settings → AI assistant](/settings/assistant).
+1. Click **Connect Telegram** on [Settings → Integrations](/settings/integrations) or open the **Telegram** card on [Settings → AI assistant](/settings/assistant).
 2. Choose the **Default agent** that answers there (Zoe or a specialist) and click **Update Assistant** if the card asks for it.
 3. Follow the link to open the bot in Telegram and start the chat.
 

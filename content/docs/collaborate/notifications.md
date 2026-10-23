@@ -60,7 +60,7 @@ Email is on by default for every type except the daily plan reminder. Untick typ
 Notifications arrive as a direct message from the Zoe bot in any Matrix client (Element and others). Setup takes about a minute.
 
 1. Open [Settings → AI assistant](/settings/assistant). If you have not set up your assistant yet, give it a name and personality and click **Create Assistant** first; the Matrix card needs it.
-2. In the **Matrix** card, enter **Your Matrix ID** (for example `@you:syntro.fi`) and click **People Matrix**.
+2. In the **Matrix** card, enter **Your Matrix ID** (for example `@you:syntro.fi`) and click **Connect Matrix**.
 3. The bot invites you to a chat. Accept the invite in your Matrix client and send the pairing code shown in the app into that chat. The code expires after 10 minutes. The card shows **Connected** once pairing succeeds.
 4. Back on [Settings → Notifications](/settings/notifications), a **Matrix (Zoe DM)** card now sits under **Delivery preferences**. Tick the types you want, such as **Mentions**, and click **Send test** to confirm a message arrives.
 

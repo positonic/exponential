@@ -13,7 +13,7 @@ Connect Fireflies.ai and each meeting it records shows up on the Meetings page a
 
 ## Where to find it
 
-- Set up: [Settings → Integrations](/settings/integrations) → **Fireflies.ai** → **Add Fireflies**. The same wizard opens from **People Fireflies** on the Meetings page and from the Fireflies card on [Workflows](/workflows).
+- Set up: [Settings → Integrations](/settings/integrations) → **Fireflies.ai** → **Add Fireflies**. The same wizard opens from **Connect Fireflies** on the Meetings page and from the Fireflies card on [Workflows](/workflows).
 - Meetings: [**Tools → Meetings**](/go/meetings) in the sidebar; see [Meetings](/docs/meet/meetings) for everything you can do with one.
 
 ## How it works

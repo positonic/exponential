@@ -13,12 +13,12 @@ Connect a Notion database to a project and actions flow between them: pull from 
 
 - **Per project (recommended):** open the project, then its **Integrations** tab → **Notion Tasks Sync**.
 - **Across projects:** the [Workflows page](/workflows) (user menu → **Workflows**) → **Notion Tasks Database** → **Configure**.
-- **Accounts:** Notion accounts are connected under [Settings → Integrations](/settings/integrations) → **Add Integration** → provider **Notion** → **People with Notion**. Connecting from the project wizard does the same thing.
+- **Accounts:** Notion accounts are connected under [Settings → Integrations](/settings/integrations) → **Add Integration** → provider **Notion** → **Connect with Notion**. Connecting from the project wizard does the same thing.
 
 ## How to sync a project with Notion
 
 1. Open the project, click the **Integrations** tab, then **Setup Integration** under **Notion Tasks Sync**.
-2. **Account** — pick a connected Notion account, or click **People** and approve Exponential in Notion.
+2. **Account** — pick a connected Notion account, or click **Connect** and approve Exponential in Notion.
 3. **Database** — choose the **Notion Database**. If it is missing, share it with Exponential in Notion first (open the database, **...** → **Connections**) and try again.
 4. **Status** — map Notion's values to your columns (see below).
 5. **Sync** — choose a **Sync Direction** (**Pull from Notion**, **Push to Notion** or **Bidirectional**) and a **Sync Frequency** (**Manual**, **Hourly** or **Daily**).
