@@ -31,6 +31,7 @@ export function MeetingDetailContainer({ id }: { id: string }) {
   const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
   const updateTitleMutation = api.transcription.updateTitle.useMutation();
+  const moveToWorkspaceMutation = api.transcription.moveToWorkspace.useMutation();
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -343,6 +344,38 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     }
   }
 
+  async function handleWorkspaceChange(workspaceId: string | null) {
+    if (!session) return;
+    const linkedFeatures = session.featureLinks.length;
+    if (
+      linkedFeatures > 0 &&
+      !window.confirm(
+        "Features from this workspace stay behind, so their links to this meeting will be removed. Move anyway?",
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await moveToWorkspaceMutation.mutateAsync({ id: session.id, workspaceId });
+      notifications.show({
+        title: "Moved",
+        message:
+          result.droppedFeatureLinks > 0
+            ? `Meeting moved. ${result.droppedFeatureLinks} feature link(s) removed.`
+            : "Meeting and its actions moved to the new workspace",
+        color: "green",
+      });
+      void utils.transcription.invalidate();
+      void utils.action.getByTranscription.invalidate({ transcriptionId: id });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to move meeting",
+        color: "red",
+      });
+    }
+  }
+
   function handleProjectChange(projectId: string | null) {
     if (!session) return;
     // Routes through the placement service: sets the project, derives the
@@ -396,6 +429,8 @@ export function MeetingDetailContainer({ id }: { id: string }) {
       onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
+      onWorkspaceChange={(workspaceId) => void handleWorkspaceChange(workspaceId)}
+      isSavingWorkspace={moveToWorkspaceMutation.isPending}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
       onExtractOutputs={handleExtractOutputs}

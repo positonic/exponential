@@ -144,3 +144,25 @@ tombstone for every move); a per-occurrence exception list on the ceremony, RRUL
 (rejected: it moves scheduling state onto the definition, which occurrences deliberately snapshot
 rather than share); dropping the tick-based unique altogether (rejected: idempotent hourly
 expansion depends on it).
+
+## Amendment: a Ceremony may name the room it meets in (2026-10-23)
+
+Recordings attached by calendar id or title alias (Decision 4). A recorder sitting in a video
+room knows neither: the Syntrofi Talk notetaker sees only the room's link, and the room name
+("regulartouchpointja") rarely resembles the ceremony's title. Someone had to pick the workspace,
+project and occurrence by hand in every meeting.
+
+A Ceremony now carries an optional **meeting link** (`meetingUrl`), the room it is held in. A
+recorder asks `ceremony.matchMeetingUrl` with the room's link and the meeting time, and gets back
+the ceremony, the occurrence on at that time, and the project when the ceremony reviews exactly
+one. Links compare on host and path only (`meetingUrlKey`), so scheme, case, query string and a
+trailing slash never break a match. Several ceremonies may share a room; the occurrence on at the
+meeting time decides, and with none on, a shared room is ambiguous and matches nothing. Only
+workspaces the caller belongs to are searched, so an agent key finds only ceremonies in the
+workspaces granted to it. The match is a default: the person filing can still change it.
+
+**Considered alternatives:** a room-to-ceremony map in the recorder's own config (rejected: a
+second copy of the ceremony↔project mapping that drifts from Exponential's); matching the room
+name as a title alias (rejected: aliases are title tokens, and borrowing them would hide a room
+link inside a title rule); a unique link per ceremony (rejected: one standing room often hosts
+several rhythms).

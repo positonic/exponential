@@ -12,13 +12,15 @@
 }
 
 /* Collapsed, the sidebar's re-open button parks in this row's left gutter
-   (fixed, 12px from the viewport edge, ~32px wide) and the 40px padding
-   leaves the crumb almost touching it. On sm+ the topbar is edge-to-edge,
-   so it owns that corner and has to give the button its own space; below
-   640px <main>'s own padding already keeps the two apart. */
+   (fixed, 12px from the viewport edge, 26px wide — see .sb-toggle) and the
+   40px padding leaves the crumb almost touching it. 52px puts the crumb 14px
+   after the button, the same gap Notion leaves between its hamburger and the
+   first crumb. On sm+ the topbar is edge-to-edge, so it owns that corner and
+   has to give the button its own space; below 640px <main>'s own padding
+   already keeps the two apart. */
 @media (min-width: 640px) {
   :global(html[data-sidebar='closed']) .topbar {
-    padding-left: 60px;
+    padding-left: 52px;
   }
 }
 

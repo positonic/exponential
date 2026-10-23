@@ -3,6 +3,7 @@ import {
   buildReport,
   collectDefinitions,
   findRawValues,
+  findScopedShapeTokens,
   findUndefinedVars,
   isHandRolledSurface,
   isTokenRadius,
@@ -18,6 +19,39 @@ describe("collectDefinitions", () => {
       ]),
     );
     expect([...defs].sort()).toEqual(["--col-glow", "--okrt-weeks", "--radius-md"]);
+  });
+
+  it("ignores names in comments and ternaries, which are not declarations", () => {
+    const defs = collectDefinitions(
+      new Map([
+        ["a.css", "/* --radius-lg: 10px was here */\n.x { color: red; }"],
+        ["b.tsx", "const v = dark ? '--color-a' : '--color-b';\n// '--color-c': 1\nconst s = { '--color-d': 1 };"],
+      ]),
+    );
+    expect([...defs]).toEqual(["--color-d"]);
+  });
+});
+
+describe("findScopedShapeTokens", () => {
+  it("allows shape tokens on :root and colour-scheme blocks of globals.css only", () => {
+    const css = [
+      "@layer base {",
+      "  :root { --radius-md: 6px; --shadow-md: 0 1px 2px var(--c); }",
+      '  [data-mantine-color-scheme="dark"] { --color-shadow: rgba(0,0,0,.5); }',
+      "}",
+      ".auth-surface { --radius-lg: 10px; }",
+      ".coaching-home { --ch-radius-sm: 4px; }",
+    ].join("\n");
+    const out = findScopedShapeTokens("src/styles/globals.css", css);
+    expect(out.map((f) => [f.line, f.detail.split(" ")[0]])).toEqual([
+      [5, "--radius-lg"],
+      [6, "--ch-radius-sm"],
+    ]);
+  });
+
+  it("rejects any shape token declared in a feature stylesheet", () => {
+    const out = findScopedShapeTokens("src/x/feature.css", ".page { --radius-md: 8px; --shadow-sm: none; }");
+    expect(out.map((f) => f.kind)).toEqual(["scoped-shape-token", "scoped-shape-token"]);
   });
 });
 

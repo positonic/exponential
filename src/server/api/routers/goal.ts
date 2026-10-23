@@ -49,6 +49,24 @@ export const goalRouter = createTRPCRouter({
       return goal;
     }),
 
+  /**
+   * The handful of active goals the sidebar discloses under "Goals": id and
+   * title only, most recently touched first. Workspace members see the
+   * workspace's goals, as `getAllMyGoals` does; non-members get nothing.
+   */
+  navChildren: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, input.workspaceId);
+      if (!membership) return [];
+      return ctx.db.goal.findMany({
+        where: { workspaceId: input.workspaceId, status: "active" },
+        select: { id: true, title: true },
+        orderBy: { updatedAt: "desc" },
+        take: 6,
+      });
+    }),
+
   getAllMyGoals: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
