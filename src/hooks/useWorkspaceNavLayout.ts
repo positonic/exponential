@@ -13,10 +13,8 @@ import { parseNavLayout, type NavSection } from "~/lib/navLayout";
 export function useWorkspaceNavLayout(workspaceId: string | null) {
   const utils = api.useUtils();
 
-  const { data: preferences } = api.navigationPreference.getPreferences.useQuery(
-    undefined,
-    { staleTime: 30 * 1000 },
-  );
+  const { data: preferences, isLoading: isPreferencesLoading } =
+    api.navigationPreference.getPreferences.useQuery(undefined, { staleTime: 30 * 1000 });
   const { data: workspaceLayout, isLoading: isWorkspaceLayoutLoading } =
     api.navigationPreference.getWorkspaceLayout.useQuery(
       { workspaceId: workspaceId ?? "" },
@@ -24,6 +22,9 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
     );
 
   const isCustomised = workspaceLayout?.navLayout != null;
+  // Until both queries settle the layout below is a placeholder (the defaults),
+  // so an edit now would fork the workspace from the wrong base.
+  const isLoading = isPreferencesLoading || (!!workspaceId && isWorkspaceLayoutLoading);
   const layout: NavSection[] = parseNavLayout(
     workspaceLayout?.navLayout ?? preferences?.navLayout ?? null,
   );
@@ -48,7 +49,7 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   const saveLayout = useCallback(
     (next: NavSection[]) => {
-      if (!workspaceId) return;
+      if (!workspaceId || isLoading) return;
       // Optimistic: the sidebar re-renders from the cache immediately.
       utils.navigationPreference.getWorkspaceLayout.setData(
         { workspaceId },
@@ -58,7 +59,7 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
         .then(() => update.mutateAsync({ workspaceId, layout: next }))
         .catch(() => undefined);
     },
-    [workspaceId, update, utils],
+    [workspaceId, isLoading, update, utils],
   );
 
   const resetLayout = useCallback(() => {
@@ -69,7 +70,7 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
   return {
     layout,
     isCustomised,
-    isLoading: !!workspaceId && isWorkspaceLayoutLoading,
+    isLoading,
     saveLayout,
     resetLayout,
     isSaving: update.isPending,

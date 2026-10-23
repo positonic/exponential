@@ -1,15 +1,32 @@
 import { z } from 'zod';
 
 /**
+ * Hrefs a custom shortcut may point at: a path inside the app (`/…`) or an
+ * absolute http(s) URL. Rejects `javascript:` and friends.
+ */
+export function isSafeShortcutHref(href: string): boolean {
+  const trimmed = href.trim();
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return true;
+  return /^https?:\/\/[^\s]+$/i.test(trimmed);
+}
+
+/**
  * A sidebar entry. Built-in items carry only an `id` that keys into
  * {@link NAV_ITEM_CONFIG}. Custom shortcuts (added from the in-sidebar
- * customiser) also carry their own `label` and workspace-relative `href`.
+ * customiser) also carry their own `label` and `href`. The href scheme is
+ * checked here, in the schema, so the server rejects a `javascript:` link
+ * regardless of which client sent it.
  */
 export const navItemSchema = z.object({
   id: z.string().min(1),
   hidden: z.boolean(),
   label: z.string().min(1).max(80).optional(),
-  href: z.string().min(1).max(500).optional(),
+  href: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine(isSafeShortcutHref, { message: 'Shortcut links must be an app path or an http(s) URL' })
+    .optional(),
 });
 
 export const navSectionSchema = z.object({
@@ -36,15 +53,6 @@ export function isCustomNavItem(item: NavItem): item is NavItem & { href: string
   return typeof item.href === 'string' && item.href.length > 0;
 }
 
-/**
- * Hrefs a custom shortcut may point at: a path inside the app (`/…`) or an
- * absolute http(s) URL. Rejects `javascript:` and friends.
- */
-export function isSafeShortcutHref(href: string): boolean {
-  const trimmed = href.trim();
-  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return true;
-  return /^https?:\/\/[^\s]+$/i.test(trimmed);
-}
 
 export const DEFAULT_NAV_LAYOUT: NavSection[] = [
   {

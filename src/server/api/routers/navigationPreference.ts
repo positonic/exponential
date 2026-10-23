@@ -236,6 +236,11 @@ export const navigationPreferenceRouter = createTRPCRouter({
     }),
 
   // --- Per-workspace sidebar layout (ADR-0073) ---
+  //
+  // All three procedures gate on `requireWorkspaceMembership("view")`. That
+  // already excludes guests (project-only members): "guest" ranks below
+  // "viewer" in WORKSPACE_ROLE_HIERARCHY, so the reduced guest sidebar can
+  // neither read nor write a layout row, matching the client's `canCustomize`.
 
   /**
    * The caller's sidebar layout for one workspace, or null when they have not

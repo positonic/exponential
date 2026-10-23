@@ -133,6 +133,12 @@ describe("shortcuts and custom links", () => {
     expect(parsed.flatMap((s) => s.items).filter((i) => i.id === "goals")).toHaveLength(1);
   });
 
+  it("rejects an unsafe href in the schema, so the server never stores one", () => {
+    const layout = addShortcut(DEFAULT_NAV_LAYOUT, { label: "x", href: "javascript:alert(1)" });
+    expect(parseNavLayout(layout)).toBe(DEFAULT_NAV_LAYOUT);
+    expect(parseNavLayout(addShortcut(DEFAULT_NAV_LAYOUT, { label: "x", href: "/w/x/pages" }))).not.toBe(DEFAULT_NAV_LAYOUT);
+  });
+
   it("accepts app paths and http(s) URLs only", () => {
     expect(isSafeShortcutHref("/w/x/pages")).toBe(true);
     expect(isSafeShortcutHref("https://example.com/a?b=1")).toBe(true);

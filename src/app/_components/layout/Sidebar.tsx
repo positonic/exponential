@@ -29,9 +29,11 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
 
   const handleContextMenu = (event: React.MouseEvent) => {
     if (!canCustomize || isCustomizing) return;
-    // Leave native menus alone on editable fields and links to outside pages.
+    // Leave the native menu alone on editable fields and on links that open
+    // outside the app (custom shortcuts), where "Copy link address" matters.
+    // In-app nav items take the customise menu, as in Notion.
     const target = event.target as HTMLElement;
-    if (target.closest('input, textarea, [contenteditable="true"]')) return;
+    if (target.closest('input, textarea, [contenteditable="true"], a[target="_blank"]')) return;
     event.preventDefault();
     const rect = asideRef.current?.getBoundingClientRect();
     setContextMenu({
@@ -40,10 +42,11 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
     });
   };
 
-  // Leaving the workspace closes the editor.
+  // Switching or leaving the workspace closes the editor, so an open panel
+  // never silently starts editing a different workspace's layout.
   useEffect(() => {
-    if (!canCustomize) setIsCustomizing(false);
-  }, [canCustomize]);
+    setIsCustomizing(false);
+  }, [workspaceId, canCustomize]);
 
   // Auto-open sidebar on desktop only
   useEffect(() => {

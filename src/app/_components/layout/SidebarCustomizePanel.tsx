@@ -226,7 +226,8 @@ interface SidebarCustomizePanelProps {
  */
 export function SidebarCustomizePanel({ onDone }: SidebarCustomizePanelProps): React.ReactElement {
   const { workspaceId } = useWorkspace();
-  const { layout, isCustomised, saveLayout, resetLayout, saveError } = useWorkspaceNavLayout(workspaceId);
+  const { layout, isCustomised, isLoading, saveLayout, resetLayout, saveError } =
+    useWorkspaceNavLayout(workspaceId);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [linkForm, setLinkForm] = useState<{ label: string; href: string } | null>(null);
@@ -346,6 +347,17 @@ export function SidebarCustomizePanel({ onDone }: SidebarCustomizePanelProps): R
 
   const viewShortcuts = view.find((s) => s.id === SHORTCUTS_SECTION_ID) ?? shortcuts;
   const viewSections = view.filter((s) => s.id !== SHORTCUTS_SECTION_ID);
+
+  if (isLoading) {
+    return (
+      <div className="sb-cz" data-testid="sidebar-customize-panel">
+        <div className="sb-cz-empty">Loading your layout…</div>
+        <div className="sb-cz-footer">
+          <Button fullWidth size="sm" variant="default" onClick={onDone}>Cancel</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="sb-cz" data-testid="sidebar-customize-panel">
