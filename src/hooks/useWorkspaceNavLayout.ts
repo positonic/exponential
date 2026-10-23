@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { parseNavLayout, type NavSection } from "~/lib/navLayout";
 
@@ -49,19 +50,29 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
     workspaceLayout?.navLayout ?? preferences?.navLayout ?? null,
   );
 
+  // Success and failure both refetch: on failure that rolls the optimistic
+  // cache back to what the server holds, and the toast says so, whether the
+  // edit came from the panel or from a fold in the ordinary sidebar.
+  const refetch = () => {
+    if (workspaceId) {
+      void utils.navigationPreference.getWorkspaceLayout.invalidate({ workspaceId });
+    }
+  };
+  const onError = () => {
+    refetch();
+    notifications.show({
+      title: "Sidebar not saved",
+      message: "Your last sidebar change could not be saved and has been undone.",
+      color: "red",
+    });
+  };
   const update = api.navigationPreference.updateWorkspaceLayout.useMutation({
-    onSuccess: () => {
-      if (workspaceId) {
-        void utils.navigationPreference.getWorkspaceLayout.invalidate({ workspaceId });
-      }
-    },
+    onSuccess: refetch,
+    onError,
   });
   const reset = api.navigationPreference.resetWorkspaceLayout.useMutation({
-    onSuccess: () => {
-      if (workspaceId) {
-        void utils.navigationPreference.getWorkspaceLayout.invalidate({ workspaceId });
-      }
-    },
+    onSuccess: refetch,
+    onError,
   });
 
   const saveLayout = useCallback(

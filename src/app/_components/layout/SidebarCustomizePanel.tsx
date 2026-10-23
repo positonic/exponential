@@ -491,7 +491,7 @@ export function SidebarCustomizePanel({ onDone }: SidebarCustomizePanelProps): R
 
       {saveError && (
         <div className="sb-cz-error" role="alert">
-          Your last change could not be saved. It will be retried on your next edit.
+          Your last change could not be saved and has been undone.
         </div>
       )}
       </div>

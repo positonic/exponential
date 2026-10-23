@@ -153,6 +153,16 @@ describe("shortcuts and custom links", () => {
     expect(parseNavLayout(addShortcut(DEFAULT_NAV_LAYOUT, { label: "x", href: "/w/x/pages" }))).not.toBe(DEFAULT_NAV_LAYOUT);
   });
 
+  it("repairs a layout saved with an item duplicated by the old merge", () => {
+    const saved = DEFAULT_NAV_LAYOUT.map((s) =>
+      s.id === "align" ? { ...s, items: [{ id: "pages", hidden: false }, ...s.items] } : s,
+    );
+    const parsed = parseNavLayout(saved);
+    expect(parsed.flatMap((s) => s.items).filter((i) => i.id === "pages")).toHaveLength(1);
+    expect(parsed.find((s) => s.id === "align")?.items.map((i) => i.id)).toEqual(["pages", "goals", "decisions"]);
+    expect(parsed.find((s) => s.id === "deliver")?.items.map((i) => i.id)).not.toContain("pages");
+  });
+
   it("accepts app paths and http(s) URLs only", () => {
     expect(isSafeShortcutHref("/w/x/pages")).toBe(true);
     expect(isSafeShortcutHref("https://example.com/a?b=1")).toBe(true);

@@ -180,16 +180,24 @@ export const NAV_ITEM_CONFIG: Record<string, NavItemConfig> = {
  * are appended at the end. Items whose id no longer exists in
  * {@link NAV_ITEM_CONFIG} (a retired nav entry, e.g. the old `alignment` item)
  * are dropped so they neither render nor linger in the settings editor; custom
- * shortcuts (items with their own `href`) are kept as they are.
+ * shortcuts (items with their own `href`) are kept as they are. An item that
+ * appears twice keeps only its first occurrence.
  */
 function mergeWithDefaults(saved: NavSection[]): NavSection[] {
   // An item placed anywhere (moved to another section, pinned as a shortcut)
   // counts as present: only items missing from the whole layout are appended.
   const placedItemIds = new Set(saved.flatMap((s) => s.items.map((i) => i.id)));
+  // Layouts saved under the old merge can hold an item twice (its moved
+  // position and its default one). The first occurrence, in section order,
+  // wins; the repair persists with the next save.
+  const seen = new Set<string>();
   const merged = saved.map((section) => {
-    const items = section.items.filter(
-      (i) => isCustomNavItem(i) || Object.hasOwn(NAV_ITEM_CONFIG, i.id),
-    );
+    const items = section.items.filter((i) => {
+      if (!isCustomNavItem(i) && !Object.hasOwn(NAV_ITEM_CONFIG, i.id)) return false;
+      if (seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    });
     const defaultSection = DEFAULT_NAV_LAYOUT.find((d) => d.id === section.id);
     if (!defaultSection) return { ...section, items };
 
