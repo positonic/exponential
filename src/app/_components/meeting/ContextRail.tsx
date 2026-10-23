@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Select } from "@mantine/core";
 import { DateTimeField } from "~/app/_components/DateTimeField";
 import {
   IconPlayerPlay,
@@ -56,8 +57,17 @@ interface ContextRailProps {
   onProjectPickerOpen?: () => void;
   isLoadingProjects?: boolean;
   onProjectChange: (projectId: string | null) => void;
-  /** Read-only workspace label, derived from the placed project. */
+  /** Workspace label. Follows the project when the meeting has one. */
   workspaceName: string | null;
+  /** Current workspace id, or null for Personal. */
+  workspaceId?: string | null;
+  /** Workspaces the viewer can move the meeting into. */
+  workspaceOptions?: { id: string; name: string }[];
+  /** Move the meeting to another workspace (null = Personal). Omit to show the
+   * workspace read-only: for viewers, and for project-linked meetings, whose
+   * workspace is the project's. */
+  onWorkspaceChange?: (workspaceId: string | null) => void;
+  isSavingWorkspace?: boolean;
   /** The ceremony occurrence this meeting captured (ADR-0059), if any. */
   occurrence: MeetingOccurrenceRef | null;
   occurrenceHref: string | null;
@@ -94,6 +104,8 @@ interface ContextRailProps {
   removingParticipantId?: string | null;
 }
 
+const PERSONAL_WORKSPACE_VALUE = "__personal__";
+
 export function ContextRail({
   onExtractOutputs,
   isExtractingOutputs,
@@ -115,6 +127,10 @@ export function ContextRail({
   isLoadingProjects,
   onProjectChange,
   workspaceName,
+  workspaceId = null,
+  workspaceOptions = [],
+  onWorkspaceChange,
+  isSavingWorkspace = false,
   occurrence,
   occurrenceHref,
   occurrenceOptions,
@@ -402,11 +418,40 @@ export function ContextRail({
               {sessionId.length > 8 ? `…${sessionId.slice(-6)}` : sessionId}
             </span>
           </div>
-          <div className="mp-railkv__row">
-            <span className="mp-railkv__k">Workspace</span>
-            <span className="mp-railkv__v">{workspaceName ?? "Personal"}</span>
-          </div>
+          {!onWorkspaceChange && (
+            <div className="mp-railkv__row">
+              <span className="mp-railkv__k">Workspace</span>
+              <span
+                className="mp-railkv__v"
+                title={project ? "Follows the linked project" : undefined}
+              >
+                {workspaceName ?? "Personal"}
+              </span>
+            </div>
+          )}
         </div>
+        {onWorkspaceChange && (
+          <div className="mp-rail__field">
+            <Select
+              label="Workspace"
+              size="xs"
+              value={workspaceId ?? PERSONAL_WORKSPACE_VALUE}
+              data={[
+                { value: PERSONAL_WORKSPACE_VALUE, label: "Personal" },
+                ...workspaceOptions.map((w) => ({ value: w.id, label: w.name })),
+              ]}
+              onChange={(value) => {
+                if (value === null) return;
+                const next = value === PERSONAL_WORKSPACE_VALUE ? null : value;
+                if (next !== workspaceId) onWorkspaceChange(next);
+              }}
+              allowDeselect={false}
+              searchable
+              disabled={isSavingWorkspace}
+              comboboxProps={{ withinPortal: true }}
+            />
+          </div>
+        )}
         <div className="mp-rail__field">
           <DateTimeField
             label="Meeting date"

@@ -54,6 +54,9 @@ interface MeetingDetailProps {
   onMeetingDateChange: (value: Date | null) => void;
   /** Place the meeting onto a project (null clears placement). */
   onProjectChange: (projectId: string | null) => void;
+  /** Move an unlinked meeting to another workspace (null = Personal). */
+  onWorkspaceChange: (workspaceId: string | null) => void;
+  isSavingWorkspace?: boolean;
   /** Turn the transcript into reviewable draft product features. */
   onIdeateFeatures: () => void;
   /** Re-run the AI summary, overwriting the stored one (manual refresh). */
@@ -96,6 +99,8 @@ export function MeetingDetail({
   onRenameTitle,
   onMeetingDateChange,
   onProjectChange,
+  onWorkspaceChange,
+  isSavingWorkspace,
   onIdeateFeatures,
   onRegenerateSummary,
   onExtractOutputs,
@@ -141,6 +146,16 @@ export function MeetingDetail({
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Producing drafts takes edit access to the meeting; the server re-checks.
+  // A project-linked meeting's workspace is its project's, so only unlinked
+  // meetings get the workspace picker; moving a linked one goes via the project.
+  const canMoveWorkspace = session.canEdit && !session.projectId;
+  const { data: workspaces } = api.workspace.list.useQuery(undefined, {
+    enabled: canMoveWorkspace,
+  });
+  const workspaceOptions = useMemo(
+    () => (workspaces ?? []).map((w) => ({ id: w.id, name: w.name })),
+    [workspaces],
+  );
   const canExtractOutputs = session.canEdit && session.hasTranscript;
   async function handleExtractOutputs() {
     // Results are triaged on the Outputs tab, so land there once they exist.
@@ -671,6 +686,10 @@ export function MeetingDetail({
             isLoadingProjects={projectPickerOpened && isLoadingProjects}
             onProjectChange={onProjectChange}
             workspaceName={session.workspace?.name ?? null}
+            workspaceId={session.workspaceId ?? null}
+            workspaceOptions={workspaceOptions}
+            onWorkspaceChange={canMoveWorkspace ? onWorkspaceChange : undefined}
+            isSavingWorkspace={isSavingWorkspace}
             occurrence={vm.occurrence}
             occurrenceHref={occurrenceHref}
             occurrenceOptions={occurrenceOptions}

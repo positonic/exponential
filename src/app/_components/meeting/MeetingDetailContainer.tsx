@@ -343,6 +343,25 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     }
   }
 
+  async function handleWorkspaceChange(workspaceId: string | null) {
+    if (!session) return;
+    try {
+      await updateDetailsMutation.mutateAsync({ id: session.id, workspaceId });
+      notifications.show({
+        title: "Moved",
+        message: "Meeting moved to another workspace",
+        color: "green",
+      });
+      void utils.transcription.invalidate();
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to move meeting",
+        color: "red",
+      });
+    }
+  }
+
   function handleProjectChange(projectId: string | null) {
     if (!session) return;
     // Routes through the placement service: sets the project, derives the
@@ -396,6 +415,8 @@ export function MeetingDetailContainer({ id }: { id: string }) {
       onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
+      onWorkspaceChange={(workspaceId) => void handleWorkspaceChange(workspaceId)}
+      isSavingWorkspace={updateDetailsMutation.isPending}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
       onExtractOutputs={handleExtractOutputs}
