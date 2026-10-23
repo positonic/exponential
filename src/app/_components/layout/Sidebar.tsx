@@ -12,6 +12,7 @@ import { UserMenu } from "./UserMenu";
 import { GlobalAddTaskButton } from "./GlobalAddTaskButton";
 import { ActiveTimerWidget } from "./ActiveTimerWidget";
 import { useStoredBoolean } from "~/hooks/useStoredBoolean";
+import { useModKey } from "~/hooks/useModKey";
 import { openCommandPalette } from "~/lib/commandPalette";
 import "./sidebar.css";
 
@@ -27,6 +28,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed
   const [isDesktop, setIsDesktop] = useState(false);
   const [rail, setRail] = useStoredBoolean('sb-rail', false);
+  const mod = useModKey();
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
 
   // Auto-open sidebar on desktop only
@@ -113,14 +115,14 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
               className="sb-search"
               onClick={openCommandPalette}
               aria-label="Search"
-              title="Search (⌘K)"
-              aria-keyshortcuts="Meta+K"
+              title={`Search (${mod.label}K)`}
+              aria-keyshortcuts={`${mod.aria}+K`}
             >
               <span className="sb-search__icon">
                 <IconSearch size={14} />
               </span>
               <span className="sb-search__label">Search or ask…</span>
-              <span className="sb-search__kbd">⌘K</span>
+              <span className="sb-search__kbd">{mod.label}K</span>
             </button>
             <GlobalAddTaskButton variant="sidebar" />
           </div>
