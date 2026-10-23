@@ -71,7 +71,11 @@ test("Panel variants keep their radius and surface", async ({ page }) => {
   await expect(page.getByTestId("ui-gallery")).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
 
   expect(await radiusOf(page, '[data-testid="panel-default"]')).toBe("8px");
+  expect(await radiusOf(page, '[data-testid="panel-plain"]')).toBe("8px");
   expect(await radiusOf(page, '[data-testid="panel-muted"]')).toBe("8px");
+  expect(
+    await page.getByTestId("panel-plain").evaluate((el) => getComputedStyle(el).borderTopWidth),
+  ).toBe("0px");
   expect(await radiusOf(page, '[data-testid="panel-elevated"]')).toBe("8px");
   expect(await radiusOf(page, '[data-testid="panel-md"]')).toBe("6px");
   expect(await radiusOf(page, '[data-testid="panel-xl"]')).toBe("12px");

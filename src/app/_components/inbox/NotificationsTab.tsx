@@ -99,7 +99,7 @@ export function NotificationsTab() {
   const notifications = list.data?.pages.flatMap((page) => page.notifications) ?? [];
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <SegmentedControl
           size="xs"

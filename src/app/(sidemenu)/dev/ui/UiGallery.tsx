@@ -63,6 +63,10 @@ export function UiGallery() {
             <SectionHeader title="default" count={4} className="mb-2" />
             <p className="text-sm text-text-secondary">surface-secondary, border-primary, lg radius, p-4.</p>
           </Panel>
+          <Panel variant="plain" data-testid="panel-plain">
+            <SectionHeader title="plain" className="mb-2" />
+            <p className="text-sm text-text-secondary">surface-secondary, no border. Dashboard cards.</p>
+          </Panel>
           <Panel variant="muted" data-testid="panel-muted">
             <SectionHeader title="muted" className="mb-2" />
             <p className="text-sm text-text-secondary">background-secondary, border-subtle. Meeting cards, list rows.</p>

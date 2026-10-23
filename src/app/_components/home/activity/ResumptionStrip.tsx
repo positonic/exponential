@@ -37,7 +37,7 @@ export function ResumptionStrip() {
   return (
     <div className="wsa-resume">
       {recentPages.length > 0 && (
-        <Panel as="section" radius="xl" padding="none" className="wsa-card">
+        <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconFileText size={14} stroke={1.8} />
@@ -70,7 +70,7 @@ export function ResumptionStrip() {
       )}
 
       {recentMeetings.length > 0 && (
-        <Panel as="section" radius="xl" padding="none" className="wsa-card">
+        <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconMicrophone size={14} stroke={1.8} />

@@ -91,7 +91,7 @@ export function ProjectsPanel() {
   }, [projects, query, statusFilter]);
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head" style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
           {(['workspace', 'organization'] as const).map((value) => (

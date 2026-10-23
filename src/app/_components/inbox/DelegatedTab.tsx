@@ -125,7 +125,7 @@ export function DelegatedTab() {
 
   if (isLoading || !data) {
     return (
-      <Panel as="section" radius="xl" padding="none" className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         {[0, 1, 2].map((i) => (
           <Skeleton key={i} height={40} mb={4} radius="sm" />
         ))}
@@ -136,7 +136,7 @@ export function DelegatedTab() {
   const { counts } = data;
   if (counts.live + counts.waiting + counts.unreviewed + counts.reviewed === 0) {
     return (
-      <Panel as="section" radius="xl" padding="none" className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         <p className="wsa-feed__empty">
           Nothing is delegated. Assign an action to your assistant and it shows up here while it works.
         </p>
@@ -145,7 +145,7 @@ export function DelegatedTab() {
   }
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card" data-testid="delegated-tab">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card" data-testid="delegated-tab">
       <Section label="Working" shown={data.live.length} total={counts.live}>
         {data.live.map((run) => (
           <Row

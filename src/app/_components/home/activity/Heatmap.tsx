@@ -75,7 +75,7 @@ export function Heatmap() {
   }, [cells, total]);
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconActivity size={14} stroke={1.8} />

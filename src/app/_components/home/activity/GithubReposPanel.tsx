@@ -39,7 +39,7 @@ export function GithubReposPanel() {
 
   if (isLoading) {
     return (
-      <Panel as="section" radius="xl" padding="none" className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         <Skeleton height={18} width={150} />
         <Skeleton height={30} mt={10} />
         <Skeleton height={24} mt={8} />
@@ -57,7 +57,7 @@ export function GithubReposPanel() {
   if (repos.length === 0 && !showConnectPrompt) return null;
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head" style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <IconBrandGithub

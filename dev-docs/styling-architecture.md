@@ -359,6 +359,7 @@ bg-surface-secondary` again: it renders `<Panel>`.
 import { Panel, SectionHeader, Pill, Toolbar, EmptyState } from "~/app/_components/ui";
 
 <Panel>                                   // card: surface-secondary, border-primary, lg radius, p-4
+<Panel variant="plain" radius="xl">       // same surface, no border (dashboard cards)
 <Panel variant="muted" radius="md">       // quieter tonal row (meeting cards, list rows)
 <Panel variant="elevated">                // floats: bg-elevated + shadow-md
 <Panel interactive as="button">           // hover affordance; `as` takes any element or Link
@@ -378,7 +379,7 @@ import { Panel, SectionHeader, Pill, Toolbar, EmptyState } from "~/app/_componen
 
 | Primitive | Owns | You choose | You never pass |
 |---|---|---|---|
-| `Panel` | surface, border, radius, padding, hover | `variant` default/muted/elevated, `radius` md/lg/xl, `padding` none/sm/md/lg, `interactive`, `as` | `rounded-*`, `border-*`, `bg-*`, `p-*` for the box itself |
+| `Panel` | surface, border, radius, padding, hover | `variant` default/plain/muted/elevated, `radius` md/lg/xl, `padding` none/sm/md/lg, `interactive`, `as` | `rounded-*`, `border-*`, `bg-*`, `p-*` for the box itself |
 | `SectionHeader` | the uppercase muted label row | `title`, `icon`, `count`, `action`, `as` h2/h3/h4/div, `size` | `uppercase tracking-* text-text-muted` by hand |
 | `Pill` | rounded-full chip | `tone` neutral/brand/warning/danger, `size` xs/sm, `icon` | `rounded-full px-2 text-[11px]` by hand |
 | `Toolbar` | a control row with optional hairline | `bordered`, `Toolbar.Group`, `Toolbar.Spacer` | ad-hoc `flex items-center gap-2 border-b` rows |

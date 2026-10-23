@@ -97,7 +97,7 @@ export function OnTrackPanel() {
   const allClear = problems.length === 0 && staleKrs.length === 0;
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconTarget size={14} stroke={1.8} />

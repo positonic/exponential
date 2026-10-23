@@ -208,7 +208,7 @@ export function WaitingOnMeTab() {
 
   if (isLoading || !data) {
     return (
-      <Panel as="section" radius="xl" padding="none" className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         {[0, 1, 2, 3].map((i) => (
           <Skeleton key={i} height={40} mb={4} radius="sm" />
         ))}
@@ -220,7 +220,7 @@ export function WaitingOnMeTab() {
 
   if (counts.total === 0) {
     return (
-      <Panel as="section" radius="xl" padding="none" className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         <p className="wsa-feed__empty">
           Nothing is waiting on you — no open decisions, drafts to review, QA
           tickets, overdue actions or questions from an assistant.
@@ -230,7 +230,7 @@ export function WaitingOnMeTab() {
   }
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <Section
         label="Assistants asked you"
         shown={data.assistantQuestions.length}

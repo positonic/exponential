@@ -138,7 +138,7 @@ export function WeekInReview() {
   const delta = thisWeekTotal - (data?.lastWeekTotal ?? 0);
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card wsa-week">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card wsa-week">
       {/* ── Left column: textual summary ─────────────────────────────── */}
       <div className="wsa-week__left">
         <div className="wsa-week__eyebrow-row">

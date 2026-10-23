@@ -92,7 +92,7 @@ export function TodayPanel() {
       : dueDate.toLocaleDateString('en-US', { weekday: 'short' });
 
   return (
-    <Panel as="section" radius="xl" padding="none" className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconSun size={14} stroke={1.8} />
