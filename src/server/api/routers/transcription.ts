@@ -649,6 +649,8 @@ export const transcriptionRouter = createTRPCRouter({
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures,
         canEdit,
+        /** Only the owner may move a workspace meeting to Personal. */
+        isOwner: session.userId === ctx.session.user.id,
         hasTranscript: Boolean(transcription),
         // Same canonical parser the Transcript tab renders with (ADR-0032).
         transcriptTurnCount: parseTranscript({

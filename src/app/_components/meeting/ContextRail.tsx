@@ -68,6 +68,8 @@ interface ContextRailProps {
    * workspace is the project's. */
   onWorkspaceChange?: (workspaceId: string | null) => void;
   isSavingWorkspace?: boolean;
+  /** Offer "Personal" as a target: only the meeting's owner may move it there. */
+  allowPersonalWorkspace?: boolean;
   /** The ceremony occurrence this meeting captured (ADR-0059), if any. */
   occurrence: MeetingOccurrenceRef | null;
   occurrenceHref: string | null;
@@ -131,6 +133,7 @@ export function ContextRail({
   workspaceOptions = [],
   onWorkspaceChange,
   isSavingWorkspace = false,
+  allowPersonalWorkspace = true,
   occurrence,
   occurrenceHref,
   occurrenceOptions,
@@ -437,7 +440,9 @@ export function ContextRail({
               size="xs"
               value={workspaceId ?? PERSONAL_WORKSPACE_VALUE}
               data={[
-                { value: PERSONAL_WORKSPACE_VALUE, label: "Personal" },
+                ...(allowPersonalWorkspace
+                  ? [{ value: PERSONAL_WORKSPACE_VALUE, label: "Personal" }]
+                  : []),
                 ...workspaceOptions.map((w) => ({ value: w.id, label: w.name })),
               ]}
               onChange={(value) => {

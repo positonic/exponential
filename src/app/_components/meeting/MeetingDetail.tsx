@@ -38,9 +38,6 @@ import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
 
-/** Workspace roles that may move a meeting in (mirrors canEditWorkspaceContent). */
-const MOVE_TARGET_ROLES = new Set(["owner", "admin", "member"]);
-
 interface MeetingDetailProps {
   session: MeetingSession;
   actions: TranscriptAction[];
@@ -160,11 +157,7 @@ export function MeetingDetail({
   const workspaceOptions = useMemo(
     () =>
       (workspaces ?? [])
-        .filter(
-          (w) =>
-            w.id === session.workspaceId ||
-            MOVE_TARGET_ROLES.has(w.currentUserRole ?? ""),
-        )
+        .filter((w) => w.id === session.workspaceId || w.canAddContent)
         .map((w) => ({ id: w.id, name: w.name })),
     [workspaces, session.workspaceId],
   );
@@ -700,6 +693,7 @@ export function MeetingDetail({
             workspaceName={session.workspace?.name ?? null}
             workspaceId={session.workspaceId ?? null}
             workspaceOptions={workspaceOptions}
+            allowPersonalWorkspace={session.isOwner || !session.workspaceId}
             onWorkspaceChange={canMoveWorkspace ? onWorkspaceChange : undefined}
             isSavingWorkspace={isSavingWorkspace}
             occurrence={vm.occurrence}

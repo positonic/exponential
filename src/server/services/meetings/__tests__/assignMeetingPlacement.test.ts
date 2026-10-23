@@ -478,27 +478,26 @@ describe("fileImportIntoDefaultWorkspace", () => {
 });
 
 describe("moveMeetingToWorkspace", () => {
-  const MEETING = { id: "m1", userId: USER, projectId: null, workspaceId: "ws-a" };
+  const MEETING = { id: "m1", userId: USER, projectId: null as string | null, workspaceId: "ws-a" };
 
   function givenMeeting(overrides: Partial<typeof MEETING> = {}) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (db.transcriptionSession.findUnique as any).mockResolvedValue({ ...MEETING, ...overrides });
+    db.transcriptionSession.findUnique.mockResolvedValue({
+      ...MEETING,
+      ...overrides,
+    } as unknown as Awaited<ReturnType<PrismaClient["transcriptionSession"]["findUnique"]>>);
     vi.mocked(canEditTranscription).mockReturnValue(true);
   }
 
-  function givenRole(role: string | null) {
+  function givenRole(role: "owner" | "admin" | "member" | "viewer" | null) {
     vi.mocked(getWorkspaceMembership).mockResolvedValue(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      role ? ({ role, workspaceId: "ws-b" } as any) : null,
+      role ? { role, workspaceId: "ws-b" } : null,
     );
   }
 
   beforeEach(() => {
     vi.mocked(getWorkspaceMembership).mockReset();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (db.meetingFeature.count as any).mockResolvedValueOnce(2).mockResolvedValueOnce(0);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (db.meetingFeature.deleteMany as any).mockResolvedValue({ count: 2 });
+    db.meetingFeature.count.mockResolvedValueOnce(2).mockResolvedValueOnce(0);
+    db.meetingFeature.deleteMany.mockResolvedValue({ count: 2 });
   });
 
   it("moves the meeting and its Actions together, and reports dropped feature links", async () => {
@@ -529,7 +528,7 @@ describe("moveMeetingToWorkspace", () => {
   });
 
   it("refuses a project-linked meeting, whose workspace follows its project", async () => {
-    givenMeeting({ projectId: "p1" } as Partial<typeof MEETING>);
+    givenMeeting({ projectId: "p1" });
     givenRole("owner");
 
     await expect(
@@ -547,7 +546,7 @@ describe("moveMeetingToWorkspace", () => {
     expect(db.transcriptionSession.update).not.toHaveBeenCalled();
   });
 
-  it("moves to Personal without a membership check", async () => {
+  it("lets the owner move to Personal without a membership check", async () => {
     givenMeeting();
 
     const result = await moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: null });
@@ -558,5 +557,14 @@ describe("moveMeetingToWorkspace", () => {
       data: { workspaceId: null },
     });
     expect(result.workspaceId).toBeNull();
+  });
+
+  it("refuses a co-editor moving someone else's meeting to Personal", async () => {
+    givenMeeting({ userId: "someone-else" });
+
+    await expect(
+      moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: null }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.transcriptionSession.update).not.toHaveBeenCalled();
   });
 });

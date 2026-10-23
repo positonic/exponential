@@ -253,7 +253,7 @@ export interface MoveMeetingToWorkspaceResult {
 
 /**
  * Move a Meeting that has no Project to another Workspace, or to Personal
- * (`workspaceId: null`). A project-linked Meeting's Workspace is its Project's,
+ * (`workspaceId: null`, owner only). A project-linked Meeting's Workspace is its Project's,
  * so it moves through `assignMeetingPlacement` instead and is refused here.
  *
  * The caller needs edit access to the Meeting and an edit-capable role
@@ -287,6 +287,14 @@ export async function moveMeetingToWorkspace(
       code: "BAD_REQUEST",
       message:
         "This meeting belongs to a project, so its workspace follows the project. Change the project instead.",
+    });
+  }
+  // Personal means the owner's Personal. A co-editor moving someone else's
+  // meeting there would pull it out of the workspace and away from themselves.
+  if (!workspaceId && session.userId !== userId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only the meeting's owner can move it to Personal",
     });
   }
   if (workspaceId) {
