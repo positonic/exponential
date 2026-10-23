@@ -6,6 +6,7 @@ import { IconFileText, IconMicrophone } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
+import { Panel } from "~/app/_components/ui";
 
 const MAX_ROWS = 3;
 
@@ -36,7 +37,7 @@ export function ResumptionStrip() {
   return (
     <div className="wsa-resume">
       {recentPages.length > 0 && (
-        <section className="wsa-card">
+        <Panel as="section" radius="xl" padding="none" className="wsa-card">
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconFileText size={14} stroke={1.8} />
@@ -65,11 +66,11 @@ export function ResumptionStrip() {
               <span className="wsa-item__meta">{compactAge(page.updatedAt)}</span>
             </UnstyledButton>
           ))}
-        </section>
+        </Panel>
       )}
 
       {recentMeetings.length > 0 && (
-        <section className="wsa-card">
+        <Panel as="section" radius="xl" padding="none" className="wsa-card">
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconMicrophone size={14} stroke={1.8} />
@@ -94,7 +95,7 @@ export function ResumptionStrip() {
               </span>
             </UnstyledButton>
           ))}
-        </section>
+        </Panel>
       )}
     </div>
   );

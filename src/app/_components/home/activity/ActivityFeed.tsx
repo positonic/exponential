@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { ActivityRow } from './activityRow';
+import { Panel } from "~/app/_components/ui";
 
 /**
  * Workspace activity feed card. Renders the most recent events for the
@@ -35,7 +36,7 @@ export function ActivityFeed() {
   const hasMore = data?.nextCursor != null;
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconClipboardList size={14} stroke={1.8} />
@@ -100,6 +101,6 @@ export function ActivityFeed() {
           ) : null}
         </>
       )}
-    </section>
+    </Panel>
   );
 }

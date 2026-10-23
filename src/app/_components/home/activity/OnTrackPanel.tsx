@@ -10,6 +10,7 @@ import {
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
+import { Panel } from "~/app/_components/ui";
 
 /** "on-track" → "On track" for chip and row meta text. */
 function healthLabel(health: string | null): string {
@@ -96,7 +97,7 @@ export function OnTrackPanel() {
   const allClear = problems.length === 0 && staleKrs.length === 0;
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconTarget size={14} stroke={1.8} />
@@ -188,6 +189,6 @@ export function OnTrackPanel() {
           )}
         </>
       )}
-    </section>
+    </Panel>
   );
 }

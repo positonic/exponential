@@ -15,6 +15,7 @@ import {
 } from './ActorSwitcher';
 
 import './activity-home.css';
+import { Panel } from "~/app/_components/ui";
 
 const PAGE_SIZE = 50;
 
@@ -116,7 +117,7 @@ export function WorkspaceActivityFullFeed() {
           </Text>
         </div>
 
-        <section className="wsa-card">
+        <Panel as="section" radius="xl" padding="none" className="wsa-card">
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconClipboardList size={14} stroke={1.8} />
@@ -205,7 +206,7 @@ export function WorkspaceActivityFullFeed() {
               ) : null}
             </>
           )}
-        </section>
+        </Panel>
       </Stack>
     </Container>
   );

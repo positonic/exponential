@@ -11,6 +11,7 @@ import {
   statusCss,
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
+import { Panel } from "~/app/_components/ui";
 
 type CycleData = RouterOutputs['yourWork']['currentCycles'][number];
 
@@ -63,7 +64,7 @@ function SingleCycle({ cycle }: { cycle: CycleData }) {
       : null;
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconRepeat size={14} stroke={1.8} />
@@ -177,7 +178,7 @@ function SingleCycle({ cycle }: { cycle: CycleData }) {
           Nothing assigned to you in this cycle.
         </p>
       )}
-    </section>
+    </Panel>
   );
 }
 

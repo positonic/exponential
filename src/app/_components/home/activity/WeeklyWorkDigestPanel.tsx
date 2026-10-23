@@ -23,6 +23,7 @@ import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import { api } from '~/trpc/react';
 
 import './activity-home.css';
+import { Panel } from "~/app/_components/ui";
 
 interface IsoWeek {
   isoYear: number;
@@ -136,7 +137,7 @@ export function WeeklyWorkDigestPanel() {
   const angles = data?.angles ?? [];
 
   return (
-    <section className="wsa-card wsa-digest" aria-label="Weekly work digest">
+    <Panel as="section" radius="xl" padding="none" className="wsa-card wsa-digest" aria-label="Weekly work digest">
       <div className="wsa-digest__head">
         <span className="wsa-digest__eyebrow">
           <IconUserStar size={14} stroke={1.8} />
@@ -270,7 +271,7 @@ export function WeeklyWorkDigestPanel() {
           ) : null}
         </>
       ) : null}
-    </section>
+    </Panel>
   );
 }
 

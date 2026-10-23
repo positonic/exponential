@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { Panel } from "~/app/_components/ui";
 
 /**
  * GitHub repositories rail widget (ADR-0020). Replaces the redundant projects
@@ -38,11 +39,11 @@ export function GithubReposPanel() {
 
   if (isLoading) {
     return (
-      <section className="wsa-card">
+      <Panel as="section" radius="xl" padding="none" className="wsa-card">
         <Skeleton height={18} width={150} />
         <Skeleton height={30} mt={10} />
         <Skeleton height={24} mt={8} />
-      </section>
+      </Panel>
     );
   }
   if (!data) return null;
@@ -56,7 +57,7 @@ export function GithubReposPanel() {
   if (repos.length === 0 && !showConnectPrompt) return null;
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head" style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <IconBrandGithub
@@ -150,6 +151,6 @@ export function GithubReposPanel() {
           </Link>
         </>
       )}
-    </section>
+    </Panel>
   );
 }

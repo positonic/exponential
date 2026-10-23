@@ -384,6 +384,12 @@ import { Panel, SectionHeader, Pill, Toolbar, EmptyState } from "~/app/_componen
 | `Toolbar` | a control row with optional hairline | `bordered`, `Toolbar.Group`, `Toolbar.Spacer` | ad-hoc `flex items-center gap-2 border-b` rows |
 | `EmptyState` | the empty placeholder (predates this folder, uses Mantine) | `icon`, `title`, `message`, `action`, `compact` | |
 
+**See them all at `/dev/ui`** (open in development, admins only in
+production): every token and every variant on one page, with the real app
+chrome and theme. `e2e/ui-gallery.spec.ts` asserts the token wiring against
+that page and attaches light and dark screenshots. Add a new variant there
+alongside its siblings so review sees it in context.
+
 Rules of the folder:
 
 - **Primitives are dependency-free and server-safe.** No Mantine, no hooks,
