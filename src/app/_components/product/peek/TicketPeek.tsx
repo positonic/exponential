@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Avatar,
   Menu,
   Popover,
   Skeleton,
@@ -21,7 +20,6 @@ import {
   IconRepeat,
   IconTag,
   IconTargetArrow,
-  IconUser,
 } from "@tabler/icons-react";
 import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
@@ -29,6 +27,7 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
 import { effortOptions, effortPillLabel } from "~/types/effort";
 import { PropertyPill, PillRow, pillClassName, ColorDot } from "~/app/_components/product/PropertyPill";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import { PriorityIcon, PRIORITY_LABELS } from "~/app/_components/product/PriorityIcon";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
@@ -146,7 +145,6 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
         ? generateLinearId(ticket.product.name, ticket.number)
         : null;
 
-  const members = workspace?.members ?? [];
   const hasLinks = !!(ticket.branchName ?? ticket.prUrl ?? ticket.designUrl ?? ticket.specUrl);
 
   const showEffort = ticket.points != null || revealed.has("effort");
@@ -269,32 +267,13 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             <Menu.Item onClick={() => setField("priority", null)}>No priority</Menu.Item>
           </PropertyPill>
 
-          <PropertyPill
-            tooltip="DRI"
-            ghost={!ticket.assignee}
-            icon={
-              ticket.assignee ? (
-                <Avatar size={16} radius="xl" src={ticket.assignee.image}>
-                  {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-                </Avatar>
-              ) : (
-                <IconUser size={13} />
-              )
-            }
-            label={ticket.assignee ? (ticket.assignee.name ?? ticket.assignee.email ?? "Unknown") : "DRI"}
-          >
-            {members.map((m: { user: { id: string; name: string | null } }) => (
-              <Menu.Item
-                key={m.user.id}
-                rightSection={m.user.id === ticket.assigneeId ? <IconCheck size={13} className="text-text-muted" /> : undefined}
-                onClick={() => setField("assigneeId", m.user.id)}
-              >
-                {m.user.name ?? "Unnamed"}
-              </Menu.Item>
-            ))}
-            <Menu.Divider />
-            <Menu.Item onClick={() => setField("assigneeId", null)}>Unassigned</Menu.Item>
-          </PropertyPill>
+          <PersonPicker
+            label="DRI"
+            workspaceId={workspaceId}
+            value={ticket.assigneeId ?? null}
+            selectedUser={ticket.assignee}
+            onChange={(id) => setField("assigneeId", id)}
+          />
 
           {/* Effort rides in the ⋯ overflow until set - it's the least
               scanned workflow property and the strip stays one line longer

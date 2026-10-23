@@ -27,7 +27,6 @@ import {
   IconDots,
   IconSettings,
   IconCircleCheckFilled,
-  IconUsers,
   IconCalendar,
   IconMessage,
   IconMoodSmile,
@@ -53,6 +52,7 @@ import { GoalFeaturesTab } from "./GoalFeaturesTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
 import { GoalIcon } from "../GoalIcon";
 import { IconPicker } from "../IconPicker";
+import { PersonPicker } from "../shared/PersonPicker";
 import { CreateProjectModal } from "../CreateProjectModal";
 import { ProjectViewTabs, type ProjectView } from "../ProjectViewTabs";
 import { ProjectsTasksView } from "../ProjectsTasksView/ProjectsTasksView";
@@ -195,6 +195,37 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
       void utils.goal.getById.invalidate({ id: goalId });
     },
   });
+
+  const updateDriMutation = api.goal.updateGoal.useMutation({
+    onSettled: () => {
+      void utils.goal.getById.invalidate({ id: goalId });
+    },
+  });
+
+  // Optimistic: the picker hands back the chosen person, so the pill shows
+  // them before the save lands.
+  const setDri = async (
+    driUserId: string | null,
+    user: { id: string; name: string | null; image: string | null } | null,
+  ) => {
+    await utils.goal.getById.cancel({ id: goalId });
+    const previous = utils.goal.getById.getData({ id: goalId });
+    if (previous) {
+      utils.goal.getById.setData({ id: goalId }, {
+        ...previous,
+        driUserId,
+        driUser: user ? { id: user.id, name: user.name, image: user.image } : null,
+      });
+    }
+    updateDriMutation.mutate(
+      { id: goalId, driUserId },
+      {
+        onError: () => {
+          if (previous) utils.goal.getById.setData({ id: goalId }, previous);
+        },
+      },
+    );
+  };
 
   const updateStatusMutation = api.goal.updateGoalStatus.useMutation({
     onMutate: async (newData) => {
@@ -400,12 +431,14 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                     ))}
                   </Menu.Dropdown>
                 </Menu>
-                <Group gap={6}>
-                  <IconUsers size={14} className="text-text-muted" />
-                  <Text size="sm" className="text-text-secondary">
-                    {goal.driUser?.name ?? "Owner"}
-                  </Text>
-                </Group>
+                <PersonPicker
+                  label="DRI"
+                  clearable={false}
+                  workspaceId={goal.workspaceId}
+                  value={goal.driUserId}
+                  selectedUser={goal.driUser ? { ...goal.driUser, email: null } : null}
+                  onChange={(driUserId, user) => void setDri(driUserId, user)}
+                />
                 <Group gap={6}>
                   <IconCalendar size={14} className="text-text-muted" />
                   <Text size="sm" className="text-text-secondary">

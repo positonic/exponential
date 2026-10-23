@@ -33,6 +33,12 @@
  *    (no-restricted-syntax in .eslintrc.cjs) so the editor flags them on save;
  *    this is the CSS-side and CI backstop.
  *
+ * 4. Scoped shape tokens (hard fail). A `--radius-*` / `--shadow-*` (or a
+ *    per-page copy such as `--ch-radius-*`) declared anywhere but the `:root`
+ *    and colour-scheme blocks of globals.css. A scoped copy shadows the
+ *    global scale for one page, which is how the pages drifted apart in the
+ *    first place.
+ *
  * Usage:
  *   tsx scripts/check-design-tokens.ts                  # check
  *   tsx scripts/check-design-tokens.ts --update-baseline
@@ -46,6 +52,7 @@ export interface Finding {
   line: number;
   kind:
     | "undefined-var"
+    | "scoped-shape-token"
     | "raw-radius"
     | "raw-shadow"
     | "raw-surface"
@@ -109,20 +116,87 @@ function lineOf(text: string, index: number): number {
   return line;
 }
 
+/** Blank out block comments and whole-line `//` comments, keeping line numbers. */
+export function stripComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
+    .replace(/^(\s*)\/\/.*$/gm, (c) => c.replace(/[^\n]/g, " "));
+}
+
 /**
  * Every custom property the source declares. CSS (`--x: 1px;`), style-object
  * keys (`'--x': 1`), and `setProperty('--x', …)` all count: a property set
  * from JS at runtime is as defined as one in a stylesheet.
+ *
+ * Only real declaration positions count: a CSS declaration starts a
+ * statement (after `{`, `;` or a line start) and a JS key follows `{`, `,` or
+ * a line start. A ternary like `dark ? '--a' : '--b'` or a name in a comment
+ * must NOT register, or an undefined reference to it would pass the check.
  */
 export function collectDefinitions(sources: Map<string, string>): Set<string> {
   const defs = new Set<string>();
-  const decl = /(--[A-Za-z0-9_-]+)['"]?\s*:/g;
+  const cssDecl = /(?:^|[{;])\s*(--[A-Za-z0-9_-]+)\s*:/gm;
+  const jsKey = /(?:^|[{,])\s*['"](--[A-Za-z0-9_-]+)['"]\s*:/gm;
   const setProp = /setProperty\(\s*['"](--[A-Za-z0-9_-]+)['"]/g;
-  for (const text of sources.values()) {
-    for (const m of text.matchAll(decl)) defs.add(m[1]!);
+  for (const raw of sources.values()) {
+    const text = stripComments(raw);
+    for (const m of text.matchAll(cssDecl)) defs.add(m[1]!);
+    for (const m of text.matchAll(jsKey)) defs.add(m[1]!);
     for (const m of text.matchAll(setProp)) defs.add(m[1]!);
   }
   return defs;
+}
+
+const TOKENS_FILE = "src/styles/globals.css";
+// `--radius-*`, `--shadow-*`, and a per-page copy with a short namespace
+// (`--ch-radius-*`). `--color-shadow*` is a colour token and must not match.
+const SHAPE_TOKEN_DECL = /(?:^|[{;])\s*(--(?:[a-z]{1,4}-)?(?:radius|shadow)-[A-Za-z0-9_-]+)\s*:/gm;
+
+/** The selector that owns the block an index sits in (text between the last unmatched `{` and its preceding `}`/start). */
+function enclosingSelector(text: string, index: number): string {
+  let depth = 0;
+  for (let i = index; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === "}") depth++;
+    else if (ch === "{") {
+      if (depth === 0) {
+        const start = Math.max(
+          text.lastIndexOf("}", i - 1),
+          text.lastIndexOf("{", i - 1),
+          text.lastIndexOf(";", i - 1),
+        );
+        return text.slice(start + 1, i).trim();
+      }
+      depth--;
+    }
+  }
+  return "";
+}
+
+/**
+ * `--radius-*` / `--shadow-*` (and per-page copies like `--ch-radius-*`) may
+ * only be declared on `:root` or a colour-scheme block in globals.css.
+ * `--color-shadow` is a colour token, not a shape token, and is not matched.
+ */
+export function findScopedShapeTokens(file: string, text: string): Finding[] {
+  const out: Finding[] = [];
+  const clean = stripComments(text);
+  for (const m of clean.matchAll(SHAPE_TOKEN_DECL)) {
+    const name = m[1]!;
+    const index = (m.index ?? 0) + m[0].indexOf(name);
+    const selector = file === TOKENS_FILE ? enclosingSelector(clean, index) : "";
+    const allowed =
+      file === TOKENS_FILE && /^(:root|\[data-mantine-color-scheme=[^\]]+\])$/.test(selector);
+    if (!allowed) {
+      out.push({
+        file,
+        line: lineOf(text, index),
+        kind: "scoped-shape-token",
+        detail: `${name} declared ${selector ? `inside \`${selector}\`` : "outside globals.css"} — shape tokens live only on :root; a scoped copy shadows the global scale for one page`,
+      });
+    }
+  }
+  return out;
 }
 
 export function findUndefinedVars(
@@ -279,6 +353,7 @@ export function run(opts: { updateBaseline: boolean }): number {
   const findings: Finding[] = [];
   for (const [file, text] of sources) {
     findings.push(...findUndefinedVars(file, text, defs));
+    if (file.endsWith(".css")) findings.push(...findScopedShapeTokens(file, text));
     findings.push(...findRawValues(file, text));
   }
 

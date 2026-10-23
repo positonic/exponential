@@ -172,7 +172,7 @@ describe("meeting placement invariant", () => {
     });
   });
 
-  describe("updateDetails", () => {
+  describe("moveToWorkspace", () => {
     it("cannot move a project-linked meeting out of its project's workspace", async () => {
       const user = await createUser(db);
       const ws = await createWorkspace(db, { ownerId: user.id, slug: `place-upd-a-${Date.now()}` });
@@ -189,7 +189,7 @@ describe("meeting placement invariant", () => {
       });
 
       await expect(
-        createTestCaller(user.id).transcription.updateDetails({ id: meeting.id, workspaceId: other.id }),
+        createTestCaller(user.id).transcription.moveToWorkspace({ id: meeting.id, workspaceId: other.id }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
       const row = await db.transcriptionSession.findUniqueOrThrow({ where: { id: meeting.id } });
       expect(row.workspaceId).toBe(ws.id);

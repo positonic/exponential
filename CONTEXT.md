@@ -409,8 +409,16 @@ What an Objective's or Key result's status badge actually shows. Each entity sto
 _Avoid_: Conflating "health" (Objective) with "status" (Key result) — same idea, different column per entity; "status" as a single stored value (it is two columns reconciled at read).
 
 **Favourite**:
-A per-user pin of any entity, surfaced in a "Favourites" section in the left nav under "Workspaces". Stored polymorphically in `Favorite { userId, workspaceId, entityType, entityId, createdAt }` — one row per user × entity. v1 wires `entityType` `objective` and `keyResult` only (table is deliberately extensible to projects/meetings later). The Favourites section is **workspace-scoped** — it shows only favourites whose `workspaceId` matches the current workspace. Clicking a favourite opens that item's OKR drawer via its deep link. Toggled by the star CTA in the OKR detail drawer.
+A per-user pin of any entity, surfaced in a "Favourites" section of the left nav placed above the category sections (decision 2026-10-23: the most-used rows sit where they are reached first, not below the fold). Stored polymorphically in `Favorite { userId, workspaceId, entityType, entityId, createdAt }` — one row per user × entity; `entityType` is `objective`, `keyResult` or `page` (a workspace-relative path with a snapshotted label and icon). The Favourites section is **workspace-scoped** — it shows only favourites whose `workspaceId` matches the current workspace. Clicking an OKR favourite opens that item's OKR drawer via its deep link; a page favourite opens its path. Toggled by the star CTA on the entity, and removed from the sidebar row's hover control.
 _Avoid_: Star, bookmark, pin (use "favourite"; "star" only for the CTA icon itself).
+
+**Recent** (sidebar):
+The last five entity detail pages (project, goal, page, product, decision, meeting occurrence) this person opened in the current workspace *on this device*, shown as a "Recent" section between Favourites and the category sections. A per-device convenience kept in the browser (`localStorage`), not a record: it never syncs between devices and is never read server-side. List pages are not recents — they are already one click away in the nav. Decision 2026-10-23.
+_Avoid_: History (that is the activity feed), Recently viewed.
+
+**Rail** (sidebar):
+The desktop sidebar's folded state — a 56px column of icons with native tooltips, the Inbox badge reduced to a dot, and no sections, favourites or recents. Replaces hiding the sidebar entirely on desktop (decision 2026-10-23: wayfinding and the badge should survive a collapse); mobile keeps the drawer-over-backdrop. Remembered per device. Section **folds** (a section's heading closes its items) are the other collapse and live on the user's nav layout, so they follow the user between devices.
+_Avoid_: Collapsed sidebar, mini sidebar, icon mode.
 
 ### Pipeline triage
 
@@ -593,6 +601,11 @@ _Avoid_: Onboarding (the retired wizard, and reserved for CRM partner onboarding
 **Welcome email**:
 The single onboarding email a `User` ever receives — sent **once, after the first successful sign-in on any provider** (fired from `events.createUser`, so "created" *is* "first login" by construction), never at code-request time. It carries the pitch (Daily Planning first, then the go-deeper bullets) that the **Sign-in code** email deliberately does *not*: the code email is minimal and **workspace-agnostic** so the code survives preview panes, and all persuasion waits until the person is actually in. One shared body with a **variant frame**: an invited user's subject and heading name the **first accepted invited workspace**, and the opening names the inviter ("{inviter} added you to {workspace} — you're in.", a sibling phrasing of the in-app invited Welcome-flow copy — the strings are not shared); an organic signup gets "Thanks for signing up". Tailoring is **deterministic only** — the one dynamic slot in the body names the chat tool the workspace demonstrably uses (Matrix only if the workspace has a registered Matrix server, Slack by default) — never a per-workspace blurb and never AI-written prose. Strictly first-login: an *existing* user invited to a workspace gets the invite email only, and a user invited to several workspaces before first login gets one email tailored to the first (their default workspace). Replaces the OAuth-only `sendWelcomeEmail` and the long welcome-with-code email. _Build status: shipped._
 _Avoid_: Onboarding email (collides with CRM partner onboarding), drip / sequence (it is a single send), welcome-with-code (the retired pattern of burying the code under the pitch).
+
+### Sidebar layout
+
+**Sidebar layout**
+The order, names and visibility of the sections and items in the workspace sidebar, plus pinned **Shortcuts** at its top. Stored per *(user, workspace)* and layered over the user-wide default that the settings page edits: a workspace the user never customised shows their default, and the first edit there forks it ([ADR-0073](docs/adr/0073-sidebar-layout-per-workspace.md)). Edited in place: right-click the sidebar, **Customize sidebar**, drag by the grip, show or hide, add a shortcut (a built-in item or a custom link) or a section, Done. Personal to the member, never shared with the workspace.
 
 ### Workspace membership
 

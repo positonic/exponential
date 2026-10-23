@@ -15,6 +15,8 @@
    ============================================================ */
 :root {
   --titlebar-inset: 0px;
+  --sidebar-width: 220px;
+  --sidebar-rail-width: 56px;
 }
 
 html[data-titlebar="overlay"] {
@@ -30,6 +32,17 @@ html[data-titlebar="overlay"] {
   font-family: var(--sb-font);
   color: var(--sb-text);
   -webkit-font-smoothing: antialiased;
+  width: 100vw;
+}
+
+@media (width >= 640px) {
+  .app-sidebar {
+    width: var(--sidebar-width);
+  }
+
+  .app-sidebar--rail {
+    width: var(--sidebar-rail-width);
+  }
 }
 
 .app-sidebar .sb-workspace-divider {
@@ -37,9 +50,14 @@ html[data-titlebar="overlay"] {
 }
 
 /* Re-open button, shown in the same corner once the sidebar is closed —
-   so it has to clear the window controls too. */
+   so it has to clear the window controls too. Sized and placed like Notion's:
+   a 26px hit target whose centre sits on the 56px topbar's midline (28px), so
+   the icon reads as the first crumb rather than a floating control above the
+   row. WorkspaceTopbar's collapsed gutter is measured from this width. */
 .sb-toggle {
-  top: calc(0.5rem + env(safe-area-inset-top) + var(--titlebar-inset));
+  width: 26px;
+  height: 26px;
+  top: calc(15px + env(safe-area-inset-top) + var(--titlebar-inset));
 }
 
 /* ============================================================
@@ -47,7 +65,11 @@ html[data-titlebar="overlay"] {
    ============================================================ */
 @media (width >= 640px) {
   html[data-sidebar="open"] .sidebar-offset {
-    margin-left: 220px;
+    margin-left: var(--sidebar-width);
+  }
+
+  html[data-sidebar="rail"] .sidebar-offset {
+    margin-left: var(--sidebar-rail-width);
   }
 
   html[data-sidebar="closed"] .sidebar-offset {
@@ -65,6 +87,57 @@ html[data-titlebar="overlay"] {
    so the page starts below the chrome and needs no inset at all. It stamps
    data-shell="tauri" but deliberately NOT data-titlebar="overlay"; only the
    Electron shell and the pre-tabs Tauri shell take the 38px above. */
+
+/* ============================================================
+   Search row - opens the command palette
+   ============================================================ */
+.sb-search {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--sb-wash);
+  border: 1px solid var(--sb-hair);
+  border-radius: 8px;
+  color: var(--sb-muted);
+  font-family: var(--sb-font);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.sb-search:hover {
+  background: var(--sb-wash-strong);
+  color: var(--sb-text);
+}
+
+.sb-search:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 2px;
+}
+
+.sb-search__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--sb-faint);
+}
+
+.sb-search__label {
+  flex: 1;
+  text-align: left;
+}
+
+.sb-search__kbd {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--sb-faint);
+  font-feature-settings: "tnum";
+}
 
 /* ============================================================
    Create Action - soft tinted CTA
@@ -118,7 +191,9 @@ html[data-titlebar="overlay"] {
 }
 
 /* ============================================================
-   Nav groups
+   Nav groups and sections
+   Sections are separated by space, not hairlines: the label is
+   enough of a boundary and each hairline cost a row of chrome.
    ============================================================ */
 .sb-group {
   padding: 6px 10px 4px;
@@ -131,24 +206,86 @@ html[data-titlebar="overlay"] {
   padding: 4px 10px;
 }
 
-.sb-divider {
-  height: 1px;
-  background: var(--sb-faint);
-  margin: 12px 14px;
+.sb-section {
+  margin-top: 14px;
 }
 
 .sb-section-label {
   padding: 0 14px 6px;
-  font-size: 10.5px;
-  color: var(--sb-faint);
-  letter-spacing: 1.2px;
+  font-size: 11px;
+  color: var(--sb-label);
+  letter-spacing: 0.8px;
   text-transform: uppercase;
   font-weight: 500;
+}
+
+/* A section label that also folds the section. Same type as the static
+   label, with a chevron that only reads on hover so the list stays quiet. */
+.sb-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: calc(100% - 20px);
+  margin: 0 10px;
+  padding: 4px 4px 4px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--sb-font);
+  font-size: 11px;
+  color: var(--sb-label);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.sb-section-header:hover {
+  color: var(--sb-text);
+  background: var(--sb-wash);
+}
+
+.sb-section-header:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: -2px;
+}
+
+.sb-section-header__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-section-header__chevron {
+  display: flex;
+  width: 12px;
+  height: 12px;
+  color: var(--sb-faint);
+  opacity: 0;
+  transition: opacity 120ms ease, transform 160ms ease;
+}
+
+.sb-section-header:hover .sb-section-header__chevron,
+.sb-section-header:focus-visible .sb-section-header__chevron,
+.sb-section-header[aria-expanded="false"] .sb-section-header__chevron {
+  opacity: 1;
+}
+
+.sb-section-header[aria-expanded="false"] .sb-section-header__chevron {
+  transform: rotate(-90deg);
 }
 
 /* ============================================================
    Nav item
    ============================================================ */
+.sb-nav-row {
+  position: relative;
+}
+
 .sb-nav-item {
   display: flex;
   align-items: center;
@@ -256,4 +393,397 @@ html[data-titlebar="overlay"] {
 
 .app-sidebar nav:hover::-webkit-scrollbar-thumb {
   background: var(--sb-faint);
+}
+
+/* ------------------------------------------------------------
+   Row actions: a control that sits at the right end of a row and
+   is only visible on hover/focus (e.g. remove a favourite, fold a
+   disclosure). It is a sibling of the link, not a child, since a
+   button inside an anchor is invalid markup.
+   ------------------------------------------------------------ */
+.sb-nav-row--actionable .sb-nav-item,
+.sb-nav-row--disclosable .sb-nav-item {
+  padding-right: 30px;
+}
+
+.sb-row-action {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--sb-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.sb-nav-row:hover .sb-row-action,
+.sb-row-action:focus-visible,
+.sb-row-action[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.sb-row-action:hover {
+  background: var(--sb-wash-strong);
+  color: var(--sb-text);
+}
+
+.sb-row-action:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: -2px;
+}
+
+.sb-row-action--disclose svg {
+  transition: transform 160ms ease;
+}
+
+.sb-row-action--disclose[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+/* ------------------------------------------------------------
+   Disclosed children: a few entities under Projects / Goals,
+   indented under a thin guide so they read as part of the parent.
+   ------------------------------------------------------------ */
+.sb-nav-children {
+  position: relative;
+  margin: 1px 0 2px 18px;
+  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sb-nav-children::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: var(--sb-hair);
+}
+
+.sb-nav-item--child {
+  padding: 5px 8px;
+  font-size: 12.5px;
+  font-weight: 450;
+}
+
+.sb-nav-item--muted {
+  color: var(--sb-faint);
+  font-weight: 450;
+  cursor: default;
+}
+
+.sb-nav-item--muted:hover {
+  background: transparent;
+  color: var(--sb-faint);
+}
+
+/* ============================================================
+   Rail: icons only. Labels, counts, children and anything that
+   needs width are hidden; each row's title attribute carries its
+   name to a native tooltip.
+   ============================================================ */
+.app-sidebar--rail .sb-group,
+.app-sidebar--rail .sb-group--secondary {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.app-sidebar--rail .sb-nav-item__label,
+.app-sidebar--rail .sb-section-label,
+.app-sidebar--rail .sb-section-header,
+.app-sidebar--rail .sb-nav-children,
+.app-sidebar--rail .sb-row-action,
+.app-sidebar--rail .sb-search__label,
+.app-sidebar--rail .sb-search__kbd,
+.app-sidebar--rail .sb-create__label,
+.app-sidebar--rail .sb-create__shortcut,
+.app-sidebar--rail .sb-rail-hide {
+  display: none;
+}
+
+.app-sidebar--rail .sb-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--sb-hair);
+}
+
+.app-sidebar--rail .sb-nav-item,
+.app-sidebar--rail .sb-search,
+.app-sidebar--rail .sb-create {
+  justify-content: center;
+  padding: 9px 0;
+  gap: 0;
+}
+
+.app-sidebar--rail .sb-nav-row--actionable .sb-nav-item,
+.app-sidebar--rail .sb-nav-row--disclosable .sb-nav-item {
+  padding-right: 0;
+}
+
+/* The count collapses to a dot in the row's corner: still a signal that
+   something needs you, without a number that would not fit. */
+.app-sidebar--rail .sb-nav-item__count {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--sb-accent);
+  font-size: 0;
+  color: transparent;
+  overflow: hidden;
+}
+
+.app-sidebar--rail .sb-nav-item__count:empty {
+  display: none;
+}
+
+.app-sidebar--rail .sb-user {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ============================================================
+   Customize panel (right-click → "Customize sidebar")
+   ============================================================ */
+.sb-cz {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
+}
+
+.sb-cz-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.sb-cz-items,
+.sb-cz-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 10px;
+}
+
+.sb-cz-section {
+  padding-bottom: 6px;
+}
+
+.sb-cz-gap {
+  height: 12px;
+}
+
+.sb-cz-section .sb-cz-items {
+  padding-left: 14px;
+}
+
+.sb-cz-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 2px;
+  border-radius: 8px;
+  color: var(--sb-text);
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.sb-cz-row:hover {
+  background: var(--sb-wash);
+}
+
+.sb-cz-row--section {
+  color: var(--sb-faint);
+  font-size: 10.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.sb-cz-row--hidden {
+  opacity: 0.45;
+}
+
+.sb-cz-row--dragging {
+  opacity: 0.3;
+}
+
+.sb-cz-row--overlay {
+  background: var(--sb-bg);
+  border: 1px solid var(--sb-hair);
+  box-shadow: 0 6px 18px var(--sb-accent-18);
+  width: 190px;
+  padding-left: 6px;
+}
+
+.sb-cz-grip {
+  display: flex;
+  align-items: center;
+  color: var(--sb-faint);
+  cursor: grab;
+  background: none;
+  border: 0;
+  padding: 2px;
+  touch-action: none;
+}
+
+.sb-cz-grip:active {
+  cursor: grabbing;
+}
+
+.sb-cz-row__icon {
+  width: 16px;
+  display: flex;
+  justify-content: center;
+  color: var(--sb-faint);
+}
+
+.sb-cz-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.sb-cz-row__label--section {
+  cursor: text;
+}
+
+.sb-cz-rename {
+  flex: 1;
+  min-width: 0;
+  background: var(--sb-wash);
+  border: 1px solid var(--sb-accent-30);
+  border-radius: 4px;
+  color: var(--sb-text);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  padding: 1px 4px;
+  outline: none;
+}
+
+.sb-cz-action {
+  display: flex;
+  align-items: center;
+  color: var(--sb-faint);
+  background: none;
+  border: 0;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.sb-cz-row:hover .sb-cz-action,
+.sb-cz-action:focus-visible,
+.sb-cz-row--hidden .sb-cz-action {
+  opacity: 1;
+}
+
+.sb-cz-action:hover {
+  color: var(--sb-text);
+}
+
+.sb-cz-empty {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--sb-faint);
+  font-style: italic;
+}
+
+.sb-cz-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 10px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--sb-faint);
+  font-family: var(--sb-font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sb-cz-add:hover {
+  background: var(--sb-wash);
+  color: var(--sb-muted);
+}
+
+.sb-cz-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 10px 0;
+}
+
+.sb-cz-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.sb-cz-error {
+  margin: 8px 12px 0;
+  font-size: 11px;
+  color: var(--sb-accent);
+}
+
+.sb-cz-footer {
+  margin-top: auto;
+  padding: 12px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--sb-hair);
+}
+
+.sb-cz-reset {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--sb-faint);
+  cursor: pointer;
+  text-align: center;
+}
+
+.sb-cz-reset:hover {
+  color: var(--sb-muted);
+  text-decoration: underline;
 }
