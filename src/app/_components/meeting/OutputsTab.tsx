@@ -12,6 +12,7 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { DraftActionsReviewCard } from "~/app/_components/DraftActionsReviewCard";
 import type { MeetingDecision, MeetingViewModel } from "~/lib/meeting-view-model";
 import { api, type RouterOutputs } from "~/trpc/react";
+import { Panel } from "~/app/_components/ui";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
 
@@ -171,26 +172,26 @@ export function OutputsTab({
           <div className="mp-review" data-testid="outputs-review">
             <div className="mp-review__head">To review</div>
             {draftActions.length > 0 && (
-              <div className="mp-card" data-testid="outputs-draft-actions">
-                <div className="mp-card__label mp-card__label--action">
+              <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card" data-testid="outputs-draft-actions">
+                <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card__label mp-card__label--action">
                   <IconListCheck size={11} /> Draft actions
-                </div>
+                </Panel>
                 <DraftActionsReviewCard transcriptionId={transcriptionSessionId} />
-              </div>
+              </Panel>
             )}
             {hasDecisionDrafts && (
-              <div className="mp-card" data-testid="decisions-draft-panel">
+              <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card" data-testid="decisions-draft-panel">
                 {decisionDraftsPanel}
-              </div>
+              </Panel>
             )}
           </div>
         )}
 
         <div className="mp-threecard">
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--action">
+          <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card">
+            <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card__label mp-card__label--action">
               <IconListCheck size={11} /> Actions
-            </div>
+            </Panel>
             {isActionsLoading ? (
               <p className="mp-dec__empty">Loading actions…</p>
             ) : actions.length > 0 ? (
@@ -200,11 +201,11 @@ export function OutputsTab({
                 No actions created yet. Extracted actions are reviewed above before they are added.
               </p>
             )}
-          </div>
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--decision">
+          </Panel>
+          <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card">
+            <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card__label mp-card__label--decision">
               <IconCheck size={11} /> Decisions
-            </div>
+            </Panel>
             {vm.decisions.length > 0 ? (
               <DecisionList items={vm.decisions} />
             ) : (
@@ -213,11 +214,11 @@ export function OutputsTab({
                 {canLogDecision ? " Mark transcript turns as evidence, then log a decision." : ""}
               </p>
             )}
-          </div>
-          <div className="mp-card">
-            <div className="mp-card__label mp-card__label--question">
+          </Panel>
+          <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card">
+            <Panel as="div" variant="muted" radius="md" padding="none" className="mp-card__label mp-card__label--question">
               <IconAlertCircle size={11} /> Open questions
-            </div>
+            </Panel>
             {vm.questions.length > 0 ? (
               <DecisionList items={vm.questions} />
             ) : (
@@ -226,7 +227,7 @@ export function OutputsTab({
                 unresolved lands here.
               </p>
             )}
-          </div>
+          </Panel>
         </div>
       </section>
     </div>

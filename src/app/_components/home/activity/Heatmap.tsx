@@ -5,6 +5,7 @@ import { IconActivity } from '@tabler/icons-react';
 import { useMemo, useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { Panel } from "~/app/_components/ui";
 
 const RANGES = [
   { key: 'week', label: 'Week', cellCount: 7, footLabel: 'in the last 7 days' },
@@ -74,7 +75,7 @@ export function Heatmap() {
   }, [cells, total]);
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconActivity size={14} stroke={1.8} />
@@ -173,6 +174,6 @@ export function Heatmap() {
           More
         </div>
       </div>
-    </section>
+    </Panel>
   );
 }

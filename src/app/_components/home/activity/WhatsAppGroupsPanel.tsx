@@ -5,6 +5,7 @@ import { IconBrandWhatsapp, IconX } from '@tabler/icons-react';
 import { useMemo } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { Panel } from "~/app/_components/ui";
 
 const PROVIDER = 'whatsapp';
 
@@ -67,10 +68,10 @@ export function WhatsAppGroupsPanel() {
 
   if (linksLoading) {
     return (
-      <section className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         <Skeleton height={18} width={150} />
         <Skeleton height={30} mt={10} />
-      </section>
+      </Panel>
     );
   }
 
@@ -93,7 +94,7 @@ export function WhatsAppGroupsPanel() {
   const connected = gateway?.connected ?? false;
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head" style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <IconBrandWhatsapp
@@ -194,6 +195,6 @@ export function WhatsAppGroupsPanel() {
           }
         />
       )}
-    </section>
+    </Panel>
   );
 }

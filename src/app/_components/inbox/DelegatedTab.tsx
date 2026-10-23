@@ -9,6 +9,7 @@ import type { RouterOutputs } from '~/trpc/react';
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
 import { InboxPeekDrawer, inboxPeekLinkProps } from './InboxPeek';
+import { Panel } from "~/app/_components/ui";
 
 type Run = RouterOutputs['inbox']['delegated']['live'][number];
 
@@ -124,27 +125,27 @@ export function DelegatedTab() {
 
   if (isLoading || !data) {
     return (
-      <section className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         {[0, 1, 2].map((i) => (
           <Skeleton key={i} height={40} mb={4} radius="sm" />
         ))}
-      </section>
+      </Panel>
     );
   }
 
   const { counts } = data;
   if (counts.live + counts.waiting + counts.unreviewed + counts.reviewed === 0) {
     return (
-      <section className="wsa-card">
+      <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
         <p className="wsa-feed__empty">
           Nothing is delegated. Assign an action to your assistant and it shows up here while it works.
         </p>
-      </section>
+      </Panel>
     );
   }
 
   return (
-    <section className="wsa-card" data-testid="delegated-tab">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card" data-testid="delegated-tab">
       <Section label="Working" shown={data.live.length} total={counts.live}>
         {data.live.map((run) => (
           <Row
@@ -207,6 +208,6 @@ export function DelegatedTab() {
       <InboxPeekDrawer
         hrefs={[...data.live, ...data.waiting, ...data.unreviewed, ...data.reviewed].map(actionHref)}
       />
-    </section>
+    </Panel>
   );
 }

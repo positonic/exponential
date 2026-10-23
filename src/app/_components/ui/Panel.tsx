@@ -12,6 +12,7 @@ import { cx } from "./cx";
  * after the primitive's own classes so it cannot repaint the surface.
  *
  *   <Panel>…</Panel>                        card on a page (surface-secondary, border-primary)
+ *   <Panel variant="plain">…</Panel>        the same surface with no border (dashboard cards)
  *   <Panel variant="muted">…</Panel>        quieter tonal panel (meeting cards, list rows)
  *   <Panel variant="elevated">…</Panel>     floats above the page (popover body, callout)
  *   <Panel interactive as="button">…</Panel> hover affordance for a clickable card
@@ -21,14 +22,17 @@ import { cx } from "./cx";
  * tokens"): md = list rows, lg = cards (default), xl = hero panels.
  */
 
-export type PanelVariant = "default" | "muted" | "elevated";
+export type PanelVariant = "default" | "plain" | "muted" | "elevated";
 export type PanelRadius = "md" | "lg" | "xl";
 export type PanelPadding = "none" | "sm" | "md" | "lg";
 
+// Each variant owns its border too: `plain` has none, so the box model
+// matches a bare surface rather than carrying an invisible 1px edge.
 const VARIANT: Record<PanelVariant, string> = {
-  default: "bg-surface-secondary border-border-primary",
-  muted: "bg-background-secondary border-border-subtle",
-  elevated: "bg-background-elevated border-border-primary shadow-md",
+  default: "border bg-surface-secondary border-border-primary",
+  plain: "bg-surface-secondary",
+  muted: "border bg-background-secondary border-border-subtle",
+  elevated: "border bg-background-elevated border-border-primary shadow-md",
 };
 
 const RADIUS: Record<PanelRadius, string> = {
@@ -77,7 +81,6 @@ export function Panel<E extends ElementType = "div">({
     <Tag
       {...rest}
       className={cx(
-        "border",
         VARIANT[variant],
         RADIUS[radius],
         PADDING[padding],

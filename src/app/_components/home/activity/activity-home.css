@@ -54,9 +54,14 @@
 /* --------------------------------------------------------------------------
    Shared card chrome
    -------------------------------------------------------------------------- */
+/* Surface and radius come from <Panel variant="plain" radius="xl"> (ADR-0073):
+   the dashboard cards are borderless on purpose (#948), so `plain` rather
+   than the bordered default. This class only carries the dashboard's padding
+   and the __head/__title/__count parts below. Modifiers that need a
+   different surface (.wsa-week, .wsa-digest) are written as .wsa-card.wsa-x
+   so they beat Panel's utility classes by specificity rather than by
+   stylesheet order. */
 .wsa-card {
-  background: var(--color-surface-secondary);
-  border-radius: 12px;
   padding: 22px 24px;
 }
 
@@ -335,9 +340,10 @@
    WEEK-IN-REVIEW
    -------------------------------------------------------------------------- */
 /* The week card gets a distinct surface from the shared .wsa-card chrome:
-   a darker base with a faint top-left brand glow, slightly larger radius and
-   padding, to read as the dashboard's headline panel. */
-.wsa-week {
+   a darker borderless base with a faint top-left brand glow and larger
+   padding, to read as the dashboard's headline panel. Radius is the shared
+   xl step. */
+.wsa-card.wsa-week {
   display: grid;
   grid-template-columns: 1.15fr 0.85fr;
   gap: 30px;
@@ -347,7 +353,6 @@
   background:
     radial-gradient(120% 180% at -8% -20%, var(--color-brand-subtle), transparent 46%),
     var(--color-bg-secondary);
-  border-radius: 14px;
   padding: 26px 28px;
 }
 
@@ -1157,16 +1162,14 @@
    All colors via var(); the violet accent is self-scoped here so the panel is
    correct even outside the .activity-layout token scope.
    -------------------------------------------------------------------------- */
-.wsa-digest {
+.wsa-card.wsa-digest {
   --wsa-digest-accent: var(--accent-meetings);
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--color-border-primary);
   border-left: 3px solid var(--wsa-digest-accent);
   background:
     radial-gradient(140% 200% at -6% -30%, var(--color-brand-subtle), transparent 50%),
     var(--color-surface-secondary);
-  border-radius: 14px;
   padding: 24px 26px;
 }
 

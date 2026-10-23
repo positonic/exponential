@@ -7,6 +7,7 @@ import { useMemo } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import { toPlainText } from '~/lib/content/plainText';
+import { Panel } from "~/app/_components/ui";
 
 interface ProjectLike {
   id: string;
@@ -52,7 +53,7 @@ export function ActiveProjects() {
   const projectsHref = workspaceSlug ? `/w/${workspaceSlug}/projects` : '#';
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconLayoutGrid size={14} stroke={1.8} />
@@ -102,6 +103,6 @@ export function ActiveProjects() {
           );
         })
       )}
-    </section>
+    </Panel>
   );
 }

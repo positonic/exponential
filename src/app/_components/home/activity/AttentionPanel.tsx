@@ -17,6 +17,7 @@ import {
 } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
 import { completeActionPatch, DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
+import { Panel } from "~/app/_components/ui";
 
 const MAX_ROWS = 5;
 
@@ -101,7 +102,7 @@ export function AttentionPanel() {
   if (!isLoading && total === 0) return null;
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head">
         <h2 className="wsa-card__title">
           <IconBellRinging size={14} stroke={1.8} />
@@ -266,6 +267,6 @@ export function AttentionPanel() {
           )}
         </>
       )}
-    </section>
+    </Panel>
   );
 }
