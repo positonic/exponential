@@ -12,6 +12,7 @@ import {
   buildProjectAccessWhere,
   requireProjectAccess,
   isWorkspaceGuest,
+  getWorkspaceMembership,
   AccessControlService,
 } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -92,13 +93,19 @@ export const projectRouter = createTRPCRouter({
    * The handful of active projects the sidebar discloses under "Projects":
    * id, name and slug only, newest first. Same access scoping as `getAll`
    * (guests see only projects they are a member of), capped so the nav never
-   * grows into a second project list.
+   * grows into a second project list. Someone with no relationship to the
+   * workspace at all gets nothing, as with `goal.navChildren` — a sidebar
+   * never needs to list a workspace the caller is not in.
    */
   navChildren: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const isGuest = await isWorkspaceGuest(ctx.db, userId, input.workspaceId);
+      if (!isGuest) {
+        const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+        if (!membership) return [];
+      }
       const accessWhere = isGuest
         ? { projectMembers: { some: { userId } } }
         : buildProjectAccessWhere(userId);
