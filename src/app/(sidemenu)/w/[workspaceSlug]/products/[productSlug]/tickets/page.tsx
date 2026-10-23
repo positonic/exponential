@@ -1452,7 +1452,6 @@ export default function TicketsBacklogPage() {
           features={features}
           cycles={cycles}
           epics={epics}
-          members={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
         />
       )}
 
@@ -1463,7 +1462,6 @@ export default function TicketsBacklogPage() {
           ticketId={editTicketId}
           productName={product.name}
           workspaceId={workspaceId ?? undefined}
-          assignableMembers={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
         />
       )}
 

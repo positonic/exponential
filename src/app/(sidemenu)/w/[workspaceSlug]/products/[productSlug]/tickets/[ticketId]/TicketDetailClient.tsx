@@ -70,6 +70,7 @@ import { TagBadge } from "~/app/_components/TagBadge";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import {
   ActivityFilterMenu,
   useActivityFilter,
@@ -624,17 +625,20 @@ export function TicketDetailClient() {
 
         {/* Assignee */}
         <PropertyRow icon={<IconUser size={14} />} label="Assignee">
-          <Select
+          <PersonPicker
+            trigger="field"
+            showFieldLabel={false}
+            label="Assignee"
+            workspaceId={workspaceId}
             value={ticket.assigneeId ?? null}
-            onChange={(val) => setField("assigneeId", val)}
-            data={members.map((m) => ({ value: m.user.id, label: m.user.name ?? m.user.email ?? "Unknown" }))}
-            size="xs"
-            variant="unstyled"
-            clearable
-            placeholder="None"
-            comboboxProps={{ withinPortal: true }}
-            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
-            styles={{ input: { height: 24, minHeight: 24 } }}
+            selectedUser={ticket.assignee}
+            onChange={(id) => setField("assigneeId", id)}
+            fieldProps={{
+              size: "xs",
+              variant: "unstyled",
+              classNames: { input: "text-text-primary text-xs font-medium cursor-pointer" },
+              styles: { input: { height: 24, minHeight: 24 } },
+            }}
           />
         </PropertyRow>
 

@@ -13,6 +13,7 @@ import { reportHandledError } from '~/lib/reportHandledError';
 import { CreateGoalModal } from './CreateGoalModal';
 import { notifications } from '@mantine/notifications';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { PersonPicker } from './shared/PersonPicker';
 import type { ProjectStatus, ProjectPriority } from '~/types/project';
 
 type ProjectWithRelations = Project & {
@@ -824,46 +825,25 @@ export function CreateProjectModal({ children, project, prefillName, prefillNoti
           )}
 
           {/* DRI (Directly Responsible Individual) selector */}
-          {(() => {
-            // Get members from the selected workspace or current workspace
-            const activeWorkspaceId = selectedWorkspaceId ?? currentWorkspaceId;
-            const activeWorkspace = workspaces?.find(ws => ws.id === activeWorkspaceId);
-            const workspaceMembers = activeWorkspace?.members ?? [];
-
-            if (workspaceMembers.length > 0) {
-              return (
-                <Select
-                  data={[
-                    { value: '', label: 'No DRI assigned' },
-                    ...workspaceMembers.map(member => ({
-                      value: member.user.id,
-                      label: member.user.name ?? member.user.email ?? 'Unknown user'
-                    }))
-                  ]}
-                  value={selectedDriId ?? ''}
-                  onChange={(value) => setSelectedDriId(value === '' ? null : value)}
-                  label="DRI (Directly Responsible Individual)"
-                  description="The person accountable for this project"
-                  mt="md"
-                  searchable
-                  clearable
-                  styles={{
-                    input: {
-                      backgroundColor: 'var(--color-surface-secondary)',
-                      color: 'var(--color-text-primary)',
-                      borderColor: 'var(--color-border-primary)',
-                    },
-                    dropdown: {
-                      backgroundColor: 'var(--color-surface-secondary)',
-                      borderColor: 'var(--color-border-primary)',
-                      color: 'var(--color-text-primary)',
-                    },
-                  }}
-                />
-              );
-            }
-            return null;
-          })()}
+          <PersonPicker
+            trigger="field"
+            label="DRI"
+            workspaceId={selectedWorkspaceId ?? currentWorkspaceId}
+            value={selectedDriId}
+            selectedUser={project?.dri ?? null}
+            onChange={(id) => setSelectedDriId(id)}
+            fieldProps={{
+              description: "The person accountable for this project",
+              mt: "md",
+              styles: {
+                input: {
+                  backgroundColor: 'var(--color-surface-secondary)',
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border-primary)',
+                },
+              },
+            }}
+          />
 
           {/* Public project toggle - only owner can change */}
           <Tooltip

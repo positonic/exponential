@@ -21,6 +21,7 @@ import { notifications } from "@mantine/notifications";
 import { CeremonyKind } from "@prisma/client";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import { CadencePicker } from "./CadencePicker";
 import { CeremonyIconPicker } from "./CeremonyIcon";
 import { DEFAULT_CADENCE, buildCadenceRule } from "~/lib/ceremonies/cadence";
@@ -435,14 +436,13 @@ export function CeremonyEditorModal({
           </Group>
 
           <Group grow align="flex-start">
-            <Select
+            <PersonPicker
+              trigger="field"
               label="Owner"
-              data={memberOptions}
+              noneLabel="Defaults to you"
+              workspaceId={workspaceId}
               value={form.ownerId}
-              onChange={(v) => set("ownerId", v)}
-              placeholder="Defaults to you"
-              searchable
-              clearable
+              onChange={(id) => set("ownerId", id)}
             />
             <MultiSelect
               label="Participants"
