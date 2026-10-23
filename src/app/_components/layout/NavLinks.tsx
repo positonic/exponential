@@ -334,11 +334,15 @@ export function NavLinks(): React.ReactElement {
   const layout = parseNavLayout(preferences?.navLayout ?? null);
 
   // Folding a section writes the whole layout back, the same way the settings
-  // editor does, with the cache updated first so the fold is instant.
+  // editor does, with the cache updated first so the fold is instant. Until
+  // the preferences have loaded, `layout` is only the defaults, and writing
+  // those back would erase the user's renames, order and hidden items — so a
+  // fold in that window is a no-op rather than a silent reset.
   const updateNavLayout = api.navigationPreference.updateNavLayout.useMutation({
     onSuccess: () => utils.navigationPreference.getPreferences.invalidate(),
   });
   const toggleCollapsed = (sectionId: string) => {
+    if (preferences === undefined) return;
     const next = layout.map((s) =>
       s.id === sectionId ? { ...s, collapsed: !(s.collapsed ?? false) } : s,
     );

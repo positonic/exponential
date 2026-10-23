@@ -96,7 +96,17 @@ describe('NavLinks — sections', () => {
     expect(screen.getByRole('link', { name: 'CRM' })).toBeInTheDocument();
   });
 
+  it('does not write the layout back while preferences are still loading', () => {
+    // `data: undefined` here is the in-flight query; the fold would otherwise
+    // persist the defaults over the user's saved renames and hidden items.
+    render(<NavLinks />);
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+    expect(mockUpdateNavLayout).not.toHaveBeenCalled();
+    expect(mockSetPreferencesData).not.toHaveBeenCalled();
+  });
+
   it('folds a section on click and persists the fold on the layout', () => {
+    mockGetPreferences.mockReturnValue({ data: { navLayout: null } });
     render(<NavLinks />);
     const heading = screen.getByRole('button', { name: 'Plan' });
     expect(heading).toHaveAttribute('aria-expanded', 'true');
