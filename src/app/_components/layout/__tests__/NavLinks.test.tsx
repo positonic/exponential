@@ -42,7 +42,7 @@ vi.mock('~/trpc/react', () => ({
       updateWorkspaceLayout: {
         useMutation: () => ({ mutateAsync: mockUpdateWorkspaceLayout, isPending: false, error: null }),
       },
-      resetWorkspaceLayout: { useMutation: () => ({ mutate: vi.fn() }) },
+      resetWorkspaceLayout: { useMutation: () => ({ mutateAsync: vi.fn(() => Promise.resolve()) }) },
     },
     pluginConfig: { getEnabled: { useQuery: () => ({ data: [] }) } },
     project: { navChildren: { useQuery: () => ({ data: [], isLoading: false }) } },
@@ -107,6 +107,14 @@ describe('NavLinks — sections', () => {
   it('does not write the layout back while preferences are still loading', () => {
     // The in-flight query; the fold would otherwise persist the defaults over
     // the user's saved renames and hidden items.
+    render(<NavLinks />);
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+    expect(mockUpdateWorkspaceLayout).not.toHaveBeenCalled();
+    expect(mockSetWorkspaceLayoutData).not.toHaveBeenCalled();
+  });
+
+  it('does not write the layout back when the preferences query failed', () => {
+    mockGetPreferences.mockReturnValue({ data: undefined, isLoading: false });
     render(<NavLinks />);
     fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
     expect(mockUpdateWorkspaceLayout).not.toHaveBeenCalled();

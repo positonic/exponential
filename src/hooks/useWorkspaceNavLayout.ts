@@ -22,9 +22,14 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
     );
 
   const isCustomised = workspaceLayout?.navLayout != null;
-  // Until both queries settle the layout below is a placeholder (the defaults),
-  // so an edit now would fork the workspace from the wrong base.
-  const isLoading = isPreferencesLoading || (!!workspaceId && isWorkspaceLayoutLoading);
+  // Until both queries have returned data the layout below is a placeholder
+  // (the defaults), so an edit now would fork the workspace from the wrong
+  // base. Checking the data rather than `isLoading` also covers a failed
+  // query and the gaps between its retries.
+  const isLoading =
+    isPreferencesLoading ||
+    preferences === undefined ||
+    (!!workspaceId && (isWorkspaceLayoutLoading || workspaceLayout === undefined));
   const layout: NavSection[] = parseNavLayout(
     workspaceLayout?.navLayout ?? preferences?.navLayout ?? null,
   );
@@ -62,9 +67,13 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
     [workspaceId, isLoading, update, utils],
   );
 
+  // Reset rides the same chain, so it cannot overtake an in-flight save and
+  // then be undone by it.
   const resetLayout = useCallback(() => {
     if (!workspaceId) return;
-    reset.mutate({ workspaceId });
+    saveChain.current = saveChain.current
+      .then(() => reset.mutateAsync({ workspaceId }))
+      .catch(() => undefined);
   }, [workspaceId, reset]);
 
   return {
