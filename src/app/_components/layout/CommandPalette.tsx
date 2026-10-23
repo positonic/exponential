@@ -48,6 +48,7 @@ import { reportHandledError } from '~/lib/reportHandledError';
 import { useWikiBridge } from '~/lib/wiki/useWikiBridge';
 import { pageTitle, wikiHref, WIKI_ROUTE } from '~/lib/wiki/wikiLinks';
 import styles from '../home/WorkspaceHomeConceptD.module.css';
+import { onCommandPaletteOpen } from '~/lib/commandPalette';
 
 type Mode = 'all' | 'projects' | 'tasks' | 'goals' | 'ai';
 
@@ -200,6 +201,10 @@ export function CommandPalette() {
   const close = useCallback(() => setIsOpen(false), []);
 
   useHotkeys([['mod+k', open]]);
+
+  // The sidebar's search row (and anything else outside this subtree) opens
+  // the palette by event — see ~/lib/commandPalette.
+  useEffect(() => onCommandPaletteOpen(open), [open]);
 
   useEffect(() => {
     if (!isOpen) {

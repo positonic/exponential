@@ -76,7 +76,7 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
       <div className="flex-shrink-0 border-t border-border-primary px-3 py-3">
         <Menu shadow="md" width={240} position="top-start" offset={8}>
           <Menu.Target>
-            <UnstyledButton className="flex w-full items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-hover transition-colors">
+            <UnstyledButton className="sb-user flex w-full items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-hover transition-colors">
               <Avatar
                 src={user.image}
                 alt={user.name ?? "User"}
@@ -90,11 +90,11 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
                 size="sm"
                 fw={500}
                 truncate
-                className="flex-1 text-text-primary"
+                className="sb-rail-hide flex-1 text-text-primary"
               >
                 {user.name ?? "User"}
               </Text>
-              <IconChevronUp size={14} className="text-text-muted" />
+              <IconChevronUp size={14} className="sb-rail-hide text-text-muted" />
             </UnstyledButton>
           </Menu.Target>
 
