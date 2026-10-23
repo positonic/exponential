@@ -38,6 +38,9 @@ import { api, type RouterOutputs } from "~/trpc/react";
 
 type TranscriptAction = RouterOutputs["action"]["getByTranscription"][number];
 
+/** Workspace roles that may move a meeting in (mirrors canEditWorkspaceContent). */
+const MOVE_TARGET_ROLES = new Set(["owner", "admin", "member"]);
+
 interface MeetingDetailProps {
   session: MeetingSession;
   actions: TranscriptAction[];
@@ -152,9 +155,18 @@ export function MeetingDetail({
   const { data: workspaces } = api.workspace.list.useQuery(undefined, {
     enabled: canMoveWorkspace,
   });
+  // Only workspaces the viewer can add content to: the server refuses a move
+  // into one where they are a viewer or project-only guest.
   const workspaceOptions = useMemo(
-    () => (workspaces ?? []).map((w) => ({ id: w.id, name: w.name })),
-    [workspaces],
+    () =>
+      (workspaces ?? [])
+        .filter(
+          (w) =>
+            w.id === session.workspaceId ||
+            MOVE_TARGET_ROLES.has(w.currentUserRole ?? ""),
+        )
+        .map((w) => ({ id: w.id, name: w.name })),
+    [workspaces, session.workspaceId],
   );
   const canExtractOutputs = session.canEdit && session.hasTranscript;
   async function handleExtractOutputs() {

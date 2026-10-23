@@ -18,6 +18,7 @@ import {
   resolveMeetingWorkspace,
   rehomeProjectMeetings,
   fileImportIntoDefaultWorkspace,
+  moveMeetingToWorkspace,
 } from "../assignMeetingPlacement";
 import {
   getProjectAccess,
@@ -473,5 +474,89 @@ describe("fileImportIntoDefaultWorkspace", () => {
     });
 
     expect(result).toBeNull();
+  });
+});
+
+describe("moveMeetingToWorkspace", () => {
+  const MEETING = { id: "m1", userId: USER, projectId: null, workspaceId: "ws-a" };
+
+  function givenMeeting(overrides: Partial<typeof MEETING> = {}) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.transcriptionSession.findUnique as any).mockResolvedValue({ ...MEETING, ...overrides });
+    vi.mocked(canEditTranscription).mockReturnValue(true);
+  }
+
+  function givenRole(role: string | null) {
+    vi.mocked(getWorkspaceMembership).mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      role ? ({ role, workspaceId: "ws-b" } as any) : null,
+    );
+  }
+
+  beforeEach(() => {
+    vi.mocked(getWorkspaceMembership).mockReset();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.meetingFeature.count as any).mockResolvedValueOnce(2).mockResolvedValueOnce(0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (db.meetingFeature.deleteMany as any).mockResolvedValue({ count: 2 });
+  });
+
+  it("moves the meeting and its Actions together, and reports dropped feature links", async () => {
+    givenMeeting();
+    givenRole("member");
+
+    const result = await moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: "ws-b" });
+
+    expect(db.transcriptionSession.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "m1" }, data: expect.objectContaining({ workspaceId: "ws-b" }) }),
+    );
+    expect(db.action.updateMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: "m1" },
+      data: { workspaceId: "ws-b" },
+    });
+    expect(db.transcriptionSessionParticipant.updateMany).toHaveBeenCalled();
+    expect(result).toEqual({ workspaceId: "ws-b", droppedFeatureLinks: 2 });
+  });
+
+  it("refuses a target workspace where the caller is only a viewer", async () => {
+    givenMeeting();
+    givenRole("viewer");
+
+    await expect(
+      moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: "ws-b" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a project-linked meeting, whose workspace follows its project", async () => {
+    givenMeeting({ projectId: "p1" } as Partial<typeof MEETING>);
+    givenRole("owner");
+
+    await expect(
+      moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: "ws-b" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("refuses a caller without edit access to the meeting", async () => {
+    givenMeeting();
+    vi.mocked(canEditTranscription).mockReturnValue(false);
+
+    await expect(
+      moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: "ws-b" }),
+    ).rejects.toBeInstanceOf(TRPCError);
+    expect(db.transcriptionSession.update).not.toHaveBeenCalled();
+  });
+
+  it("moves to Personal without a membership check", async () => {
+    givenMeeting();
+
+    const result = await moveMeetingToWorkspace(db, USER, { meetingId: "m1", workspaceId: null });
+
+    expect(getWorkspaceMembership).not.toHaveBeenCalled();
+    expect(db.action.updateMany).toHaveBeenCalledWith({
+      where: { transcriptionSessionId: "m1" },
+      data: { workspaceId: null },
+    });
+    expect(result.workspaceId).toBeNull();
   });
 });
