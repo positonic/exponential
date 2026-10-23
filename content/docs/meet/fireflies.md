@@ -4,7 +4,7 @@ description: Every recorded meeting arrives with its transcript, summary and act
 section: meet
 order: 2
 icon: IconFlame
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 Connect Fireflies.ai and each meeting it records shows up on the Meetings page a minute after it ends, with the transcript, an AI summary and the action items already extracted. Assign the meeting to a project and review which items become actions.
@@ -13,8 +13,8 @@ Connect Fireflies.ai and each meeting it records shows up on the Meetings page a
 
 ## Where to find it
 
-- Set up: [Settings → Integrations](/settings/integrations) → **Fireflies.ai** → **Add Fireflies**. The same wizard opens from **Connect Fireflies** on the Meetings page and from the Fireflies card on [Workflows](/workflows).
-- Meetings: [**Amplify → Meetings**](/go/meetings) in the sidebar; see [Meetings](/docs/meet/meetings) for everything you can do with one.
+- Set up: [Settings → Integrations](/settings/integrations) → **Fireflies.ai** → **Add Fireflies**. The same wizard opens from **People Fireflies** on the Meetings page and from the Fireflies card on [Workflows](/workflows).
+- Meetings: [**Tools → Meetings**](/go/meetings) in the sidebar; see [Meetings](/docs/meet/meetings) for everything you can do with one.
 
 ## How it works
 
@@ -42,7 +42,7 @@ Tokens expire (90 days is the default choice). When one expires the card shows *
 
 Action items are extracted but not created as actions automatically, so nothing lands in your projects unreviewed.
 
-1. Open **Meetings** under **Amplify**. Filters: **All**, **Mine**, **1:1s**, **Customer**, **Internal**, **Archive**.
+1. Open **Meetings** under **Tools**. Filters: **All**, **Mine**, **1:1s**, **Customer**, **Internal**, **Archive**.
 2. Click **Show AI summary** on a meeting to read the overview and the extracted items.
 3. Click **Assign to project** and choose the project.
 4. Approve the items you want; each becomes an [action](/docs/do/actions) in that project. Decisions found in the transcript go to the workspace Decision Log.
@@ -63,7 +63,7 @@ Meetings you did not record with Fireflies can be added by hand with **Add Meeti
 
 - **Meetings** — the list, the meeting page, drafted actions and decisions: [Meetings](/docs/meet/meetings).
 - **Slack** — assign a meeting to a project with a Slack channel and the summary posts there: [Slack](/docs/integrations/slack).
-- **Decisions** — decisions Zoe finds in a transcript are recorded with the quote they came from, under [**Align → Decisions**](/go/decisions).
+- **Decisions** — decisions Zoe finds in a transcript are recorded with the quote they came from, under [**Plan → Decisions**](/go/decisions).
 - **Ceremonies** — a recurring team meeting is defined once and its recorded meetings attach to each occurrence: [Ceremonies & occurrences](/docs/meet/ceremonies).
 - **Knowledge** — transcripts are searchable by Zoe: [Knowledge base](/docs/zoe/knowledge-base).
 

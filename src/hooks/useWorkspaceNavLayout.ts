@@ -1,6 +1,21 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { api } from "~/trpc/react";
 import { parseNavLayout, type NavSection } from "~/lib/navLayout";
+
+/**
+ * One save chain per workspace, at module scope. Every edit sends the full
+ * snapshot, so in-flight saves must land in edit order or a stale snapshot
+ * could overwrite a newer one. The chain lives outside the hook because the
+ * nav and the customise panel are mounted alternately: a chain held in a
+ * ref would restart empty each time the panel opened or closed, letting a
+ * save made just before Done race the first edit made just after.
+ */
+const saveChains = new Map<string, Promise<unknown>>();
+
+function enqueue(workspaceId: string, task: () => Promise<unknown>): void {
+  const prev = saveChains.get(workspaceId) ?? Promise.resolve();
+  saveChains.set(workspaceId, prev.then(task).catch(() => undefined));
+}
 
 /**
  * The sidebar layout in effect for a workspace, and a serialised saver for it.
@@ -49,9 +64,6 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
     },
   });
 
-  // Every edit sends the full snapshot, so in-flight saves must land in edit
-  // order or a stale snapshot could overwrite a newer one. Chain them.
-  const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   const saveLayout = useCallback(
     (next: NavSection[]) => {
       if (!workspaceId || isLoading) return;
@@ -60,9 +72,7 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
         { workspaceId },
         { navLayout: next },
       );
-      saveChain.current = saveChain.current
-        .then(() => update.mutateAsync({ workspaceId, layout: next }))
-        .catch(() => undefined);
+      enqueue(workspaceId, () => update.mutateAsync({ workspaceId, layout: next }));
     },
     [workspaceId, isLoading, update, utils],
   );
@@ -71,9 +81,7 @@ export function useWorkspaceNavLayout(workspaceId: string | null) {
   // then be undone by it.
   const resetLayout = useCallback(() => {
     if (!workspaceId) return;
-    saveChain.current = saveChain.current
-      .then(() => reset.mutateAsync({ workspaceId }))
-      .catch(() => undefined);
+    enqueue(workspaceId, () => reset.mutateAsync({ workspaceId }));
   }, [workspaceId, reset]);
 
   return {

@@ -4,7 +4,7 @@ description: The objects Exponential is built from, each in two sentences, with 
 section: get-started
 order: 2
 icon: IconBook
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 Exponential uses a small, fixed vocabulary. This page defines each term the way the product uses it; the guides go deeper.
@@ -35,7 +35,7 @@ A recorded conversation: transcript, summary and participants, usually arriving 
 
 ## Decision
 
-A recorded choice with its context, the alternatives considered, who decided and when, and the meeting it came from. Decisions live in the workspace Decision Log under **Align** in the sidebar and can be formalised as architecture decision records. See [Decisions](/docs/plan/decisions).
+A recorded choice with its context, the alternatives considered, who decided and when, and the meeting it came from. Decisions live in the workspace Decision Log under **Plan** in the sidebar and can be formalised as architecture decision records. See [Decisions](/docs/plan/decisions).
 
 ## Ceremony and occurrence
 
@@ -43,7 +43,7 @@ A ceremony is a recurring team meeting defined once: standup, planning, review, 
 
 ## Page
 
-A free-form document, written by you or by Zoe, that stands on its own: a spec, a wiki page, a brief. Pages are workspace-scoped, can attach to a project, and are searchable by Zoe. Find them under [**Deliver → Pages**](/go/pages) in the sidebar. See [Pages](/docs/do/pages).
+A free-form document, written by you or by Zoe, that stands on its own: a spec, a wiki page, a brief. Pages are workspace-scoped, can attach to a project, and are searchable by Zoe. Find them under [**Work → Pages**](/go/pages) in the sidebar. See [Pages](/docs/do/pages).
 
 ## Product, feature, ticket and cycle
 

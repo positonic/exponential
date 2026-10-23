@@ -5,7 +5,7 @@ section: integrations
 order: 1
 icon: IconPlug
 sidebarTitle: Overview
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 Exponential connects to the tools your work already flows through: meeting recorders send transcripts in, chat apps let you talk to Zoe, and task tools stay in sync. Connections are personal (they live under your account, not the workspace) unless a page says otherwise.
@@ -24,8 +24,8 @@ Exponential connects to the tools your work already flows through: meeting recor
 |---|---|---|
 | [Fireflies](/docs/meet/fireflies) | Sends every recorded meeting in, with actions and a summary extracted | Settings → Integrations → **Add Fireflies** |
 | [Slack](/docs/integrations/slack) | Lets Zoe read, search and post in your Slack; routes meeting summaries to channels | Settings → Integrations → **Add Integration** → Slack |
-| [Chat gateways](/docs/zoe/chat-gateways) | Chat with Zoe from WhatsApp | Settings → Integrations → **Connect WhatsApp** |
-| [Telegram](/docs/zoe/chat-gateways) | Chat with Zoe from Telegram, with a default agent per connection | Settings → Integrations → **Connect Telegram** |
+| [Chat gateways](/docs/zoe/chat-gateways) | Chat with Zoe from WhatsApp | Settings → Integrations → **People WhatsApp** |
+| [Telegram](/docs/zoe/chat-gateways) | Chat with Zoe from Telegram, with a default agent per connection | Settings → Integrations → **People Telegram** |
 | [Notion](/docs/integrations/notion) | Two-way sync between a Notion database and your actions, with status mapping | Workflows → **Notion Tasks Database** → Configure |
 | [Monday.com](/docs/integrations/github-google-monday) | Sync actions with a Monday.com board (push, pull or both) | Workflows → **Monday.com Boards** → Configure |
 | Calendar feeds | Subscribe to a published calendar by its ICS address (works with Outlook); events refresh every 15 minutes and appear on Today | Settings → Integrations → **Add calendar feed** |
