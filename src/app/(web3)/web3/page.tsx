@@ -105,7 +105,7 @@ export default function Home() {
                     borderColor: 'rgba(255, 255, 255, 0.1)',
                     borderWidth: '1px',
                     borderStyle: 'solid',
-                    borderRadius: '12px'
+                    borderRadius: 'var(--radius-xl)'
                   }}
                   className="p-6 transition-all duration-300 hover:border-opacity-20"
                 >

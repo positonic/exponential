@@ -189,12 +189,12 @@ export function MarkdownInput({
             disabled={disabled}
             styles={
               variant === "unstyled"
-                ? { input: { color: "var(--text-primary)", padding: 0 } }
+                ? { input: { color: "var(--color-text-primary)", padding: 0 } }
                 : {
                     input: {
-                      backgroundColor: "var(--surface-secondary)",
-                      borderColor: "var(--border-primary)",
-                      color: "var(--text-primary)",
+                      backgroundColor: "var(--color-surface-secondary)",
+                      borderColor: "var(--color-border-primary)",
+                      color: "var(--color-text-primary)",
                     },
                   }
             }

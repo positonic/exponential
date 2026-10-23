@@ -136,7 +136,7 @@ export default async function FeaturePage({ params }: FeaturePageProps) {
               {/* Right: Visual */}
               <div className="relative">
                 <div
-                  className="rounded-3xl p-8 md:p-12 aspect-square flex items-center justify-center"
+                  className="rounded-2xl p-8 md:p-12 aspect-square flex items-center justify-center"
                   style={{
                     background:
                       "linear-gradient(135deg, color-mix(in srgb, var(--color-accent-periwinkle) 10%, transparent) 0%, color-mix(in srgb, var(--color-accent-indigo) 15%, transparent) 100%)",

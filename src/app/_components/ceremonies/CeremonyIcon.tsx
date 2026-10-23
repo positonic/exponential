@@ -60,8 +60,8 @@ export const CEREMONY_ICONS: Record<CeremonyIconKey, { icon: Icon; label: string
 };
 
 const TILE_SIZES = {
-  sm: { box: "h-7 w-7 rounded-[7px]", icon: 15 },
-  md: { box: "h-9 w-9 rounded-[9px]", icon: 19 },
+  sm: { box: "h-7 w-7 rounded-md", icon: 15 },
+  md: { box: "h-9 w-9 rounded-lg", icon: 19 },
 } as const;
 
 interface CeremonyIconTileProps {
@@ -114,7 +114,7 @@ export function CeremonyIconPicker({ value, kind, onChange }: CeremonyIconPicker
               aria-checked={isSelected}
               aria-label={label}
               onClick={() => onChange(key)}
-              className={`flex h-9 w-9 items-center justify-center rounded-[9px] border transition-colors ${
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
                 isSelected
                   ? "border-brand-400 bg-brand-400/10 text-brand-400"
                   : "border-border-subtle bg-background-primary text-text-secondary hover:border-border-strong hover:text-text-primary"

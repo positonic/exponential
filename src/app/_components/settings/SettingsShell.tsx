@@ -139,7 +139,7 @@ export function SettingsSidebar<T extends string = string>({
                 <span className="truncate">{item.label}</span>
                 {item.badge !== undefined && (
                   <span
-                    className={`ml-auto rounded-[10px] px-1.5 py-[1px] text-[10.5px] tabular-nums ${
+                    className={`ml-auto rounded-lg px-1.5 py-[1px] text-[10.5px] tabular-nums ${
                       active
                         ? 'bg-brand-primary/15 text-brand-primary'
                         : 'bg-surface-tertiary text-text-muted'
@@ -192,13 +192,13 @@ export function SettingsSection({
   flush?: boolean;
 }) {
   return (
-    <div className="mb-[18px] w-full rounded-[10px] border border-border-primary bg-background-secondary">
+    <div className="mb-[18px] w-full rounded-lg border border-border-primary bg-background-secondary">
       {/* Phones: the action drops under the title so the description gets the full width */}
       <div className="flex flex-col items-start gap-3 border-b border-border-primary px-4 pt-4 pb-3 sm:flex-row sm:justify-between sm:gap-3.5 sm:px-[22px] sm:pt-[18px]">
         <div className="w-full min-w-0 sm:w-auto sm:flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[15px] font-semibold tracking-[-0.005em] text-text-primary">
             {Icon && (
-              <span className="grid h-[26px] w-[26px] place-items-center rounded-[7px] bg-surface-tertiary text-text-secondary">
+              <span className="grid h-[26px] w-[26px] place-items-center rounded-md bg-surface-tertiary text-text-secondary">
                 <Icon size={14} />
               </span>
             )}
@@ -275,7 +275,7 @@ export function SettingsPill({
   };
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-[10px] px-2 py-[2px] text-[10.5px] font-semibold uppercase tracking-[0.03em] tabular-nums ${styles[variant]}`}
+      className={`inline-flex items-center gap-1 rounded-lg px-2 py-[2px] text-[10.5px] font-semibold uppercase tracking-[0.03em] tabular-nums ${styles[variant]}`}
     >
       {children}
     </span>
@@ -330,7 +330,7 @@ export function SettingsDangerZone({
   children: ReactNode;
 }) {
   return (
-    <div className="mb-16 rounded-[10px] border border-[var(--accent-due)]/30 bg-background-secondary p-[22px]">
+    <div className="mb-16 rounded-lg border border-[var(--accent-due)]/30 bg-background-secondary p-[22px]">
       <div className="mb-1.5 flex items-center gap-2.5 text-[13px] font-semibold tracking-[0.02em] text-[var(--accent-due)]">
         <span className="grid h-[22px] w-[22px] place-items-center rounded-md bg-[var(--accent-due)]/15">
           <Icon size={12} />

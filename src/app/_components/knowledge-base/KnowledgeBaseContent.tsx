@@ -641,7 +641,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           styles={{
             input: {
               height: 58,
-              borderRadius: 14,
+              borderRadius: 'var(--radius-xl)',
               fontSize: 16,
               paddingLeft: 52,
               backgroundColor: 'var(--color-bg-secondary)',
