@@ -19,6 +19,7 @@ import {
   IconFileText,
   IconChartBar,
   IconGitMerge,
+  IconLink,
   type Icon,
 } from "@tabler/icons-react";
 import { InboxCount } from "./InboxCount";
@@ -27,9 +28,10 @@ import { useLocalWikiAvailable } from "~/lib/wiki/useWikiBridge";
 import { WIKI_ROUTE } from "~/lib/wiki/wikiLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
-import { parseNavLayout, NAV_ITEM_CONFIG } from "~/lib/navLayout";
+import { NAV_ITEM_CONFIG, SHORTCUTS_SECTION_ID, isCustomNavItem } from "~/lib/navLayout";
+import { useWorkspaceNavLayout } from "~/hooks/useWorkspaceNavLayout";
 
-const ITEM_ICONS: Record<string, Icon> = {
+export const ITEM_ICONS: Record<string, Icon> = {
   goals: IconTarget,
   decisions: IconGavel,
   actions: IconBriefcase,
@@ -72,7 +74,9 @@ export function NavLink({ href, icon: Icon, children, count, matchSegments }: Na
   const pathnameSegments = pathname.split("/").filter(Boolean);
   const routeSegments =
     pathnameSegments[0] === "w" ? pathnameSegments.slice(2) : pathnameSegments;
-  const isHrefActive = pathname === hrefPath || pathname.startsWith(`${hrefPath}/`);
+  const isExternal = /^https?:\/\//i.test(href);
+  const isHrefActive =
+    !isExternal && (pathname === hrefPath || pathname.startsWith(`${hrefPath}/`));
 
   const isActive = matchSegments
     ? isHrefActive || matchSegments.some((segment) => routeSegments.includes(segment))
@@ -83,6 +87,8 @@ export function NavLink({ href, icon: Icon, children, count, matchSegments }: Na
       href={href}
       className={`sb-nav-item ${isActive ? 'sb-nav-item--active' : ''}`}
       aria-current={isActive ? 'page' : undefined}
+      target={isExternal ? '_blank' : undefined}
+      rel={isExternal ? 'noopener noreferrer' : undefined}
     >
       {Icon && (
         <span className="sb-nav-item__icon">
@@ -104,25 +110,22 @@ function SectionDivider() {
 }
 
 /**
- * Renders the workspace sidebar navigation from the user's persisted
- * `navLayout` preference: global items (Inbox/Today/Time) followed by the
- * configurable sections/items, with plugin gating and a reduced guest view.
+ * Renders the workspace sidebar navigation from the layout in effect for the
+ * current workspace (see {@link useWorkspaceNavLayout}): global items
+ * (Inbox/Today/Time), pinned shortcuts, then the configurable sections/items,
+ * with plugin gating and a reduced guest view.
  */
 export function NavLinks(): React.ReactElement {
   const { workspaceSlug, workspaceId, userRole } = useWorkspace();
   const isGuest = userRole === 'guest';
   const localWikiAvailable = useLocalWikiAvailable();
 
-  const { data: preferences } = api.navigationPreference.getPreferences.useQuery(
-    undefined,
-    { staleTime: 30 * 1000 },
-  );
   const { data: enabledPlugins } = api.pluginConfig.getEnabled.useQuery(
     { workspaceId: workspaceId ?? undefined },
     { enabled: !!workspaceId && !isGuest, staleTime: 5 * 60 * 1000 },
   );
 
-  const layout = parseNavLayout(preferences?.navLayout ?? null);
+  const { layout } = useWorkspaceNavLayout(workspaceId);
 
   return (
     <>
@@ -151,6 +154,7 @@ export function NavLinks(): React.ReactElement {
 
             const visibleItems = section.items.filter((item) => {
               if (item.hidden) return false;
+              if (isCustomNavItem(item)) return true;
               const config = NAV_ITEM_CONFIG[item.id];
               if (!config) return false;
               if (config.requiresPlugin && !enabledPlugins?.includes(config.requiresPlugin)) return false;
@@ -159,11 +163,21 @@ export function NavLinks(): React.ReactElement {
 
             if (visibleItems.length === 0) return null;
 
+            // Shortcuts sit right under the global items, unlabelled.
+            const isShortcuts = section.id === SHORTCUTS_SECTION_ID;
+
             return (
               <div key={section.id}>
-                <SectionDivider />
-                <SectionLabel>{section.name}</SectionLabel>
+                {!isShortcuts && <SectionDivider />}
+                {!isShortcuts && <SectionLabel>{section.name}</SectionLabel>}
                 {visibleItems.map((item) => {
+                  if (isCustomNavItem(item)) {
+                    return (
+                      <NavLink key={item.id} href={item.href} icon={IconLink}>
+                        {item.label ?? item.href}
+                      </NavLink>
+                    );
+                  }
                   const config = NAV_ITEM_CONFIG[item.id];
                   if (!config) return null;
                   const Icon = ITEM_ICONS[item.id];

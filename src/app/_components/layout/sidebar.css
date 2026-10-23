@@ -236,3 +236,229 @@ html[data-titlebar="overlay"] {
   border-radius: 2px;
   background: var(--sb-accent);
 }
+
+/* ============================================================
+   Customize panel (right-click → "Customize sidebar")
+   ============================================================ */
+.sb-cz {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
+}
+
+.sb-cz-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.sb-cz-items,
+.sb-cz-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 10px;
+}
+
+.sb-cz-section {
+  padding-bottom: 6px;
+}
+
+.sb-cz-section .sb-cz-items {
+  padding-left: 14px;
+}
+
+.sb-cz-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 2px;
+  border-radius: 8px;
+  color: var(--sb-text);
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.sb-cz-row:hover {
+  background: var(--sb-wash);
+}
+
+.sb-cz-row--section {
+  color: var(--sb-faint);
+  font-size: 10.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.sb-cz-row--hidden {
+  opacity: 0.45;
+}
+
+.sb-cz-row--dragging {
+  opacity: 0.3;
+}
+
+.sb-cz-row--overlay {
+  background: var(--sb-bg);
+  border: 1px solid var(--sb-hair);
+  box-shadow: 0 6px 18px var(--sb-accent-18);
+  width: 190px;
+  padding-left: 6px;
+}
+
+.sb-cz-grip {
+  display: flex;
+  align-items: center;
+  color: var(--sb-faint);
+  cursor: grab;
+  background: none;
+  border: 0;
+  padding: 2px;
+  touch-action: none;
+}
+
+.sb-cz-grip:active {
+  cursor: grabbing;
+}
+
+.sb-cz-row__icon {
+  width: 16px;
+  display: flex;
+  justify-content: center;
+  color: var(--sb-faint);
+}
+
+.sb-cz-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.sb-cz-row__label--section {
+  cursor: text;
+}
+
+.sb-cz-rename {
+  flex: 1;
+  min-width: 0;
+  background: var(--sb-wash);
+  border: 1px solid var(--sb-accent-30);
+  border-radius: 4px;
+  color: var(--sb-text);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  padding: 1px 4px;
+  outline: none;
+}
+
+.sb-cz-action {
+  display: flex;
+  align-items: center;
+  color: var(--sb-faint);
+  background: none;
+  border: 0;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.sb-cz-row:hover .sb-cz-action,
+.sb-cz-action:focus-visible,
+.sb-cz-row--hidden .sb-cz-action {
+  opacity: 1;
+}
+
+.sb-cz-action:hover {
+  color: var(--sb-text);
+}
+
+.sb-cz-empty {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--sb-faint);
+  font-style: italic;
+}
+
+.sb-cz-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 10px 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--sb-faint);
+  font-family: var(--sb-font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sb-cz-add:hover {
+  background: var(--sb-wash);
+  color: var(--sb-muted);
+}
+
+.sb-cz-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 10px 0;
+}
+
+.sb-cz-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.sb-cz-error {
+  margin: 8px 12px 0;
+  font-size: 11px;
+  color: var(--sb-accent);
+}
+
+.sb-cz-footer {
+  margin-top: auto;
+  padding: 12px 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--sb-hair);
+}
+
+.sb-cz-reset {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--sb-faint);
+  cursor: pointer;
+  text-align: center;
+}
+
+.sb-cz-reset:hover {
+  color: var(--sb-muted);
+  text-decoration: underline;
+}

@@ -2,8 +2,11 @@
 
 import { NavLinks } from "./NavLinks";
 import { FavouritesNav } from "./FavouritesNav";
-import { IconMenu2 } from "@tabler/icons-react";
-import { useState, useEffect } from 'react';
+import { IconMenu2, IconAdjustmentsHorizontal } from "@tabler/icons-react";
+import { useState, useEffect, useRef } from 'react';
+import { Menu } from "@mantine/core";
+import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { SidebarCustomizePanel } from "./SidebarCustomizePanel";
 import { themes, type ValidDomain } from "~/config/themes";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { UserMenu } from "./UserMenu";
@@ -14,6 +17,33 @@ import "./sidebar.css";
 export default function Sidebar({ session, domain = 'forceflow.com' }: { session: any; domain?: ValidDomain }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false); // Default to closed
   const theme = themes[domain] ?? themes['forceflow.com']; // Fallback to default theme
+  const { workspaceId, userRole } = useWorkspace();
+  const canCustomize = !!workspaceId && userRole !== 'guest';
+
+  // Right-click anywhere in the nav opens a small context menu whose only
+  // entry switches the sidebar into customise mode (ADR-0073). The menu is
+  // anchored to an invisible target placed at the pointer.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [isCustomizing, setIsCustomizing] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    if (!canCustomize || isCustomizing) return;
+    // Leave native menus alone on editable fields and links to outside pages.
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, [contenteditable="true"]')) return;
+    event.preventDefault();
+    const rect = asideRef.current?.getBoundingClientRect();
+    setContextMenu({
+      x: event.clientX - (rect?.left ?? 0),
+      y: event.clientY - (rect?.top ?? 0),
+    });
+  };
+
+  // Leaving the workspace closes the editor.
+  useEffect(() => {
+    if (!canCustomize) setIsCustomizing(false);
+  }, [canCustomize]);
 
   // Auto-open sidebar on desktop only
   useEffect(() => {
@@ -58,7 +88,10 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         />
       )}
 
-      <aside className={`
+      <aside
+        ref={asideRef}
+        onContextMenu={handleContextMenu}
+        className={`
         app-sidebar
         w-screen sm:w-[220px] flex flex-col
         h-screen
@@ -66,6 +99,31 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
         transform transition-all duration-300 ease-in-out
         ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         `}>
+
+        <Menu
+          opened={contextMenu !== null}
+          onChange={(opened) => { if (!opened) setContextMenu(null); }}
+          position="bottom-start"
+          offset={2}
+          shadow="md"
+          width={190}
+          withinPortal
+        >
+          <Menu.Target>
+            <div
+              aria-hidden
+              style={{ position: 'absolute', left: contextMenu?.x ?? 0, top: contextMenu?.y ?? 0, width: 1, height: 1 }}
+            />
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              leftSection={<IconAdjustmentsHorizontal size={16} />}
+              onClick={() => { setContextMenu(null); setIsCustomizing(true); }}
+            >
+              Customize sidebar
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
 
         {/* Header with workspace switcher and collapse button */}
         <div className="sb-workspace-divider flex-shrink-0 h-14 flex items-center mt-12 lg:mt-0">
@@ -75,22 +133,28 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           />
         </div>
 
-        {/* Scrollable content area */}
-        <nav className="flex-1 overflow-y-auto pt-3 pb-2">
-          <ActiveTimerWidget />
+        {isCustomizing ? (
+          <SidebarCustomizePanel onDone={() => setIsCustomizing(false)} />
+        ) : (
+          <>
+            {/* Scrollable content area */}
+            <nav className="flex-1 overflow-y-auto pt-3 pb-2">
+              <ActiveTimerWidget />
 
-          <div className="px-2.5 pb-1">
-            <GlobalAddTaskButton variant="sidebar" />
-          </div>
+              <div className="px-2.5 pb-1">
+                <GlobalAddTaskButton variant="sidebar" />
+              </div>
 
-          <div className="sb-group">
-            <NavLinks />
-          </div>
+              <div className="sb-group">
+                <NavLinks />
+              </div>
 
-          <FavouritesNav />
-        </nav>
+              <FavouritesNav />
+            </nav>
 
-        <UserMenu session={session} onClose={() => setIsMenuOpen(false)} />
+            <UserMenu session={session} onClose={() => setIsMenuOpen(false)} />
+          </>
+        )}
       </aside>
     </>
   );
