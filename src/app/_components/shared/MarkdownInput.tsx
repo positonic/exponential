@@ -39,6 +39,8 @@ interface MarkdownInputProps {
   overlay?: ReactNode;
   /** Visual style of the textarea. */
   variant?: "default" | "unstyled";
+  /** Focus the textarea on mount (a composer opened by a click). */
+  autoFocus?: boolean;
 }
 
 type ToolbarAction = "bold" | "italic" | "list" | "link";
@@ -64,6 +66,7 @@ export function MarkdownInput({
   textareaRef,
   onKeyDown,
   onPaste,
+  autoFocus = false,
   hint,
   rightSection,
   overlay,
@@ -181,6 +184,7 @@ export function MarkdownInput({
             minRows={minRows}
             maxRows={maxRows}
             autosize
+            autoFocus={autoFocus}
             variant={variant === "unstyled" ? "unstyled" : "default"}
             disabled={disabled}
             styles={

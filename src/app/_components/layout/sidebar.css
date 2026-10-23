@@ -50,9 +50,14 @@ html[data-titlebar="overlay"] {
 }
 
 /* Re-open button, shown in the same corner once the sidebar is closed —
-   so it has to clear the window controls too. */
+   so it has to clear the window controls too. Sized and placed like Notion's:
+   a 26px hit target whose centre sits on the 56px topbar's midline (28px), so
+   the icon reads as the first crumb rather than a floating control above the
+   row. WorkspaceTopbar's collapsed gutter is measured from this width. */
 .sb-toggle {
-  top: calc(0.5rem + env(safe-area-inset-top) + var(--titlebar-inset));
+  width: 26px;
+  height: 26px;
+  top: calc(15px + env(safe-area-inset-top) + var(--titlebar-inset));
 }
 
 /* ============================================================
@@ -339,34 +344,55 @@ html[data-titlebar="overlay"] {
 }
 
 .sb-nav-item--active {
-  background: var(--sb-accent-10);
-  color: var(--sb-accent);
+  background: var(--sb-active);
+  color: var(--sb-text);
 }
 
 .sb-nav-item--active:hover {
-  background: var(--sb-accent-12);
-  color: var(--sb-accent);
+  background: var(--sb-active-hover);
+  color: var(--sb-text);
 }
 
 .sb-nav-item--active .sb-nav-item__icon,
 .sb-nav-item--active:hover .sb-nav-item__icon {
-  color: var(--sb-accent);
+  color: var(--sb-text);
 }
 
 .sb-nav-item--active .sb-nav-item__count {
-  color: var(--sb-accent);
+  color: var(--sb-muted);
 }
 
-/* Vertical bar at left of active row, sitting in the sidebar gutter */
-.sb-nav-item--active::before {
-  content: "";
-  position: absolute;
-  left: -10px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--sb-accent);
+/* ============================================================
+   Nav scrollbar - a bare thumb, no track and no track borders
+   (the default classic scrollbar draws a hairline either side of
+   it, which read as a second sidebar edge). Thumb shows on hover.
+   ============================================================ */
+.app-sidebar nav {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.app-sidebar nav:hover {
+  scrollbar-color: var(--sb-faint) transparent;
+}
+
+.app-sidebar nav::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-sidebar nav::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+
+.app-sidebar nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+}
+
+.app-sidebar nav:hover::-webkit-scrollbar-thumb {
+  background: var(--sb-faint);
 }
 
 /* ------------------------------------------------------------
@@ -452,10 +478,6 @@ html[data-titlebar="overlay"] {
   font-weight: 450;
 }
 
-.sb-nav-item--child.sb-nav-item--active::before {
-  left: -9px;
-}
-
 .sb-nav-item--muted {
   color: var(--sb-faint);
   font-weight: 450;
@@ -508,10 +530,6 @@ html[data-titlebar="overlay"] {
 .app-sidebar--rail .sb-nav-row--actionable .sb-nav-item,
 .app-sidebar--rail .sb-nav-row--disclosable .sb-nav-item {
   padding-right: 0;
-}
-
-.app-sidebar--rail .sb-nav-item--active::before {
-  display: none;
 }
 
 /* The count collapses to a dot in the row's corner: still a signal that
