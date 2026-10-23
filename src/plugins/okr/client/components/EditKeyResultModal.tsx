@@ -638,6 +638,7 @@ export function EditKeyResultModal({
             clearable={false}
             workspaceId={workspace?.id ?? createWorkspaceId}
             value={driUserId}
+            selectedUser={freshKeyResult?.driUser ?? null}
             onChange={(id, user) => {
               setDriUserId(id);
               setPickedDriUser(user);
