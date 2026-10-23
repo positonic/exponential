@@ -10,6 +10,7 @@ import {
   MENTION_UNKNOWN_CLASS,
 } from "~/lib/content/remarkMentions";
 import { remarkSoftBreaks } from "~/lib/content/remarkSoftBreaks";
+import { separateFenceFromHtmlBlock } from "~/lib/content/fenceAfterHtml";
 import { detectContentType } from "~/lib/content/contentFormat";
 import { MarkdownImage } from "~/app/_components/shared/MarkdownImage";
 import { LazyCodeHighlight } from "~/app/_components/shared/LazyCodeHighlight";
@@ -427,7 +428,12 @@ export function MarkdownRenderer({
       remarkPlugins={remarkPlugins}
       components={buildComponents(variant, { onDeleteImage })}
     >
-      {content}
+      {
+        // A fence directly under a raw HTML line (an `<img>` sized by hand)
+        // would otherwise be absorbed into the HTML block and never render
+        // as code or a diagram — same guard as the page codec.
+        separateFenceFromHtmlBlock(content)
+      }
     </ReactMarkdown>
   );
 
