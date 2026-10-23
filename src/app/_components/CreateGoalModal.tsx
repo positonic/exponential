@@ -48,6 +48,8 @@ interface CreateGoalModalProps {
     parentGoalId?: number | null;
     workspaceId?: string | null;
     driUserId?: string | null;
+    /** Lets the DRI field name a person who is no longer a workspace member. */
+    driUser?: { id: string; name: string | null; email?: string | null; image: string | null } | null;
   };
   trigger?: React.ReactNode;
   projectId?: string;
@@ -556,6 +558,7 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             clearable={false}
             workspaceId={selectedWorkspaceId ?? workspace?.id}
             value={driUserId}
+            selectedUser={goal?.driUser ? { ...goal.driUser, email: goal.driUser.email ?? null } : null}
             onChange={(id) => setDriUserId(id)}
             fieldProps={{ description: "Directly responsible individual", required: true, mt: "md" }}
           />
