@@ -177,6 +177,17 @@ export function PageDocument({
 
   return (
     <>
+      {/* The reading surface: Notion-grade typography (globals.css
+          `.knowledge-page`) and air below the last block, so a short page
+          does not end hard against the sections below it. Clicking that air
+          puts the caret at the end, the way clicking below a Notion page does. */}
+      <div
+        className={`knowledge-page min-h-[45vh] ${editable ? "cursor-text" : ""}`}
+        onClick={(e) => {
+          if (!editable || e.target !== e.currentTarget) return;
+          handleRef.current?.editor?.commands.focus("end");
+        }}
+      >
       <RichDocEditor
         initialDoc={bodyDoc}
         initialMarkdown={body}
@@ -213,6 +224,7 @@ export function PageDocument({
           onEditorReady?.(handle);
         }}
       />
+      </div>
       {anchored.panel}
     </>
   );

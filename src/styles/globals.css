@@ -1345,7 +1345,16 @@ body {
   --sb-text: #EAECEF;
   --sb-muted: rgba(234, 236, 239, 0.55);
   --sb-faint: rgba(234, 236, 239, 0.32);
+  /* Section labels: 11px text needs 4.5:1 on --sb-bg (≈4.6:1 here, ≈5.3:1 in
+     light), which --sb-faint misses. */
+  --sb-label: rgba(234, 236, 239, 0.50);
   --sb-wash: rgba(255, 255, 255, 0.03);
+  --sb-wash-strong: rgba(255, 255, 255, 0.06);
+  /* Active row: grayscale, like Notion's selected page — a wash two steps
+     past hover, with the row's text at full strength. Colour stays for
+     counts and focus rings, never for "where am I". */
+  --sb-active: rgba(255, 255, 255, 0.07);
+  --sb-active-hover: rgba(255, 255, 255, 0.09);
 
   /* Type */
   --sb-font: "Inter Tight", -apple-system, system-ui, sans-serif;
@@ -1369,7 +1378,11 @@ body {
   --sb-text: #212529;
   --sb-muted: rgba(33, 37, 41, 0.68);
   --sb-faint: rgba(33, 37, 41, 0.45);
+  --sb-label: rgba(33, 37, 41, 0.68);
   --sb-wash: rgba(0, 0, 0, 0.04);
+  --sb-wash-strong: rgba(0, 0, 0, 0.07);
+  --sb-active: rgba(0, 0, 0, 0.06);
+  --sb-active-hover: rgba(0, 0, 0, 0.08);
 }
 
 /* ==========================================================================
@@ -1721,4 +1734,49 @@ body {
   --accent-crm: oklch(0.780 0.105 178);
   --accent-okr: oklch(0.800 0.110 88);
   --accent-due: oklch(0.715 0.120 20);
+}
+
+/* Knowledge Page reading typography. Notion-grade rhythm for the page editor
+   and the published render: 16px body, headings that hug the text below them
+   (large top margin, tiny bottom margin), the title the largest text on the
+   page. Scoped to `.knowledge-page` so the PRD body keeps its density. */
+.knowledge-page .prd-document {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+/* Mantine's RichTextEditor pads the ProseMirror root 16px, which pushed the
+   body right of the title. The reading column's own gutter does the spacing. */
+.knowledge-page .prd-document .ProseMirror {
+  padding: 0;
+}
+.knowledge-page .prd-document h1,
+.knowledge-page .prd-document h2,
+.knowledge-page .prd-document h3 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 0.25rem;
+  /* Keep a jumped-to heading clear of the sticky page bar. */
+  scroll-margin-top: 4rem;
+}
+.knowledge-page .prd-document h1 {
+  font-size: 1.875rem;
+  margin-top: 2em;
+}
+.knowledge-page .prd-document h2 {
+  font-size: 1.5rem;
+  margin-top: 1.4em;
+}
+.knowledge-page .prd-document h3 {
+  font-size: 1.25rem;
+  margin-top: 1em;
+}
+/* Top-level paragraphs only: list items and table cells keep their zero
+   margins from the rules above. */
+.knowledge-page .prd-document > p,
+.knowledge-page .prd-document .ProseMirror > p {
+  margin: 0 0 0.5rem;
+}
+.knowledge-page .prd-document > :first-child,
+.knowledge-page .prd-document .ProseMirror > :first-child {
+  margin-top: 0;
 }

@@ -9,6 +9,8 @@ import {
   getWorkspaceMembership,
   buildWorkspaceAccessWhere,
   buildWorkspaceVisibilityWhere,
+  canEditWorkspaceContent,
+  type WorkspaceRole,
 } from "~/server/services/access";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
@@ -334,6 +336,8 @@ export const workspaceRouter = createTRPCRouter({
       return {
         ...workspaceData,
         currentUserRole,
+        /** Can create or modify content here (member or above). */
+        canAddContent: canEditWorkspaceContent(currentUserRole as WorkspaceRole | null),
       };
     });
   }),

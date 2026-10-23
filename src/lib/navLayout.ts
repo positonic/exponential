@@ -33,6 +33,11 @@ export const navSectionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   hidden: z.boolean(),
+  /**
+   * Folded shut in the sidebar (the items stay reachable by unfolding). Absent
+   * on layouts saved before sections could collapse, which reads as open.
+   */
+  collapsed: z.boolean().optional(),
   items: z.array(navItemSchema),
 });
 
@@ -43,8 +48,8 @@ export type NavSection = z.infer<typeof navSectionSchema>;
 
 /**
  * Reserved section id for pinned shortcuts. It renders at the top of the
- * workspace nav without a heading or divider, like Notion's shortcut rows,
- * and is created on demand by {@link addShortcut}.
+ * workspace nav without a heading or fold, like Notion's shortcut rows, and
+ * is created on demand by {@link addShortcut}.
  */
 export const SHORTCUTS_SECTION_ID = 'shortcuts';
 
@@ -53,11 +58,15 @@ export function isCustomNavItem(item: NavItem): item is NavItem & { href: string
   return typeof item.href === 'string' && item.href.length > 0;
 }
 
-
+/**
+ * The default sidebar. Section names are plain nouns for the kind of thing in
+ * them (Plan, Work, People, Tools) rather than verbs the user has to decode;
+ * a saved layout keeps whatever the user renamed them to.
+ */
 export const DEFAULT_NAV_LAYOUT: NavSection[] = [
   {
     id: 'align',
-    name: 'Align',
+    name: 'Plan',
     hidden: false,
     items: [
       { id: 'goals', hidden: false },
@@ -66,7 +75,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
   },
   {
     id: 'deliver',
-    name: 'Deliver',
+    name: 'Work',
     hidden: false,
     items: [
       { id: 'actions', hidden: false },
@@ -79,7 +88,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
   },
   {
     id: 'connect',
-    name: 'Connect',
+    name: 'People',
     hidden: false,
     items: [
       { id: 'crm', hidden: false },
@@ -87,7 +96,7 @@ export const DEFAULT_NAV_LAYOUT: NavSection[] = [
   },
   {
     id: 'amplify',
-    name: 'Amplify',
+    name: 'Tools',
     hidden: false,
     items: [
       { id: 'agents', hidden: false },

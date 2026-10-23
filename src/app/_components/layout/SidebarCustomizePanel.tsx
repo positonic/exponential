@@ -438,7 +438,7 @@ export function SidebarCustomizePanel({ onDone }: SidebarCustomizePanelProps): R
           </Menu>
         )}
 
-        <div className="sb-divider" />
+        <div className="sb-cz-gap" />
 
         {/* Sections */}
         <SortableContext items={viewSections.map((s) => secId(s.id))} strategy={verticalListSortingStrategy}>

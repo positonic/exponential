@@ -72,6 +72,20 @@ describe("parseNavLayout", () => {
     expect(layout.map((s) => s.id)).toEqual(["deliver", "align", "connect", "amplify"]);
   });
 
+  it("names the default sections after what they hold, not a verb", () => {
+    expect(DEFAULT_NAV_LAYOUT.map((s) => s.name)).toEqual(["Plan", "Work", "People", "Tools"]);
+  });
+
+  it("keeps a section's fold, and reads a layout saved before folds as open", () => {
+    const saved = [
+      { id: "align", name: "Plan", hidden: false, collapsed: true, items: [{ id: "goals", hidden: false }] },
+      { id: "deliver", name: "Work", hidden: false, items: [{ id: "actions", hidden: false }] },
+    ];
+    const [align, deliver] = parseNavLayout(saved);
+    expect(align?.collapsed).toBe(true);
+    expect(deliver?.collapsed).toBeUndefined();
+  });
+
   it("links Goals to the bare goals route and Decisions to the decisions route", () => {
     expect(NAV_ITEM_CONFIG.goals?.href("clear")).toBe("/w/clear/goals");
     expect(NAV_ITEM_CONFIG.decisions?.href("clear")).toBe("/w/clear/decisions");
