@@ -45,6 +45,19 @@ describe("pickMeetingUrlMatch", () => {
     expect(pick).toEqual({ ceremonyId: "b", occurrenceId: "b1" });
   });
 
+  it("breaks an equal-distance tie the same way whatever the row order", () => {
+    const before = { id: "a", occurrences: [occ("a1", "2026-10-23T13:30:00.000Z")] };
+    const after = { id: "b", occurrences: [occ("b1", "2026-10-23T13:50:00.000Z")] };
+    // 10 minutes either side of 13:40: the earlier start wins.
+    expect(pickMeetingUrlMatch([before, after], at)).toEqual({ ceremonyId: "a", occurrenceId: "a1" });
+    expect(pickMeetingUrlMatch([after, before], at)).toEqual({ ceremonyId: "a", occurrenceId: "a1" });
+    // Same start: the lower occurrence id wins.
+    const twinA = { id: "x", occurrences: [occ("occ-2", "2026-10-23T13:30:00.000Z")] };
+    const twinB = { id: "y", occurrences: [occ("occ-1", "2026-10-23T13:30:00.000Z")] };
+    expect(pickMeetingUrlMatch([twinA, twinB], at)).toEqual({ ceremonyId: "y", occurrenceId: "occ-1" });
+    expect(pickMeetingUrlMatch([twinB, twinA], at)).toEqual({ ceremonyId: "y", occurrenceId: "occ-1" });
+  });
+
   it("falls back to the only ceremony when nothing is on", () => {
     expect(pickMeetingUrlMatch([{ id: "a", occurrences: [] }], at)).toEqual({ ceremonyId: "a", occurrenceId: null });
   });

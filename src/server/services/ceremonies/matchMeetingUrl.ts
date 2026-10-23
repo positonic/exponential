@@ -11,7 +11,9 @@
  *  2. An occurrence is "on" when `at` falls between its scheduled start and
  *     end, widened by 30 minutes either side; skipped ones never are. Among
  *     all candidates' on occurrences, the start nearest `at` wins. This is
- *     how one room shared by several ceremonies resolves.
+ *     how one room shared by several ceremonies resolves. Equal distances go
+ *     to the earlier start, then the lower occurrence id, so a retry always
+ *     files the same way whatever order the rows come back in.
  *  3. No occurrence on, and exactly one candidate: that ceremony, without an
  *     occurrence (an off-schedule meeting in its usual room).
  *  4. No occurrence on and several candidates: ambiguous, so null.
@@ -39,11 +41,17 @@ export interface MeetingUrlPick {
 
 /** Rules 2–4 over candidates whose occurrences are already limited to the "on" window. */
 export function pickMeetingUrlMatch(candidates: readonly MeetingUrlCandidate[], at: Date): MeetingUrlPick | null {
-  let best: { ceremonyId: string; occurrenceId: string; distance: number } | null = null;
+  let best: { ceremonyId: string; occurrenceId: string; start: number; distance: number } | null = null;
   for (const candidate of candidates) {
     for (const occurrence of candidate.occurrences) {
-      const distance = Math.abs(occurrence.scheduledStart.getTime() - at.getTime());
-      if (!best || distance < best.distance) best = { ceremonyId: candidate.id, occurrenceId: occurrence.id, distance };
+      const start = occurrence.scheduledStart.getTime();
+      const distance = Math.abs(start - at.getTime());
+      const better =
+        !best ||
+        distance < best.distance ||
+        (distance === best.distance &&
+          (start < best.start || (start === best.start && occurrence.id < best.occurrenceId)));
+      if (better) best = { ceremonyId: candidate.id, occurrenceId: occurrence.id, start, distance };
     }
   }
   if (best) return { ceremonyId: best.ceremonyId, occurrenceId: best.occurrenceId };
