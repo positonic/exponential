@@ -195,9 +195,9 @@ export function CommentThread({
                         disabled={isSaving}
                         styles={{
                           input: {
-                            backgroundColor: "var(--surface-primary)",
-                            borderColor: "var(--border-focus)",
-                            color: "var(--text-primary)",
+                            backgroundColor: "var(--color-surface-primary)",
+                            borderColor: "var(--color-border-focus)",
+                            color: "var(--color-text-primary)",
                           },
                         }}
                       />

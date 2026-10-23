@@ -54,7 +54,7 @@ export function OnTrackPanel() {
   const driCount = goals.length + keyResults.length + projects.length;
   const isLoading = driLoading || staleLoading;
 
-  if (isLoading) return <Skeleton height={80} radius={12} />;
+  if (isLoading) return <Skeleton height={80} radius="lg" />;
   if (driCount === 0 && staleKrs.length === 0) return null;
 
   // Effective health per item: goals carry `health`, KRs carry

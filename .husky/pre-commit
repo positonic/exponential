@@ -62,3 +62,11 @@ if [ -n "$STAGED_FILES" ]; then
 fi
 
 echo "✅ No hardcoded colors found"
+
+# Shape tokens: no undefined CSS variables, no new raw radius/shadow values
+# (scripts/check-design-tokens.ts; ratcheted against design-tokens-baseline.json)
+echo "Checking design tokens..."
+if ! npx tsx scripts/check-design-tokens.ts; then
+  echo "❌ Design token check failed. See dev-docs/styling-architecture.md, \"Shape tokens\"."
+  exit 1
+fi

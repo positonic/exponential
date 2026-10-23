@@ -260,7 +260,7 @@ export function WikiPageView({ path }: { path: string }) {
       ) : null}
 
       {missing && !editing ? (
-        <div className="rounded-[10px] border border-border-primary bg-background-secondary px-6 py-12 text-center">
+        <div className="rounded-lg border border-border-primary bg-background-secondary px-6 py-12 text-center">
           <Text className="font-semibold text-text-primary">
             Nobody has written this page yet
           </Text>

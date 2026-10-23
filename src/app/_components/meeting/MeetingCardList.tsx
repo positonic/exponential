@@ -312,7 +312,7 @@ export function MeetingCardList({
                       navigateToDetail();
                     }
                   }}
-                  className="group cursor-pointer rounded-[10px] border border-border-subtle bg-background-secondary px-3.5 py-4 sm:px-[18px] transition-colors hover:border-border-strong hover:bg-background-elevated"
+                  className="group cursor-pointer rounded-lg border border-border-subtle bg-background-secondary px-3.5 py-4 sm:px-[18px] transition-colors hover:border-border-strong hover:bg-background-elevated"
                 >
                   {/* Checkbox + ceremony icon gutter; the title row and AI summary share one column so the summary lines up with the title */}
                   <div className="flex items-start gap-3">

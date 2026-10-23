@@ -49,6 +49,40 @@
        list-page view tabs). Same in both themes. */
     --shadow-segment: 0 1px 3px rgba(0, 0, 0, 0.08);
 
+    /* ------------------------------------------------------------------
+       Shape tokens: the ONE radius scale and the ONE elevation scale.
+       Tailwind (`rounded-md`), Mantine (`radius="md"`) and feature CSS
+       (`var(--radius-md)`) all read these, so "md" is the same number in
+       every layer. Feature stylesheets must not declare their own
+       `--radius-*` / `--shadow-*` (a scoped copy is how the meeting page
+       shipped with square corners: it referenced tokens that only existed
+       inside two other pages' blocks). scripts/check-design-tokens.ts
+       enforces this. See dev-docs/styling-architecture.md, "Shape tokens".
+       ------------------------------------------------------------------ */
+    --radius-xs: 2px;    /* hairline chips, progress bars, highlights */
+    --radius-sm: 4px;    /* inputs, buttons, tags - Mantine's default */
+    --radius-md: 6px;    /* list rows, menu items, small cards */
+    --radius-lg: 8px;    /* cards, panels, popovers */
+    --radius-xl: 12px;   /* hero panels, modals, drawers */
+    --radius-2xl: 16px;  /* marketing surfaces only */
+    --radius-full: 9999px;
+
+    /* Elevation. The colour is a token so each theme can tune it: a black
+       shadow barely registers on a navy surface, so dark mode goes much
+       stronger. `--shadow-overlay` above is the popover/calendar composite
+       and stays as-is; lg is its general-purpose equivalent. */
+    --color-shadow: rgba(15, 23, 42, 0.1);
+    --shadow-sm: 0 1px 2px var(--color-shadow);
+    --shadow-md: 0 4px 12px var(--color-shadow);
+    --shadow-lg: 0 12px 32px -10px var(--color-shadow), 0 4px 12px -6px var(--color-shadow);
+    --shadow-xl: 0 20px 50px -20px var(--color-shadow);
+
+    /* Type. Feature stylesheets reference these; the sans stack is whatever
+       Mantine is already painting the body with, so referencing it is a
+       no-op rather than a second font. */
+    --font-sans: var(--mantine-font-family);
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
     --color-brand-primary-hover: #3D75FF;
@@ -275,6 +309,7 @@
        barely registers), so it sits a step lighter than border-primary. */
     --color-border-overlay: #2C3E63;
     --color-shadow-overlay: rgba(0, 0, 0, 0.7);
+    --color-shadow: rgba(0, 0, 0, 0.45);
 
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
@@ -907,14 +942,14 @@ body {
 .chat-html-content pre {
   background-color: var(--color-surface-secondary);
   padding: 0.5rem;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   margin: 0.5rem 0;
 }
 .chat-html-content code {
   background-color: var(--color-surface-secondary);
   padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   font-size: 0.75rem;
 }
 .chat-html-content strong,
@@ -926,7 +961,7 @@ body {
 .chat-html-content details.agent-thinking {
   margin-bottom: 1rem;
   border: 1px solid var(--color-border-primary);
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .chat-html-content details.agent-thinking > summary {
@@ -1035,15 +1070,9 @@ body {
   --microsoft-blue: #00A4EF;
   --microsoft-yellow: #FFB900;
 
-  /* Type */
+  /* Type: the auth surface deliberately paints Inter. Radius comes from the
+     global shape tokens on :root. */
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-
-  /* Rhythm */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-xl: 14px;
 }
 
 /* ==========================================================================
@@ -1450,18 +1479,13 @@ body {
   --ch-brand-shadow: rgba(167, 139, 250, 0.65);
 
   /* Shadows */
-  --ch-shadow-cta: 0 10px 22px -10px var(--ch-brand-shadow);
+  --ch-cta-glow: 0 10px 22px -10px var(--ch-brand-shadow);
 
   /* Type */
   --ch-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --ch-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --ch-font-display: "Fraunces", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
 
-  /* Rhythm */
-  --ch-radius-sm: 4px;
-  --ch-radius-md: 6px;
-  --ch-radius-lg: 10px;
-  --ch-radius-xl: 14px;
 }
 
 /*
@@ -1518,7 +1542,7 @@ body {
   background-color: color-mix(in srgb, var(--color-brand-warning) 22%, transparent);
   border-bottom: 2px solid
     color-mix(in srgb, var(--color-brand-warning) 55%, transparent);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition: background-color 120ms;
 }
@@ -1708,10 +1732,6 @@ body {
    ========================================================================== */
 .dec-surface {
   --color-surface-raised: var(--color-surface-secondary);
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 10px;
 }
 [data-mantine-color-scheme="dark"] .dec-surface {
   --color-bg-primary: oklch(0.168 0.022 262);

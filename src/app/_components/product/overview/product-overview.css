@@ -12,6 +12,10 @@
 
 .product-overview {
   max-width: 1160px;
+  /* Nothing sets --po-accent inline yet (the hero that would is not
+     rendered), so declare the documented brand fallback here rather than
+     leave every color-mix() below resolving to nothing. */
+  --po-accent: var(--color-brand-primary);
   --po-mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
 }
 

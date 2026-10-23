@@ -80,7 +80,7 @@ export function WelcomeStep({ selectedDate, onDateChange, onStart, showGamificat
             },
           ]}
           styles={{
-            root: { backgroundColor: 'var(--background-primary)' },
+            root: { backgroundColor: 'var(--color-bg-primary)' },
           }}
         />
 

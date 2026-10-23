@@ -442,7 +442,7 @@ function KrRow({ kr, isFocused, onToggleFocus, onCheckInLogged }: KrRowProps) {
             background: "var(--pr-surface-muted)",
             border: "1px solid var(--pr-border-subtle)",
             color: "var(--pr-text-primary)",
-            borderRadius: 4,
+            borderRadius: 'var(--radius-sm)',
             padding: "3px 6px",
             fontFamily: "var(--font-mono)",
             fontSize: 11,

@@ -91,7 +91,7 @@ function computeInitials(name: string): string {
 
 function RailCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-[10px] border border-border-subtle bg-background-secondary p-4">
+    <div className="rounded-lg border border-border-subtle bg-background-secondary p-4">
       {children}
     </div>
   );
@@ -163,7 +163,7 @@ function ThisWeekChart({ stats, weekStart }: { stats: WeeklyMeetingStatsResult |
           return (
             <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
               <div
-                className={`min-h-[4px] w-full rounded-[2px] transition-colors ${
+                className={`min-h-[4px] w-full rounded-xs transition-colors ${
                   isToday ? "bg-brand-400" : "bg-surface-muted"
                 }`}
                 style={{ height: `${heightPct}%` }}

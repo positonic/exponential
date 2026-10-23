@@ -34,7 +34,7 @@ export function WikiCommitList({
 }) {
   if (commits.length === 0) {
     return (
-      <div className="rounded-[10px] border border-border-primary bg-background-secondary px-6 py-10 text-center">
+      <div className="rounded-lg border border-border-primary bg-background-secondary px-6 py-10 text-center">
         <Text className="text-sm text-text-secondary">{emptyMessage}</Text>
       </div>
     );
@@ -48,7 +48,7 @@ export function WikiCommitList({
         return (
           <div
             key={commit.sha}
-            className="rounded-[10px] border border-border-primary bg-background-secondary px-[18px] py-3"
+            className="rounded-lg border border-border-primary bg-background-secondary px-[18px] py-3"
           >
             <div className="flex items-baseline gap-2">
               <IconGitCommit

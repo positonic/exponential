@@ -746,7 +746,7 @@ export function CommandPalette() {
         styles={{
           input: {
             height: 58,
-            borderRadius: 14,
+            borderRadius: 'var(--radius-xl)',
             fontSize: 16,
             paddingLeft: 52,
             backgroundColor: 'var(--color-bg-secondary)',
@@ -771,7 +771,7 @@ export function CommandPalette() {
                 alignItems: 'center',
                 gap: 6,
                 padding: '5px 10px',
-                borderRadius: 20,
+                borderRadius: 'var(--radius-2xl)',
                 fontSize: 12,
                 border: `1px solid ${isActive ? 'var(--brand-500)' : 'var(--color-border-subtle)'}`,
                 color: isActive ? 'var(--brand-400)' : 'var(--color-text-secondary)',

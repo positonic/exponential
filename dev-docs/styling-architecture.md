@@ -281,6 +281,70 @@ When making style changes:
 4. **Test both themes** - Ensure changes work in light and dark modes
 5. **Update consistently** - If changing a color pattern, update all instances
 
+## Shape tokens
+
+Colour has tokens, a lint rule and a pre-commit hook, and every page converged
+on it. Shape (radius, shadow) had none, so each redesign invented its own
+scale: Tailwind's, Mantine's, raw pixels in a feature stylesheet, or
+`--radius-*` tokens scoped to a single page. The meeting detail page shipped
+with square corners because its stylesheet referenced `var(--radius-md)` and
+that token only existed inside two other pages' blocks.
+
+There is now **one radius scale and one elevation scale**, declared on `:root`
+in `globals.css`, and every layer reads it:
+
+| Token | Value | Tailwind | Mantine | Use for |
+|---|---|---|---|---|
+| `--radius-xs` | 2px | `rounded-xs` | `radius="xs"` | hairline chips, progress bars, text highlights |
+| `--radius-sm` | 4px | `rounded-sm` / `rounded` | `radius="sm"` (default) | inputs, buttons, tags |
+| `--radius-md` | 6px | `rounded-md` | `radius="md"` | list rows, menu items, small cards |
+| `--radius-lg` | 8px | `rounded-lg` | `radius="lg"` | cards, panels, popovers |
+| `--radius-xl` | 12px | `rounded-xl` | — | hero panels, modals, drawers |
+| `--radius-2xl` | 16px | `rounded-2xl` | — | marketing surfaces only |
+| `--radius-full` | 9999px | `rounded-full` | `radius="xl"` | pills, avatars |
+
+| Token | Tailwind | Mantine | Use for |
+|---|---|---|---|
+| `--shadow-sm` | `shadow-sm` / `shadow` | `shadow="xs"`, `"sm"` | a barely-there lift |
+| `--shadow-md` | `shadow-md` | `shadow="md"` | dropdowns, popovers, hover lift |
+| `--shadow-lg` | `shadow-lg` | `shadow="lg"` | modals, drawers |
+| `--shadow-xl` | `shadow-xl` | `shadow="xl"` | hero / marketing only |
+| `--shadow-overlay` | `shadow-overlay` | — | the calendar/popover composite (see the Mantine theme) |
+
+Mantine's `xl` is the one deliberate asymmetry: Mantine's own Avatar, Badge
+and Pill rely on `xl` meaning "fully round", and ~200 call sites pass
+`radius="xl"` for exactly that. For a 12px corner on a Mantine component use
+`lg` or a Tailwind class.
+
+### Rules
+
+- **Pick a step, never a number.** `rounded-[10px]`, `radius={12}`,
+  `borderRadius: 8` and `border-radius: 10px` are all lint errors. If a design
+  handoff says 10px, use `lg` (8px); the scale wins over the mock.
+- **Feature stylesheets consume tokens, they do not declare them.** No
+  `--radius-*` / `--shadow-*` / `--xx-radius-*` inside a page's scope. If a
+  page genuinely needs a new step, add it to `:root` and to the table above.
+- **A `var()` must resolve.** `var(--background-primary)` is not a token (the
+  token is `--color-bg-primary`) and an undefined variable silently invalidates
+  the whole declaration: square corners, inherited fonts, missing borders. The
+  checker fails on any bare reference to a variable declared nowhere under
+  `src/`. Use a fallback (`var(--x, 4px)`) only for a value that is set at
+  runtime from JS.
+- **Shadows are painted with a token colour**, never `rgba(...)`.
+
+### Enforcement
+
+- ESLint (`no-restricted-syntax` in `.eslintrc.cjs`): arbitrary
+  `rounded-[...]` / `shadow-[...]`, numeric `radius={n}`, numeric or pixel
+  `borderRadius` in style objects. Fires in the editor and in `npm run check`.
+- `npm run tokens:check` (`scripts/check-design-tokens.ts`): the CSS-side and
+  CI backstop. Undefined variables and arbitrary values are hard failures. Raw
+  `border-radius` / `box-shadow` values in existing stylesheets are
+  **ratcheted** against `scripts/design-tokens-baseline.json`: a file may never
+  have more than its baseline, a new file must have none. When you clear some,
+  run `npm run tokens:check -- --update-baseline` so the ceiling drops with
+  you. Runs in the pre-commit hook and the CI lint job.
+
 ## Quick Reference
 
 ### Background Colors

@@ -83,7 +83,7 @@ const MARKDOWN_COMPONENTS: Partial<Components> = {
       style={{
         backgroundColor: 'var(--color-surface-secondary)',
         padding: '2px 4px',
-        borderRadius: '4px',
+        borderRadius: 'var(--radius-sm)',
         fontSize: '12px'
       }}
     >
@@ -96,7 +96,7 @@ const MARKDOWN_COMPONENTS: Partial<Components> = {
       style={{
         backgroundColor: 'var(--color-surface-secondary)',
         padding: '8px',
-        borderRadius: '4px',
+        borderRadius: 'var(--radius-sm)',
         overflow: 'auto',
         fontSize: '12px'
       }}

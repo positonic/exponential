@@ -61,6 +61,30 @@ const config = {
       {
         "selector": "TemplateElement[value.raw=/\\b(bg|text|border)-\\[#[0-9A-Fa-f]{3,8}\\]/]",
         "message": "Hardcoded Tailwind colors are not allowed. Use semantic color classes from docs/styling-architecture.md"
+      },
+      // Shape tokens (dev-docs/styling-architecture.md, "Shape tokens"). The
+      // radius scale is shared by Tailwind, Mantine and CSS; arbitrary values
+      // and raw numbers bypass it. scripts/check-design-tokens.ts is the CSS
+      // and CI backstop for the same rule.
+      {
+        "selector": "Literal[value=/\\b(rounded|shadow)-\\[/]",
+        "message": "Arbitrary radius/shadow values bypass the shape scale. Use rounded-xs|sm|md|lg|xl|2xl|full or shadow-sm|md|lg|xl (dev-docs/styling-architecture.md, Shape tokens)."
+      },
+      {
+        "selector": "TemplateElement[value.raw=/\\b(rounded|shadow)-\\[/]",
+        "message": "Arbitrary radius/shadow values bypass the shape scale. Use rounded-xs|sm|md|lg|xl|2xl|full or shadow-sm|md|lg|xl (dev-docs/styling-architecture.md, Shape tokens)."
+      },
+      {
+        "selector": "JSXAttribute[name.name='radius'] > JSXExpressionContainer > Literal[value=type(number)]",
+        "message": "Pass a radius size (\"xs\"|\"sm\"|\"md\"|\"lg\"|\"xl\") so the component follows the shared shape scale, not a pixel number."
+      },
+      {
+        "selector": "Property[key.name='borderRadius'] > Literal[value=type(number)]",
+        "message": "borderRadius takes a token: 'var(--radius-sm|md|lg|xl)' (dev-docs/styling-architecture.md, Shape tokens)."
+      },
+      {
+        "selector": "Property[key.name='borderRadius'] > Literal[value=/^[0-9]+(px|rem)$/]",
+        "message": "borderRadius takes a token: 'var(--radius-sm|md|lg|xl)' (dev-docs/styling-architecture.md, Shape tokens)."
       }
     ]
   },
