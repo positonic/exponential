@@ -130,6 +130,12 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
   const pathname = usePathname();
   const { workspace, workspaceId, userRole } = useWorkspace();
   const utils = api.useUtils();
+  // A project created from this goal shows up in all three project views;
+  // the modal itself only refreshes the generic project lists.
+  const handleProjectCreated = () => {
+    void utils.goal.getById.invalidate();
+    void utils.project.getProjectsWithActions.invalidate();
+  };
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
 
   // Features belong to Products, so the Features tab exists only where the
@@ -578,7 +584,7 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                       </ActionIcon>
                       <CreateProjectModal
                         prefillGoalId={goal.id.toString()}
-                        onSuccess={() => void utils.goal.getById.invalidate()}
+                        onSuccess={handleProjectCreated}
                       >
                         <ActionIcon variant="subtle" size="sm" color="gray">
                           <IconPlus size={16} />
@@ -612,7 +618,21 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
 
           {/* Projects Tab */}
           <Tabs.Panel value="projects" pt="lg">
-            <ProjectViewTabs activeView={projectView} onViewChange={setProjectView} />
+            <ProjectViewTabs
+              activeView={projectView}
+              onViewChange={setProjectView}
+              rightSection={
+                <CreateProjectModal
+                  prefillGoalId={goal.id.toString()}
+                  prefillWorkspaceId={goal.workspaceId ?? undefined}
+                  onSuccess={handleProjectCreated}
+                >
+                  <Button size="xs" variant="light" leftSection={<IconPlus size={14} />}>
+                    New project
+                  </Button>
+                </CreateProjectModal>
+              }
+            />
             {projectView === "table" && (
               goal.projects.length > 0 ? (
                 <ProjectsTable
