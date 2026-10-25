@@ -11,10 +11,12 @@ import {
   ETA_OVERDUE,
   ETA_SOON,
   ETA_SOON_DAYS,
+  GOAL_NONE,
   PROJECT_FILTER_KEYS,
   VISIBILITY_PUBLIC,
   VISIBILITY_RESTRICTED,
   type ProjectFilterKey,
+  type ProjectGoalOption,
 } from './useProjectViewState';
 import { ListPageButton, ListPageFilterPills } from '~/app/_components/listPage';
 
@@ -97,8 +99,14 @@ function memberLabel(m: FilterMember): string {
   return m.name ?? m.email ?? 'Unknown';
 }
 
-/** The facets in display order; the DRI one lists the workspace's members. */
-export function buildProjectFilterFacets(members: FilterMember[]): Facet[] {
+/**
+ * The facets in display order; the DRI one lists the workspace's members and
+ * the Goal one the goals the listed projects are attached to.
+ */
+export function buildProjectFilterFacets(
+  members: FilterMember[],
+  goals: ProjectGoalOption[] = [],
+): Facet[] {
   const driFacet: Facet = {
     key: 'driId',
     label: 'DRI',
@@ -113,7 +121,27 @@ export function buildProjectFilterFacets(members: FilterMember[]): Facet[] {
       })),
     ],
   };
-  return [STATUS_FACET, PRIORITY_FACET, driFacet, VISIBILITY_FACET, ETA_FACET];
+  const goalFacet: Facet = {
+    key: 'goalId',
+    label: 'Goal',
+    color: 'indigo',
+    options: [
+      { value: GOAL_NONE, label: 'No goal' },
+      ...goals.map((g) => ({
+        value: String(g.id),
+        label: g.title,
+        pill: `Goal: ${g.title}`,
+      })),
+    ],
+  };
+  return [
+    STATUS_FACET,
+    PRIORITY_FACET,
+    driFacet,
+    goalFacet,
+    VISIBILITY_FACET,
+    ETA_FACET,
+  ];
 }
 
 function selectedValues(filters: FilterState, key: string): string[] {
@@ -152,13 +180,15 @@ export interface ActiveProjectFilterPill {
 export function describeActiveProjectFilters(
   filters: FilterState,
   members: FilterMember[],
+  goals: ProjectGoalOption[] = [],
 ): ActiveProjectFilterPill[] {
   const pills: ActiveProjectFilterPill[] = [];
-  for (const facet of buildProjectFilterFacets(members)) {
+  for (const facet of buildProjectFilterFacets(members, goals)) {
     for (const value of selectedValues(filters, facet.key)) {
       const opt = facet.options.find((o) => o.value === value);
-      // A DRI who has since left the workspace still gets a pill, so the
-      // filter stays visible and removable rather than silently hiding rows.
+      // A DRI who has since left the workspace (or a goal no listed project
+      // is attached to any more) still gets a pill, so the filter stays
+      // visible and removable rather than silently hiding rows.
       const label =
         opt?.pill ?? opt?.label ?? `${facet.label}: ${value}`;
       pills.push({
@@ -177,6 +207,8 @@ interface ProjectFilterPopoverProps {
   filters: FilterState;
   onFiltersChange: (next: FilterState) => void;
   members: FilterMember[];
+  /** Goals the listed projects are attached to; see `collectProjectGoals`. */
+  goals?: ProjectGoalOption[];
   /** facetKey → value → matching rows; shown beside an option when known. */
   counts?: Record<string, Record<string, number>>;
 }
@@ -185,9 +217,13 @@ export function ProjectFilterPopover({
   filters,
   onFiltersChange,
   members,
+  goals,
   counts,
 }: ProjectFilterPopoverProps) {
-  const facets = useMemo(() => buildProjectFilterFacets(members), [members]);
+  const facets = useMemo(
+    () => buildProjectFilterFacets(members, goals),
+    [members, goals],
+  );
   const activeCount = countActiveProjectFilters(filters);
 
   return (
@@ -276,16 +312,18 @@ interface ProjectFilterPillsProps {
   filters: FilterState;
   onFiltersChange: (next: FilterState) => void;
   members: FilterMember[];
+  goals?: ProjectGoalOption[];
 }
 
 export function ProjectFilterPills({
   filters,
   onFiltersChange,
   members,
+  goals,
 }: ProjectFilterPillsProps) {
   const pills = useMemo(
-    () => describeActiveProjectFilters(filters, members),
-    [filters, members],
+    () => describeActiveProjectFilters(filters, members, goals),
+    [filters, members, goals],
   );
   return (
     <ListPageFilterPills
