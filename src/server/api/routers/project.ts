@@ -800,6 +800,8 @@ export const projectRouter = createTRPCRouter({
             },
             orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }],
           },
+          // For the shared Goal filter on the projects views.
+          goals: { select: { id: true, title: true } },
           _count: { select: { actions: true } },
         },
         orderBy: [{ priority: 'asc' }, { name: 'asc' }],

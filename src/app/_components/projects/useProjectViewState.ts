@@ -20,6 +20,7 @@ export const PROJECT_FILTER_KEYS = [
   "status",
   "priority",
   "driId",
+  "goalId",
   "visibility",
   "eta",
 ] as const;
@@ -34,6 +35,9 @@ export type ProjectFilterKey = (typeof PROJECT_FILTER_KEYS)[number];
 export const DRI_ME = "me";
 /** `driId` sentinel for projects that have no DRI at all. */
 export const DRI_NONE = "none";
+
+/** `goalId` sentinel for projects not attached to any goal. */
+export const GOAL_NONE = "none";
 
 /** `visibility` filter values. */
 export const VISIBILITY_PUBLIC = "public";
@@ -61,6 +65,31 @@ export interface FilterableProject {
   isPublic?: boolean;
   isRestricted?: boolean;
   endDate?: Date | string | null;
+  /** The goals the project is attached to; only the ids are read. */
+  goals?: ReadonlyArray<{ id: number }>;
+}
+
+/** A goal some project in the list is attached to — a `goalId` filter option. */
+export interface ProjectGoalOption {
+  id: number;
+  title: string;
+}
+
+/**
+ * The distinct goals the given projects are attached to, by title. Options
+ * come from the projects rather than the workspace's goal list, so the picker
+ * only offers goals that can match a row.
+ */
+export function collectProjectGoals(
+  projects: ReadonlyArray<{ goals?: ReadonlyArray<ProjectGoalOption> }>,
+): ProjectGoalOption[] {
+  const byId = new Map<number, ProjectGoalOption>();
+  for (const p of projects) {
+    for (const g of p.goals ?? []) {
+      if (!byId.has(g.id)) byId.set(g.id, { id: g.id, title: g.title });
+    }
+  }
+  return [...byId.values()].sort((a, b) => a.title.localeCompare(b.title));
 }
 
 const FINISHED_STATUSES = new Set(["COMPLETED", "CANCELLED"]);
@@ -547,6 +576,11 @@ export function computeProjectFilterCounts<T extends FilterableProject>(
   const counts: Record<string, Record<string, number>> = {
     priority: countBy(without("priority"), (p) => p.priority),
     driId: countBy(driCandidates, (p) => p.driId ?? DRI_NONE),
+    goalId: countBy(without("goalId"), (p) =>
+      p.goals && p.goals.length > 0
+        ? p.goals.map((g) => String(g.id))
+        : GOAL_NONE,
+    ),
     visibility: countBy(without("visibility"), (p) => [
       ...(p.isPublic ? [VISIBILITY_PUBLIC] : []),
       ...(p.isRestricted ? [VISIBILITY_RESTRICTED] : []),
@@ -587,6 +621,7 @@ export function filterProjects<T extends FilterableProject>(
   const statusFilter = arrayFilter(filters, "status");
   const priorityFilter = arrayFilter(filters, "priority");
   const driFilter = arrayFilter(filters, "driId");
+  const goalFilter = arrayFilter(filters, "goalId");
   const visibilityFilter = arrayFilter(filters, "visibility");
   const etaFilter = arrayFilter(filters, "eta");
 
@@ -601,11 +636,24 @@ export function filterProjects<T extends FilterableProject>(
     } else driIds.add(v);
   }
 
+  // Goal ids arrive from the URL as strings; a project matches if it is
+  // attached to any selected goal (OR), or to none when `none` is selected.
+  const goalMatchNone = goalFilter?.includes(GOAL_NONE) ?? false;
+  const goalIds = new Set(goalFilter?.filter((v) => v !== GOAL_NONE));
+
   return projects.filter((p) => {
     if (statusFilter && !statusFilter.includes(p.status)) return false;
     if (priorityFilter && !priorityFilter.includes(p.priority)) return false;
     if (driFilter) {
       const ok = p.driId ? driIds.has(p.driId) : driMatchNone;
+      if (!ok) return false;
+    }
+    if (goalFilter) {
+      const goals = p.goals ?? [];
+      const ok =
+        goals.length === 0
+          ? goalMatchNone
+          : goals.some((g) => goalIds.has(String(g.id)));
       if (!ok) return false;
     }
     if (visibilityFilter) {

@@ -20,6 +20,7 @@ import {
   useProjectViewState,
   filterProjects,
   computeProjectFilterCounts,
+  collectProjectGoals,
   PROJECT_FILTER_KEYS,
   DRI_ME,
   PROJECT_DEFAULT_VIEW_STATE,
@@ -369,6 +370,11 @@ export function WorkspaceProjectsTasksConceptD() {
     });
   }, []);
 
+  const projectGoals = useMemo(
+    () => collectProjectGoals(data?.projects ?? []),
+    [data?.projects],
+  );
+
   const filteredProjects = useMemo(() => {
     const all = data?.projects ?? [];
     const filtered = filterProjects(all, filters, '', filterCtx);
@@ -423,6 +429,7 @@ export function WorkspaceProjectsTasksConceptD() {
               filters={filters}
               onFiltersChange={setFilters}
               members={workspaceMembers}
+              goals={projectGoals}
             />
           </>
         }
@@ -433,6 +440,7 @@ export function WorkspaceProjectsTasksConceptD() {
               filters={filters}
               onFiltersChange={setFilters}
               members={workspaceMembers}
+              goals={projectGoals}
               counts={optionCounts}
             />
             <ProjectSortMenu
