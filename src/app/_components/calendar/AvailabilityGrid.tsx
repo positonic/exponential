@@ -21,6 +21,13 @@ import {
  * they exclude.
  */
 
+/**
+ * The cell colour every shade is mixed from, and the colour of cells nobody
+ * can take (outside hours, everyone busy). A surface step above the modal so
+ * those cells still read as cells rather than holes in the week.
+ */
+const CELL_BASE = "var(--color-surface-tertiary)";
+
 export interface GridSlot {
   startsAt: Date;
   endsAt: Date;
@@ -71,11 +78,11 @@ export function AvailabilityGrid({
   // many attendees are free for the span. No hardcoded colors.
   const cellBackground = (state: SpanState): string => {
     if (state.kind !== "open" || attendees.length === 0) {
-      return "var(--color-bg-secondary)";
+      return CELL_BASE;
     }
     const fraction = state.freeCount / attendees.length;
     const mixPercent = Math.round(fraction * 55);
-    return `color-mix(in oklab, var(--color-brand-success) ${mixPercent}%, var(--color-bg-secondary))`;
+    return `color-mix(in oklab, var(--color-brand-success) ${mixPercent}%, ${CELL_BASE})`;
   };
 
   const hourLabel = (minutes: number) =>
@@ -130,14 +137,14 @@ export function AvailabilityGrid({
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
         <LegendSwatch
-          background="color-mix(in oklab, var(--color-brand-success) 55%, var(--color-bg-secondary))"
+          background={`color-mix(in oklab, var(--color-brand-success) 55%, ${CELL_BASE})`}
           label="Everyone free"
         />
         <LegendSwatch
-          background="color-mix(in oklab, var(--color-brand-success) 25%, var(--color-bg-secondary))"
+          background={`color-mix(in oklab, var(--color-brand-success) 25%, ${CELL_BASE})`}
           label="Some busy (click to see who)"
         />
-        <LegendSwatch background="var(--color-bg-secondary)" label="Outside hours / all busy" dimmed />
+        <LegendSwatch background={CELL_BASE} label="Outside hours / all busy" />
       </div>
       {unknownNames.length > 0 && (
         <Text size="xs" c="dimmed" mt={4}>
@@ -210,7 +217,7 @@ function RowCells({
                 );
               }}
               className={`h-5 w-full border-0 p-0 transition-colors ${
-                clickable ? "cursor-pointer" : "cursor-not-allowed opacity-40"
+                clickable ? "cursor-pointer" : "cursor-not-allowed"
               }`}
               style={{
                 backgroundColor: cellBackground(state),
@@ -226,19 +233,11 @@ function RowCells({
   );
 }
 
-function LegendSwatch({
-  background,
-  label,
-  dimmed,
-}: {
-  background: string;
-  label: string;
-  dimmed?: boolean;
-}) {
+function LegendSwatch({ background, label }: { background: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
-        className={`inline-block h-3 w-3 rounded-sm border border-border-primary ${dimmed ? "opacity-40" : ""}`}
+        className="inline-block h-3 w-3 rounded-sm border border-border-primary"
         style={{ backgroundColor: background }}
       />
       <Text size="xs" c="dimmed" component="span">
