@@ -22,8 +22,10 @@ export interface BusyBlock {
 
 /**
  * Busy blocks for each requested user overlapping [from, to), from every
- * synced source: ICS feed rows (enabled feeds only — a disabled feed is the
- * owner saying "this calendar doesn't count") and provider busy-time rows.
+ * source: ICS feed rows (enabled feeds only — a disabled feed is the owner
+ * saying "this calendar doesn't count"), provider busy-time rows, and the
+ * Availability blocks the user marked by hand (sourceType "manual"; their
+ * private note is never selected).
  *
  * Returns a map keyed by userId; users with no rows are present with an
  * empty array so callers can tell "free all day" from "not queried".
@@ -36,23 +38,39 @@ export async function listBusyBlocksByUser(
   const byUser = new Map<string, BusyBlock[]>(userIds.map((id) => [id, []]));
   if (userIds.length === 0) return byUser;
 
-  const rows = await db.calendarEvent.findMany({
-    where: {
-      userId: { in: userIds },
-      startsAt: { lt: range.to },
-      endsAt: { gt: range.from },
-      OR: [{ sourceType: { not: "ics" } }, { calendarFeed: { isEnabled: true } }],
-    },
-    // THE free/busy contract. Do not add fields here — see module doc.
-    select: {
-      userId: true,
-      startsAt: true,
-      endsAt: true,
-      isAllDay: true,
-      sourceType: true,
-    },
-    orderBy: { startsAt: "asc" },
-  });
+  const [rows, manualRows] = await Promise.all([
+    db.calendarEvent.findMany({
+      where: {
+        userId: { in: userIds },
+        startsAt: { lt: range.to },
+        endsAt: { gt: range.from },
+        OR: [{ sourceType: { not: "ics" } }, { calendarFeed: { isEnabled: true } }],
+      },
+      // THE free/busy contract. Do not add fields here — see module doc.
+      select: {
+        userId: true,
+        startsAt: true,
+        endsAt: true,
+        isAllDay: true,
+        sourceType: true,
+      },
+      orderBy: { startsAt: "asc" },
+    }),
+    db.availabilityBlock.findMany({
+      where: {
+        userId: { in: userIds },
+        startsAt: { lt: range.to },
+        endsAt: { gt: range.from },
+      },
+      // Same contract: times only. `note` is the owner's and never crosses users.
+      select: {
+        userId: true,
+        startsAt: true,
+        endsAt: true,
+        isAllDay: true,
+      },
+    }),
+  ]);
 
   for (const row of rows) {
     byUser.get(row.userId)?.push({
@@ -61,6 +79,19 @@ export async function listBusyBlocksByUser(
       isAllDay: row.isAllDay,
       sourceType: row.sourceType,
     });
+  }
+  for (const row of manualRows) {
+    byUser.get(row.userId)?.push({
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
+      isAllDay: row.isAllDay,
+      sourceType: "manual",
+    });
+  }
+  if (manualRows.length > 0) {
+    for (const blocks of byUser.values()) {
+      blocks.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    }
   }
 
   return byUser;
