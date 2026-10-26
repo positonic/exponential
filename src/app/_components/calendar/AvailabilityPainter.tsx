@@ -41,7 +41,8 @@ interface Drag {
 const MARKED = "color-mix(in oklab, var(--color-brand-error) 45%, var(--color-bg-secondary))";
 const CALENDAR_BUSY = "color-mix(in oklab, var(--color-brand-warning) 35%, var(--color-bg-secondary))";
 const FREE = "color-mix(in oklab, var(--color-brand-success) 30%, var(--color-bg-secondary))";
-const OUTSIDE = "var(--color-bg-secondary)";
+// Outside cells stay paintable, so they must read as cells, not gaps.
+const OUTSIDE = "var(--color-surface-tertiary)";
 
 export function AvailabilityPainter() {
   const utils = api.useUtils();
@@ -220,7 +221,7 @@ export function AvailabilityPainter() {
         <LegendSwatch background={MARKED} label="Marked unavailable" />
         <LegendSwatch background={CALENDAR_BUSY} label="Busy in your calendar" />
         <LegendSwatch background={FREE} label="Free in your work hours" />
-        <LegendSwatch background={OUTSIDE} label="Outside your work hours" dimmed />
+        <LegendSwatch background={OUTSIDE} label="Outside your work hours" />
       </div>
     </div>
   );
@@ -300,9 +301,7 @@ function PainterRow({
               event.preventDefault();
               onToggle(cell);
             }}
-            className={`h-5 w-full cursor-pointer border-0 p-0 transition-colors ${
-              cell.status === "outside" && !cell.marked ? "opacity-40" : ""
-            }`}
+            className="h-5 w-full cursor-pointer border-0 p-0 transition-colors"
             style={{ backgroundColor: background }}
           />
         );
@@ -311,19 +310,11 @@ function PainterRow({
   );
 }
 
-function LegendSwatch({
-  background,
-  label,
-  dimmed,
-}: {
-  background: string;
-  label: string;
-  dimmed?: boolean;
-}) {
+function LegendSwatch({ background, label }: { background: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <span
-        className={`inline-block h-3 w-3 rounded-sm border border-border-primary ${dimmed ? "opacity-40" : ""}`}
+        className="inline-block h-3 w-3 rounded-sm border border-border-primary"
         style={{ backgroundColor: background }}
       />
       <Text size="xs" c="dimmed" component="span">
