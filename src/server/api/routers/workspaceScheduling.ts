@@ -4,11 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { listBusyBlocksByUser } from "~/server/services/calendar/freeBusy";
-import {
-  computeSlots,
-  computeAvailabilityGrid,
-  type AttendeeWorkSettings,
-} from "~/server/services/calendar/slotEngine";
+import { computeSlots, computeAvailabilityGrid } from "~/server/services/calendar/slotEngine";
+import { loadAttendeeSettings } from "~/server/services/calendar/attendeeSettings";
 import { buildInviteIcs } from "~/server/services/calendar/inviteIcs";
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { sendMeetingInviteEmail } from "~/server/services/EmailService";
@@ -131,58 +128,6 @@ async function listWorkspaceMemberIds(db: PrismaClient, workspaceId: string): Pr
   return new Set([...direct.map((m) => m.userId), ...viaTeam.map((m) => m.userId)]);
 }
 
-/**
- * Work-hours settings for a set of users (self-describing fields, not event
- * data — no privacy concern) plus the organizer's timezone, the fallback
- * zone for attendees who never set one.
- */
-async function loadAttendeeSettings(
-  db: PrismaClient,
-  attendeeUserIds: string[],
-  organizerId: string,
-): Promise<{ attendeeSettings: Map<string, AttendeeWorkSettings>; organizerTimezone: string | null }> {
-  const [attendeeRows, organizerRow] = await Promise.all([
-    db.user.findMany({
-      where: { id: { in: attendeeUserIds } },
-      select: {
-        id: true,
-        workHoursEnabled: true,
-        workDaysJson: true,
-        workHoursStart: true,
-        workHoursEnd: true,
-        timezone: true,
-      },
-    }),
-    db.user.findUnique({
-      where: { id: organizerId },
-      select: { timezone: true },
-    }),
-  ]);
-  const attendeeSettings = new Map<string, AttendeeWorkSettings>(
-    attendeeRows.map((row) => {
-      let workDays: string[] = [];
-      if (row.workDaysJson) {
-        try {
-          workDays = (JSON.parse(row.workDaysJson) as string[]).map((d) => d.toLowerCase());
-        } catch {
-          workDays = [];
-        }
-      }
-      return [
-        row.id,
-        {
-          workHoursEnabled: row.workHoursEnabled,
-          workDays,
-          workHoursStart: row.workHoursStart,
-          workHoursEnd: row.workHoursEnd,
-          timezone: row.timezone,
-        },
-      ] as const;
-    }),
-  );
-  return { attendeeSettings, organizerTimezone: organizerRow?.timezone ?? null };
-}
-
 function assertSaneRange(rangeStart: Date, rangeEnd: Date, maxDays: number = MAX_RANGE_DAYS) {
   if (rangeEnd <= rangeStart) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Range end must be after start" });
@@ -236,8 +181,9 @@ async function loadSchedulingContext(
 export const workspaceSchedulingRouter = createTRPCRouter({
   /**
    * Workspace members offerable as attendees, with an availability flag:
-   * a member with no synced calendar source is availability-unknown — still
-   * invitable, never constraining suggestions.
+   * a member with no synced calendar source and no marked Availability
+   * block is availability-unknown — still invitable, never constraining
+   * suggestions.
    */
   listSchedulableMembers: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
@@ -262,8 +208,8 @@ export const workspaceSchedulingRouter = createTRPCRouter({
       for (const row of [...direct, ...viaTeam]) byId.set(row.user.id, row.user);
       const members = [...byId.values()];
 
-      // Availability = at least one synced CalendarEvent row exists (the
-      // shared existence probe — not an event read).
+      // Availability = a synced CalendarEvent row or a recent marked block
+      // exists (the shared existence probe — not an event read).
       const unknown = new Set(await filterTrulyUnknown(db, members.map((m) => m.id)));
 
       return members.map((member) => ({
@@ -670,15 +616,24 @@ export const workspaceSchedulingRouter = createTRPCRouter({
 
 /**
  * An attendee with zero blocks in range is only availability-UNKNOWN when
- * they also have no synced calendar source at all — an empty week from a
- * connected calendar is real availability.
+ * they also have no synced calendar source at all and have not marked any
+ * recent Availability block — an empty week from a connected calendar, or
+ * from someone who keeps their availability by hand, is real availability.
+ * Marked blocks count back one week, the same window calendar sync keeps.
  */
 async function filterTrulyUnknown(db: PrismaClient, userIds: string[]): Promise<string[]> {
   if (userIds.length === 0) return [];
-  const withAnyData = await db.calendarEvent.groupBy({
-    by: ["userId"],
-    where: { userId: { in: userIds } },
-  });
-  const hasData = new Set(withAnyData.map((row) => row.userId));
+  const markedSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [withCalendarData, withMarkedData] = await Promise.all([
+    db.calendarEvent.groupBy({
+      by: ["userId"],
+      where: { userId: { in: userIds } },
+    }),
+    db.availabilityBlock.groupBy({
+      by: ["userId"],
+      where: { userId: { in: userIds }, endsAt: { gte: markedSince } },
+    }),
+  ]);
+  const hasData = new Set([...withCalendarData, ...withMarkedData].map((row) => row.userId));
   return userIds.filter((id) => !hasData.has(id));
 }

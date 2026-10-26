@@ -141,7 +141,7 @@ export function AvailabilityGrid({
       </div>
       {unknownNames.length > 0 && (
         <Text size="xs" c="dimmed" mt={4}>
-          No calendar connected (assumed free): {unknownNames.join(", ")}
+          No calendar or marked availability (assumed free): {unknownNames.join(", ")}
         </Text>
       )}
     </div>

@@ -137,6 +137,7 @@ model User {
   calendarPreferences            CalendarPreference[]
   calendarFeeds                  CalendarFeed[]
   calendarEvents                 CalendarEvent[]
+  availabilityBlocks             AvailabilityBlock[]
   meetingsOrganized              Meeting[]                       @relation("MeetingOrganizer")
   meetingAttendances             MeetingAttendee[]
   outcomes                       Outcome[]
@@ -2477,6 +2478,27 @@ model CalendarEvent {
   @@index([userId, startsAt, endsAt])
   @@index([calendarFeedId])
   @@index([connectedAccountId])
+}
+
+/// Time a member marked themselves unavailable by hand: time off, an
+/// appointment, or the busy time of someone with no synced calendar. Read
+/// into the free/busy contract beside `CalendarEvent` as sourceType "manual",
+/// so it constrains suggested times and the availability grid. `note` is the
+/// owner's own label and follows `CalendarEvent.title`'s rule: it never
+/// crosses users.
+model AvailabilityBlock {
+  id        String   @id @default(cuid())
+  userId    String
+  startsAt  DateTime
+  endsAt    DateTime
+  /// Display only: the block spans whole days on the owner's clock.
+  isAllDay  Boolean  @default(false)
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startsAt, endsAt])
 }
 
 /// A scheduled workspace meeting (V3 calendar scheduling) — forward-looking,
