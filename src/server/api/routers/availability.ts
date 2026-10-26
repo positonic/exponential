@@ -26,6 +26,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_GRID_RANGE_DAYS = 10;
 /** Longest single block: a year of leave. */
 const MAX_BLOCK_DAYS = 366;
+/** Painted weekday mornings for a year is ~250 blocks; this covers it. */
+const UPCOMING_LIMIT = 500;
 
 const rangeSchema = z
   .object({ startsAt: z.date(), endsAt: z.date() })
@@ -45,8 +47,11 @@ const blockSelect = {
 } as const;
 
 /**
- * Plan and apply one edit against the stored rows in a single transaction,
- * so two quick paints can't both merge the same block.
+ * Plan and apply one edit against the stored rows in a single transaction.
+ * A per-user advisory lock serialises edits: under READ COMMITTED two quick
+ * paints (or two devices) would otherwise both read the same rows and both
+ * write their merged blocks, leaving duplicates. Different users never wait
+ * on each other.
  */
 async function applyEdit(
   db: PrismaClient,
@@ -57,6 +62,7 @@ async function applyEdit(
   const from = new Date(Math.min(...ranges.map((r) => r.startsAt.getTime())));
   const to = new Date(Math.max(...ranges.map((r) => r.endsAt.getTime())));
   return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`availability:${userId}`}))`;
     // Touching blocks (lte/gte) are loaded too: a mark merges with them.
     const existing = await tx.availabilityBlock.findMany({
       where: { userId, startsAt: { lte: to }, endsAt: { gte: from } },
@@ -123,14 +129,19 @@ export const availabilityRouter = createTRPCRouter({
       };
     }),
 
-  /** The caller's blocks that haven't ended yet, soonest first. */
+  /**
+   * The caller's blocks that haven't ended yet, soonest first, up to
+   * UPCOMING_LIMIT. `hasMore` says the list was cut, so the page can say so
+   * rather than letting later blocks silently vanish.
+   */
   listUpcoming: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.db.availabilityBlock.findMany({
+    const rows = await ctx.db.availabilityBlock.findMany({
       where: { userId: ctx.session.user.id, endsAt: { gt: new Date() } },
       select: blockSelect,
       orderBy: { startsAt: "asc" },
-      take: 100,
+      take: UPCOMING_LIMIT + 1,
     });
+    return { blocks: rows.slice(0, UPCOMING_LIMIT), hasMore: rows.length > UPCOMING_LIMIT };
   }),
 
   /** Mark ranges unavailable, merging with plain blocks they touch. */

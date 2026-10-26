@@ -49,7 +49,8 @@ function formatBlock(block: { startsAt: Date; endsAt: Date; isAllDay: boolean })
  */
 export function TimeOffCard() {
   const utils = api.useUtils();
-  const { data: blocks, isLoading } = api.availability.listUpcoming.useQuery();
+  const { data, isLoading } = api.availability.listUpcoming.useQuery();
+  const blocks = data?.blocks;
   const [opened, setOpened] = useState(false);
 
   const invalidate = async () => {
@@ -118,6 +119,11 @@ export function TimeOffCard() {
                 </ActionIcon>
               </Group>
             ))}
+            {data?.hasMore && (
+              <Text size="xs" c="dimmed">
+                Showing the first {blocks.length}. Later marks are still on the grid, week by week.
+              </Text>
+            )}
           </Stack>
         )}
       </Stack>
