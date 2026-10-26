@@ -107,6 +107,22 @@ describe("availability router (mocked)", () => {
       });
     });
 
+    it("takes the caller's advisory lock before reading, so concurrent edits serialise", async () => {
+      dbMock.availabilityBlock.findMany.mockResolvedValue([] as never);
+
+      await caller().availability.mark({
+        ranges: [{ startsAt: at("10:00"), endsAt: at("11:00") }],
+      });
+
+      expect(dbMock.$executeRaw).toHaveBeenCalledTimes(1);
+      const [sql, key] = dbMock.$executeRaw.mock.calls[0]! as unknown as [TemplateStringsArray, string];
+      expect(sql.join("?")).toContain("pg_advisory_xact_lock");
+      expect(key).toBe(`availability:${USER_ID}`);
+      expect(dbMock.$executeRaw.mock.invocationCallOrder[0]!).toBeLessThan(
+        dbMock.availabilityBlock.findMany.mock.invocationCallOrder[0]!,
+      );
+    });
+
     it("writes nothing when the range is already marked", async () => {
       dbMock.availabilityBlock.findMany.mockResolvedValue([
         { id: "a", startsAt: at("09:00"), endsAt: at("12:00"), isAllDay: false, note: null },
@@ -144,6 +160,32 @@ describe("availability router (mocked)", () => {
           { startsAt: at("13:00"), endsAt: at("17:00"), isAllDay: false, note: "Offsite", userId: USER_ID },
         ],
       });
+    });
+  });
+
+  describe("listUpcoming", () => {
+    const row = (i: number) => ({
+      id: `b${i}`,
+      startsAt: at("09:00"),
+      endsAt: at("10:00"),
+      isAllDay: false,
+      note: null,
+    });
+
+    it("returns every upcoming block when under the limit", async () => {
+      dbMock.availabilityBlock.findMany.mockResolvedValue([row(1), row(2)] as never);
+      const result = await caller().availability.listUpcoming();
+      expect(result.blocks).toHaveLength(2);
+      expect(result.hasMore).toBe(false);
+    });
+
+    it("says when the list was cut rather than dropping blocks silently", async () => {
+      dbMock.availabilityBlock.findMany.mockResolvedValue(
+        Array.from({ length: 501 }, (_, i) => row(i)) as never,
+      );
+      const result = await caller().availability.listUpcoming();
+      expect(result.blocks).toHaveLength(500);
+      expect(result.hasMore).toBe(true);
     });
   });
 
