@@ -331,20 +331,27 @@ describe("yourWork.sinceYesterday", () => {
 
   it("clamps `since` to at most 7 days back", async () => {
     db.workspaceActivityEvent.groupBy.mockResolvedValue([] as never);
+    // The day after a DST change (clocks went back in Europe on 2026-10-25),
+    // where 7 calendar days on the local clock is 7×24h + 1h. The floor is a
+    // fixed 7×24h whatever the server's timezone.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-26T12:00:00Z"));
+    try {
+      const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      await caller(db).yourWork.sinceYesterday({
+        workspaceId: WORKSPACE_ID,
+        since: monthAgo,
+      });
 
-    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    await caller(db).yourWork.sinceYesterday({
-      workspaceId: WORKSPACE_ID,
-      since: monthAgo,
-    });
-
-    const args = db.workspaceActivityEvent.groupBy.mock.calls[0]?.[0] as {
-      where: { createdAt: { gte: Date } };
-    };
-    const floorMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    expect(args.where.createdAt.gte.getTime()).toBeGreaterThanOrEqual(
-      floorMs - 60_000,
-    );
+      const args = db.workspaceActivityEvent.groupBy.mock.calls[0]?.[0] as {
+        where: { createdAt: { gte: Date } };
+      };
+      expect(args.where.createdAt.gte.toISOString()).toBe(
+        "2026-10-19T12:00:00.000Z",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clamps a future `since` down to now", async () => {

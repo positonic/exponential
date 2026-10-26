@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { startOfISOWeek, subDays } from "date-fns";
+import { startOfISOWeek } from "date-fns";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
@@ -299,7 +299,9 @@ export const yourWorkRouter = createTRPCRouter({
     .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
       const now = new Date();
-      const floor = subDays(now, 7);
+      // A fixed 7×24h, not `subDays` (7 local calendar days), which is an
+      // hour longer or shorter across a DST change.
+      const floor = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       // Clamp both ways: no scans older than 7 days, no future windows.
       const since = input.since > now ? now : input.since > floor ? input.since : floor;
       const groups = await ctx.db.workspaceActivityEvent.groupBy({
