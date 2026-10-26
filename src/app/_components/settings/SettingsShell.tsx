@@ -4,6 +4,7 @@ import { type ReactNode } from 'react';
 import Link from 'next/link';
 import { IconChevronRight, type Icon as TablerIcon } from '@tabler/icons-react';
 import { DocsHelpLink } from '~/app/_components/docs/DocsHelpLink';
+import { Panel, Pill } from "~/app/_components/ui";
 
 /* ------------------------------------------------------------------
  * Settings shell primitives — Left-nav variant.
@@ -138,15 +139,9 @@ export function SettingsSidebar<T extends string = string>({
                 />
                 <span className="truncate">{item.label}</span>
                 {item.badge !== undefined && (
-                  <span
-                    className={`ml-auto rounded-lg px-1.5 py-[1px] text-[10.5px] tabular-nums ${
-                      active
-                        ? 'bg-brand-primary/15 text-brand-primary'
-                        : 'bg-surface-tertiary text-text-muted'
-                    }`}
-                  >
+                  <Pill size="xs" tone={active ? "brand" : "neutral"} className="ml-auto">
                     {item.badge}
-                  </span>
+                  </Pill>
                 )}
               </>
             );
@@ -192,7 +187,7 @@ export function SettingsSection({
   flush?: boolean;
 }) {
   return (
-    <div className="mb-[18px] w-full rounded-lg border border-border-primary bg-background-secondary">
+    <Panel variant="muted" padding="none" className="mb-[18px] w-full">
       {/* Phones: the action drops under the title so the description gets the full width */}
       <div className="flex flex-col items-start gap-3 border-b border-border-primary px-4 pt-4 pb-3 sm:flex-row sm:justify-between sm:gap-3.5 sm:px-[22px] sm:pt-[18px]">
         <div className="w-full min-w-0 sm:w-auto sm:flex-1">
@@ -218,7 +213,7 @@ export function SettingsSection({
         {action}
       </div>
       <div className={flush ? '' : 'px-4 pt-4 pb-[18px] sm:px-[22px]'}>{children}</div>
-    </div>
+    </Panel>
   );
 }
 

@@ -22,6 +22,7 @@ import {
 import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { SyncRunHistory } from "./SyncRunHistory";
+import { Panel } from "~/app/_components/ui";
 
 interface SyncRunItemView {
   externalId: string | null;
@@ -48,7 +49,7 @@ function SyncOutcome({ outcome }: { outcome: SyncOutcomeView }) {
   const shown = expanded ? outcome.items : interesting.slice(0, 8);
 
   return (
-    <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+    <Panel padding="none" className="px-5 py-4">
       <div className="flex items-center justify-between">
         <Text size="sm" fw={600} className="text-text-primary">
           {outcome.dryRun ? "Dry run result" : "Last run"}
@@ -103,7 +104,7 @@ function SyncOutcome({ outcome }: { outcome: SyncOutcomeView }) {
           </Button>
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -268,7 +269,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
   if (config && !isDisconnected) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+        <Panel padding="none" className="px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <IconBrandNotion
@@ -322,9 +323,9 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
               Disconnect
             </Button>
           </div>
-        </div>
+        </Panel>
 
-        <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-1">
+        <Panel padding="none" className="px-5 py-1">
           <div className="flex items-start justify-between gap-4 border-b border-border-primary py-3.5">
             <div className="min-w-0">
               <Text size="sm" fw={600} className="text-text-primary">
@@ -394,7 +395,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
               Sync now
             </Button>
           </div>
-        </div>
+        </Panel>
 
         {lastOutcome && <SyncOutcome outcome={lastOutcome} />}
 
@@ -464,7 +465,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
             </div>
           </Modal>
         )}
-        <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-1">
+        <Panel padding="none" className="px-5 py-1">
           <div className="flex items-center justify-between border-b border-border-primary py-3.5 last:border-b-0">
             <div>
               <Text size="sm" fw={600} className="text-text-primary">
@@ -527,7 +528,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
               </Button>
             </div>
           )}
-        </div>
+        </Panel>
 
         {backfillPreview && (
           <Modal
@@ -605,7 +606,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
   const hasConnections = (connections?.length ?? 0) > 0;
 
   const connectNotionCard = (
-    <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+    <Panel padding="none" className="px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <IconBrandNotion size={22} className="text-text-secondary" />
@@ -629,7 +630,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
           Connect Notion
         </Button>
       </div>
-    </div>
+    </Panel>
   );
 
   // Disconnected: the config row (and all its sync links + run history)
@@ -637,7 +638,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
   if (config) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+        <Panel padding="none" className="px-5 py-4">
           <div className="flex items-center gap-3 min-w-0">
             <IconBrandNotion size={22} className="text-text-secondary shrink-0" />
             <div className="min-w-0">
@@ -657,7 +658,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
               </Text>
             </div>
           </div>
-        </div>
+        </Panel>
 
         {!connectionsLoading && !hasConnections
           ? connectNotionCard
@@ -692,7 +693,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
 
   function pickerCard(reconnect: boolean) {
     return (
-      <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4 space-y-4">
+      <Panel padding="none" className="px-5 py-4 space-y-4">
         <div>
           <Text size="sm" fw={600} className="text-text-primary">
             Notion connection
@@ -771,7 +772,7 @@ export function NotionSyncSettings({ productId }: { productId: string }) {
             {reconnect ? "Reconnect" : "Link database"}
           </Button>
         </div>
-      </div>
+      </Panel>
     );
   }
 }

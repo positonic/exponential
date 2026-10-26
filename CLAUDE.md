@@ -38,6 +38,11 @@ errors, and a `var(--x)` that is declared nowhere fails `npm run tokens:check`. 
 stylesheet must never declare its own `--radius-*`. See `/dev-docs/styling-architecture.md`,
 "Shape tokens".
 
+**Draw boxes with the primitives, not with classes.** `Panel`, `SectionHeader`, `Pill`,
+`Toolbar` and `EmptyState` from `~/app/_components/ui` own radius, border and surface.
+A `className` that composes `rounded-* border bg-surface-*` by hand is ratcheted by
+`npm run tokens:check` (counts may only go down). See "Primitives" in the styling doc.
+
 ## Development Commands
 
 ### Core Development

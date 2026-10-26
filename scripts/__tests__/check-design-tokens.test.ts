@@ -5,6 +5,7 @@ import {
   findRawValues,
   findScopedShapeTokens,
   findUndefinedVars,
+  isHandRolledSurface,
   isTokenRadius,
   isTokenShadow,
 } from "../check-design-tokens";
@@ -104,6 +105,16 @@ describe("isTokenShadow", () => {
   });
 });
 
+describe("isHandRolledSurface", () => {
+  it("needs border, a radius step and a surface background together", () => {
+    expect(isHandRolledSurface("rounded-lg border border-border-primary bg-surface-secondary p-4")).toBe(true);
+    expect(isHandRolledSurface("mb-4 rounded-xl border border-border-secondary bg-background-primary")).toBe(true);
+    expect(isHandRolledSurface("rounded-lg border-b border-border-primary")).toBe(false);
+    expect(isHandRolledSurface("border border-border-primary bg-surface-secondary")).toBe(false);
+    expect(isHandRolledSurface("rounded-full bg-surface-muted")).toBe(false);
+  });
+});
+
 describe("findRawValues", () => {
   it("reports raw CSS radius and shadow, not token-based ones", () => {
     const css = [
@@ -121,6 +132,12 @@ describe("findRawValues", () => {
 
   it("lets the token definition files paint shadows with literals", () => {
     expect(findRawValues("src/styles/globals.css", "--shadow-sm: 0 1px 2px rgba(0,0,0,.1); .x { box-shadow: 0 0 0 1px rgba(0,0,0,.1) }")).toEqual([]);
+  });
+
+  it("reports a hand-rolled surface in TSX, except inside the primitives folder", () => {
+    const tsx = '<div className="rounded-lg border border-border-primary bg-surface-secondary p-4" />';
+    expect(findRawValues("src/app/x.tsx", tsx).map((f) => f.kind)).toEqual(["raw-surface"]);
+    expect(findRawValues("src/app/_components/ui/Panel.tsx", tsx)).toEqual([]);
   });
 
   it("reports TSX style objects, arbitrary Tailwind values and numeric Mantine radius", () => {

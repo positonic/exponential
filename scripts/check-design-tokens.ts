@@ -20,7 +20,9 @@
  *
  * 2. Raw shape values (ratcheted). `border-radius: 10px` in CSS,
  *    `borderRadius: 8` in a style object, `rounded-[10px]`, `radius={12}`,
- *    and box-shadows painted with a colour literal. Existing debt is recorded
+ *    box-shadows painted with a colour literal, and hand-rolled surfaces: a
+ *    className that draws a box itself (`rounded-* border bg-surface-*`)
+ *    instead of using `<Panel>` from src/app/_components/ui. Existing debt is recorded
  *    per file in scripts/design-tokens-baseline.json; a file may never have
  *    MORE raw values than its baseline, and a file not in the baseline must
  *    have none. When you clear debt, run with --update-baseline so the
@@ -53,6 +55,7 @@ export interface Finding {
     | "scoped-shape-token"
     | "raw-radius"
     | "raw-shadow"
+    | "raw-surface"
     | "arbitrary-tailwind"
     | "numeric-mantine-radius";
   detail: string;
@@ -76,6 +79,9 @@ const SHADOW_DEFINITION_FILES = new Set([
   "src/styles/colors.ts",
   "src/styles/mantineTheme.ts",
 ]);
+
+// The primitives are the one place allowed to compose a surface by hand.
+const PRIMITIVES_DIR = "src/app/_components/ui/";
 
 // Vendor-owned variable namespaces we never declare ourselves: Tailwind
 // internals, React Flow, and Mantine's theme variables, which MantineProvider
@@ -238,6 +244,19 @@ export function isTokenShadow(value: string): boolean {
   return !/(rgba?\(|hsla?\(|#[0-9a-fA-F]{3,8}\b|\b(black|white)\b)/.test(v);
 }
 
+/**
+ * A class list that paints a bordered, rounded, surfaced box by hand - the
+ * three things Panel exists to own. Any one or two of them is fine (a border
+ * under a toolbar, a rounded image); all three together is a card.
+ */
+export function isHandRolledSurface(classes: string): boolean {
+  const toks = classes.split(/\s+/);
+  const hasBorder = toks.some((t) => /^border(-[xytblr])?$/.test(t));
+  const hasRadius = toks.some((t) => /^rounded(-(xs|sm|md|lg|xl|2xl|3xl))?$/.test(t));
+  const hasSurface = toks.some((t) => /^bg-(surface|background)-/.test(t));
+  return hasBorder && hasRadius && hasSurface;
+}
+
 export function findRawValues(file: string, text: string): Finding[] {
   const out: Finding[] = [];
   const isCss = file.endsWith(".css");
@@ -276,6 +295,13 @@ export function findRawValues(file: string, text: string): Finding[] {
       }
     }
   }
+  if (!file.startsWith(PRIMITIVES_DIR)) {
+    for (const m of text.matchAll(/className=(["'])([^"']*)\1/g)) {
+      if (isHandRolledSurface(m[2]!)) {
+        push(m.index ?? 0, "raw-surface", `className draws its own box (${m[2]!.trim().slice(0, 60)}…) — use <Panel> from ~/app/_components/ui`);
+      }
+    }
+  }
   for (const m of text.matchAll(/\b(rounded|shadow)-\[[^\]]+\]/g)) {
     push(m.index ?? 0, "arbitrary-tailwind", `${m[0]} — arbitrary values bypass the scale; ${RADIUS_TOKEN_HINT}`);
   }
@@ -285,7 +311,7 @@ export function findRawValues(file: string, text: string): Finding[] {
   return out;
 }
 
-const RATCHETED: ReadonlySet<Finding["kind"]> = new Set(["raw-radius", "raw-shadow"]);
+const RATCHETED: ReadonlySet<Finding["kind"]> = new Set(["raw-radius", "raw-shadow", "raw-surface"]);
 
 export interface Report {
   hard: Finding[];
