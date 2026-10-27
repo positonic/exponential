@@ -186,7 +186,11 @@ export function GoalsPage() {
   // results with check-ins and executing work. Both scope by the same
   // server-side rule (objectiveScopeWhere), so switching view never changes
   // which objectives are in the list.
-  const usesObjectives = view === "okrs" || view === "timeline";
+  // `key-results` is in the URL grammar ahead of its view (V2 of the feature);
+  // until that view ships it reads as the OKRs view so the switcher and the
+  // data query always agree.
+  const activeView: GoalsPageView = view === "key-results" ? "okrs" : view;
+  const usesObjectives = activeView === "okrs" || activeView === "timeline";
   const tableQuery = api.goal.getAllMyGoals.useQuery(
     {
       workspaceId: workspaceId ?? undefined,
@@ -194,7 +198,7 @@ export function GoalsPage() {
       ...(onlyMine ? { onlyMine } : {}),
     },
     {
-      enabled: view === "table" && !!workspaceId,
+      enabled: activeView === "table" && !!workspaceId,
       // Flipping period or Mine keeps the previous list on screen rather
       // than dropping to a skeleton.
       placeholderData: keepPreviousData,
@@ -266,12 +270,12 @@ export function GoalsPage() {
   // selected period; on All it is the selected year (`Annual-<year>`), so
   // period-less objectives still have somewhere to sit.
   const timeline = useMemo(() => {
-    if (view !== "timeline") return null;
+    if (activeView !== "timeline") return null;
     return {
       axis: computeTimelineAxis(pacePeriod),
       ...buildTimelineData(filteredObjectives, pacePeriod),
     };
-  }, [view, filteredObjectives, pacePeriod]);
+  }, [activeView, filteredObjectives, pacePeriod]);
 
   // ---- Drawer, on every view ------------------------------------------------
 
@@ -441,16 +445,16 @@ export function GoalsPage() {
 
   const goalsPageContext = useMemo(() => {
     if (!workspaceId) return null;
-    const count = view === "table" ? filteredTableRows.length : filteredObjectives.length;
+    const count = activeView === "table" ? filteredTableRows.length : filteredObjectives.length;
     return {
       pageType: "goals-list",
       pageTitle: terminology.goals,
       pagePath: pathname,
-      data: { workspaceId, goalCount: count, view, period: effectivePeriod, onlyMine },
+      data: { workspaceId, goalCount: count, view: activeView, period: effectivePeriod, onlyMine },
     };
   }, [
     workspaceId,
-    view,
+    activeView,
     filteredTableRows.length,
     filteredObjectives.length,
     terminology.goals,
@@ -487,7 +491,7 @@ export function GoalsPage() {
           year={year}
           availableYears={availableYears}
           onYearChange={setYear}
-          view={view}
+          view={activeView}
           viewOptions={VIEW_OPTIONS}
           onViewChange={setView}
           onlyMine={onlyMine}
@@ -510,7 +514,7 @@ export function GoalsPage() {
           createLabel={`New ${terminology.goal.toLowerCase()}`}
         />
 
-        {view === "table" ? (
+        {activeView === "table" ? (
           <GoalsTableBody
             goals={filteredTableRows}
             isLoading={tableQuery.isLoading}
@@ -555,7 +559,7 @@ export function GoalsPage() {
               )
             }
           />
-        ) : view === "timeline" ? (
+        ) : activeView === "timeline" ? (
           objectivesQuery.isLoading ? (
             <Skeleton height={320} />
           ) : filteredObjectives.length === 0 ? (
