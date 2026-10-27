@@ -234,3 +234,17 @@ test("Key results rows honour Status, Health, Owner and search like the other vi
   await expect(page.getByText("No key results match your search or filters.")).toBeVisible();
 });
 
+test("Key results view empty states: nothing in the period, and nothing of yours", async ({ page }) => {
+  // No fixture data lives in 2027.
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=2027`);
+  await expect(page.getByText("No key results in this period yet.")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page.getByTestId("key-results-table")).toHaveCount(0);
+
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=2027&mine=1`);
+  await expect(page.getByText("None of this period's key results are yours.")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+});
+
