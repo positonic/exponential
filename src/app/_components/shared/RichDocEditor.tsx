@@ -402,8 +402,10 @@ export function RichDocEditor({
     if (!editor || editor.isDestroyed) return Promise.resolve();
     const json = editor.getJSON();
     const serialized = JSON.stringify(json);
+    // Consumed on success or on a conflict (the modal sets it again if the
+    // person chooses Keep my version once more), kept on any other failure so
+    // the retry still carries the note.
     const keptOver = keepOverRef.current;
-    keepOverRef.current = null;
     if (keptOver === null && serialized === lastSavedRef.current) {
       return Promise.resolve();
     }
@@ -421,6 +423,7 @@ export function RichDocEditor({
           versionRef.current = res.docVersion;
         }
         lastSavedRef.current = serialized;
+        keepOverRef.current = null;
       })
       .catch(
         (err: {
@@ -428,6 +431,7 @@ export function RichDocEditor({
           message?: string;
         }) => {
         if (err?.data?.code === "CONFLICT") {
+          keepOverRef.current = null;
           if (conflictShown.current) return;
           conflictShown.current = true;
           const currentRevision = err.data?.conflict?.currentRevision;
