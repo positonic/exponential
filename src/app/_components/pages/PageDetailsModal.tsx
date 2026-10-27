@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button, Group, Modal, Select, Text, TextInput } from '@mantine/core';
+import { DateInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
 import { api } from '~/trpc/react';
 
@@ -14,6 +15,9 @@ interface PageDetailsModalProps {
     title: string;
     workspaceId: string;
     project: { id: string } | null;
+    /** Provenance (ADR-0074): where the facts come from, and when they were true. */
+    source?: string | null;
+    asOf?: Date | string | null;
   } | null;
   /** Slug of the workspace the caller is showing — a move out of it navigates
    * to the page in its new home only when `followMove` is set. */
@@ -23,9 +27,9 @@ interface PageDetailsModalProps {
 }
 
 /**
- * Edit a Page's metadata: title, workspace and project. Title goes through
- * `page.update`; a workspace/project change goes through `page.move`, which
- * gates the target placement server-side.
+ * Edit a Page's metadata: title, source, as-of date, workspace and project.
+ * Title and provenance go through `page.update`; a workspace/project change
+ * goes through `page.move`, which gates the target placement server-side.
  */
 export function PageDetailsModal({
   page,
@@ -38,6 +42,8 @@ export function PageDetailsModal({
   const opened = page !== null;
 
   const [title, setTitle] = useState('');
+  const [source, setSource] = useState('');
+  const [asOf, setAsOf] = useState<Date | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string>(NO_PROJECT);
 
@@ -47,6 +53,8 @@ export function PageDetailsModal({
   useEffect(() => {
     if (!page) return;
     setTitle(page.title);
+    setSource(page.source ?? '');
+    setAsOf(page.asOf ? new Date(page.asOf) : null);
     setWorkspaceId(page.workspaceId);
     setProjectId(page.project?.id ?? NO_PROJECT);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,9 +86,17 @@ export function PageDetailsModal({
     if (!page || !workspaceId) return;
     const nextProjectId = projectId === NO_PROJECT ? null : projectId;
     const trimmed = title.trim();
+    const nextSource = source.trim();
+    const prevSource = page.source ?? '';
+    const prevAsOf = page.asOf ? new Date(page.asOf).getTime() : null;
+    const asOfChanged = (asOf?.getTime() ?? null) !== prevAsOf;
     try {
-      if (trimmed && trimmed !== page.title) {
-        await update.mutateAsync({ id: page.id, title: trimmed });
+      const patch: { title?: string; source?: string | null; asOf?: Date | null } = {};
+      if (trimmed && trimmed !== page.title) patch.title = trimmed;
+      if (nextSource !== prevSource) patch.source = nextSource || null;
+      if (asOfChanged) patch.asOf = asOf;
+      if (Object.keys(patch).length) {
+        await update.mutateAsync({ id: page.id, ...patch });
       }
       let movedToSlug: string | null = null;
       if (workspaceId !== page.workspaceId || nextProjectId !== (page.project?.id ?? null)) {
@@ -121,6 +137,24 @@ export function PageDetailsModal({
           value={title}
           onChange={(e) => setTitle(e.currentTarget.value)}
           data-autofocus
+        />
+        <TextInput
+          label="Source"
+          description="Where these facts come from — a link, a document, a person."
+          placeholder="https://… or 'Q3 board deck'"
+          value={source}
+          onChange={(e) => setSource(e.currentTarget.value)}
+          data-testid="page-source-input"
+        />
+        <DateInput
+          label="As of"
+          description="The date the facts on this page were true."
+          placeholder="Pick a date"
+          value={asOf}
+          onChange={(value) => setAsOf(value ? new Date(value) : null)}
+          clearable
+          valueFormat="D MMM YYYY"
+          data-testid="page-asof-input"
         />
         <Select
           label="Workspace"

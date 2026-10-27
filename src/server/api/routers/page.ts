@@ -36,6 +36,16 @@ import {
   writePageBodyIfVersion,
 } from "~/server/services/pages/page-links";
 import {
+  diffRevisionBodies,
+  recordPageRevision,
+} from "~/server/services/pages/revisions";
+import {
+  extractMarkdownSection,
+  markdownBytes,
+  markdownOutline,
+} from "~/lib/pages/markdown-outline";
+import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
   canEditKnowledgePage,
@@ -58,6 +68,40 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
  * server only stores it as JSON.
  */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+/** One `page.search` hit. */
+export interface PageSearchResult {
+  id: string;
+  title: string;
+  /** The best-matching chunk (semantic) or the text around the match, one line. */
+  snippet: string;
+  /** Cosine similarity for semantic hits; null for substring matches. */
+  similarity: number | null;
+  matchedBy: "semantic" | "text";
+  url: string;
+}
+
+// Below this cosine similarity a chunk is unrelated to the query — the same
+// cut-off the palette's Knowledge search uses (search.knowledge).
+const PAGE_SEARCH_MIN_SIMILARITY = 0.3;
+// A long page contributes several chunks; over-fetch so dedupe still fills `limit`.
+const PAGE_SEARCH_CHUNKS_PER_PAGE = 4;
+const SNIPPET_LENGTH = 160;
+
+function snippetOf(content: string): string {
+  const flat = content.replace(/\s+/g, " ").trim();
+  return flat.length > SNIPPET_LENGTH ? `${flat.slice(0, SNIPPET_LENGTH - 1)}…` : flat;
+}
+
+/** The text around the first (case-insensitive) occurrence of `needle`. */
+function snippetAround(body: string, needle: string): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  const at = flat.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) return snippetOf(flat);
+  const start = Math.max(0, at - Math.floor(SNIPPET_LENGTH / 3));
+  const end = Math.min(flat.length, start + SNIPPET_LENGTH);
+  return `${start > 0 ? "…" : ""}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`;
+}
 
 /** Most people one `page.invite` call may add. */
 const INVITE_BATCH_LIMIT = 50;
@@ -506,7 +550,8 @@ export const pageRouter = createTRPCRouter({
   /**
    * List the Pages a user can see in a workspace (visibility per ADR-0033 /
    * `buildKnowledgePageAccessWhere`), newest-edited first. Optional `projectId`
-   * filter and case-insensitive title `search`.
+   * filter and a case-insensitive substring `search` over title and Markdown
+   * body. For search by meaning use {@link search}.
    */
   list: protectedProcedure
     .input(
@@ -526,8 +571,12 @@ export const pageRouter = createTRPCRouter({
         filters.push({ projectId: input.projectId });
       }
       if (input.search?.trim()) {
+        const needle = input.search.trim();
         filters.push({
-          title: { contains: input.search.trim(), mode: "insensitive" },
+          OR: [
+            { title: { contains: needle, mode: "insensitive" } },
+            { body: { contains: needle, mode: "insensitive" } },
+          ],
         });
       }
 
@@ -539,6 +588,9 @@ export const pageRouter = createTRPCRouter({
           title: true,
           projectId: true,
           includeInSearch: true,
+          source: true,
+          asOf: true,
+          docVersion: true,
           updatedAt: true,
           createdAt: true,
           project: { select: { id: true, name: true } },
@@ -644,8 +696,29 @@ export const pageRouter = createTRPCRouter({
       return flat;
     }),
 
+  /**
+   * One Page. `format` picks how much of the body comes back:
+   *
+   * - `full` (default, the editor): `bodyDoc` (ProseMirror JSON) and the
+   *   Markdown `body`. The doc is several times the size of the Markdown.
+   * - `markdown` (CLI, MCP, agents): the Markdown `body` only; `bodyDoc` is
+   *   null. Everything an agent reads is in the Markdown.
+   * - `outline`: headings only (`outline`), no body — the shape of a long page
+   *   before deciding which `section` to read.
+   *
+   * `section` narrows the Markdown `body` to one heading's section (the
+   * heading line through to the next heading of the same or a higher level).
+   * `bodyBytes` is always the full body's UTF-8 size, so a caller can tell a
+   * section from the whole.
+   */
   get: protectedProcedure
-    .input(z.object({ id: z.string() }))
+    .input(
+      z.object({
+        id: z.string(),
+        format: z.enum(["full", "markdown", "outline"]).default("full"),
+        section: z.string().trim().min(1).max(200).optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const page = await ctx.db.knowledgePage.findUnique({
         where: { id: input.id },
@@ -669,8 +742,42 @@ export const pageRouter = createTRPCRouter({
           message: "You don't have access to this page",
         });
       }
-      // The editor needs to know whether to render read-only.
-      return { ...page, canEdit: canEditKnowledgePage(access) };
+
+      const fullBody = page.body ?? null;
+      let body = fullBody;
+      let section: { level: number; text: string; line: number } | null = null;
+      if (input.section) {
+        const found = extractMarkdownSection(fullBody ?? "", input.section);
+        if (!found) {
+          const headings = markdownOutline(fullBody ?? "").map((h) => h.text);
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: headings.length
+              ? `No section "${input.section}". Headings: ${headings.join(" | ")}`
+              : `No section "${input.section}": the page has no headings`,
+          });
+        }
+        body = found.body;
+        section = found.heading;
+      }
+      const outline =
+        input.format === "outline" ? markdownOutline(fullBody ?? "") : null;
+      if (input.format === "outline") body = null;
+      // The doc only makes sense whole, for the editor.
+      const bodyDoc =
+        input.format === "full" && !input.section ? page.bodyDoc : null;
+
+      return {
+        ...page,
+        bodyDoc,
+        body,
+        bodyBytes: markdownBytes(fullBody),
+        format: input.format,
+        section,
+        outline,
+        // The editor needs to know whether to render read-only.
+        canEdit: canEditKnowledgePage(access),
+      };
     }),
 
   /**
@@ -814,6 +921,10 @@ export const pageRouter = createTRPCRouter({
         body: boundedText("Body", TEXT_LIMITS.HUGE).optional(),
         bodyDoc: prosemirrorDoc.optional(),
         includeInSearch: z.boolean().optional(),
+        /** Why the page was created — stored on its first revision. */
+        note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
+        source: boundedText("Source", TEXT_LIMITS.SHORT).nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -834,10 +945,18 @@ export const pageRouter = createTRPCRouter({
             body: input.body,
             bodyDoc: input.bodyDoc as Prisma.InputJsonValue | undefined,
             includeInSearch: input.includeInSearch ?? true,
+            source: input.source?.trim() ? input.source.trim() : null,
+            asOf: input.asOf ?? null,
             createdById: userId,
           },
         });
         await syncPageLinks(tx, created.id, input.bodyDoc as JSONContent | undefined);
+        await recordPageRevision(tx, {
+          pageId: created.id,
+          kind: "create",
+          authorId: userId,
+          note: input.note,
+        });
         return created;
       });
 
@@ -871,6 +990,10 @@ export const pageRouter = createTRPCRouter({
         bodyDoc: prosemirrorDoc.optional(),
         body: boundedText("Body", TEXT_LIMITS.HUGE).optional(),
         baseVersion: z.number().int().min(0).optional(),
+        /** Why this change — recorded on the revision (ADR-0074). */
+        note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
+        source: boundedText("Source", TEXT_LIMITS.SHORT).nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -878,7 +1001,14 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "edit");
 
-      const { id, bodyDoc, body, baseVersion, projectId, ...rest } = input;
+      const { id, bodyDoc, body, baseVersion, projectId, note, source, ...rest } =
+        input;
+      // `rest` carries title / includeInSearch / asOf straight through; an
+      // explicit empty source clears the field.
+      const provenance =
+        source !== undefined
+          ? { source: source?.trim() ? source.trim() : null }
+          : {};
 
       // Re-assigning the project changes visibility + workspace coherence, so
       // re-run placement gating for the new target (null = detach to workspace).
@@ -949,6 +1079,7 @@ export const pageRouter = createTRPCRouter({
       }
       const data: Prisma.KnowledgePageUpdateInput = {
         ...rest,
+        ...provenance,
         ...(projectIdProvided
           ? {
               project: projectId
@@ -1003,9 +1134,17 @@ export const pageRouter = createTRPCRouter({
           doc: bodyDoc as JSONContent,
           data: {
             ...rest,
+            ...provenance,
             ...(projectIdProvided ? { projectId: projectId ?? null } : {}),
             ...(body !== undefined ? { body } : {}),
           },
+          afterWrite: (tx) =>
+            recordPageRevision(tx, {
+              pageId: id,
+              kind: "editor",
+              authorId: userId,
+              note,
+            }),
         });
         if (!written) {
           throw await conflictAfterMiss({
@@ -1054,9 +1193,28 @@ export const pageRouter = createTRPCRouter({
                 });
               });
             await syncPageLinks(tx, id, carriedDoc);
+            await recordPageRevision(tx, {
+              pageId: id,
+              kind: "markdown",
+              authorId: userId,
+              note,
+            });
             return row;
           })
-        : await ctx.db.knowledgePage.update({ where: { id }, data });
+        : rest.title !== undefined
+          ? // A rename is part of the page's history too; it folds into the
+            // author's open editing session like any other editor write.
+            await ctx.db.$transaction(async (tx) => {
+              const row = await tx.knowledgePage.update({ where: { id }, data });
+              await recordPageRevision(tx, {
+                pageId: id,
+                kind: "editor",
+                authorId: userId,
+                note,
+              });
+              return row;
+            })
+          : await ctx.db.knowledgePage.update({ where: { id }, data });
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
       // doesn't take the bodyDoc save path above, so cover it here too.
@@ -1350,6 +1508,12 @@ export const pageRouter = createTRPCRouter({
               createdById: userId,
             },
             select: { id: true },
+          });
+          await recordPageRevision(tx, {
+            pageId: created0.id,
+            kind: "create",
+            authorId: userId,
+            note: `Duplicated from page ${row.id}`,
           });
           remap.set(row.id, {
             pageId: created0.id,
@@ -1729,6 +1893,367 @@ export const pageRouter = createTRPCRouter({
         select: { slug: true },
       });
       return { id: input.id, workspaceSlug: workspace.slug };
+    }),
+
+  /**
+   * Search a workspace's pages by meaning (ADR-0033's Knowledge index,
+   * `KnowledgeChunk.sourceType = "page"`) and by substring, in one call. Semantic
+   * hits come first, nearest first, each with the best-matching chunk as its
+   * snippet; pages whose title or body contain the query but that the index
+   * missed (not yet embedded, or `includeInSearch` off) follow with
+   * `matchedBy: "text"`. Scoped to pages the caller can view. A vector or
+   * embedding failure degrades to text matches only — it never throws.
+   */
+  search: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        query: z.string().trim().min(2).max(200),
+        projectId: z.string().optional(),
+        limit: z.number().int().min(1).max(25).default(10),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const empty = {
+        query: input.query,
+        workspaceId: input.workspaceId,
+        results: [] as PageSearchResult[],
+      };
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        userId,
+        input.workspaceId,
+      );
+      if (!membership) return empty;
+      const workspace = await ctx.db.workspace.findUnique({
+        where: { id: input.workspaceId },
+        select: { slug: true },
+      });
+      if (!workspace) return empty;
+
+      const results: PageSearchResult[] = [];
+      const seen = new Set<string>();
+      const pageUrl = (id: string) => `/w/${workspace.slug}/pages/${id}`;
+
+      try {
+        // `pageViewerId` is the access rule; the service's `userId` option
+        // would narrow to chunks the caller authored, which is not "pages I
+        // can read". The project filter is applied strictly below (the
+        // service's own includes project-less chunks).
+        const chunks = await getKnowledgeService(ctx.db).search(input.query, {
+          workspaceId: input.workspaceId,
+          pageViewerId: userId,
+          sourceTypes: ["page"],
+          projectId: input.projectId,
+          limit: input.limit * PAGE_SEARCH_CHUNKS_PER_PAGE,
+        });
+        let inProject: Set<string> | null = null;
+        if (input.projectId && chunks.length) {
+          const rows = await ctx.db.knowledgePage.findMany({
+            where: {
+              id: { in: [...new Set(chunks.map((c) => c.sourceId))] },
+              projectId: input.projectId,
+            },
+            select: { id: true },
+          });
+          inProject = new Set(rows.map((r) => r.id));
+        }
+        // Nearest first, so a page's first chunk is its best.
+        for (const chunk of chunks) {
+          if (chunk.similarity < PAGE_SEARCH_MIN_SIMILARITY) break;
+          if (seen.has(chunk.sourceId)) continue;
+          if (inProject && !inProject.has(chunk.sourceId)) continue;
+          seen.add(chunk.sourceId);
+          results.push({
+            id: chunk.sourceId,
+            title: chunk.sourceTitle ?? "Untitled",
+            snippet: snippetOf(chunk.content),
+            similarity: chunk.similarity,
+            matchedBy: "semantic",
+            url: pageUrl(chunk.sourceId),
+          });
+          if (results.length >= input.limit) break;
+        }
+      } catch (error) {
+        console.error("[page.search] Knowledge search failed:", error);
+      }
+
+      if (results.length < input.limit) {
+        const needle = input.query;
+        const textMatches = await ctx.db.knowledgePage.findMany({
+          where: {
+            AND: [
+              buildKnowledgePageAccessWhere(userId),
+              { workspaceId: input.workspaceId },
+              ...(input.projectId ? [{ projectId: input.projectId }] : []),
+              ...(seen.size ? [{ id: { notIn: [...seen] } }] : []),
+              {
+                OR: [
+                  { title: { contains: needle, mode: "insensitive" } },
+                  { body: { contains: needle, mode: "insensitive" } },
+                ],
+              },
+            ],
+          },
+          orderBy: { updatedAt: "desc" },
+          take: input.limit - results.length,
+          select: { id: true, title: true, body: true },
+        });
+        for (const page of textMatches) {
+          results.push({
+            id: page.id,
+            title: page.title,
+            snippet: snippetAround(page.body ?? "", needle),
+            similarity: null,
+            matchedBy: "text",
+            url: pageUrl(page.id),
+          });
+        }
+      }
+
+      return { ...empty, results };
+    }),
+
+  /**
+   * The page's history (ADR-0074), newest first: one row per revision with
+   * who, when, why and the size of the body at that point — never the bodies
+   * themselves. Page through with `cursor` (the last row's id).
+   */
+  history: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        limit: z.number().int().min(1).max(200).default(50),
+        cursor: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      const rows = await ctx.db.knowledgePageRevision.findMany({
+        where: { pageId: input.id },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: input.limit + 1,
+        ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          docVersion: true,
+          title: true,
+          kind: true,
+          note: true,
+          body: true,
+          createdAt: true,
+          updatedAt: true,
+          author: { select: { id: true, name: true, image: true } },
+        },
+      });
+      const hasMore = rows.length > input.limit;
+      const slice = hasMore ? rows.slice(0, input.limit) : rows;
+      return {
+        revisions: slice.map(({ body, ...row }) => ({
+          ...row,
+          bodyBytes: markdownBytes(body),
+        })),
+        nextCursor: hasMore ? slice[slice.length - 1]!.id : null,
+      };
+    }),
+
+  /** One revision with its Markdown body (the doc stays server-side; `restore` uses it). */
+  revision: protectedProcedure
+    .input(z.object({ id: z.string(), revisionId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      const revision = await ctx.db.knowledgePageRevision.findUnique({
+        where: { id: input.revisionId },
+        select: {
+          id: true,
+          pageId: true,
+          docVersion: true,
+          title: true,
+          body: true,
+          kind: true,
+          note: true,
+          createdAt: true,
+          updatedAt: true,
+          author: { select: { id: true, name: true, image: true } },
+        },
+      });
+      if (!revision || revision.pageId !== input.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
+      }
+      return { ...revision, bodyBytes: markdownBytes(revision.body) };
+    }),
+
+  /**
+   * What a revision changed, as a unified diff of the Markdown. By default the
+   * revision is compared with the one before it (so the result reads "what
+   * this edit did"); `against: "current"` compares it with the page as it is
+   * now, and any other revision id compares the two revisions.
+   */
+  diff: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        revisionId: z.string(),
+        against: z.string().default("previous"),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      const select = {
+        id: true,
+        pageId: true,
+        docVersion: true,
+        title: true,
+        body: true,
+        createdAt: true,
+      } satisfies Prisma.KnowledgePageRevisionSelect;
+      const revision = await ctx.db.knowledgePageRevision.findUnique({
+        where: { id: input.revisionId },
+        select,
+      });
+      if (!revision || revision.pageId !== input.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
+      }
+      type Side = {
+        revisionId: string | null;
+        docVersion: number;
+        title: string;
+        body: string | null;
+        createdAt: Date | null;
+      };
+      const side = (r: typeof revision): Side => ({
+        revisionId: r.id,
+        docVersion: r.docVersion,
+        title: r.title,
+        body: r.body,
+        createdAt: r.createdAt,
+      });
+
+      let from: Side;
+      let to: Side;
+      if (input.against === "previous") {
+        const previous = await ctx.db.knowledgePageRevision.findFirst({
+          where: {
+            pageId: input.id,
+            OR: [
+              { createdAt: { lt: revision.createdAt } },
+              { createdAt: revision.createdAt, id: { lt: revision.id } },
+            ],
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select,
+        });
+        from = previous
+          ? side(previous)
+          : { revisionId: null, docVersion: 0, title: "", body: "", createdAt: null };
+        to = side(revision);
+      } else if (input.against === "current") {
+        const current = await ctx.db.knowledgePage.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { docVersion: true, title: true, body: true, updatedAt: true },
+        });
+        from = side(revision);
+        to = {
+          revisionId: null,
+          docVersion: current.docVersion,
+          title: current.title,
+          body: current.body,
+          createdAt: current.updatedAt,
+        };
+      } else {
+        const other = await ctx.db.knowledgePageRevision.findUnique({
+          where: { id: input.against },
+          select,
+        });
+        if (!other || other.pageId !== input.id) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Revision to compare with not found" });
+        }
+        // Older side first, whichever was passed where.
+        const [a, b] =
+          other.createdAt <= revision.createdAt ? [other, revision] : [revision, other];
+        from = side(a);
+        to = side(b);
+      }
+
+      const label = (x: Side) =>
+        x.revisionId ? `revision ${x.revisionId} (v${x.docVersion})` : x.createdAt ? "current" : "(empty)";
+      const diff = diffRevisionBodies(
+        { label: label(from), title: from.title, body: from.body },
+        { label: label(to), title: to.title, body: to.body },
+      );
+      const strip = ({ body: _body, ...meta }: Side) => meta;
+      return { from: strip(from), to: strip(to), ...diff };
+    }),
+
+  /**
+   * Put a revision's title and body back as the page's current content. A
+   * forward-moving write (ADR-0071): the page's `docVersion` bumps and a
+   * "restore" revision is recorded, so the history keeps the state that was
+   * replaced. Compare-and-set on the page's current version, like any body
+   * write.
+   */
+  restore: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        revisionId: z.string(),
+        note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "edit");
+      const revision = await ctx.db.knowledgePageRevision.findUnique({
+        where: { id: input.revisionId },
+        select: { id: true, pageId: true, title: true, body: true, bodyDoc: true, createdAt: true },
+      });
+      if (!revision || revision.pageId !== input.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
+      }
+      const doc = (revision.bodyDoc as JSONContent | null) ?? null;
+
+      const result = await ctx.db.$transaction(async (tx) => {
+        const expectedVersion = page.docVersion;
+        const { count } = await tx.knowledgePage.updateMany({
+          where: { id: input.id, docVersion: expectedVersion },
+          data: {
+            title: revision.title,
+            body: revision.body,
+            // No stored doc → the editor re-derives one from the Markdown on
+            // next open, as after a Markdown-source write.
+            bodyDoc: doc ? (doc as Prisma.InputJsonValue) : Prisma.DbNull,
+            docVersion: { increment: 1 },
+          },
+        });
+        if (count !== 1) {
+          throw await conflictAfterMiss({
+            entity: "page",
+            id: input.id,
+            field: "body",
+            expectedRevision: expectedVersion,
+            readCurrentRevision: () => readPageDocVersion(tx, input.id),
+            message: "This page was updated concurrently. Reload and try the restore again.",
+          });
+        }
+        await syncPageLinks(tx, input.id, doc);
+        const recorded = await recordPageRevision(tx, {
+          pageId: input.id,
+          kind: "restore",
+          authorId: userId,
+          note:
+            input.note ??
+            `Restored the version from ${revision.createdAt.toISOString()}`,
+        });
+        return { docVersion: expectedVersion + 1, revisionId: recorded.id };
+      });
+
+      getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(input.id);
+      return { id: input.id, ...result };
     }),
 
   delete: protectedProcedure

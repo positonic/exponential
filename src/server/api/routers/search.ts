@@ -490,6 +490,11 @@ const knowledgeSearchInput = z.object({
   workspaceId: z.string(),
   /** Max sources returned (each source contributes its best chunk). */
   limit: z.number().int().min(1).max(20).default(5),
+  /** Restrict to these source kinds; default is every kind the caller can see. */
+  sourceTypes: z
+    .array(z.enum(["transcription", "resource", "document", "page"]))
+    .min(1)
+    .optional(),
 });
 
 // Nearest-neighbour search always returns *something*; below this cosine
@@ -576,6 +581,7 @@ export const searchRouter = createTRPCRouter({
         pageViewerId: userId,
         transcriptionViewerId: userId,
         resourceViewerId: userId,
+        sourceTypes: input.sourceTypes,
         limit: input.limit * KNOWLEDGE_CHUNKS_PER_RESULT,
       });
     } catch (error) {
