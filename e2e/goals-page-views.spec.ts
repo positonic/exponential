@@ -118,3 +118,22 @@ test("the Status filter removes a completed objective and survives a view switch
   await page.getByRole("textbox", { name: "Search" }).fill("zzz-no-such-objective");
   await expect(page.getByText("No objectives match your search or filters")).toBeVisible();
 });
+
+test("a retired tab= link rewrites once to the current grammar", async ({ page }) => {
+  await page.goto(`${goalsPath}?tab=my-goals&year=${okrYear}&period=${okrPeriod}`);
+
+  // The rewrite runs client-side after hydration, so on a cold `next dev`
+  // it lands after the first compile.
+  await expect.poll(() => params(page).get("tab"), { timeout: FIRST_PAINT_TIMEOUT }).toBeNull();
+  const after = params(page);
+  expect(after.get("view")).toBe("okrs");
+  expect(after.get("mine")).toBe("1");
+  expect(after.get("period")).toBe(okrPeriod);
+
+  // Mine is on: the fixture user is the DRI on the seeded objective.
+  await expect(page.getByText(FIXTURE.objectiveTitle).first()).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "true");
+});
+
