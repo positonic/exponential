@@ -730,7 +730,10 @@ model OutboundPost {
   subjectId   String
   /// What happened to the subject: "published" | "accepted" | "superseded" | …
   event       String
-  channelLinkId String
+  /// The binding this post was enqueued for. Nulled when the binding is removed: a
+  /// sent row is history and survives; a pending row without a link is cancelled by
+  /// the deliverer, never sent.
+  channelLinkId String?
   /// Denormalised from the link at enqueue, so an unbind cannot orphan the history.
   provider            String
   externalId          String
@@ -747,9 +750,10 @@ model OutboundPost {
   requestedById   String?
   createdAt       DateTime  @default(now())
 
-  channelLink ChannelLink @relation(fields: [channelLinkId], references: [id], onDelete: Cascade)
+  channelLink ChannelLink? @relation(fields: [channelLinkId], references: [id], onDelete: SetNull)
 
   /// A double enqueue is a no-op: at most one post per (subject, event, destination).
+  /// Postgres treats nulls as distinct, so rows whose binding was removed never collide.
   @@unique([kind, subjectId, event, channelLinkId])
   /// The sweep's scan.
   @@index([status, attemptAt])

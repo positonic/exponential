@@ -17,9 +17,6 @@
  * room and meeting summaries to another, or switch one off without the other.
  */
 
-/** Which producer's content a binding carries. Defaults to the pre-`kind` meaning. */
-const kindSchema = z.enum(OUTBOUND_KINDS).default(DEFAULT_OUTBOUND_KIND);
-
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
@@ -37,6 +34,9 @@ import { resolveMatrixDestination } from "~/server/services/matrix/resolveMatrix
 import { getMatrixClientForServer } from "~/server/services/matrix/matrixServer";
 import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
 import { reportHandledError } from "~/lib/reportHandledError";
+
+/** Which producer's content a binding carries. Defaults to the pre-`kind` meaning. */
+const kindSchema = z.enum(OUTBOUND_KINDS).default(DEFAULT_OUTBOUND_KIND);
 
 /** A project lead configures their own project's room; only admins set the default. */
 async function assertCanBind(
