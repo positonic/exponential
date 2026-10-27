@@ -12,6 +12,7 @@ import {
 } from "~/server/services/access/resolvers/projectResolver";
 import { computeGoalHealth } from "~/server/services/goalService";
 import { resolveGoalProgress } from "~/server/services/goalProgress";
+import { objectiveScopeWhere } from "../objectiveScope";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   mergeObjectiveActivity,
@@ -285,46 +286,31 @@ export const keyResultRouter = createTRPCRouter({
         }
       }
 
-      // Build period filter - optionally include parent annual period
-      let periodFilter: { period: string } | { period: { in: string[] } } | undefined;
-      if (period) {
-        if (input.includePairedPeriod) {
-          // Include both the selected period and its parent annual period
-          const parentPeriod = getParentPeriodFromString(period);
-          const periods = parentPeriod
-            ? [period, parentPeriod]
-            : [period];
-          periodFilter = { period: { in: periods } };
-        } else {
-          periodFilter = { period };
-        }
-      }
+      // The period(s) in scope: the selected one, plus its parent year when
+      // the caller asked for pairing. Filters both the objectives and the key
+      // results included under each.
+      const pairedParent =
+        period && input.includePairedPeriod
+          ? getParentPeriodFromString(period)
+          : null;
+      const scopePeriods: string | string[] | null = period
+        ? pairedParent
+          ? [period, pairedParent]
+          : period
+        : null;
+      const periodFilter =
+        scopePeriods === null
+          ? {}
+          : typeof scopePeriods === "string"
+            ? { period: scopePeriods }
+            : { period: { in: scopePeriods } };
 
-      // Build goal period filter to match goals by their period field
-      // Include goals that match the period OR have no period set (legacy goals)
-      let goalPeriodFilter: { OR: Array<{ period: string | null } | { period: { in: string[] } }> } | undefined;
-      if (period) {
-        if (input.includePairedPeriod) {
-          const parentPeriod = getParentPeriodFromString(period);
-          const periods = parentPeriod
-            ? [period, parentPeriod]
-            : [period];
-          goalPeriodFilter = {
-            OR: [
-              { period: { in: periods } },
-              { period: null }, // Include legacy goals without period
-            ],
-          };
-        } else {
-          goalPeriodFilter = {
-            OR: [
-              { period },
-              { period: null }, // Include legacy goals without period
-            ],
-          };
-        }
-      }
-
+      // Which objectives belong to the period — the one rule the Goals page's
+      // Table view (goal.getAllMyGoals) shares, so both views list the same
+      // objectives: own period matches, or a key result sits in it; archived
+      // never; "mine" is strictly a DRI view (objective DRI or any KR's DRI —
+      // being the creator is not enough). A goalId read is that one goal,
+      // whatever its period or status.
       // When workspace-scoped, show all goals in the workspace (not just user's own)
       // When not workspace-scoped, show only the current user's goals
       const goals = await ctx.db.goal.findMany({
@@ -332,30 +318,13 @@ export const keyResultRouter = createTRPCRouter({
           ...(isWorkspaceScoped
             ? { workspaceId: input.workspaceId }
             : { userId: ctx.session.user.id }),
-          ...(input.goalId !== undefined ? { id: input.goalId } : {}),
-          // Both onlyMine and the period filter use `OR`, so combine them under
-          // `AND` to avoid the two `OR` keys overwriting each other.
-          AND: [
-            // "My Goals" is strictly a DRI view: show an objective only when the
-            // user is the DRI on the objective itself OR the DRI on at least one
-            // of its key results. Being the creator/owner (`userId`) is NOT
-            // enough — that's what surfaced objectives the user merely created.
-            ...(isWorkspaceScoped && input.onlyMine
-              ? [
-                  {
-                    OR: [
-                      { driUserId: ctx.session.user.id },
-                      {
-                        keyResults: {
-                          some: { driUserId: ctx.session.user.id },
-                        },
-                      },
-                    ],
-                  },
-                ]
-              : []),
-            ...(goalPeriodFilter ? [goalPeriodFilter] : []),
-          ],
+          ...(input.goalId !== undefined
+            ? { id: input.goalId }
+            : objectiveScopeWhere({
+                period: scopePeriods,
+                onlyMine: isWorkspaceScoped && !!input.onlyMine,
+                userId: ctx.session.user.id,
+              })),
         },
         include: {
           lifeDomain: true,
@@ -1374,7 +1343,14 @@ export const keyResultRouter = createTRPCRouter({
     .input(
       z.object({
         workspaceId: z.string().optional(),
-        period: z.string().optional(),
+        // A period narrows to its key results. `null` with a `year` narrates
+        // the whole year (every KR whose period ends in that year) — the
+        // Goals page header on "All". Neither: every key result in scope.
+        period: z.string().nullable().optional(),
+        year: z.string().regex(/^\d{4}$/).optional(),
+        // Workspace-scoped only: just the key results the caller is the DRI
+        // on — the same rule "Mine" applies to the objective list.
+        onlyMine: z.boolean().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -1392,9 +1368,19 @@ export const keyResultRouter = createTRPCRouter({
 
       const where = {
         ...(isWorkspaceScoped
-          ? { workspaceId: input.workspaceId }
+          ? {
+              workspaceId: input.workspaceId,
+              ...(input.onlyMine ? { driUserId: ctx.session.user.id } : {}),
+            }
           : { userId: ctx.session.user.id }),
-        ...(input.period ? { period: input.period } : {}),
+        ...(input.period
+          ? { period: input.period }
+          : input.year
+            ? { period: { endsWith: `-${input.year}` } }
+            : {}),
+        // An archived objective's key results count nowhere, matching the
+        // objective lists that never show the objective itself.
+        goal: { status: { not: "archived" } },
       };
 
       const [totalKeyResults, onTrack, atRisk, offTrack, achieved, objectives] =

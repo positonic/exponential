@@ -31,6 +31,21 @@ export function isOkrPeriodTab(value: string | null | undefined): value is OkrPe
 }
 
 /**
+ * The Goals page's period switcher: the OKR periods plus "all", which drops
+ * the period scope entirely (the only place a period-less objective shows).
+ * "all" is a page-level value only — it never reaches `buildPeriodString`;
+ * the page resolves the effective period to `null` instead.
+ */
+export const GOALS_PAGE_PERIODS = [...OKR_PERIOD_TABS, "all"] as const;
+export type GoalsPagePeriod = (typeof GOALS_PAGE_PERIODS)[number];
+
+export function isGoalsPagePeriod(
+  value: string | null | undefined,
+): value is GoalsPagePeriod {
+  return (GOALS_PAGE_PERIODS as readonly string[]).includes(value ?? "");
+}
+
+/**
  * Get the parent annual period for a given quarter or half-year period.
  * @example getParentPeriod("Q1-2026") => "Annual-2026"
  * @example getParentPeriod("H1-2026") => "Annual-2026"

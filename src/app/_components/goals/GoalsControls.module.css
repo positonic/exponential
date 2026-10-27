@@ -1,8 +1,21 @@
 /*
- * Goals toolbar — same look and feel as the projects page toolbar
+ * Goals page control line — same look and feel as the projects page toolbar
  * (WorkspaceProjectsConceptD.module.css): compact search box that widens on
- * focus, and bordered pill action buttons with a data-active state.
+ * focus, and bordered pill action buttons with a data-active state. One line
+ * holds every control that narrows the list: period, year, view, Mine,
+ * search, Filter and the create button.
  */
+
+.line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.spacer {
+  flex: 1;
+}
 
 .actions {
   display: flex;
@@ -17,7 +30,7 @@
 .searchInput {
   height: 32px;
   padding: 0 10px 0 30px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border-primary);
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
@@ -52,7 +65,7 @@
   gap: 5px;
   height: 32px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border-primary);
   background: transparent;
   color: var(--color-text-secondary);

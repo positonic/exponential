@@ -45,6 +45,8 @@ export const FIXTURE = {
   childGoalTitle: "Ship the goal hierarchy affordance",
   offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
   detachedChildGoalTitle: "Sub-goal whose parent is off-project",
+  /** A completed objective in `okrPeriod`, so the Goals page Status filter has something to remove. */
+  completedGoalTitle: "Completed fixture objective (status filter)",
   // Ceremonies (ADR-0059) and Decisions (ADR-0060): one Daily Standup, one
   // occurrence, a recorded meeting attached to it, one confirmed decision.
   ceremonySlug: "daily-standup",
@@ -593,12 +595,20 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
 
   const upsertGoal = async (
     title: string,
-    opts: { description?: string; parentGoalId?: number; onProject: boolean; displayOrder: number },
+    opts: {
+      description?: string;
+      parentGoalId?: number;
+      onProject: boolean;
+      displayOrder: number;
+      status?: string;
+      period?: string;
+    },
   ) => {
     const existing = await db.goal.findFirst({ where: { userId: user.id, title } });
     const data = {
       description: opts.description ?? null,
-      status: "active",
+      status: opts.status ?? "active",
+      period: opts.period ?? null,
       parentGoalId: opts.parentGoalId ?? null,
       displayOrder: opts.displayOrder,
       workspaceId: workspace.id,
@@ -631,6 +641,14 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     parentGoalId: offProjectParentGoal.id,
     onProject: true,
     displayOrder: 3,
+  });
+
+  await upsertGoal(FIXTURE.completedGoalTitle, {
+    description: "Already completed — the Status filter on the Goals page removes it.",
+    onProject: false,
+    displayOrder: 4,
+    status: "completed",
+    period: FIXTURE.okrPeriod,
   });
 
   // Matched on title alone (not workspaceId) so an orphaned goal is found and
@@ -1073,6 +1091,6 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
-    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?tab=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
+    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?view=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }

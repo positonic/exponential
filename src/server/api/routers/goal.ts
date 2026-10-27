@@ -12,6 +12,7 @@ import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
+import { objectiveScopeWhere } from "~/plugins/okr/server/objectiveScope";
 
 import {
   getMyPublicGoals,
@@ -70,8 +71,13 @@ export const goalRouter = createTRPCRouter({
   getAllMyGoals: protectedProcedure
     .input(z.object({
       workspaceId: z.string().optional(),
-      // OKR period, a free-form string ("Q3-2026", "Annual-2026") — not an enum.
-      period: z.string().optional(),
+      // OKR period, a free-form string ("Q3-2026", "Annual-2026") — not an
+      // enum. Scopes by the Goals page rule (objectiveScopeWhere): the goal's
+      // own period matches, or it has a key result in that period. Omitted or
+      // null: no period scope at all, which is the only way a period-less
+      // goal is listed.
+      period: z.string().nullable().optional(),
+      // An explicit status wins over the default "everything but archived".
       status: z.enum(["planned", "active", "completed", "archived", "on-hold"]).optional(),
       // Workspace-scoped only: keep just the goals the caller is the DRI on
       // (directly, or via one of their key results). Ignored without a
@@ -95,18 +101,15 @@ export const goalRouter = createTRPCRouter({
           ...(workspaceId
             ? { workspaceId }
             : { userId: ctx.session.user.id }),
-          ...(input?.period ? { period: input.period } : {}),
+          // Period, archived and "mine" come from the one rule the OKRs view
+          // (keyResult.getByObjective) also uses, so both views of the Goals
+          // page list the same objectives for the same period.
+          ...objectiveScopeWhere({
+            period: input?.period ?? null,
+            onlyMine: !!workspaceId && !!input?.onlyMine,
+            userId: ctx.session.user.id,
+          }),
           ...(input?.status ? { status: input.status } : {}),
-          // Same DRI-only rule as the OKR dashboard's "mine" filter
-          // (keyResult.getByObjective): having created the goal is not enough.
-          ...(workspaceId && input?.onlyMine
-            ? {
-                OR: [
-                  { driUserId: ctx.session.user.id },
-                  { keyResults: { some: { driUserId: ctx.session.user.id } } },
-                ],
-              }
-            : {}),
         },
         include: {
           lifeDomain: true,

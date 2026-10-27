@@ -27,10 +27,16 @@ test("KR accordion lists linked projects and linked features with type pills", a
 }) => {
   await page.goto(fixture.okrUrl);
 
-  const kr = page.getByText(FIXTURE.keyResultTitle).first();
-  await expect(kr).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  // Only the first objective card auto-expands, and the fixture objective is
+  // not necessarily first (cards sort by title), so expand it explicitly.
+  const card = page.getByRole("button", { name: new RegExp(FIXTURE.objectiveTitle) }).first();
+  await expect(card).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  if ((await card.getAttribute("aria-expanded")) !== "true") await card.click();
 
-  // The objective card auto-expands; expand the KR row to reveal its work.
+  const kr = page.getByText(FIXTURE.keyResultTitle).first();
+  await expect(kr).toBeVisible();
+
+  // Expand the KR row to reveal its work.
   await kr.click();
 
   const projectRow = page.getByRole("link", {

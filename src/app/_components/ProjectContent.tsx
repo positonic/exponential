@@ -8,7 +8,7 @@ import ProjectDetails from "./ProjectDetails";
 import { Team } from "./Team";
 import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
 import { ProjectTimeline } from "./ProjectTimeline";
-import { InitiativeDashboard } from "~/app/_components/initiatives/InitiativeDashboard";
+import { ProjectGoalsPanel } from "~/app/_components/initiatives/ProjectGoalsPanel";
 import { Button } from "@mantine/core";
 import {
   Group,
@@ -645,7 +645,7 @@ export function ProjectContent({
             </Tabs.Panel>
 
             <Tabs.Panel value="goals">
-              <InitiativeDashboard projectId={resolvedProjectId} />
+              <ProjectGoalsPanel projectId={resolvedProjectId} />
             </Tabs.Panel>
 
             <Tabs.Panel value="timeline">
