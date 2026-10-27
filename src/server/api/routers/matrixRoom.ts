@@ -11,7 +11,14 @@
  *   - Room    → an active project row naming the room.
  *   - Off     → an *inactive* project row, so "explicitly off" stays distinguishable
  *               from "never configured". Off hard-blocks and does not fall through.
+ *
+ * Every binding is per **kind** (ADR-0075): which producer's content it carries —
+ * meeting summaries by default, decisions, … A project can route decisions to one
+ * room and meeting summaries to another, or switch one off without the other.
  */
+
+/** Which producer's content a binding carries. Defaults to the pre-`kind` meaning. */
+const kindSchema = z.enum(OUTBOUND_KINDS).default(DEFAULT_OUTBOUND_KIND);
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -24,6 +31,7 @@ import {
   getWorkspaceMembership,
 } from "~/server/services/access";
 import { OUTBOUND } from "~/server/services/channelLinkService";
+import { DEFAULT_OUTBOUND_KIND, OUTBOUND_KINDS } from "~/server/services/outboundPosts/types";
 import { MATRIX_CHANNEL_PROVIDER } from "~/server/services/matrix/constants";
 import { resolveMatrixDestination } from "~/server/services/matrix/resolveMatrixDestination";
 import { getMatrixClientForServer } from "~/server/services/matrix/matrixServer";
@@ -81,6 +89,7 @@ export const matrixRoomRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string(),
         projectId: z.string().nullable().optional(),
+        kind: kindSchema,
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -102,6 +111,7 @@ export const matrixRoomRouter = createTRPCRouter({
         where: {
           provider: MATRIX_CHANNEL_PROVIDER,
           direction: OUTBOUND,
+          kind: input.kind,
           workspaceId: input.workspaceId,
           projectId,
         },
@@ -110,6 +120,7 @@ export const matrixRoomRouter = createTRPCRouter({
       const effective = await resolveMatrixDestination(ctx.db, {
         projectId,
         workspaceId: input.workspaceId,
+        kind: input.kind,
       });
 
       const mode = !own ? "inherit" : own.isActive ? "room" : "off";
@@ -144,6 +155,7 @@ export const matrixRoomRouter = createTRPCRouter({
         serverId: z.string(),
         roomId: z.string().min(1),
         roomName: z.string().optional(),
+        kind: kindSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -167,6 +179,7 @@ export const matrixRoomRouter = createTRPCRouter({
         where: {
           provider: MATRIX_CHANNEL_PROVIDER,
           direction: OUTBOUND,
+          kind: input.kind,
           workspaceId: input.workspaceId,
           projectId,
         },
@@ -188,6 +201,7 @@ export const matrixRoomRouter = createTRPCRouter({
                 ...data,
                 provider: MATRIX_CHANNEL_PROVIDER,
                 direction: OUTBOUND,
+                kind: input.kind,
                 workspaceId: input.workspaceId,
                 projectId,
                 createdById: ctx.session.user.id,
@@ -195,11 +209,10 @@ export const matrixRoomRouter = createTRPCRouter({
             });
         return { id: link.id, roomId: link.externalId };
       } catch (error) {
-        // `@@unique([provider, externalId])` means one room maps to exactly one
-        // destination. Correct for inbound routing, and a real constraint here: a
-        // workspace default and a project override cannot name the same room. Kept
-        // deliberately for V1 (a recorded open decision), so say so plainly rather
-        // than failing with a raw constraint error.
+        // `@@unique([provider, externalId, direction, kind])` (D-0055): a room carries
+        // one scope per kind. A workspace default and a project override still cannot
+        // name the same room for the same kind — Inherit covers that — so say so
+        // plainly rather than failing with a raw constraint error.
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === "P2002"
@@ -207,7 +220,7 @@ export const matrixRoomRouter = createTRPCRouter({
           throw new TRPCError({
             code: "CONFLICT",
             message:
-              "That room is already bound elsewhere. A room can only be bound to one project or workspace at a time.",
+              "That room is already bound elsewhere for this kind of content. A room can carry each kind for one project or the workspace at a time.",
           });
         }
         throw error;
@@ -220,7 +233,7 @@ export const matrixRoomRouter = createTRPCRouter({
    * level for it to mean.
    */
   setOff: humanOnlyProcedure
-    .input(z.object({ workspaceId: z.string(), projectId: z.string() }))
+    .input(z.object({ workspaceId: z.string(), projectId: z.string(), kind: kindSchema }))
     .mutation(async ({ ctx, input }) => {
       await assertCanBind(
         ctx.db,
@@ -233,6 +246,7 @@ export const matrixRoomRouter = createTRPCRouter({
         where: {
           provider: MATRIX_CHANNEL_PROVIDER,
           direction: OUTBOUND,
+          kind: input.kind,
           workspaceId: input.workspaceId,
           projectId: input.projectId,
         },
@@ -244,10 +258,10 @@ export const matrixRoomRouter = createTRPCRouter({
           where: { id: existing.id },
           data: {
             isActive: false,
-            // Release the room's binding slot. `@@unique([provider, externalId])` means
-            // one room maps to one destination, so leaving the real room id on a
-            // switched-off row would make that room unbindable anywhere else — the
-            // project turns Off and quietly takes the room out of circulation.
+            // Release the room's binding slot: the unique is per (room, kind), so
+            // leaving the real room id on a switched-off row would make that room
+            // unbindable for this kind anywhere else — the project turns Off and
+            // quietly takes the room out of circulation.
             externalId: `off:${input.projectId}`,
             displayName: null,
             serverIntegrationId: null,
@@ -263,6 +277,7 @@ export const matrixRoomRouter = createTRPCRouter({
         data: {
           provider: MATRIX_CHANNEL_PROVIDER,
           direction: OUTBOUND,
+          kind: input.kind,
           externalId: `off:${input.projectId}`,
           workspaceId: input.workspaceId,
           projectId: input.projectId,
@@ -346,6 +361,7 @@ export const matrixRoomRouter = createTRPCRouter({
         serverId: z.string(),
         name: z.string().trim().min(1).max(100),
         inviteMxids: z.array(z.string()).max(50).optional(),
+        kind: kindSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -383,6 +399,7 @@ export const matrixRoomRouter = createTRPCRouter({
         data: {
           provider: MATRIX_CHANNEL_PROVIDER,
           direction: OUTBOUND,
+          kind: input.kind,
           externalId: roomId,
           displayName: input.name,
           workspaceId: input.workspaceId,
@@ -402,6 +419,7 @@ export const matrixRoomRouter = createTRPCRouter({
       z.object({
         workspaceId: z.string(),
         projectId: z.string().nullable().optional(),
+        kind: kindSchema,
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -412,6 +430,7 @@ export const matrixRoomRouter = createTRPCRouter({
         where: {
           provider: MATRIX_CHANNEL_PROVIDER,
           direction: OUTBOUND,
+          kind: input.kind,
           workspaceId: input.workspaceId,
           projectId,
         },

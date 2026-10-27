@@ -563,6 +563,15 @@ A delivery destination a **Notification** can be sent to — Push, Email, Matrix
 **Notification preference**:
 A user's **category × channel** matrix — which categories reach which channels for them — with seeded defaults so zero-config still behaves. Presented **channel-first** in the UI ("For Matrix, send me ☑ assignments ☐ summaries"). Supersedes the old coarse model (category booleans + a single `integrationId`). The **per-workspace email override** still applies on top (a workspace can force email off regardless of the matrix). _Avoid_: settings, subscription.
 
+**Outbound post**:
+One delivery of a producer's content to one **destination** — a Matrix room or a Slack channel — recorded as an `OutboundPost` row (`pending` → `sent` | `failed` | `cancelled`, with attempts, a lease and the provider's event id). The destination-keyed sibling of a **Notification**: a post has no recipient set, its audience is wherever the binding points, and no per-person preference applies. Producers (decisions first; meeting summaries, Workspace updates and agendas as they migrate) *emit* rows and never contact a provider; the request kicks delivery after it completes and the notification cron sweeps retries. A post is caused only by a **person's act** — a confirmation, an approval, a status change — never by an agent's write (decision 2026-10-27, D-0056). [ADR-0075](docs/adr/0075-outbound-posts-destination-keyed-sibling.md). _Avoid_: notification (person-keyed), broadcast, webhook.
+
+**Destination** (outbound binding):
+An outbound `ChannelLink` row: a **provider** (`matrix`, `slack`), an external id (room or channel), a scope (a project, or the workspace default when `projectId` is null) and a **kind** — which producer's content flows through it (`meeting_summary`, `decision`, …). Resolution is project → workspace, per kind; `Off` is an inactive project row and hard-blocks; a **restricted** project never inherits the workspace room and posts only through its own explicit binding. One row per (room, kind): the unique is `(provider, externalId, direction, kind)` (D-0055). _Avoid_: channel config, subscription.
+
+**Producer** / **Poster** (outbound posts):
+A producer is a feature with something to say — it loads its subject, says which scope it belongs to and renders `{ html, text, markdown }` for an event. A poster is one per provider — it takes a rendered message to a destination with a deterministic transaction id so a retry is the same message, and may map user ids to that provider's identities for mentions. Adding a producer touches one file; adding a provider touches one file and no producer.
+
 **Owner** (of an action):
 The person(s) on the hook for an action — its **assignee(s) if any, else its creator**. The reusable recipient rule for owner-scoped notifications (Due-date reminder today; Status change later) and the same ownership the **Today's actions** set uses. _Avoid_: assignee (narrower — owner falls back to creator), responsible party.
 
