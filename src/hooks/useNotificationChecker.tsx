@@ -72,7 +72,7 @@ export function useNotificationChecker() {
           message: (
             <Text size="sm" className="text-text-secondary">
               {notification.message}{' '}
-              <Anchor component={Link} href={meetingHref} size="sm" className="text-brand-primary">
+              <Anchor component={Link} href={meetingHref} size="sm">
                 View meeting
               </Anchor>
             </Text>

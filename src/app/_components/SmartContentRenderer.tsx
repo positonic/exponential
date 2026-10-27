@@ -132,7 +132,7 @@ const markdownComponents: Partial<Components> = {
   a: ({ children, href, ...props }) => (
     <a
       href={href}
-      className="text-brand-primary hover:underline"
+      className="text-link hover:underline"
       target="_blank"
       rel="noopener noreferrer"
       {...props}

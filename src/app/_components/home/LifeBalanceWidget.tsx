@@ -125,7 +125,7 @@ export function LifeBalanceWidget({ workspaceId: _workspaceId }: LifeBalanceWidg
             </Text>
             <Link
               href="/wheel-of-life"
-              className="text-sm text-brand-primary hover:underline"
+              className="text-sm text-link hover:underline"
             >
               Start assessment
             </Link>

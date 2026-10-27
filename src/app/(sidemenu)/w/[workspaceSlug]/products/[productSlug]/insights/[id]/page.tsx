@@ -230,7 +230,7 @@ export default function InsightDetailPage() {
                 Duplicate of{" "}
                 <Link
                   href={`${backPath}/${insight.duplicateOf.id}`}
-                  className="text-brand-primary hover:underline"
+                  className="text-link hover:underline"
                 >
                   {insight.duplicateOf.title}
                 </Link>

@@ -101,6 +101,12 @@ export default {
           // through Tailwind's <alpha-value> substitution.
           400: 'rgb(var(--brand-400-rgb) / <alpha-value>)',
         },
+        // Inline text links. Not the brand fill: see the `--color-link` note
+        // in globals.css. `text-link` / `hover:text-link-hover`.
+        link: {
+          DEFAULT: 'var(--color-link)',
+          hover: 'var(--color-link-hover)',
+        },
         // Error/Warning utility colors
         error: {
           bg: 'var(--color-error-bg)',

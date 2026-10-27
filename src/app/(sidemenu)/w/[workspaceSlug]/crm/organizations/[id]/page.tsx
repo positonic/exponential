@@ -122,7 +122,7 @@ function ActivityItem({
         <div className="flex items-baseline gap-2 flex-wrap">
           <Link
             href={`${basePath}/contacts/${contact.id}`}
-            className="font-medium text-text-primary hover:text-brand-primary text-sm"
+            className="font-medium text-text-primary hover:text-link text-sm"
           >
             {name}
           </Link>
@@ -914,7 +914,7 @@ export default function OrganizationDetailPage() {
                           href={organization.websiteUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-brand-primary hover:underline text-sm flex items-center gap-1"
+                          className="text-link hover:underline text-sm flex items-center gap-1"
                         >
                           <IconWorld size={12} />
                           {getHostnameFromUrl(organization.websiteUrl)}

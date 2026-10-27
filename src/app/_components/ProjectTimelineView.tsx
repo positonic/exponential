@@ -554,7 +554,7 @@ export function ProjectTimelineView({
                         <Group justify="space-between" align="center" gap="xs" wrap="nowrap">
                           <Link
                             href={`/w/${workspaceSlug ?? project.workspaceSlug ?? ""}/projects/${project.slug}-${project.id}`}
-                            className="truncate text-sm font-medium text-text-primary hover:text-brand-primary"
+                            className="truncate text-sm font-medium text-text-primary hover:text-link"
                           >
                             {project.name}
                           </Link>

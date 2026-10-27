@@ -46,7 +46,7 @@ export function ActiveTimerWidget() {
       />
       <Link
         href={actionHref}
-        className="min-w-0 flex-1 truncate text-text-primary hover:text-brand-primary"
+        className="min-w-0 flex-1 truncate text-text-primary hover:text-link"
         title={actionName}
       >
         <div className="truncate text-[13px] font-medium leading-tight">
