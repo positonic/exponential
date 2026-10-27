@@ -215,3 +215,22 @@ test("the Key results view lists the seeded KR with its objective, and a row ope
   });
 });
 
+test("Key results rows honour Status, Health, Owner and search like the other views", async ({ page }) => {
+  // Status is the parent objective's lifecycle: the seeded objective is active.
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}&status=completed`);
+  await expect(page.getByTestId("goals-period-header")).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(page.getByText(FIXTURE.keyResultTitle)).toHaveCount(0);
+
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}&status=active`);
+  const table = page.getByTestId("key-results-table");
+  await expect(table.locator("tr", { hasText: FIXTURE.keyResultTitle })).toHaveCount(1, {
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  // Search matches the objective's title as well as the key result's.
+  await page.getByRole("textbox", { name: "Search" }).fill(FIXTURE.objectiveTitle.slice(0, 20));
+  await expect(table.locator("tr", { hasText: FIXTURE.keyResultTitle })).toHaveCount(1);
+  await page.getByRole("textbox", { name: "Search" }).fill("zzz-no-such-key-result");
+  await expect(page.getByText("No key results match your search or filters.")).toBeVisible();
+});
+

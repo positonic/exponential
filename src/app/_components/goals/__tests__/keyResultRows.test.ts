@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   defaultSortDirection,
+  filterKeyResultRows,
   flattenKeyResultRows,
   formatKrValue,
   sortKeyResultRows,
@@ -10,10 +11,11 @@ import type { ObjectiveCardObjective } from "~/plugins/okr/client/components/Obj
 
 const user = (id: string, name: string | null) => ({ id, name, email: null, image: null });
 
-const objectives: ObjectiveCardObjective[] = [
+const objectives: (ObjectiveCardObjective & { status?: string })[] = [
   {
     id: 1,
     title: "Grow revenue",
+    status: "active",
     progress: 50,
     keyResults: [
       {
@@ -47,6 +49,7 @@ const objectives: ObjectiveCardObjective[] = [
   {
     id: 2,
     title: "Delight users",
+    status: "completed",
     progress: 0,
     keyResults: [
       {
@@ -163,5 +166,34 @@ describe("sortKeyResultRows", () => {
     expect(defaultSortDirection("progress")).toBe("desc");
     expect(defaultSortDirection("lastCheckIn")).toBe("desc");
     expect(defaultSortDirection("title")).toBe("asc");
+  });
+});
+
+describe("filterKeyResultRows", () => {
+  const rows = flattenKeyResultRows(objectives);
+  const ids = (xs: KeyResultRowData[]) => xs.map((r) => r.id);
+
+  it("Status reads the parent objective's lifecycle", () => {
+    expect(ids(filterKeyResultRows(rows, { status: ["completed"] }, ""))).toEqual(["kr-c"]);
+    expect(ids(filterKeyResultRows(rows, { status: ["active"] }, ""))).toEqual(["kr-a", "kr-b"]);
+  });
+
+  it("Health reads the key result's own effective-status bucket", () => {
+    expect(ids(filterKeyResultRows(rows, { health: ["on-track"] }, ""))).toEqual(["kr-a"]);
+    expect(ids(filterKeyResultRows(rows, { health: ["off-track", "no-update"] }, ""))).toEqual([
+      "kr-b",
+      "kr-c",
+    ]);
+  });
+
+  it("Owner is the key result's DRI; unassigned never matches", () => {
+    expect(ids(filterKeyResultRows(rows, { driId: ["u2"] }, ""))).toEqual(["kr-c"]);
+    expect(ids(filterKeyResultRows(rows, { driId: ["nobody"] }, ""))).toEqual([]);
+  });
+
+  it("search matches the key result or its objective title", () => {
+    expect(ids(filterKeyResultRows(rows, {}, "churn"))).toEqual(["kr-b"]);
+    expect(ids(filterKeyResultRows(rows, {}, "delight"))).toEqual(["kr-c"]);
+    expect(ids(filterKeyResultRows(rows, {}, "  "))).toEqual(["kr-a", "kr-b", "kr-c"]);
   });
 });

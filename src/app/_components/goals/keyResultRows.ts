@@ -2,12 +2,14 @@ import type {
   ObjectiveCardKeyResult,
   ObjectiveCardObjective,
 } from "~/plugins/okr/client/components/ObjectiveCardV2";
+import type { FilterState } from "~/types/filter";
 import {
   effectiveStatus,
   krProgress,
   statusToConfidence,
   type Confidence,
 } from "~/plugins/okr/client/utils/okrDashboardUtils";
+import type { HealthFilterValue } from "./goalFilters";
 
 export interface KeyResultRowUser {
   id: string;
@@ -22,6 +24,8 @@ export interface KeyResultRowData {
   title: string;
   objectiveId: number;
   objectiveTitle: string;
+  /** The parent objective's lifecycle status — what the Status filter reads. */
+  objectiveStatus: string;
   driUserId: string | null;
   driUser: KeyResultRowUser | null;
   currentValue: number;
@@ -45,7 +49,7 @@ export interface KeyResultRowData {
  * to a period (D-0041).
  */
 export function flattenKeyResultRows(
-  objectives: ObjectiveCardObjective[],
+  objectives: (ObjectiveCardObjective & { status?: string })[],
 ): KeyResultRowData[] {
   return objectives.flatMap((objective) =>
     objective.keyResults.map((kr: ObjectiveCardKeyResult): KeyResultRowData => {
@@ -56,6 +60,7 @@ export function flattenKeyResultRows(
         title: kr.title,
         objectiveId: objective.id,
         objectiveTitle: objective.title,
+        objectiveStatus: objective.status ?? "active",
         driUserId: kr.driUser?.id ?? null,
         driUser: kr.driUser ?? null,
         currentValue: kr.currentValue,
@@ -151,4 +156,44 @@ export function sortKeyResultRows(
   };
 
   return [...rows].sort((a, b) => compare(a, b) || tieBreak(a, b));
+}
+
+const CONFIDENCE_TO_HEALTH: Record<Confidence, HealthFilterValue> = {
+  ok: "on-track",
+  warn: "at-risk",
+  bad: "off-track",
+  idle: "no-update",
+};
+
+/**
+ * The Goals page filters, read against key result rows. The URL params are
+ * shared with the other views, so each keeps its meaning: Status is the
+ * parent objective's lifecycle (a completed objective's KRs go with it),
+ * Health is the key result's own effective-status bucket (the same four
+ * values the objective badge uses), Owner is the key result's DRI, and
+ * search matches the key result or its objective by title.
+ */
+export function filterKeyResultRows(
+  rows: KeyResultRowData[],
+  filters: FilterState,
+  searchQuery: string,
+): KeyResultRowData[] {
+  const q = searchQuery.trim().toLowerCase();
+  const status = filters.status as string[] | undefined;
+  const health = filters.health as string[] | undefined;
+  const dri = filters.driId as string[] | undefined;
+  return rows.filter((r) => {
+    if (status && status.length > 0 && !status.includes(r.objectiveStatus)) return false;
+    if (health && health.length > 0 && !health.includes(CONFIDENCE_TO_HEALTH[r.confidence])) {
+      return false;
+    }
+    if (dri && dri.length > 0) {
+      if (!r.driUserId || !dri.includes(r.driUserId)) return false;
+    }
+    if (q) {
+      const haystack = `${r.title} ${r.objectiveTitle}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
 }

@@ -36,7 +36,11 @@ import { GoalsControls } from "./GoalsControls";
 import { GoalsPeriodHeader } from "./GoalsPeriodHeader";
 import { GOAL_FILTER_CONFIG, GOAL_FILTER_KEYS, filterGoalRows } from "./goalFilters";
 import { KeyResultsTable } from "./KeyResultsTable";
-import { flattenKeyResultRows, type KeyResultRowData } from "./keyResultRows";
+import {
+  filterKeyResultRows,
+  flattenKeyResultRows,
+  type KeyResultRowData,
+} from "./keyResultRows";
 import {
   applyGoalsViewParams,
   useGoalsViewParams,
@@ -268,10 +272,15 @@ export function GoalsPage() {
   );
 
   // The Key results view is the same scoped list flattened to one row per KR
-  // (no procedure of its own — D-0041).
+  // (no procedure of its own — D-0041). Filters are read per key result —
+  // Owner is the KR's DRI, Health its own status — so the flatten starts
+  // from the unfiltered scope rather than from the objective-filtered list.
   const keyResultRows = useMemo(
-    () => (activeView === "key-results" ? flattenKeyResultRows(filteredObjectives) : []),
-    [activeView, filteredObjectives],
+    () =>
+      activeView === "key-results"
+        ? filterKeyResultRows(flattenKeyResultRows(objectives), filters, deferredSearchQuery)
+        : [],
+    [activeView, objectives, filters, deferredSearchQuery],
   );
 
   // Timeline is a rendering of the same list on a week axis. The axis is the
@@ -458,7 +467,12 @@ export function GoalsPage() {
 
   const goalsPageContext = useMemo(() => {
     if (!workspaceId) return null;
-    const count = activeView === "table" ? filteredTableRows.length : filteredObjectives.length;
+    const count =
+      activeView === "table"
+        ? filteredTableRows.length
+        : activeView === "key-results"
+          ? keyResultRows.length
+          : filteredObjectives.length;
     return {
       pageType: "goals-list",
       pageTitle: terminology.goals,
@@ -470,6 +484,7 @@ export function GoalsPage() {
     activeView,
     filteredTableRows.length,
     filteredObjectives.length,
+    keyResultRows.length,
     terminology.goals,
     pathname,
     effectivePeriod,
