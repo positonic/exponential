@@ -251,7 +251,18 @@ export class MatrixClient {
    */
   async send(
     roomId: string,
-    { html, text, txnId }: { html: string; text: string; txnId: string },
+    {
+      html,
+      text,
+      txnId,
+      mentions,
+    }: {
+      html: string;
+      text: string;
+      txnId: string;
+      /** MXIDs to ping (`m.mentions`, Matrix 1.7). Omitted or empty → no intentional mentions. */
+      mentions?: readonly string[];
+    },
   ): Promise<{ eventId: string }> {
     const encryption = await this.roomState<{ algorithm?: string }>(
       roomId,
@@ -269,6 +280,11 @@ export class MatrixClient {
         body: text,
         format: "org.matrix.custom.html",
         formatted_body: html,
+        // Intentional mentions: clients ping these users rather than scanning the body
+        // for display names, which is both more reliable and harder to spoof.
+        ...(mentions && mentions.length > 0
+          ? { "m.mentions": { user_ids: [...mentions] } }
+          : {}),
       },
     );
 
