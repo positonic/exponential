@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Text,
   Stack,
@@ -113,11 +113,15 @@ export function OkrObjectivesView({
     [objectives],
   );
 
+  // Open the first card once, when objectives first arrive. Keyed on a flag
+  // rather than on the set being empty, so collapsing the last open card
+  // leaves the list collapsed instead of springing the first card back open.
+  const autoExpandedRef = useRef(false);
   useEffect(() => {
-    if (objectives.length > 0 && expandedObjectives.size === 0) {
-      setExpandedObjectives(new Set([objectives[0]!.id]));
-    }
-  }, [objectives, expandedObjectives.size]);
+    if (autoExpandedRef.current || objectives.length === 0) return;
+    autoExpandedRef.current = true;
+    setExpandedObjectives(new Set([objectives[0]!.id]));
+  }, [objectives]);
 
   const toggleExpand = (objectiveId: number) => {
     setExpandedObjectives((prev) => {
