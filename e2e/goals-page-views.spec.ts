@@ -178,3 +178,32 @@ test("Timeline is a view of the same list, with a year axis on All", async ({ pa
   });
 });
 
+test("the Key results view lists the seeded KR with its objective, and a row opens the drawer", async ({ page }) => {
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}`);
+
+  const table = page.getByTestId("key-results-table");
+  await expect(table).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  const row = table.locator("tr", { hasText: FIXTURE.keyResultTitle }).first();
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(FIXTURE.objectiveTitle);
+  // Seeded at 40 of 100 percent.
+  await expect(row).toContainText("40%");
+  await expect(row).toContainText("40% / 100%");
+
+  // The header and the rest of the control line are the same as on every view.
+  await expect(page.getByTestId("goals-period-header")).toContainText(
+    `Objectives · ${okrPeriod} ${okrYear}`,
+  );
+
+  await row.click();
+  await expect.poll(() => params(page).get("drawer")).toMatch(/^keyResult:/);
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toContainText(FIXTURE.keyResultTitle);
+
+  await test.info().attach("key-results-view", {
+    body: await page.screenshot({ fullPage: false }),
+    contentType: "image/png",
+  });
+});
+
