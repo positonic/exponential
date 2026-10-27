@@ -208,6 +208,7 @@ model User {
   knowledgePageComments          KnowledgePageComment[]          @relation("KnowledgePageCommentAuthor")
   knowledgePageMemberships       KnowledgePageMember[]           @relation("KnowledgePageMemberUser")
   knowledgePageInvitesSent       KnowledgePageMember[]           @relation("KnowledgePageMemberInviter")
+  knowledgePageRevisions         KnowledgePageRevision[]         @relation("KnowledgePageRevisionAuthor")
   // Blog Discussion relations
   blogComments                   BlogComment[]                   @relation("BlogCommentAuthor")
   // Daily Planning relations
@@ -3605,6 +3606,12 @@ model KnowledgePage {
   // placement and workspace membership grant nothing, and there is no
   // workspace-admin escape hatch. Only the owner changes this or the invitees.
   isInviteOnly     Boolean   @default(false)
+  // Provenance (ADR-0074). `source` says where the page's facts come from — a
+  // URL, a document name, a person — and `asOf` the date they were true. Both
+  // free to set from the editor, the CLI and agents; a page about company facts
+  // without them is a page a reader cannot trust.
+  source           String?
+  asOf             DateTime?
   workspaceId      String
   projectId        String?
   createdById      String
@@ -3616,6 +3623,8 @@ model KnowledgePage {
   createdBy User                   @relation(fields: [createdById], references: [id])
   features  FeaturePage[]
   comments  KnowledgePageComment[]
+  /// Snapshots of the page after each write (ADR-0074).
+  revisions KnowledgePageRevision[]
   /// People invited to an invite-only page (ADR-0069). Ignored unless `isInviteOnly`.
   members   KnowledgePageMember[]
   /// Set when this page is a ceremony occurrence's notes canvas (ADR-0059).
@@ -3630,6 +3639,42 @@ model KnowledgePage {
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+}
+
+/// The page's history (ADR-0074; ADR-0071 change integrity). One row is a
+/// snapshot of the page *after* a write: the title, the Markdown projection
+/// and (when the writer had one) the ProseMirror doc, with who wrote it and an
+/// optional note saying why. Editor autosaves by one author fold into the
+/// latest row for a short window (`updatedAt` moves, nothing is inserted), so
+/// a revision is an editing session, not a keystroke; Markdown-source writes
+/// (CLI, MCP, agents) and restores always insert. `docVersion` is the page's
+/// version after the write; consecutive rows diff against each other.
+model KnowledgePageRevision {
+  id         String   @id @default(cuid())
+  pageId     String
+  docVersion Int
+  title      String
+  body       String?
+  bodyDoc    Json?
+  /// Provenance as it stood (ADR-0074): restored with the rest of the snapshot.
+  source     String?
+  asOf       DateTime?
+  /// UTF-8 size of `body`, stored at write time so listing history never reads bodies.
+  bodyBytes  Int      @default(0)
+  /// "baseline" | "create" | "editor" | "markdown" | "restore". A baseline is the
+  /// unattributed starting row seeded for pages that predate history.
+  kind       String
+  /// Why this change was made — free text from the writer.
+  note       String?
+  authorId   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  page   KnowledgePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  author User?         @relation("KnowledgePageRevisionAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([pageId, createdAt])
+  @@index([authorId])
 }
 
 /// A workspace member invited to an invite-only Page (ADR-0069). `role` is

@@ -1,4 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// Page history (ADR-0074) has its own tests; here it only has to be called.
+const recordPageRevision = vi.hoisted(() => vi.fn());
+vi.mock("~/server/services/pages/revisions", () => ({ recordPageRevision }));
 import type { PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
 import type { JSONContent } from "@tiptap/core";

@@ -61,6 +61,8 @@ export async function writePageBodyIfVersion(
     expectedVersion: number;
     doc: JSONContent;
     data?: Omit<Prisma.KnowledgePageUncheckedUpdateManyInput, "bodyDoc" | "docVersion">;
+    /** Runs in the same transaction once the write landed (e.g. record the revision). */
+    afterWrite?: (tx: Prisma.TransactionClient) => Promise<unknown>;
   },
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
@@ -74,6 +76,7 @@ export async function writePageBodyIfVersion(
     });
     if (count !== 1) return false;
     await syncPageLinks(tx, args.pageId, args.doc);
+    await args.afterWrite?.(tx);
     return true;
   });
 }

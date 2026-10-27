@@ -24,6 +24,7 @@ import {
   IconDots,
   IconExternalLink,
   IconFileExport,
+  IconHistory,
   IconLink,
   IconMarkdown,
   IconUsers,
@@ -61,6 +62,8 @@ interface PageShareMenuProps {
    * keeps "Full width" under ⋯ too, off the page chrome). */
   fullWidth?: boolean;
   onToggleFullWidth?: () => void;
+  /** Opens the page history panel (ADR-0074). */
+  onOpenHistory?: () => void;
 }
 
 /**
@@ -84,6 +87,7 @@ export function PageShareMenu({
   getMarkdown,
   fullWidth,
   onToggleFullWidth,
+  onOpenHistory,
 }: PageShareMenuProps) {
   // The page's own URL for "Copy link" — read on the client, after mount.
   const [pageUrl, setPageUrl] = useState("");
@@ -432,6 +436,18 @@ export function PageShareMenu({
             </Menu.Item>
           ) : null}
           <Menu.Divider />
+          {onOpenHistory ? (
+            <>
+              <Menu.Item
+                leftSection={<IconHistory size={14} />}
+                onClick={onOpenHistory}
+                data-testid="page-history-open"
+              >
+                History
+              </Menu.Item>
+              <Menu.Divider />
+            </>
+          ) : null}
           {/* Plain copy (Cmd-C) puts text on the clipboard and the formatted
               slice on `text/html`; these two are the explicit Markdown route,
               for a Markdown-source target. */}

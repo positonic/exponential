@@ -490,12 +490,24 @@ const knowledgeSearchInput = z.object({
   workspaceId: z.string(),
   /** Max sources returned (each source contributes its best chunk). */
   limit: z.number().int().min(1).max(20).default(5),
+  /** Restrict to these source kinds; default is every kind the caller can see. */
+  sourceTypes: z
+    .array(z.enum(["transcription", "resource", "document", "page"]))
+    .min(1)
+    .optional(),
 });
 
 // Nearest-neighbour search always returns *something*; below this cosine
 // similarity a chunk is unrelated to the query. Same cut-off the agent's
 // semantic search defaults to (knowledgeChunk.semanticSearch).
 const KNOWLEDGE_MIN_SIMILARITY = 0.3;
+
+/** Source kinds that can produce a result (a document has no URL yet). */
+const SEARCHABLE_KNOWLEDGE_SOURCES: ("transcription" | "resource" | "page")[] = [
+  "transcription",
+  "resource",
+  "page",
+];
 
 // Several chunks of one long transcript often outrank everything else, so
 // fetch extra and keep each source's best chunk.
@@ -548,9 +560,9 @@ export const searchRouter = createTRPCRouter({
   /**
    * Semantic search over the workspace's Knowledge Base — the same index and
    * the same scoping as the Knowledge Base page's Search tab
-   * (mastra.queryMeetingContext): the caller's own indexed meetings,
-   * resources, documents and pages, with meeting and page access re-checked
-   * per source. Kept apart from `global` because it costs an embedding call
+   * (mastra.queryMeetingContext): every indexed meeting, resource, document
+   * and page in the workspace the caller may view, with meeting, page and
+   * resource access checked per source. Kept apart from `global` because it costs an embedding call
    * and is slower; the palette runs it alongside the title search.
    *
    * Never throws for an embedding/vector failure — the palette treats this as
@@ -570,12 +582,17 @@ export const searchRouter = createTRPCRouter({
 
     let chunks;
     try {
+      // Access is the per-source viewer rules below. The service's `userId`
+      // option would narrow to chunks the caller *authored*, which hid every
+      // teammate's meeting, page and resource from this search.
       chunks = await getKnowledgeService(ctx.db).search(input.query, {
         workspaceId: input.workspaceId,
-        userId,
         pageViewerId: userId,
         transcriptionViewerId: userId,
         resourceViewerId: userId,
+        // Uploaded documents have no page to link to yet, so their chunks are
+        // always dropped below; searching them would only spend the over-fetch.
+        sourceTypes: input.sourceTypes ?? SEARCHABLE_KNOWLEDGE_SOURCES,
         limit: input.limit * KNOWLEDGE_CHUNKS_PER_RESULT,
       });
     } catch (error) {

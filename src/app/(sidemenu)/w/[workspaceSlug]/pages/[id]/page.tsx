@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { Skeleton, Text, TextInput } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconCalendarEvent } from '@tabler/icons-react';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
@@ -15,6 +15,7 @@ import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { PageProjectPicker } from '~/app/_components/pages/PageProjectPicker';
 import { PageDetailsModal } from '~/app/_components/pages/PageDetailsModal';
+import { PageHistoryModal } from '~/app/_components/pages/PageHistoryModal';
 import { PageOutline } from '~/app/_components/pages/PageOutline';
 import { UpdateReviewBanner } from '~/app/_components/pages/UpdateReviewBanner';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
@@ -119,6 +120,10 @@ function PageEditorContent({
     defaultValue: false,
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Bumped after a restore so the editor remounts on the restored content
+  // instead of keeping the doc it loaded (the engine owns its doc after mount).
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const widthClass = fullWidth ? 'w-full' : 'mx-auto w-full max-w-3xl';
   const utils = api.useUtils();
   const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
@@ -238,6 +243,13 @@ function PageEditorContent({
             // updaters, which would persist the toggle a second time and
             // land back on the old value.
             onToggleFullWidth={() => setFullWidth(!fullWidth)}
+            onOpenHistory={() => {
+              // Land pending autosaves first, so the history (and the version
+              // a restore pins) includes the edits on screen.
+              void (editorHandleRef.current?.flushSave() ?? Promise.resolve()).finally(() =>
+                setHistoryOpen(true),
+              );
+            }}
           />
         </div>
       </header>
@@ -282,15 +294,68 @@ function PageEditorContent({
                 Move…
               </button>
             ) : null}
+            {page.canEdit && !page.source && !page.asOf ? (
+              <button
+                type="button"
+                className="rounded px-1 py-0.5 text-xs text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                onClick={() => setDetailsOpen(true)}
+                data-testid="page-add-provenance"
+              >
+                Add source / as-of…
+              </button>
+            ) : null}
           </div>
+          {page.source || page.asOf ? (
+            // Provenance (ADR-0074): where the facts come from and when they
+            // were true. Always visible once set — it is what makes the page
+            // trustworthy — and a click opens the details to change it.
+            <button
+              type="button"
+              className={`mt-1 flex flex-wrap items-center gap-1 text-left text-xs text-text-muted ${
+                page.canEdit ? 'hover:text-text-primary' : 'cursor-default'
+              }`}
+              onClick={page.canEdit ? () => setDetailsOpen(true) : undefined}
+              disabled={!page.canEdit}
+              data-testid="page-provenance"
+            >
+              {page.asOf ? <span>As of {format(new Date(page.asOf), 'd MMM yyyy')}</span> : null}
+              {page.asOf && page.source ? <span>·</span> : null}
+              {page.source ? (
+                /^https?:\/\//i.test(page.source) ? (
+                  <span>
+                    Source:{' '}
+                    <a
+                      href={page.source}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-text-primary"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {page.source.replace(/^https?:\/\//i, '')}
+                    </a>
+                  </span>
+                ) : (
+                  <span>Source: {page.source}</span>
+                )
+              ) : null}
+            </button>
+          ) : null}
           <PageDetailsModal
             page={detailsOpen ? page : null}
             workspaceSlug={workspaceSlug}
             followMove
             onClose={() => setDetailsOpen(false)}
           />
+          <PageHistoryModal
+            pageId={page.id}
+            opened={historyOpen}
+            canEdit={page.canEdit}
+            onClose={() => setHistoryOpen(false)}
+            onRestored={() => setEditorEpoch((n) => n + 1)}
+          />
         </div>
         <PageDocument
+          key={editorEpoch}
           pageId={page.id}
           bodyDoc={(page.bodyDoc as JSONContent | null) ?? null}
           body={page.body ?? null}
