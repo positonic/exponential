@@ -16,6 +16,7 @@ import { z } from "zod";
 import { docToMarkdownServer, markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
+import { recordPageRevision } from "~/server/services/pages/revisions";
 import type { AgendaSnapshot } from "./agenda/types";
 import { ensureOccurrenceNotesPage, type NotesPageCeremony, type NotesPageOccurrence } from "./notesPage";
 
@@ -79,6 +80,13 @@ export async function seedNotesPageIfUntouched(db: PrismaClient, pageId: string,
     expectedVersion: 0,
     doc: seed.bodyDoc,
     data: { body: seed.body },
+    afterWrite: (tx) =>
+      recordPageRevision(tx, {
+        pageId,
+        kind: "markdown",
+        authorId: null,
+        note: "Seeded with the meeting agenda",
+      }),
   });
   if (!written) return false;
   getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);
@@ -195,6 +203,13 @@ export async function appendMeetingSummaryToNotes(
       expectedVersion: page.docVersion,
       doc: nextDoc,
       data: { body: nextBody },
+      afterWrite: (tx) =>
+        recordPageRevision(tx, {
+          pageId,
+          kind: "markdown",
+          authorId: null,
+          note: "Meeting summary appended from the recording",
+        }),
     });
     if (written) {
       getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);

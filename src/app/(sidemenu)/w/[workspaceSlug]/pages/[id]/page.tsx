@@ -243,7 +243,13 @@ function PageEditorContent({
             // updaters, which would persist the toggle a second time and
             // land back on the old value.
             onToggleFullWidth={() => setFullWidth(!fullWidth)}
-            onOpenHistory={() => setHistoryOpen(true)}
+            onOpenHistory={() => {
+              // Land pending autosaves first, so the history (and the version
+              // a restore pins) includes the edits on screen.
+              void (editorHandleRef.current?.flushSave() ?? Promise.resolve()).finally(() =>
+                setHistoryOpen(true),
+              );
+            }}
           />
         </div>
       </header>

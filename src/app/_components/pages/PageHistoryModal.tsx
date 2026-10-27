@@ -70,6 +70,10 @@ export function PageHistoryModal({
   const utils = api.useUtils();
   const history = api.page.history.useQuery({ id: pageId }, { enabled: opened });
   const revisions = history.data?.revisions ?? [];
+  // Always read history fresh on open: restore pins the page version shown.
+  useEffect(() => {
+    if (opened) void utils.page.history.invalidate({ id: pageId });
+  }, [opened, pageId, utils]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [against, setAgainst] = useState<'previous' | 'current'>('previous');
@@ -146,7 +150,7 @@ export function PageHistoryModal({
                           ? 'Before history'
                           : r.authorHidden
                             ? 'A member'
-                            : r.author?.name ?? 'Unknown'}
+                            : r.author?.name ?? 'Automated'}
                       </Text>
                       <Badge size="xs" variant="light" color={r.kind === 'restore' ? 'yellow' : 'gray'}>
                         {index === 0 ? 'Current' : KIND_LABEL[r.kind] ?? r.kind}
@@ -207,7 +211,15 @@ export function PageHistoryModal({
                 leftSection={<IconRestore size={14} />}
                 disabled={isLatest}
                 loading={restore.isPending}
-                onClick={() => restore.mutate({ id: pageId, revisionId: selected.id })}
+                onClick={() =>
+                  restore.mutate({
+                    id: pageId,
+                    revisionId: selected.id,
+                    // The newest revision is the page as this panel shows it;
+                    // a save since then makes the restore a CONFLICT.
+                    baseVersion: revisions[0]?.docVersion,
+                  })
+                }
                 data-testid="page-history-restore"
               >
                 {isLatest ? 'This is the current version' : 'Restore this version'}

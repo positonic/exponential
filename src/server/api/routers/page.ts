@@ -89,6 +89,41 @@ const PAGE_SEARCH_CHUNKS_PER_PAGE = 4;
 const SNIPPET_LENGTH = 160;
 
 /**
+ * The revision kind for a write that did not come from the page editor's
+ * body save. A browser session is the person in the app (`editor`, which
+ * folds into their open editing session); any token — the CLI, MCP, an
+ * agent — is a write from outside the editor (`markdown`), which never folds.
+ */
+function revisionKindForWriter(tokenType: string | undefined): "editor" | "markdown" {
+  return tokenType === undefined ? "editor" : "markdown";
+}
+
+/**
+ * Whether a metadata update actually changes something history records
+ * (title or provenance). Re-sending the stored values — agents retry a lot —
+ * records nothing.
+ */
+async function metadataChangesHistory(
+  db: PrismaClient,
+  pageId: string,
+  next: { title?: string; source?: string | null; asOf?: Date | null },
+): Promise<boolean> {
+  if (next.title === undefined && next.source === undefined && next.asOf === undefined) {
+    return false;
+  }
+  const stored = await db.knowledgePage.findUnique({
+    where: { id: pageId },
+    select: { title: true, source: true, asOf: true },
+  });
+  if (!stored) return false;
+  return (
+    (next.title !== undefined && next.title !== stored.title) ||
+    (next.source !== undefined && next.source !== stored.source) ||
+    (next.asOf !== undefined && (next.asOf?.getTime() ?? null) !== (stored.asOf?.getTime() ?? null))
+  );
+}
+
+/**
  * Whether revision authors are named to this caller: the Share popover's
  * audience rule (ADR-0074). Workspace members see names; a project-only
  * collaborator sees the revision, its diff and its time, but "A member".
@@ -254,6 +289,8 @@ const DUPLICATE_SELECT = {
   title: true,
   body: true,
   bodyDoc: true,
+  source: true,
+  asOf: true,
   includeInSearch: true,
   workspaceId: true,
   projectId: true,
@@ -574,8 +611,8 @@ export const pageRouter = createTRPCRouter({
   /**
    * List the Pages a user can see in a workspace (visibility per ADR-0033 /
    * `buildKnowledgePageAccessWhere`), newest-edited first. Optional `projectId`
-   * filter and a case-insensitive substring `search` over title and Markdown
-   * body. For search by meaning use {@link search}.
+   * filter and case-insensitive title `search`. For search by content or
+   * meaning use {@link search}.
    */
   list: protectedProcedure
     .input(
@@ -595,12 +632,8 @@ export const pageRouter = createTRPCRouter({
         filters.push({ projectId: input.projectId });
       }
       if (input.search?.trim()) {
-        const needle = input.search.trim();
         filters.push({
-          OR: [
-            { title: { contains: needle, mode: "insensitive" } },
-            { body: { contains: needle, mode: "insensitive" } },
-          ],
+          title: { contains: input.search.trim(), mode: "insensitive" },
         });
       }
 
@@ -1225,16 +1258,20 @@ export const pageRouter = createTRPCRouter({
             });
             return row;
           })
-        : rest.title !== undefined || source !== undefined || rest.asOf !== undefined
+        : (await metadataChangesHistory(ctx.db, id, {
+              title: rest.title,
+              source: provenance.source,
+              asOf: rest.asOf,
+            }))
           ? // A rename or a provenance change is part of the page's history
             // too (a silently moved as-of date is exactly what history is
-            // for); it folds into the author's open editing session like any
-            // other editor write.
+            // for). From the app it folds into the author's open editing
+            // session; from the CLI, MCP or an agent it is its own revision.
             await ctx.db.$transaction(async (tx) => {
               const row = await tx.knowledgePage.update({ where: { id }, data });
               await recordPageRevision(tx, {
                 pageId: id,
-                kind: "editor",
+                kind: revisionKindForWriter(ctx.tokenType),
                 authorId: userId,
                 note,
               });
@@ -1531,15 +1568,12 @@ export const pageRouter = createTRPCRouter({
               // A copy never widens access: an invite-only page's copy is
               // invite-only too, owned by the duplicator with no invitees.
               isInviteOnly: row.isInviteOnly,
+              // A copy states the same facts, so it keeps where they came from.
+              source: row.source,
+              asOf: row.asOf,
               createdById: userId,
             },
             select: { id: true },
-          });
-          await recordPageRevision(tx, {
-            pageId: created0.id,
-            kind: "create",
-            authorId: userId,
-            note: `Duplicated from page ${row.id}`,
           });
           remap.set(row.id, {
             pageId: created0.id,
@@ -1561,6 +1595,16 @@ export const pageRouter = createTRPCRouter({
             });
           }
           await syncPageLinks(tx, id, doc);
+        }
+        // Snapshot once the links point at the copies, so restoring a copy's
+        // first revision never re-points it at the originals.
+        for (const { source, id } of created) {
+          await recordPageRevision(tx, {
+            pageId: id,
+            kind: "create",
+            authorId: userId,
+            note: `Duplicated from page ${source.id}`,
+          });
         }
         return created;
       });
@@ -1946,12 +1990,17 @@ export const pageRouter = createTRPCRouter({
         workspaceId: input.workspaceId,
         results: [] as PageSearchResult[],
       };
-      const membership = await getWorkspaceMembership(
-        ctx.db,
-        userId,
-        input.workspaceId,
-      );
-      if (!membership) return empty;
+      // Scoped by the page access rule, not by workspace membership: a
+      // project-only collaborator searches the pages they can view. Someone
+      // who can view no page here gets nothing, without paying for an
+      // embedding.
+      const viewable = await ctx.db.knowledgePage.findFirst({
+        where: {
+          AND: [buildKnowledgePageAccessWhere(userId), { workspaceId: input.workspaceId }],
+        },
+        select: { id: true },
+      });
+      if (!viewable) return empty;
       const workspace = await ctx.db.workspace.findUnique({
         where: { id: input.workspaceId },
         select: { slug: true },
@@ -2070,7 +2119,9 @@ export const pageRouter = createTRPCRouter({
           title: true,
           kind: true,
           note: true,
-          body: true,
+          // The stored size, never the body: a long page's history would
+          // otherwise pull every revision's Markdown out of Postgres.
+          bodyBytes: true,
           source: true,
           asOf: true,
           createdAt: true,
@@ -2081,10 +2132,9 @@ export const pageRouter = createTRPCRouter({
       const hasMore = rows.length > input.limit;
       const slice = hasMore ? rows.slice(0, input.limit) : rows;
       return {
-        revisions: slice.map(({ body, author, ...row }) => ({
+        revisions: slice.map(({ author, ...row }) => ({
           ...row,
           ...presentRevisionAuthor(author, namesAuthors),
-          bodyBytes: markdownBytes(body),
         })),
         nextCursor: hasMore ? slice[slice.length - 1]!.id : null,
       };
@@ -2250,6 +2300,12 @@ export const pageRouter = createTRPCRouter({
         id: z.string(),
         revisionId: z.string(),
         note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
+        /**
+         * The page's `docVersion` when the caller decided to restore (the
+         * History panel sends the version it showed). With it, a page saved
+         * since then is a CONFLICT rather than silently replaced.
+         */
+        baseVersion: z.number().int().min(0).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -2266,7 +2322,7 @@ export const pageRouter = createTRPCRouter({
       const doc = (revision.bodyDoc as JSONContent | null) ?? null;
 
       const result = await ctx.db.$transaction(async (tx) => {
-        const expectedVersion = page.docVersion;
+        const expectedVersion = input.baseVersion ?? page.docVersion;
         const { count } = await tx.knowledgePage.updateMany({
           where: { id: input.id, docVersion: expectedVersion },
           data: {
@@ -2290,7 +2346,8 @@ export const pageRouter = createTRPCRouter({
             field: "body",
             expectedRevision: expectedVersion,
             readCurrentRevision: () => readPageDocVersion(tx, input.id),
-            message: "This page was updated concurrently. Reload and try the restore again.",
+            message:
+              "This page changed since you looked at its history. Reopen the history and try the restore again.",
           });
         }
         await syncPageLinks(tx, input.id, doc);

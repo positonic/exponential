@@ -283,7 +283,7 @@ describe("search router — knowledge (mocked)", () => {
       pageViewerId: callerId,
       transcriptionViewerId: callerId,
       resourceViewerId: callerId,
-      sourceTypes: undefined,
+      sourceTypes: ["transcription", "resource", "page"],
       limit: 20,
     });
     expect(mockKnowledgeSearch.mock.calls[0]![1]).not.toHaveProperty("userId");

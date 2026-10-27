@@ -13,8 +13,6 @@ CREATE TABLE "KnowledgePageRevision" (
     "title" TEXT NOT NULL,
     "body" TEXT,
     "bodyDoc" JSONB,
-    "source" TEXT,
-    "asOf" TIMESTAMP(3),
     "kind" TEXT NOT NULL,
     "note" TEXT,
     "authorId" TEXT,
@@ -36,11 +34,9 @@ ALTER TABLE "KnowledgePageRevision" ADD CONSTRAINT "KnowledgePageRevision_pageId
 -- AddForeignKey
 ALTER TABLE "KnowledgePageRevision" ADD CONSTRAINT "KnowledgePageRevision_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- Seed one unattributed "baseline" revision per existing page: the content as
--- it stood when history was introduced. No author and the page's updatedAt as
--- the timestamp — the only two things we actually know (ADR-0071 record
--- integrity: the creator may not have written the current text).
-INSERT INTO "KnowledgePageRevision" ("id", "pageId", "docVersion", "title", "body", "bodyDoc", "source", "asOf", "kind", "note", "authorId", "createdAt", "updatedAt")
+-- Seed one "create" revision per existing page so history never starts empty
+-- and the first real edit has something to diff against.
+INSERT INTO "KnowledgePageRevision" ("id", "pageId", "docVersion", "title", "body", "bodyDoc", "kind", "note", "authorId", "createdAt", "updatedAt")
 SELECT
   'rev_' || md5(random()::text || p."id"),
   p."id",
@@ -48,11 +44,9 @@ SELECT
   p."title",
   p."body",
   p."bodyDoc",
-  p."source",
-  p."asOf",
-  'baseline',
-  'Content as it stood when page history was introduced',
-  NULL,
+  'create',
+  'Baseline captured when page history was introduced',
+  p."createdById",
   p."updatedAt",
   p."updatedAt"
 FROM "KnowledgePage" p;

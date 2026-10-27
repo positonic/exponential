@@ -3602,6 +3602,8 @@ model KnowledgePageRevision {
   /// Provenance as it stood (ADR-0074): restored with the rest of the snapshot.
   source     String?
   asOf       DateTime?
+  /// UTF-8 size of `body`, stored at write time so listing history never reads bodies.
+  bodyBytes  Int      @default(0)
   /// "baseline" | "create" | "editor" | "markdown" | "restore". A baseline is the
   /// unattributed starting row seeded for pages that predate history.
   kind       String

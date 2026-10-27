@@ -502,6 +502,13 @@ const knowledgeSearchInput = z.object({
 // semantic search defaults to (knowledgeChunk.semanticSearch).
 const KNOWLEDGE_MIN_SIMILARITY = 0.3;
 
+/** Source kinds that can produce a result (a document has no URL yet). */
+const SEARCHABLE_KNOWLEDGE_SOURCES: ("transcription" | "resource" | "page")[] = [
+  "transcription",
+  "resource",
+  "page",
+];
+
 // Several chunks of one long transcript often outrank everything else, so
 // fetch extra and keep each source's best chunk.
 const KNOWLEDGE_CHUNKS_PER_RESULT = 4;
@@ -583,7 +590,9 @@ export const searchRouter = createTRPCRouter({
         pageViewerId: userId,
         transcriptionViewerId: userId,
         resourceViewerId: userId,
-        sourceTypes: input.sourceTypes,
+        // Uploaded documents have no page to link to yet, so their chunks are
+        // always dropped below; searching them would only spend the over-fetch.
+        sourceTypes: input.sourceTypes ?? SEARCHABLE_KNOWLEDGE_SOURCES,
         limit: input.limit * KNOWLEDGE_CHUNKS_PER_RESULT,
       });
     } catch (error) {

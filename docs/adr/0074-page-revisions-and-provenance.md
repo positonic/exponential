@@ -22,36 +22,49 @@ place to say where the facts came from or when they were true.
 1. **`KnowledgePageRevision` is a snapshot of the page after a write** — title, Markdown `body`,
    `bodyDoc`, provenance (`source`, `asOf`), `docVersion`, `kind` (`baseline` | `create` |
    `editor` | `markdown` | `restore`), `authorId` and an optional free-text `note` ("why"). A
-   change to title, body or provenance records one, in the same transaction: `page.create`, both
-   `page.update` paths, renames, provenance edits, `page.duplicate`, `page.restore`. Moving the
-   page or toggling search inclusion does not — that is placement, already in the activity feed.
+   change to title, body or provenance records one, in the same transaction, on every write path:
+   `page.create`, both `page.update` paths, renames, provenance edits, `page.duplicate` (after its
+   links are re-pointed at the copies), `page.restore`, and the automated writers — ceremony notes
+   pages and their agenda seed and meeting summary, Workspace update drafts, regenerations and the
+   Updates index. An automated write names no author; its `note` says what wrote it. Re-sending
+   stored values records nothing. Moving the page or toggling search inclusion does not record one —
+   that is placement, already in the activity feed. Each row stores its body's size, so listing
+   history never reads bodies.
 2. **Editor autosaves fold.** An `editor` write by the same author within 10 minutes of the latest
    `editor` revision moves that row forward instead of inserting (`updatedAt` advances). A revision
-   is therefore an editing session, not a keystroke. Markdown-source writes (CLI, MCP, agents),
-   restores, creates and any write carrying a `note` never fold — each is one deliberate change.
+   is therefore an editing session, not a keystroke. `editor` means the person in the app; any
+   write from outside it — CLI, MCP, agents, automated writers, whether body, title or provenance —
+   is `markdown` and never folds. Restores, creates and any write carrying a `note` never fold
+   either — each is one deliberate change.
 3. **Diffs are computed, not stored.** `page.diff` renders a unified diff of two snapshots'
    Markdown (default: a revision against the one before it) and flags title and provenance
-   changes. `page.restore` writes a revision's *whole* snapshot back — title, body, provenance —
-   as a new forward write, compare-and-set on `docVersion`, recording a `restore` revision, so
-   history never rewinds.
+   changes; it can also compare a revision with the page as it is now, or with any other revision.
+   `page.restore` writes a revision's *whole* snapshot back — title, body, provenance — as a new
+   forward write, recording a `restore` revision, so history never rewinds. It is a
+   compare-and-set on the `docVersion` the caller saw (`baseVersion`; the History panel sends the
+   version it showed), so a page saved since then is a CONFLICT, not silently replaced.
 3a. **History follows view access; names follow membership.** Anyone who can view the page can
    read its history and diffs. Authors are named only to workspace members, the same rule the
    Share popover's audience roster applies, so a project-only collaborator sees "A member".
 3b. **Pages that predate history get one unattributed `baseline` row** at their `updatedAt`:
    the content as it stood, no author. The creator did not necessarily write the current text,
    and claiming so would present an interpretation as a fact (ADR-0071).
-4. **Lean reads.** `page.get` takes `format: full | markdown | outline` and `section`. The editor
-   keeps `full`; every agent surface (SDK, CLI, MCP) defaults to `markdown`, which omits `bodyDoc`.
-   `bodyBytes` is always reported so a caller can budget before fetching.
+4. **Lean reads.** `page.get` takes `format: full | markdown | outline` and `section`. The
+   procedure defaults to `full` for the editor; every agent surface (SDK, CLI, MCP) defaults to
+   `markdown`, which omits `bodyDoc`. `bodyBytes` is always reported so a caller can budget before
+   fetching. `page.list` returns `docVersion`, `source` and `asOf`, so an agent can pick a
+   `baseVersion` and judge freshness without fetching bodies; its `search` stays a title match.
 5. **Search by meaning.** `page.search` returns semantic hits from the Knowledge index
-   (`sourceType = "page"`, scoped by the page access rule, never by chunk author) followed by
+   (`sourceType = "page"`, scoped by the page access rule, never by chunk author or workspace
+   membership, so a project-only collaborator searches the pages they can view) followed by
    substring matches the index missed. `search.knowledge` gains a `sourceTypes` filter and stops
    narrowing to chunks the caller authored: the per-source viewer rules were already enforced
-   inside the search, so the author filter only hid teammates' meetings, pages and resources —
-   from the command palette too.
+   inside the search, so the author filter only hid teammates' meetings and pages — from the
+   command palette too. Resources (the Reading list) stay visible to their owner only, by their
+   own rule; uploaded documents are left out by default because they have no page to link to.
 6. **Provenance fields.** `KnowledgePage.source` (free text: a URL, a document, a person) and
    `asOf` (the date the facts were true). Editable from the page details, the CLI and agents;
-   shown under the title when set.
+   shown under the title when set, with an "Add source / as-of" prompt for editors when not.
 
 ## Rejected
 
@@ -73,7 +86,9 @@ place to say where the facts came from or when they were true.
 
 ## Consequences
 
-- New table, two nullable columns; one baseline `create` revision seeded per existing page.
+- New table, two nullable page columns; one unattributed `baseline` revision seeded per existing
+  page. Two migrations: the second (provenance and size on revisions, baseline rows made honest)
+  is additive and safe on a database that already ran the first.
 - `page.get` from the SDK now returns no `bodyDoc`; editor-only consumers must pass
   `format: "full"`.
 - The audit matrix (`dev-docs/AGENT_PRINCIPLES_AUDIT.md`) History row moves from `gap` to

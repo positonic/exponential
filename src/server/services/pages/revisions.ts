@@ -16,6 +16,7 @@
  */
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { createTwoFilesPatch, diffLines } from "diff";
+import { markdownBytes } from "~/lib/pages/markdown-outline";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -28,6 +29,11 @@ export const REVISION_FOLD_WINDOW_MS = 10 * 60 * 1000;
 export interface RecordPageRevisionInput {
   pageId: string;
   kind: PageRevisionKind;
+  /**
+   * Who wrote it. Null for an automated write (an agenda seed, a generated
+   * Workspace update): no person wrote that text, so none is named, and the
+   * `note` says what did.
+   */
   authorId: string | null;
   /** Why the change was made. A note always gets its own row. */
   note?: string | null;
@@ -77,6 +83,7 @@ export async function recordPageRevision(
           bodyDoc,
           source: page.source,
           asOf: page.asOf,
+          bodyBytes: markdownBytes(page.body),
           updatedAt: now,
         },
       });
@@ -93,6 +100,7 @@ export async function recordPageRevision(
       bodyDoc,
       source: page.source,
       asOf: page.asOf,
+      bodyBytes: markdownBytes(page.body),
       kind: input.kind,
       note,
       authorId: input.authorId,
