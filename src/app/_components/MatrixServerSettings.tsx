@@ -140,6 +140,21 @@ export function MatrixServerSettings({
         </Stack>
       )}
 
+      {servers.length > 0 && (
+        <Stack gap={4} className="rounded-md border border-border-primary bg-surface-secondary p-3">
+          <Text size="sm" fw={600} className="text-text-primary">
+            Decisions room
+          </Text>
+          <Text size="xs" className="text-text-muted">
+            Hears about a decision when a person confirms, accepts or supersedes it:
+            the D-number, the statement, the deciders and a link. Agent drafts never
+            post. Projects set to Inherit use this room; a project can pick its own or
+            switch decisions off.
+          </Text>
+          <MatrixRoomBinding workspaceId={workspace.id} projectId={null} kind="decision" />
+        </Stack>
+      )}
+
       {removeMutation.error && (
         <Alert color="red" variant="light">
           {removeMutation.error.message}
