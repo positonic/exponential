@@ -553,9 +553,9 @@ export const searchRouter = createTRPCRouter({
   /**
    * Semantic search over the workspace's Knowledge Base — the same index and
    * the same scoping as the Knowledge Base page's Search tab
-   * (mastra.queryMeetingContext): the caller's own indexed meetings,
-   * resources, documents and pages, with meeting and page access re-checked
-   * per source. Kept apart from `global` because it costs an embedding call
+   * (mastra.queryMeetingContext): every indexed meeting, resource, document
+   * and page in the workspace the caller may view, with meeting, page and
+   * resource access checked per source. Kept apart from `global` because it costs an embedding call
    * and is slower; the palette runs it alongside the title search.
    *
    * Never throws for an embedding/vector failure — the palette treats this as
@@ -575,9 +575,11 @@ export const searchRouter = createTRPCRouter({
 
     let chunks;
     try {
+      // Access is the per-source viewer rules below. The service's `userId`
+      // option would narrow to chunks the caller *authored*, which hid every
+      // teammate's meeting, page and resource from this search.
       chunks = await getKnowledgeService(ctx.db).search(input.query, {
         workspaceId: input.workspaceId,
-        userId,
         pageViewerId: userId,
         transcriptionViewerId: userId,
         resourceViewerId: userId,

@@ -3599,7 +3599,11 @@ model KnowledgePageRevision {
   title      String
   body       String?
   bodyDoc    Json?
-  /// "create" | "editor" | "markdown" | "restore"
+  /// Provenance as it stood (ADR-0074): restored with the rest of the snapshot.
+  source     String?
+  asOf       DateTime?
+  /// "baseline" | "create" | "editor" | "markdown" | "restore". A baseline is the
+  /// unattributed starting row seeded for pages that predate history.
   kind       String
   /// Why this change was made — free text from the writer.
   note       String?

@@ -20,23 +20,35 @@ place to say where the facts came from or when they were true.
 ## Decision
 
 1. **`KnowledgePageRevision` is a snapshot of the page after a write** — title, Markdown `body`,
-   `bodyDoc`, `docVersion`, `kind` (`create` | `editor` | `markdown` | `restore`), `authorId` and
-   an optional free-text `note` ("why"). Every write path records one in the same transaction:
-   `page.create`, both `page.update` paths, renames, `page.duplicate`, `page.restore`.
+   `bodyDoc`, provenance (`source`, `asOf`), `docVersion`, `kind` (`baseline` | `create` |
+   `editor` | `markdown` | `restore`), `authorId` and an optional free-text `note` ("why"). A
+   change to title, body or provenance records one, in the same transaction: `page.create`, both
+   `page.update` paths, renames, provenance edits, `page.duplicate`, `page.restore`. Moving the
+   page or toggling search inclusion does not — that is placement, already in the activity feed.
 2. **Editor autosaves fold.** An `editor` write by the same author within 10 minutes of the latest
    `editor` revision moves that row forward instead of inserting (`updatedAt` advances). A revision
    is therefore an editing session, not a keystroke. Markdown-source writes (CLI, MCP, agents),
    restores, creates and any write carrying a `note` never fold — each is one deliberate change.
 3. **Diffs are computed, not stored.** `page.diff` renders a unified diff of two snapshots'
-   Markdown (default: a revision against the one before it). `page.restore` writes a revision's
-   content back as a new forward write — compare-and-set on `docVersion`, recording a `restore`
-   revision — so history never rewinds.
+   Markdown (default: a revision against the one before it) and flags title and provenance
+   changes. `page.restore` writes a revision's *whole* snapshot back — title, body, provenance —
+   as a new forward write, compare-and-set on `docVersion`, recording a `restore` revision, so
+   history never rewinds.
+3a. **History follows view access; names follow membership.** Anyone who can view the page can
+   read its history and diffs. Authors are named only to workspace members, the same rule the
+   Share popover's audience roster applies, so a project-only collaborator sees "A member".
+3b. **Pages that predate history get one unattributed `baseline` row** at their `updatedAt`:
+   the content as it stood, no author. The creator did not necessarily write the current text,
+   and claiming so would present an interpretation as a fact (ADR-0071).
 4. **Lean reads.** `page.get` takes `format: full | markdown | outline` and `section`. The editor
    keeps `full`; every agent surface (SDK, CLI, MCP) defaults to `markdown`, which omits `bodyDoc`.
    `bodyBytes` is always reported so a caller can budget before fetching.
 5. **Search by meaning.** `page.search` returns semantic hits from the Knowledge index
    (`sourceType = "page"`, scoped by the page access rule, never by chunk author) followed by
-   substring matches the index missed. `search.knowledge` gains a `sourceTypes` filter.
+   substring matches the index missed. `search.knowledge` gains a `sourceTypes` filter and stops
+   narrowing to chunks the caller authored: the per-source viewer rules were already enforced
+   inside the search, so the author filter only hid teammates' meetings, pages and resources —
+   from the command palette too.
 6. **Provenance fields.** `KnowledgePage.source` (free text: a URL, a document, a person) and
    `asOf` (the date the facts were true). Editable from the page details, the CLI and agents;
    shown under the title when set.
@@ -51,8 +63,13 @@ place to say where the facts came from or when they were true.
   anything Markdown cannot express. The doc is kept but never returned by `history` or `revision`.
 - **A separate `page.getMarkdown` procedure.** One procedure with a `format` keeps access,
   includes and the `canEdit` flag in one place.
-- **Typed provenance (`sourceUrl`, `sourceKind`).** A URL is one kind of source; "the finance
-  team, verbally" is another. Free text with a date covers both without a taxonomy nobody asked for.
+- **Typed provenance (`sourceUrl`, `sourceKind`), or many sources per page.** A URL is one kind
+  of source; "the finance team, verbally" is another. Free text with a date covers both without a
+  taxonomy nobody asked for; a page with several inputs cites them in its body.
+- **Requiring a `note` on agent writes.** Right in principle, but it breaks Zoe's page tool until
+  the mastra repo sends one. For now agent rows without a note read "No reason given" and the tool
+  descriptions push for one; it becomes required in the step that also requires `baseVersion`.
+- **Attributing the baseline to the page creator.** Reads naturally and is sometimes false.
 
 ## Consequences
 
@@ -61,5 +78,8 @@ place to say where the facts came from or when they were true.
   `format: "full"`.
 - The audit matrix (`dev-docs/AGENT_PRINCIPLES_AUDIT.md`) History row moves from `gap` to
   `partial`: Pages have attributed, restorable history; features, decisions and others still do not.
-- Retention is unbounded for now; a cap or compaction of old `editor` rows is a follow-up if row
-  counts or storage surprise us.
+- Retention is unbounded, rich document included, by decision: deleting history is the one thing
+  that cannot be undone, and pages are small next to transcripts and embeddings. Compaction of old
+  `editor` rows' `bodyDoc` is the follow-up if storage surprises us.
+- The SDK's `pages.get` returns Markdown only by default from 1.24.0 — a deliberate breaking change
+  so agents get the small payload without knowing the option.

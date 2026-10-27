@@ -88,6 +88,30 @@ const PAGE_SEARCH_MIN_SIMILARITY = 0.3;
 const PAGE_SEARCH_CHUNKS_PER_PAGE = 4;
 const SNIPPET_LENGTH = 160;
 
+/**
+ * Whether revision authors are named to this caller: the Share popover's
+ * audience rule (ADR-0074). Workspace members see names; a project-only
+ * collaborator sees the revision, its diff and its time, but "A member".
+ */
+async function canSeeRevisionAuthors(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  return (await getWorkspaceMembership(db, userId, workspaceId)) !== null;
+}
+
+type RevisionAuthor = { id: string; name: string | null; image: string | null } | null;
+
+/** `author` for the caller: the row's author, or null + `authorHidden` when names are withheld. */
+export function presentRevisionAuthor(
+  author: RevisionAuthor,
+  namesAuthors: boolean,
+): { author: RevisionAuthor; authorHidden: boolean } {
+  if (!author) return { author: null, authorHidden: false };
+  return namesAuthors ? { author, authorHidden: false } : { author: null, authorHidden: true };
+}
+
 function snippetOf(content: string): string {
   const flat = content.replace(/\s+/g, " ").trim();
   return flat.length > SNIPPET_LENGTH ? `${flat.slice(0, SNIPPET_LENGTH - 1)}…` : flat;
@@ -1201,9 +1225,11 @@ export const pageRouter = createTRPCRouter({
             });
             return row;
           })
-        : rest.title !== undefined
-          ? // A rename is part of the page's history too; it folds into the
-            // author's open editing session like any other editor write.
+        : rest.title !== undefined || source !== undefined || rest.asOf !== undefined
+          ? // A rename or a provenance change is part of the page's history
+            // too (a silently moved as-of date is exactly what history is
+            // for); it folds into the author's open editing session like any
+            // other editor write.
             await ctx.db.$transaction(async (tx) => {
               const row = await tx.knowledgePage.update({ where: { id }, data });
               await recordPageRevision(tx, {
@@ -2029,8 +2055,10 @@ export const pageRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      await ensurePageAccess(ctx.db, userId, page, "view");
+      const namesAuthors = await canSeeRevisionAuthors(ctx.db, userId, page.workspaceId);
       const rows = await ctx.db.knowledgePageRevision.findMany({
         where: { pageId: input.id },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -2043,6 +2071,8 @@ export const pageRouter = createTRPCRouter({
           kind: true,
           note: true,
           body: true,
+          source: true,
+          asOf: true,
           createdAt: true,
           updatedAt: true,
           author: { select: { id: true, name: true, image: true } },
@@ -2051,8 +2081,9 @@ export const pageRouter = createTRPCRouter({
       const hasMore = rows.length > input.limit;
       const slice = hasMore ? rows.slice(0, input.limit) : rows;
       return {
-        revisions: slice.map(({ body, ...row }) => ({
+        revisions: slice.map(({ body, author, ...row }) => ({
           ...row,
+          ...presentRevisionAuthor(author, namesAuthors),
           bodyBytes: markdownBytes(body),
         })),
         nextCursor: hasMore ? slice[slice.length - 1]!.id : null,
@@ -2063,8 +2094,9 @@ export const pageRouter = createTRPCRouter({
   revision: protectedProcedure
     .input(z.object({ id: z.string(), revisionId: z.string() }))
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      await ensurePageAccess(ctx.db, userId, page, "view");
       const revision = await ctx.db.knowledgePageRevision.findUnique({
         where: { id: input.revisionId },
         select: {
@@ -2073,6 +2105,8 @@ export const pageRouter = createTRPCRouter({
           docVersion: true,
           title: true,
           body: true,
+          source: true,
+          asOf: true,
           kind: true,
           note: true,
           createdAt: true,
@@ -2083,7 +2117,13 @@ export const pageRouter = createTRPCRouter({
       if (!revision || revision.pageId !== input.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
       }
-      return { ...revision, bodyBytes: markdownBytes(revision.body) };
+      const namesAuthors = await canSeeRevisionAuthors(ctx.db, userId, page.workspaceId);
+      const { author, ...rest } = revision;
+      return {
+        ...rest,
+        ...presentRevisionAuthor(author, namesAuthors),
+        bodyBytes: markdownBytes(revision.body),
+      };
     }),
 
   /**
@@ -2109,6 +2149,8 @@ export const pageRouter = createTRPCRouter({
         docVersion: true,
         title: true,
         body: true,
+        source: true,
+        asOf: true,
         createdAt: true,
       } satisfies Prisma.KnowledgePageRevisionSelect;
       const revision = await ctx.db.knowledgePageRevision.findUnique({
@@ -2123,6 +2165,8 @@ export const pageRouter = createTRPCRouter({
         docVersion: number;
         title: string;
         body: string | null;
+        source: string | null;
+        asOf: Date | null;
         createdAt: Date | null;
       };
       const side = (r: typeof revision): Side => ({
@@ -2130,6 +2174,8 @@ export const pageRouter = createTRPCRouter({
         docVersion: r.docVersion,
         title: r.title,
         body: r.body,
+        source: r.source,
+        asOf: r.asOf,
         createdAt: r.createdAt,
       });
 
@@ -2149,12 +2195,12 @@ export const pageRouter = createTRPCRouter({
         });
         from = previous
           ? side(previous)
-          : { revisionId: null, docVersion: 0, title: "", body: "", createdAt: null };
+          : { revisionId: null, docVersion: 0, title: "", body: "", source: null, asOf: null, createdAt: null };
         to = side(revision);
       } else if (input.against === "current") {
         const current = await ctx.db.knowledgePage.findUniqueOrThrow({
           where: { id: input.id },
-          select: { docVersion: true, title: true, body: true, updatedAt: true },
+          select: { docVersion: true, title: true, body: true, source: true, asOf: true, updatedAt: true },
         });
         from = side(revision);
         to = {
@@ -2162,6 +2208,8 @@ export const pageRouter = createTRPCRouter({
           docVersion: current.docVersion,
           title: current.title,
           body: current.body,
+          source: current.source,
+          asOf: current.asOf,
           createdAt: current.updatedAt,
         };
       } else {
@@ -2182,8 +2230,8 @@ export const pageRouter = createTRPCRouter({
       const label = (x: Side) =>
         x.revisionId ? `revision ${x.revisionId} (v${x.docVersion})` : x.createdAt ? "current" : "(empty)";
       const diff = diffRevisionBodies(
-        { label: label(from), title: from.title, body: from.body },
-        { label: label(to), title: to.title, body: to.body },
+        { label: label(from), ...from },
+        { label: label(to), ...to },
       );
       const strip = ({ body: _body, ...meta }: Side) => meta;
       return { from: strip(from), to: strip(to), ...diff };
@@ -2210,7 +2258,7 @@ export const pageRouter = createTRPCRouter({
       await ensurePageAccess(ctx.db, userId, page, "edit");
       const revision = await ctx.db.knowledgePageRevision.findUnique({
         where: { id: input.revisionId },
-        select: { id: true, pageId: true, title: true, body: true, bodyDoc: true, createdAt: true },
+        select: { id: true, pageId: true, title: true, body: true, bodyDoc: true, source: true, asOf: true, createdAt: true },
       });
       if (!revision || revision.pageId !== input.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
@@ -2224,6 +2272,11 @@ export const pageRouter = createTRPCRouter({
           data: {
             title: revision.title,
             body: revision.body,
+            // The whole snapshot comes back, provenance included — February's
+            // words under a June as-of date is the mismatch provenance exists
+            // to prevent.
+            source: revision.source,
+            asOf: revision.asOf,
             // No stored doc → the editor re-derives one from the Markdown on
             // next open, as after a Markdown-source write.
             bodyDoc: doc ? (doc as Prisma.InputJsonValue) : Prisma.DbNull,

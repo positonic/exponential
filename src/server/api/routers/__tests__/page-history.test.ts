@@ -82,6 +82,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { presentRevisionAuthor } from "~/server/api/routers/page";
 
 const OWNER = "user-owner";
 const PAGE_ID = "page-1";
@@ -125,6 +126,8 @@ function revisionRows() {
       bodyDoc: { type: "doc" },
       kind: "editor",
       note: null,
+      source: "Board deck",
+      asOf: new Date("2026-09-30T00:00:00Z"),
       createdAt: T1,
       updatedAt: T1,
       author: { id: OWNER, name: "Owner", image: null },
@@ -138,6 +141,8 @@ function revisionRows() {
       bodyDoc: null,
       kind: "create",
       note: "First draft",
+      source: null,
+      asOf: null,
       createdAt: T0,
       updatedAt: T0,
       author: { id: OWNER, name: "Owner", image: null },
@@ -239,6 +244,8 @@ describe("page history", () => {
       kind: "editor",
       bodyBytes: Buffer.byteLength(BODY),
       author: { id: OWNER, name: "Owner" },
+      authorHidden: false,
+      source: "Board deck",
     });
     expect(result.revisions[1]).toMatchObject({ note: "First draft", kind: "create" });
   });
@@ -265,6 +272,22 @@ describe("page history", () => {
     await expect(caller.page.revision({ id: PAGE_ID, revisionId: "rev-1" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("names authors only to workspace members (the audience rule)", () => {
+    const author = { id: OWNER, name: "Owner", image: null };
+    expect(presentRevisionAuthor(author, true)).toEqual({ author, authorHidden: false });
+    expect(presentRevisionAuthor(author, false)).toEqual({ author: null, authorHidden: true });
+    // A baseline row has no author to hide.
+    expect(presentRevisionAuthor(null, false)).toEqual({ author: null, authorHidden: false });
+  });
+
+  it("diff flags a provenance change between revisions", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const diff = await caller.page.diff({ id: PAGE_ID, revisionId: "rev-2" });
+    expect(diff.provenanceChanged).toBe(true);
+    expect(diff.from).toMatchObject({ source: null, asOf: null });
+    expect(diff.to).toMatchObject({ source: "Board deck" });
   });
 
   it("diff defaults to 'what this revision changed' against the one before it", async () => {
@@ -307,6 +330,9 @@ describe("page history", () => {
         data: expect.objectContaining({
           title: "Strategy draft",
           body: "# Strategy\n\nIntro.",
+          // The whole snapshot comes back, provenance included.
+          source: null,
+          asOf: null,
           docVersion: { increment: 1 },
         }),
       }),
@@ -360,6 +386,14 @@ describe("writes record revisions", () => {
     db.knowledgePageRevision.create.mockClear();
     await caller.page.update({ id: PAGE_ID, includeInSearch: false });
     expect(db.knowledgePageRevision.create).not.toHaveBeenCalled();
+  });
+
+  it("a provenance-only change records an 'editor' revision", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.update({ id: PAGE_ID, asOf: new Date("2026-10-01T00:00:00Z") });
+    expect(db.knowledgePageRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: "editor" }) }),
+    );
   });
 
   it("source and asOf are written with the page and an empty source clears it", async () => {

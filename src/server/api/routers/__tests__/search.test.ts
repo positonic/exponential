@@ -274,18 +274,19 @@ describe("search router — knowledge (mocked)", () => {
     dbMock.workspace.findUnique.mockResolvedValue({ slug: "clear" } as any);
   });
 
-  it("searches with the Knowledge Base page's scoping: own chunks, access re-checked", async () => {
+  it("searches everything the caller may view: access per source, never 'chunks I authored'", async () => {
     const caller = createMockCaller({ userId: callerId, db: dbMock });
     await caller.search.knowledge({ query: "pricing", workspaceId, limit: 5 });
 
     expect(mockKnowledgeSearch).toHaveBeenCalledWith("pricing", {
       workspaceId,
-      userId: callerId,
       pageViewerId: callerId,
       transcriptionViewerId: callerId,
       resourceViewerId: callerId,
+      sourceTypes: undefined,
       limit: 20,
     });
+    expect(mockKnowledgeSearch.mock.calls[0]![1]).not.toHaveProperty("userId");
   });
 
   it("returns nothing, without embedding, for a non-member", async () => {

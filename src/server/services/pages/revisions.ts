@@ -19,7 +19,8 @@ import { createTwoFilesPatch, diffLines } from "diff";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export type PageRevisionKind = "create" | "editor" | "markdown" | "restore";
+/** `baseline` rows are seeded by the migration for pages that predate history; never written here. */
+export type PageRevisionKind = "baseline" | "create" | "editor" | "markdown" | "restore";
 
 /** Editor saves by one author inside this window are one revision. */
 export const REVISION_FOLD_WINDOW_MS = 10 * 60 * 1000;
@@ -43,7 +44,7 @@ export async function recordPageRevision(
 ): Promise<{ id: string; folded: boolean }> {
   const page = await db.knowledgePage.findUnique({
     where: { id: input.pageId },
-    select: { title: true, body: true, bodyDoc: true, docVersion: true },
+    select: { title: true, body: true, bodyDoc: true, source: true, asOf: true, docVersion: true },
   });
   if (!page) {
     throw new Error(`recordPageRevision: page ${input.pageId} not found`);
@@ -74,6 +75,8 @@ export async function recordPageRevision(
           title: page.title,
           body: page.body,
           bodyDoc,
+          source: page.source,
+          asOf: page.asOf,
           updatedAt: now,
         },
       });
@@ -88,6 +91,8 @@ export async function recordPageRevision(
       title: page.title,
       body: page.body,
       bodyDoc,
+      source: page.source,
+      asOf: page.asOf,
       kind: input.kind,
       note,
       authorId: input.authorId,
@@ -111,6 +116,16 @@ export interface RevisionDiff {
   unified: string;
   stats: RevisionDiffStats;
   titleChanged: boolean;
+  /** `source` or `asOf` differ between the two snapshots. */
+  provenanceChanged: boolean;
+}
+
+export interface RevisionSnapshotForDiff {
+  label: string;
+  title: string;
+  body: string | null;
+  source?: string | null;
+  asOf?: Date | null;
 }
 
 /**
@@ -119,8 +134,8 @@ export interface RevisionDiff {
  * the way they read `git diff`.
  */
 export function diffRevisionBodies(
-  from: { label: string; title: string; body: string | null },
-  to: { label: string; title: string; body: string | null },
+  from: RevisionSnapshotForDiff,
+  to: RevisionSnapshotForDiff,
 ): RevisionDiff {
   const a = from.body ?? "";
   const b = to.body ?? "";
@@ -143,5 +158,8 @@ export function diffRevisionBodies(
     unified,
     stats: { added, removed },
     titleChanged: from.title !== to.title,
+    provenanceChanged:
+      (from.source ?? null) !== (to.source ?? null) ||
+      (from.asOf?.getTime() ?? null) !== (to.asOf?.getTime() ?? null),
   };
 }

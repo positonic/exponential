@@ -29,11 +29,16 @@ interface PageHistoryModalProps {
 }
 
 const KIND_LABEL: Record<string, string> = {
+  baseline: 'Baseline',
   create: 'Created',
   editor: 'Edited',
   markdown: 'Written',
   restore: 'Restored',
 };
+
+function formatAsOf(value: Date | string | null): string {
+  return value ? format(new Date(value), 'd MMM yyyy') : '—';
+}
 
 function bytesLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -131,11 +136,17 @@ export function PageHistoryModal({
                     }`}
                   >
                     <Group gap={6} wrap="nowrap">
-                      <Avatar src={r.author?.image ?? null} size={18} radius="xl">
-                        {r.author?.name?.[0] ?? '?'}
-                      </Avatar>
+                      {r.kind !== 'baseline' ? (
+                        <Avatar src={r.author?.image ?? null} size={18} radius="xl">
+                          {r.author?.name?.[0] ?? '?'}
+                        </Avatar>
+                      ) : null}
                       <Text size="sm" className="truncate text-text-primary">
-                        {r.author?.name ?? 'Unknown'}
+                        {r.kind === 'baseline'
+                          ? 'Before history'
+                          : r.authorHidden
+                            ? 'A member'
+                            : r.author?.name ?? 'Unknown'}
                       </Text>
                       <Badge size="xs" variant="light" color={r.kind === 'restore' ? 'yellow' : 'gray'}>
                         {index === 0 ? 'Current' : KIND_LABEL[r.kind] ?? r.kind}
@@ -150,6 +161,11 @@ export function PageHistoryModal({
                     {r.note ? (
                       <Text size="xs" className="mt-0.5 text-text-secondary">
                         {r.note}
+                      </Text>
+                    ) : r.kind === 'markdown' || r.kind === 'restore' ? (
+                      // An agent or CLI write that said nothing about why.
+                      <Text size="xs" className="mt-0.5 italic text-text-muted">
+                        No reason given
                       </Text>
                     ) : null}
                   </button>
@@ -202,6 +218,14 @@ export function PageHistoryModal({
             <Text size="sm" className="text-text-secondary">
               <span className="text-text-muted">Title: </span>
               {selected.title}
+            </Text>
+          ) : null}
+          {diff.data?.provenanceChanged ? (
+            <Text size="xs" className="text-text-secondary" data-testid="page-history-provenance">
+              <span className="text-text-muted">As of: </span>
+              {formatAsOf(diff.data.from.asOf)} → {formatAsOf(diff.data.to.asOf)}
+              <span className="text-text-muted"> · Source: </span>
+              {diff.data.from.source ?? '—'} → {diff.data.to.source ?? '—'}
             </Text>
           ) : null}
           <ScrollArea.Autosize mah={420} type="auto" className="rounded-md border border-border-primary">
