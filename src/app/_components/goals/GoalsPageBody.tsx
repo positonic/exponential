@@ -2,7 +2,7 @@
 
 import { Container, Skeleton, Text } from "@mantine/core";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
-import { GoalsWorkspaceTabs } from "./GoalsWorkspaceTabs";
+import { GoalsPage } from "./GoalsPage";
 
 /**
  * The goals page body, shared by the workspace-scoped route and the legacy
@@ -29,5 +29,5 @@ export function GoalsPageBody() {
     );
   }
 
-  return <GoalsWorkspaceTabs />;
+  return <GoalsPage />;
 }

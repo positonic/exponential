@@ -1073,6 +1073,6 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
-    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?tab=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
+    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?view=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }
