@@ -30,6 +30,18 @@ export interface RevisionConflict {
   field?: string;
   expectedRevision: number;
   currentRevision: number;
+  /**
+   * Why the write was refused, when the entity can say more than "stale":
+   * `overlap` — a three-way merge was attempted and both sides changed the
+   * same lines; `editing` — someone else is mid-session in the editor.
+   */
+  reason?: "stale" | "overlap" | "editing";
+  /** The stored text at `currentRevision`, so the caller can reconcile without a re-read. */
+  current?: { body: string | null };
+  /** The overlapping regions of an `overlap` conflict. */
+  conflicts?: { base: string[]; ours: string[]; theirs: string[] }[];
+  /** Who is editing, for an `editing` conflict. */
+  editing?: { userId: string; name: string | null; since: string };
 }
 
 export const REVISION_CONFLICT_MESSAGE =

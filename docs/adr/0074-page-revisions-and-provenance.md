@@ -63,3 +63,31 @@ place to say where the facts came from or when they were true.
   `partial`: Pages have attributed, restorable history; features, decisions and others still do not.
 - Retention is unbounded for now; a cap or compaction of old `editor` rows is a follow-up if row
   counts or storage surprise us.
+
+## Amendment 2026-10-27: stale writes merge, conflicts keep both sides
+
+History made a clobbered page recoverable; this amendment makes clobbering rare.
+
+- **A stale Markdown write is merged, not refused.** `page.update` with a `baseVersion` behind
+  the stored `docVersion` loads the revision at that base and three-way merges base → stored →
+  incoming on lines (`src/lib/pages/three-way-merge.ts`). Changes to different lines land as one
+  `markdown` revision noted "Merged over v<N>", written compare-and-set at the stored version.
+  Changes to the same or adjacent lines throw CONFLICT with `reason: "overlap"`, the hunks and
+  the current body (`data.conflict.current.body`), so an agent reconciles without a re-read.
+  No revision at the base (a folded editing session moved past it) is a plain `stale` conflict.
+- **The editor offers "Keep my version".** On a conflict the tab can reload (as before) or save
+  its content over the newer version as an `editor` revision noted "Kept over v<N>". Nothing is
+  lost either way: the overridden version is one row back in history.
+- **An open editing session refuses Markdown writes.** A Markdown write by a different author
+  while someone's `editor` revision was touched inside the fold window throws CONFLICT with
+  `reason: "editing"` and who is editing. `force: true` writes anyway; agents pass it only after
+  the person says so.
+- **Unguarded writes are visible.** A Markdown body write without `baseVersion` still lands,
+  and its revision is noted "Unguarded write" (appended to the caller's note when there is one).
+  Requiring the base from agents is the Phase 3 ticket `happy.cliff`.
+
+Rejected: merging ProseMirror docs (the Markdown projection is what every non-editor writer sends,
+and a line merge of it is what people expect from git); storing the losing side of an editor
+conflict as a revision of its own (a revision is a snapshot of the page, and the page never held
+that text — "Keep my version" gives the same guarantee without bending the model).
+

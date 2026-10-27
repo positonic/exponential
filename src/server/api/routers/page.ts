@@ -22,6 +22,7 @@ import {
   conflictAfterMiss,
   isCompareAndSetMiss,
   RevisionConflictError,
+  type RevisionConflict,
   toConflictTRPCError,
   withConflictAsTRPC,
 } from "~/server/services/revisions/revisionConflict";
@@ -35,8 +36,10 @@ import {
   syncPageLinks,
   writePageBodyIfVersion,
 } from "~/server/services/pages/page-links";
+import { threeWayMerge } from "~/lib/pages/three-way-merge";
 import {
   diffRevisionBodies,
+  findActiveEditingSession,
   recordPageRevision,
 } from "~/server/services/pages/revisions";
 import {
@@ -251,6 +254,59 @@ export async function loadPageForAccess(db: PrismaClient, id: string) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
   }
   return page;
+}
+
+/**
+ * Reconcile a stale Markdown write (ADR-0074). The revision the caller read
+ * is the merge base; the stored body is "ours", the incoming body "theirs".
+ * Returns the merged body, or throws CONFLICT carrying the overlapping hunks
+ * and the current body so the caller can reconcile without a re-read. When no
+ * revision exists at `baseVersion` (a folded editing session moved past it)
+ * there is nothing to merge against and the conflict is plain "stale".
+ */
+async function mergeStaleMarkdownWrite(
+  db: PrismaClient | Prisma.TransactionClient,
+  args: {
+    pageId: string;
+    baseVersion: number;
+    storedVersion: number;
+    storedBody: string | null;
+    incoming: string;
+  },
+): Promise<string> {
+  const base = await db.knowledgePageRevision.findFirst({
+    where: { pageId: args.pageId, docVersion: args.baseVersion },
+    select: { body: true },
+  });
+  const conflict = (extra: Partial<RevisionConflict>, message: string) =>
+    toConflictTRPCError(
+      new RevisionConflictError(
+        {
+          entity: "page",
+          id: args.pageId,
+          field: "body",
+          expectedRevision: args.baseVersion,
+          currentRevision: args.storedVersion,
+          current: { body: args.storedBody },
+          ...extra,
+        },
+        message,
+      ),
+    );
+  if (!base) {
+    throw conflict(
+      { reason: "stale" },
+      `The page moved on to v${args.storedVersion} and no revision remains at v${args.baseVersion} to merge against. Re-read it and reconcile.`,
+    );
+  }
+  const result = threeWayMerge(base.body ?? "", args.storedBody ?? "", args.incoming);
+  if (!result.ok) {
+    throw conflict(
+      { reason: "overlap", conflicts: result.conflicts },
+      `The page changed since v${args.baseVersion} and both edits touch the same lines. Re-read it (data.conflict.current.body) and reconcile.`,
+    );
+  }
+  return result.merged;
 }
 
 /**
@@ -978,7 +1034,14 @@ export const pageRouter = createTRPCRouter({
    * `baseVersion` it read. A mismatch leaves the page unchanged and throws
    * CONFLICT with `data.conflict` (ADR-0071 change integrity). `baseVersion`
    * is optional on this path for now; without it the write bumps
-   * `docVersion` unconditionally, as before.
+   * `docVersion` unconditionally and its revision is noted as unguarded.
+   *
+   * A stale Markdown write is not refused outright: the body is three-way
+   * merged against the revision the caller read (ADR-0074). Different lines
+   * land as one `markdown` revision noted "merged over v<N>"; the same lines
+   * throw CONFLICT with `reason: "overlap"`, the hunks and the current body.
+   * While someone else is mid-session in the editor the write is refused with
+   * `reason: "editing"` unless `force` is set.
    */
   update: protectedProcedure
     .input(
@@ -994,6 +1057,8 @@ export const pageRouter = createTRPCRouter({
         note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
         source: boundedText("Source", TEXT_LIMITS.SHORT).nullish(),
         asOf: z.coerce.date().nullish(),
+        /** Write even while someone else's editor session is open. */
+        force: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1001,8 +1066,19 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "edit");
 
-      const { id, bodyDoc, body, baseVersion, projectId, note, source, ...rest } =
-        input;
+      const {
+        id,
+        bodyDoc,
+        body: incomingBody,
+        baseVersion,
+        projectId,
+        note: inputNote,
+        source,
+        force,
+        ...rest
+      } = input;
+      let body = incomingBody;
+      let note = inputNote;
       // `rest` carries title / includeInSearch / asOf straight through; an
       // explicit empty source clears the field.
       const provenance =
@@ -1041,28 +1117,98 @@ export const pageRouter = createTRPCRouter({
               select: { bodyDoc: true, body: true, docVersion: true },
             })
           : null;
-      const markdownSourceWrite =
+      let markdownSourceWrite =
         body !== undefined && bodyDoc === undefined && stored?.body !== body;
       // Nulling the doc would take every comment mark with it, orphaning the
       // page's anchored threads. When there are marks to keep, derive the doc
       // here instead and carry them across wherever their text survived.
       let carriedDoc: JSONContent | null = null;
       let markdownBaseVersion: number | undefined;
-      if (markdownSourceWrite) {
-        // The Markdown path is checked when the caller sent the revision it
-        // read. Fail fast here; the WHERE on docVersion below closes the race.
-        if (baseVersion !== undefined) {
-          markdownBaseVersion = baseVersion;
-          await withConflictAsTRPC(async () =>
-            assertBaseRevision({
-              entity: "page",
-              id,
-              field: "body",
-              storedRevision: stored?.docVersion ?? page.docVersion,
-              baseRevision: baseVersion,
-            }),
-          );
+      // Set when a stale write merged cleanly: the version it merged over.
+      let mergedOver: number | undefined;
+      if (markdownSourceWrite && body !== undefined) {
+        const storedVersion = stored?.docVersion ?? page.docVersion;
+        // Someone else's editor tab is autosaving this page right now. Landing
+        // a write under it would hand them a conflict on their next keystroke,
+        // so refuse unless the caller insists.
+        if (!force) {
+          const editing = await findActiveEditingSession(ctx.db, {
+            pageId: id,
+            excludingAuthorId: userId,
+          });
+          if (editing) {
+            throw toConflictTRPCError(
+              new RevisionConflictError(
+                {
+                  entity: "page",
+                  id,
+                  field: "body",
+                  expectedRevision: baseVersion ?? storedVersion,
+                  currentRevision: storedVersion,
+                  reason: "editing",
+                  editing: {
+                    userId: editing.userId,
+                    name: editing.name,
+                    since: editing.since.toISOString(),
+                  },
+                },
+                `${editing.name ?? "Someone"} is editing this page right now. Wait for them to finish, or pass force to write anyway.`,
+              ),
+            );
+          }
         }
+        // The Markdown path is checked when the caller sent the revision it
+        // read. A stale base is merged, not refused, when the two writes
+        // touched different lines; the WHERE on docVersion below closes the
+        // race either way.
+        if (baseVersion !== undefined) {
+          const decision = checkStaleWrite({
+            storedVersion,
+            baseVersion,
+          });
+          if (decision.accept) {
+            markdownBaseVersion = baseVersion;
+          } else if (decision.reason === "stale") {
+            const merged = await mergeStaleMarkdownWrite(ctx.db, {
+              pageId: id,
+              baseVersion,
+              storedVersion,
+              storedBody: stored?.body ?? null,
+              incoming: body,
+            });
+            if (merged === (stored?.body ?? "")) {
+              // Nothing the stored text doesn't already say: a no-op, as when
+              // the caller re-sends the stored Markdown unchanged. The body
+              // write is gated on `markdownSourceWrite` below; `body` is set
+              // to the stored text too so the stale input can never leak.
+              body = merged;
+              markdownSourceWrite = false;
+            } else {
+              body = merged;
+              markdownBaseVersion = storedVersion;
+              mergedOver = storedVersion;
+              note = note
+                ? `${note} · merged over v${storedVersion}`
+                : `Merged over v${storedVersion}`;
+            }
+          } else {
+            await withConflictAsTRPC(async () =>
+              assertBaseRevision({
+                entity: "page",
+                id,
+                field: "body",
+                storedRevision: storedVersion,
+                baseRevision: baseVersion,
+              }),
+            );
+          }
+        } else {
+          // Nothing told us what the caller read, so nothing could be checked.
+          // History shows which writes bypassed the guard (ADR-0074).
+          note = note ? `${note} · unguarded write` : "Unguarded write";
+        }
+      }
+      if (markdownSourceWrite && body !== undefined) {
         const storedDoc = stored?.bodyDoc as JSONContent | null | undefined;
         if (docHasCommentMarks(storedDoc)) {
           try {
@@ -1221,7 +1367,9 @@ export const pageRouter = createTRPCRouter({
       if (markdownSourceWrite || input.includeInSearch !== undefined) {
         getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
       }
-      return updated;
+      return mergedOver !== undefined
+        ? { ...updated, merged: true as const, mergedOver }
+        : updated;
     }),
 
   /**

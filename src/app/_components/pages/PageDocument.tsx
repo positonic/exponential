@@ -197,14 +197,18 @@ export function PageDocument({
         conflict={{
           title: "This page changed",
           message:
-            "Someone else saved a newer version of this page. Reload to get the latest? Unsaved changes in this tab will be lost.",
+            "Someone else saved a newer version of this page. Reload to get their version (unsaved changes in this tab are lost), or keep yours: theirs stays in the page's history.",
+          keepMine: true,
         }}
-        onSave={async ({ doc, markdown, baseVersion }) =>
+        onSave={async ({ doc, markdown, baseVersion, keptOver }) =>
           updatePage.mutateAsync({
             id: pageId,
             bodyDoc: doc,
             body: markdown,
             baseVersion,
+            ...(keptOver !== undefined
+              ? { note: `Kept over v${keptOver}` }
+              : {}),
           })
         }
         onInitDoc={(doc) => initBodyDoc.mutate({ id: pageId, doc })}

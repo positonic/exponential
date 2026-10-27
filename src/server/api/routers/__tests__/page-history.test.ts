@@ -400,6 +400,128 @@ describe("writes record revisions", () => {
   });
 });
 
+describe("concurrent Markdown writes (merge, editing guard, unguarded)", () => {
+  const db = getDbMock();
+  const OTHER = "user-other";
+  const V1_BODY = "# Strategy\n\nIntro.";
+  /** v1 → v3 appended the Goals and Risks sections; this edit changes line 1 only. */
+  const THEIRS_DISJOINT = "# Strategy 2027\n\nIntro.";
+  /** Touches "Intro.", the line v3's appended sections sit right after. */
+  const THEIRS_OVERLAP = "# Strategy\n\nIntro, rewritten.";
+  let editing: { authorId: string; createdAt: Date; author: { name: string } } | null;
+
+  beforeEach(() => {
+    mockReset(db);
+    triggerPageEmbedding.mockReset();
+    installPage(db);
+    editing = null;
+    db.knowledgePage.update.mockImplementation((() => Promise.resolve(pageRow())) as never);
+    db.pageLink.deleteMany.mockResolvedValue({ count: 0 } as never);
+    db.knowledgePageRevision.findFirst.mockImplementation(((args: {
+      where: { kind?: string; docVersion?: number; OR?: unknown };
+    }) => {
+      if (args.where.kind === "editor") return Promise.resolve(editing);
+      if (args.where.docVersion !== undefined) {
+        return Promise.resolve(revisionRows().find((r) => r.docVersion === args.where.docVersion) ?? null);
+      }
+      return Promise.resolve(null);
+    }) as never);
+  });
+
+  it("a stale write that touches different lines merges and lands as one revision", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.page.update({ id: PAGE_ID, body: THEIRS_DISJOINT, baseVersion: 1 });
+    expect(result).toMatchObject({ merged: true, mergedOver: 3 });
+    expect(db.knowledgePage.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: PAGE_ID, docVersion: 3 },
+        data: expect.objectContaining({ body: BODY.replace("# Strategy", "# Strategy 2027") }),
+      }),
+    );
+    expect(db.knowledgePageRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ kind: "markdown", note: "Merged over v3" }),
+      }),
+    );
+  });
+
+  it("a stale write that only repeats what is already stored is a no-op: no body write, no revision", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    // Re-sends the v1 text with a stale base: everything in it is in v3 already.
+    await caller.page.update({ id: PAGE_ID, body: V1_BODY, baseVersion: 1 });
+    // The same with a title: the metadata path writes the title and never the body.
+    await caller.page.update({ id: PAGE_ID, title: "Renamed", body: V1_BODY, baseVersion: 1 });
+    const writes = db.knowledgePage.update.mock.calls.map(
+      (c) => (c[0] as { data: Record<string, unknown> }).data,
+    );
+    expect(writes.every((d) => !("body" in d) && !("docVersion" in d))).toBe(true);
+    expect(writes.some((d) => d.title === "Renamed")).toBe(true);
+    // Only the rename's editor revision; no "markdown" row, nothing merged.
+    const revisions = db.knowledgePageRevision.create.mock.calls.map(
+      (c) => (c[0] as { data: { kind: string; note: string | null } }).data,
+    );
+    expect(revisions.map((r) => r.kind)).toEqual(["editor"]);
+    expect(revisions.some((r) => r.note?.includes("erged"))).toBe(false);
+  });
+
+  it("a stale write that touches the same lines is CONFLICT with the hunks and current body; nothing is written", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(
+      caller.page.update({ id: PAGE_ID, body: THEIRS_OVERLAP, baseVersion: 1 }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      cause: {
+        conflict: expect.objectContaining({
+          reason: "overlap",
+          expectedRevision: 1,
+          currentRevision: 3,
+          current: { body: BODY },
+          conflicts: [expect.objectContaining({ base: ["Intro."] })],
+        }),
+      },
+    });
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+    expect(db.knowledgePageRevision.create).not.toHaveBeenCalled();
+  });
+
+  it("a stale write with no revision left at its base is a plain stale CONFLICT", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(
+      caller.page.update({ id: PAGE_ID, body: THEIRS_DISJOINT, baseVersion: 2 }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      cause: { conflict: expect.objectContaining({ reason: "stale", currentRevision: 3 }) },
+    });
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+  });
+
+  it("a write during someone else's editing session is refused by name, unless forced", async () => {
+    editing = { authorId: OTHER, createdAt: T1, author: { name: "Ada" } };
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(caller.page.update({ id: PAGE_ID, body: "# New", baseVersion: 3 })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("Ada is editing this page"),
+      cause: { conflict: expect.objectContaining({ reason: "editing", editing: expect.objectContaining({ userId: OTHER, name: "Ada" }) }) },
+    });
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+
+    await caller.page.update({ id: PAGE_ID, body: "# New", baseVersion: 3, force: true });
+    expect(db.knowledgePage.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("a write with no baseVersion lands but its revision says so", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.update({ id: PAGE_ID, body: "# New" });
+    expect(db.knowledgePageRevision.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ note: "Unguarded write" }) }),
+    );
+    await caller.page.update({ id: PAGE_ID, body: "# Newer", note: "Rewrote it" });
+    expect(db.knowledgePageRevision.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ note: "Rewrote it · unguarded write" }) }),
+    );
+  });
+});
+
 describe("page.search", () => {
   const db = getDbMock();
   beforeEach(() => {
