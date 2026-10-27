@@ -445,6 +445,25 @@ describe("concurrent Markdown writes (merge, editing guard, unguarded)", () => {
     );
   });
 
+  it("a stale write that only repeats what is already stored is a no-op: no body write, no revision", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    // Re-sends the v1 text with a stale base: everything in it is in v3 already.
+    await caller.page.update({ id: PAGE_ID, body: V1_BODY, baseVersion: 1 });
+    // The same with a title: the metadata path writes the title and never the body.
+    await caller.page.update({ id: PAGE_ID, title: "Renamed", body: V1_BODY, baseVersion: 1 });
+    const writes = db.knowledgePage.update.mock.calls.map(
+      (c) => (c[0] as { data: Record<string, unknown> }).data,
+    );
+    expect(writes.every((d) => !("body" in d) && !("docVersion" in d))).toBe(true);
+    expect(writes.some((d) => d.title === "Renamed")).toBe(true);
+    // Only the rename's editor revision; no "markdown" row, nothing merged.
+    const revisions = db.knowledgePageRevision.create.mock.calls.map(
+      (c) => (c[0] as { data: { kind: string; note: string | null } }).data,
+    );
+    expect(revisions.map((r) => r.kind)).toEqual(["editor"]);
+    expect(revisions.some((r) => r.note?.includes("erged"))).toBe(false);
+  });
+
   it("a stale write that touches the same lines is CONFLICT with the hunks and current body; nothing is written", async () => {
     const caller = createMockCaller({ userId: OWNER, db });
     await expect(

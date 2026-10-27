@@ -1178,7 +1178,10 @@ export const pageRouter = createTRPCRouter({
             });
             if (merged === (stored?.body ?? "")) {
               // Nothing the stored text doesn't already say: a no-op, as when
-              // the caller re-sends the stored Markdown unchanged.
+              // the caller re-sends the stored Markdown unchanged. The body
+              // write is gated on `markdownSourceWrite` below; `body` is set
+              // to the stored text too so the stale input can never leak.
+              body = merged;
               markdownSourceWrite = false;
             } else {
               body = merged;
