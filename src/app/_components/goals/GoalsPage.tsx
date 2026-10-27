@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { keepPreviousData } from "@tanstack/react-query";
-import { Container, Stack, Text } from "@mantine/core";
+import { Container, Skeleton, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import { IconSearch, IconTarget, IconUser } from "@tabler/icons-react";
@@ -20,6 +20,11 @@ import {
   type GoalRow,
 } from "~/app/_components/initiatives/GoalsTableBody";
 import { OkrObjectivesView } from "~/plugins/okr/client/components/OkrObjectivesView";
+import { OkrTimeline } from "~/plugins/okr/client/components/OkrTimeline";
+import {
+  buildTimelineData,
+  computeTimelineAxis,
+} from "~/plugins/okr/client/utils/okrTimelineData";
 import { OkrDetailDrawer } from "~/plugins/okr/client/components/OkrDetailDrawer";
 import { EditKeyResultModal } from "~/plugins/okr/client/components/EditKeyResultModal";
 import type {
@@ -39,6 +44,7 @@ import {
 const VIEW_OPTIONS: { value: GoalsPageView; label: string }[] = [
   { value: "table", label: "Table" },
   { value: "okrs", label: "OKRs" },
+  { value: "timeline", label: "Timeline" },
 ];
 
 interface DrawerItem {
@@ -256,6 +262,17 @@ export function GoalsPage() {
     [objectives, filters, deferredSearchQuery],
   );
 
+  // Timeline is a rendering of the same list on a week axis. The axis is the
+  // selected period; on All it is the selected year (`Annual-<year>`), so
+  // period-less objectives still have somewhere to sit.
+  const timeline = useMemo(() => {
+    if (view !== "timeline") return null;
+    return {
+      axis: computeTimelineAxis(pacePeriod),
+      ...buildTimelineData(filteredObjectives, pacePeriod),
+    };
+  }, [view, filteredObjectives, pacePeriod]);
+
   // ---- Drawer, on every view ------------------------------------------------
 
   const [drawerItem, setDrawerItem] = useState<DrawerItem | null>(null);
@@ -449,7 +466,11 @@ export function GoalsPage() {
   const goalsLower = terminology.goals.toLowerCase();
 
   return (
-    <Container size="xl" className="py-6">
+    // `w-full`: the route's <main> is a flex column with items-start, so
+    // without it the container would size to its widest child and the
+    // Timeline's week axis would push the control line off screen instead of
+    // scrolling inside its own wrapper.
+    <Container size="xl" className="w-full py-6">
       <Stack gap="md">
         <GoalsPeriodHeader
           period={period}
@@ -466,7 +487,7 @@ export function GoalsPage() {
           year={year}
           availableYears={availableYears}
           onYearChange={setYear}
-          view={view === "timeline" ? "okrs" : view}
+          view={view}
           viewOptions={VIEW_OPTIONS}
           onViewChange={setView}
           onlyMine={onlyMine}
@@ -534,6 +555,40 @@ export function GoalsPage() {
               )
             }
           />
+        ) : view === "timeline" ? (
+          objectivesQuery.isLoading ? (
+            <Skeleton height={320} />
+          ) : filteredObjectives.length === 0 ? (
+            <div className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-12 text-center">
+              <Text className="text-text-muted">
+                {objectives.length > 0
+                  ? "No objectives match your search or filters."
+                  : onlyMine
+                    ? "None of this period's objectives are yours."
+                    : "No objectives in this period yet."}
+              </Text>
+            </div>
+          ) : (
+            <OkrTimeline
+              objectives={timeline?.objectives ?? []}
+              getUser={(id) => timeline?.users.get(id)}
+              weekCount={timeline?.axis?.weekCount}
+              weekLabels={timeline?.axis?.weekLabels}
+              monthStarts={timeline?.axis?.monthStarts}
+              monthLabels={timeline?.axis?.monthLabels}
+              todayFrac={timeline?.axis?.todayFrac}
+              onObjectiveClick={(o) => {
+                const source = objectives.find((v) => String(v.id) === o.id);
+                if (source) handleViewObjective(source);
+              }}
+              onKeyResultClick={(kr) => {
+                const source = objectives
+                  .flatMap((v) => v.keyResults)
+                  .find((k) => k.id === kr.id);
+                if (source) handleViewKeyResult(source);
+              }}
+            />
+          )
         ) : (
           <OkrObjectivesView
             objectives={objectives}

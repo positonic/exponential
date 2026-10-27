@@ -155,3 +155,26 @@ test("a drawer= deep link opens the OKR drawer on the Table view, fetching by id
   });
 });
 
+test("Timeline is a view of the same list, with a year axis on All", async ({ page }) => {
+  await page.goto(`${goalsPath}?view=timeline&period=${okrPeriod}&year=${okrYear}`);
+
+  const gantt = page.locator(".okrt").first();
+  await expect(gantt).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(gantt).toContainText(FIXTURE.objectiveTitle);
+  await expect(page.getByTestId("goals-period-header")).toContainText(
+    `Objectives · ${okrPeriod} ${okrYear}`,
+  );
+
+  // All keeps the Timeline view and draws the selected year's axis.
+  await pickSegment(page, "All");
+  await expect.poll(() => params(page).get("period")).toBe("all");
+  expect(params(page).get("view")).toBe("timeline");
+  await expect(page.locator(".okrt").first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(page.locator(".okrt").first()).toContainText("Dec");
+
+  await test.info().attach("timeline-on-all", {
+    body: await page.screenshot({ fullPage: false }),
+    contentType: "image/png",
+  });
+});
+
