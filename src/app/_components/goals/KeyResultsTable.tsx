@@ -1,10 +1,18 @@
 "use client";
 
-import { Avatar, Badge, Group, Progress, Table, Text } from "@mantine/core";
-import { IconUsers } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { Avatar, Badge, Group, Progress, Table, Text, UnstyledButton } from "@mantine/core";
+import { IconChevronDown, IconChevronUp, IconSelector, IconUsers } from "@tabler/icons-react";
 import { relativeTimeLabel } from "~/plugins/okr/client/utils/okrDashboardUtils";
 import type { Confidence } from "~/plugins/okr/client/utils/okrDashboardUtils";
-import { formatKrValue, type KeyResultRowData } from "./keyResultRows";
+import {
+  defaultSortDirection,
+  formatKrValue,
+  sortKeyResultRows,
+  type KeyResultRowData,
+  type KeyResultSort,
+  type KeyResultSortField,
+} from "./keyResultRows";
 
 const CONFIDENCE_BADGE: Record<Confidence, { color: string; label: string }> = {
   ok: { color: "green", label: "On track" },
@@ -12,6 +20,48 @@ const CONFIDENCE_BADGE: Record<Confidence, { color: string; label: string }> = {
   bad: { color: "red", label: "Off track" },
   idle: { color: "gray", label: "Not started" },
 };
+
+const COLUMNS: { field: KeyResultSortField | null; label: string }[] = [
+  { field: "title", label: "Key result" },
+  { field: "objective", label: "Objective" },
+  { field: "owner", label: "Owner" },
+  { field: null, label: "Current / target" },
+  { field: "progress", label: "Progress" },
+  { field: "status", label: "Status" },
+  { field: "lastCheckIn", label: "Last check-in" },
+];
+
+function SortableHeader({
+  label,
+  field,
+  sort,
+  onSort,
+}: {
+  label: string;
+  field: KeyResultSortField | null;
+  sort: KeyResultSort | null;
+  onSort: (field: KeyResultSortField) => void;
+}) {
+  if (!field) {
+    return <Table.Th className="text-text-muted">{label}</Table.Th>;
+  }
+  const active = sort?.field === field;
+  const Icon = !active ? IconSelector : sort.direction === "asc" ? IconChevronUp : IconChevronDown;
+  return (
+    <Table.Th
+      className="text-text-muted"
+      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <UnstyledButton
+        onClick={() => onSort(field)}
+        className={`inline-flex items-center gap-1 text-inherit ${active ? "text-text-primary" : ""}`}
+      >
+        {label}
+        <Icon size={12} className={active ? "" : "opacity-50"} />
+      </UnstyledButton>
+    </Table.Th>
+  );
+}
 
 interface KeyResultsTableProps {
   rows: KeyResultRowData[];
@@ -26,21 +76,29 @@ interface KeyResultsTableProps {
  * handed.
  */
 export function KeyResultsTable({ rows, onRowClick }: KeyResultsTableProps) {
+  // Sort is a reading preference, not list state, so it lives here rather
+  // than in the URL. Clicking the active column flips it; a new column starts
+  // in its natural direction.
+  const [sort, setSort] = useState<KeyResultSort | null>(null);
+  const handleSort = (field: KeyResultSortField) =>
+    setSort((prev) =>
+      prev?.field === field
+        ? { field, direction: prev.direction === "asc" ? "desc" : "asc" }
+        : { field, direction: defaultSortDirection(field) },
+    );
+  const sortedRows = useMemo(() => sortKeyResultRows(rows, sort), [rows, sort]);
+
   return (
     <Table verticalSpacing="sm" highlightOnHover={false} data-testid="key-results-table">
       <Table.Thead>
         <Table.Tr>
-          <Table.Th className="text-text-muted">Key result</Table.Th>
-          <Table.Th className="text-text-muted">Objective</Table.Th>
-          <Table.Th className="text-text-muted">Owner</Table.Th>
-          <Table.Th className="text-text-muted">Current / target</Table.Th>
-          <Table.Th className="text-text-muted">Progress</Table.Th>
-          <Table.Th className="text-text-muted">Status</Table.Th>
-          <Table.Th className="text-text-muted">Last check-in</Table.Th>
+          {COLUMNS.map((c) => (
+            <SortableHeader key={c.label} label={c.label} field={c.field} sort={sort} onSort={handleSort} />
+          ))}
         </Table.Tr>
       </Table.Thead>
       <Table.Tbody>
-        {rows.map((row) => {
+        {sortedRows.map((row) => {
           const badge = CONFIDENCE_BADGE[row.confidence];
           return (
             <Table.Tr

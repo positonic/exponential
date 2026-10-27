@@ -195,6 +195,14 @@ test("the Key results view lists the seeded KR with its objective, and a row ope
     `Objectives · ${okrPeriod} ${okrYear}`,
   );
 
+  // Column headers sort client-side: the URL does not change.
+  const progressHeader = table.getByRole("columnheader", { name: /Progress/ });
+  await progressHeader.getByRole("button").click();
+  await expect(progressHeader).toHaveAttribute("aria-sort", "descending");
+  await progressHeader.getByRole("button").click();
+  await expect(progressHeader).toHaveAttribute("aria-sort", "ascending");
+  expect(params(page).get("sort")).toBeNull();
+
   await row.click();
   await expect.poll(() => params(page).get("drawer")).toMatch(/^keyResult:/);
   const drawer = page.getByRole("dialog");

@@ -86,3 +86,69 @@ export function formatKrValue(
   if (unit === "custom" && unitLabel) return `${value.toLocaleString()} ${unitLabel}`;
   return value.toLocaleString();
 }
+
+export type KeyResultSortField =
+  | "title"
+  | "objective"
+  | "owner"
+  | "progress"
+  | "status"
+  | "lastCheckIn";
+
+export interface KeyResultSort {
+  field: KeyResultSortField;
+  direction: "asc" | "desc";
+}
+
+/** Status sorts worst-first when ascending: off track, at risk, not started, on track. */
+const CONFIDENCE_RANK: Record<Confidence, number> = { bad: 0, warn: 1, idle: 2, ok: 3 };
+
+/** The default direction when a column is first chosen. */
+export function defaultSortDirection(field: KeyResultSortField): "asc" | "desc" {
+  // Numbers and dates read best biggest / latest first; names alphabetically.
+  return field === "progress" || field === "lastCheckIn" ? "desc" : "asc";
+}
+
+/**
+ * Stable client-side sort. Ties (and rows with no owner / no check-in, which
+ * always sink to the end whatever the direction) fall back to title, then
+ * id, so the order never depends on the payload's order.
+ */
+export function sortKeyResultRows(
+  rows: KeyResultRowData[],
+  sort: KeyResultSort | null,
+): KeyResultRowData[] {
+  if (!sort) return rows;
+  const dir = sort.direction === "asc" ? 1 : -1;
+  const collate = (a: string, b: string) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" });
+  const tieBreak = (a: KeyResultRowData, b: KeyResultRowData) =>
+    collate(a.title, b.title) || collate(a.id, b.id);
+
+  const compare = (a: KeyResultRowData, b: KeyResultRowData): number => {
+    switch (sort.field) {
+      case "title":
+        return collate(a.title, b.title) * dir;
+      case "objective":
+        return collate(a.objectiveTitle, b.objectiveTitle) * dir;
+      case "owner": {
+        const an = a.driUser?.name ?? a.driUser?.email ?? null;
+        const bn = b.driUser?.name ?? b.driUser?.email ?? null;
+        if (an === null || bn === null) return an === bn ? 0 : an === null ? 1 : -1;
+        return collate(an, bn) * dir;
+      }
+      case "progress":
+        return (a.progress - b.progress) * dir;
+      case "status":
+        return (CONFIDENCE_RANK[a.confidence] - CONFIDENCE_RANK[b.confidence]) * dir;
+      case "lastCheckIn": {
+        const at = a.lastCheckInAt?.getTime() ?? null;
+        const bt = b.lastCheckInAt?.getTime() ?? null;
+        if (at === null || bt === null) return at === bt ? 0 : at === null ? 1 : -1;
+        return (at - bt) * dir;
+      }
+    }
+  };
+
+  return [...rows].sort((a, b) => compare(a, b) || tieBreak(a, b));
+}
