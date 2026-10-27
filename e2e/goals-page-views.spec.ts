@@ -203,7 +203,9 @@ test("the Key results view lists the seeded KR with its objective, and a row ope
   await expect(progressHeader).toHaveAttribute("aria-sort", "ascending");
   expect(params(page).get("sort")).toBeNull();
 
-  await row.click();
+  // The title is the keyboard target: focus it and press Enter.
+  await row.getByRole("button", { name: `Open key result: ${FIXTURE.keyResultTitle}` }).focus();
+  await page.keyboard.press("Enter");
   await expect.poll(() => params(page).get("drawer")).toMatch(/^keyResult:/);
   const drawer = page.getByRole("dialog");
   await expect(drawer).toBeVisible();
@@ -216,9 +218,14 @@ test("the Key results view lists the seeded KR with its objective, and a row ope
 });
 
 test("Key results rows honour Status, Health, Owner and search like the other views", async ({ page }) => {
-  // Status is the parent objective's lifecycle: the seeded objective is active.
+  // Status is the parent objective's lifecycle: the completed objective's KR
+  // is the only row under status=completed, and the active objective's KR is
+  // not among them.
   await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}&status=completed`);
-  await expect(page.getByTestId("goals-period-header")).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  const completedRow = page
+    .getByTestId("key-results-table")
+    .locator("tr", { hasText: FIXTURE.completedKeyResultTitle });
+  await expect(completedRow).toHaveCount(1, { timeout: FIRST_PAINT_TIMEOUT });
   await expect(page.getByText(FIXTURE.keyResultTitle)).toHaveCount(0);
 
   await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}&status=active`);
