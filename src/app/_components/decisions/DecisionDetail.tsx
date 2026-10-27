@@ -74,7 +74,13 @@ export function DecisionDetail({
   // has loaded, since the read is gated on viewing it.
   const { data: outboundPosts } = api.decision.outboundPosts.useQuery(
     { workspaceId, decisionId },
-    { enabled: !!workspaceId && !!decisionId && !!decision },
+    {
+      enabled: !!workspaceId && !!decisionId && !!decision,
+      // Delivery happens after the producing request returns, so a row is briefly
+      // pending; poll until it settles, then stop.
+      refetchInterval: (query) =>
+        query.state.data?.some((post) => post.status === "pending") ? 3000 : false,
+    },
   );
   const sentPosts = (outboundPosts ?? []).filter((post) => post.status === "sent");
   const router = useRouter();
@@ -85,6 +91,7 @@ export function DecisionDetail({
     onSuccess: async () => {
       await Promise.all([
         utils.decision.get.invalidate({ workspaceId, decisionId }),
+        utils.decision.outboundPosts.invalidate({ workspaceId, decisionId }),
         utils.decision.list.invalidate(),
         utils.inbox.invalidate(),
       ]);
