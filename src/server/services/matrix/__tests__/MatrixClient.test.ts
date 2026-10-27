@@ -394,3 +394,74 @@ describe("MatrixClient.createRoom", () => {
     );
   });
 });
+
+describe("MatrixClient.send", () => {
+  /** State lookups say "unencrypted"; the PUT returns an event id and is captured. */
+  function sendResponder(opts: { encrypted?: boolean } = {}) {
+    return (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("/state/m.room.encryption")) {
+        return Promise.resolve(
+          opts.encrypted
+            ? OK({ algorithm: "m.megolm.v1.aes-sha2" })
+            : ERR(404, { errcode: "M_NOT_FOUND" }),
+        );
+      }
+      if ((init?.method ?? "GET") === "PUT" && u.includes("/send/m.room.message/")) {
+        return Promise.resolve(OK({ event_id: "$evt" }));
+      }
+      return Promise.resolve(ERR(404, { errcode: "M_NOT_FOUND" }));
+    };
+  }
+
+  function sentBody(): Record<string, unknown> {
+    const put = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "PUT",
+    );
+    return JSON.parse(String((put![1] as RequestInit).body)) as Record<string, unknown>;
+  }
+
+  it("refuses an encrypted room before any send", async () => {
+    fetchMock.mockImplementation(sendResponder({ encrypted: true }));
+
+    await expect(
+      makeClient().send("!secret:example.org", { html: "<b>x</b>", text: "x", txnId: "t1" }),
+    ).rejects.toThrow(/encrypted/);
+    expect(
+      fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "PUT"),
+    ).toBe(false);
+  });
+
+  it("carries intentional mentions as m.mentions.user_ids", async () => {
+    fetchMock.mockImplementation(sendResponder());
+
+    await expect(
+      makeClient().send("!plain:example.org", {
+        html: "<b>x</b>",
+        text: "x",
+        txnId: "t1",
+        mentions: ["@james:example.org", "@andi:example.org"],
+      }),
+    ).resolves.toEqual({ eventId: "$evt" });
+
+    expect(sentBody()).toMatchObject({
+      msgtype: "m.text",
+      body: "x",
+      formatted_body: "<b>x</b>",
+      "m.mentions": { user_ids: ["@james:example.org", "@andi:example.org"] },
+    });
+  });
+
+  it("sends the same payload as before when no mentions are given", async () => {
+    fetchMock.mockImplementation(sendResponder());
+
+    await makeClient().send("!plain:example.org", { html: "<b>x</b>", text: "x", txnId: "t1", mentions: [] });
+
+    expect(sentBody()).toEqual({
+      msgtype: "m.text",
+      body: "x",
+      format: "org.matrix.custom.html",
+      formatted_body: "<b>x</b>",
+    });
+  });
+});
