@@ -217,7 +217,7 @@ test("the Key results view lists the seeded KR with its objective, and a row ope
   });
 });
 
-test("Key results rows honour Status, Health, Owner and search like the other views", async ({ page }) => {
+test("Key results rows honour the Status filter and search like the other views", async ({ page }) => {
   // Status is the parent objective's lifecycle: the completed objective's KR
   // is the only row under status=completed, and the active objective's KR is
   // not among them.
@@ -253,5 +253,32 @@ test("Key results view empty states: nothing in the period, and nothing of yours
   await expect(page.getByText("None of this period's key results are yours.")).toBeVisible({
     timeout: FIRST_PAINT_TIMEOUT,
   });
+});
+
+test("a personal workspace offers Table and Timeline only, and ?view=okrs falls back to Table", async ({ page }) => {
+  const personalPath = `/w/${fixture.personalWorkspaceSlug}/goals`;
+  await page.goto(`${personalPath}?view=okrs&period=all`);
+
+  // The view param is rewritten away; the period survives.
+  await expect.poll(() => params(page).get("view"), { timeout: FIRST_PAINT_TIMEOUT }).toBeNull();
+  expect(params(page).get("period")).toBe("all");
+
+  const controls = page.getByTestId("goals-controls");
+  await expect(controls).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(controls.locator("label.mantine-SegmentedControl-label", { hasText: /^Table$/ })).toBeVisible();
+  await expect(controls.locator("label.mantine-SegmentedControl-label", { hasText: /^Timeline$/ })).toBeVisible();
+  await expect(controls.locator("label.mantine-SegmentedControl-label", { hasText: /^OKRs$/ })).toHaveCount(0);
+  await expect(controls.locator("label.mantine-SegmentedControl-label", { hasText: /^Key results$/ })).toHaveCount(0);
+
+  // The Table view lists the personal goal.
+  await expect(page.locator("tr", { hasText: FIXTURE.personalGoalTitle }).first()).toBeVisible();
+
+  // The header speaks the workspace's language and narrates no KR attainment.
+  const header = page.getByTestId("goals-period-header");
+  const year = new Date().getFullYear();
+  await expect(header).toContainText(`Goals · ${year}`);
+  await expect(header).toContainText(`What we're betting on in ${year}`);
+  await expect(header).not.toContainText("KR targets");
+  await expect(header).not.toContainText("Objectives");
 });
 

@@ -8,13 +8,16 @@ import {
 
 // A fixed "now" so the defaults (current quarter, current year) are stable.
 const NOW = new Date(2026, 9, 27); // 27 Oct 2026 → Q4-2026
-const parse = (qs: string) => parseGoalsViewParams(new URLSearchParams(qs), NOW);
+const parse = (qs: string, allowOkrViews = true) =>
+  parseGoalsViewParams(new URLSearchParams(qs), { now: NOW, allowOkrViews });
 
 /** The one-shot rewrite the page performs for a retired URL. */
 const rewrite = (qs: string) => {
   const params = new URLSearchParams(qs);
   return applyGoalsViewParams(params, parse(qs), NOW).toString();
 };
+const rewriteWithoutOkr = (qs: string) =>
+  applyGoalsViewParams(new URLSearchParams(qs), parse(qs, false), NOW).toString();
 
 describe("parseGoalsViewParams", () => {
   it("defaults to the Table view, the current quarter and year, everyone's goals", () => {
@@ -203,3 +206,36 @@ describe("effectivePeriodOf", () => {
     expect(effectivePeriodOf("Annual", "2027")).toBe("Annual-2027");
   });
 });
+
+describe("workspaces that hide OKR features (allowOkrViews: false)", () => {
+  it("okrs and key-results fall back to the Table view and are rewritten", () => {
+    expect(parse("view=okrs", false)).toMatchObject({ view: "table", isLegacy: true });
+    expect(parse("view=key-results&period=Q1", false)).toMatchObject({
+      view: "table",
+      period: "Q1",
+      isLegacy: true,
+    });
+    expect(rewriteWithoutOkr("view=okrs&period=Q1&mine=1")).toBe("period=Q1&mine=1");
+  });
+
+  it("retired OKR links land on the Table view too", () => {
+    expect(parse("tab=okrs", false)).toMatchObject({ view: "table", isLegacy: true });
+    expect(parse("tab=my-goals", false)).toMatchObject({
+      view: "table",
+      onlyMine: true,
+      isLegacy: true,
+    });
+    expect(rewriteWithoutOkr("tab=my-goals")).toBe("mine=1");
+  });
+
+  it("Table and Timeline are untouched", () => {
+    expect(parse("view=timeline", false)).toMatchObject({ view: "timeline", isLegacy: false });
+    expect(parse("", false)).toMatchObject({ view: "table", isLegacy: false });
+  });
+
+  it("team workspaces keep every view", () => {
+    expect(parse("view=okrs")).toMatchObject({ view: "okrs", isLegacy: false });
+    expect(parse("view=key-results")).toMatchObject({ view: "key-results", isLegacy: false });
+  });
+});
+
