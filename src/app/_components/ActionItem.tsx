@@ -338,7 +338,7 @@ export function ActionItem({
                       <Link
                         href={`/projects/${projectSlug}?tab=transcriptions`}
                         onClick={(e) => e.stopPropagation()}
-                        className="flex items-center text-text-muted hover:text-brand-primary transition-colors"
+                        className="flex items-center text-text-muted hover:text-link transition-colors"
                       >
                         <IconMicrophone size={14} />
                       </Link>

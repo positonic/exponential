@@ -55,7 +55,7 @@ export function DesktopAuthClient() {
           <p className="text-sm text-text-secondary">
             The link may have expired. Please try signing in again from the app.
           </p>
-          <a href="/signin" className="text-sm text-brand-primary underline">
+          <a href="/signin" className="text-sm text-link underline">
             Back to sign in
           </a>
         </>

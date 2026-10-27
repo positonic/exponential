@@ -68,7 +68,7 @@ export function buildPrdExtensions(
       openOnClick: true,
       autolink: true,
       HTMLAttributes: {
-        class: "text-brand-primary underline cursor-pointer",
+        class: "text-link underline cursor-pointer",
         rel: "noopener noreferrer nofollow",
       },
     }),

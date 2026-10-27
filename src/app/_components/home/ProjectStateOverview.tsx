@@ -62,7 +62,7 @@ export function ProjectStateOverview() {
             action={
               workspace ? (
                 <Link href={`/w/${workspace.slug}/projects`}>
-                  <Text size="sm" className="text-brand-primary cursor-pointer hover:underline">
+                  <Text size="sm" className="text-link cursor-pointer hover:underline">
                     <IconPlus size={12} className="mr-1 inline" />
                     Create a project
                   </Text>

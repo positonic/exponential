@@ -93,6 +93,12 @@
     --color-brand-error: #fa5252;
     --color-brand-info: #339af0;
 
+    /* Links. Inline text links are NOT the brand fill: a mid-blue that
+       works as a button background sinks to ~3:1 on a dark surface. Light
+       keeps the brand blue; the dark block below lifts it two tuple stops. */
+    --color-link: #1F5DE0;
+    --color-link-hover: #1A4EC4;
+
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
     --brand-500: #1F5DE0;
@@ -321,6 +327,11 @@
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
 
+    /* Links - DARK themes (navy + slate). Brand tuple stops 3 and 2:
+       7.2:1 on slate, 7.9:1 on navy. */
+    --color-link: #7BA7FF;
+    --color-link-hover: #A8C5FF;
+
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
     --brand-500: #1F5DE0;
@@ -492,6 +503,9 @@
    INLINE style and made it impossible for any text utility to override. */
 body {
   --mantine-color-text: var(--color-text-primary);
+  /* Mantine's <Anchor> reads this; keep it on the same link token as the
+     Tailwind `text-link` utility and the Markdown renderer. */
+  --mantine-color-anchor: var(--color-link);
 }
 
 /* --- Semantic text utilities on Mantine components --- */
@@ -926,10 +940,11 @@ body {
 .chat-html-content h2 { font-size: 1.125rem; }
 .chat-html-content h3 { font-size: 1rem; }
 .chat-html-content a {
-  color: var(--color-brand-primary);
+  color: var(--color-link);
   text-decoration: none;
 }
 .chat-html-content a:hover {
+  color: var(--color-link-hover);
   text-decoration: underline;
 }
 .chat-html-content blockquote {

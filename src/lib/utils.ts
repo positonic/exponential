@@ -57,7 +57,7 @@ export function compactUrls(html: string): string {
     const linkTags = collectedUrls
       .map(
         (url) =>
-          `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-brand-primary opacity-70 no-underline">[link]</a>`,
+          `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-link opacity-70 no-underline">[link]</a>`,
       )
       .join(' ');
     result = result + (result ? ' ' : '') + linkTags;

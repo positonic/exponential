@@ -243,7 +243,7 @@ export function KeyResultRow({
                 <div className="w-3 h-px bg-border-secondary flex-shrink-0" />
                 <Link
                   href={workspaceSlug ? `/w/${workspaceSlug}/projects/${project.slug}-${project.id}` : `/projects/${project.slug}-${project.id}`}
-                  className="text-xs text-text-secondary truncate hover:text-brand-primary transition-colors"
+                  className="text-xs text-text-secondary truncate hover:text-link transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
                   {project.name}
