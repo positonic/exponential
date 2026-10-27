@@ -30,11 +30,11 @@ import { GoalIcon } from "../GoalIcon";
 
 type HealthStatus = "on-track" | "at-risk" | "off-track" | "no-update";
 
-const healthConfig: Record<HealthStatus, { color: string; icon: typeof IconCircleCheckFilled; label: string }> = {
-  "on-track": { color: "var(--mantine-color-green-6)", icon: IconCircleCheckFilled, label: "On track" },
-  "at-risk": { color: "var(--mantine-color-yellow-6)", icon: IconAlertTriangleFilled, label: "At risk" },
-  "off-track": { color: "var(--mantine-color-red-6)", icon: IconAlertCircleFilled, label: "Off track" },
-  "no-update": { color: "var(--mantine-color-gray-6)", icon: IconClockFilled, label: "No update" },
+const healthConfig: Record<HealthStatus, { className: string; icon: typeof IconCircleCheckFilled; label: string }> = {
+  "on-track": { className: "text-brand-success", icon: IconCircleCheckFilled, label: "On track" },
+  "at-risk": { className: "text-brand-warning", icon: IconAlertTriangleFilled, label: "At risk" },
+  "off-track": { className: "text-brand-error", icon: IconAlertCircleFilled, label: "Off track" },
+  "no-update": { className: "text-text-muted", icon: IconClockFilled, label: "No update" },
 };
 
 function HealthCell({ health, updatedAt }: { health: string | null; updatedAt: Date | null }) {
@@ -44,7 +44,7 @@ function HealthCell({ health, updatedAt }: { health: string | null; updatedAt: D
 
   return (
     <Group gap={6} wrap="nowrap">
-      <Icon size={16} style={{ color: config.color }} />
+      <Icon size={16} className={`shrink-0 ${config.className}`} />
       <Text size="sm" className="text-text-primary">
         {config.label}
       </Text>
@@ -345,7 +345,7 @@ function InitiativeRow({
       <Table.Td>
         {projectCount > 0 ? (
           <Group gap={4} wrap="nowrap">
-            <IconCircleCheckFilled size={14} style={{ color: "var(--mantine-color-green-6)" }} />
+            <IconCircleCheckFilled size={14} className="shrink-0 text-brand-success" />
             <Text size="sm" className="text-text-primary">
               {activeProjectCount} / {projectCount}
             </Text>
