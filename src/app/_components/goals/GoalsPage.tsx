@@ -1,22 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { keepPreviousData } from "@tanstack/react-query";
-import {
-  Container,
-  Group,
-  SegmentedControl,
-  Stack,
-  Text,
-} from "@mantine/core";
+import { Container, Stack, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
-import { IconTarget, IconUser } from "@tabler/icons-react";
+import { IconSearch, IconTarget, IconUser } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useTerminology } from "~/hooks/useTerminology";
 import { useRegisterPageContext } from "~/hooks/useRegisterPageContext";
+import { useProjectViewState } from "~/app/_components/projects/useProjectViewState";
+import { FilterBar } from "~/app/_components/filters";
+import { hasActiveFilters } from "~/types/filter";
+import type { FilterMember } from "~/types/filter";
 import {
   GoalsTableBody,
   type GoalRow,
@@ -28,27 +26,15 @@ import type {
   ObjectiveCardKeyResult,
   ObjectiveCardObjective,
 } from "~/plugins/okr/client/components/ObjectiveCardV2";
-import {
-  GOALS_PAGE_PERIODS,
-  extractYearsFromPeriods,
-  type GoalsPagePeriod,
-} from "~/plugins/okr/client/utils/periodUtils";
-import { GoalsMineToggle } from "./GoalsMineToggle";
+import { extractYearsFromPeriods } from "~/plugins/okr/client/utils/periodUtils";
+import { GoalsControls } from "./GoalsControls";
 import { GoalsPeriodHeader } from "./GoalsPeriodHeader";
+import { GOAL_FILTER_CONFIG, GOAL_FILTER_KEYS, filterGoalRows } from "./goalFilters";
 import {
   applyGoalsViewParams,
   useGoalsViewParams,
   type GoalsPageView,
 } from "./useGoalsViewParams";
-
-const PERIOD_LABELS: Record<GoalsPagePeriod, string> = {
-  Q1: "Q1",
-  Q2: "Q2",
-  Q3: "Q3",
-  Q4: "Q4",
-  Annual: "Annual",
-  all: "All",
-};
 
 const VIEW_OPTIONS: { value: GoalsPageView; label: string }[] = [
   { value: "table", label: "Table" },
@@ -103,8 +89,11 @@ function buildKeyResultDrawerItem(kr: ObjectiveCardKeyResult): DrawerItem {
 
 type ObjectivesQueryRow = RouterOutputs["okr"]["getByObjective"][number];
 
+/** A card objective that still carries its lifecycle status for the filters. */
+type CardObjective = ObjectiveCardObjective & { status: string };
+
 /** The getByObjective payload in the shape the cards, timeline and drawer read. */
-function toCardObjectives(rows: ObjectivesQueryRow[]): ObjectiveCardObjective[] {
+function toCardObjectives(rows: ObjectivesQueryRow[]): CardObjective[] {
   return rows.map((o) => ({
     ...o,
     lifeDomain: o.lifeDomain
@@ -142,7 +131,7 @@ function toCardObjectives(rows: ObjectivesQueryRow[]): ObjectiveCardObjective[] 
  * are handed.
  */
 export function GoalsPage() {
-  const { workspaceId, workspaceSlug } = useWorkspace();
+  const { workspace, workspaceId, workspaceSlug } = useWorkspace();
   const terminology = useTerminology();
   const pathname = usePathname();
   const utils = api.useUtils();
@@ -213,13 +202,44 @@ export function GoalsPage() {
     { enabled: !!workspaceId, placeholderData: keepPreviousData },
   );
 
+  // ---- Search and filters, applied once to whichever body is mounted ------
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const { filters, setFilters, searchQuery, deferredSearchQuery, setSearchQuery } =
+    useProjectViewState(GOAL_FILTER_KEYS, "goals");
+  const [filterRowOpen, { toggle: toggleFilterRow }] = useDisclosure(false);
+  const filtersActive = hasActiveFilters(GOAL_FILTER_CONFIG, filters);
+  const isNarrowed = filtersActive || deferredSearchQuery.trim().length > 0;
+  const clearNarrowing = useCallback(() => {
+    setFilters({});
+    setSearchQuery("");
+  }, [setFilters, setSearchQuery]);
+
+  const workspaceMembers: FilterMember[] = useMemo(() => {
+    if (!workspace?.members) return [];
+    return workspace.members.map((m) => ({
+      id: m.user.id,
+      name: m.user.name ?? null,
+      email: m.user.email ?? null,
+      image: m.user.image ?? null,
+    }));
+  }, [workspace?.members]);
+
   const tableRows = useMemo(
     () => (tableQuery.data ?? []) as unknown as GoalRow[],
     [tableQuery.data],
   );
+  const filteredTableRows = useMemo(
+    () => filterGoalRows(tableRows, filters, deferredSearchQuery),
+    [tableRows, filters, deferredSearchQuery],
+  );
   const objectives = useMemo(
     () => toCardObjectives(objectivesQuery.data ?? []),
     [objectivesQuery.data],
+  );
+  const filteredObjectives = useMemo(
+    () => filterGoalRows(objectives, filters, deferredSearchQuery),
+    [objectives, filters, deferredSearchQuery],
   );
 
   // ---- Drawer, on every view ------------------------------------------------
@@ -384,7 +404,7 @@ export function GoalsPage() {
 
   const goalsPageContext = useMemo(() => {
     if (!workspaceId) return null;
-    const count = view === "table" ? tableRows.length : objectives.length;
+    const count = view === "table" ? filteredTableRows.length : filteredObjectives.length;
     return {
       pageType: "goals-list",
       pageTitle: terminology.goals,
@@ -394,8 +414,8 @@ export function GoalsPage() {
   }, [
     workspaceId,
     view,
-    tableRows.length,
-    objectives.length,
+    filteredTableRows.length,
+    filteredObjectives.length,
     terminology.goals,
     pathname,
     effectivePeriod,
@@ -420,41 +440,53 @@ export function GoalsPage() {
           goalsLabel={terminology.goals}
         />
 
-        <Group gap="sm" wrap="wrap" align="center">
-          <SegmentedControl
-            value={period}
-            onChange={(value) => setPeriod(value as GoalsPagePeriod)}
-            data={GOALS_PAGE_PERIODS.map((p) => ({ value: p, label: PERIOD_LABELS[p] }))}
-            size="xs"
-            aria-label="Period"
-          />
-          {availableYears.length > 1 && (
-            <SegmentedControl
-              value={year}
-              onChange={setYear}
-              data={availableYears.map((y) => ({ label: y, value: y }))}
-              size="xs"
-              aria-label="Year"
+        <GoalsControls
+          period={period}
+          onPeriodChange={setPeriod}
+          year={year}
+          availableYears={availableYears}
+          onYearChange={setYear}
+          view={view === "timeline" ? "okrs" : view}
+          viewOptions={VIEW_OPTIONS}
+          onViewChange={setView}
+          onlyMine={onlyMine}
+          onOnlyMineChange={setOnlyMine}
+          searchRef={searchRef}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          filtersActive={filtersActive}
+          filterRowOpen={filterRowOpen}
+          onToggleFilterRow={toggleFilterRow}
+          filterBar={
+            <FilterBar
+              config={GOAL_FILTER_CONFIG}
+              filters={filters}
+              onFiltersChange={setFilters}
+              members={workspaceMembers}
             />
-          )}
-          <SegmentedControl
-            value={view === "timeline" ? "okrs" : view}
-            onChange={(value) => setView(value as GoalsPageView)}
-            data={VIEW_OPTIONS}
-            size="xs"
-            aria-label="View"
-          />
-          <GoalsMineToggle onlyMine={onlyMine} onOnlyMineChange={setOnlyMine} size="xs" />
-        </Group>
+          }
+          createDefaultPeriod={effectivePeriod ?? undefined}
+          createLabel={`New ${terminology.goal.toLowerCase()}`}
+        />
 
         {view === "table" ? (
           <GoalsTableBody
-            goals={tableRows}
+            goals={filteredTableRows}
             isLoading={tableQuery.isLoading}
             workspaceSlug={workspaceSlug ?? ""}
             goalLabel={terminology.goal}
             emptyState={
-              onlyMine ? (
+              tableRows.length > 0 ? (
+                <div className="py-16 text-center">
+                  <IconSearch size={48} className="text-text-muted mx-auto mb-4" />
+                  <Text size="lg" fw={500} className="text-text-primary">
+                    No {goalsLower} match your search or filters
+                  </Text>
+                  <Text size="sm" c="dimmed" mt={4}>
+                    Try a different search, or clear the active filters.
+                  </Text>
+                </div>
+              ) : onlyMine ? (
                 // "Mine" narrows server-side, so an empty result means none
                 // of the period's objectives are the user's — not that the
                 // workspace has none.
@@ -485,13 +517,13 @@ export function GoalsPage() {
         ) : (
           <OkrObjectivesView
             objectives={objectives}
-            visibleObjectives={objectives}
+            visibleObjectives={filteredObjectives}
             pacePeriod={pacePeriod}
             effectivePeriod={effectivePeriod}
             onlyMine={onlyMine}
             isLoading={objectivesQuery.isLoading}
-            hasActiveFilters={false}
-            onClearFilters={() => undefined}
+            hasActiveFilters={isNarrowed}
+            onClearFilters={clearNarrowing}
             onViewObjective={handleViewObjective}
             onViewKeyResult={handleViewKeyResult}
             onEditKeyResult={handleEditKeyResult}

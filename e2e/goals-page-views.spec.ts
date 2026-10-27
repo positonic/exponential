@@ -88,3 +88,33 @@ test("switching view keeps a non-default period, year and Mine in the URL", asyn
   expect(after.get("year")).toBe("2027");
   expect(after.get("mine")).toBe("1");
 });
+
+test("the Status filter removes a completed objective and survives a view switch", async ({ page }) => {
+  await page.goto(`${goalsPath}?period=${okrPeriod}&year=${okrYear}`);
+
+  const completedRow = page.locator("tr", { hasText: FIXTURE.completedGoalTitle }).first();
+  await expect(completedRow).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+
+  // Filter → Status → Active: only active objectives remain.
+  await page.getByRole("button", { name: "Filter" }).click();
+  await page.getByRole("button", { name: /^Filter$/ }).nth(1).click();
+  await page.getByText("Status", { exact: true }).click();
+  await page.getByText("Active", { exact: true }).click();
+  await expect.poll(() => params(page).get("status")).toBe("active");
+  await expect(page.locator("tr", { hasText: FIXTURE.completedGoalTitle })).toHaveCount(0);
+  await expect(page.locator("tr", { hasText: FIXTURE.objectiveTitle }).first()).toBeVisible();
+
+  // The filter is applied in the shell, so the OKRs view honours it too.
+  await page.keyboard.press("Escape");
+  await pickSegment(page, "OKRs");
+  await expect.poll(() => params(page).get("view")).toBe("okrs");
+  expect(params(page).get("status")).toBe("active");
+  await expect(page.getByText(FIXTURE.objectiveTitle).first()).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page.getByText(FIXTURE.completedGoalTitle)).toHaveCount(0);
+
+  // Search narrows the same way on every view.
+  await page.getByRole("textbox", { name: "Search" }).fill("zzz-no-such-objective");
+  await expect(page.getByText("No objectives match your search or filters")).toBeVisible();
+});
