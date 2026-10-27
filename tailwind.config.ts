@@ -103,8 +103,10 @@ export default {
         },
         // Inline text links. Not the brand fill: see the `--color-link` note
         // in globals.css. `text-link` / `hover:text-link-hover`.
+        // The default uses the RGB triplet so opacity modifiers resolve
+        // (`decoration-link/40`); Tailwind v3 cannot alpha `currentColor`.
         link: {
-          DEFAULT: 'var(--color-link)',
+          DEFAULT: 'rgb(var(--color-link-rgb) / <alpha-value>)',
           hover: 'var(--color-link-hover)',
         },
         // Error/Warning utility colors
