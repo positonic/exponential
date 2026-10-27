@@ -9,7 +9,6 @@ import {
   SegmentedControl,
   Stack,
   Text,
-  Title,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
@@ -35,6 +34,7 @@ import {
   type GoalsPagePeriod,
 } from "~/plugins/okr/client/utils/periodUtils";
 import { GoalsMineToggle } from "./GoalsMineToggle";
+import { GoalsPeriodHeader } from "./GoalsPeriodHeader";
 import {
   applyGoalsViewParams,
   useGoalsViewParams,
@@ -199,6 +199,18 @@ export function GoalsPage() {
       onlyMine,
     },
     { enabled: usesObjectives && !!workspaceId, placeholderData: keepPreviousData },
+  );
+
+  // The header's numbers come from one cheap query whatever view is mounted,
+  // so the narrative never depends on the heavy getByObjective payload.
+  const statsQuery = api.okr.getStats.useQuery(
+    {
+      workspaceId: workspaceId ?? undefined,
+      period: effectivePeriod,
+      year,
+      ...(onlyMine ? { onlyMine } : {}),
+    },
+    { enabled: !!workspaceId, placeholderData: keepPreviousData },
   );
 
   const tableRows = useMemo(
@@ -399,9 +411,14 @@ export function GoalsPage() {
   return (
     <Container size="xl" className="py-6">
       <Stack gap="md">
-        <Title order={3} className="text-text-primary">
-          {terminology.goals}
-        </Title>
+        <GoalsPeriodHeader
+          period={period}
+          year={year}
+          effectivePeriod={effectivePeriod}
+          onlyMine={onlyMine}
+          stats={statsQuery.data}
+          goalsLabel={terminology.goals}
+        />
 
         <Group gap="sm" wrap="wrap" align="center">
           <SegmentedControl

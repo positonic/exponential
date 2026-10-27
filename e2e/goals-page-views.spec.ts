@@ -32,10 +32,16 @@ test("the Table and OKRs views list the same objectives for the same period", as
   });
   await expect(page.getByText(FIXTURE.keyResultTitle).first()).toBeVisible();
 
+  // The period narrative header sits above the view, not inside it.
+  const header = page.getByTestId("goals-period-header");
+  await expect(header).toContainText(`Objectives · ${okrPeriod} ${okrYear}`);
+  await expect(header).toContainText("of its KR targets");
+
   // Switching view keeps the period and year; `view` drops to its default.
   await pickSegment(page, "Table");
   await expect.poll(() => params(page).get("view")).toBeNull();
   expect(params(page).get("period")).toBe(okrPeriod);
+  await expect(header).toContainText(`Objectives · ${okrPeriod} ${okrYear}`);
 
   // Table view: the same objective, as a row; the period-less goals from the
   // goal hierarchy fixture are not in this period.
@@ -54,6 +60,13 @@ test("All is the only period that lists a period-less objective", async ({ page 
 
   const periodless = page.locator("tr", { hasText: FIXTURE.parentGoalTitle }).first();
   await expect(periodless).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+
+  // All narrates the selected year and shows no countdown.
+  const header = page.getByTestId("goals-period-header");
+  const year = new Date().getFullYear();
+  await expect(header).toContainText(`Objectives · ${year}`);
+  await expect(header).toContainText(`What we're betting on in ${year}`);
+  await expect(header).not.toContainText(/\d+d left/);
   // The period-bound objective is there too: All drops the clause entirely.
   await expect(page.locator("tr", { hasText: FIXTURE.objectiveTitle }).first()).toBeVisible();
 
