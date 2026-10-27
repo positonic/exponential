@@ -43,13 +43,13 @@ function SortableHeader({
   onSort: (field: KeyResultSortField) => void;
 }) {
   if (!field) {
-    return <Table.Th className="text-text-muted">{label}</Table.Th>;
+    return <Table.Th className="whitespace-nowrap text-text-muted">{label}</Table.Th>;
   }
   const active = sort?.field === field;
   const Icon = !active ? IconSelector : sort.direction === "asc" ? IconChevronUp : IconChevronDown;
   return (
     <Table.Th
-      className="text-text-muted"
+      className="whitespace-nowrap text-text-muted"
       aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <UnstyledButton
@@ -164,12 +164,12 @@ export function KeyResultsTable({ rows, onRowClick }: KeyResultsTableProps) {
                   </Text>
                 </Group>
               </Table.Td>
-              <Table.Td>
+              <Table.Td className="whitespace-nowrap">
                 <Badge size="sm" variant="light" color={badge.color}>
                   {badge.label}
                 </Badge>
               </Table.Td>
-              <Table.Td>
+              <Table.Td className="whitespace-nowrap">
                 <Text size="sm" c="dimmed">
                   {row.lastCheckInAt ? relativeTimeLabel(row.lastCheckInAt) : "never"}
                 </Text>
