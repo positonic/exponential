@@ -195,5 +195,13 @@ test("a personal workspace offers Table and Timeline only, and ?view=okrs falls 
 
   // The Table view lists the personal goal.
   await expect(page.locator("tr", { hasText: FIXTURE.personalGoalTitle }).first()).toBeVisible();
+
+  // The header speaks the workspace's language and narrates no KR attainment.
+  const header = page.getByTestId("goals-period-header");
+  const year = new Date().getFullYear();
+  await expect(header).toContainText(`Goals · ${year}`);
+  await expect(header).toContainText(`What we're betting on in ${year}`);
+  await expect(header).not.toContainText("KR targets");
+  await expect(header).not.toContainText("Objectives");
 });
 

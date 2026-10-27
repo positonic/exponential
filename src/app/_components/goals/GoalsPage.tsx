@@ -494,6 +494,8 @@ export function GoalsPage() {
           onlyMine={onlyMine}
           stats={statsQuery.data}
           goalsLabel={terminology.goals}
+          // No key results here, so no "reached X% of its KR targets".
+          showAttainment={allowOkrViews}
         />
 
         <GoalsControls
