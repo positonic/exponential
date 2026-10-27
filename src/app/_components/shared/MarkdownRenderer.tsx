@@ -83,7 +83,7 @@ function buildComponents(
     a: ({ href, children, className }) => (
       <a
         href={href}
-        className={`text-link underline decoration-current/40 underline-offset-2 transition-colors hover:text-link-hover hover:decoration-current ${normalizeClassName(className)}`.trimEnd()}
+        className={`text-link underline decoration-link/40 underline-offset-2 transition-colors hover:text-link-hover hover:decoration-link-hover ${normalizeClassName(className)}`.trimEnd()}
         target={href?.startsWith("http") ? "_blank" : undefined}
         rel={href?.startsWith("http") ? "noopener noreferrer" : undefined}
       >
