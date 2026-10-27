@@ -73,6 +73,20 @@ function buildObjectiveDrawerItem(obj: ObjectiveCardObjective): DrawerItem {
   };
 }
 
+/** A Table row opened via `drawer=`: enough to paint the hero before the fetch. */
+function buildTableRowDrawerItem(row: GoalRow): DrawerItem {
+  const progress = row.resolvedProgress ?? 0;
+  return {
+    type: "objective",
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    progress,
+    status: statusFromObjectiveProgress(progress),
+    lifeDomainName: null,
+  };
+}
+
 function buildKeyResultDrawerItem(kr: ObjectiveCardKeyResult): DrawerItem {
   const range = kr.targetValue - kr.startValue;
   const progress = range > 0 ? ((kr.currentValue - kr.startValue) / range) * 100 : 0;
@@ -256,9 +270,10 @@ export function GoalsPage() {
     String(drawerItem.id) === drawerParam.id;
 
   // Materialise the drawer item from the URL param: deep links, refresh, and
-  // browser back/forward have no in-memory item from a click. When the item
-  // isn't in the current view's data we open it by id so the drawer fetches
-  // it; a malformed objective id stays closed.
+  // browser back/forward have no in-memory item from a click. Whichever
+  // view's data holds the item seeds the hero; when it is in neither (a
+  // different period, or a view that never loads key results) we open an id
+  // stub and the drawer fetches it. A malformed objective id stays closed.
   useEffect(() => {
     if (!drawerParam) return;
     if (
@@ -272,6 +287,11 @@ export function GoalsPage() {
       const obj = objectives.find((o) => String(o.id) === drawerParam.id);
       if (obj) {
         setDrawerItem(buildObjectiveDrawerItem(obj));
+        return;
+      }
+      const row = tableRows.find((r) => String(r.id) === drawerParam.id);
+      if (row) {
+        setDrawerItem(buildTableRowDrawerItem(row));
         return;
       }
       const numericId = Number(drawerParam.id);
@@ -297,7 +317,7 @@ export function GoalsPage() {
         status: "on-track",
       });
     }
-  }, [drawerParam, objectives, drawerItem]);
+  }, [drawerParam, objectives, tableRows, drawerItem]);
 
   const handleViewObjective = useCallback(
     (obj: ObjectiveCardObjective) => {

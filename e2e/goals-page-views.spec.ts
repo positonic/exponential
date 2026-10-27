@@ -137,3 +137,21 @@ test("a retired tab= link rewrites once to the current grammar", async ({ page }
   await expect(page.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "true");
 });
 
+test("a drawer= deep link opens the OKR drawer on the Table view, fetching by id", async ({ page }) => {
+  // The parent goal has no period, so on the default quarter it is outside
+  // the Table's data: the drawer must open from an id stub and fetch it.
+  await page.goto(`${goalsPath}?drawer=objective:${fixture.goalIds.parent}`);
+
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(drawer).toContainText(FIXTURE.parentGoalTitle, { timeout: FIRST_PAINT_TIMEOUT });
+  // The Table view is still the one behind it.
+  expect(params(page).get("view")).toBeNull();
+  await expect(page.getByTestId("goals-period-header")).toBeVisible();
+
+  await test.info().attach("drawer-on-table-view", {
+    body: await page.screenshot({ fullPage: false }),
+    contentType: "image/png",
+  });
+});
+
