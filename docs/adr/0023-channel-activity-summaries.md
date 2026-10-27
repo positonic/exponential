@@ -77,3 +77,22 @@ notification routing) and `Integration`-FK-bound — the wrong shape for an inbo
   that lists participating groups (via the gateway `GET …/groups`) and assigns workspace/project
   is the obvious fast-follow, and pairs with "add another group".
 - A new cross-repo contract (`recordChannelSummary`) must stay in sync between the repos.
+
+## Amendments
+
+**2026-10-27 — outbound rows, servers and kinds ([ADR-0075](0075-outbound-posts-destination-keyed-sibling.md)).**
+Decision 1 above said `ChannelLink` is inbound-only and integration-free. Both are now
+false, by design:
+
+- `direction` (`inbound` default | `outbound`) and `serverIntegrationId` arrived with the
+  meeting-summaries → Matrix feature (migration `20260812130515`). Outbound rows answer the
+  reverse question — where does this scope's content go — through a registered server.
+- `kind` (`meeting_summary` default | `decision` | `workspace_update` | `agenda`) says which
+  producer's content an outbound row carries, so the project tri-state and the workspace
+  default are per kind.
+- The unique relaxed from `(provider, externalId)` to `(provider, externalId, direction, kind)`
+  (decision D-0055). The invariant this ADR cares about — one inbound row per conversation —
+  is preserved; a room may additionally carry one outbound binding per kind.
+
+The convergence of `SlackChannelConfig` onto `ChannelLink` anticipated above is now scheduled
+as the Slack poster's ratchet step (ADR-0075, V2).

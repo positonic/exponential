@@ -276,6 +276,7 @@ describe("matrixRoom.unbind", () => {
       where: {
         provider: "matrix",
         direction: "outbound",
+        kind: "meeting_summary",
         workspaceId: WORKSPACE,
         projectId: PROJECT,
       },
@@ -474,5 +475,108 @@ describe("matrixRoom.createRoom", () => {
       }),
     ).rejects.toThrow(/requires the owner or admin role/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("per-kind bindings (ADR-0075)", () => {
+  it("binds the workspace Decisions room without touching the meeting-summary default", async () => {
+    asWorkspaceRole("admin");
+    dbMock.channelLink.findFirst.mockResolvedValue(null as never);
+    dbMock.channelLink.create.mockResolvedValue({ id: "link-d", externalId: ROOM } as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await caller.matrixRoom.bind({
+      workspaceId: WORKSPACE,
+      projectId: null,
+      serverId: SERVER,
+      roomId: ROOM,
+      kind: "decision",
+    });
+
+    // The "already bound?" lookup and the create are both scoped to the kind.
+    expect(dbMock.channelLink.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ kind: "decision", projectId: null }) }),
+    );
+    expect(dbMock.channelLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: "decision", isActive: true }) }),
+    );
+  });
+
+  it("defaults to the meeting-summary kind so existing callers are unchanged", async () => {
+    asWorkspaceRole("admin");
+    dbMock.channelLink.findFirst.mockResolvedValue(null as never);
+    dbMock.channelLink.create.mockResolvedValue({ id: "link-m", externalId: ROOM } as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await caller.matrixRoom.bind({
+      workspaceId: WORKSPACE,
+      projectId: null,
+      serverId: SERVER,
+      roomId: ROOM,
+    });
+
+    expect(dbMock.channelLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: "meeting_summary" }) }),
+    );
+  });
+
+  it("still requires owner/admin for the workspace Decisions room", async () => {
+    asWorkspaceRole("member");
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await expect(
+      caller.matrixRoom.bind({
+        workspaceId: WORKSPACE,
+        projectId: null,
+        serverId: SERVER,
+        roomId: ROOM,
+        kind: "decision",
+      }),
+    ).rejects.toThrow();
+    expect(dbMock.channelLink.create).not.toHaveBeenCalled();
+  });
+
+  it("reads one kind's binding without returning the other's", async () => {
+    asWorkspaceRole("member");
+    dbMock.channelLink.findFirst.mockResolvedValue(null as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    const result = await caller.matrixRoom.getBinding({
+      workspaceId: WORKSPACE,
+      projectId: PROJECT,
+      kind: "decision",
+    });
+
+    expect(result.mode).toBe("inherit");
+    for (const call of dbMock.channelLink.findFirst.mock.calls) {
+      expect((call[0] as { where: { kind?: string } }).where.kind).toBe("decision");
+    }
+  });
+
+  it("switches decisions Off for a project independently of meeting summaries", async () => {
+    asProjectOwner();
+    dbMock.channelLink.findFirst.mockResolvedValue(null as never);
+    dbMock.channelLink.create.mockResolvedValue({ id: "off-d" } as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await caller.matrixRoom.setOff({ workspaceId: WORKSPACE, projectId: PROJECT, kind: "decision" });
+
+    expect(dbMock.channelLink.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ kind: "decision", isActive: false, projectId: PROJECT }),
+      }),
+    );
+  });
+
+  it("unbinds only the named kind", async () => {
+    asProjectOwner();
+    dbMock.channelLink.deleteMany.mockResolvedValue({ count: 1 } as never);
+
+    const caller = createMockCaller({ userId: USER, db: dbMock });
+    await caller.matrixRoom.unbind({ workspaceId: WORKSPACE, projectId: PROJECT, kind: "decision" });
+
+    expect(dbMock.channelLink.deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ kind: "decision" }) }),
+    );
   });
 });

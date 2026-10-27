@@ -679,6 +679,14 @@ model ChannelLink {
   // the default, so the ADR-0023 summarization path is untouched.
   direction String @default("inbound") // "inbound" | "outbound"
 
+  // Which producer's content flows through an outbound row: "meeting_summary" (the
+  // default, so every pre-existing binding keeps its meaning) | "decision" |
+  // "workspace_update" | "agenda". The project tri-state (Inherit / Room / Off) and the
+  // workspace default are per kind, so a project can route decisions to one room and
+  // meeting summaries to another, or switch one off without the other. Inbound rows
+  // carry the default and never read it. See ADR-0075.
+  kind String @default("meeting_summary")
+
   // For outbound rows, the registered server to send through. Null for inbound rows,
   // which are attributed by the gateway that received them rather than by credential.
   serverIntegrationId String?
@@ -686,19 +694,68 @@ model ChannelLink {
 
   workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project     Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdBy   User?           @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  matrixPosts MatrixPostLog[]
+  createdBy     User?           @relation("ChannelLinkCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  matrixPosts   MatrixPostLog[]
+  outboundPosts OutboundPost[]
 
-  // Kept as-is for V1. Consequence: a workspace default and a project override cannot
-  // name the same room. That is a recorded open decision on the feature, not an
-  // oversight — do not relax it without deciding it.
-  @@unique([provider, externalId])
+  // One inbound row per conversation (ADR-0023's routing invariant), and one outbound
+  // row per (room, kind): a room can carry decisions for one scope and meeting
+  // summaries for another. It still cannot be bound for the same kind at two scopes —
+  // Inherit covers that. Decision D-0055 (2026-10-27) relaxed this from
+  // (provider, externalId).
+  @@unique([provider, externalId, direction, kind])
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
   @@index([projectId, direction])
   @@index([workspaceId, direction])
+  @@index([projectId, direction, kind])
+  @@index([workspaceId, direction, kind])
   @@index([serverIntegrationId])
+}
+
+/// One delivery of a producer's content to one outbound destination (a room or a
+/// channel): the destination-keyed sibling of `Notification` (ADR-0045). A post has
+/// no recipient set — its audience is wherever the `ChannelLink` points. Producers
+/// (decisions first; meeting summaries, Workspace updates and agendas later) insert
+/// `pending` rows and never contact a provider; one poster per provider delivers and
+/// the notification cron retries. `pending` → `sent` | `failed` | `cancelled`.
+/// See ADR-0075.
+model OutboundPost {
+  id          String @id @default(cuid())
+  workspaceId String
+  /// Which producer: "decision" | "meeting_summary" | "workspace_update" | "agenda".
+  kind        String
+  /// The producer's row id (a Decision id for kind "decision").
+  subjectId   String
+  /// What happened to the subject: "published" | "accepted" | "superseded" | …
+  event       String
+  channelLinkId String
+  /// Denormalised from the link at enqueue, so an unbind cannot orphan the history.
+  provider            String
+  externalId          String
+  serverIntegrationId String?
+  status     String    @default("pending")
+  attempts   Int       @default(0)
+  /// Lease: set when an attempt claims the row; a lapsed lease is retried.
+  attemptAt  DateTime?
+  lastError  String?
+  /// The provider's id for the delivered message (a Matrix event id).
+  providerEventId String?
+  sentAt          DateTime?
+  /// The person whose act caused the post (never an agent — agents never cause posts).
+  requestedById   String?
+  createdAt       DateTime  @default(now())
+
+  channelLink ChannelLink @relation(fields: [channelLinkId], references: [id], onDelete: Cascade)
+
+  /// A double enqueue is a no-op: at most one post per (subject, event, destination).
+  @@unique([kind, subjectId, event, channelLinkId])
+  /// The sweep's scan.
+  @@index([status, attemptAt])
+  /// "Posted to …" lines on the subject's page.
+  @@index([kind, subjectId])
+  @@index([workspaceId])
 }
 
 /// One row per successful post of a meeting summary into a Matrix room.
