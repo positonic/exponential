@@ -164,8 +164,8 @@ export function KeyResultsTable({ rows, onRowClick }: KeyResultsTableProps) {
                   </Text>
                 </Group>
               </Table.Td>
-              <Table.Td className="whitespace-nowrap">
-                <Badge size="sm" variant="light" color={badge.color}>
+              <Table.Td miw={120} className="whitespace-nowrap">
+                <Badge size="sm" variant="light" color={badge.color} styles={{ label: { overflow: "visible" } }}>
                   {badge.label}
                 </Badge>
               </Table.Td>
