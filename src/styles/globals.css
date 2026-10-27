@@ -96,9 +96,9 @@
     /* Links. Inline text links are NOT the brand fill: a mid-blue that
        works as a button background sinks to ~3:1 on a dark surface. Light
        keeps the brand blue; the dark block below lifts it two tuple stops. */
-    --color-link: #1F5DE0;
+    --color-link-rgb: 31 93 224;        /* #1F5DE0 - single source; edit this */
+    --color-link: rgb(var(--color-link-rgb));
     --color-link-hover: #1A4EC4;
-    --color-link-rgb: 31 93 224;        /* #1F5DE0, for `decoration-link/40` */
 
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
@@ -330,9 +330,9 @@
 
     /* Links - DARK themes (navy + slate). Brand tuple stops 3 and 2:
        7.2:1 on slate, 7.9:1 on navy. */
-    --color-link: #7BA7FF;
+    --color-link-rgb: 123 167 255;      /* #7BA7FF - single source; edit this */
+    --color-link: rgb(var(--color-link-rgb));
     --color-link-hover: #A8C5FF;
-    --color-link-rgb: 123 167 255;      /* #7BA7FF */
 
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
