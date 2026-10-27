@@ -1813,3 +1813,91 @@ describe("decision router — accept, confirm-with-status, label lookup", () => 
     });
   });
 });
+
+// Outbound posts (ADR-0075): each human act kicks delivery for the decision once the
+// response is sent. `after()` throws outside a request scope, so run the callback
+// inline; the kick itself is stubbed (it would deliver through a real poster).
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  after: (cb: () => unknown) => {
+    void Promise.resolve(cb()).catch(() => undefined);
+  },
+}));
+const { kickOutboundPostsForSubjectMock } = vi.hoisted(() => ({
+  kickOutboundPostsForSubjectMock: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("~/server/services/outboundPosts/deliver", () => ({
+  kickOutboundPostsForSubject: kickOutboundPostsForSubjectMock,
+}));
+
+describe("outbound posts kick (ADR-0075)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.workspaceActivityEvent.create.mockResolvedValue({} as never);
+    db.user.findUnique.mockResolvedValue({ id: USER_ID, isAgent: false } as never);
+    kickOutboundPostsForSubjectMock.mockClear();
+  });
+
+  it("setStatus kicks delivery for the decision", async () => {
+    withWorkspaceRole(db, "member");
+    const row = {
+      id: "dec-1",
+      workspaceId: WORKSPACE_ID,
+      number: 1,
+      statement: "Use tRPC",
+      status: "PROPOSED",
+      reviewState: "CONFIRMED",
+      decidedAt: null,
+      supersededById: null,
+      source: "MANUAL",
+      transcriptionSessionId: null,
+      transcriptionSession: null,
+      projectId: null,
+      deciders: [],
+    };
+    db.decision.findFirst.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(args.where.id === row.id ? row : null)) as never);
+    db.decision.findUnique.mockResolvedValue(row as never);
+    db.decision.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...row, ...args.data, supersededBy: null })) as never);
+
+    await caller(db).decision.setStatus({ workspaceId: WORKSPACE_ID, decisionId: "dec-1", status: "ACCEPTED" });
+
+    expect(kickOutboundPostsForSubjectMock).toHaveBeenCalledWith(db, { kind: "decision", subjectId: "dec-1" });
+  });
+
+  it("outboundPosts lists where a decision went, by room name, and never more", async () => {
+    withWorkspaceRole(db, "member");
+    db.decision.findFirst.mockResolvedValue({
+      id: "dec-1",
+      workspaceId: WORKSPACE_ID,
+      reviewState: "CONFIRMED",
+      transcriptionSessionId: null,
+      transcriptionSession: null,
+      projectId: null,
+      createdById: USER_ID,
+    } as never);
+    db.outboundPost.findMany.mockResolvedValue([
+      {
+        id: "post-1",
+        event: "published",
+        provider: "matrix",
+        externalId: "!leadership:example.org",
+        status: "sent",
+        sentAt: new Date("2026-10-27T12:00:00Z"),
+        createdAt: new Date("2026-10-27T11:59:00Z"),
+        channelLink: { displayName: "leadership" },
+      },
+    ] as never);
+
+    const rows = await caller(db).decision.outboundPosts({ workspaceId: WORKSPACE_ID, decisionId: "dec-1" });
+
+    expect(rows).toEqual([
+      expect.objectContaining({ id: "post-1", provider: "matrix", status: "sent", roomName: "leadership" }),
+    ]);
+    expect(Object.keys(rows[0]!)).not.toContain("channelLink");
+  });
+});
