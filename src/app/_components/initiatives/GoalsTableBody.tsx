@@ -355,9 +355,13 @@ function InitiativeRow({
         )}
       </Table.Td>
 
-      {/* Initiative Health */}
+      {/* Initiative Health — ADR-0004: a manual override wins over the auto
+          cache, the same reading the Health filter buckets rows by. */}
       <Table.Td>
-        <HealthCell health={goal.health} updatedAt={goal.healthUpdatedAt} />
+        <HealthCell
+          health={goal.healthOverride ?? goal.health}
+          updatedAt={goal.healthUpdatedAt}
+        />
       </Table.Td>
 
       {/* Active Projects */}
