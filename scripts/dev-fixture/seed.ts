@@ -26,6 +26,10 @@ export const FIXTURE = {
   workspaceName: "Dev Fixture",
   otherWorkspaceSlug: "dev-fixture-other",
   otherWorkspaceName: "Dev Fixture Other",
+  /** A `personal` workspace: OKR features off, so "Goals" wording and no OKR views. */
+  personalWorkspaceSlug: "dev-fixture-personal",
+  personalWorkspaceName: "Dev Fixture Personal",
+  personalGoalTitle: "Run a marathon (personal fixture goal)",
   // Deliberately unlike anything in the main workspace, so a search for it
   // returning nothing is proof that scoping held.
   otherWorkspaceActionName: "Zarquon cross-workspace beacon",
@@ -105,6 +109,8 @@ export interface SeededFixture {
   otherWorkspaceName: string;
   /** Action living only in `otherWorkspaceSlug`. */
   otherWorkspaceActionName: string;
+  /** The fixture user's personal workspace (type `personal`, OKR features off). */
+  personalWorkspaceSlug: string;
   productSlug: string;
   featureId: string;
   /** App-relative URL of the seeded feature's detail page. */
@@ -281,6 +287,44 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "owner" },
     create: { userId: user.id, workspaceId: otherWorkspace.id, role: "owner" },
   });
+
+  // A personal workspace, for everything the terminology hook trims when OKR
+  // features are off (the Goals page offers Table and Timeline only, says
+  // "Goals", and narrates no KR attainment). One active goal, no period.
+  const personalWorkspace = await db.workspace.upsert({
+    where: { slug: FIXTURE.personalWorkspaceSlug },
+    update: { type: "personal", enableKeyResults: null },
+    create: {
+      slug: FIXTURE.personalWorkspaceSlug,
+      name: FIXTURE.personalWorkspaceName,
+      type: "personal",
+      ownerId: user.id,
+    },
+  });
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: user.id, workspaceId: personalWorkspace.id } },
+    update: { role: "owner" },
+    create: { userId: user.id, workspaceId: personalWorkspace.id, role: "owner" },
+  });
+  const existingPersonalGoal = await db.goal.findFirst({
+    where: { userId: user.id, title: FIXTURE.personalGoalTitle },
+  });
+  if (existingPersonalGoal) {
+    await db.goal.update({
+      where: { id: existingPersonalGoal.id },
+      data: { workspaceId: personalWorkspace.id, status: "active" },
+    });
+  } else {
+    await db.goal.create({
+      data: {
+        title: FIXTURE.personalGoalTitle,
+        status: "active",
+        userId: user.id,
+        driUserId: user.id,
+        workspaceId: personalWorkspace.id,
+      },
+    });
+  }
 
   const existingOtherAction = await db.action.findFirst({
     where: { workspaceId: otherWorkspace.id, name: FIXTURE.otherWorkspaceActionName },
@@ -1085,6 +1129,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     otherWorkspaceSlug: FIXTURE.otherWorkspaceSlug,
     otherWorkspaceName: FIXTURE.otherWorkspaceName,
     otherWorkspaceActionName: FIXTURE.otherWorkspaceActionName,
+    personalWorkspaceSlug: FIXTURE.personalWorkspaceSlug,
     productSlug: FIXTURE.productSlug,
     featureId: feature.id,
     featureUrl: `${base}/features/${feature.id}`,

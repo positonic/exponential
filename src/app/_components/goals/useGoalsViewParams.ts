@@ -86,6 +86,19 @@ function isGoalsPageView(value: string | null): value is GoalsPageView {
   return (GOALS_PAGE_VIEWS as readonly string[]).includes(value ?? "");
 }
 
+export interface ParseGoalsViewOptions {
+  now?: Date;
+  /**
+   * Whether the OKRs and Key results views exist here. Off in workspaces
+   * whose terminology hides OKR features (a personal workspace without key
+   * results switched on): a URL asking for either falls back to the Table
+   * view and is rewritten, like a retired encoding.
+   */
+  allowOkrViews?: boolean;
+}
+
+const OKR_VIEWS: readonly GoalsPageView[] = ["okrs", "key-results"];
+
 /**
  * Read the Goals page's state from its query string.
  *
@@ -96,8 +109,9 @@ function isGoalsPageView(value: string | null): value is GoalsPageView {
  */
 export function parseGoalsViewParams(
   params: URLSearchParams,
-  now: Date = new Date(),
+  options: ParseGoalsViewOptions = {},
 ): GoalsPageParams {
+  const { now = new Date(), allowOkrViews = true } = options;
   const defaults = goalsPageDefaults(now);
 
   const rawView = params.get(GOALS_VIEW_PARAM);
@@ -111,13 +125,18 @@ export function parseGoalsViewParams(
   const legacyTab =
     rawTab === "goals" || rawTab === "okrs" || rawTab === "my-goals";
   const legacyTimelinePeriod = rawPeriod === "Timeline";
-  const isLegacy = rawTab !== null || legacyTimelinePeriod;
 
   let view: GoalsPageView = isGoalsPageView(rawView) ? rawView : defaults.view;
   if (legacyTab && !isGoalsPageView(rawView)) {
     view = rawTab === "goals" ? "table" : "okrs";
   }
   if (legacyTimelinePeriod || rawView === "timeline") view = "timeline";
+
+  const unavailableOkrView = !allowOkrViews && OKR_VIEWS.includes(view);
+  if (unavailableOkrView) view = defaults.view;
+
+  const isLegacy =
+    rawTab !== null || legacyTimelinePeriod || unavailableOkrView;
 
   const period: GoalsPagePeriod = isGoalsPagePeriod(rawPeriod)
     ? rawPeriod
@@ -174,27 +193,30 @@ export function effectivePeriodOf(
   return period === "all" ? null : `${period}-${year}`;
 }
 
-export function useGoalsViewParams() {
+export function useGoalsViewParams(
+  options: Pick<ParseGoalsViewOptions, "allowOkrViews"> = {},
+) {
+  const { allowOkrViews = true } = options;
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
 
   const parsed = useMemo(
-    () => parseGoalsViewParams(searchParams),
-    [searchParams],
+    () => parseGoalsViewParams(searchParams, { allowOkrViews }),
+    [searchParams, allowOkrViews],
   );
 
   const write = useCallback(
     (patch: Partial<GoalsPageState>) => {
-      const current = parseGoalsViewParams(searchParams);
+      const current = parseGoalsViewParams(searchParams, { allowOkrViews });
       const next = applyGoalsViewParams(searchParams, { ...current, ...patch });
       const qs = next.toString();
       startTransition(() => {
         router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
       });
     },
-    [searchParams, router, pathname, startTransition],
+    [searchParams, allowOkrViews, router, pathname, startTransition],
   );
 
   // Rewrite retired encodings once so the address bar (and anything copied
@@ -249,7 +271,8 @@ export function useGoalsViewParams() {
     effectivePeriod: effectivePeriodOf(parsed.period, parsed.year),
     isPending,
     /**
-     * A retired URL is still being rewritten. Callers should hold off
+     * A retired URL (or a view this workspace does not offer) is still being
+     * rewritten. Callers should hold off
      * mounting children until it clears: the bodies below run their own
      * `router.replace` effects (filter restore, debounced `?q=`), and the
      * rewrite flushing last would discard whatever they just wrote.

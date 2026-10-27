@@ -155,6 +155,17 @@ export function GoalsPage() {
   const terminology = useTerminology();
   const pathname = usePathname();
   const utils = api.useUtils();
+  // A workspace that hides OKR features (a personal one without key results
+  // switched on) offers Table and Timeline only; a URL asking for the OKR
+  // views falls back to Table.
+  const allowOkrViews = terminology.showOkrFeatures;
+  const viewOptions = useMemo(
+    () =>
+      allowOkrViews
+        ? VIEW_OPTIONS
+        : VIEW_OPTIONS.filter((o) => o.value === "table" || o.value === "timeline"),
+    [allowOkrViews],
+  );
   const {
     view,
     period,
@@ -169,7 +180,7 @@ export function GoalsPage() {
     setOnlyMine,
     openDrawer,
     closeDrawer,
-  } = useGoalsViewParams();
+  } = useGoalsViewParams({ allowOkrViews });
 
   // The cards pace against a real period; on All that is the selected year.
   const pacePeriod = effectivePeriod ?? `Annual-${year}`;
@@ -483,6 +494,8 @@ export function GoalsPage() {
           onlyMine={onlyMine}
           stats={statsQuery.data}
           goalsLabel={terminology.goals}
+          // No key results here, so no "reached X% of its KR targets".
+          showAttainment={allowOkrViews}
         />
 
         <GoalsControls
@@ -492,7 +505,7 @@ export function GoalsPage() {
           availableYears={availableYears}
           onYearChange={setYear}
           view={activeView}
-          viewOptions={VIEW_OPTIONS}
+          viewOptions={viewOptions}
           onViewChange={setView}
           onlyMine={onlyMine}
           onOnlyMineChange={setOnlyMine}
