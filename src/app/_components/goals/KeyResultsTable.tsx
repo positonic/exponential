@@ -101,24 +101,29 @@ export function KeyResultsTable({ rows, onRowClick }: KeyResultsTableProps) {
         {sortedRows.map((row) => {
           const badge = CONFIDENCE_BADGE[row.confidence];
           return (
+            // The row keeps its native table semantics; the key result's
+            // title is the control that opens the drawer, so keyboard and
+            // screen-reader users get one named, focusable target per row.
+            // Clicking anywhere on the row works too, for the mouse.
             <Table.Tr
               key={row.id}
               className="cursor-pointer hover:bg-surface-hover transition-colors"
               data-key-result-id={row.id}
-              role="button"
-              tabIndex={0}
               onClick={() => onRowClick(row)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onRowClick(row);
-                }
-              }}
             >
               <Table.Td>
-                <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
-                  {row.title}
-                </Text>
+                <UnstyledButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRowClick(row);
+                  }}
+                  className="rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus"
+                  aria-label={`Open key result: ${row.title}`}
+                >
+                  <Text size="sm" fw={500} className="text-text-primary" lineClamp={2}>
+                    {row.title}
+                  </Text>
+                </UnstyledButton>
               </Table.Td>
               <Table.Td>
                 <Text size="sm" className="text-text-secondary" lineClamp={1}>
