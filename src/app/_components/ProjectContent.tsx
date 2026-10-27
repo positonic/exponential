@@ -926,6 +926,19 @@ export function ProjectContent({
                     projectId={resolvedProjectId}
                   />
                 )}
+                <Text size="sm" className="text-text-secondary" mt="xs">
+                  Decisions → Matrix. Posted when a person confirms, accepts or
+                  supersedes one of this project&apos;s decisions; agent drafts never
+                  post. Off keeps them out of Matrix even when the workspace has a
+                  decisions room.
+                </Text>
+                {workspaceId && resolvedProjectId && (
+                  <MatrixRoomBinding
+                    workspaceId={workspaceId}
+                    projectId={resolvedProjectId}
+                    kind="decision"
+                  />
+                )}
               </Stack>
             </Card>
           </Stack>

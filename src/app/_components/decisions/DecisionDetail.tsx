@@ -22,6 +22,7 @@ import { DecisionScopePanel } from "~/app/_components/decisions/DecisionScopePan
 import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
 import { DraftAdrButton } from "~/app/_components/decisions/DraftAdrModal";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { relativeTime } from "~/app/_components/home/activity/activityRow";
 import { DetailPreview, decisionStatusBadge, type PeekPreview } from "./DetailPreview";
 import {
   evidenceHref,
@@ -69,6 +70,13 @@ export function DecisionDetail({
     { workspaceId, decisionId },
     { enabled: !!workspaceId && !!decisionId },
   );
+  // Where this decision has been posted (ADR-0075). Read only once the decision itself
+  // has loaded, since the read is gated on viewing it.
+  const { data: outboundPosts } = api.decision.outboundPosts.useQuery(
+    { workspaceId, decisionId },
+    { enabled: !!workspaceId && !!decisionId && !!decision },
+  );
+  const sentPosts = (outboundPosts ?? []).filter((post) => post.status === "sent");
   const router = useRouter();
   const utils = api.useUtils();
   const onReviewError = (error: { message: string }) =>
@@ -252,6 +260,12 @@ export function DecisionDetail({
             Owner: {decision.owner.name ?? decision.owner.email}
           </Text>
         ) : null}
+        {sentPosts.map((post) => (
+          <Text key={post.id} size="xs" className="text-text-muted">
+            Posted to {post.roomName}
+            {post.sentAt ? ` · ${relativeTime(new Date(post.sentAt))}` : ""}
+          </Text>
+        ))}
         {decision.supersededBy ? (
           <Text size="sm" className="text-text-secondary">
             Superseded by{" "}
