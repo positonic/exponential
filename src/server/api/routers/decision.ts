@@ -882,8 +882,11 @@ export const decisionRouter = createTRPCRouter({
         actorIsAgent: isAgentActorToken(ctx.tokenType),
       });
       await settleDraftReviewAfter(ctx.db, subject);
-      // The confirmed row — the resolution target when the draft resolved one.
+      // A plain confirm emits for the confirmed row; a resolution draft emits for its
+      // target, which is what the service returns. Kick both ids when they differ so
+      // neither depends on a later act (the sweep would catch it, but not promptly).
       kickDecisionPosts(ctx.db, decision.id);
+      if (decision.id !== subject.id) kickDecisionPosts(ctx.db, subject.id);
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
 

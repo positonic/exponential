@@ -106,6 +106,28 @@ describe("renderDecisionMessage", () => {
   });
 });
 
+describe("renderDecisionMessage markdown safety", () => {
+  it("cannot be broken out of by a crafted decider name", () => {
+    const m = renderDecisionMessage(
+      subject({
+        deciders: [
+          { userId: "user-james", name: "James](https://phish.example)" },
+          { userId: null, name: "*Pat* [NRC]" },
+        ],
+      }),
+      "published",
+      ctx({ "user-james": "@james:example.org" }),
+    );
+
+    expect(m.markdown).toContain("[James\\]\\(https://phish.example\\)](https://matrix.to/#/%40james%3Aexample.org)");
+    expect(m.markdown).toContain("\\*Pat\\* \\[NRC\\]");
+    expect(m.markdown).not.toContain("](https://phish.example)");
+    // The HTML and plain-text twins keep the names readable.
+    expect(m.html).toContain("James](https://phish.example)");
+    expect(m.text).toContain("*Pat* [NRC]");
+  });
+});
+
 describe("decisionEventForStatus", () => {
   it("maps the posting statuses and nothing else", () => {
     expect(decisionEventForStatus("ACCEPTED")).toBe("accepted");

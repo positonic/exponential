@@ -65,6 +65,14 @@ export function decisionStatusLabel(subject: Pick<DecisionSubject, "status" | "s
   }
 }
 
+/**
+ * Decider names are free text (external participants, agent drafts), so in the
+ * Markdown twin they must not be able to close a link or open a new one.
+ */
+function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_[\]()<>#]/g, (ch) => `\\${ch}`);
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -112,7 +120,11 @@ export function renderDecisionMessage(
     )
     .join(", ");
   const decidersMarkdown = deciders
-    .map((d) => (d.identity ? `[${d.name}](https://matrix.to/#/${encodeURIComponent(d.identity)})` : d.name))
+    .map((d) =>
+      d.identity
+        ? `[${escapeMarkdown(d.name)}](https://matrix.to/#/${encodeURIComponent(d.identity)})`
+        : escapeMarkdown(d.name),
+    )
     .join(", ");
 
   const html = [

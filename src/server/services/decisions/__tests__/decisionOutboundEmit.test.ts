@@ -136,6 +136,40 @@ describe("decision service → outbound posts", () => {
     ]);
   });
 
+  it("a resolution draft emits the transition for its target, not for the draft", async () => {
+    const target = {
+      ...CONFIRMED,
+      id: "open-1",
+      number: 2,
+      status: "OPEN",
+      body: null,
+      evidence: [],
+      transcriptionSession: null,
+    };
+    const draft = {
+      ...CONFIRMED,
+      id: "draft-1",
+      number: 9,
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      supersededById: "open-1",
+      body: null,
+      evidence: [],
+      decidedAt: new Date("2026-10-27T00:00:00Z"),
+    };
+    db.decision.findFirst.mockResolvedValueOnce(draft as never).mockResolvedValueOnce(target as never);
+    db.$transaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(db)) as never);
+    db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
+    db.decision.update.mockResolvedValue({ ...target, status: "ACCEPTED", supersededBy: null } as never);
+
+    const result = await confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: USER });
+
+    expect(result.id).toBe("open-1");
+    expect(emitOutboundPost.mock.calls.map((c) => c[1])).toEqual([
+      expect.objectContaining({ subjectId: "open-1", event: "accepted", actorIsAgent: false }),
+    ]);
+  });
+
   it("a failing emit never fails the write", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     emitOutboundPost.mockRejectedValue(new Error("emit exploded"));
