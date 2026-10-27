@@ -51,6 +51,8 @@ export const FIXTURE = {
   detachedChildGoalTitle: "Sub-goal whose parent is off-project",
   /** A completed objective in `okrPeriod`, so the Goals page Status filter has something to remove. */
   completedGoalTitle: "Completed fixture objective (status filter)",
+  /** Its one key result, so the Key results view's Status filter is exercised end to end. */
+  completedKeyResultTitle: "Key result of the completed fixture objective",
   // Ceremonies (ADR-0059) and Decisions (ADR-0060): one Daily Standup, one
   // occurrence, a recorded meeting attached to it, one confirmed decision.
   ceremonySlug: "daily-standup",
@@ -687,13 +689,38 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     displayOrder: 3,
   });
 
-  await upsertGoal(FIXTURE.completedGoalTitle, {
+  const completedGoal = await upsertGoal(FIXTURE.completedGoalTitle, {
     description: "Already completed — the Status filter on the Goals page removes it.",
     onProject: false,
     displayOrder: 4,
     status: "completed",
     period: FIXTURE.okrPeriod,
   });
+  const existingCompletedKr = await db.keyResult.findFirst({
+    where: { goalId: completedGoal.id, title: FIXTURE.completedKeyResultTitle },
+  });
+  if (existingCompletedKr) {
+    await db.keyResult.update({
+      where: { id: existingCompletedKr.id },
+      data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod, status: "achieved" },
+    });
+  } else {
+    await db.keyResult.create({
+      data: {
+        title: FIXTURE.completedKeyResultTitle,
+        targetValue: 100,
+        currentValue: 100,
+        startValue: 0,
+        unit: "percent",
+        status: "achieved",
+        period: FIXTURE.okrPeriod,
+        goalId: completedGoal.id,
+        userId: user.id,
+        driUserId: user.id,
+        workspaceId: workspace.id,
+      },
+    });
+  }
 
   // Matched on title alone (not workspaceId) so an orphaned goal is found and
   // re-homed rather than duplicated.

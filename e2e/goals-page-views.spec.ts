@@ -178,6 +178,83 @@ test("Timeline is a view of the same list, with a year axis on All", async ({ pa
   });
 });
 
+test("the Key results view lists the seeded KR with its objective, and a row opens the drawer", async ({ page }) => {
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}`);
+
+  const table = page.getByTestId("key-results-table");
+  await expect(table).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  const row = table.locator("tr", { hasText: FIXTURE.keyResultTitle }).first();
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(FIXTURE.objectiveTitle);
+  // Seeded at 40 of 100 percent.
+  await expect(row).toContainText("40%");
+  await expect(row).toContainText("40% / 100%");
+
+  // The header and the rest of the control line are the same as on every view.
+  await expect(page.getByTestId("goals-period-header")).toContainText(
+    `Objectives · ${okrPeriod} ${okrYear}`,
+  );
+
+  // Column headers sort client-side: the URL does not change.
+  const progressHeader = table.getByRole("columnheader", { name: /Progress/ });
+  await progressHeader.getByRole("button").click();
+  await expect(progressHeader).toHaveAttribute("aria-sort", "descending");
+  await progressHeader.getByRole("button").click();
+  await expect(progressHeader).toHaveAttribute("aria-sort", "ascending");
+  expect(params(page).get("sort")).toBeNull();
+
+  // The title is the keyboard target: focus it and press Enter.
+  await row.getByRole("button", { name: `Open key result: ${FIXTURE.keyResultTitle}` }).focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => params(page).get("drawer")).toMatch(/^keyResult:/);
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toContainText(FIXTURE.keyResultTitle);
+
+  await test.info().attach("key-results-view", {
+    body: await page.screenshot({ fullPage: false }),
+    contentType: "image/png",
+  });
+});
+
+test("Key results rows honour the Status filter and search like the other views", async ({ page }) => {
+  // Status is the parent objective's lifecycle: the completed objective's KR
+  // is the only row under status=completed, and the active objective's KR is
+  // not among them.
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}&status=completed`);
+  const completedRow = page
+    .getByTestId("key-results-table")
+    .locator("tr", { hasText: FIXTURE.completedKeyResultTitle });
+  await expect(completedRow).toHaveCount(1, { timeout: FIRST_PAINT_TIMEOUT });
+  await expect(page.getByText(FIXTURE.keyResultTitle)).toHaveCount(0);
+
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=${okrYear}&status=active`);
+  const table = page.getByTestId("key-results-table");
+  await expect(table.locator("tr", { hasText: FIXTURE.keyResultTitle })).toHaveCount(1, {
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+
+  // Search matches the objective's title as well as the key result's.
+  await page.getByRole("textbox", { name: "Search" }).fill(FIXTURE.objectiveTitle.slice(0, 20));
+  await expect(table.locator("tr", { hasText: FIXTURE.keyResultTitle })).toHaveCount(1);
+  await page.getByRole("textbox", { name: "Search" }).fill("zzz-no-such-key-result");
+  await expect(page.getByText("No key results match your search or filters.")).toBeVisible();
+});
+
+test("Key results view empty states: nothing in the period, and nothing of yours", async ({ page }) => {
+  // No fixture data lives in 2027.
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=2027`);
+  await expect(page.getByText("No key results in this period yet.")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  await expect(page.getByTestId("key-results-table")).toHaveCount(0);
+
+  await page.goto(`${goalsPath}?view=key-results&period=${okrPeriod}&year=2027&mine=1`);
+  await expect(page.getByText("None of this period's key results are yours.")).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+});
+
 test("a personal workspace offers Table and Timeline only, and ?view=okrs falls back to Table", async ({ page }) => {
   const personalPath = `/w/${fixture.personalWorkspaceSlug}/goals`;
   await page.goto(`${personalPath}?view=okrs&period=all`);

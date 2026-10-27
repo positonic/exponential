@@ -35,6 +35,12 @@ import { extractYearsFromPeriods } from "~/plugins/okr/client/utils/periodUtils"
 import { GoalsControls } from "./GoalsControls";
 import { GoalsPeriodHeader } from "./GoalsPeriodHeader";
 import { GOAL_FILTER_CONFIG, GOAL_FILTER_KEYS, filterGoalRows } from "./goalFilters";
+import { KeyResultsTable } from "./KeyResultsTable";
+import {
+  filterKeyResultRows,
+  flattenKeyResultRows,
+  type KeyResultRowData,
+} from "./keyResultRows";
 import {
   applyGoalsViewParams,
   useGoalsViewParams,
@@ -44,6 +50,7 @@ import {
 const VIEW_OPTIONS: { value: GoalsPageView; label: string }[] = [
   { value: "table", label: "Table" },
   { value: "okrs", label: "OKRs" },
+  { value: "key-results", label: "Key results" },
   { value: "timeline", label: "Timeline" },
 ];
 
@@ -197,11 +204,9 @@ export function GoalsPage() {
   // results with check-ins and executing work. Both scope by the same
   // server-side rule (objectiveScopeWhere), so switching view never changes
   // which objectives are in the list.
-  // `key-results` is in the URL grammar ahead of its view (V2 of the feature);
-  // until that view ships it reads as the OKRs view so the switcher and the
-  // data query always agree.
-  const activeView: GoalsPageView = view === "key-results" ? "okrs" : view;
-  const usesObjectives = activeView === "okrs" || activeView === "timeline";
+  const activeView: GoalsPageView = view;
+  const usesObjectives =
+    activeView === "okrs" || activeView === "key-results" || activeView === "timeline";
   const tableQuery = api.goal.getAllMyGoals.useQuery(
     {
       workspaceId: workspaceId ?? undefined,
@@ -275,6 +280,18 @@ export function GoalsPage() {
   const filteredObjectives = useMemo(
     () => filterGoalRows(objectives, filters, deferredSearchQuery),
     [objectives, filters, deferredSearchQuery],
+  );
+
+  // The Key results view is the same scoped list flattened to one row per KR
+  // (no procedure of its own — D-0041). Filters are read per key result —
+  // Owner is the KR's DRI, Health its own status — so the flatten starts
+  // from the unfiltered scope rather than from the objective-filtered list.
+  const keyResultRows = useMemo(
+    () =>
+      activeView === "key-results"
+        ? filterKeyResultRows(flattenKeyResultRows(objectives), filters, deferredSearchQuery)
+        : [],
+    [activeView, objectives, filters, deferredSearchQuery],
   );
 
   // Timeline is a rendering of the same list on a week axis. The axis is the
@@ -360,6 +377,11 @@ export function GoalsPage() {
     },
     [openDrawer],
   );
+
+  const handleViewKeyResultRow = (row: KeyResultRowData) => {
+    const source = objectives.flatMap((o) => o.keyResults).find((k) => k.id === row.id);
+    if (source) handleViewKeyResult(source);
+  };
 
   const handleViewKeyResult = useCallback(
     (kr: ObjectiveCardKeyResult) => {
@@ -456,7 +478,12 @@ export function GoalsPage() {
 
   const goalsPageContext = useMemo(() => {
     if (!workspaceId) return null;
-    const count = activeView === "table" ? filteredTableRows.length : filteredObjectives.length;
+    const count =
+      activeView === "table"
+        ? filteredTableRows.length
+        : activeView === "key-results"
+          ? keyResultRows.length
+          : filteredObjectives.length;
     return {
       pageType: "goals-list",
       pageTitle: terminology.goals,
@@ -468,6 +495,7 @@ export function GoalsPage() {
     activeView,
     filteredTableRows.length,
     filteredObjectives.length,
+    keyResultRows.length,
     terminology.goals,
     pathname,
     effectivePeriod,
@@ -572,6 +600,22 @@ export function GoalsPage() {
               )
             }
           />
+        ) : activeView === "key-results" ? (
+          objectivesQuery.isLoading ? (
+            <Skeleton height={320} />
+          ) : keyResultRows.length === 0 ? (
+            <div className="rounded-lg border border-border-primary bg-surface-secondary px-6 py-12 text-center">
+              <Text className="text-text-muted">
+                {isNarrowed
+                  ? "No key results match your search or filters."
+                  : onlyMine
+                    ? "None of this period's key results are yours."
+                    : "No key results in this period yet."}
+              </Text>
+            </div>
+          ) : (
+            <KeyResultsTable rows={keyResultRows} onRowClick={handleViewKeyResultRow} />
+          )
         ) : activeView === "timeline" ? (
           objectivesQuery.isLoading ? (
             <Skeleton height={320} />
