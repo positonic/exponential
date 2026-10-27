@@ -5,7 +5,7 @@ import { EditorContent, BubbleMenu, useEditor } from "@tiptap/react";
 import { RichTextEditor } from "@mantine/tiptap";
 import type { Editor, Extensions, JSONContent } from "@tiptap/core";
 import type { EditorView } from "@tiptap/pm/view";
-import { ActionIcon, Group, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Button, Group, Stack, Text, Tooltip } from "@mantine/core";
 import {
   IconColumnInsertLeft,
   IconColumnInsertRight,
@@ -152,17 +152,25 @@ export interface RichDocEditorProps {
   /** Members edit in place; everyone else gets a read-only render. */
   editable?: boolean;
   placeholder?: string;
-  /** Title + message for the stale-write conflict modal. */
-  conflict?: { title: string; message: string };
+  /**
+   * Title + message for the stale-write conflict modal. `keepMine` adds a
+   * third way out next to Reload: save this tab's content over the newer
+   * version, which stays in the document's history (ADR-0074). Hosts without
+   * history leave it unset and get the two-button modal.
+   */
+  conflict?: { title: string; message: string; keepMine?: boolean };
   /**
    * Persist a save. Returns the new stored `docVersion` so the engine can
    * advance its optimistic-concurrency base. Throw a tRPC CONFLICT to trigger
-   * the stale-write modal.
+   * the stale-write modal. `keptOver` is set when the person chose to keep
+   * their version over a newer one: the version they overrode, for the host
+   * to note on the revision.
    */
   onSave: (input: {
     doc: JSONContent;
     markdown: string;
     baseVersion: number;
+    keptOver?: number;
   }) => Promise<{ docVersion?: number } | undefined | void>;
   /** Persist the one-time lazy migration of legacy Markdown → ProseMirror JSON. */
   onInitDoc?: (doc: JSONContent) => void;
@@ -385,40 +393,86 @@ export function RichDocEditor({
   // reads the editor, content and version base at execution time, and never
   // rejects (errors surface via the conflict modal or an error notification
   // instead) — the queue relies on that.
+  // Set by "Keep my version": the next save goes out at the server's current
+  // version, overriding it, and tells the host which version it overrode.
+  const keepOverRef = useRef<number | null>(null);
   const saveRef = useRef<() => Promise<void>>(() => Promise.resolve());
   saveRef.current = () => {
     const editor = editorRef.current;
     if (!editor || editor.isDestroyed) return Promise.resolve();
     const json = editor.getJSON();
     const serialized = JSON.stringify(json);
-    if (serialized === lastSavedRef.current) return Promise.resolve();
+    const keptOver = keepOverRef.current;
+    keepOverRef.current = null;
+    if (keptOver === null && serialized === lastSavedRef.current) {
+      return Promise.resolve();
+    }
     const markdown = (
       editor.storage.markdown as { getMarkdown: () => string }
     ).getMarkdown();
-    return onSave({ doc: json, markdown, baseVersion: versionRef.current })
+    return onSave({
+      doc: json,
+      markdown,
+      baseVersion: versionRef.current,
+      ...(keptOver !== null ? { keptOver } : {}),
+    })
       .then((res) => {
         if (res && typeof res.docVersion === "number") {
           versionRef.current = res.docVersion;
         }
         lastSavedRef.current = serialized;
       })
-      .catch((err: { data?: { code?: string }; message?: string }) => {
+      .catch(
+        (err: {
+          data?: { code?: string; conflict?: { currentRevision?: number } };
+          message?: string;
+        }) => {
         if (err?.data?.code === "CONFLICT") {
           if (conflictShown.current) return;
           conflictShown.current = true;
-          modals.openConfirmModal({
+          const currentRevision = err.data?.conflict?.currentRevision;
+          const canKeepMine =
+            conflict?.keepMine === true && typeof currentRevision === "number";
+          const modalId = "richdoc-conflict";
+          const dismiss = () => {
+            conflictShown.current = false;
+            modals.close(modalId);
+          };
+          modals.open({
+            modalId,
             title: conflict?.title ?? "This document changed",
-            children: (
-              <Text size="sm">
-                {conflict?.message ??
-                  "Someone else saved a newer version. Reload to get the latest? Unsaved changes in this tab will be lost."}
-              </Text>
-            ),
-            labels: { confirm: "Reload", cancel: "Keep editing" },
-            onConfirm: () => window.location.reload(),
-            onCancel: () => {
+            onClose: () => {
               conflictShown.current = false;
             },
+            children: (
+              <Stack gap="md">
+                <Text size="sm">
+                  {conflict?.message ??
+                    "Someone else saved a newer version. Reload to get the latest? Unsaved changes in this tab will be lost."}
+                </Text>
+                <Group justify="flex-end" gap="sm">
+                  <Button variant="default" onClick={dismiss}>
+                    Keep editing
+                  </Button>
+                  {canKeepMine ? (
+                    <Button
+                      variant="light"
+                      onClick={() => {
+                        // Their version is already in history; ours goes on
+                        // top as a forward write at the current version.
+                        keepOverRef.current = currentRevision;
+                        versionRef.current = currentRevision;
+                        dismiss();
+                        void saveQueueRef.current.request();
+                      }}
+                    >
+                      Keep my version
+                    </Button>
+                  ) : null}
+                  <Button onClick={() => window.location.reload()}>Reload</Button>
+                </Group>
+              </Stack>
+            ),
           });
           return;
         }
@@ -433,7 +487,8 @@ export function RichDocEditor({
             "Your edits haven't been saved. Check your connection and try again.",
           color: "red",
         });
-      });
+      },
+      );
   };
 
   // All triggers (typing debounce, blur, flush) funnel through one queue so

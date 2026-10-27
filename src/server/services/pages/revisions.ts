@@ -99,6 +99,35 @@ export async function recordPageRevision(
   return { id: created.id, folded: false };
 }
 
+/**
+ * The editing session another author has open on this page, if any: their
+ * latest `editor` revision was touched inside the fold window, so their tab is
+ * autosaving right now. A Markdown write landing underneath would hand them a
+ * conflict on their next keystroke (ADR-0074).
+ */
+export async function findActiveEditingSession(
+  db: Db,
+  input: { pageId: string; excludingAuthorId: string; now?: Date },
+): Promise<{ userId: string; name: string | null; since: Date } | null> {
+  const now = input.now ?? new Date();
+  const latest = await db.knowledgePageRevision.findFirst({
+    where: {
+      pageId: input.pageId,
+      kind: "editor",
+      authorId: { not: input.excludingAuthorId },
+      updatedAt: { gte: new Date(now.getTime() - REVISION_FOLD_WINDOW_MS) },
+    },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      authorId: true,
+      createdAt: true,
+      author: { select: { name: true } },
+    },
+  });
+  if (!latest?.authorId) return null;
+  return { userId: latest.authorId, name: latest.author?.name ?? null, since: latest.createdAt };
+}
+
 export interface RevisionDiffStats {
   /** Lines present only in `to`. */
   added: number;

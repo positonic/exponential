@@ -4088,6 +4088,9 @@ export const mastraRouter = createTRPCRouter({
         note: z.string().optional(),
         source: z.string().nullish(),
         asOf: z.coerce.date().nullish(),
+        // Write even while someone else is mid-session in the editor. Only
+        // after the person has said so; the default is to wait (ADR-0074).
+        force: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4101,6 +4104,7 @@ export const mastraRouter = createTRPCRouter({
         note: input.note,
         source: input.source,
         asOf: input.asOf,
+        force: input.force,
       });
       // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
       // the metadata path and returns the full record (not the {id, docVersion}
