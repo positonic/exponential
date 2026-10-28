@@ -59,7 +59,8 @@ Vercel Cron where Vercel Cron does not exist.
 
 - Adding or changing a cron is still one `vercel.json` edit plus a route; self-host installs pick
   it up on the scheduler's next start.
-- The scheduler's timeout (`SCHEDULER_TIMEOUT_MS`, default 300 s) must stay at or above the
-  largest route `maxDuration` and the 270 s Mastra call ceiling, because `next start` does not
-  enforce `maxDuration`.
+- The scheduler's timeout (`SCHEDULER_TIMEOUT_MS`, default 300 s, the largest route
+  `maxDuration`) is the only bound on a stuck call, because `next start` does not enforce
+  `maxDuration`. The scheduler refuses to start with less than the 270 s Mastra call ceiling
+  that agent-runs waits on.
 - The scheduler image (V3) ships `vercel.json` and the two scheduler files, not the Next build.

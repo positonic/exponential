@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * The self-host scheduler is an HTTP clock over `vercel.json`'s `crons`
- * (PRD D8). These tests drive it through its two public seams — the plan it
+ * (ADR-0077). These tests drive it through its two public seams — the plan it
  * reads and the tick it fires — with an injected fake `fetch`, and assert what
  * an operator sees: which HTTP calls go out, and which line lands in the log.
  *
@@ -35,6 +35,16 @@ function fakeFetch(respond: (url: string, init?: RequestInit) => Promise<Respons
     return respond(url, init);
   };
   return { fetch: fetch as typeof globalThis.fetch, calls };
+}
+
+/** Responds with a network failure on the first call and 200 after that. */
+function failOnce() {
+  let attempt = 0;
+  return async () => {
+    attempt += 1;
+    if (attempt === 1) throw new TypeError("fetch failed");
+    return new Response(null, { status: 200 });
+  };
 }
 
 function harness(respond: (url: string, init?: RequestInit) => Promise<Response>, config = CONFIG) {
@@ -71,12 +81,7 @@ describe("tick", () => {
   });
 
   it("logs a thrown fetch error without rejecting, and the next tick still runs", async () => {
-    let attempt = 0;
-    const { tick, calls, lines } = harness(async () => {
-      attempt += 1;
-      if (attempt === 1) throw new TypeError("fetch failed");
-      return new Response(null, { status: 200 });
-    });
+    const { tick, calls, lines } = harness(failOnce());
 
     await expect(tick("/api/cron/agent-runs")).resolves.toBeUndefined();
     await tick("/api/cron/agent-runs");
@@ -144,12 +149,7 @@ describe("overlap guard", () => {
   });
 
   it("frees the path after a failed call", async () => {
-    let attempt = 0;
-    const { tick, calls } = harness(async () => {
-      attempt += 1;
-      if (attempt === 1) throw new TypeError("fetch failed");
-      return new Response(null, { status: 200 });
-    });
+    const { tick, calls } = harness(failOnce());
 
     await tick("/api/cron/agent-runs");
     await tick("/api/cron/agent-runs");
@@ -226,7 +226,7 @@ describe("readCronPlan", () => {
 });
 
 /**
- * Guard: `vercel.json` is the only place the schedule lives (PRD D8), so every
+ * Guard: `vercel.json` is the only place the schedule lives (ADR-0077), so every
  * cron route must have an entry there and every entry must have a route.
  * Without this, a new route deployed without a `crons` entry would never run —
  * on Vercel or self-hosted — and nothing would say so.
