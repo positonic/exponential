@@ -129,6 +129,33 @@ selects on `--status READY_TO_PLAN --label ai-fixable`, and Sentry files
 tickets as `BACKLOG`. A human moving the ticket to `READY_TO_PLAN` is what
 arms it — deliberate, since a raw stack trace is rarely a sufficient spec.
 
+## Product analytics (PostHog)
+
+Usage events, as opposed to errors, go to PostHog. They are captured **once, server-side**,
+by the analytics middleware on `protectedProcedure` (`src/server/api/trpc.ts`), so every
+client surface is covered without its own SDK. Decision:
+[ADR-0076](../docs/adr/0076-posthog-server-side-analytics.md).
+
+- **Event name** = procedure path (`action.create`). **Distinct id** = user id.
+- **Properties**: `procedure`, `type`, `surface`, `ok`, `error_code`, `duration_ms`. The
+  `surface` comes from the request's `tokenType` (`api`, `external-agent`, `assistant`,
+  `whatsapp`, `telegram`, `matrix`, `voice`, `browser-extension`, `native-app`) or, for
+  cookie sessions, `web` / `rsc` / `electron`. Person properties `first_seen_surface` and
+  `last_seen_surface` are set alongside.
+- **What is captured**: every mutation; queries only from non-browser surfaces. Inputs and
+  IPs never.
+- **Delivery**: events queue in memory and are flushed via `after()` in
+  `src/app/api/trpc/[trpc]/route.ts`, after the response but before Vercel freezes the
+  function.
+
+| Variable | Where | Notes |
+|---|---|---|
+| `POSTHOG_KEY` | Vercel production (preview optional) | Project API key. Unset = disabled. |
+| `POSTHOG_HOST` | Optional | Defaults to `https://eu.i.posthog.com`. |
+
+To see real events locally, put a project key in `.env.local`, run the dev server, perform a
+mutation and watch PostHog's Activity tab; the 10s periodic flush sends them.
+
 ## Other signals
 
 - **Vercel function logs** — tRPC internal errors are also `console.error`ed
