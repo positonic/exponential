@@ -11,3 +11,4 @@ export type { ListPageFilterPill } from './ListPageFilterPills';
 export { ListPageFilterPopover } from './ListPageFilterPopover';
 export type { ListPageFilterFacet, ListPageFilterOption } from './ListPageFilterPopover';
 export { PillSelect } from './PillSelect';
+export { ListPageChip } from './ListPageChip';
