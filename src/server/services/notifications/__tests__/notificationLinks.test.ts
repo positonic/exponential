@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 /**
- * Slack digests and notifications link back into the app. Production doesn't
- * set NEXT_PUBLIC_APP_URL, so these links must fall back to the public prod
- * URL (via getPublicBaseUrlFromEnv) — never to localhost.
+ * Slack digests and notifications link back into the app. Production runs on
+ * Vercel and doesn't set NEXT_PUBLIC_APP_URL, so these links must fall back to
+ * the public prod URL (via getPublicBaseUrlFromEnv) — never to localhost.
  */
 
 const { findUnique } = vi.hoisted(() => ({ findUnique: vi.fn() }));
@@ -72,11 +72,16 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   if (originalPublicAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
   else process.env.NEXT_PUBLIC_APP_URL = originalPublicAppUrl;
 });
 
-describe("notification links when NEXT_PUBLIC_APP_URL is unset", () => {
+describe("notification links on Vercel when NEXT_PUBLIC_APP_URL is unset", () => {
+  beforeEach(() => {
+    vi.stubEnv("VERCEL", "1");
+  });
+
   it("FeedbackDigestService links to the production URL", () => {
     expect(buttonUrls(feedbackBlocks())).toEqual([
       "https://www.exponential.im/admin/feedback",

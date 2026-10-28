@@ -1,22 +1,43 @@
 import { headers } from 'next/headers';
 
-const PROD_FALLBACK = 'https://www.exponential.im';
+/** exponential.im's own URL. Only ever returned on Vercel, where production runs. */
+const VERCEL_PRODUCTION_URL = 'https://www.exponential.im';
 
 function stripTrailingSlash(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+/** An env var's value, with unset and empty treated alike. */
+function readEnv(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.length > 0 ? value : undefined;
 }
 
 /**
  * Resolve the public base URL from environment config only.
  *
  * Safe in any context (build-time metadata, cron jobs, background workers,
- * email senders) because it never touches request headers. Reads
- * `NEXT_PUBLIC_APP_URL` and falls back to the production URL.
+ * email senders) because it never touches request headers. Resolution order:
+ *
+ * 1. `NEXT_PUBLIC_APP_URL`
+ * 2. `https://www.exponential.im`, but only on Vercel (`VERCEL` set)
+ * 3. `NEXTAUTH_URL`
+ * 4. `https://${RAILWAY_PUBLIC_DOMAIN}`
+ * 5. `http://localhost:${PORT ?? 3000}`
+ *
+ * An install that is not on Vercel never resolves to exponential.im. That is
+ * a security property, not a default: the agent-run dispatch kick POSTs
+ * `CRON_SECRET` to this URL.
  */
 export function getPublicBaseUrlFromEnv(): string {
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (envUrl && envUrl.length > 0) return stripTrailingSlash(envUrl);
-  return PROD_FALLBACK;
+  const appUrl = readEnv('NEXT_PUBLIC_APP_URL');
+  if (appUrl) return stripTrailingSlash(appUrl);
+  if (readEnv('VERCEL')) return VERCEL_PRODUCTION_URL;
+  const authUrl = readEnv('NEXTAUTH_URL');
+  if (authUrl) return stripTrailingSlash(authUrl);
+  const railwayDomain = readEnv('RAILWAY_PUBLIC_DOMAIN');
+  if (railwayDomain) return `https://${railwayDomain}`;
+  return `http://localhost:${readEnv('PORT') ?? '3000'}`;
 }
 
 /**
