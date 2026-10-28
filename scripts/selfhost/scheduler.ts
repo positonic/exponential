@@ -7,7 +7,8 @@
  * `GET ${SCHEDULER_TARGET_URL}${path}` with `Authorization: Bearer ${CRON_SECRET}`.
  * It runs no business logic; the routes do the work and the auth.
  *
- * exponential.im keeps Vercel Cron — this is never deployed there.
+ * exponential.im keeps Vercel Cron — this is never deployed there. Why a clock
+ * and not a worker, and how that squares with ADR-0045: ADR-0077.
  *
  *   CRON_SECRET=… SCHEDULER_TARGET_URL=http://localhost:3000 npm run scheduler:selfhost
  *
