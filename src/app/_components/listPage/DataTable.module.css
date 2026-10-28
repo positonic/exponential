@@ -166,3 +166,71 @@
   color: var(--color-text-muted);
   font-size: 14px;
 }
+
+/* ── static value chip (ListPageChip): PillSelect's look, read-only ── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ── list variant: one-line rows without columns (Backlog › List) ──
+   Same gutters, type size, dividers and hover as .tableRow, so switching
+   between Table and List changes density, not look. */
+.list {
+  flex: 1;
+  overflow: auto;
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 32px;
+  border-bottom: 1px solid var(--color-border-secondary);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background 80ms;
+}
+
+.listRow:hover {
+  background: var(--color-bg-secondary);
+}
+
+.listRow[data-selected='true'] {
+  background: var(--color-bg-hover);
+}
+
+.listGroupRow {
+  display: flex;
+  align-items: center;
+  padding: 16px 32px 8px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* The row's flexible middle: title, then its muted metadata, both truncating. */
+.listTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.listMeta {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

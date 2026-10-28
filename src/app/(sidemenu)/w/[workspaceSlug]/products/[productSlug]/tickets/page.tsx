@@ -75,6 +75,7 @@ import {
   ListPageButton,
   ListPagePrimaryButton,
   ListPageFilterPills,
+  ListPageChip,
   ListPageFilterPopover,
   PillSelect,
 } from "~/app/_components/listPage";
@@ -96,6 +97,7 @@ import {
   parseSavedTicketFilters,
   TICKET_FILTER_FACETS,
   TICKET_TYPE_COLORS,
+  TICKET_TYPE_LABELS,
   TICKET_TYPE_OPTIONS,
   ticketFacetPillColor,
   ticketFacetPillLabel,
@@ -827,82 +829,137 @@ export default function TicketsBacklogPage() {
       ? nestTicketsByDependency(items, collapsedNodes).map((r) => render(r.ticket, r))
       : items.map((t) => render(t));
 
-  // List item renderer (compact, no table)
-  const renderListItem = (ticket: (typeof sorted)[number], nested?: NestedRow) => (
-    <div
-      key={nested?.rowKey ?? ticket.id}
-      data-depth={nested?.depth}
-      className={`group/row flex items-center gap-3 px-8 py-2 transition-colors cursor-pointer border-b border-border-primary ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
-      style={nested ? { paddingLeft: 32 + nested.depth * NEST_INDENT } : undefined}
-      {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
-    >
-      <SelectSlot
-        className="w-14 shrink-0"
-        selected={sel.isSelected(ticket.id)}
-        onToggle={() => sel.toggle(ticket.id)}
-        onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+  // List item renderer: the compact one-line counterpart of the table row.
+  // Same row look (DataTable's list variant); values are read-only chips here
+  // - edit them from the Table view or the peek. Honours Display › Visibility
+  // like the table does; the leading ID slot always renders so the hover
+  // checkbox has a home.
+  const renderListItem = (ticket: (typeof sorted)[number], nested?: NestedRow) => {
+    const vis = visibleColumns;
+    const meta = [
+      vis.has("epic") ? ticket.epic?.name : null,
+      vis.has("cycle") ? ticket.cycle?.name : null,
+    ].filter(Boolean).join(" · ");
+    const tags = vis.has("labels") ? (ticket.tags ?? []) : [];
+    return (
+      <div
+        key={nested?.rowKey ?? ticket.id}
+        data-depth={nested?.depth}
+        className={`${table.listRow} group/row`}
+        data-selected={sel.isSelected(ticket.id) ? "true" : "false"}
+        {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
       >
-        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
-          {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
-        </Text>
-      </SelectSlot>
-      <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0" styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
-        {STATUS_LABELS[ticket.status] ?? ticket.status}
-      </Badge>
-      {nested && renderNestSlot(nested)}
-      <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
-        {ticket.title}
-      </Text>
-      <BlockedIndicator
-        openBlockerCount={ticket.openBlockerCount}
-        isBlocked={ticket.isBlocked}
-      />
-      <NotionSyncBadge syncs={ticket.syncs} size={14} />
-      <div className="shrink-0">
-        <PriorityIcon priority={ticket.priority} size={14} />
-      </div>
-      {ticket.assignee && (
-        <Avatar size="xs" radius="xl" src={ticket.assignee.image} className="shrink-0">
-          {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-        </Avatar>
-      )}
-      <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"} className="shrink-0">
-        {ticket.type.toLowerCase()}
-      </Badge>
-      {ticket.tags && ticket.tags.length > 0 && (
-        <div className="flex gap-1 shrink-0">
-          {ticket.tags.slice(0, 1).map((t: { tag: { id: string; name: string; color: string } }) => (
-            <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-          ))}
-          {ticket.tags.length > 1 && (
-            <Text size="xs" className="text-text-muted">+{ticket.tags.length - 1}</Text>
+        <SelectSlot
+          className="w-[72px] shrink-0"
+          selected={sel.isSelected(ticket.id)}
+          onToggle={() => sel.toggle(ticket.id)}
+          onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+        >
+          {vis.has("id") ? (
+            <span className={`${table.muted} font-mono`}>{ticketDisplayId(ticket)}</span>
+          ) : (
+            <span className="inline-block h-4 w-4" />
           )}
+        </SelectSlot>
+        {vis.has("status") && (
+          <span className="w-[124px] shrink-0">
+            <ListPageChip color={STATUS_COLORS[ticket.status] ?? "gray"}>
+              {STATUS_LABELS[ticket.status] ?? ticket.status}
+            </ListPageChip>
+          </span>
+        )}
+        <div
+          className={table.listTitle}
+          style={nested ? { paddingLeft: nested.depth * NEST_INDENT } : undefined}
+        >
+          {nested && renderNestSlot(nested)}
+          <span className={`${table.nameText} min-w-0`}>{ticket.title}</span>
+          <BlockedIndicator
+            openBlockerCount={ticket.openBlockerCount}
+            isBlocked={ticket.isBlocked}
+          />
+          <NotionSyncBadge syncs={ticket.syncs} size={14} />
+          {meta && <span className={table.listMeta}>{meta}</span>}
         </div>
-      )}
-      <Menu position="bottom-end" withinPortal>
-        <Menu.Target>
-          <ActionIcon
-            variant="subtle"
-            size="sm"
-            className="shrink-0 text-text-muted hover:text-text-primary"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            aria-label="Ticket actions"
-          >
-            <IconDots size={14} />
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Item
-            leftSection={<IconPencil size={14} />}
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              setEditTicketId(ticket.id);
-            }}
-          >
-            Edit
-          </Menu.Item>
-        </Menu.Dropdown>
-      </Menu>
+        {tags.length > 0 && (
+          <div className="flex shrink-0 items-center gap-1">
+            {tags.slice(0, 2).map((t: { tag: { id: string; name: string; color: string } }) => (
+              <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
+            ))}
+            {tags.length > 2 && <span className={table.muted}>+{tags.length - 2}</span>}
+          </div>
+        )}
+        {vis.has("type") && (
+          <span className="w-[104px] shrink-0">
+            <ListPageChip color={TYPE_COLORS[ticket.type] ?? "gray"}>
+              {TICKET_TYPE_LABELS[ticket.type as TicketType] ?? ticket.type}
+            </ListPageChip>
+          </span>
+        )}
+        {vis.has("priority") && (
+          <Tooltip label={PRIORITY_LABELS[ticket.priority ?? 4] ?? "No priority"} withArrow>
+            <span className="flex w-5 shrink-0 justify-center">
+              <PriorityIcon priority={ticket.priority} size={16} />
+            </span>
+          </Tooltip>
+        )}
+        {vis.has("dri") && (
+          <span className="flex w-[26px] shrink-0 justify-center">
+            {ticket.assignee ? (
+              <Tooltip label={ticket.assignee.name ?? "Unknown"} withArrow>
+                <Avatar
+                  src={ticket.assignee.image}
+                  size={24}
+                  radius="xl"
+                  color={getAvatarColor(ticket.assignee.id)}
+                >
+                  {getInitial(ticket.assignee.name)}
+                </Avatar>
+              </Tooltip>
+            ) : (
+              <span className={table.muted}>—</span>
+            )}
+          </span>
+        )}
+        <Menu position="bottom-end" withinPortal>
+          <Menu.Target>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              className="shrink-0 text-text-muted hover:text-text-primary"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              aria-label="Ticket actions"
+            >
+              <IconDots size={14} />
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              leftSection={<IconPencil size={14} />}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                setEditTicketId(ticket.id);
+              }}
+            >
+              Edit
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </div>
+    );
+  };
+
+  const renderListGroupRow = (key: string, label: string, ids: string[]) => (
+    <div
+      key={`group-${key}`}
+      className={`${table.listGroupRow} group/row`}
+      onClick={() => toggleCollapsed(key)}
+    >
+      <div className={table.groupLabel}>
+        {renderGroupChevron(ids, key)}
+        {label}
+        <Badge size="xs" variant="light">{ids.length}</Badge>
+      </div>
     </div>
   );
 
@@ -1204,15 +1261,15 @@ export default function TicketsBacklogPage() {
 
       {/* Content */}
       {entity === "epics" ? (
-        <div className="px-8 py-4">
-          {view === "timeline" ? (
+        view === "timeline" ? (
+          <div className="px-8 py-4">
             <div className="border border-border-primary rounded-lg p-8 flex items-center justify-center min-h-[200px]">
               <Text size="sm" className="text-text-muted">Timeline view coming soon</Text>
             </div>
-          ) : (
-            <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
-          )}
-        </div>
+          </div>
+        ) : (
+          <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
+        )
       ) : (isLoading || sessionPending || awaitingPrefs) ? (
         <Stack gap="xs" className="px-8 py-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
@@ -1231,36 +1288,20 @@ export default function TicketsBacklogPage() {
             />
           </div>
         ) : view === "list" ? (
-          <div>
+          <div className={table.list}>
             {groups.map((group) => (
               groupBy === "none" ? (
                 <div key={group.key}>{renderRows(group.items, renderListItem)}</div>
               ) : (
                 <React.Fragment key={`group-${group.key}`}>
-                  <div
-                    className="group/row bg-surface-secondary/50 px-8 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
-                    onClick={() => toggleCollapsed(group.key)}
-                  >
-                    {renderGroupChevron(group.items.map((t) => t.id), group.key)}
-                    <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
-                      {group.label}
-                    </Text>
-                    <Badge size="xs" variant="light">{group.items.length}</Badge>
-                  </div>
+                  {renderListGroupRow(group.key, group.label, group.items.map((t) => t.id))}
                   {!collapsed.has(group.key) && renderRows(group.items, renderListItem)}
                 </React.Fragment>
               )
             ))}
             {completedTickets.length > 0 && (
               <>
-                <div
-                  className="group/row bg-surface-secondary/50 px-8 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
-                  onClick={() => toggleCollapsed("__completed")}
-                >
-                  {renderGroupChevron(completedTickets.map((t) => t.id), "__completed")}
-                  <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">Completed</Text>
-                  <Badge size="xs" variant="light">{completedTickets.length}</Badge>
-                </div>
+                {renderListGroupRow("__completed", "Completed", completedTickets.map((t) => t.id))}
                 {!collapsed.has("__completed") && renderRows(completedTickets, renderListItem)}
               </>
             )}
