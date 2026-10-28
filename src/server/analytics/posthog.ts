@@ -9,7 +9,8 @@
  * captured* (CRM contact fields are encrypted PII, see
  * `src/server/utils/encryption.ts`).
  *
- * Disabled entirely when `POSTHOG_KEY` is unset (local dev, CI, tests).
+ * Disabled entirely when neither `POSTHOG_KEY` nor `NEXT_PUBLIC_POSTHOG_KEY`
+ * is set (local dev, CI, tests).
  * Decision and trade-offs: docs/adr/0076-posthog-server-side-analytics.md.
  */
 import { PostHog } from "posthog-node";
@@ -101,7 +102,8 @@ let client: PostHog | null | undefined;
 
 function getClient(): PostHog | null {
   if (client !== undefined) return client;
-  const key = env.POSTHOG_KEY;
+  // One project key serves both halves; POSTHOG_KEY only exists to override.
+  const key = env.POSTHOG_KEY ?? env.NEXT_PUBLIC_POSTHOG_KEY;
   if (!key) {
     client = null;
     return client;

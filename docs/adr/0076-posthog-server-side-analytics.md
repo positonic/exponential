@@ -25,6 +25,15 @@ talk to it. Instrumenting each separately would mean many SDKs and drifting voca
    leak to a third party.
 5. **Flush inside `after()`** in the tRPC route handler, because Vercel freezes the function
    once the response is sent.
+6. **The browser SDK adds only what the server cannot see**: page views, page leaves and
+   session replay. Autocapture is off, replays mask all text and inputs, and only signed-in
+   users get person profiles. It reaches PostHog through a same-origin `/ingest` proxy, so
+   ad blockers and the CSP leave it alone. One public key (`NEXT_PUBLIC_POSTHOG_KEY`) drives
+   both halves.
+7. **Next's trailing-slash redirect moves into the middleware.** The proxy needs
+   `skipTrailingSlashRedirect`, which turns the redirect off globally; the middleware
+   restores it for page paths because the public allowlist treats `/features/` and
+   `/features` differently.
 
 ## Considered alternatives
 
@@ -36,10 +45,14 @@ talk to it. Instrumenting each separately would mean many SDKs and drifting voca
 
 ## Consequences
 
-- Setting `POSTHOG_KEY` in Vercel turns it on; unset, every call is a no-op.
+- Setting `NEXT_PUBLIC_POSTHOG_KEY` in Vercel turns both halves on; unset, everything is a
+  no-op.
 - Procedures called from React Server Components are captured but rely on the 10s timer to
   flush, so on Vercel they can be lost. Client traffic goes through the route handler.
 - The Tauri shell uses the cookie session and reports as `web`.
-- Browser page views and session replay need `posthog-js` in the layouts as a follow-up.
+- Vercel Analytics and Google Analytics still run alongside; either can be removed once
+  PostHog's web analytics has been trusted for a while.
+- Masked replays show where people struggle, not what they typed. Unmasking any region
+  needs its own privacy decision.
 - Renaming a procedure renames its event; treat procedure paths as a stable vocabulary
   once dashboards depend on them.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const fakeEnv: { POSTHOG_KEY?: string; POSTHOG_HOST?: string } = {};
+const fakeEnv: { POSTHOG_KEY?: string; POSTHOG_HOST?: string; NEXT_PUBLIC_POSTHOG_KEY?: string } = {};
 
 vi.mock("~/env", () => ({
   env: new Proxy(
@@ -9,6 +9,7 @@ vi.mock("~/env", () => ({
       get(_target, prop) {
         if (prop === "POSTHOG_KEY") return fakeEnv.POSTHOG_KEY;
         if (prop === "POSTHOG_HOST") return fakeEnv.POSTHOG_HOST;
+        if (prop === "NEXT_PUBLIC_POSTHOG_KEY") return fakeEnv.NEXT_PUBLIC_POSTHOG_KEY;
         if (prop === "NODE_ENV") return "test";
         return undefined;
       },
@@ -102,6 +103,7 @@ describe("captureProcedureCall", () => {
     vi.clearAllMocks();
     delete fakeEnv.POSTHOG_KEY;
     delete fakeEnv.POSTHOG_HOST;
+    delete fakeEnv.NEXT_PUBLIC_POSTHOG_KEY;
     resetAnalyticsClientForTests();
   });
 
@@ -169,6 +171,17 @@ describe("captureProcedureCall", () => {
       expect.objectContaining({ host: "https://posthog.example.test" }),
     );
     expect(flush).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to NEXT_PUBLIC_POSTHOG_KEY, with POSTHOG_KEY taking precedence", () => {
+    fakeEnv.NEXT_PUBLIC_POSTHOG_KEY = "phc_public";
+    expect(isAnalyticsEnabled()).toBe(true);
+    expect(constructorSpy).toHaveBeenLastCalledWith("phc_public", expect.anything());
+
+    resetAnalyticsClientForTests();
+    fakeEnv.POSTHOG_KEY = "phc_server";
+    expect(isAnalyticsEnabled()).toBe(true);
+    expect(constructorSpy).toHaveBeenLastCalledWith("phc_server", expect.anything());
   });
 
   it("does not build a client for calls the rule drops", () => {

@@ -148,13 +148,36 @@ client surface is covered without its own SDK. Decision:
   `src/app/api/trpc/[trpc]/route.ts`, after the response but before Vercel freezes the
   function.
 
+### Browser: page views and session replay
+
+`posthog-js` is initialised in `src/instrumentation-client.ts` from
+`src/lib/analytics/posthogBrowser.ts`, and `PostHogIdentify` in the signed-in layout ties the
+browser to the same user id as the server events. Signing out resets the identity.
+
+- **Captured**: `$pageview` on every URL change (App Router included), `$pageleave`, and
+  session replay when it is enabled in the PostHog project settings.
+- **Not captured**: autocapture clicks (element text would leak content) and exceptions
+  (Sentry owns those). Anonymous visitors get no person profile.
+- **Replays mask all text and inputs.** Structure, navigation and clicks stay visible; what
+  people wrote does not. Relaxing this is a privacy decision, not a config tweak.
+- **Transport**: same-origin `/ingest/*`, rewritten to PostHog's EU hosts in
+  `next.config.js`, so ad blockers and the CSP leave it alone. `/ingest` is excluded from
+  the auth middleware like `/monitoring`.
+- **Trailing slashes**: PostHog's endpoints need them, so `skipTrailingSlashRedirect` is on
+  and the middleware restores the `/foo/` → `/foo` redirect for pages
+  (`src/lib/trailingSlash.ts`). That redirect is load-bearing for auth: `/features/` is a
+  public prefix but would otherwise render the gated `/features` page.
+
+### Environment variables
+
 | Variable | Where | Notes |
 |---|---|---|
-| `POSTHOG_KEY` | Vercel production (preview optional) | Project API key. Unset = disabled. |
-| `POSTHOG_HOST` | Optional | Defaults to `https://eu.i.posthog.com`. |
+| `NEXT_PUBLIC_POSTHOG_KEY` | Vercel production (preview optional) | Project API key. Enables browser and server analytics. Unset = disabled. |
+| `POSTHOG_KEY` | Optional | Server-side override of the key. |
+| `POSTHOG_HOST` | Optional | Server-side host, defaults to `https://eu.i.posthog.com`. The browser proxy is EU-only. |
 
-To see real events locally, put a project key in `.env.local`, run the dev server, perform a
-mutation and watch PostHog's Activity tab; the 10s periodic flush sends them.
+To see real events locally, put a project key in `.env.local` as `NEXT_PUBLIC_POSTHOG_KEY`,
+run the dev server, browse and perform a mutation, then watch PostHog's Activity tab.
 
 ## Other signals
 
