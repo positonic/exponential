@@ -1,0 +1,75 @@
+// @vitest-environment node
+/**
+ * The self-host scheduler is an HTTP clock over `vercel.json`'s `crons`
+ * (PRD D8). These tests drive it through its two public seams — the plan it
+ * reads and the tick it fires — with an injected fake `fetch`, and assert what
+ * an operator sees: which HTTP calls go out, and which line lands in the log.
+ *
+ * The cron routes themselves are covered by `src/app/api/cron/__tests__/*`;
+ * nothing here re-tests them through the scheduler.
+ */
+
+import { describe, expect, it } from "vitest";
+import { readCronPlan } from "../selfhost/cronPlan";
+import { createTick, type SchedulerConfig } from "../selfhost/scheduler";
+
+const CONFIG: SchedulerConfig = {
+  targetUrl: "http://app.internal:3000",
+  cronSecret: "test-cron-secret",
+  timeoutMs: 1_000,
+};
+
+interface FetchCall {
+  url: string;
+  init: RequestInit | undefined;
+}
+
+/** A fake `fetch` that records every call and answers each with `respond`. */
+function fakeFetch(respond: (url: string, init?: RequestInit) => Promise<Response>) {
+  const calls: FetchCall[] = [];
+  const fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    calls.push({ url, init });
+    return respond(url, init);
+  };
+  return { fetch: fetch as typeof globalThis.fetch, calls };
+}
+
+function harness(respond: (url: string, init?: RequestInit) => Promise<Response>, config = CONFIG) {
+  const { fetch, calls } = fakeFetch(respond);
+  const lines: string[] = [];
+  const tick = createTick(config, { fetch, log: (line) => lines.push(line) });
+  return { tick, calls, lines };
+}
+
+describe("tick", () => {
+  it("calls GET target + path with the CRON_SECRET bearer and logs the status", async () => {
+    const { tick, calls, lines } = harness(async () => new Response(null, { status: 200 }));
+
+    await tick("/api/cron/agent-runs");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("http://app.internal:3000/api/cron/agent-runs");
+    expect(calls[0]!.init?.method).toBe("GET");
+    expect(new Headers(calls[0]!.init?.headers).get("authorization")).toBe("Bearer test-cron-secret");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^\[scheduler\] GET \/api\/cron\/agent-runs → 200 in \d+ms$/);
+  });
+});
+
+describe("readCronPlan", () => {
+  it("reads every crons entry as a path and a schedule", () => {
+    const plan = readCronPlan({
+      buildCommand: "npm run build",
+      crons: [
+        { path: "/api/cron/agent-runs", schedule: "* * * * *" },
+        { path: "/api/cron/daily-plan-reminder", schedule: "0 8 * * *" },
+      ],
+    });
+
+    expect(plan).toEqual([
+      { path: "/api/cron/agent-runs", schedule: "* * * * *" },
+      { path: "/api/cron/daily-plan-reminder", schedule: "0 8 * * *" },
+    ]);
+  });
+});
