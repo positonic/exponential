@@ -41,7 +41,10 @@ export function linkSelectionOnPaste(
   if (httpUrlOrNull(selected.trim())) return null;
 
   const text = selected.replace(/([[\]\\])/g, "\\$1");
-  const snippet = `[${text}](${url})`;
+  // Escape parens in the destination too: an unbalanced one (a truncated
+  // `…/Foo_(bar`) would otherwise end the link early and render it as text.
+  const destination = url.replace(/([()])/g, "\\$1");
+  const snippet = `[${text}](${destination})`;
   return {
     value: value.slice(0, start) + snippet + value.slice(end),
     snippet,

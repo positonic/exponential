@@ -25,6 +25,12 @@ describe("linkSelectionOnPaste", () => {
     );
   });
 
+  it("escapes parentheses in the URL so an unbalanced one can't end the link", () => {
+    expect(
+      linkSelectionOnPaste("Foo", 0, 3, "https://en.wikipedia.org/wiki/Foo_(bar")?.value,
+    ).toBe("[Foo](https://en.wikipedia.org/wiki/Foo_\\(bar)");
+  });
+
   it.each([
     ["no selection", "the spec", 3, 3, URL_],
     ["plain-text paste", "the spec", 0, 8, "hello"],
