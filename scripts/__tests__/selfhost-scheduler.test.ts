@@ -107,6 +107,55 @@ describe("tick", () => {
   });
 });
 
+describe("overlap guard", () => {
+  it("skips a path whose previous call is still running, while other paths still run", async () => {
+    let finishSlowCall: (response: Response) => void = () => undefined;
+    const { tick, calls, lines } = harness((url) => {
+      if (url.endsWith("/api/cron/agent-runs") && calls.length === 1) {
+        return new Promise<Response>((resolve) => (finishSlowCall = resolve));
+      }
+      return Promise.resolve(new Response(null, { status: 200 }));
+    });
+
+    const slow = tick("/api/cron/agent-runs");
+    await tick("/api/cron/agent-runs");
+    await tick("/api/cron/process-notifications");
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://app.internal:3000/api/cron/agent-runs",
+      "http://app.internal:3000/api/cron/process-notifications",
+    ]);
+    expect(lines).toEqual([
+      "[scheduler] GET /api/cron/agent-runs skipped (previous call still running)",
+      expect.stringMatching(/process-notifications → 200 in \d+ms$/),
+    ]);
+
+    // Once the slow call lands, the path is free again.
+    finishSlowCall(new Response(null, { status: 200 }));
+    await slow;
+    await tick("/api/cron/agent-runs");
+    expect(calls).toHaveLength(3);
+    expect(lines.slice(2)).toEqual([
+      expect.stringMatching(/agent-runs → 200 in \d+ms$/),
+      expect.stringMatching(/agent-runs → 200 in \d+ms$/),
+    ]);
+  });
+
+  it("frees the path after a failed call", async () => {
+    let attempt = 0;
+    const { tick, calls } = harness(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new TypeError("fetch failed");
+      return new Response(null, { status: 200 });
+    });
+
+    await tick("/api/cron/agent-runs");
+    await tick("/api/cron/agent-runs");
+
+    expect(calls).toHaveLength(2);
+  });
+});
+
 describe("readCronPlan", () => {
   it("reads every crons entry as a path and a schedule", () => {
     const plan = readCronPlan({

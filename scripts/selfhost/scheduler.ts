@@ -37,9 +37,21 @@ export interface TickDeps {
  * Build the function each scheduled entry fires: one authenticated GET to the
  * app, one log line for its outcome. A tick never rejects — a failed, non-2xx
  * or timed-out call is logged and the next tick runs as usual.
+ *
+ * A tick for a path whose previous call hasn't returned is skipped, so a slow
+ * route never stacks up concurrent runs of itself (agent-runs fires every
+ * minute and can wait up to 270 s on Mastra). Other paths are unaffected. This
+ * is our own guard rather than node-cron's `noOverlap`, so tests can drive it.
  */
 export function createTick(config: SchedulerConfig, deps: TickDeps) {
+  const inFlight = new Set<string>();
+
   return async function tick(cronPath: string): Promise<void> {
+    if (inFlight.has(cronPath)) {
+      deps.log(`[scheduler] GET ${cronPath} skipped (previous call still running)`);
+      return;
+    }
+    inFlight.add(cronPath);
     const startedAt = Date.now();
     try {
       const response = await deps.fetch(`${config.targetUrl}${cronPath}`, {
@@ -53,6 +65,8 @@ export function createTick(config: SchedulerConfig, deps: TickDeps) {
       deps.log(`[scheduler] GET ${cronPath} → ${response.status} in ${Date.now() - startedAt}ms`);
     } catch (error) {
       deps.log(`[scheduler] GET ${cronPath} ${describeFailure(error, config.timeoutMs)}`);
+    } finally {
+      inFlight.delete(cronPath);
     }
   };
 }
