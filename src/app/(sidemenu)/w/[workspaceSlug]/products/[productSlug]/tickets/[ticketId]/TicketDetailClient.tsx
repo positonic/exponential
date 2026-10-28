@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getQueryKey } from "@trpc/react-query";
 import { useParams, useRouter } from "next/navigation";
@@ -23,6 +23,7 @@ import {
   TextInput,
   useCombobox,
 } from "@mantine/core";
+import type { SelectProps } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import {
   IconArrowLeft,
@@ -137,6 +138,27 @@ function getDisplayId(ticket: {
   if (ticket.product.funTicketIds && ticket.shortId) return ticket.shortId;
   if (ticket.number > 0) return generateLinearId(ticket.product.name, ticket.number);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Searchable property Select
+// ---------------------------------------------------------------------------
+
+// The input shows the current label ("Backlog"), so select it whenever the
+// dropdown opens: typing then replaces it instead of appending, and Enter
+// takes the top match.
+function SearchableSelect(props: SelectProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <Select
+      ref={inputRef}
+      searchable
+      selectFirstOptionOnChange
+      nothingFoundMessage="No matches"
+      onDropdownOpen={() => requestAnimationFrame(() => inputRef.current?.select())}
+      {...props}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -579,7 +601,7 @@ export function TicketDetailClient() {
       <PropertiesSidebar className="lg:row-span-2">
         {/* Status */}
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
-          <Select
+          <SearchableSelect
             value={ticket.status}
             onChange={onStatusChange}
             data={STATUS_OPTIONS}
@@ -593,7 +615,7 @@ export function TicketDetailClient() {
 
         {/* Priority */}
         <PropertyRow icon={<IconFlag size={14} />} label="Priority">
-          <Select
+          <SearchableSelect
             value={ticket.priority != null ? String(ticket.priority) : undefined}
             onChange={(val) => setField("priority", val != null ? Number(val) : null)}
             data={PRIORITY_OPTIONS}
@@ -611,7 +633,7 @@ export function TicketDetailClient() {
 
         {/* Type */}
         <PropertyRow icon={<IconCategory size={14} />} label="Type">
-          <Select
+          <SearchableSelect
             value={ticket.type}
             onChange={(val) => val && setField("type", val)}
             data={TYPE_OPTIONS}
@@ -644,7 +666,7 @@ export function TicketDetailClient() {
 
         {/* Points */}
         <PropertyRow icon={<IconFlame size={14} />} label={effortFieldLabel(effortUnit)}>
-          <Select
+          <SearchableSelect
             value={ticket.points != null ? String(ticket.points) : null}
             onChange={(val) => setField("points", val ? Number(val) : null)}
             data={effortOptions(effortUnit).map((o) => ({ value: String(o.value), label: o.label }))}
@@ -675,7 +697,7 @@ export function TicketDetailClient() {
 
         {/* Feature */}
         <PropertyRow icon={<IconFolder size={14} />} label="Feature">
-          <Select
+          <SearchableSelect
             value={ticket.featureId ?? null}
             onChange={(val) => setField("featureId", val)}
             data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
@@ -710,7 +732,7 @@ export function TicketDetailClient() {
 
         {/* Cycle */}
         <PropertyRow icon={<IconClock size={14} />} label="Cycle">
-          <Select
+          <SearchableSelect
             value={ticket.cycleId ?? null}
             onChange={(val) => setField("cycleId", val)}
             data={(cycles ?? []).map((c) => ({ value: c.id, label: c.name }))}
