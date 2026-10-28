@@ -9,6 +9,8 @@
  * nothing here re-tests them through the scheduler.
  */
 
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { InvalidCronPlanError, readCronPlan } from "../selfhost/cronPlan";
 import { createTick, type SchedulerConfig } from "../selfhost/scheduler";
@@ -220,5 +222,40 @@ describe("readCronPlan", () => {
       '/api/other: invalid schedule "nope"',
       'crons[1]: path must start with "/api/cron/"',
     ]);
+  });
+});
+
+/**
+ * Guard: `vercel.json` is the only place the schedule lives (PRD D8), so every
+ * cron route must have an entry there and every entry must have a route.
+ * Without this, a new route deployed without a `crons` entry would never run —
+ * on Vercel or self-hosted — and nothing would say so.
+ */
+describe("vercel.json ↔ cron route parity", () => {
+  const repoRoot = path.resolve(__dirname, "../..");
+  const cronDir = path.join(repoRoot, "src/app/api/cron");
+
+  const routePaths = readdirSync(cronDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== "__tests__")
+    .filter((entry) => existsSync(path.join(cronDir, entry.name, "route.ts")))
+    .map((entry) => `/api/cron/${entry.name}`)
+    .sort();
+
+  // Through readCronPlan, so the shipped file must also pass the scheduler's
+  // own validation — the plan a self-host install would actually start with.
+  const plannedPaths = readCronPlan(JSON.parse(readFileSync(path.join(repoRoot, "vercel.json"), "utf8")))
+    .map((entry) => entry.path)
+    .sort();
+
+  it("finds the cron routes (sanity check on the directory scan)", () => {
+    expect(routePaths.length).toBeGreaterThan(0);
+  });
+
+  it("schedules every cron route in vercel.json", () => {
+    expect(routePaths.filter((routePath) => !plannedPaths.includes(routePath))).toEqual([]);
+  });
+
+  it("has a route for every vercel.json cron", () => {
+    expect(plannedPaths.filter((plannedPath) => !routePaths.includes(plannedPath))).toEqual([]);
   });
 });
