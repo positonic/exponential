@@ -7,6 +7,7 @@ import { IconCheck, IconChevronDown, IconPlus, IconTrash } from "@tabler/icons-r
 import { api } from "~/trpc/react";
 import { ColorDot } from "~/app/_components/product/PropertyPill";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { handleLinkPaste } from "~/lib/content/pasteLink";
 import {
   SCOPE_STATUS_OPTIONS,
   SCOPE_STATUS_LABELS,
@@ -134,6 +135,7 @@ export function FeatureScopesSection({
                     <Textarea
                       value={editValue}
                       onChange={(e) => setEditValue(e.currentTarget.value)}
+                      onPaste={(e) => handleLinkPaste(e, setEditValue)}
                     // Layered dismiss: Esc cancels this edit, not the drawer
                     // (Mantine's close listener is window-level).
                     data-mantine-stop-propagation="true"
@@ -208,6 +210,7 @@ export function FeatureScopesSection({
           placeholder="Description"
           value={scopeDescription}
           onChange={(e) => setScopeDescription(e.currentTarget.value)}
+          onPaste={(e) => handleLinkPaste(e, setScopeDescription)}
           size="xs"
           className="flex-1"
         />
