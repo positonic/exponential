@@ -21,6 +21,7 @@ import {
   readFirefliesMeetingWorkspaceId,
   withFirefliesMeetingWorkspaceId,
 } from "~/server/services/meetings/firefliesDefaultWorkspace";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
 /**
  * Admin procedure - extends protectedProcedure with isAdmin check
@@ -3677,8 +3678,7 @@ export const integrationRouter = createTRPCRouter({
         });
       });
 
-      const baseUrl =
-        process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+      const baseUrl = getPublicBaseUrlFromEnv();
       return {
         configured: true as const,
         webhookId,
@@ -3730,8 +3730,7 @@ export const integrationRouter = createTRPCRouter({
         productName = product?.name ?? null;
       }
 
-      const baseUrl =
-        process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+      const baseUrl = getPublicBaseUrlFromEnv();
       return {
         configured: true as const,
         integrationId: integration.id,
