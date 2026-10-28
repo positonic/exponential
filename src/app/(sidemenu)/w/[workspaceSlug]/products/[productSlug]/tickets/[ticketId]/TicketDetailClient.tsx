@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getQueryKey } from "@trpc/react-query";
 import { useParams, useRouter } from "next/navigation";
@@ -15,7 +15,6 @@ import {
   Combobox,
   Group,
   Menu,
-  Select,
   Skeleton,
   Stack,
   Text,
@@ -23,7 +22,6 @@ import {
   TextInput,
   useCombobox,
 } from "@mantine/core";
-import type { SelectProps } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import {
   IconArrowLeft,
@@ -51,8 +49,9 @@ import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
 import { effortFieldLabel, effortOptions } from "~/types/effort";
 import {
   PropertiesSidebar,
-  PropertyRow,
   PropertyDivider,
+  PropertyRow,
+  SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId, parseTicketUrlId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
@@ -138,27 +137,6 @@ function getDisplayId(ticket: {
   if (ticket.product.funTicketIds && ticket.shortId) return ticket.shortId;
   if (ticket.number > 0) return generateLinearId(ticket.product.name, ticket.number);
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// Searchable property Select
-// ---------------------------------------------------------------------------
-
-// The input shows the current label ("Backlog"), so select it whenever the
-// dropdown opens: typing then replaces it instead of appending, and Enter
-// takes the top match.
-function SearchableSelect(props: SelectProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <Select
-      ref={inputRef}
-      searchable
-      selectFirstOptionOnChange
-      nothingFoundMessage="No matches"
-      onDropdownOpen={() => requestAnimationFrame(() => inputRef.current?.select())}
-      {...props}
-    />
-  );
 }
 
 // ---------------------------------------------------------------------------

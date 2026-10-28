@@ -8,7 +8,6 @@ import {
   Badge,
   Group,
   Menu,
-  Select,
   Skeleton,
   Stack,
   Text,
@@ -34,8 +33,9 @@ import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import {
   PropertiesSidebar,
-  PropertyRow,
   PropertyDivider,
+  PropertyRow,
+  SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
@@ -403,7 +403,7 @@ export default function EpicDetailPage() {
       {/* Properties sidebar */}
       <PropertiesSidebar>
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
-          <Select
+          <SearchableSelect
             value={epic.status}
             onChange={(val) =>
               val && updateEpic.mutate({ id: epicId, status: val as EpicStatus })
@@ -420,7 +420,7 @@ export default function EpicDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconBox size={14} />} label="Product">
-          <Select
+          <SearchableSelect
             value={epic.product?.id ?? null}
             onChange={(val) =>
               val && updateEpic.mutate({ id: epicId, productId: val })
@@ -429,7 +429,6 @@ export default function EpicDetailPage() {
             placeholder="Select a product"
             size="xs"
             variant="unstyled"
-            searchable
             nothingFoundMessage="No products in this workspace"
             comboboxProps={{ withinPortal: true }}
             classNames={{
@@ -440,7 +439,7 @@ export default function EpicDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconFlag size={14} />} label="Priority">
-          <Select
+          <SearchableSelect
             value={epic.priority}
             onChange={(val) =>
               val &&

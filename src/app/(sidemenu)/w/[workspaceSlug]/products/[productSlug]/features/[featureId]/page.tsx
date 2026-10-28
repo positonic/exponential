@@ -11,7 +11,6 @@ import {
   Group,
   Menu,
   NumberInput,
-  Select,
   Skeleton,
   Stack,
   Text,
@@ -40,8 +39,9 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MoveFeatureModal } from "~/app/_components/product/MoveFeatureModal";
 import {
   PropertiesSidebar,
-  PropertyRow,
   PropertyDivider,
+  PropertyRow,
+  SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
@@ -401,7 +401,7 @@ export default function FeatureDetailPage() {
       {/* Properties sidebar */}
       <PropertiesSidebar>
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
-          <Select
+          <SearchableSelect
             value={feature.status}
             onChange={(val) => val && handleStatusChange(val)}
             data={FEATURE_STATUS_OPTIONS}
@@ -414,7 +414,7 @@ export default function FeatureDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconMap2 size={14} />} label="Area">
-          <Select
+          <SearchableSelect
             value={feature.areaId}
             onChange={(val) => handleFieldUpdate("areaId", val)}
             data={(areas ?? []).map((a) => ({ value: a.id, label: a.name }))}
@@ -430,7 +430,7 @@ export default function FeatureDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconFlag size={14} />} label="Priority">
-          <Select
+          <SearchableSelect
             value={feature.priority != null ? String(feature.priority) : undefined}
             onChange={(val) => handleFieldUpdate("priority", val != null ? Number(val) : null)}
             data={PRIORITY_OPTIONS}
@@ -467,14 +467,13 @@ export default function FeatureDetailPage() {
         <PropertyDivider />
 
         <PropertyRow icon={<IconTarget size={14} />} label="Goal">
-          <Select
+          <SearchableSelect
             value={feature.goalId != null ? String(feature.goalId) : null}
             onChange={(val) => handleFieldUpdate("goalId", val != null ? Number(val) : null)}
             data={(goals ?? []).map((g) => ({ value: String(g.id), label: g.title }))}
             size="xs"
             variant="unstyled"
             clearable
-            searchable
             placeholder="None"
             nothingFoundMessage="No goals"
             comboboxProps={{ withinPortal: true }}
