@@ -35,23 +35,45 @@ export interface TickDeps {
 
 /**
  * Build the function each scheduled entry fires: one authenticated GET to the
- * app, one log line for its outcome.
+ * app, one log line for its outcome. A tick never rejects — a failed, non-2xx
+ * or timed-out call is logged and the next tick runs as usual.
  */
 export function createTick(config: SchedulerConfig, deps: TickDeps) {
   return async function tick(cronPath: string): Promise<void> {
     const startedAt = Date.now();
-    const response = await deps.fetch(`${config.targetUrl}${cronPath}`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${config.cronSecret}` },
-    });
-    // The routes answer with a small JSON summary nobody reads; release the
-    // connection rather than leave the body unconsumed.
-    await response.body?.cancel();
-    deps.log(`[scheduler] GET ${cronPath} → ${response.status} in ${Date.now() - startedAt}ms`);
+    try {
+      const response = await deps.fetch(`${config.targetUrl}${cronPath}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${config.cronSecret}` },
+        signal: AbortSignal.timeout(config.timeoutMs),
+      });
+      // The routes answer with a small JSON summary nobody reads; release the
+      // connection rather than leave the body unconsumed.
+      await response.body?.cancel();
+      deps.log(`[scheduler] GET ${cronPath} → ${response.status} in ${Date.now() - startedAt}ms`);
+    } catch (error) {
+      deps.log(`[scheduler] GET ${cronPath} ${describeFailure(error, config.timeoutMs)}`);
+    }
   };
 }
 
+function describeFailure(error: unknown, timeoutMs: number): string {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return `timed out after ${timeoutMs}ms`;
+  }
+  if (!(error instanceof Error)) return `failed: ${String(error)}`;
+  // Node's fetch reports every network failure as "fetch failed"; the cause
+  // (ECONNREFUSED, ENOTFOUND, …) is what tells an operator what went wrong.
+  const cause = (error.cause as { code?: unknown } | undefined)?.code;
+  return typeof cause === "string" ? `failed: ${error.message} (${cause})` : `failed: ${error.message}`;
+}
+
 const DEFAULT_TARGET_URL = "http://localhost:3000";
+/**
+ * 300 s is the largest `maxDuration` among the cron routes, and must stay at or
+ * above the 270 s Mastra call ceiling agent-runs waits on. `next start` doesn't
+ * enforce `maxDuration`, so this is the only bound on a stuck call.
+ */
 const DEFAULT_TIMEOUT_MS = 300_000;
 
 function main(): void {
@@ -62,9 +84,13 @@ function main(): void {
   const config: SchedulerConfig = {
     targetUrl: (process.env.SCHEDULER_TARGET_URL ?? DEFAULT_TARGET_URL).replace(/\/+$/, ""),
     cronSecret: process.env.CRON_SECRET ?? "",
-    timeoutMs: DEFAULT_TIMEOUT_MS,
+    timeoutMs: Number(process.env.SCHEDULER_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
   };
   const log = (line: string) => console.log(line);
+  // A stray rejection must never take the clock down with it.
+  process.on("unhandledRejection", (reason) => {
+    log(`[scheduler] unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+  });
   const tick = createTick(config, { fetch: globalThis.fetch, log });
 
   for (const entry of plan) {

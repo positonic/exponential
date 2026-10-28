@@ -55,6 +55,56 @@ describe("tick", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^\[scheduler\] GET \/api\/cron\/agent-runs → 200 in \d+ms$/);
   });
+
+  it("logs a non-2xx status, and the next tick still runs", async () => {
+    const statuses = [500, 200];
+    const { tick, calls, lines } = harness(async () => new Response(null, { status: statuses.shift() }));
+
+    await tick("/api/cron/process-notifications");
+    await tick("/api/cron/process-notifications");
+
+    expect(calls).toHaveLength(2);
+    expect(lines[0]).toMatch(/^\[scheduler\] GET \/api\/cron\/process-notifications → 500 in \d+ms$/);
+    expect(lines[1]).toMatch(/→ 200 in \d+ms$/);
+  });
+
+  it("logs a thrown fetch error without rejecting, and the next tick still runs", async () => {
+    let attempt = 0;
+    const { tick, calls, lines } = harness(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new TypeError("fetch failed");
+      return new Response(null, { status: 200 });
+    });
+
+    await expect(tick("/api/cron/agent-runs")).resolves.toBeUndefined();
+    await tick("/api/cron/agent-runs");
+
+    expect(calls).toHaveLength(2);
+    expect(lines[0]).toBe("[scheduler] GET /api/cron/agent-runs failed: fetch failed");
+    expect(lines[1]).toMatch(/→ 200 in \d+ms$/);
+  });
+
+  it("gives up on a call that outlives the timeout, logs it, and the next tick still runs", async () => {
+    let attempt = 0;
+    const { tick, calls, lines } = harness(
+      (_url, init) => {
+        attempt += 1;
+        if (attempt > 1) return Promise.resolve(new Response(null, { status: 200 }));
+        // A handler that never answers: only the abort signal ends the call.
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal!.reason));
+        });
+      },
+      { ...CONFIG, timeoutMs: 20 },
+    );
+
+    await expect(tick("/api/cron/sync-calendars")).resolves.toBeUndefined();
+    await tick("/api/cron/sync-calendars");
+
+    expect(calls).toHaveLength(2);
+    expect(lines[0]).toBe("[scheduler] GET /api/cron/sync-calendars timed out after 20ms");
+    expect(lines[1]).toMatch(/→ 200 in \d+ms$/);
+  });
 });
 
 describe("readCronPlan", () => {
