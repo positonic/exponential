@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import cron from "node-cron";
-import { readCronPlan } from "./cronPlan";
+import { type CronEntry, readCronPlan } from "./cronPlan";
 
 export interface SchedulerConfig {
   /** Base URL of the app, e.g. `http://localhost:3000`. */
@@ -90,16 +90,51 @@ const DEFAULT_TARGET_URL = "http://localhost:3000";
  */
 const DEFAULT_TIMEOUT_MS = 300_000;
 
-function main(): void {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const vercelJsonPath = path.resolve(here, "../../vercel.json");
-  const plan = readCronPlan(JSON.parse(readFileSync(vercelJsonPath, "utf8")));
-
-  const config: SchedulerConfig = {
-    targetUrl: (process.env.SCHEDULER_TARGET_URL ?? DEFAULT_TARGET_URL).replace(/\/+$/, ""),
-    cronSecret: process.env.CRON_SECRET ?? "",
-    timeoutMs: Number(process.env.SCHEDULER_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS),
+/**
+ * Start-up checks, all fail-closed: a missing `CRON_SECRET` would make every
+ * call a 401/503, and a garbled URL or timeout would make every tick fail, so
+ * none of them is worth starting for.
+ */
+function readSchedulerConfig(env: NodeJS.ProcessEnv): SchedulerConfig {
+  // Templates often set a variable to "" rather than leave it out; treat that as unset.
+  const setting = (name: string) => {
+    const value = env[name]?.trim();
+    return value === "" ? undefined : value;
   };
+
+  const cronSecret = setting("CRON_SECRET");
+  if (!cronSecret) {
+    throw new Error("CRON_SECRET is not set; set it to the same value the app uses");
+  }
+
+  const targetUrl = (setting("SCHEDULER_TARGET_URL") ?? DEFAULT_TARGET_URL).replace(/\/+$/, "");
+  if (!/^https?:\/\/[^/]/.test(targetUrl) || !URL.canParse(targetUrl)) {
+    throw new Error(`SCHEDULER_TARGET_URL is not an http(s) URL: ${JSON.stringify(targetUrl)}`);
+  }
+
+  const timeoutMs = Number(setting("SCHEDULER_TIMEOUT_MS") ?? DEFAULT_TIMEOUT_MS);
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("SCHEDULER_TIMEOUT_MS must be a positive whole number of milliseconds");
+  }
+
+  return { targetUrl, cronSecret, timeoutMs };
+}
+
+function main(): void {
+  let plan: CronEntry[];
+  let config: SchedulerConfig;
+  try {
+    config = readSchedulerConfig(process.env);
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const vercelJsonPath = path.resolve(here, "../../vercel.json");
+    plan = readCronPlan(JSON.parse(readFileSync(vercelJsonPath, "utf8")));
+  } catch (error) {
+    // One readable line, then exit 1 — never run a partial plan or a plan
+    // that can only fail.
+    console.error(`[scheduler] not starting: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+
   const log = (line: string) => console.log(line);
   // A stray rejection must never take the clock down with it.
   process.on("unhandledRejection", (reason) => {

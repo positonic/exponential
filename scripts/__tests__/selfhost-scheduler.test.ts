@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readCronPlan } from "../selfhost/cronPlan";
+import { InvalidCronPlanError, readCronPlan } from "../selfhost/cronPlan";
 import { createTick, type SchedulerConfig } from "../selfhost/scheduler";
 
 const CONFIG: SchedulerConfig = {
@@ -169,6 +169,56 @@ describe("readCronPlan", () => {
     expect(plan).toEqual([
       { path: "/api/cron/agent-runs", schedule: "* * * * *" },
       { path: "/api/cron/daily-plan-reminder", schedule: "0 8 * * *" },
+    ]);
+  });
+
+  /** The problems a plan is rejected for, or [] when it is accepted. */
+  function rejectionOf(vercelJson: unknown): string[] {
+    try {
+      readCronPlan(vercelJson);
+      return [];
+    } catch (error) {
+      if (error instanceof InvalidCronPlanError) return error.problems;
+      throw error;
+    }
+  }
+
+  it("rejects the whole plan when one schedule is not a valid cron expression", () => {
+    const problems = rejectionOf({
+      crons: [
+        { path: "/api/cron/agent-runs", schedule: "* * * * *" },
+        { path: "/api/cron/daily-plan-reminder", schedule: "every morning" },
+      ],
+    });
+
+    expect(problems).toEqual(['/api/cron/daily-plan-reminder: invalid schedule "every morning"']);
+  });
+
+  it("rejects a path outside /api/cron/", () => {
+    const problems = rejectionOf({
+      crons: [{ path: "/api/admin/wipe", schedule: "0 * * * *" }],
+    });
+
+    expect(problems).toEqual(['/api/admin/wipe: path must start with "/api/cron/"']);
+  });
+
+  it("rejects a file with no crons to run", () => {
+    expect(rejectionOf({ buildCommand: "npm run build" })).toEqual(["vercel.json has no crons"]);
+    expect(rejectionOf({ crons: [] })).toEqual(["vercel.json has no crons"]);
+  });
+
+  it("lists every bad entry, not just the first", () => {
+    const problems = rejectionOf({
+      crons: [
+        { path: "/api/other", schedule: "nope" },
+        { schedule: "0 * * * *" },
+      ],
+    });
+
+    expect(problems).toEqual([
+      '/api/other: path must start with "/api/cron/"',
+      '/api/other: invalid schedule "nope"',
+      'crons[1]: path must start with "/api/cron/"',
     ]);
   });
 });
