@@ -11,8 +11,9 @@ export function generateSecureToken(length = 32): string {
 
 /**
  * Generate an invite URL with the given token. Uses the shared public-base-URL
- * helper (NEXT_PUBLIC_APP_URL, prod fallback) — never NEXTAUTH_URL, which is
- * unset in some deploys and would send invite emails to localhost.
+ * helper, which prefers NEXT_PUBLIC_APP_URL and, on Vercel, the production URL
+ * over NEXTAUTH_URL (unset in some deploys, where it would send invite emails
+ * to localhost). See `getPublicBaseUrlFromEnv` for the full order.
  * @param token - The invitation token
  */
 export function generateInviteUrl(token: string): string {

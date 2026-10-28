@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { ticketUrlId } from "~/lib/fun-ids";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { buildBugBody, type SentryBug } from "./sentryPayload";
 import { notifyZulipOfSentryBug } from "./sentryZulip";
 import { notifyMatrixOfSentryBug } from "./sentryMatrix";
@@ -239,7 +240,7 @@ export async function ingestSentryBug(
     select: { id: true, number: true, links: true, updatedAt: true },
   });
   const now = new Date();
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
+  const baseUrl = getPublicBaseUrlFromEnv();
   const ticketUrlFor = (ticket: { id: string; number: number }) =>
     `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
 
