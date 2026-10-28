@@ -34,7 +34,7 @@ describe("invite URL generation", () => {
     );
   });
 
-  it("ignores NEXTAUTH_URL entirely", () => {
+  it("prefers the public app URL over NEXTAUTH_URL", () => {
     process.env.NEXTAUTH_URL = "http://localhost:3000";
     process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
 
