@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Skeleton, Text, TextInput } from '@mantine/core';
+import { Skeleton, Text, Textarea } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconCalendarEvent } from '@tabler/icons-react';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -72,10 +72,14 @@ function PageTitle({
     );
   }
 
+  // A textarea, not an input, so a long title wraps onto new lines like the
+  // read-only heading does instead of being clipped by the reading column.
+  // Titles are still single-line: Enter commits and pasted newlines become
+  // spaces.
   return (
-    <TextInput
+    <Textarea
       value={title}
-      onChange={(e) => setTitle(e.currentTarget.value)}
+      onChange={(e) => setTitle(e.currentTarget.value.replace(/\r?\n/g, ' '))}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -83,6 +87,8 @@ function PageTitle({
           e.currentTarget.blur();
         }
       }}
+      autosize
+      minRows={1}
       variant="unstyled"
       placeholder="Untitled"
       aria-label="Page title"
@@ -95,6 +101,8 @@ function PageTitle({
           height: 'auto',
           minHeight: 0,
           padding: 0,
+          resize: 'none',
+          overflow: 'hidden',
         },
       }}
     />
