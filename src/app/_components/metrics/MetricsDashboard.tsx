@@ -12,17 +12,21 @@ import {
   Select,
   Divider,
   SegmentedControl,
+  Switch,
 } from '@mantine/core';
+import { useLocalStorage } from '@mantine/hooks';
 import {
   IconChartBar,
   IconCircleCheck,
   IconBolt,
   IconTrendingUp,
+  IconUsers,
   IconGitPullRequest,
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CycleTrendChart } from './CycleTrendChart';
+import { ContributorTrendChart } from './ContributorTrendChart';
 import { formatHours, formatMinutes } from './format';
 import { ContributorsTable } from './ContributorsTable';
 import { MemberFilter, useMemberFilter } from './MemberFilter';
@@ -169,7 +173,12 @@ export function MetricsDashboard() {
 
         <Divider className="border-border-primary" />
 
-        <TrendsSection data={allCycles} isLoading={allCyclesLoading || !workspaceId} />
+        <TrendsSection
+          data={allCycles}
+          isLoading={allCyclesLoading || !workspaceId}
+          workspaceId={workspaceId}
+          memberIds={memberIds}
+        />
 
         <Divider className="border-border-primary" />
 
@@ -315,13 +324,33 @@ function CurrentCycleSection({
 function TrendsSection({
   data,
   isLoading,
+  workspaceId,
+  memberIds,
 }: {
   data: AllCycles | undefined;
   isLoading: boolean;
+  workspaceId: string | null;
+  memberIds: string[];
 }) {
+  const [showPeople, setShowPeople] = useLocalStorage({
+    key: 'metrics:show-contributor-trends',
+    defaultValue: false,
+  });
+  const hasTrend = !!data && data.cycles.length >= 2;
+
   return (
     <Stack gap="md">
-      <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
+      <Group justify="space-between" align="center" wrap="nowrap">
+        <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
+        {hasTrend && (
+          <Switch
+            size="sm"
+            label="By contributor"
+            checked={showPeople}
+            onChange={(e) => setShowPeople(e.currentTarget.checked)}
+          />
+        )}
+      </Group>
       <Card
         withBorder
         radius="md"
@@ -329,7 +358,7 @@ function TrendsSection({
       >
         {isLoading ? (
           <div className="h-64 animate-pulse rounded-md bg-surface-hover" />
-        ) : !data || data.cycles.length < 2 ? (
+        ) : !hasTrend ? (
           <Group gap="xs">
             <IconTrendingUp size={16} className="text-text-muted" />
             <Text size="sm" className="text-text-muted">
@@ -340,6 +369,27 @@ function TrendsSection({
           <CycleTrendChart cycles={data.cycles} />
         )}
       </Card>
+      {hasTrend && showPeople && workspaceId && (
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Stack gap="md">
+            <Group gap="xs">
+              <IconUsers size={16} className="text-text-muted" />
+              <Text size="sm" fw={500} className="text-text-secondary">
+                By contributor
+              </Text>
+            </Group>
+            <ContributorTrendChart
+              workspaceId={workspaceId}
+              cycles={data.cycles}
+              memberIds={memberIds}
+            />
+          </Stack>
+        </Card>
+      )}
     </Stack>
   );
 }
