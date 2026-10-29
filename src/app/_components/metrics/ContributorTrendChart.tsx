@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,6 +40,8 @@ const DEFAULT_VISIBLE = 5;
 
 /**
  * One line per contributor across every cycle, for one metric at a time.
+ * With `focusCycleId`, the timeline stays whole but that cycle is marked and
+ * the legend narrows to people active in it, ranked by its tickets.
  * Fetches each cycle's Contributors rows (batched into one request by the tRPC
  * link); a single per-person-per-cycle endpoint would replace this if it stays.
  */
@@ -46,14 +49,19 @@ export function ContributorTrendChart({
   workspaceId,
   cycles,
   memberIds,
+  focusCycleId,
 }: {
   workspaceId: string;
   /** Oldest → newest. */
   cycles: { cycleId: string; cycleName: string }[];
   memberIds: string[];
+  /** Omit for all time. Ignored when the cycle isn't on the timeline. */
+  focusCycleId?: string;
 }) {
   const [metric, setMetric] = useState<MetricKey>('completedTickets');
-  const [picked, setPicked] = useState<Set<string> | null>(null);
+  // Manual legend picks belong to the scope they were made in.
+  const [picked, setPicked] = useState<{ focus?: string; ids: Set<string> } | null>(null);
+  const focus = cycles.find((c) => c.cycleId === focusCycleId);
 
   const results = api.useQueries((t) =>
     cycles.map((c) =>
@@ -65,6 +73,7 @@ export function ContributorTrendChart({
   const { people, chartData } = useMemo(() => {
     const filter = memberIds.length > 0 ? new Set(memberIds) : null;
     const totals = new Map<string, { name: string; tickets: number; active: boolean }>();
+    const inScope = (cycleId: string) => !focus || cycleId === focus.cycleId;
     const rows = cycles.map((c, i) => {
       const row: Record<string, number | string> = { name: c.cycleName };
       for (const r of results[i]?.data?.rows ?? []) {
@@ -77,12 +86,15 @@ export function ContributorTrendChart({
             : r[metric];
         row[r.userId] = value;
         const prev = totals.get(r.userId);
+        const counts = inScope(c.cycleId);
         totals.set(r.userId, {
           name: r.name ?? r.email ?? 'Unknown',
-          tickets: (prev?.tickets ?? 0) + r.completedTickets,
-          // An idle cycle still plots as 0; only people idle in every cycle
-          // stay out of the legend.
-          active: (prev?.active ?? false) || r.assignedTickets > 0 || r.mergedPrs > 0,
+          tickets: (prev?.tickets ?? 0) + (counts ? r.completedTickets : 0),
+          // An idle cycle still plots as 0; only people idle across the whole
+          // scope stay out of the legend.
+          active:
+            (prev?.active ?? false) ||
+            (counts && (r.assignedTickets > 0 || r.mergedPrs > 0)),
         });
       }
       return row;
@@ -92,14 +104,17 @@ export function ContributorTrendChart({
       .sort((a, b) => b[1].tickets - a[1].tickets)
       .map(([id, v], i) => ({ id, name: v.name, color: PALETTE[i % PALETTE.length]! }));
     return { people: sorted, chartData: rows };
-  }, [cycles, results, memberIds, metric]);
+  }, [cycles, results, memberIds, metric, focus]);
 
-  const visible = picked ?? new Set(people.slice(0, DEFAULT_VISIBLE).map((p) => p.id));
+  const visible =
+    picked && picked.focus === focus?.cycleId
+      ? picked.ids
+      : new Set(people.slice(0, DEFAULT_VISIBLE).map((p) => p.id));
   const toggle = (id: string) => {
     const next = new Set(visible);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    setPicked(next);
+    setPicked({ focus: focus?.cycleId, ids: next });
   };
 
   if (isLoading) {
@@ -108,7 +123,9 @@ export function ContributorTrendChart({
   if (people.length === 0) {
     return (
       <Text size="sm" className="text-text-muted">
-        No contributor activity in any cycle yet.
+        {focus
+          ? `No contributor activity in ${focus.cycleName}.`
+          : 'No contributor activity in any cycle yet.'}
       </Text>
     );
   }
@@ -176,6 +193,13 @@ export function ContributorTrendChart({
             itemSorter={(item) => -Number(item.value ?? 0)}
             formatter={(v: number) => (metric === 'completionRate' ? `${v}%` : v)}
           />
+          {focus && (
+            <ReferenceLine
+              x={focus.cycleName}
+              stroke="var(--color-text-muted)"
+              strokeDasharray="4 4"
+            />
+          )}
           {people
             .filter((p) => visible.has(p.id))
             .map((p) => (

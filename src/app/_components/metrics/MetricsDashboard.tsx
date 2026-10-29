@@ -11,7 +11,6 @@ import {
   Container,
   Select,
   Divider,
-  SegmentedControl,
   Switch,
 } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
@@ -33,6 +32,9 @@ import { MemberFilter, useMemberFilter } from './MemberFilter';
 import { StatCard } from './StatCard';
 import { DeliveryFlowSection } from './DeliveryFlowSection';
 
+/** People-scope value for "every cycle"; cycle ids are cuids, so no clash. */
+const ALL_TIME = 'all';
+
 /**
  * Metrics page dashboard.
  *
@@ -43,7 +45,8 @@ import { DeliveryFlowSection } from './DeliveryFlowSection';
  *  2. **Delivery flow** — weekly throughput and cycle time from the activity
  *     event log; needs neither cycles nor points.
  *  3. **Trends** — every metric plotted per cycle.
- *  4. **People** — one Contributors table, scoped to this cycle or all time.
+ *  4. **People** — the Contributors table and per-person trend chart, scoped
+ *     together to one cycle or all time.
  *
  * All numbers are computed live over Tickets; see ADR-0047.
  */
@@ -70,7 +73,8 @@ export function MetricsDashboard() {
   );
 
   const [picked, setPicked] = useState<string | null>(null);
-  const [peopleScope, setPeopleScope] = useState<'cycle' | 'all'>('cycle');
+  // The People scope follows the header's cycle until picked on its own.
+  const [peoplePicked, setPeoplePicked] = useState<string | null>(null);
 
   // Default the selection to the active cycle (else the most recent), but let
   // an explicit pick win.
@@ -80,6 +84,8 @@ export function MetricsDashboard() {
   }, [cycles]);
 
   const selectedCycleId = picked ?? defaultCycleId;
+  const peopleScope = peoplePicked ?? selectedCycleId ?? ALL_TIME;
+  const peopleCycleId = peopleScope === ALL_TIME ? undefined : peopleScope;
 
   const { data, isLoading } = api.sprintAnalytics.getActiveCycleMetrics.useQuery(
     {
@@ -176,8 +182,6 @@ export function MetricsDashboard() {
         <TrendsSection
           data={allCycles}
           isLoading={allCyclesLoading || !workspaceId}
-          workspaceId={workspaceId}
-          memberIds={memberIds}
         />
 
         <Divider className="border-border-primary" />
@@ -186,19 +190,26 @@ export function MetricsDashboard() {
           <Stack gap="md">
             <Group justify="space-between" align="center" wrap="nowrap">
               <SectionTitle title="People" subtitle="Who delivered what" />
-              <SegmentedControl
+              <Select
+                aria-label="People scope"
+                data={[{ value: ALL_TIME, label: 'All time' }, ...cycleOptions]}
+                value={peopleScope}
+                onChange={setPeoplePicked}
+                allowDeselect={false}
+                checkIconPosition="right"
+                w={220}
                 size="xs"
-                value={data ? peopleScope : 'all'}
-                onChange={(v) => setPeopleScope(v === 'all' ? 'all' : 'cycle')}
-                data={[
-                  { value: 'cycle', label: 'This cycle', disabled: !data },
-                  { value: 'all', label: 'All time' },
-                ]}
               />
             </Group>
+            <ContributorTrendCard
+              data={allCycles}
+              workspaceId={workspaceId}
+              memberIds={memberIds}
+              focusCycleId={peopleCycleId}
+            />
             <ContributorsTable
               workspaceId={workspaceId}
-              cycleId={peopleScope === 'cycle' ? data?.cycleId : undefined}
+              cycleId={peopleCycleId}
               memberIds={memberIds}
               onToggleMember={toggleMember}
             />
@@ -324,33 +335,15 @@ function CurrentCycleSection({
 function TrendsSection({
   data,
   isLoading,
-  workspaceId,
-  memberIds,
 }: {
   data: AllCycles | undefined;
   isLoading: boolean;
-  workspaceId: string | null;
-  memberIds: string[];
 }) {
-  const [showPeople, setShowPeople] = useLocalStorage({
-    key: 'metrics:show-contributor-trends',
-    defaultValue: false,
-  });
   const hasTrend = !!data && data.cycles.length >= 2;
 
   return (
     <Stack gap="md">
-      <Group justify="space-between" align="center" wrap="nowrap">
-        <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
-        {hasTrend && (
-          <Switch
-            size="sm"
-            label="By contributor"
-            checked={showPeople}
-            onChange={(e) => setShowPeople(e.currentTarget.checked)}
-          />
-        )}
-      </Group>
+      <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
       <Card
         withBorder
         radius="md"
@@ -369,28 +362,59 @@ function TrendsSection({
           <CycleTrendChart cycles={data.cycles} />
         )}
       </Card>
-      {hasTrend && showPeople && workspaceId && (
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Stack gap="md">
-            <Group gap="xs">
-              <IconUsers size={16} className="text-text-muted" />
-              <Text size="sm" fw={500} className="text-text-secondary">
-                By contributor
-              </Text>
-            </Group>
-            <ContributorTrendChart
-              workspaceId={workspaceId}
-              cycles={data.cycles}
-              memberIds={memberIds}
-            />
-          </Stack>
-        </Card>
-      )}
     </Stack>
+  );
+}
+
+/** Per-contributor trend lines, behind a toggle so the People section stays compact. */
+function ContributorTrendCard({
+  data,
+  workspaceId,
+  memberIds,
+  focusCycleId,
+}: {
+  data: AllCycles | undefined;
+  workspaceId: string;
+  memberIds: string[];
+  focusCycleId?: string;
+}) {
+  const [showChart, setShowChart] = useLocalStorage({
+    key: 'metrics:show-contributor-trends',
+    defaultValue: false,
+  });
+  if (!data || data.cycles.length < 2) return null;
+
+  return (
+    <Card
+      withBorder
+      radius="md"
+      className="border-border-primary bg-surface-secondary"
+    >
+      <Stack gap="md">
+        <Group justify="space-between" align="center" wrap="nowrap">
+          <Group gap="xs">
+            <IconUsers size={16} className="text-text-muted" />
+            <Text size="sm" fw={500} className="text-text-secondary">
+              By contributor
+            </Text>
+          </Group>
+          <Switch
+            size="sm"
+            label="Contributor chart"
+            checked={showChart}
+            onChange={(e) => setShowChart(e.currentTarget.checked)}
+          />
+        </Group>
+        {showChart && (
+          <ContributorTrendChart
+            workspaceId={workspaceId}
+            cycles={data.cycles}
+            memberIds={memberIds}
+            focusCycleId={focusCycleId}
+          />
+        )}
+      </Stack>
+    </Card>
   );
 }
 
