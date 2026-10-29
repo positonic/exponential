@@ -74,6 +74,17 @@ function span(
   }));
 }
 
+const LINKABLE_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
+/** A URL Notion will accept as a rich_text link: absolute, with a web/mail scheme. */
+function isLinkableUrl(url: string): boolean {
+  try {
+    return LINKABLE_PROTOCOLS.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function chunkText(text: string): string[] {
   if (text.length <= MAX_TEXT_CHUNK) return [text];
   const out: string[] = [];
@@ -122,11 +133,14 @@ export function parseInline(text: string): RichTextSpan[] {
         });
       }
     } else {
-      // [label](url)
+      // [label](url) — only an absolute URL becomes a link. Ticket bodies also
+      // carry `@[name](userId)` mentions and repo-relative paths; Notion
+      // rejects the whole page create over one invalid link URL, so those
+      // keep their label as plain text.
       const closeBracket = token.indexOf("](");
       const label = token.slice(1, closeBracket);
       const url = token.slice(closeBracket + 2, -1);
-      spans.push(...span(label, { url }));
+      spans.push(...span(label, isLinkableUrl(url) ? { url } : {}));
     }
     rest = rest.slice(match.index + token.length);
   }

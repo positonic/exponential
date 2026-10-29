@@ -4,6 +4,7 @@ import {
   runOutboundTicketPush,
   NonRetryablePushError,
   PENDING_EXTERNAL_PREFIX,
+  resolvePushPropertyNames,
   type OutboundPushItem,
   type TicketPushAdapter,
 } from "./push";
@@ -395,6 +396,90 @@ type AdapterFactory = (
 ) => Promise<
   { ok: true; adapter: TicketPushAdapter } | { ok: false; error: string }
 >;
+
+/**
+ * Re-queue pushes whose cycle was deferred because Notion had no cycle page by
+ * that name yet (the push never creates one — ADR-0046).
+ *
+ * A skipped field keeps its remote value in the snapshot, so the change stays
+ * pending — but nothing re-pushes it: a push is enqueued only by a ticket
+ * mutation. Sprint planning has exactly this shape: tickets are moved into the
+ * new cycle in Exponential before anyone creates its page in Notion, and once
+ * the page appears those tickets stay in the old cycle (or none) in Notion
+ * until someone happens to edit them again.
+ *
+ * Runs on the inbound cron. Finds linked tickets in an open cycle whose cycle
+ * differs from the last-synced snapshot, looks each distinct cycle name up
+ * once, and enqueues a push only where the page now exists — so a cycle that
+ * never gets a Notion page costs one lookup per sweep, not one per ticket.
+ * Tickets with a PENDING job are left alone: their push is already coming, and
+ * re-enqueueing would pull a backed-off retry forward.
+ */
+export async function requeueDeferredCyclePushes(
+  db: PrismaClient,
+  deps?: { adapterFactory?: AdapterFactory },
+): Promise<{ requeued: number }> {
+  const adapterFactory = deps?.adapterFactory ?? createNotionTicketSyncAdapter;
+  let requeued = 0;
+
+  const configs = await db.ticketSyncConfig.findMany({
+    where: { pushEnabled: true, integrationId: { not: null } },
+    select: { id: true, integrationId: true, propertyNames: true, databaseId: true },
+  });
+
+  for (const config of configs) {
+    if (!config.integrationId) continue;
+
+    const syncs = await db.ticketSync.findMany({
+      where: {
+        configId: config.id,
+        tombstonedAt: null,
+        NOT: { externalId: { startsWith: PENDING_EXTERNAL_PREFIX } },
+        ticket: { cycle: { status: { in: ["PLANNED", "ACTIVE"] } } },
+        pushJobs: { none: { status: "PENDING" } },
+      },
+      select: {
+        ticketId: true,
+        snapshot: true,
+        ticket: { select: { cycle: { select: { name: true } } } },
+      },
+    });
+
+    // A null snapshot is a fresh adoption the next merge settles by
+    // last-write-wins; only a recorded base that disagrees is a deferral.
+    const deferred = syncs.filter((s) => {
+      const name = s.ticket.cycle?.name;
+      if (!name || !s.snapshot || typeof s.snapshot !== "object") return false;
+      return (s.snapshot as { cycleName?: unknown }).cycleName !== name;
+    });
+    if (deferred.length === 0) continue;
+
+    const adapterResult = await adapterFactory(db, {
+      integrationId: config.integrationId,
+      propertyNames: config.propertyNames,
+    });
+    if (!adapterResult.ok) continue; // the inbound run already records a broken credential
+
+    const cycleProperty = resolvePushPropertyNames(config.propertyNames).cycle;
+    const pageExists = new Map<string, boolean>();
+    for (const sync of deferred) {
+      const name = sync.ticket.cycle!.name;
+      if (!pageExists.has(name)) {
+        const pageId = await adapterResult.adapter.findCyclePageIdByName(
+          config.databaseId,
+          cycleProperty,
+          name,
+        );
+        pageExists.set(name, pageId !== null);
+      }
+      if (!pageExists.get(name)) continue;
+      const result = await enqueueTicketPush(db, { ticketId: sync.ticketId });
+      if (result.enqueued) requeued++;
+    }
+  }
+
+  return { requeued };
+}
 
 export interface PushSweepResult {
   /** Push runs recorded (one per config with due jobs). */

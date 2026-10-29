@@ -145,3 +145,17 @@ dry-run unless the caller opts out. Any one of those would have prevented the in
 
 Supersedes nothing; it narrows the "body is copied once at creation" stance above by naming who may
 rewrite that copy afterwards, and why the answer is a column rather than the ledger.
+
+## Amendment (2026-10-29): deferred cycle pushes are retried
+
+"Written only when a matching Notion cycle page already exists" left a gap: a skipped cycle stays
+pending in the snapshot, but a push is enqueued only by a ticket mutation, so nothing re-pushes it
+once the page appears. Sprint planning hits this every cycle — tickets move into the new cycle in
+Exponential before anyone creates its Notion page — and 13 CLEAR tickets sat in the wrong Notion
+cycle (or none) after the Cycle 19 rollover.
+
+**Decision.** The inbound cron also re-queues pushes for linked tickets in an open cycle whose
+cycle differs from the snapshot, once a Notion page for that cycle exists
+(`requeueDeferredCyclePushes`). Cycle pages are still never created outbound. Each distinct cycle
+name is looked up once per sweep, so a cycle that never gets a Notion page costs one lookup per
+sweep, not one per ticket.
