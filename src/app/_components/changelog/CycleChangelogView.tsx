@@ -22,6 +22,7 @@ import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CHANGELOG_MAX_CYCLES } from '~/plugins/product/server/cycleChangelog';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { DraftActions, DraftSections } from './CycleChangelogDraft';
 
 type WorkspaceChangelog = RouterOutputs['product']['cycle']['changelog'];
 type ChangelogCycle = WorkspaceChangelog['cycles'][number];
@@ -58,8 +59,15 @@ function cycleDates(cycle: ChangelogCycle): string {
  * authoring.
  */
 export function CycleChangelogView() {
-  const { workspace, workspaceId, isLoading: workspaceLoading } =
-    useWorkspace();
+  const {
+    workspace,
+    workspaceId,
+    userRole,
+    isLoading: workspaceLoading,
+  } = useWorkspace();
+  const utils = api.useUtils();
+  const canEdit =
+    userRole === 'owner' || userRole === 'admin' || userRole === 'member';
   const [productId, setProductId] = useState<string | null>(null);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
@@ -94,7 +102,8 @@ export function CycleChangelogView() {
           </Title>
           <Text size="sm" c="var(--color-text-muted)">
             What shipped in each cycle, largest work first. Built from finished
-            tickets and the pull requests merged during the cycle.
+            tickets and the pull requests merged during the cycle, then written
+            up by AI once the cycle ends.
           </Text>
         </div>
         {products.length > 1 ? (
@@ -126,6 +135,8 @@ export function CycleChangelogView() {
             key={cycle.id}
             cycle={cycle}
             defaultOpen={index === 0}
+            canEdit={canEdit}
+            onChanged={() => utils.product.cycle.changelog.invalidate()}
             ticketHref={(ticketId) =>
               productSlug
                 ? `/w/${workspace.slug}/products/${productSlug}/tickets/${ticketId}`
@@ -167,13 +178,19 @@ function Chevron({ open }: { open: boolean }) {
 function CycleToggle({
   cycle,
   defaultOpen,
+  canEdit,
+  onChanged,
   ticketHref,
 }: {
   cycle: ChangelogCycle;
   defaultOpen: boolean;
+  canEdit: boolean;
+  onChanged: () => Promise<void>;
   ticketHref: (ticketId: string) => string | null;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [showRaw, setShowRaw] = useState(false);
+  const showDraft = !!cycle.draft && !showRaw;
   const { sections, totals } = cycle.changelog;
   const maxSize = Math.max(
     1,
@@ -194,9 +211,19 @@ function CycleToggle({
             className="text-brand-primary"
             aria-hidden
           />
+          {cycle.draft?.version ? (
+            <Text fw={600} size="md" c="var(--color-text-primary)">
+              {cycle.draft.version}
+            </Text>
+          ) : null}
           <Text fw={600} size="md" c="var(--color-text-primary)">
             {cycle.name}
           </Text>
+          {cycle.draft?.source === 'generated' ? (
+            <Badge size="xs" variant="outline" color="var(--color-text-muted)">
+              AI draft
+            </Badge>
+          ) : null}
           {cycle.status === 'ACTIVE' ? (
             <Badge size="xs" variant="light" color="var(--color-brand-primary)">
               In progress
@@ -213,17 +240,28 @@ function CycleToggle({
 
       {open ? (
         <div className="pb-4 pl-7">
+          {canEdit ? (
+            <DraftActions
+              cycle={cycle}
+              showRaw={showRaw}
+              onToggleRaw={() => setShowRaw((r) => !r)}
+              onChanged={onChanged}
+            />
+          ) : null}
           {cycle.cycleGoal ? (
             <div className="mt-2 text-sm text-text-secondary">
               <MarkdownRenderer content={cycle.cycleGoal} variant="compact" />
             </div>
           ) : null}
-          {sections.length === 0 ? (
+          {showDraft && cycle.draft ? (
+            <DraftSections draft={cycle.draft} ticketHref={ticketHref} />
+          ) : null}
+          {!showDraft && sections.length === 0 ? (
             <Text size="sm" c="var(--color-text-muted)" mt="sm">
               Nothing has shipped in this cycle yet.
             </Text>
           ) : null}
-          {sections.map((section) => (
+          {!showDraft && sections.map((section) => (
             <div key={section.key}>
               <Title order={4} mt="lg" mb={6} c="var(--color-text-primary)">
                 {section.label}

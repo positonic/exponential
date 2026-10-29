@@ -1055,6 +1055,7 @@ model List {
   // PM Agent sprint tracking
   snapshots      SprintSnapshot[]
   metrics        SprintMetrics?
+  changelogDraft CycleChangelogDraft?
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -4907,6 +4908,33 @@ model SprintMetrics {
   list List @relation(fields: [listId], references: [id], onDelete: Cascade)
 
   @@index([listId])
+}
+
+/// The written change log for one cycle: an LLM draft built from the
+/// cycle's deterministic change log, which a person can then edit. The change-log
+/// page shows it in place of the raw ticket/PR view when one exists.
+model CycleChangelogDraft {
+  id      String @id @default(cuid())
+  cycleId String @unique
+
+  /// Release label shown beside the cycle name, e.g. "v0.18". Set by hand.
+  version String?
+  /// `{ sections: [{ key, entries: [{ key, title, summary, points, pullRequestCount, items }] }] }`
+  /// — see `CycleChangelogDraftContent` in cycleChangelogDraft.ts.
+  content Json
+  /// "generated" until someone edits it, then "edited". Regenerating an edited
+  /// draft needs an explicit overwrite.
+  source  String @default("generated")
+
+  model       String?
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+  /// Who generated or last edited it; null when the cron wrote it.
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  cycle List @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 }
 
 model ActionStatusChange {
