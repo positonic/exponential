@@ -796,10 +796,11 @@ export default function ContactsPage() {
                         </Text>
                       </div>
                     </td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-4 py-3">
                       {contact.organization ? (
                         <Link
                           href={`${basePath}/organizations/${contact.organization.id}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="text-sm text-text-primary hover:underline"
                         >
                           {contact.organization.name}
