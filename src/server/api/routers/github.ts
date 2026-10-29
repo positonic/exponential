@@ -16,6 +16,7 @@ import {
 import { normalizeAccessibleRepos } from "~/server/services/github/accessibleRepos";
 import { reconcileWorkspaceRepositories } from "~/server/services/github/reconcileRepositories";
 import { githubIntegrationService } from "~/server/services/github-integration";
+import { setWorkspaceGithubLogin } from "~/server/services/github/memberLogins";
 
 export const githubRouter = createTRPCRouter({
   listCommits: publicProcedure
@@ -300,6 +301,48 @@ export const githubRouter = createTRPCRouter({
       return githubIntegrationService.refreshWorkspaceAccessibleRepos(
         input.workspaceId,
       );
+    }),
+
+  /**
+   * Set (or, with `login: null`, clear) the GitHub username a workspace
+   * attributes a member's PRs and commits to, for members who haven't
+   * connected GitHub themselves. Workspace-scoped and unverified, so
+   * **owner/admin only**, and only for current members. See `memberLogins`.
+   */
+  setMemberGithubLogin: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string().min(1),
+        userId: z.string().min(1),
+        login: z.string().trim().min(1).max(200).nullable(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const membership = await getWorkspaceMembership(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+      if (!membership || !hasMinimumWorkspaceRole(membership.role, "admin")) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only workspace owners and admins can set GitHub usernames",
+        });
+      }
+      const target = await getWorkspaceMembership(
+        ctx.db,
+        input.userId,
+        input.workspaceId,
+      );
+      if (!target) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That person isn't a member of this workspace",
+        });
+      }
+
+      await setWorkspaceGithubLogin(ctx.db, input);
+      return { ok: true };
     }),
 
   /**

@@ -269,3 +269,68 @@ describe("github.refreshAccessibleRepos (mocked)", () => {
     ).resolves.toEqual([]);
   });
 });
+
+describe("github.setMemberGithubLogin (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.teamUser.findFirst.mockResolvedValue(null as never);
+  });
+
+  function membership(roles: Record<string, "owner" | "admin" | "member" | null>) {
+    dbMock.workspaceUser.findUnique.mockImplementation(((args: {
+      where: { userId_workspaceId: { userId: string } };
+    }) => {
+      const role = roles[args.where.userId_workspaceId.userId] ?? null;
+      return Promise.resolve(role ? { role, workspaceId: WORKSPACE_ID } : null);
+    }) as never);
+  }
+
+  it("refuses a plain member", async () => {
+    membership({ [USER_ID]: "member", "user-2": "member" });
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+
+    await expect(
+      caller.github.setMemberGithubLogin({
+        workspaceId: WORKSPACE_ID,
+        userId: "user-2",
+        login: "octocat",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a target who isn't a workspace member", async () => {
+    membership({ [USER_ID]: "admin" });
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+
+    await expect(
+      caller.github.setMemberGithubLogin({
+        workspaceId: WORKSPACE_ID,
+        userId: "outsider",
+        login: "octocat",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(dbMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin set a member's username on the installation", async () => {
+    membership({ [USER_ID]: "admin", "user-2": "member" });
+    dbMock.integration.findFirst.mockResolvedValue({ id: "int-1" } as never);
+    dbMock.$transaction.mockResolvedValue([] as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+
+    await caller.github.setMemberGithubLogin({
+      workspaceId: WORKSPACE_ID,
+      userId: "user-2",
+      login: "octocat",
+    });
+
+    expect(dbMock.integrationUserMapping.create).toHaveBeenCalledWith({
+      data: { integrationId: "int-1", externalUserId: "octocat", userId: "user-2" },
+    });
+    expect(dbMock.$transaction).toHaveBeenCalledTimes(1);
+  });
+});

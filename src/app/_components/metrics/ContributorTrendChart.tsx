@@ -41,7 +41,9 @@ const DEFAULT_VISIBLE = 5;
 /**
  * One line per contributor across every cycle, for one metric at a time.
  * With `focusCycleId`, the timeline stays whole but that cycle is marked and
- * the legend narrows to people active in it, ranked by its tickets.
+ * the legend narrows to people active in it, ranked by its tickets. When
+ * members are ticked (`memberIds`), the chart shows exactly them — every one
+ * drawn, idle or not — instead of the top few.
  * Fetches each cycle's Contributors rows (batched into one request by the tRPC
  * link); a single per-person-per-cycle endpoint would replace this if it stays.
  */
@@ -59,9 +61,10 @@ export function ContributorTrendChart({
   focusCycleId?: string;
 }) {
   const [metric, setMetric] = useState<MetricKey>('completedTickets');
-  // Manual legend picks belong to the scope they were made in.
-  const [picked, setPicked] = useState<{ focus?: string; ids: Set<string> } | null>(null);
+  // Manual legend picks belong to the scope and selection they were made in.
+  const [picked, setPicked] = useState<{ scope: string; ids: Set<string> } | null>(null);
   const focus = cycles.find((c) => c.cycleId === focusCycleId);
+  const pickScope = `${focus?.cycleId ?? ''}|${[...memberIds].sort().join(',')}`;
 
   const results = api.useQueries((t) =>
     cycles.map((c) =>
@@ -100,21 +103,24 @@ export function ContributorTrendChart({
       return row;
     });
     const sorted = [...totals.entries()]
-      .filter(([, v]) => v.active)
+      // A ticked member is drawn even when idle, so a selection never vanishes.
+      .filter(([, v]) => filter != null || v.active)
       .sort((a, b) => b[1].tickets - a[1].tickets)
       .map(([id, v], i) => ({ id, name: v.name, color: PALETTE[i % PALETTE.length]! }));
     return { people: sorted, chartData: rows };
   }, [cycles, results, memberIds, metric, focus]);
 
   const visible =
-    picked && picked.focus === focus?.cycleId
+    picked && picked.scope === pickScope
       ? picked.ids
-      : new Set(people.slice(0, DEFAULT_VISIBLE).map((p) => p.id));
+      : new Set(
+          (memberIds.length > 0 ? people : people.slice(0, DEFAULT_VISIBLE)).map((p) => p.id),
+        );
   const toggle = (id: string) => {
     const next = new Set(visible);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    setPicked({ focus: focus?.cycleId, ids: next });
+    setPicked({ scope: pickScope, ids: next });
   };
 
   if (isLoading) {
