@@ -11,7 +11,6 @@ import {
   Container,
   Select,
   Divider,
-  SegmentedControl,
   Switch,
 } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
@@ -33,6 +32,9 @@ import { MemberFilter, useMemberFilter } from './MemberFilter';
 import { StatCard } from './StatCard';
 import { DeliveryFlowSection } from './DeliveryFlowSection';
 
+/** People-scope value for "every cycle"; cycle ids are cuids, so no clash. */
+const ALL_TIME = 'all';
+
 /**
  * Metrics page dashboard.
  *
@@ -43,7 +45,8 @@ import { DeliveryFlowSection } from './DeliveryFlowSection';
  *  2. **Delivery flow** — weekly throughput and cycle time from the activity
  *     event log; needs neither cycles nor points.
  *  3. **Trends** — every metric plotted per cycle.
- *  4. **People** — one Contributors table, scoped to this cycle or all time.
+ *  4. **People** — the Contributors table and per-person trend chart, scoped
+ *     together to one cycle or all time.
  *
  * All numbers are computed live over Tickets; see ADR-0047.
  */
@@ -70,7 +73,8 @@ export function MetricsDashboard() {
   );
 
   const [picked, setPicked] = useState<string | null>(null);
-  const [peopleScope, setPeopleScope] = useState<'cycle' | 'all'>('cycle');
+  // The People scope follows the header's cycle until picked on its own.
+  const [peoplePicked, setPeoplePicked] = useState<string | null>(null);
 
   // Default the selection to the active cycle (else the most recent), but let
   // an explicit pick win.
@@ -80,6 +84,8 @@ export function MetricsDashboard() {
   }, [cycles]);
 
   const selectedCycleId = picked ?? defaultCycleId;
+  const peopleScope = peoplePicked ?? selectedCycleId ?? ALL_TIME;
+  const peopleCycleId = peopleScope === ALL_TIME ? undefined : peopleScope;
 
   const { data, isLoading } = api.sprintAnalytics.getActiveCycleMetrics.useQuery(
     {
@@ -184,24 +190,26 @@ export function MetricsDashboard() {
           <Stack gap="md">
             <Group justify="space-between" align="center" wrap="nowrap">
               <SectionTitle title="People" subtitle="Who delivered what" />
-              <SegmentedControl
+              <Select
+                aria-label="People scope"
+                data={[{ value: ALL_TIME, label: 'All time' }, ...cycleOptions]}
+                value={peopleScope}
+                onChange={setPeoplePicked}
+                allowDeselect={false}
+                checkIconPosition="right"
+                w={220}
                 size="xs"
-                value={data ? peopleScope : 'all'}
-                onChange={(v) => setPeopleScope(v === 'all' ? 'all' : 'cycle')}
-                data={[
-                  { value: 'cycle', label: 'This cycle', disabled: !data },
-                  { value: 'all', label: 'All time' },
-                ]}
               />
             </Group>
             <ContributorTrendCard
               data={allCycles}
               workspaceId={workspaceId}
               memberIds={memberIds}
+              focusCycleId={peopleCycleId}
             />
             <ContributorsTable
               workspaceId={workspaceId}
-              cycleId={peopleScope === 'cycle' ? data?.cycleId : undefined}
+              cycleId={peopleCycleId}
               memberIds={memberIds}
               onToggleMember={toggleMember}
             />
@@ -363,10 +371,12 @@ function ContributorTrendCard({
   data,
   workspaceId,
   memberIds,
+  focusCycleId,
 }: {
   data: AllCycles | undefined;
   workspaceId: string;
   memberIds: string[];
+  focusCycleId?: string;
 }) {
   const [showChart, setShowChart] = useLocalStorage({
     key: 'metrics:show-contributor-trends',
@@ -400,6 +410,7 @@ function ContributorTrendCard({
             workspaceId={workspaceId}
             cycles={data.cycles}
             memberIds={memberIds}
+            focusCycleId={focusCycleId}
           />
         )}
       </Stack>
