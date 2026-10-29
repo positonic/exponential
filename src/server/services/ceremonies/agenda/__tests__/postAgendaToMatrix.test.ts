@@ -8,7 +8,7 @@ const report = vi.hoisted(() => vi.fn());
 vi.mock("~/server/services/matrix/matrixServer", () => ({ listMatrixServers, getMatrixClientForServer }));
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: report }));
 
-import { buildAgendaTransactionId, postAgendaToMatrix } from "../postAgendaToMatrix";
+import { buildAgendaRedactionTransactionId, buildAgendaTransactionId, postAgendaToMatrix, removeAgendaFromMatrix } from "../postAgendaToMatrix";
 
 /** The ledger append runs in a serializable transaction; run the callback against the same mock. */
 function withTransaction(db: ReturnType<typeof mockDeep<PrismaClient>>) {
@@ -106,5 +106,73 @@ describe("postAgendaToMatrix", () => {
     };
     expect(data.agenda.sections[0]!.items[0]!.resolvedAt).toBe("2026-09-11T08:00:00Z");
     expect(data.agenda.matrixPosts).toHaveLength(1);
+  });
+});
+
+describe("removeAgendaFromMatrix", () => {
+  const post = { roomId: "!room:syntro.fi", serverId: "srv-1", eventId: "$evt1", postedAt: "2026-09-10T00:00:00Z", postedById: null };
+  const posted = { ...occurrence, agenda: { ...agenda, matrixPosts: [post] } };
+
+  beforeEach(() => {
+    getMatrixClientForServer.mockReset();
+    report.mockReset();
+  });
+
+  it("has the bot redact its own event and marks the ledger entry removed", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(posted as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    const redact = vi.fn(async () => ({ eventId: "$redaction" }));
+
+    const res = await removeAgendaFromMatrix(db, { occurrenceId: "occ-1", eventId: "$evt1", actorUserId: "u-1", client: { redact } });
+
+    expect(res).toEqual({ kind: "removed", roomId: "!room:syntro.fi", eventId: "$evt1" });
+    expect(redact).toHaveBeenCalledWith("!room:syntro.fi", "$evt1", expect.objectContaining({ txnId: buildAgendaRedactionTransactionId("occ-1", "$evt1") }));
+    const data = db.ceremonyOccurrence.update.mock.calls[0]![0].data as { agenda: { matrixPosts: Array<{ removedAt?: string; removedById?: string }> } };
+    expect(data.agenda.matrixPosts[0]).toEqual(expect.objectContaining({ removedById: "u-1", removedAt: expect.any(String) }));
+  });
+
+  it("works after the ceremony's room has been cleared, using the server the post went through", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ ...posted, ceremony: { ...posted.ceremony, matrixRoomId: null } } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    const redact = vi.fn(async () => ({ eventId: "$redaction" }));
+    getMatrixClientForServer.mockResolvedValue({ client: { redact } });
+
+    expect((await removeAgendaFromMatrix(db, { occurrenceId: "occ-1", eventId: "$evt1", actorUserId: null })).kind).toBe("removed");
+    expect(getMatrixClientForServer).toHaveBeenCalledWith(db, "srv-1", "ws-1");
+  });
+
+  it("does not call Matrix for an unknown or already-removed post", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    const redact = vi.fn(async () => ({ eventId: "$r" }));
+    db.ceremonyOccurrence.findUnique.mockResolvedValueOnce(posted as never);
+    expect(await removeAgendaFromMatrix(db, { occurrenceId: "occ-1", eventId: "$other", actorUserId: null, client: { redact } })).toEqual({ kind: "not-found" });
+    db.ceremonyOccurrence.findUnique.mockResolvedValueOnce({ ...posted, agenda: { ...agenda, matrixPosts: [{ ...post, removedAt: "2026-09-12T00:00:00Z" }] } } as never);
+    expect(await removeAgendaFromMatrix(db, { occurrenceId: "occ-1", eventId: "$evt1", actorUserId: null, client: { redact } })).toEqual({ kind: "already-removed", roomId: "!room:syntro.fi", removedAt: "2026-09-12T00:00:00Z" });
+    expect(redact).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused redaction and leaves the ledger alone", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(posted as never);
+    const redact = vi.fn(async () => { throw new Error("Matrix request failed (403 M_FORBIDDEN)"); });
+
+    expect(await removeAgendaFromMatrix(db, { occurrenceId: "occ-1", eventId: "$evt1", actorUserId: null, client: { redact } })).toEqual({ kind: "failed", reason: "Matrix request failed (403 M_FORBIDDEN)" });
+    expect(report).toHaveBeenCalled();
+    expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+  });
+
+  it("lets a removed post be sent again without the repost prompt, on a fresh txn id", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ ...occurrence, agenda: { ...agenda, matrixPosts: [{ ...post, removedAt: "2026-09-12T00:00:00Z" }] } } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    listMatrixServers.mockResolvedValue([{ id: "srv-1" }]);
+    const send = vi.fn(async () => ({ eventId: "$evt2" }));
+
+    const res = await postAgendaToMatrix(db, { occurrenceId: "occ-1", actorUserId: null, client: { joinedRooms: async () => [], send } });
+
+    expect(res.kind).toBe("posted");
+    expect((send.mock.calls[0] as unknown as [string, { txnId: string }])[1].txnId).toBe(buildAgendaTransactionId("occ-1", "!room:syntro.fi", 1));
   });
 });

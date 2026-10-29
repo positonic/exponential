@@ -87,6 +87,9 @@ export interface AgendaMatrixPost {
   eventId: string;
   postedAt: string;
   postedById: string | null;
+  /** Set when the post was taken back out of the room (the bot redacted its own event). */
+  removedAt?: string | null;
+  removedById?: string | null;
 }
 
 export interface AgendaSnapshot {

@@ -74,6 +74,12 @@ interface FormState {
   /** Run "Extract outputs" on every recording that attaches to an occurrence. */
   autoExtractOutputs: boolean;
   isActive: boolean;
+  /**
+   * Whether agendas go to a Matrix room. Not stored: the ceremony posts
+   * exactly when it has a room, so Off saves the room as null. The picked
+   * room is kept in the form while Off so switching back restores it.
+   */
+  postToMatrix: boolean;
   matrixRoomId: string | null;
   /** The video room link; "" when none. */
   meetingUrl: string;
@@ -116,6 +122,7 @@ function emptyForm(): FormState {
     includeProjects: true,
     autoExtractOutputs: false,
     isActive: true,
+    postToMatrix: false,
     matrixRoomId: null,
     meetingUrl: "",
   };
@@ -180,6 +187,7 @@ function fromCeremony(c: CeremonyDetail): FormState {
     includeProjects: c.includeProjects,
     autoExtractOutputs: c.autoExtractOutputs,
     isActive: c.isActive,
+    postToMatrix: Boolean(c.matrixRoomId),
     matrixRoomId: c.matrixRoomId,
     meetingUrl: c.meetingUrl ?? "",
   };
@@ -308,8 +316,13 @@ export function CeremonyEditorModal({
   const saving = create.isPending || update.isPending;
 
   const meetingUrlInvalid = form.meetingUrl.trim() !== "" && meetingUrlKey(form.meetingUrl) === null;
+  const matrixRoomMissing = form.postToMatrix && !form.matrixRoomId;
   const canSave =
-    form.name.trim().length > 0 && form.cadenceRule.trim().length > 0 && form.startsOn !== null && !meetingUrlInvalid;
+    form.name.trim().length > 0 &&
+    form.cadenceRule.trim().length > 0 &&
+    form.startsOn !== null &&
+    !meetingUrlInvalid &&
+    !matrixRoomMissing;
 
   const submit = () => {
     if (!canSave || !form.startsOn) return;
@@ -336,7 +349,7 @@ export function CeremonyEditorModal({
       agendaTemplate: form.agendaTemplate,
       includeProjects: form.includeProjects,
       autoExtractOutputs: form.autoExtractOutputs,
-      matrixRoomId: form.matrixRoomId,
+      matrixRoomId: form.postToMatrix ? form.matrixRoomId : null,
       meetingUrl: orNull(form.meetingUrl.trim()),
     };
     if (ceremonyId) update.mutate({ ...payload, id: ceremonyId, isActive: form.isActive });
@@ -517,7 +530,20 @@ export function CeremonyEditorModal({
             data-testid="ceremony-auto-extract-outputs"
           />
 
-          {matrixServers.length > 1 && (
+          <Switch
+            label="Post agendas to Matrix"
+            description={
+              matrixServers.length === 0 && !form.postToMatrix
+                ? "Register a Matrix server under Settings → Integrations to post agendas to a room."
+                : "When on, each agenda is posted to the room below as it is circulated. Off sends it to participants inside Exponential only."
+            }
+            checked={form.postToMatrix}
+            onChange={(e) => set("postToMatrix", e.currentTarget.checked)}
+            disabled={matrixServers.length === 0 && !form.postToMatrix}
+            data-testid="ceremony-post-to-matrix"
+          />
+
+          {form.postToMatrix && matrixServers.length > 1 && (
             <Select
               label="Matrix server"
               description="Which server's rooms to choose from."
@@ -534,22 +560,19 @@ export function CeremonyEditorModal({
             />
           )}
 
-          <Select
-            label="Matrix room"
-            description={
-              matrixServers.length === 0
-                ? "Register a Matrix server under Settings → Integrations to post agendas to a room."
-                : "Agendas are posted here when circulated (the bot must have joined the room)."
-            }
-            data={matrixRoomOptions}
-            value={form.matrixRoomId}
-            onChange={(v) => set("matrixRoomId", v)}
-            placeholder={matrixServers.length === 0 ? "No Matrix server" : "Optional"}
-            disabled={matrixServers.length === 0}
-            clearable
-            searchable
-            data-testid="ceremony-matrix-room"
-          />
+          {form.postToMatrix && (
+            <Select
+              label="Matrix room"
+              description="The bot must have joined the room."
+              data={matrixRoomOptions}
+              value={form.matrixRoomId}
+              onChange={(v) => set("matrixRoomId", v)}
+              placeholder="Choose a room"
+              error={matrixRoomMissing ? "Choose a room, or turn Matrix posting off." : undefined}
+              searchable
+              data-testid="ceremony-matrix-room"
+            />
+          )}
 
           <Stack gap={6}>
             <Text size="sm" fw={500}>
