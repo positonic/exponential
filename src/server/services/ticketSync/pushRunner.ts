@@ -442,15 +442,25 @@ export async function requeueDeferredCyclePushes(
         ticketId: true,
         snapshot: true,
         ticket: { select: { cycle: { select: { name: true } } } },
+        pushJobs: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { status: true },
+        },
       },
     });
 
-    // A null snapshot is a fresh adoption the next merge settles by
-    // last-write-wins; only a recorded base that disagrees is a deferral.
+    // Only a recorded base that disagrees is a deferral: a null snapshot is a
+    // fresh adoption the next merge settles by last-write-wins. A ticket whose
+    // latest push gave up is left alone too — that push fails for a reason a
+    // retry won't fix, and re-queueing it every sweep would retry it forever;
+    // the next edit to the ticket enqueues a fresh push.
     const deferred = syncs.filter((s) => {
       const name = s.ticket.cycle?.name;
       if (!name || !s.snapshot || typeof s.snapshot !== "object") return false;
-      return (s.snapshot as { cycleName?: unknown }).cycleName !== name;
+      if (s.pushJobs[0]?.status === "FAILED") return false;
+      const snapshot = s.snapshot as Record<string, unknown>;
+      return "cycleName" in snapshot && snapshot.cycleName !== name;
     });
     if (deferred.length === 0) continue;
 

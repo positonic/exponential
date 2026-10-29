@@ -527,11 +527,17 @@ describe("planBackfill / enqueueBackfill", () => {
 });
 
 describe("requeueDeferredCyclePushes", () => {
-  function linked(ticketId: string, cycle: string, snapshotCycle: string | null) {
+  function linked(
+    ticketId: string,
+    cycle: string,
+    snapshotCycle: string | null,
+    latestJobStatus?: string,
+  ) {
     return {
       ticketId,
       snapshot: { title: "T", cycleName: snapshotCycle },
       ticket: { cycle: { name: cycle } },
+      pushJobs: latestJobStatus ? [{ status: latestJobStatus }] : [],
     };
   }
 
@@ -609,7 +615,11 @@ describe("requeueDeferredCyclePushes", () => {
     db.ticketSync.findMany.mockResolvedValue([
       linked("t1", "Cycle 19", "Cycle 19"),
       // A fresh adoption (null snapshot) is the next merge's job, not a deferral.
-      { ticketId: "t2", snapshot: null, ticket: { cycle: { name: "Cycle 19" } } },
+      { ticketId: "t2", snapshot: null, ticket: { cycle: { name: "Cycle 19" } }, pushJobs: [] },
+      // A snapshot without the cycle key says nothing about a deferral.
+      { ticketId: "t3", snapshot: { title: "T" }, ticket: { cycle: { name: "Cycle 19" } }, pushJobs: [] },
+      // Its last push gave up: a sweep must not retry it forever.
+      linked("t4", "Cycle 19", "Cycle 18", "FAILED"),
     ] as never);
     const factory = vi.fn();
 
