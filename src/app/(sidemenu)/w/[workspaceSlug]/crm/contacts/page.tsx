@@ -321,7 +321,8 @@ export default function ContactsPage() {
   } = api.crmContact.getAll.useInfiniteQuery(
     {
       workspaceId: workspaceId!,
-      // The table reads no organization/interaction fields — don't join them.
+      // The table shows the organization name; it reads no interaction fields.
+      includeOrganization: true,
       search: debouncedSearch.trim() || undefined,
       profileTypes: profileTypeFilter?.length ? profileTypeFilter : undefined,
       organizationIds: organizationFilter?.length ? organizationFilter : undefined,
@@ -727,6 +728,11 @@ export default function ContactsPage() {
                   </div>
                 </th>
                 <th className="px-4 py-3 text-left">
+                  <Text size="sm" className="font-medium text-text-muted">
+                    Organization
+                  </Text>
+                </th>
+                <th className="px-4 py-3 text-left">
                   <div className="flex items-center gap-2">
                     <div className="h-3 w-3 rounded-full border-2 border-text-muted" />
                     <Text size="sm" className="font-medium text-text-muted">
@@ -789,6 +795,21 @@ export default function ContactsPage() {
                           {fullName}
                         </Text>
                       </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {contact.organization ? (
+                        <Link
+                          href={`${basePath}/organizations/${contact.organization.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-sm text-text-primary hover:underline"
+                        >
+                          {contact.organization.name}
+                        </Link>
+                      ) : (
+                        <Text size="sm" className="text-text-muted">
+                          —
+                        </Text>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <ConnectionScoreBadge score={contact.connectionScore} />
