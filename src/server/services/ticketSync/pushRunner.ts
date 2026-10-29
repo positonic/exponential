@@ -465,12 +465,22 @@ export async function requeueDeferredCyclePushes(
     for (const sync of deferred) {
       const name = sync.ticket.cycle!.name;
       if (!pageExists.has(name)) {
-        const pageId = await adapterResult.adapter.findCyclePageIdByName(
-          config.databaseId,
-          cycleProperty,
-          name,
-        );
-        pageExists.set(name, pageId !== null);
+        // An unreadable cycle database must not cost the other configs (or
+        // this config's other cycles) their retries: treat it as "no page yet".
+        try {
+          const pageId = await adapterResult.adapter.findCyclePageIdByName(
+            config.databaseId,
+            cycleProperty,
+            name,
+          );
+          pageExists.set(name, pageId !== null);
+        } catch (error) {
+          console.error(
+            `[ticketSync push] cycle page lookup failed for config ${config.id}`,
+            error,
+          );
+          pageExists.set(name, false);
+        }
       }
       if (!pageExists.get(name)) continue;
       const result = await enqueueTicketPush(db, { ticketId: sync.ticketId });

@@ -584,6 +584,27 @@ describe("requeueDeferredCyclePushes", () => {
     expect(db.ticketSyncPushJob.create).not.toHaveBeenCalled();
   });
 
+  it("keeps going when one cycle lookup throws", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      linked("t1", "Cycle 19", "Cycle 18"),
+      linked("t2", "Cycle 20", "Cycle 19"),
+    ] as never);
+    const adapter = {
+      findCyclePageIdByName: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Failed to fetch database from Notion"))
+        .mockResolvedValueOnce("cycle-20-page"),
+    } as unknown as TicketPushAdapter;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await requeueDeferredCyclePushes(db, {
+      adapterFactory: () => Promise.resolve({ ok: true as const, adapter }),
+    });
+
+    expect(result.requeued).toBe(1);
+    expect(db.ticketSyncPushJob.create).toHaveBeenCalledTimes(1);
+  });
+
   it("does not build an adapter when nothing is deferred", async () => {
     db.ticketSync.findMany.mockResolvedValue([
       linked("t1", "Cycle 19", "Cycle 19"),
