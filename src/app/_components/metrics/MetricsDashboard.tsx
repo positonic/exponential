@@ -11,18 +11,22 @@ import {
   Container,
   Select,
   Divider,
+  SegmentedControl,
+  Switch,
 } from '@mantine/core';
+import { useLocalStorage } from '@mantine/hooks';
 import {
   IconChartBar,
   IconCircleCheck,
   IconBolt,
   IconTrendingUp,
+  IconUsers,
   IconGitPullRequest,
-  IconTargetArrow,
 } from '@tabler/icons-react';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { CycleTrendChart } from './CycleTrendChart';
+import { ContributorTrendChart } from './ContributorTrendChart';
 import { formatHours, formatMinutes } from './format';
 import { ContributorsTable } from './ContributorsTable';
 import { MemberFilter, useMemberFilter } from './MemberFilter';
@@ -32,23 +36,16 @@ import { DeliveryFlowSection } from './DeliveryFlowSection';
 /**
  * Metrics page dashboard.
  *
- * Three tiers, in the order they answer questions:
- *  1. **Delivery flow** (headline) — completed tickets per week and cycle-time
- *     percentiles over the trailing weeks, from the activity event log. Needs
- *     neither cycles nor points, so it is the number that is always real.
- *  2. **All cycles** — every cycle's metrics summed into one roll-up, with a
- *     line chart tracking each metric across cycles.
- *  3. **Cycle breakdown** — the same metrics for one cycle, chosen from a
- *     dropdown (defaults to the ACTIVE cycle).
+ * Ordered by the question a visitor arrives with:
+ *  1. **This cycle** — progress against elapsed time, with deltas vs the
+ *     previous cycle. The cycle picker and member filter sit in the header and
+ *     scope the whole page.
+ *  2. **Delivery flow** — weekly throughput and cycle time from the activity
+ *     event log; needs neither cycles nor points.
+ *  3. **Trends** — every metric plotted per cycle.
+ *  4. **People** — one Contributors table, scoped to this cycle or all time.
  *
- * All numbers are computed live over Tickets — cycle velocity is a
- * completed-ticket **count** with summed points alongside; nothing is read from
- * the dormant `SprintMetrics` table. See ADR-0047 (incl. the Ticket-based and
- * flow-headline amendments).
- *
- * A page-wide **member filter** (kept in `?members=`) narrows every number to
- * the selected people — tickets by assignee, PRs by linked GitHub login, time
- * by who logged it — and each tier carries a per-person Contributors table.
+ * All numbers are computed live over Tickets; see ADR-0047.
  */
 export function MetricsDashboard() {
   const { workspace, workspaceId } = useWorkspace();
@@ -73,6 +70,7 @@ export function MetricsDashboard() {
   );
 
   const [picked, setPicked] = useState<string | null>(null);
+  const [peopleScope, setPeopleScope] = useState<'cycle' | 'all'>('cycle');
 
   // Default the selection to the active cycle (else the most recent), but let
   // an explicit pick win.
@@ -91,6 +89,20 @@ export function MetricsDashboard() {
     },
     { enabled: !!workspaceId, placeholderData: keepWhileSameCycle(selectedCycleId ?? undefined) },
   );
+
+  const { data: allCycles, isLoading: allCyclesLoading } =
+    api.sprintAnalytics.getAllCyclesMetrics.useQuery(
+      { workspaceId: workspaceId ?? '', memberIds: memberFilter },
+      { enabled: !!workspaceId, placeholderData: keepPreviousData },
+    );
+
+  // The cycle before the selected one (trend rows run oldest → newest), for
+  // the "vs last cycle" deltas.
+  const previousCycle = useMemo(() => {
+    const rows = allCycles?.cycles ?? [];
+    const i = rows.findIndex((c) => c.cycleId === data?.cycleId);
+    return i > 0 ? rows[i - 1] : undefined;
+  }, [allCycles, data?.cycleId]);
 
   const cycleOptions = useMemo(
     () =>
@@ -121,36 +133,7 @@ export function MetricsDashboard() {
             </div>
           </Group>
 
-          <MemberFilter
-            workspaceId={workspaceId}
-            value={memberIds}
-            onChange={setMemberIds}
-          />
-        </Group>
-
-        <DeliveryFlowSection workspaceId={workspaceId} memberIds={memberIds} />
-
-        <Divider className="border-border-primary" />
-
-        <AllCyclesSection
-          workspaceId={workspaceId}
-          memberIds={memberIds}
-          onToggleMember={toggleMember}
-        />
-
-        <Divider className="border-border-primary" />
-
-        <Stack gap="md">
-          <Group justify="space-between" align="center" wrap="nowrap">
-            <div>
-              <Text fw={600} size="lg" className="text-text-primary">
-                Cycle breakdown
-              </Text>
-              <Text size="sm" className="text-text-secondary">
-                The same metrics for a single cycle.
-              </Text>
-            </div>
-
+          <Group gap="sm" wrap="wrap">
             {cycleOptions.length > 0 && (
               <Select
                 aria-label="Select cycle"
@@ -163,30 +146,251 @@ export function MetricsDashboard() {
                 size="sm"
               />
             )}
+            <MemberFilter
+              workspaceId={workspaceId}
+              value={memberIds}
+              onChange={setMemberIds}
+            />
           </Group>
+        </Group>
 
-          {isLoading || !workspaceId ? (
-            <LoadingState />
-          ) : !data ? (
-            <EmptyState />
-          ) : (
-            <>
-              <SelectedCycleMetrics
-                data={data}
-                cycleId={selectedCycleId ?? undefined}
-                memberIds={memberFilter}
+        {isLoading || !workspaceId ? (
+          <LoadingState />
+        ) : !data ? (
+          <EmptyState />
+        ) : (
+          <CurrentCycleSection
+            data={data}
+            previous={previousCycle}
+            cycleId={selectedCycleId ?? undefined}
+            memberIds={memberFilter}
+          />
+        )}
+
+        <Divider className="border-border-primary" />
+
+        <DeliveryFlowSection workspaceId={workspaceId} memberIds={memberIds} />
+
+        <Divider className="border-border-primary" />
+
+        <TrendsSection
+          data={allCycles}
+          isLoading={allCyclesLoading || !workspaceId}
+          workspaceId={workspaceId}
+          memberIds={memberIds}
+        />
+
+        <Divider className="border-border-primary" />
+
+        {workspaceId && (
+          <Stack gap="md">
+            <Group justify="space-between" align="center" wrap="nowrap">
+              <SectionTitle title="People" subtitle="Who delivered what" />
+              <SegmentedControl
+                size="xs"
+                value={data ? peopleScope : 'all'}
+                onChange={(v) => setPeopleScope(v === 'all' ? 'all' : 'cycle')}
+                data={[
+                  { value: 'cycle', label: 'This cycle', disabled: !data },
+                  { value: 'all', label: 'All time' },
+                ]}
               />
-              <ContributorsTable
-                workspaceId={workspaceId}
-                cycleId={data.cycleId}
-                memberIds={memberIds}
-                onToggleMember={toggleMember}
-              />
-            </>
-          )}
-        </Stack>
+            </Group>
+            <ContributorsTable
+              workspaceId={workspaceId}
+              cycleId={peopleScope === 'cycle' ? data?.cycleId : undefined}
+              memberIds={memberIds}
+              onToggleMember={toggleMember}
+            />
+            <GithubLinkNotice workspaceId={workspaceId} memberIds={memberIds} />
+          </Stack>
+        )}
       </Stack>
     </Container>
+  );
+}
+
+function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div>
+      <Text fw={600} size="lg" className="text-text-primary">
+        {title}
+      </Text>
+      <Text size="sm" className="text-text-secondary">
+        {subtitle}
+      </Text>
+    </div>
+  );
+}
+
+/** "+3 vs last cycle" / "−2 vs last cycle"; nothing without a previous cycle. */
+function delta(current: number, previous: number | undefined, unit = ''): string | null {
+  if (previous == null) return null;
+  const d = Math.round(current - previous);
+  if (d === 0) return 'Same as last cycle';
+  return `${d > 0 ? '+' : '−'}${Math.abs(d)}${unit} vs last cycle`;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How far through its window the cycle is, as whole days and the completion %
+ * a straight-line pace would expect by now. Null without both dates.
+ */
+function cyclePace(start: Date | string | null, end: Date | string | null) {
+  if (!start || !end) return null;
+  const s = new Date(start).getTime();
+  const e = new Date(end).getTime();
+  if (e <= s) return null;
+  const now = Math.min(Math.max(Date.now(), s), e);
+  return {
+    day: Math.max(1, Math.ceil((now - s) / DAY_MS)),
+    totalDays: Math.ceil((e - s) / DAY_MS),
+    expectedRate: ((now - s) / (e - s)) * 100,
+  };
+}
+
+type TrendRow = NonNullable<AllCycles>['cycles'][number];
+
+function CurrentCycleSection({
+  data,
+  previous,
+  cycleId,
+  memberIds,
+}: {
+  data: CycleMetrics;
+  previous: TrendRow | undefined;
+  cycleId: string | undefined;
+  memberIds: string[] | undefined;
+}) {
+  const completionRate = Math.round(data.completionRate);
+  const pace = cyclePace(data.startDate, data.endDate);
+  const behind = pace != null && completionRate + 10 < pace.expectedRate;
+
+  return (
+    <Stack gap="md">
+      <SectionTitle
+        title={data.cycleName}
+        subtitle={
+          pace
+            ? `Day ${pace.day} of ${pace.totalDays}`
+            : 'No start/end dates set for this cycle'
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <StatCard
+          icon={<IconCircleCheck size={16} className="text-text-muted" />}
+          label="Progress"
+          value={`${data.completedTickets}/${data.totalTickets}`}
+          valueSuffix={`tickets done · ${completionRate}%`}
+          hint={
+            pace
+              ? `${behind ? 'Behind pace' : 'On pace'} — ${Math.round(pace.expectedRate)}% expected by today`
+              : undefined
+          }
+        >
+          <Progress
+            value={completionRate}
+            size="sm"
+            radius="xl"
+            color={completionRate >= 100 ? 'green' : behind ? 'orange' : 'indigo'}
+          />
+        </StatCard>
+
+        <StatCard
+          icon={<IconBolt size={16} className="text-text-muted" />}
+          label="Points delivered"
+          value={String(data.completedPoints)}
+          valueSuffix={`of ${data.totalPoints}`}
+          hint={
+            [
+              delta(data.completedPoints, previous?.completedPoints),
+              data.untrackedWorkEntries > 0
+                ? `${formatMinutes(data.untrackedWorkMinutes)} untracked work`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || undefined
+          }
+        />
+
+        <PrTurnaroundCard cycleId={cycleId} memberIds={memberIds} />
+      </div>
+    </Stack>
+  );
+}
+
+function TrendsSection({
+  data,
+  isLoading,
+  workspaceId,
+  memberIds,
+}: {
+  data: AllCycles | undefined;
+  isLoading: boolean;
+  workspaceId: string | null;
+  memberIds: string[];
+}) {
+  const [showPeople, setShowPeople] = useLocalStorage({
+    key: 'metrics:show-contributor-trends',
+    defaultValue: false,
+  });
+  const hasTrend = !!data && data.cycles.length >= 2;
+
+  return (
+    <Stack gap="md">
+      <Group justify="space-between" align="center" wrap="nowrap">
+        <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
+        {hasTrend && (
+          <Switch
+            size="sm"
+            label="By contributor"
+            checked={showPeople}
+            onChange={(e) => setShowPeople(e.currentTarget.checked)}
+          />
+        )}
+      </Group>
+      <Card
+        withBorder
+        radius="md"
+        className="border-border-primary bg-surface-secondary"
+      >
+        {isLoading ? (
+          <div className="h-64 animate-pulse rounded-md bg-surface-hover" />
+        ) : !hasTrend ? (
+          <Group gap="xs">
+            <IconTrendingUp size={16} className="text-text-muted" />
+            <Text size="sm" className="text-text-muted">
+              The trend appears once two cycles have tickets.
+            </Text>
+          </Group>
+        ) : (
+          <CycleTrendChart cycles={data.cycles} />
+        )}
+      </Card>
+      {hasTrend && showPeople && workspaceId && (
+        <Card
+          withBorder
+          radius="md"
+          className="border-border-primary bg-surface-secondary"
+        >
+          <Stack gap="md">
+            <Group gap="xs">
+              <IconUsers size={16} className="text-text-muted" />
+              <Text size="sm" fw={500} className="text-text-secondary">
+                By contributor
+              </Text>
+            </Group>
+            <ContributorTrendChart
+              workspaceId={workspaceId}
+              cycles={data.cycles}
+              memberIds={memberIds}
+            />
+          </Stack>
+        </Card>
+      )}
+    </Stack>
   );
 }
 
@@ -209,120 +413,6 @@ function keepWhileSameCycle<T>(cycleId: string | undefined) {
 }
 
 type AllCycles = RouterOutputs['sprintAnalytics']['getAllCyclesMetrics'];
-
-/**
- * The headline block: every cycle summed into one set of numbers, plus the
- * per-cycle trend chart behind them.
- */
-function AllCyclesSection({
-  workspaceId,
-  memberIds,
-  onToggleMember,
-}: {
-  workspaceId: string | null;
-  memberIds: string[];
-  onToggleMember: (userId: string) => void;
-}) {
-  const { data, isLoading } = api.sprintAnalytics.getAllCyclesMetrics.useQuery(
-    {
-      workspaceId: workspaceId ?? '',
-      memberIds: memberIds.length > 0 ? memberIds : undefined,
-    },
-    { enabled: !!workspaceId, placeholderData: keepPreviousData },
-  );
-
-  if (isLoading || !workspaceId) {
-    return (
-      <Stack gap="md">
-        <LoadingState />
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <div className="animate-pulse space-y-3">
-            <div className="h-4 w-1/4 rounded bg-surface-hover" />
-            <div className="h-64 rounded bg-surface-hover" />
-          </div>
-        </Card>
-      </Stack>
-    );
-  }
-
-  if (!data || data.cycleCount === 0) {
-    return (
-      <Card
-        withBorder
-        radius="md"
-        className="border-border-primary bg-surface-secondary"
-      >
-        <Stack gap="xs" align="center" className="py-10 text-center">
-          <IconChartBar size={32} className="text-text-muted" />
-          <Text fw={500} className="text-text-primary">
-            No cycle data yet
-          </Text>
-          <Text size="sm" className="text-text-secondary">
-            Once cycles have tickets assigned, their totals and trend appear
-            here.
-          </Text>
-        </Stack>
-      </Card>
-    );
-  }
-
-  return (
-    <Stack gap="md">
-      <Group justify="space-between" align="flex-end" wrap="nowrap">
-        <div>
-          <Text fw={600} size="lg" className="text-text-primary">
-            All cycles
-          </Text>
-          <Text size="sm" className="text-text-secondary">
-            Totals across {data.cycleCount}{' '}
-            {data.cycleCount === 1 ? 'cycle' : 'cycles'}
-          </Text>
-        </div>
-      </Group>
-
-      <AllCyclesTotals data={data} />
-
-      <GithubLinkNotice workspaceId={workspaceId} memberIds={memberIds} />
-
-      <Card
-        withBorder
-        radius="md"
-        className="border-border-primary bg-surface-secondary"
-      >
-        <Stack gap="md">
-          <Group gap="xs">
-            <IconTrendingUp size={16} className="text-text-muted" />
-            <Text size="sm" fw={500} className="text-text-secondary">
-              Metrics by cycle
-            </Text>
-            <Text size="xs" className="text-text-muted">
-              (oldest → newest)
-            </Text>
-          </Group>
-
-          {data.cycles.length < 2 ? (
-            <Text size="sm" className="text-text-muted">
-              Only one cycle has data so far — the trend appears once a second
-              cycle has tickets.
-            </Text>
-          ) : (
-            <CycleTrendChart cycles={data.cycles} />
-          )}
-        </Stack>
-      </Card>
-
-      <ContributorsTable
-        workspaceId={workspaceId}
-        memberIds={memberIds}
-        onToggleMember={onToggleMember}
-      />
-    </Stack>
-  );
-}
 
 /**
  * When the filter includes members with no linked GitHub account, say so —
@@ -356,153 +446,9 @@ function GithubLinkNotice({
   );
 }
 
-function AllCyclesTotals({ data }: { data: AllCycles }) {
-  const completionRate = Math.round(data.completionRate);
-  const avg = data.avgPrHours != null ? formatHours(data.avgPrHours) : null;
-
-  return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard
-        icon={<IconBolt size={16} className="text-text-muted" />}
-        label="Velocity"
-        value={String(data.completedTickets)}
-        valueSuffix={data.completedTickets === 1 ? 'ticket' : 'tickets'}
-        hint={`${data.completedPoints} of ${data.totalPoints} points delivered`}
-      />
-
-      <StatCard
-        icon={<IconTargetArrow size={16} className="text-text-muted" />}
-        label="Tickets tracked"
-        value={String(data.totalTickets)}
-        valueSuffix="total"
-        hint={`${data.totalTickets - data.completedTickets} not yet completed`}
-      />
-
-      <StatCard
-        icon={<IconCircleCheck size={16} className="text-text-muted" />}
-        label="Completion"
-        value={`${completionRate}%`}
-        valueSuffix={`${data.completedTickets}/${data.totalTickets} tickets`}
-      >
-        <Progress
-          value={completionRate}
-          size="sm"
-          radius="xl"
-          color={completionRate >= 100 ? 'green' : 'indigo'}
-        />
-      </StatCard>
-
-      <StatCard
-        icon={<IconGitPullRequest size={16} className="text-text-muted" />}
-        label="PRs merged"
-        value={String(data.mergedPrCount)}
-        valueSuffix={data.mergedPrCount === 1 ? 'PR' : 'PRs'}
-        hint={
-          avg
-            ? `${avg.value}${avg.unit} avg turnaround`
-            : 'Turnaround unavailable — needs GitHub PR webhook events'
-        }
-      />
-    </div>
-  );
-}
-
 type CycleMetrics = NonNullable<
   RouterOutputs['sprintAnalytics']['getActiveCycleMetrics']
 >;
-
-function SelectedCycleMetrics({
-  data,
-  cycleId,
-  memberIds,
-}: {
-  data: CycleMetrics;
-  cycleId: string | undefined;
-  memberIds: string[] | undefined;
-}) {
-  const completionRate = Math.round(data.completionRate);
-
-  return (
-    <Stack gap="md">
-      <Text size="sm" className="text-text-muted">
-        Cycle:{' '}
-        <span className="font-medium text-text-secondary">{data.cycleName}</span>
-      </Text>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {/* Velocity — completed-ticket COUNT is the headline, points alongside */}
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Stack gap="xs">
-            <Group gap="xs">
-              <IconBolt size={16} className="text-text-muted" />
-              <Text size="sm" fw={500} className="text-text-secondary">
-                Velocity
-              </Text>
-            </Group>
-            <Group align="baseline" gap="xs">
-              <Text className="text-4xl font-bold text-accent-indigo">
-                {data.completedTickets}
-              </Text>
-              <Text size="sm" className="text-text-muted">
-                {data.completedTickets === 1 ? 'ticket' : 'tickets'} completed
-              </Text>
-            </Group>
-            <Text size="xs" className="text-text-muted">
-              {data.completedPoints} of {data.totalPoints} points delivered
-            </Text>
-            {/* Untracked work (Daily worklog V4): confirmed time in the cycle
-                window on Actions with no Ticket — shipped work nobody filed.
-                Computed live beside velocity, never stored (ADR-0047). */}
-            <Text size="xs" className="text-text-muted" data-testid="untracked-work">
-              {data.untrackedWorkEntries === 0
-                ? 'No untracked work'
-                : `${data.untrackedWorkEntries} untracked ${
-                    data.untrackedWorkEntries === 1 ? 'entry' : 'entries'
-                  } (${formatMinutes(data.untrackedWorkMinutes)}) with no ticket`}
-            </Text>
-          </Stack>
-        </Card>
-
-        {/* Completion */}
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Stack gap="xs">
-            <Group gap="xs">
-              <IconCircleCheck size={16} className="text-text-muted" />
-              <Text size="sm" fw={500} className="text-text-secondary">
-                Completion
-              </Text>
-            </Group>
-            <Group align="baseline" gap="xs">
-              <Text className="text-4xl font-bold text-accent-indigo">
-                {completionRate}%
-              </Text>
-              <Text size="sm" className="text-text-muted">
-                {data.completedTickets}/{data.totalTickets} tickets
-              </Text>
-            </Group>
-            <Progress
-              value={completionRate}
-              size="sm"
-              radius="xl"
-              color={completionRate >= 100 ? 'green' : 'indigo'}
-            />
-          </Stack>
-        </Card>
-
-        {/* Merged-PR turnaround */}
-        <PrTurnaroundCard cycleId={cycleId} memberIds={memberIds} />
-      </div>
-    </Stack>
-  );
-}
 
 function PrTurnaroundCard({
   cycleId,
