@@ -319,6 +319,7 @@ describe("github.setMemberGithubLogin (mocked)", () => {
   it("lets an admin set a member's username on the installation", async () => {
     membership({ [USER_ID]: "admin", "user-2": "member" });
     dbMock.integration.findFirst.mockResolvedValue({ id: "int-1" } as never);
+    dbMock.integration.findMany.mockResolvedValue([] as never);
     dbMock.$transaction.mockResolvedValue([] as never);
     const caller = createMockCaller({ userId: USER_ID, db: dbMock });
 
