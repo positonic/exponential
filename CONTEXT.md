@@ -495,6 +495,9 @@ A Ticket is "blocked" when its `openBlockerCount > 0` — i.e. it has at least o
 **Nest dependencies**:
 A display toggle on the Backlog's table and list views (saved per user as the `nestDependencies` view pref) that indents each Ticket's **Depends on** Tickets beneath it. Roots are the Tickets nothing else in the list depends on — the top of each chain, with the work it waits for nested below. Dependencies form a DAG, so a Ticket several others depend on appears under each of them; nesting is computed within each group bucket and the Completed section from the already filtered list, so a parent filtered out leaves its dependencies as roots. The board ignores it.
 
+**View link**:
+A Backlog or Graph URL that carries a whole ticket view in readable query params (`status=BACKLOG,BLOCKED&labels=<tagId>&sort=priority:desc&group=cycle&layout=board&entity=tickets&nest=0`), made by the toolbar's **Copy link**. Opening one shows that view *instead of* the opener's saved **view prefs** and never writes to them: while a view link is open, changing a control rewrites the URL, and **My view** drops the params to return to the user's own prefs. The Overview's `?status=` and `?assignee=me` deep links are view links (`me` resolves to whoever opens it). Not a saved view: it has no name and no row; the planned `SavedView` entity gives a view a stable `?view=<id>` link. A view link never widens what the opener can see.
+
 ### Dependency graph
 
 **Dependency graph**:

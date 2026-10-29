@@ -26,6 +26,8 @@ import {
   IconCornerDownRight,
   IconDots,
   IconLayoutKanban,
+  IconLink,
+  IconArrowBackUp,
   IconList,
   IconPencil,
   IconPlus,
@@ -55,6 +57,7 @@ import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { useViewPrefs } from "~/hooks/useViewPrefs";
+import { useTicketViewUrl } from "~/hooks/useTicketViewUrl";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import {
   PRIORITY_PILL_OPTIONS,
@@ -106,6 +109,11 @@ import {
   type TicketFilters,
 } from "~/app/_components/product/ticketFilters";
 import {
+  ASSIGNEE_ME,
+  isCompleteTicketView,
+  type TicketViewState,
+} from "~/app/_components/product/ticketViewUrl";
+import {
   STATUS_LABELS,
   STATUS_COLORS,
   STATUS_ORDER,
@@ -153,6 +161,9 @@ const NEST_INDENT = 20;
 
 type SortField = "status" | "title" | "priority" | "assignee" | "type" | "epic" | "cycle";
 type SortDir = "asc" | "desc";
+
+/** The group-by values a shared link may name. */
+const GROUP_BY_VALUES: readonly string[] = GROUP_BY_OPTIONS.map((o) => o.value);
 
 function cmp(a: string | number, b: string | number, dir: SortDir) {
   if (a < b) return dir === "asc" ? -1 : 1;
@@ -213,32 +224,34 @@ export default function TicketsBacklogPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
 
-  // URL-driven filters - deep links from the Overview tab
-  // (?status=BLOCKED, ?assignee=me). Applied server-side via ticket.listSummaries.
-  const statusParam = searchParams.get("status");
-  const urlStatus =
-    statusParam && statusParam in STATUS_LABELS
-      ? (statusParam as TicketStatus)
-      : undefined;
-  const filterAssigneeMe = searchParams.get("assignee") === "me";
   const sessionUserId = session?.user?.id;
-  // With ?assignee=me the ticket query stays disabled until the session
-  // resolves; treat that gap as loading so we don't flash an empty state.
-  const sessionPending = filterAssigneeMe && !sessionUserId;
+  // A view carried by the URL - a shared link, or an Overview deep link
+  // (?status=BLOCKED, ?assignee=me) - shows in place of the user's saved
+  // prefs, and changes to it go to the URL, never to the prefs.
+  const { urlView, replaceView, exitView, copyViewLink } = useTicketViewUrl({
+    sessionUserId,
+    groupByValues: GROUP_BY_VALUES,
+  });
+  // `assignee=me` resolves to the session user; until the session lands,
+  // treat the gap as loading so the list doesn't flash unfiltered.
+  const sessionPending =
+    (searchParams.get("assignee")?.split(",").includes(ASSIGNEE_ME) ?? false) && !sessionUserId;
   const [modalOpened, setModalOpened] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   usePageSearchHotkey(searchRef);
   const [editTicketId, setEditTicketId] = useState<string | null>(null);
   const [epicModalOpened, setEpicModalOpened] = useState(false);
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<SortField>("status");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [view, setView] = useState("table");
-  const [entity, setEntity] = useState<"tickets" | "epics">("tickets");
-  const [groupBy, setGroupBy] = useState<GroupByField>("none");
-  const [filters, setFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
+  // The user's own view, restored from and saved to their prefs. The values
+  // the page renders (sortField, filters, ...) take the URL's view first.
+  const [prefSortField, setPrefSortField] = useState<SortField>("status");
+  const [prefSortDir, setPrefSortDir] = useState<SortDir>("asc");
+  const [prefView, setPrefView] = useState("table");
+  const [prefEntity, setPrefEntity] = useState<"tickets" | "epics">("tickets");
+  const [prefGroupBy, setPrefGroupBy] = useState<GroupByField>("none");
+  const [prefFilters, setPrefFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [nestDependencies, setNestDependencies] = useState(false);
+  const [prefNestDependencies, setPrefNestDependencies] = useState(false);
   // Tickets whose nested dependencies are folded away (by id, so a ticket
   // that appears under several parents folds everywhere at once).
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
@@ -258,7 +271,44 @@ export default function TicketsBacklogPage() {
   // list that arrives first would otherwise render unfiltered, then re-sort
   // and shrink when the prefs land: a second full render and a page-sized
   // layout shift. A failed prefs read falls back to the defaults.
-  const awaitingPrefs = !prefsLoaded && !prefsFailed;
+  // A complete shared link needs nothing from the prefs, so it doesn't wait.
+  const awaitingPrefs =
+    !prefsLoaded && !prefsFailed && !(urlView && isCompleteTicketView(urlView));
+
+  const sortField = (urlView?.sortField as SortField | undefined) ?? prefSortField;
+  const sortDir = urlView?.sortDir ?? prefSortDir;
+  const view = urlView?.layout ?? prefView;
+  const entity = urlView?.entity ?? prefEntity;
+  const groupBy = (urlView?.groupBy as GroupByField | undefined) ?? prefGroupBy;
+  const filters = urlView?.filters ?? prefFilters;
+  const nestDependencies = urlView?.nestDependencies ?? prefNestDependencies;
+
+  /**
+   * Change part of the view. Inside a URL-carried view the change rewrites
+   * the URL (so the view stays shareable, and the user's prefs untouched);
+   * otherwise it updates and saves the user's own view, as before.
+   */
+  const applyView = (patch: Partial<TicketViewState>) => {
+    if (urlView) {
+      replaceView({
+        filters, sortField, sortDir, groupBy, layout: view, entity, nestDependencies,
+        ...patch,
+      });
+      return;
+    }
+    const prefs: Partial<SavedViewPrefs> = {};
+    if (patch.filters) { setPrefFilters(patch.filters); prefs.filters = patch.filters; }
+    if (patch.sortField) { setPrefSortField(patch.sortField as SortField); prefs.sortField = patch.sortField; }
+    if (patch.sortDir) { setPrefSortDir(patch.sortDir); prefs.sortDir = patch.sortDir; }
+    if (patch.groupBy) { setPrefGroupBy(patch.groupBy as GroupByField); prefs.groupBy = patch.groupBy; }
+    if (patch.layout) { setPrefView(patch.layout); prefs.view = patch.layout; }
+    if (patch.entity) { setPrefEntity(patch.entity); prefs.entity = patch.entity; }
+    if (patch.nestDependencies !== undefined) {
+      setPrefNestDependencies(patch.nestDependencies);
+      prefs.nestDependencies = patch.nestDependencies;
+    }
+    debouncedSave(prefs);
+  };
 
   const utils = api.useUtils();
 
@@ -268,31 +318,31 @@ export default function TicketsBacklogPage() {
       // Saved prefs are untrusted JSON: take only values of the right shape.
       const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
       const savedView = str(savedPrefs.view);
-      if (savedView) setView(savedView);
+      if (savedView) setPrefView(savedView);
       const savedGroupBy = str(savedPrefs.groupBy);
-      if (savedGroupBy) setGroupBy(savedGroupBy as GroupByField);
+      if (savedGroupBy) setPrefGroupBy(savedGroupBy as GroupByField);
       // Epic and Cycle are sub-line metadata now, with no header to show or
       // flip that sort; fall back to the default rather than sort invisibly.
       const savedSortField = str(savedPrefs.sortField);
       if (savedSortField) {
         const f = savedSortField as SortField;
-        setSortField(f === "epic" || f === "cycle" ? "status" : f);
+        setPrefSortField(f === "epic" || f === "cycle" ? "status" : f);
       }
       const savedSortDir = str(savedPrefs.sortDir);
-      if (savedSortDir) setSortDir(savedSortDir as SortDir);
+      if (savedSortDir) setPrefSortDir(savedSortDir as SortDir);
       if (Array.isArray(savedPrefs.visibleColumns)) {
         setVisibleColumns(
           new Set(savedPrefs.visibleColumns.filter((c): c is string => typeof c === "string")),
         );
       }
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
-        setEntity(savedPrefs.entity);
+        setPrefEntity(savedPrefs.entity);
       }
       if (savedPrefs.filters && typeof savedPrefs.filters === "object") {
-        setFilters(parseSavedTicketFilters(savedPrefs.filters));
+        setPrefFilters(parseSavedTicketFilters(savedPrefs.filters));
       }
       if (typeof savedPrefs.nestDependencies === "boolean") {
-        setNestDependencies(savedPrefs.nestDependencies);
+        setPrefNestDependencies(savedPrefs.nestDependencies);
       }
       setPrefsLoaded(true);
     }
@@ -348,21 +398,13 @@ export default function TicketsBacklogPage() {
   // Kept as one memoised object because the bulk-update optimistic patch
   // must read/write the cache under the exact same query input.
   const listInput = useMemo(
-    () => ({
-      productId: product?.id ?? "",
-      ...(urlStatus ? { status: urlStatus } : {}),
-      ...(filterAssigneeMe && sessionUserId
-        ? { assigneeId: sessionUserId }
-        : {}),
-    }),
-    [product?.id, urlStatus, filterAssigneeMe, sessionUserId],
+    () => ({ productId: product?.id ?? "" }),
+    [product?.id],
   );
 
   const { data: tickets, isLoading } = api.product.ticket.listSummaries.useQuery(
     listInput,
-    // When ?assignee=me is present, wait for the session so the first fetch
-    // is already filtered instead of flashing the full backlog.
-    { enabled: !!product?.id && (!filterAssigneeMe || !!sessionUserId) },
+    { enabled: !!product?.id },
   );
 
   const { data: features } = api.product.feature.list.useQuery(
@@ -425,7 +467,7 @@ export default function TicketsBacklogPage() {
   // underlying item set changes meaning (filters, search, entity, deep links).
   useEffect(() => {
     selClear();
-  }, [selClear, entity, search, filters, urlStatus, filterAssigneeMe, productSlug]);
+  }, [selClear, entity, search, filters, productSlug]);
 
   type BulkPatch = {
     status?: TicketStatus;
@@ -579,13 +621,9 @@ export default function TicketsBacklogPage() {
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      const newDir = sortDir === "asc" ? "desc" : "asc";
-      setSortDir(newDir);
-      debouncedSave({ sortField: field, sortDir: newDir });
+      applyView({ sortField: field, sortDir: sortDir === "asc" ? "desc" : "asc" });
     } else {
-      setSortField(field);
-      setSortDir("asc");
-      debouncedSave({ sortField: field, sortDir: "asc" });
+      applyView({ sortField: field, sortDir: "asc" });
     }
   };
 
@@ -609,16 +647,11 @@ export default function TicketsBacklogPage() {
   const activeFilterCount = countActiveTicketFilters(filters);
 
   const toggleFilter = (key: TicketFilterKey, value: string) => {
-    setFilters((prev) => {
-      const updated = toggleTicketFilter(prev, key, value);
-      debouncedSave({ filters: updated });
-      return updated;
-    });
+    applyView({ filters: toggleTicketFilter(filters, key, value) });
   };
 
   const clearFilters = () => {
-    setFilters(EMPTY_TICKET_FILTERS);
-    debouncedSave({ filters: EMPTY_TICKET_FILTERS });
+    applyView({ filters: EMPTY_TICKET_FILTERS });
   };
 
   // Filter + sort
@@ -705,41 +738,12 @@ export default function TicketsBacklogPage() {
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
   const epicsBasePath = `/w/${workspace.slug}/products/${productSlug}/epics`;
 
-  // Drop overview deep-link params (?status=, ?assignee=me); keep the rest.
-  const removeUrlFilters = (keys: Array<"status" | "assignee">) => {
-    const next = new URLSearchParams(searchParams.toString());
-    for (const k of keys) next.delete(k);
-    const qs = next.toString();
-    router.replace(qs ? `${basePath}?${qs}` : basePath);
-  };
-
-  const clearAllFilters = () => {
-    clearFilters();
-    if (urlStatus ?? filterAssigneeMe) removeUrlFilters(["status", "assignee"]);
-  };
-
-  // One toolbar pill per applied filter: the deep-link params first, then each
-  // facet value picked in the Filter popover. Names come from the page's own
+  // One toolbar pill per applied facet value, wherever it came from (the
+  // Filter popover, the user's prefs, or a link). Names come from the page's own
   // entity lists before the ticket-derived facets (see ticketFacetPillLabel).
   const facetPillLabel = (key: TicketFilterKey, value: string): string =>
     ticketFacetPillLabel(key, value, facetOptions, { members, epics, cycles });
   const filterPills: ListPageFilterPill[] = [
-    ...(urlStatus
-      ? [{
-          key: "url-status",
-          label: STATUS_LABELS[urlStatus] ?? urlStatus,
-          color: STATUS_COLORS[urlStatus] ?? "gray",
-          onRemove: () => removeUrlFilters(["status"]),
-        }]
-      : []),
-    ...(filterAssigneeMe
-      ? [{
-          key: "url-assignee",
-          label: "My tickets",
-          color: "brand",
-          onRemove: () => removeUrlFilters(["assignee"]),
-        }]
-      : []),
     // Saved facet filters wait for the tickets: labels (tags) only resolve
     // from them, and a flash of "Unknown label" on every load is noise.
     ...(tickets ? TICKET_FILTER_FACETS : []).flatMap((facet) =>
@@ -1133,16 +1137,16 @@ export default function TicketsBacklogPage() {
               aria-label="Tickets or epics"
               tabs={entityTabs}
               active={entity}
-              onTabClick={(v) => { setEntity(v); debouncedSave({ entity: v }); }}
+              onTabClick={(v) => applyView({ entity: v })}
             />
             <ListPageViewTabs
               aria-label="View"
               tabs={viewTabs}
               active={view}
-              onTabClick={(v) => { setView(v); debouncedSave({ view: v }); }}
+              onTabClick={(v) => applyView({ layout: v })}
             />
             {entity === "tickets" && (
-              <ListPageFilterPills pills={filterPills} onClearAll={clearAllFilters} />
+              <ListPageFilterPills pills={filterPills} onClearAll={clearFilters} />
             )}
           </>
         }
@@ -1161,6 +1165,29 @@ export default function TicketsBacklogPage() {
                 onClear={clearFilters}
               />
             )}
+
+            {urlView && (
+              <Tooltip label="Leave this shared view and go back to your own" withinPortal>
+                <ListPageButton aria-label="Back to my view" onClick={exitView}>
+                  <IconArrowBackUp size={13} stroke={1.75} />
+                  My view
+                </ListPageButton>
+              </Tooltip>
+            )}
+
+            <Tooltip label="Copy a link to this exact view" withinPortal>
+              <ListPageButton
+                aria-label="Copy link to this view"
+                onClick={() =>
+                  copyViewLink({
+                    filters, sortField, sortDir, groupBy, layout: view, entity, nestDependencies,
+                  })
+                }
+              >
+                <IconLink size={13} stroke={1.75} />
+                Copy link
+              </ListPageButton>
+            </Tooltip>
 
             <Popover position="bottom-end" withinPortal shadow="md">
               <Popover.Target>
@@ -1185,7 +1212,7 @@ export default function TicketsBacklogPage() {
                         <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
                         <Select
                           value={groupBy}
-                          onChange={(v) => { if (v) { setGroupBy(v as GroupByField); debouncedSave({ groupBy: v }); } }}
+                          onChange={(v) => { if (v) applyView({ groupBy: v }); }}
                           data={GROUP_BY_OPTIONS}
                           size="xs"
                           variant="filled"
@@ -1204,9 +1231,7 @@ export default function TicketsBacklogPage() {
                           checked={nestDependencies}
                           disabled={view === "board"}
                           onChange={(e) => {
-                            const on = e.currentTarget.checked;
-                            setNestDependencies(on);
-                            debouncedSave({ nestDependencies: on });
+                            applyView({ nestDependencies: e.currentTarget.checked });
                           }}
                         />
                       </div>
