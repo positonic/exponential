@@ -176,8 +176,6 @@ export function MetricsDashboard() {
         <TrendsSection
           data={allCycles}
           isLoading={allCyclesLoading || !workspaceId}
-          workspaceId={workspaceId}
-          memberIds={memberIds}
         />
 
         <Divider className="border-border-primary" />
@@ -196,6 +194,11 @@ export function MetricsDashboard() {
                 ]}
               />
             </Group>
+            <ContributorTrendCard
+              data={allCycles}
+              workspaceId={workspaceId}
+              memberIds={memberIds}
+            />
             <ContributorsTable
               workspaceId={workspaceId}
               cycleId={peopleScope === 'cycle' ? data?.cycleId : undefined}
@@ -324,33 +327,15 @@ function CurrentCycleSection({
 function TrendsSection({
   data,
   isLoading,
-  workspaceId,
-  memberIds,
 }: {
   data: AllCycles | undefined;
   isLoading: boolean;
-  workspaceId: string | null;
-  memberIds: string[];
 }) {
-  const [showPeople, setShowPeople] = useLocalStorage({
-    key: 'metrics:show-contributor-trends',
-    defaultValue: false,
-  });
   const hasTrend = !!data && data.cycles.length >= 2;
 
   return (
     <Stack gap="md">
-      <Group justify="space-between" align="center" wrap="nowrap">
-        <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
-        {hasTrend && (
-          <Switch
-            size="sm"
-            label="By contributor"
-            checked={showPeople}
-            onChange={(e) => setShowPeople(e.currentTarget.checked)}
-          />
-        )}
-      </Group>
+      <SectionTitle title="Trends" subtitle="Each metric, cycle by cycle (oldest → newest)" />
       <Card
         withBorder
         radius="md"
@@ -369,28 +354,56 @@ function TrendsSection({
           <CycleTrendChart cycles={data.cycles} />
         )}
       </Card>
-      {hasTrend && showPeople && workspaceId && (
-        <Card
-          withBorder
-          radius="md"
-          className="border-border-primary bg-surface-secondary"
-        >
-          <Stack gap="md">
-            <Group gap="xs">
-              <IconUsers size={16} className="text-text-muted" />
-              <Text size="sm" fw={500} className="text-text-secondary">
-                By contributor
-              </Text>
-            </Group>
-            <ContributorTrendChart
-              workspaceId={workspaceId}
-              cycles={data.cycles}
-              memberIds={memberIds}
-            />
-          </Stack>
-        </Card>
-      )}
     </Stack>
+  );
+}
+
+/** Per-contributor trend lines, behind a toggle so the People section stays compact. */
+function ContributorTrendCard({
+  data,
+  workspaceId,
+  memberIds,
+}: {
+  data: AllCycles | undefined;
+  workspaceId: string;
+  memberIds: string[];
+}) {
+  const [showChart, setShowChart] = useLocalStorage({
+    key: 'metrics:show-contributor-trends',
+    defaultValue: false,
+  });
+  if (!data || data.cycles.length < 2) return null;
+
+  return (
+    <Card
+      withBorder
+      radius="md"
+      className="border-border-primary bg-surface-secondary"
+    >
+      <Stack gap="md">
+        <Group justify="space-between" align="center" wrap="nowrap">
+          <Group gap="xs">
+            <IconUsers size={16} className="text-text-muted" />
+            <Text size="sm" fw={500} className="text-text-secondary">
+              By contributor
+            </Text>
+          </Group>
+          <Switch
+            size="sm"
+            label="Contributor chart"
+            checked={showChart}
+            onChange={(e) => setShowChart(e.currentTarget.checked)}
+          />
+        </Group>
+        {showChart && (
+          <ContributorTrendChart
+            workspaceId={workspaceId}
+            cycles={data.cycles}
+            memberIds={memberIds}
+          />
+        )}
+      </Stack>
+    </Card>
   );
 }
 
