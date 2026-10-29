@@ -469,7 +469,8 @@ function GithubLinkNotice({
   return (
     <Text size="xs" className="text-text-muted">
       PRs and commits aren&apos;t counted for {unlinked.join(', ')} — no GitHub
-      account is linked.
+      username is set. Workspace admins can set one under the name in the
+      Contributors table.
     </Text>
   );
 }

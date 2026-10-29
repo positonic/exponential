@@ -1,7 +1,11 @@
 import { type Prisma, type PrismaClient, type ActionStatus } from "@prisma/client";
 import { isOpenBlocker } from "~/lib/actions/blocked";
 import { db } from "~/server/db";
-import { resolveGithubLogins } from "~/server/services/github/memberLogins";
+import {
+  resolveGithubIdentities,
+  resolveGithubLogins,
+  type GithubLoginSource,
+} from "~/server/services/github/memberLogins";
 import {
   computeDeliveryFlow,
   flowWindowStart,
@@ -178,6 +182,13 @@ export interface ContributorRow {
   isMember: boolean;
   /** Whether a GitHub login is known — without one, PRs/commits read as 0. */
   githubLinked: boolean;
+  /** The login PRs/commits are matched on, when known. */
+  githubLogin: string | null;
+  /**
+   * `account`: the member's own connected GitHub (verified, not editable here).
+   * `workspace`: set by a workspace admin. Null when no login is known.
+   */
+  githubLoginSource: GithubLoginSource | null;
   assignedTickets: number;
   completedTickets: number;
   completedPoints: number;
@@ -1169,7 +1180,7 @@ export class SprintAnalyticsService {
     // Everyone who can get a row: members, assignees and anyone who logged
     // time (a former member may appear through time alone) — so every row's
     // GitHub link is resolved, not just members' and assignees'.
-    const logins = await resolveGithubLogins(this.prisma, workspaceId, [
+    const identities = await resolveGithubIdentities(this.prisma, workspaceId, [
       ...new Set([
         ...memberIds,
         ...assigneeIds,
@@ -1178,12 +1189,18 @@ export class SprintAnalyticsService {
     ]);
 
     const userByLogin = new Map(
-      [...logins.entries()].map(([userId, login]) => [login.toLowerCase(), userId]),
+      [...identities].map(([userId, { login }]) => [login.toLowerCase(), userId]),
     );
 
     type Tally = Omit<
       ContributorRow,
-      "name" | "email" | "image" | "isMember" | "githubLinked"
+      | "name"
+      | "email"
+      | "image"
+      | "isMember"
+      | "githubLinked"
+      | "githubLogin"
+      | "githubLoginSource"
     >;
     const UNASSIGNED = "";
     const rows = new Map<string, Tally>();
@@ -1253,13 +1270,16 @@ export class SprintAnalyticsService {
 
     const result: ContributorRow[] = [...rows.values()].map((row) => {
       const user = row.userId ? userById.get(row.userId) : undefined;
+      const identity = row.userId ? identities.get(row.userId) : undefined;
       return {
         ...row,
         name: user?.name ?? null,
         email: user?.email ?? null,
         image: user?.image ?? null,
         isMember: row.userId != null && memberIds.has(row.userId),
-        githubLinked: row.userId != null && logins.has(row.userId),
+        githubLinked: identity != null,
+        githubLogin: identity?.login ?? null,
+        githubLoginSource: identity?.source ?? null,
       };
     });
 
