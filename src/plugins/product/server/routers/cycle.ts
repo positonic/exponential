@@ -2,13 +2,15 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { assertWorkspaceAccess, type WorkspaceAccessLevel } from "./product";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { canEditWorkspaceContent } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import {
   CHANGELOG_MAX_CYCLES,
   loadWorkspaceChangelog,
 } from "../cycleChangelogLoader";
+import { CHANGELOG_SECTION_KEYS } from "../cycleChangelog";
+import { applyDraftEdits, parseDraftContent } from "../cycleChangelogDraft";
 
 /**
  * Cycles are thin wrappers around the existing `List` model with
@@ -369,6 +371,74 @@ export const cycleRouter = createTRPCRouter({
         "view",
       );
       return loadWorkspaceChangelog(ctx.db, input);
+    }),
+
+  // Save a person's edits to a cycle's change-log draft. Entries are matched
+  // to the stored draft by key: titles, summaries and sections come from the
+  // input, sizes and links stay as generated, and an entry left out is
+  // removed. Marks the draft "edited" so the cron never overwrites it.
+  updateChangelogDraft: protectedProcedure
+    .input(
+      z.object({
+        cycleId: z.string(),
+        version: boundedText("Version", 40).nullable(),
+        entries: z
+          .array(
+            z.object({
+              key: z.string(),
+              section: z.enum(CHANGELOG_SECTION_KEYS),
+              title: boundedText("Title", 200, { min: 1 }),
+              summary: boundedText("Summary", TEXT_LIMITS.MEDIUM),
+            }),
+          )
+          .max(200),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const cycle = await loadCycleWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.cycleId,
+        "edit",
+      );
+      const stored = await ctx.db.cycleChangelogDraft.findUnique({
+        where: { cycleId: cycle.id },
+        select: { content: true },
+      });
+      const content = stored ? parseDraftContent(stored.content) : null;
+      if (!content) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This cycle has no change-log draft to edit",
+        });
+      }
+      const next = applyDraftEdits(content, input.entries);
+      return ctx.db.cycleChangelogDraft.update({
+        where: { cycleId: cycle.id },
+        data: {
+          content: next as unknown as Prisma.InputJsonValue,
+          version: input.version?.trim() ? input.version.trim() : null,
+          source: "edited",
+          updatedById: ctx.session.user.id,
+        },
+        select: { cycleId: true },
+      });
+    }),
+
+  // Discard a cycle's change-log draft; the page falls back to the raw view.
+  deleteChangelogDraft: protectedProcedure
+    .input(z.object({ cycleId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const cycle = await loadCycleWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.cycleId,
+        "edit",
+      );
+      await ctx.db.cycleChangelogDraft.deleteMany({
+        where: { cycleId: cycle.id },
+      });
+      return { cycleId: cycle.id };
     }),
 
   getById: protectedProcedure

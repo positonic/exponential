@@ -33,6 +33,8 @@ export interface ChangelogTicket {
   featureName: string | null;
   prUrl: string | null;
   branchName: string | null;
+  /** Markdown body — loaded only for the LLM draft, which reads it for context. */
+  body?: string | null;
 }
 
 export interface ChangelogPullRequest {
@@ -58,6 +60,13 @@ export const CHANGELOG_SECTIONS: { key: ChangelogSectionKey; label: string }[] =
     { key: "underTheHood", label: "Under the hood" },
     { key: "alsoThisCycle", label: "Also this cycle" },
   ];
+
+export const CHANGELOG_SECTION_KEYS = [
+  "features",
+  "fixes",
+  "underTheHood",
+  "alsoThisCycle",
+] as const satisfies readonly ChangelogSectionKey[];
 
 export type ChangelogItem =
   | {
@@ -183,7 +192,7 @@ function pullRequestItem(pr: ChangelogPullRequest): ChangelogItem {
   };
 }
 
-function ticketItem(ticket: ChangelogTicket): ChangelogItem {
+export function ticketItem(ticket: ChangelogTicket): ChangelogItem {
   return {
     kind: "ticket",
     id: ticket.id,
@@ -210,7 +219,13 @@ function dedupePullRequests(
 export function buildCycleChangelog(input: {
   tickets: ChangelogTicket[];
   pullRequests: ChangelogPullRequest[];
+  /**
+   * Fold long sections' lone PRs into "N smaller changes" (default true).
+   * The LLM draft turns this off so it can merge those PRs into themes.
+   */
+  foldSmallChanges?: boolean;
 }): CycleChangelog {
+  const fold = input.foldSmallChanges ?? true;
   const tickets = input.tickets.filter((t) => SHIPPED_STATUSES.has(t.status));
   const pullRequests = dedupePullRequests(input.pullRequests)
     .filter((pr) => !isReleasePlumbing(pr.title))
@@ -310,10 +325,9 @@ export function buildCycleChangelog(input: {
     sections: CHANGELOG_SECTIONS.map(({ key, label }) => ({
       key,
       label,
-      entries: foldSmallChanges(
-        key,
-        entries.filter((e) => e.section === key),
-      ),
+      entries: fold
+        ? foldSmallChanges(key, entries.filter((e) => e.section === key))
+        : entries.filter((e) => e.section === key),
     })).filter((s) => s.entries.length > 0),
     totals: {
       tickets: tickets.length,
