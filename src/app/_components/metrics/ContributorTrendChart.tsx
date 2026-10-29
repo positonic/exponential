@@ -64,12 +64,11 @@ export function ContributorTrendChart({
 
   const { people, chartData } = useMemo(() => {
     const filter = memberIds.length > 0 ? new Set(memberIds) : null;
-    const totals = new Map<string, { name: string; tickets: number }>();
+    const totals = new Map<string, { name: string; tickets: number; active: boolean }>();
     const rows = cycles.map((c, i) => {
       const row: Record<string, number | string> = { name: c.cycleName };
       for (const r of results[i]?.data?.rows ?? []) {
         if (!r.userId || (filter && !filter.has(r.userId))) continue;
-        if (r.assignedTickets === 0 && r.mergedPrs === 0) continue;
         const value =
           metric === 'completionRate'
             ? r.assignedTickets > 0
@@ -81,11 +80,15 @@ export function ContributorTrendChart({
         totals.set(r.userId, {
           name: r.name ?? r.email ?? 'Unknown',
           tickets: (prev?.tickets ?? 0) + r.completedTickets,
+          // An idle cycle still plots as 0; only people idle in every cycle
+          // stay out of the legend.
+          active: (prev?.active ?? false) || r.assignedTickets > 0 || r.mergedPrs > 0,
         });
       }
       return row;
     });
     const sorted = [...totals.entries()]
+      .filter(([, v]) => v.active)
       .sort((a, b) => b[1].tickets - a[1].tickets)
       .map(([id, v], i) => ({ id, name: v.name, color: PALETTE[i % PALETTE.length]! }));
     return { people: sorted, chartData: rows };
