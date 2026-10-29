@@ -47,12 +47,41 @@ describe("resolveGithubIdentities", () => {
     expect(identities.get("u2")).toEqual({ login: "newest", source: "workspace" });
     expect(identities.has("u3")).toBe(false);
   });
+
+  it("ignores a workspace-set username that is another member's connected account", async () => {
+    const db = {
+      integration: {
+        findMany: vi.fn().mockResolvedValue([
+          { userId: "alice", credentials: [{ key: JSON.stringify({ githubUsername: "Alice-GH" }) }] },
+        ]),
+      },
+      integrationUserMapping: {
+        findMany: vi.fn().mockResolvedValue([{ userId: "bob", externalUserId: "alice-gh" }]),
+      },
+    } as unknown as PrismaClient;
+
+    const identities = await resolveGithubIdentities(db, "ws-1", ["alice", "bob"]);
+
+    expect(identities.get("alice")).toEqual({ login: "Alice-GH", source: "account" });
+    expect(identities.has("bob")).toBe(false);
+  });
 });
 
 describe("setWorkspaceGithubLogin", () => {
-  function makeDb(installation: { id: string } | null) {
+  function makeDb(
+    installation: { id: string } | null,
+    accounts: { userId: string; login: string }[] = [],
+  ) {
     const db = {
-      integration: { findFirst: vi.fn().mockResolvedValue(installation) },
+      integration: {
+        findFirst: vi.fn().mockResolvedValue(installation),
+        findMany: vi.fn().mockResolvedValue(
+          accounts.map((a) => ({
+            userId: a.userId,
+            credentials: [{ key: JSON.stringify({ githubUsername: a.login }) }],
+          })),
+        ),
+      },
       integrationUserMapping: {
         deleteMany: vi.fn().mockReturnValue("delete-op"),
         create: vi.fn().mockReturnValue("create-op"),
@@ -83,6 +112,28 @@ describe("setWorkspaceGithubLogin", () => {
       data: { integrationId: "inst-1", externalUserId: "Octocat", userId: "u1" },
     });
     expect(db.$transaction).toHaveBeenCalledWith(["delete-op", "create-op"]);
+  });
+
+  it("refuses a login another member connected themselves", async () => {
+    const db = makeDb({ id: "inst-1" }, [{ userId: "alice", login: "Alice-GH" }]);
+    await expect(
+      setWorkspaceGithubLogin(db as unknown as PrismaClient, {
+        workspaceId: "ws-1",
+        userId: "bob",
+        login: "alice-gh",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("lets a member be given the login of their own connected account", async () => {
+    const db = makeDb({ id: "inst-1" }, [{ userId: "alice", login: "Alice-GH" }]);
+    await setWorkspaceGithubLogin(db as unknown as PrismaClient, {
+      workspaceId: "ws-1",
+      userId: "alice",
+      login: "Alice-GH",
+    });
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it("clears the member's login when given null", async () => {
