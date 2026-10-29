@@ -79,8 +79,15 @@ export async function resolveGithubIdentities(
     const login = parseGithubUsername(integration.credentials[0]?.key);
     if (login) identities.set(integration.userId, { login, source: "account" });
   }
+  // A connected account's login belongs to its owner: a workspace-set
+  // username that collides with one is ignored rather than allowed to take
+  // over that person's PRs and commits.
+  const accountLogins = new Set(
+    [...identities.values()].map(({ login }) => login.toLowerCase()),
+  );
   for (const mapping of mappings) {
     if (identities.has(mapping.userId)) continue;
+    if (accountLogins.has(mapping.externalUserId.toLowerCase())) continue;
     identities.set(mapping.userId, { login: mapping.externalUserId, source: "workspace" });
   }
   return identities;
@@ -152,6 +159,28 @@ export async function setWorkspaceGithubLogin(
       code: "BAD_REQUEST",
       message: `"${args.login}" isn't a valid GitHub username.`,
     });
+  }
+
+  if (login) {
+    // Another member connected this GitHub account themselves; it's theirs.
+    const accounts = await db.integration.findMany({
+      where: { workspaceId: args.workspaceId, provider: "github", userId: { not: null } },
+      select: {
+        userId: true,
+        credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 },
+      },
+    });
+    const owner = accounts.find(
+      (a) =>
+        a.userId !== args.userId &&
+        parseGithubUsername(a.credentials[0]?.key)?.toLowerCase() === login.toLowerCase(),
+    );
+    if (owner) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `@${login} is already connected by another member of this workspace.`,
+      });
+    }
   }
 
   await db.$transaction([

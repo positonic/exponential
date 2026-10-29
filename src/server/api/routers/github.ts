@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure, publicProcedure } from "~/server/
 import * as githubService from "~/server/services/githubService";
 import { TRPCError } from "@trpc/server";
 import {
+  assertWorkspaceRole,
   getWorkspaceMembership,
   hasMinimumWorkspaceRole,
   requireWorkspaceMembership,
@@ -318,17 +319,10 @@ export const githubRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const membership = await getWorkspaceMembership(
-        ctx.db,
-        ctx.session.user.id,
-        input.workspaceId,
-      );
-      if (!membership || !hasMinimumWorkspaceRole(membership.role, "admin")) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Only workspace owners and admins can set GitHub usernames",
-        });
-      }
+      await assertWorkspaceRole(ctx.db, ctx.session.user.id, input.workspaceId, [
+        "owner",
+        "admin",
+      ]);
       const target = await getWorkspaceMembership(
         ctx.db,
         input.userId,
