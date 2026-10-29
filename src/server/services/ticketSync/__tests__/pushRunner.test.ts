@@ -14,6 +14,7 @@ import {
   enqueueBackfill,
   enqueueTicketPush,
   planBackfill,
+  requeueDeferredCyclePushes,
   runOutboundPushSweep,
 } from "../pushRunner";
 import { NonRetryablePushError } from "../push";
@@ -522,5 +523,109 @@ describe("planBackfill / enqueueBackfill", () => {
 
     expect(result.enqueued).toBe(0);
     expect(db.ticket.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("requeueDeferredCyclePushes", () => {
+  function linked(
+    ticketId: string,
+    cycle: string,
+    snapshotCycle: string | null,
+    latestJobStatus?: string,
+  ) {
+    return {
+      ticketId,
+      snapshot: { title: "T", cycleName: snapshotCycle },
+      ticket: { cycle: { name: cycle } },
+      pushJobs: latestJobStatus ? [{ status: latestJobStatus }] : [],
+    };
+  }
+
+  beforeEach(() => {
+    db.ticketSyncConfig.findMany.mockResolvedValue([
+      { id: "cfg1", integrationId: "int1", propertyNames: null, databaseId: "db1" },
+    ] as never);
+    db.ticketSync.findFirst.mockImplementation(((args: {
+      where: { ticketId: string };
+    }) =>
+      Promise.resolve({ id: `s-${args.where.ticketId}`, configId: "cfg1" })) as never);
+    db.ticketSyncPushJob.findFirst.mockResolvedValue(null);
+  });
+
+  it("re-queues a deferred cycle push once its Notion cycle page exists", async () => {
+    // Moved to Cycle 19 before the page existed: the push skipped the cycle and
+    // the snapshot kept the remote (old) value. t3 is already in sync.
+    db.ticketSync.findMany.mockResolvedValue([
+      linked("t1", "Cycle 19", "Cycle 18"),
+      linked("t2", "Cycle 19", null),
+      linked("t3", "Cycle 19", "Cycle 19"),
+    ] as never);
+    const findCyclePageIdByName = vi.fn().mockResolvedValue("cycle-19-page");
+    const adapter = { findCyclePageIdByName } as unknown as TicketPushAdapter;
+
+    const result = await requeueDeferredCyclePushes(db, {
+      adapterFactory: () => Promise.resolve({ ok: true as const, adapter }),
+    });
+
+    expect(result.requeued).toBe(2);
+    // One lookup per distinct cycle name, not per ticket.
+    expect(findCyclePageIdByName).toHaveBeenCalledTimes(1);
+    expect(findCyclePageIdByName).toHaveBeenCalledWith("db1", "Cycles", "Cycle 19");
+    expect(db.ticketSyncPushJob.create).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the push deferred while Notion still has no page for the cycle", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      linked("t1", "Cycle 20", "Cycle 19"),
+    ] as never);
+    const adapter = {
+      findCyclePageIdByName: vi.fn().mockResolvedValue(null),
+    } as unknown as TicketPushAdapter;
+
+    const result = await requeueDeferredCyclePushes(db, {
+      adapterFactory: () => Promise.resolve({ ok: true as const, adapter }),
+    });
+
+    expect(result.requeued).toBe(0);
+    expect(db.ticketSyncPushJob.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps going when one cycle lookup throws", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      linked("t1", "Cycle 19", "Cycle 18"),
+      linked("t2", "Cycle 20", "Cycle 19"),
+    ] as never);
+    const adapter = {
+      findCyclePageIdByName: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Failed to fetch database from Notion"))
+        .mockResolvedValueOnce("cycle-20-page"),
+    } as unknown as TicketPushAdapter;
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const result = await requeueDeferredCyclePushes(db, {
+      adapterFactory: () => Promise.resolve({ ok: true as const, adapter }),
+    });
+
+    expect(result.requeued).toBe(1);
+    expect(db.ticketSyncPushJob.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not build an adapter when nothing is deferred", async () => {
+    db.ticketSync.findMany.mockResolvedValue([
+      linked("t1", "Cycle 19", "Cycle 19"),
+      // A fresh adoption (null snapshot) is the next merge's job, not a deferral.
+      { ticketId: "t2", snapshot: null, ticket: { cycle: { name: "Cycle 19" } }, pushJobs: [] },
+      // A snapshot without the cycle key says nothing about a deferral.
+      { ticketId: "t3", snapshot: { title: "T" }, ticket: { cycle: { name: "Cycle 19" } }, pushJobs: [] },
+      // Its last push gave up: a sweep must not retry it forever.
+      linked("t4", "Cycle 19", "Cycle 18", "FAILED"),
+    ] as never);
+    const factory = vi.fn();
+
+    const result = await requeueDeferredCyclePushes(db, { adapterFactory: factory });
+
+    expect(result.requeued).toBe(0);
+    expect(factory).not.toHaveBeenCalled();
   });
 });
