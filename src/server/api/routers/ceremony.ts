@@ -18,7 +18,7 @@ import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/s
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
 import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
-import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
+import { postAgendaToMatrix, removeAgendaFromMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony, canManageCeremonyAs } from "~/server/services/ceremonies/access";
 import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
@@ -910,6 +910,23 @@ export const ceremonyRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can post its agenda" });
       }
       return postAgendaToMatrix(ctx.db, { occurrenceId: occurrence.id, actorUserId: userId, confirmRepost: input.confirmRepost });
+    }),
+
+  /** Delete one of the bot's agenda posts from its Matrix room (owner, or workspace owner/admin). */
+  removeAgendaFromMatrix: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), eventId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can remove its agenda from Matrix" });
+      }
+      return removeAgendaFromMatrix(ctx.db, { occurrenceId: occurrence.id, eventId: input.eventId, actorUserId: userId });
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */

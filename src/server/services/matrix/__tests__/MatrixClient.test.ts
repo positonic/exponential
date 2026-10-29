@@ -394,3 +394,29 @@ describe("MatrixClient.createRoom", () => {
     );
   });
 });
+
+describe("MatrixClient.redact", () => {
+  it("PUTs to /redact with the event and txn ids encoded, carrying the reason", async () => {
+    fetchMock.mockResolvedValue(OK({ event_id: "$redaction" }));
+
+    await expect(
+      makeClient().redact("!r:example.org", "$evt:example.org", { txnId: "txn-1", reason: "Posted in error" }),
+    ).resolves.toEqual({ eventId: "$redaction" });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "https://matrix.example.org/_matrix/client/v3/rooms/!r%3Aexample.org/redact/%24evt%3Aexample.org/txn-1",
+    );
+    expect((init as RequestInit).method).toBe("PUT");
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ reason: "Posted in error" });
+  });
+
+  it("surfaces a refused redaction as a forbidden MatrixApiError", async () => {
+    fetchMock.mockResolvedValue(ERR(403, { errcode: "M_FORBIDDEN", error: "nope" }));
+    const err = await makeClient()
+      .redact("!r:example.org", "$evt", { txnId: "t" })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MatrixApiError);
+    expect((err as MatrixApiError).isForbidden).toBe(true);
+  });
+});
