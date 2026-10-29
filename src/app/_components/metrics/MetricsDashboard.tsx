@@ -84,7 +84,11 @@ export function MetricsDashboard() {
   }, [cycles]);
 
   const selectedCycleId = picked ?? defaultCycleId;
-  const peopleScope = peoplePicked ?? selectedCycleId ?? ALL_TIME;
+  // A pick that vanished from the cycle list (workspace switch, deleted
+  // cycle) falls back to the default rather than leaving the Select blank.
+  const peopleValid =
+    peoplePicked === ALL_TIME || cycles?.some((c) => c.id === peoplePicked);
+  const peopleScope = (peopleValid ? peoplePicked : null) ?? selectedCycleId ?? ALL_TIME;
   const peopleCycleId = peopleScope === ALL_TIME ? undefined : peopleScope;
 
   const { data, isLoading } = api.sprintAnalytics.getActiveCycleMetrics.useQuery(
