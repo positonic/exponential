@@ -106,16 +106,13 @@ function makeService(opts: {
         ),
     },
     integration: {
-      findMany: vi
-        .fn()
-        .mockImplementation((args: { where: { userId: { in: string[] } } }) =>
-          Promise.resolve(
-            GITHUB.filter((g) => args.where.userId.in.includes(g.userId)).map((g) => ({
-              userId: g.userId,
-              credentials: [{ key: JSON.stringify({ githubUsername: g.login }) }],
-            })),
-          ),
-        ),
+      // Every member's connected account in the workspace.
+      findMany: vi.fn().mockResolvedValue(
+        GITHUB.map((g) => ({
+          userId: g.userId,
+          credentials: [{ key: JSON.stringify({ githubUsername: g.login }) }],
+        })),
+      ),
     },
     integrationUserMapping: {
       findMany: vi
