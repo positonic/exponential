@@ -55,15 +55,11 @@ export async function resolveGithubIdentities(
   const identities = new Map<string, GithubIdentity>();
   if (userIds.length === 0) return identities;
 
-  const [integrations, mappings] = await Promise.all([
-    db.integration.findMany({
-      where: { workspaceId, provider: "github", userId: { in: userIds } },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        userId: true,
-        credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 },
-      },
-    }),
+  // Every member's connected account, not just the requested users': a
+  // workspace-set username must yield to ANY member who connected that login,
+  // even when the caller asked about a subset (the member filter, a standup).
+  const [accounts, mappings] = await Promise.all([
+    connectedAccounts(db, workspaceId),
     db.integrationUserMapping.findMany({
       where: {
         userId: { in: userIds },
@@ -74,17 +70,16 @@ export async function resolveGithubIdentities(
     }),
   ]);
 
-  for (const integration of integrations) {
-    if (!integration.userId || identities.has(integration.userId)) continue;
-    const login = parseGithubUsername(integration.credentials[0]?.key);
-    if (login) identities.set(integration.userId, { login, source: "account" });
+  const requested = new Set(userIds);
+  for (const { userId, login } of accounts) {
+    if (requested.has(userId) && !identities.has(userId)) {
+      identities.set(userId, { login, source: "account" });
+    }
   }
   // A connected account's login belongs to its owner: a workspace-set
   // username that collides with one is ignored rather than allowed to take
   // over that person's PRs and commits.
-  const accountLogins = new Set(
-    [...identities.values()].map(({ login }) => login.toLowerCase()),
-  );
+  const accountLogins = new Set(accounts.map(({ login }) => login.toLowerCase()));
   for (const mapping of mappings) {
     if (identities.has(mapping.userId)) continue;
     if (accountLogins.has(mapping.externalUserId.toLowerCase())) continue;
@@ -101,6 +96,28 @@ export async function resolveGithubLogins(
 ): Promise<Map<string, string>> {
   const identities = await resolveGithubIdentities(db, workspaceId, userIds);
   return new Map([...identities].map(([userId, { login }]) => [userId, login]));
+}
+
+/**
+ * Logins of every member's own GitHub integration in the workspace, newest
+ * first (so the first entry per user is the one that wins).
+ */
+async function connectedAccounts(
+  db: Pick<PrismaClient, "integration">,
+  workspaceId: string,
+): Promise<{ userId: string; login: string }[]> {
+  const integrations = await db.integration.findMany({
+    where: { workspaceId, provider: "github", userId: { not: null } },
+    orderBy: { updatedAt: "desc" },
+    select: {
+      userId: true,
+      credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 },
+    },
+  });
+  return integrations.flatMap((integration) => {
+    const login = parseGithubUsername(integration.credentials[0]?.key);
+    return integration.userId && login ? [{ userId: integration.userId, login }] : [];
+  });
 }
 
 /** The workspace's single GitHub App installation `Integration` (ADR-0020). */
@@ -163,17 +180,9 @@ export async function setWorkspaceGithubLogin(
 
   if (login) {
     // Another member connected this GitHub account themselves; it's theirs.
-    const accounts = await db.integration.findMany({
-      where: { workspaceId: args.workspaceId, provider: "github", userId: { not: null } },
-      select: {
-        userId: true,
-        credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 },
-      },
-    });
+    const accounts = await connectedAccounts(db, args.workspaceId);
     const owner = accounts.find(
-      (a) =>
-        a.userId !== args.userId &&
-        parseGithubUsername(a.credentials[0]?.key)?.toLowerCase() === login.toLowerCase(),
+      (a) => a.userId !== args.userId && a.login.toLowerCase() === login.toLowerCase(),
     );
     if (owner) {
       throw new TRPCError({

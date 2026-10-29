@@ -65,6 +65,24 @@ describe("resolveGithubIdentities", () => {
     expect(identities.get("alice")).toEqual({ login: "Alice-GH", source: "account" });
     expect(identities.has("bob")).toBe(false);
   });
+
+  it("ignores the collision even when only the workspace-set member is requested", async () => {
+    const db = {
+      integration: {
+        // Workspace-wide: Alice's account is found though only Bob is asked for.
+        findMany: vi.fn().mockResolvedValue([
+          { userId: "alice", credentials: [{ key: JSON.stringify({ githubUsername: "Alice-GH" }) }] },
+        ]),
+      },
+      integrationUserMapping: {
+        findMany: vi.fn().mockResolvedValue([{ userId: "bob", externalUserId: "alice-gh" }]),
+      },
+    } as unknown as PrismaClient;
+
+    const identities = await resolveGithubIdentities(db, "ws-1", ["bob"]);
+
+    expect(identities.size).toBe(0);
+  });
 });
 
 describe("setWorkspaceGithubLogin", () => {
