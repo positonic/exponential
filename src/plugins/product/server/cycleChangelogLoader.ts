@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   assignPullRequestsToCycles,
   buildCycleChangelog,
+  CHANGELOG_MAX_CYCLES,
   type ChangelogPullRequest,
   type ChangelogTicket,
   type CycleChangelog,
@@ -15,7 +16,7 @@ import {
  */
 
 export const CHANGELOG_DEFAULT_CYCLES = 4;
-export const CHANGELOG_MAX_CYCLES = 24;
+export { CHANGELOG_MAX_CYCLES };
 /** Safety cap on PR rows; 24 two-week cycles of a busy workspace fit easily. */
 const MAX_PULL_REQUESTS = 5000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -85,9 +86,14 @@ export async function loadWorkspaceChangelog(
   }));
   if (cycles.length === 0) return { products, product, cycles: [], hasMore };
 
-  const from = new Date(Math.min(...cycles.map((c) => c.startDate.getTime())));
+  // Rows are fetched by `eventTimestamp` but assigned to cycles by merge time
+  // (`prMergedAt`), which can differ slightly; a day of slack either side keeps
+  // a PR merged on a boundary from falling out of the fetch.
+  const from = new Date(
+    Math.min(...cycles.map((c) => c.startDate.getTime())) - DAY_MS,
+  );
   const to = new Date(
-    Math.max(...cycles.map((c) => c.endDate.getTime())) + DAY_MS,
+    Math.max(...cycles.map((c) => c.endDate.getTime())) + 2 * DAY_MS,
   );
 
   const [tickets, prRows] = await Promise.all([

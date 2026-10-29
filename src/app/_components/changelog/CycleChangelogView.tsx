@@ -20,6 +20,7 @@ import { IconChevronRight, IconRefresh } from '@tabler/icons-react';
 import { format } from 'date-fns';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { CHANGELOG_MAX_CYCLES } from '~/plugins/product/server/cycleChangelog';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 
 type WorkspaceChangelog = RouterOutputs['product']['cycle']['changelog'];
@@ -134,13 +135,15 @@ export function CycleChangelogView() {
         ))}
       </Stack>
 
-      {data?.hasMore ? (
+      {data?.hasMore && limit < CHANGELOG_MAX_CYCLES ? (
         <Group>
           <Button
             variant="subtle"
             size="xs"
             loading={isFetching}
-            onClick={() => setLimit((l) => l + PAGE_SIZE)}
+            onClick={() =>
+              setLimit((l) => Math.min(l + PAGE_SIZE, CHANGELOG_MAX_CYCLES))
+            }
           >
             Show older cycles
           </Button>

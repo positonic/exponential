@@ -18,6 +18,9 @@ import type { TicketStatus, TicketType } from "@prisma/client";
  * dozen one-line entries.
  */
 
+/** Most cycles the change-log page loads at once ("Show older cycles" stops here). */
+export const CHANGELOG_MAX_CYCLES = 24;
+
 export interface ChangelogTicket {
   id: string;
   number: number | null;
