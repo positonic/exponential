@@ -1431,6 +1431,26 @@ body {
   --sb-active-hover: rgba(0, 0, 0, 0.08);
 }
 
+/* Slate dark-theme sidebar. The base tokens are navy; under Slate the nav
+   goes neutral gray to match the #1a1b1e content area. Like Notion's and
+   Claude desktop's sidebars it sits one step lighter than the page, so the
+   divider reads without a strong hairline. The accent goes gray too (Slate's
+   #c1c2c5 secondary text, ≈9:1 on the surface), so the Create button, focus
+   rings and rail count dots carry no blue. Text and washes are inherited
+   from the base dark tokens. */
+[data-mantine-color-scheme="dark"][data-dark-theme="slate"] .app-sidebar {
+  --sb-accent: #C1C2C5;
+  --sb-accent-10: rgba(193, 194, 197, 0.10);
+  --sb-accent-12: rgba(193, 194, 197, 0.12);
+  --sb-accent-18: rgba(193, 194, 197, 0.18);
+  --sb-accent-30: rgba(193, 194, 197, 0.30);
+  --sb-accent-55: rgba(193, 194, 197, 0.55);
+
+  --sb-bg: #202124;
+  /* 0.50 lands at ≈4.4:1 on the lighter gray; 0.54 restores 4.5:1+. */
+  --sb-label: rgba(234, 236, 239, 0.54);
+}
+
 /* ==========================================================================
    Coaching home surface (workspace home, homeLayout === 'coaching') -
    scoped design tokens. Consumed by
