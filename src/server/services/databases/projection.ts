@@ -25,8 +25,16 @@ import {
 } from "~/lib/databases/schema";
 import { collectDatabaseMarkerIds, DATABASE_MARKER_LINE_RE } from "~/lib/databases/marker";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { compileRowQuery, type RowQueryRecord } from "./query";
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * Rows a projected table shows at most. A page's Markdown is read whole by
+ * agents and embedded as one document; past this a database is for the
+ * typed API, and the table says how many rows it left out.
+ */
+export const PROJECTION_ROW_LIMIT = 200;
 
 /** One row as the projection needs it. */
 export interface ProjectedRow {
@@ -44,6 +52,8 @@ export interface ProjectedDatabase {
   properties: PropertyDef[];
   view: DatabaseView;
   rows: ProjectedRow[];
+  /** Rows the view matches beyond `rows`, when the projection was capped. */
+  moreRows?: number;
 }
 
 /** A stored `properties` column read as values keyed by property id. */
@@ -82,7 +92,10 @@ export function renderDatabaseTable(
   const lines = database.rows.map(
     (row) => `| ${columns.map((c) => cell(c, row, titlePropertyId, ctx)).join(" | ")} |`,
   );
-  return [header, rule, ...lines].join("\n");
+  const table = [header, rule, ...lines].join("\n");
+  return database.moreRows
+    ? `${table}\n\n_${database.moreRows} more row${database.moreRows === 1 ? "" : "s"} not shown._`
+    : table;
 }
 
 /**
@@ -103,8 +116,8 @@ export function expandMarkers(
 /**
  * Expand the database markers in `pageId`'s body. Only databases the page
  * owns expand — a marker pasted from another page stays inert, so a body can
- * never read rows its holder has no access to. Rows come back in creation
- * order; the saved view's sort and filters apply from the next slice.
+ * never read rows its holder has no access to. Each table is the saved view
+ * (its sort and filters), capped at {@link PROJECTION_ROW_LIMIT} rows.
  */
 export async function expandDatabaseMarkers(
   db: Db,
@@ -128,32 +141,58 @@ export async function expandDatabaseMarkers(
   });
   if (databases.length === 0) return body;
 
-  const rows = await db.knowledgePage.findMany({
-    where: { databaseId: { in: databases.map((d) => d.id) } },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, title: true, properties: true, databaseId: true },
-  });
-  const rowsByDatabase = new Map<string, ProjectedRow[]>();
-  for (const database of databases) rowsByDatabase.set(database.id, []);
-  for (const row of rows) {
-    const database = databases.find((d) => d.id === row.databaseId);
-    if (!database) continue;
-    rowsByDatabase.get(database.id)!.push({
-      id: row.id,
-      title: row.title,
-      properties: rowValues(row.properties),
-      href: buildPageEditorPath(database.workspace.slug, row.id),
+  const parsed: (ProjectedDatabase & { titlePropertyId: string })[] = [];
+  for (const database of databases) {
+    const properties = parseProperties(database.properties);
+    const view = parseView(database.view);
+    let records: RowQueryRecord[];
+    try {
+      records = await db.$queryRaw<RowQueryRecord[]>(
+        compileRowQuery({
+          databaseId: database.id,
+          properties,
+          view,
+          limit: PROJECTION_ROW_LIMIT,
+          offset: 0,
+        }),
+      );
+    } catch {
+      // A saved view that no longer compiles (a filter on a removed property)
+      // must not take the page down with it: project the rows unfiltered.
+      records = await db.$queryRaw<RowQueryRecord[]>(
+        compileRowQuery({
+          databaseId: database.id,
+          properties,
+          view: { ...view, sort: undefined, filters: [] },
+          limit: PROJECTION_ROW_LIMIT,
+          offset: 0,
+        }),
+      );
+    }
+    const capped = records.length > PROJECTION_ROW_LIMIT;
+    const shown = capped ? records.slice(0, PROJECTION_ROW_LIMIT) : records;
+    const moreRows = capped
+      ? Math.max(
+          0,
+          (await db.knowledgePage.count({ where: { databaseId: database.id } })) -
+            PROJECTION_ROW_LIMIT,
+        )
+      : 0;
+    parsed.push({
+      id: database.id,
+      name: database.name,
+      properties,
+      view,
+      rows: shown.map((row) => ({
+        id: row.id,
+        title: row.title,
+        properties: rowValues(row.properties),
+        href: buildPageEditorPath(database.workspace.slug, row.id),
+      })),
+      ...(moreRows ? { moreRows } : {}),
+      titlePropertyId: database.titlePropertyId,
     });
   }
-
-  const parsed = databases.map((database) => ({
-    id: database.id,
-    name: database.name,
-    properties: parseProperties(database.properties),
-    view: parseView(database.view),
-    rows: rowsByDatabase.get(database.id) ?? [],
-    titlePropertyId: database.titlePropertyId,
-  }));
   const ctx = await personNames(db, parsed);
 
   const tables = new Map<string, string>();

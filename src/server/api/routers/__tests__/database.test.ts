@@ -303,27 +303,92 @@ describe("database.createRow", () => {
   });
 });
 
-describe("database.listRows and get", () => {
+describe("database.listRows, update and get", () => {
   const db = getDbMock();
+  type Sql = { text: string; values: unknown[] };
+  const compiled = (call = 0) => db.$queryRaw.mock.calls[call]![0] as unknown as Sql;
   beforeEach(() => {
     mockReset(db);
     install(db, "viewer");
-    db.knowledgePage.findMany.mockResolvedValue([
+    db.$queryRaw.mockResolvedValue([
       rowPage("row-1", "Alert latency", "Tracked"),
       rowPage("row-2", "Coverage", null),
     ] as never);
     db.knowledgePage.count.mockResolvedValue(2);
   });
 
-  it("a viewer reads rows with typed values and a cursor", async () => {
+  it("a viewer reads rows with typed values, the visible columns and an offset cursor", async () => {
     const caller = createMockCaller({ userId: MEMBER, db });
     const page = await caller.database.listRows({ id: DB_ID, limit: 1 });
     expect(page.rows).toHaveLength(1);
     expect(page.rows[0]).toMatchObject({ id: "row-1", title: "Alert latency", values: { [STATUS_ID]: "Tracked" } });
-    expect(page.nextCursor).toBe("row-1");
-    const args = db.knowledgePage.findMany.mock.calls[0]![0] as { where: unknown; take: number };
-    expect(args.where).toEqual({ databaseId: DB_ID });
-    expect(args.take).toBe(2);
+    expect(page.nextCursor).toBe("1");
+    expect(page.columns).toEqual([TITLE_ID, STATUS_ID]);
+    const q = compiled();
+    expect(q.text).toContain('WHERE "databaseId" = $1 ORDER BY "createdAt" ASC, "id" ASC LIMIT $2 OFFSET $3');
+    expect(q.values).toEqual([DB_ID, 2, 0]);
+
+    await caller.database.listRows({ id: DB_ID, limit: 1, cursor: "1" });
+    expect(compiled(1).values).toEqual([DB_ID, 2, 1]);
+  });
+
+  it("the saved view's sort and filters compile into the statement", async () => {
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        view: {
+          sort: { propertyId: STATUS_ID, direction: "desc" },
+          filters: [{ propertyId: STATUS_ID, op: "isNotEmpty" }],
+          hiddenPropertyIds: [STATUS_ID],
+          propertyOrder: [TITLE_ID, STATUS_ID],
+        },
+      }) as never,
+    );
+    const caller = createMockCaller({ userId: MEMBER, db });
+    const page = await caller.database.listRows({ id: DB_ID });
+    const q = compiled();
+    expect(q.text).toContain(`NOT (COALESCE("properties"->>$2, '') IN ('', '[]'))`);
+    expect(q.text).toContain('ORDER BY "properties"->>$3 DESC NULLS LAST');
+    expect(page.columns).toEqual([TITLE_ID]);
+    // Hidden columns are a display concern: the values still come back.
+    expect(page.rows[0]!.values).toHaveProperty(STATUS_ID);
+  });
+
+  it("a view passed in replaces the saved one for that read, and must resolve", async () => {
+    const caller = createMockCaller({ userId: MEMBER, db });
+    await caller.database.listRows({
+      id: DB_ID,
+      view: { filters: [{ propertyId: STATUS_ID, op: "eq", value: "Tracked" }], hiddenPropertyIds: [], propertyOrder: [] },
+    });
+    expect(compiled().values[1]).toBe(JSON.stringify({ [STATUS_ID]: "Tracked" }));
+
+    const error = await failureOf(
+      caller.database.listRows({
+        id: DB_ID,
+        view: { filters: [{ propertyId: "gone", op: "isEmpty" }], hiddenPropertyIds: [], propertyOrder: [] },
+      }),
+    );
+    expect(error?.code).toBe("BAD_REQUEST");
+    expect(error?.message).toContain('"gone"');
+    const bad = await failureOf(caller.database.listRows({ id: DB_ID, cursor: "x" }));
+    expect(bad?.code).toBe("BAD_REQUEST");
+  });
+
+  it("update replaces the view whole and refuses one naming an unknown property; viewers cannot", async () => {
+    db.pageDatabase.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...databaseRow(), ...args.data })) as never);
+    const viewer = createMockCaller({ userId: MEMBER, db });
+    await expect(viewer.database.update({ id: DB_ID, name: "Metrics 2" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    install(db, "member");
+    const caller = createMockCaller({ userId: OWNER, db });
+    const next = { sort: { propertyId: STATUS_ID, direction: "asc" as const }, filters: [], hiddenPropertyIds: [], propertyOrder: [STATUS_ID, TITLE_ID] };
+    const result = await caller.database.update({ id: DB_ID, name: " Metrics 2 ", view: next });
+    expect(db.pageDatabase.update.mock.calls[0]![0].data).toEqual({ name: "Metrics 2", view: next });
+    expect(result.view).toEqual(next);
+
+    await expect(
+      caller.database.update({ id: DB_ID, view: { ...next, hiddenPropertyIds: ["gone"] } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("get returns the parsed definition, the row count and the holding page", async () => {
@@ -488,9 +553,7 @@ describe("page.get expands a database marker", () => {
   beforeEach(() => {
     mockReset(db);
     install(db);
-    db.knowledgePage.findMany.mockResolvedValue([
-      rowPage("row-1", "Alert latency", "Tracked"),
-    ] as never);
+    db.$queryRaw.mockResolvedValue([rowPage("row-1", "Alert latency", "Tracked")] as never);
   });
 
   it("replaces the marker line with the marker plus the table, for markdown and full", async () => {
@@ -529,7 +592,7 @@ describe("page.get expands a database marker", () => {
         view: { filters: [], hiddenPropertyIds: [], propertyOrder: [TITLE_ID, OWNER_ID] },
       }),
     ] as never);
-    db.knowledgePage.findMany.mockResolvedValue([
+    db.$queryRaw.mockResolvedValue([
       { ...rowPage("row-1", "Alert latency", null), properties: { [OWNER_ID]: ["u-ana", "u-gone"] } },
     ] as never);
     db.user.findMany.mockResolvedValue([{ id: "u-ana", name: "Ana", email: "ana@x.y" }] as never);
@@ -537,6 +600,23 @@ describe("page.get expands a database marker", () => {
     const page = await caller.page.get({ id: PAGE_ID, format: "markdown" });
     expect(page.body).toContain("| [Alert latency](/w/acme/pages/row-1) | Ana, u-gone |");
     expect(db.user.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("projects through the saved view and says how many rows it left out", async () => {
+    db.pageDatabase.findMany.mockResolvedValue([
+      databaseRow({ view: { sort: { propertyId: TITLE_ID, direction: "asc" }, filters: [], hiddenPropertyIds: [], propertyOrder: [] } }),
+    ] as never);
+    const many = Array.from({ length: 201 }, (_, i) => rowPage(`row-${i}`, `Row ${i}`, null));
+    db.$queryRaw.mockResolvedValue(many as never);
+    db.knowledgePage.count.mockResolvedValue(260);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const page = await caller.page.get({ id: PAGE_ID, format: "markdown" });
+    const q = db.$queryRaw.mock.calls[0]![0] as unknown as { text: string; values: unknown[] };
+    expect(q.text).toContain('ORDER BY "title" ASC NULLS LAST');
+    expect(q.values).toEqual([DB_ID, 201, 0]);
+    expect(page.body).toContain("| [Row 199](/w/acme/pages/row-199) |");
+    expect(page.body).not.toContain("Row 200");
+    expect(page.body).toContain("_60 more rows not shown._");
   });
 
   it("a section read sees the table under its heading", async () => {

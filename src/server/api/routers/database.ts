@@ -7,6 +7,7 @@ import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { databaseMarker } from "~/lib/databases/marker";
 import {
   ADDABLE_PROPERTY_TYPES,
+  databaseViewSchema,
   defaultTitleProperty,
   emptyView,
   findProperty,
@@ -17,6 +18,8 @@ import {
   parseView,
   pillColorSchema,
   propertyTypeSchema,
+  unknownPropertyInView,
+  visibleProperties,
   type DatabaseView,
   type PillColor,
   type PropertyDef,
@@ -28,6 +31,13 @@ import {
 } from "~/server/services/pages/access";
 import { recordPageRevision } from "~/server/services/pages/revisions";
 import { rowValues } from "~/server/services/databases/projection";
+import {
+  compileRowQuery,
+  cursorFromOffset,
+  offsetFromCursor,
+  RowQueryError,
+  type RowQueryRecord,
+} from "~/server/services/databases/query";
 import {
   coerceRowValues,
   PropertyValueError,
@@ -104,10 +114,21 @@ function presentRow(row: RowRecord) {
 
 /** A typed rejection → BAD_REQUEST naming the property; anything else passes through. */
 function asTRPCError(error: unknown): never {
-  if (error instanceof PropertyValueError) {
+  if (error instanceof PropertyValueError || error instanceof RowQueryError) {
     throw new TRPCError({ code: "BAD_REQUEST", message: error.message, cause: error });
   }
   throw error;
+}
+
+/** A view to save or query with: every property it names must exist. */
+function assertViewResolves(properties: readonly PropertyDef[], view: DatabaseView): void {
+  const unknown = unknownPropertyInView(properties, view);
+  if (unknown !== null) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `The view names a property this database does not have: "${unknown}"`,
+    });
+  }
 }
 
 const rowValuesInput = z.record(z.string().min(1), z.unknown());
@@ -298,14 +319,19 @@ export const databaseRouter = createTRPCRouter({
     }),
 
   /**
-   * The database's rows with their typed values, oldest first, paged by
-   * cursor. The saved view's sort, filters and hidden columns apply from the
-   * query compiler in the next slice.
+   * The database's rows with their typed values through the saved view —
+   * its sort and filters — or through `view`, a whole view the caller passes
+   * instead (the table block while a filter is being tried; the CLI's
+   * `--sort`/`--filter`). One statement from `compileRowQuery`; `cursor`
+   * continues a page. `columns` is the visible property ids in view order;
+   * rows still carry every value, hidden ones included, so un-hiding a
+   * column needs no refetch.
    */
   listRows: protectedProcedure
     .input(
       z.object({
         id: z.string(),
+        view: databaseViewSchema.optional(),
         limit: z.number().int().min(1).max(200).default(50),
         cursor: z.string().optional(),
       }),
@@ -313,19 +339,63 @@ export const databaseRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const database = await loadDatabase(ctx.db, input.id);
       await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "view");
-      const rows = await ctx.db.knowledgePage.findMany({
-        where: { databaseId: database.id },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: input.limit + 1,
-        ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
-        select: ROW_SELECT,
-      });
+      const properties = parseProperties(database.properties);
+      const view = input.view ?? parseView(database.view);
+      if (input.view) assertViewResolves(properties, input.view);
+
+      let rows: RowQueryRecord[];
+      let offset: number;
+      try {
+        offset = offsetFromCursor(input.cursor);
+        rows = await ctx.db.$queryRaw<RowQueryRecord[]>(
+          compileRowQuery({
+            databaseId: database.id,
+            properties,
+            view,
+            limit: input.limit,
+            offset,
+          }),
+        );
+      } catch (error) {
+        asTRPCError(error);
+      }
       const hasMore = rows.length > input.limit;
       const slice = hasMore ? rows.slice(0, input.limit) : rows;
       return {
         rows: slice.map(presentRow),
-        nextCursor: hasMore ? slice[slice.length - 1]!.id : null,
+        nextCursor: hasMore ? cursorFromOffset(offset + input.limit) : null,
+        columns: visibleProperties(properties, view).map((p) => p.id),
       };
+    }),
+
+  /**
+   * Rename the database or replace its saved view — whole, never merged
+   * (ADR-0078 §6: one view per block). A view that names a property the
+   * database does not have is refused rather than trimmed.
+   */
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        view: databaseViewSchema.optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      if (input.view) {
+        assertViewResolves(parseProperties(database.properties), input.view);
+      }
+      const updated = await ctx.db.pageDatabase.update({
+        where: { id: database.id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.view ? { view: input.view as unknown as Prisma.InputJsonValue } : {}),
+        },
+        select: DATABASE_SELECT,
+      });
+      return presentDatabase(updated);
     }),
 
   /**

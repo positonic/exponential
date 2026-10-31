@@ -232,6 +232,25 @@ export function findProperty(
 }
 
 /**
+ * The first property id a view mentions that the database does not have, or
+ * null when every reference resolves. A view is saved whole, so one stale id
+ * rejects the whole write rather than being silently dropped.
+ */
+export function unknownPropertyInView(
+  properties: readonly PropertyDef[],
+  view: DatabaseView,
+): string | null {
+  const known = new Set(properties.map((p) => p.id));
+  const referenced = [
+    ...(view.sort ? [view.sort.propertyId] : []),
+    ...view.filters.map((f) => f.propertyId),
+    ...view.hiddenPropertyIds,
+    ...view.propertyOrder,
+  ];
+  return referenced.find((id) => !known.has(id)) ?? null;
+}
+
+/**
  * The columns a table shows, in display order: `view.propertyOrder` first,
  * then any property it does not mention in definition order, minus the hidden
  * ones. Ids in the view that no longer exist are ignored.
