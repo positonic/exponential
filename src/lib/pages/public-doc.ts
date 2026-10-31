@@ -43,6 +43,8 @@ export interface PublicDatabaseTable {
   name: string;
   columns: string[];
   rows: PublicDatabaseRow[];
+  /** Which column is the title — the one that links to the row page. Defaults to 0. */
+  titleIndex?: number;
 }
 
 export type PublicDatabaseMap = ReadonlyMap<string, PublicDatabaseTable>;
@@ -70,11 +72,12 @@ export function publicDatabaseTableNode(table: PublicDatabaseTable): JSONContent
       content: [{ type: "paragraph", content: textNode(name) }],
     })),
   };
+  const titleIndex = table.titleIndex ?? 0;
   const rows = table.rows.map((row) => ({
     type: "tableRow",
     content: row.cells.map((cell, index) => ({
       type: "tableCell",
-      content: [{ type: "paragraph", content: textNode(cell, index === 0 ? row.href : undefined) }],
+      content: [{ type: "paragraph", content: textNode(cell, index === titleIndex ? row.href : undefined) }],
     })),
   }));
   return { type: "table", content: [header, ...rows] };

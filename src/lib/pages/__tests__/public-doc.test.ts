@@ -230,6 +230,18 @@ describe("sanitizeDocForPublic — database blocks (ADR-0078)", () => {
     expect(JSON.stringify(out)).not.toContain("Metrics");
   });
 
+  it("links the title column wherever the view put it", () => {
+    const node = publicDatabaseTableNode({
+      name: "Metrics",
+      columns: ["Status", "Name"],
+      titleIndex: 1,
+      rows: [{ cells: ["", "Alert latency"], href: "/p/alert-latency-abcd1234" }],
+    });
+    const cells = node.content![1]!.content!;
+    expect(cells[0]!.content![0]!.content).toEqual([]);
+    expect(cells[1]!.content![0]!.content![0]!.marks).toEqual([{ type: "link", attrs: { href: "/p/alert-latency-abcd1234" } }]);
+  });
+
   it("publicDatabaseTableNode refuses a non-relative href on the title", () => {
     const node = publicDatabaseTableNode({ ...metrics, rows: [{ cells: ["x", "y"], href: "javascript:alert(1)" }] });
     const titleText = node.content![1]!.content![0]!.content![0]!.content![0]!;

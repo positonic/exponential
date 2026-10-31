@@ -50,9 +50,24 @@ export async function publicDatabaseTables(db: Db, pageId: string): Promise<Publ
   for (const database of databases) {
     const properties = parseProperties(database.properties);
     const view = parseView(database.view);
-    const ids = await db.$queryRaw<RowQueryRecord[]>(
-      compileRowQuery({ databaseId: database.id, properties, view, limit: PROJECTION_ROW_LIMIT, offset: 0 }),
-    );
+    let ids: RowQueryRecord[];
+    try {
+      ids = await db.$queryRaw<RowQueryRecord[]>(
+        compileRowQuery({ databaseId: database.id, properties, view, limit: PROJECTION_ROW_LIMIT, offset: 0 }),
+      );
+    } catch {
+      // A saved filter that no longer compiles must not take the public
+      // page down: show the rows unfiltered, as the Markdown projection does.
+      ids = await db.$queryRaw<RowQueryRecord[]>(
+        compileRowQuery({
+          databaseId: database.id,
+          properties,
+          view: { ...view, sort: undefined, filters: [] },
+          limit: PROJECTION_ROW_LIMIT,
+          offset: 0,
+        }),
+      );
+    }
     const shown = ids.slice(0, PROJECTION_ROW_LIMIT);
     // The compiled query does not select publish state; one lookup per table.
     const published = await db.knowledgePage.findMany({
@@ -86,9 +101,11 @@ export async function publicDatabaseTables(db: Db, pageId: string): Promise<Publ
 
   for (const { database, properties, view, rows } of prepared) {
     const columns = visibleProperties(properties, view);
+    const titleIndex = columns.findIndex((c) => c.id === database.titlePropertyId || c.type === "title");
     tables.set(database.id, {
       name: database.name,
       columns: columns.map((c) => c.name),
+      ...(titleIndex >= 0 ? { titleIndex } : {}),
       rows: rows.map((row) => {
         const values = rowValues(row.properties);
         return {

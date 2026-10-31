@@ -43,12 +43,32 @@ describe("publicDatabaseTables", () => {
     const metrics = tables.get("db1")!;
     expect(metrics.name).toBe("Metrics");
     expect(metrics.columns).toEqual(["Status", "Name"]);
+    // The title is the second column here; the public link must follow it.
+    expect(metrics.titleIndex).toBe(1);
     expect(metrics.rows).toEqual([
       { cells: ["Tracked", "Alert latency"], href: "/p/alert-latency-abcd1234" },
       { cells: ["", "Untitled"] },
     ]);
     // Only attached databases of this page are projected.
     expect(db.pageDatabase.findMany.mock.calls[0]![0]).toMatchObject({ where: { pageId: "page-1", detachedAt: null } });
+  });
+
+  it("falls back to an unfiltered read when a saved filter no longer compiles", async () => {
+    db.pageDatabase.findMany.mockResolvedValue([
+      {
+        id: "db1",
+        name: "Metrics",
+        properties: [{ id: TITLE, name: "Name", type: "title" }],
+        view: { filters: [{ propertyId: "gone", op: "eq", value: "x" }], hiddenPropertyIds: [], propertyOrder: [] },
+        titlePropertyId: TITLE,
+      },
+    ] as never);
+    db.$queryRaw.mockResolvedValue([] as never);
+    db.knowledgePage.findMany.mockResolvedValue([] as never);
+    const tables = await publicDatabaseTables(db, "page-1");
+    expect(tables.get("db1")?.rows).toEqual([]);
+    // The compiler threw on the stale filter before any query; the fallback ran once.
+    expect(db.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("returns an empty map for a page without databases", async () => {
