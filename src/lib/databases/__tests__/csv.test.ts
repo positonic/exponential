@@ -58,6 +58,7 @@ describe("resolveCsvColumns", () => {
     expect(bad({ Name: { kind: "new", name: "status", type: "text" } })).toThrow(/already exists/);
     expect(bad({ Name: { kind: "property", propertyId: SCORE }, Score: { kind: "property", propertyId: SCORE } })).toThrow(/Two columns/);
     expect(bad({ Owner: { kind: "new", name: "Owner", type: "title" } })).toThrow(/cannot create/);
+    expect(bad({ Owner: { kind: "new", name: "o".repeat(201), type: "text" } })).toThrow(/at most 200/);
   });
 
   it("keeps file order and leaves unmapped headers skipped", () => {
@@ -94,6 +95,8 @@ describe("parseCsvCell — spreadsheet forms per type", () => {
     expect(parseCsvCell(status, "Dropped")).toEqual({ result: { ok: true, value: "Dropped" }, newOptions: ["Dropped"] });
     const tags = def("multiSelect", { options: [{ id: "o_a", name: "Alpha", color: "blue" }] });
     expect(parseCsvCell(tags, "Alpha; Beta,Gamma")).toEqual({ result: { ok: true, value: ["o_a", "Beta", "Gamma"] }, newOptions: ["Beta", "Gamma"] });
+    // A name no option could hold is a cell error, never a definition to write.
+    expect(parseCsvCell(status, "x".repeat(201)).result).toMatchObject({ ok: false, reason: expect.stringContaining("200 characters") as string });
   });
 });
 

@@ -1,4 +1,5 @@
 import { parseCsv, type ParsedCsv } from "~/lib/contactCsvImport";
+import { TEXT_LIMITS } from "~/lib/text-limits";
 import { findOption, validateValue, type PropertyValue, type ValidationResult } from "./properties";
 import { ADDABLE_PROPERTY_TYPES, type PropertyDef, type PropertyType } from "./schema";
 
@@ -148,6 +149,9 @@ export function resolveCsvColumns(
     }
     const name = target.name.trim();
     if (!name) throw new CsvMappingError(`Column "${header}" needs a name for its new property`);
+    if (name.length > TEXT_LIMITS.LABEL) {
+      throw new CsvMappingError(`Column "${header}": a property name is at most ${TEXT_LIMITS.LABEL} characters`);
+    }
     if (!CSV_NEW_COLUMN_TYPES.includes(target.type)) {
       throw new CsvMappingError(`Column "${header}" cannot create a ${target.type} property`);
     }
@@ -212,6 +216,14 @@ export function parseCsvCell(def: PropertyDef, text: string): CsvCellResult {
     case "select":
     case "multiSelect": {
       const names = optionNames(def, trimmed);
+      // A name that could not be stored as an option is a cell error, not a
+      // definition the commit writes and every later read refuses.
+      const tooLong = names.find((name) => !findOption(def, name) && name.length > TEXT_LIMITS.LABEL);
+      if (tooLong) {
+        return {
+          result: { ok: false, reason: `has an option name longer than ${TEXT_LIMITS.LABEL} characters: "${tooLong.slice(0, 40)}…"` },
+        };
+      }
       const values = names.map((name) => findOption(def, name)?.id ?? name);
       const newOptions = names.filter((name) => !findOption(def, name));
       const value = def.type === "select" ? values[0]! : values;

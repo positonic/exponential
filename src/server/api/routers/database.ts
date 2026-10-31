@@ -17,6 +17,7 @@ import {
   parseProperties,
   parseView,
   pillColorSchema,
+  propertyDefSchema,
   propertyTypeSchema,
   relationTargetKindSchema,
   unknownPropertyInView,
@@ -692,10 +693,12 @@ export const databaseRouter = createTRPCRouter({
    * V4): the file's columns resolved through `mapping` — or a suggested
    * one, by header name — and every row typed through the registry, with
    * each cell that does not fit named. View access: this writes nothing.
+   * A mutation only so the file travels in a POST body; a query would put
+   * the whole CSV in the URL, which a 20 KB file already overflows.
    */
   previewCsv: protectedProcedure
     .input(z.object({ id: z.string(), csv: csvInput, mapping: csvMappingInput.optional() }))
-    .query(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input }) => {
       const database = await loadDatabase(ctx.db, input.id);
       await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "view");
       const properties = parseProperties(database.properties);
@@ -764,6 +767,16 @@ export const databaseRouter = createTRPCRouter({
       }
       const added = [...written.values()].filter((d) => !properties.some((p) => p.id === d.id));
       const changed = added.length > 0 || [...written.values()].some((d) => d !== properties.find((p) => p.id === d.id));
+      // Whatever the file held, what is written must read back: a
+      // definition the schema refuses would take the database down.
+      const valid = propertyDefSchema.array().safeParse(next);
+      if (!valid.success) {
+        const issue = valid.error.issues[0];
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `The import would leave the database with an invalid definition: ${issue?.message ?? "schema error"}`,
+        });
+      }
       const importable = preview.rows.filter((row) => row.errors.length === 0);
 
       const created = await ctx.db.$transaction(async (tx) => {

@@ -57,6 +57,8 @@ function renderView(overrides: Partial<React.ComponentProps<typeof CsvImportDial
       properties={properties}
       csv="Name,Status,Score,Owner\nUptime,Tracked,99,Ana"
       onCsvChange={vi.fn()}
+      headers={preview.headers}
+      mapping={preview.mapping}
       preview={preview}
       isPreviewing={false}
       previewError={null}
@@ -99,6 +101,14 @@ describe("CsvImportDialogView", () => {
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
+  it("a rejected mapping keeps the column editor on screen with the reason, and Import off", () => {
+    renderView({ preview: null, previewError: 'Two columns map to "Score"' });
+    expect(screen.getAllByRole("textbox", { name: /Import .* as/ })).toHaveLength(4);
+    expect(screen.getByText('Two columns map to "Score"')).toBeTruthy();
+    expect(screen.queryByTestId("csv-preview")).toBeNull();
+    expect((screen.getByRole("button", { name: "Import 0 rows" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("with no importable row, or no preview, Import is disabled", () => {
     const { unmount } = render(
       <CsvImportDialogView
@@ -107,6 +117,8 @@ describe("CsvImportDialogView", () => {
         properties={properties}
         csv="Name\nx"
         onCsvChange={vi.fn()}
+        headers={preview.headers}
+        mapping={preview.mapping}
         preview={{ ...preview, importable: 0 }}
         isPreviewing={false}
         previewError={null}
@@ -124,6 +136,8 @@ describe("CsvImportDialogView", () => {
         properties={properties}
         csv=""
         onCsvChange={vi.fn()}
+        headers={[]}
+        mapping={{}}
         preview={null}
         isPreviewing={false}
         previewError="The CSV has no header row"

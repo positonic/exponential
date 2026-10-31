@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, FileInput, Group, Modal, Select, Stack, Table, Text, Textarea } from "@mantine/core";
 import { IconAlertCircle, IconFileSpreadsheet } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import type { PropertyValue } from "~/lib/databases/properties";
 import type { CsvCellError, CsvColumnTarget, CsvMapping } from "~/lib/databases/csv";
-import { CSV_NEW_COLUMN_TYPES } from "~/lib/databases/csv";
+import { CSV_NEW_COLUMN_TYPES, parseCsv } from "~/lib/databases/csv";
 import { displayValue } from "~/lib/databases/display";
 import type { PropertyDef, PropertyType } from "~/lib/databases/schema";
 
@@ -62,6 +62,11 @@ export interface CsvImportDialogViewProps {
   properties: PropertyDef[];
   csv: string;
   onCsvChange: (csv: string) => void;
+  /** The file's headers, read on the client, so the mapping editor stands whether or not the server accepted the mapping. */
+  headers: string[];
+  /** The mapping as drafted: the server's suggestion with the user's changes over it. */
+  mapping: CsvMapping;
+  /** The last preview the server accepted; null until one has, or after the file changed. */
   preview: CsvPreviewData | null;
   isPreviewing: boolean;
   previewError: string | null;
@@ -83,6 +88,8 @@ export function CsvImportDialogView({
   properties,
   csv,
   onCsvChange,
+  headers,
+  mapping,
   preview,
   isPreviewing,
   previewError,
@@ -164,15 +171,15 @@ export function CsvImportDialogView({
             {previewError}
           </Alert>
         ) : null}
-        {preview ? (
+        {headers.length > 0 ? (
           <>
             <Text size="xs" fw={600} className="text-text-primary">
               Columns
             </Text>
             <Table verticalSpacing={4} withRowBorders={false}>
               <Table.Tbody>
-                {preview.headers.map((header) => {
-                  const target = preview.mapping[header] ?? { kind: "skip" };
+                {headers.map((header) => {
+                  const target = mapping[header] ?? { kind: "skip" };
                   return (
                     <Table.Tr key={header}>
                       <Table.Td className="w-1/3">
@@ -196,7 +203,10 @@ export function CsvImportDialogView({
                 })}
               </Table.Tbody>
             </Table>
-
+          </>
+        ) : null}
+        {preview && !previewError ? (
+          <>
             <Text size="xs" fw={600} className="text-text-primary" data-testid="csv-summary">
               {preview.importable} of {preview.total} row{preview.total === 1 ? "" : "s"} will be created
               {preview.total - preview.importable > 0 ? `; ${preview.total - preview.importable} left out for a cell that does not fit` : ""}
@@ -240,7 +250,7 @@ export function CsvImportDialogView({
               </Text>
             ) : null}
           </>
-        ) : csv.trim() ? (
+        ) : csv.trim() && !previewError ? (
           <Text size="xs" className="text-text-muted">
             Reading…
           </Text>
@@ -253,7 +263,7 @@ export function CsvImportDialogView({
           <Button
             size="xs"
             loading={committing}
-            disabled={!preview || preview.importable === 0 || isPreviewing}
+            disabled={!preview || !!previewError || preview.importable === 0 || isPreviewing}
             onClick={() => void onCommit()}
           >
             Import {preview?.importable ?? 0} row{preview?.importable === 1 ? "" : "s"}
@@ -273,35 +283,61 @@ interface CsvImportDialogProps {
   onImported: () => Promise<void> | void;
 }
 
-/** The dialog wired to `database.previewCsv` / `database.commitCsv`. */
+/**
+ * The dialog wired to `database.previewCsv` / `database.commitCsv`. The
+ * headers come from the file on the client, the first mapping from the
+ * server's suggestion, and every change to either re-previews — through a
+ * mutation, so the file travels in the request body. A mapping the server
+ * refuses keeps the editor on screen with the reason, so it can be fixed.
+ */
 export function CsvImportDialog({ databaseId, properties, opened, onClose, onImported }: CsvImportDialogProps) {
   const [csv, setCsv] = useState("");
   const [overrides, setOverrides] = useState<CsvMapping>({});
+  const [suggested, setSuggested] = useState<CsvMapping | null>(null);
+  const [preview, setPreview] = useState<CsvPreviewData | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewCsv = api.database.previewCsv.useMutation();
   const commit = api.database.commitCsv.useMutation();
+  const latest = useRef(0);
   const hasCsv = csv.trim().length > 0;
-  const mappingInput = useMemo(() => (Object.keys(overrides).length ? overrides : undefined), [overrides]);
-  const previewQuery = api.database.previewCsv.useQuery(
-    { id: databaseId, csv, ...(mappingInput ? { mapping: mappingInput } : {}) },
-    { enabled: opened && hasCsv, retry: false, placeholderData: (prev) => prev },
-  );
-  const preview = (hasCsv ? previewQuery.data : undefined) ?? null;
+  const headers = hasCsv ? parseCsv(csv).headers : [];
+  const mapping: CsvMapping = { ...(suggested ?? {}), ...overrides };
+  const overrideKey = JSON.stringify(overrides);
 
-  // The server suggests the first mapping; from then on the dialog sends the
-  // whole mapping, so what it previews is what it commits.
-  const onChangeMapping = useCallback(
-    (header: string, target: CsvColumnTarget) => {
-      setOverrides((prev) => ({ ...(preview?.mapping ?? {}), ...prev, [header]: target }));
-    },
-    [preview],
-  );
+  useEffect(() => {
+    if (!opened || !hasCsv) return;
+    const call = ++latest.current;
+    const sent = Object.keys(overrides).length ? { ...(suggested ?? {}), ...overrides } : undefined;
+    previewCsv
+      .mutateAsync({ id: databaseId, csv, ...(sent ? { mapping: sent } : {}) })
+      .then((result) => {
+        if (call !== latest.current) return;
+        setPreview(result);
+        setPreviewError(null);
+        if (!sent) setSuggested(result.mapping);
+      })
+      .catch((error: unknown) => {
+        if (call !== latest.current) return;
+        setPreviewError(error instanceof Error ? error.message : "The preview failed.");
+      });
+    // `overrides` is read through its serialised key; `previewCsv` is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened, hasCsv, csv, overrideKey, databaseId]);
+
+  const onChangeMapping = useCallback((header: string, target: CsvColumnTarget) => {
+    setOverrides((prev) => ({ ...prev, [header]: target }));
+  }, []);
 
   const reset = () => {
     setCsv("");
     setOverrides({});
+    setSuggested(null);
+    setPreview(null);
+    setPreviewError(null);
   };
 
   const onCommit = async () => {
-    if (!preview) return;
+    if (!preview || previewError) return;
     try {
       const result = await commit.mutateAsync({ id: databaseId, csv, mapping: preview.mapping });
       notifications.show({
@@ -337,10 +373,15 @@ export function CsvImportDialog({ databaseId, properties, opened, onClose, onImp
       onCsvChange={(next) => {
         setCsv(next);
         setOverrides({});
+        setSuggested(null);
+        setPreview(null);
+        setPreviewError(null);
       }}
+      headers={headers}
+      mapping={mapping}
       preview={preview}
-      isPreviewing={previewQuery.isFetching}
-      previewError={previewQuery.error?.message ?? null}
+      isPreviewing={previewCsv.isPending}
+      previewError={previewError}
       onChangeMapping={onChangeMapping}
       onCommit={onCommit}
       committing={commit.isPending}
