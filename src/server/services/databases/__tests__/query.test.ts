@@ -19,6 +19,8 @@ const SCORE = "p_score";
 const TAGS = "p_tags";
 const DUE = "p_due";
 const DONE = "p_done";
+/** The guarded numeric read of SCORE, as the second and third parameters. */
+const NUM = `(CASE WHEN jsonb_typeof("properties"->$2) = 'number' THEN ("properties"->>$3)::numeric END)`;
 
 const properties: PropertyDef[] = [
   { id: TITLE, name: "Name", type: "title" },
@@ -67,8 +69,8 @@ describe("compileRowQuery", () => {
 
   it("sorts a number column numerically, nulls last, keeping the tie-break", () => {
     const q = compile({ sort: { propertyId: SCORE, direction: "desc" } });
-    expect(q.text).toContain('ORDER BY ("properties"->>$2)::numeric DESC NULLS LAST, "createdAt" ASC, "id" ASC');
-    expect(q.values[1]).toBe(SCORE);
+    expect(q.text).toContain(`ORDER BY ${NUM} DESC NULLS LAST, "createdAt" ASC, "id" ASC`);
+    expect(q.values.slice(1, 3)).toEqual([SCORE, SCORE]);
   });
 
   it("sorts the title and the computed times by their real columns", () => {
@@ -108,8 +110,8 @@ describe("compileRowQuery", () => {
 
   it("ranges cast numbers and compare dates as ISO text", () => {
     const gt = compile({ filters: [{ propertyId: SCORE, op: "gt", value: "7" }] });
-    expect(gt.text).toContain('("properties"->>$2)::numeric > $3');
-    expect(gt.values.slice(1, 3)).toEqual([SCORE, 7]);
+    expect(gt.text).toContain(`${NUM} > $4`);
+    expect(gt.values.slice(1, 4)).toEqual([SCORE, SCORE, 7]);
     const before = compile({ filters: [{ propertyId: DUE, op: "before", value: "2026-11-01" }] });
     expect(before.text).toContain('"properties"->>$2 < $3');
     expect(before.values[2]).toBe("2026-11-01");
@@ -134,8 +136,17 @@ describe("compileRowQuery", () => {
         { propertyId: SCORE, op: "lt", value: 10 },
       ],
     });
-    expect(q.text).toContain('WHERE "databaseId" = $1 AND "properties" @> $2::jsonb AND ("properties"->>$3)::numeric < $4');
-    expect(q.values).toEqual(["db1", JSON.stringify({ [STATUS]: "o_tr" }), SCORE, 10, 51, 0]);
+    expect(q.text).toContain(
+      `WHERE "databaseId" = $1 AND "properties" @> $2::jsonb AND (CASE WHEN jsonb_typeof("properties"->$3) = 'number' THEN ("properties"->>$4)::numeric END) < $5`,
+    );
+    expect(q.values).toEqual(["db1", JSON.stringify({ [STATUS]: "o_tr" }), SCORE, SCORE, 10, 51, 0]);
+  });
+
+  it("reads a stale text value in a number or checkbox column as empty instead of failing the cast", () => {
+    const sortNum = compile({ sort: { propertyId: SCORE, direction: "asc" } });
+    expect(sortNum.text).toContain(`jsonb_typeof("properties"->$2) = 'number'`);
+    const sortBool = compile({ sort: { propertyId: DONE, direction: "asc" } });
+    expect(sortBool.text).toContain(`CASE WHEN jsonb_typeof("properties"->$2) = 'boolean' THEN ("properties"->>$3)::boolean END`);
   });
 
   it("rejects an unknown property, a bad option and an op the type cannot take, naming the property", () => {

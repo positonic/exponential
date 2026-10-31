@@ -9,7 +9,9 @@
  * Equality and `anyOf` on scalars compile to `properties @> …`, which the
  * GIN index serves; ordering and range filters use `properties ->> id` with
  * a cast per type (numbers numeric, checkboxes boolean, dates as ISO text,
- * which sorts correctly).
+ * which sorts correctly). Casts are guarded by `jsonb_typeof`: a property
+ * retyped without rewriting rows (`updateProperty`) may still hold values
+ * of the old type, which read as empty rather than failing the statement.
  */
 import { Prisma } from "@prisma/client";
 
@@ -70,10 +72,13 @@ function columnExpr(def: PropertyDef): Prisma.Sql {
       return Prisma.sql`"updatedAt"`;
     case "createdBy":
       return Prisma.sql`"createdById"`;
+    // A property retyped from text may still hold text in older rows: cast
+    // only values of the right JSON type and read the rest as NULL (empty),
+    // so a stale "many" never turns a sort or range filter into a 500.
     case "number":
-      return Prisma.sql`("properties"->>${def.id})::numeric`;
+      return Prisma.sql`(CASE WHEN jsonb_typeof("properties"->${def.id}) = 'number' THEN ("properties"->>${def.id})::numeric END)`;
     case "checkbox":
-      return Prisma.sql`("properties"->>${def.id})::boolean`;
+      return Prisma.sql`(CASE WHEN jsonb_typeof("properties"->${def.id}) = 'boolean' THEN ("properties"->>${def.id})::boolean END)`;
     default:
       return Prisma.sql`"properties"->>${def.id}`;
   }
