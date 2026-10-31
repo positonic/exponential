@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -14,6 +14,7 @@ import {
   Skeleton,
   Stack,
   Text,
+  Textarea,
 } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import {
@@ -120,6 +121,23 @@ export default function FeatureDetailPage() {
   });
 
   const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [nameValue, setNameValue] = useState("");
+  // Esc-cancel guard: blur() fires before the revert setState applies, so
+  // without this flag onBlur would read the stale draft and commit exactly
+  // the edit the user just cancelled.
+  const cancelingNameEdit = useRef(false);
+  useEffect(() => {
+    if (feature) setNameValue(feature.name);
+    // Sync only when the ENTITY changes: keying on the object identity
+    // re-ran on every background refetch and clobbered in-progress edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feature?.id]);
+  // Effort commits on blur/Enter, not per keystroke: typing "12" used to
+  // save 1 then 12, and the server-controlled value could snap back mid-type.
+  const [effortDraft, setEffortDraft] = useState<string | number>("");
+  useEffect(() => {
+    setEffortDraft(feature?.effort ?? "");
+  }, [feature?.id, feature?.effort]);
   const activity = useFeatureActivity(featureId);
   const [activityFilter, setActivityFilter] = useActivityFilter();
 
@@ -237,9 +255,38 @@ export default function FeatureDetailPage() {
             </Group>
 
             <Group justify="space-between" align="flex-start">
-              <Text size="xl" fw={700} className="text-text-primary flex-1">
-                {feature.name}
-              </Text>
+              <Textarea
+                value={nameValue}
+                onChange={(e) => setNameValue(e.currentTarget.value)}
+                aria-label="Feature name"
+                autosize
+                minRows={1}
+                maxRows={3}
+                variant="unstyled"
+                classNames={{ input: "text-text-primary font-bold p-0 leading-tight resize-none" }}
+                styles={{ root: { flex: 1 }, input: { fontWeight: 700, fontSize: "1.25rem" } }}
+                onKeyDown={(e) => {
+                  // A feature name has no newlines - Enter commits.
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  }
+                  if (e.key === "Escape") {
+                    cancelingNameEdit.current = true;
+                    setNameValue(feature.name);
+                    e.currentTarget.blur();
+                  }
+                }}
+                onBlur={() => {
+                  if (cancelingNameEdit.current) {
+                    cancelingNameEdit.current = false;
+                    return;
+                  }
+                  const trimmed = nameValue.trim();
+                  if (trimmed && trimmed !== feature.name) handleFieldUpdate("name", trimmed);
+                  else setNameValue(feature.name);
+                }}
+              />
               <Menu position="bottom-end" withinPortal>
                 <Menu.Target>
                   <ActionIcon variant="subtle" className="text-text-muted">
@@ -453,8 +500,16 @@ export default function FeatureDetailPage() {
 
         <PropertyRow icon={<IconFlame size={14} />} label="Effort">
           <NumberInput
-            value={feature.effort ?? ""}
-            onChange={(val) => handleFieldUpdate("effort", val === "" ? null : Number(val))}
+            value={effortDraft}
+            onChange={setEffortDraft}
+            onBlur={() => {
+              const next = effortDraft === "" ? null : Number(effortDraft);
+              if (Number.isNaN(next)) return setEffortDraft(feature.effort ?? "");
+              if (next !== (feature.effort ?? null)) handleFieldUpdate("effort", next);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
             size="xs"
             variant="unstyled"
             min={0}

@@ -271,4 +271,21 @@ describe("feature router registry behavior (mocked)", () => {
       expect(dbMock.feature.update).toHaveBeenCalled();
     });
   });
+
+  describe("priority", () => {
+    it("clears priority with null (the UI's 'No priority')", async () => {
+      stubMembership(dbMock);
+      stubFeatureReads(dbMock, "IDEA", []);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.feature.update.mockResolvedValue({ id: featureId, priority: null } as any);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.product.feature.update({ id: featureId, priority: null });
+
+      expect(dbMock.feature.update).toHaveBeenCalledWith({
+        where: { id: featureId },
+        data: expect.objectContaining({ priority: null }),
+      });
+    });
+  });
 });
