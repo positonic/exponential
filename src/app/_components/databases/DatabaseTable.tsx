@@ -2,8 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { PropertyValue } from "~/lib/databases/properties";
-import type { PropertyDef } from "~/lib/databases/schema";
+import type { DatabaseView, PropertyDef } from "~/lib/databases/schema";
 import { computedValue, displayValue, type DisplayContext } from "~/lib/databases/display";
 import { IconPlus } from "@tabler/icons-react";
 import { TextCell } from "./cells/TextCell";
@@ -55,6 +72,93 @@ interface DatabaseTableProps {
   onRemoveProperty?: (def: PropertyDef) => Promise<void> | void;
   /** Add a select option from a cell and resolve with its id. */
   onCreateOption?: (def: PropertyDef, name: string) => Promise<string | null>;
+  /** The saved view, for column widths. */
+  view?: DatabaseView;
+  /** Drag a header to reorder; absent → headers are fixed. */
+  onReorderColumns?: (propertyIds: string[]) => void;
+  /** Drag a header's edge to resize; absent → no handles. */
+  onResizeColumn?: (propertyId: string, width: number) => void;
+  /** More rows exist past the ones shown. */
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
+}
+
+/** A header cell that drags to reorder and whose right edge drags to resize. */
+function HeaderCell({
+  def,
+  width,
+  sortable,
+  onResize,
+  children,
+  className,
+}: {
+  def: PropertyDef;
+  width?: number;
+  sortable: boolean;
+  onResize?: (width: number) => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: def.id,
+    disabled: !sortable,
+  });
+  const [resizing, setResizing] = useState(false);
+  const thRef = useRef<HTMLTableCellElement | null>(null);
+
+  const startResize = (e: React.PointerEvent) => {
+    if (!onResize || !thRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = thRef.current.getBoundingClientRect().width;
+    setResizing(true);
+    const move = (ev: PointerEvent) => {
+      const next = Math.max(40, Math.min(1200, Math.round(startWidth + ev.clientX - startX)));
+      if (thRef.current) thRef.current.style.width = `${next}px`;
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setResizing(false);
+      onResize(Math.max(40, Math.min(1200, Math.round(startWidth + ev.clientX - startX))));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  return (
+    <th
+      ref={(el) => {
+        setNodeRef(el);
+        thRef.current = el;
+      }}
+      scope="col"
+      className={className}
+      data-property-id={def.id}
+      data-dragging={isDragging ? "true" : "false"}
+      style={{
+        width: width ? `${width}px` : undefined,
+        transform: CSS.Translate.toString(transform),
+        transition,
+      }}
+      {...(sortable ? { ...attributes, ...listeners } : {})}
+    >
+      {children}
+      {onResize ? (
+        <span
+          className={styles.resizeHandle}
+          data-resizing={resizing ? "true" : "false"}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`Resize ${def.name}`}
+          onPointerDown={startResize}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : null}
+    </th>
+  );
 }
 
 interface EditingCell {
@@ -94,6 +198,12 @@ export function DatabaseTable({
   onUpdateProperty,
   onRemoveProperty,
   onCreateOption,
+  view,
+  onReorderColumns,
+  onResizeColumn,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: DatabaseTableProps) {
   const byId = new Map(database.properties.map((p) => [p.id, p]));
   const visible = columns.map((id) => byId.get(id)).filter((p): p is PropertyDef => !!p);
@@ -101,6 +211,24 @@ export function DatabaseTable({
   const tableRef = useRef<HTMLTableElement>(null);
   const canEdit = editable && !!onWriteCell;
   const canEditSchema = editable && !!onUpdateProperty;
+  const canReorder = editable && !!onReorderColumns;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !onReorderColumns) return;
+    const ids = visible.map((p) => p.id);
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    const reorderedVisible = arrayMove(ids, from, to);
+    // Hidden properties keep their place after the visible ones, so the
+    // saved order names every property.
+    const hiddenIds = database.properties.map((p) => p.id).filter((id) => !ids.includes(id));
+    onReorderColumns([...reorderedVisible, ...hiddenIds]);
+  };
   const peopleById = people ?? new Map<string, PickerUser>();
   const displayCtx: DisplayContext = {
     personName: (id) => {
@@ -286,11 +414,19 @@ export function DatabaseTable({
 
   return (
     <div className={styles.tableWrap}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <table ref={tableRef} className={styles.table} data-editable={canEdit ? "true" : "false"}>
         <thead>
           <tr>
+            <SortableContext items={visible.map((p) => p.id)} strategy={horizontalListSortingStrategy} disabled={!canReorder}>
             {visible.map((def) => (
-              <th key={def.id} scope="col">
+              <HeaderCell
+                key={def.id}
+                def={def}
+                width={view?.columnWidths?.[def.id]}
+                sortable={canReorder}
+                onResize={editable && onResizeColumn ? (w) => onResizeColumn(def.id, w) : undefined}
+              >
                 {canEditSchema ? (
                   <PropertyEditorPopover
                     property={def}
@@ -301,8 +437,9 @@ export function DatabaseTable({
                 ) : (
                   def.name
                 )}
-              </th>
+              </HeaderCell>
             ))}
+            </SortableContext>
             {canEditSchema && onAddProperty ? (
               <th scope="col" className={styles.addColumn}>
                 <PropertyEditorPopover
@@ -354,6 +491,15 @@ export function DatabaseTable({
               </tr>
             ))
           )}
+          {hasMore && onLoadMore ? (
+            <tr className={styles.loadMore}>
+              <td colSpan={Math.max(visible.length, 1) + (canEditSchema && onAddProperty ? 1 : 0)}>
+                <button type="button" className={styles.newRowButton} disabled={isLoadingMore} onClick={onLoadMore}>
+                  {isLoadingMore ? "Loading…" : "Load more"}
+                </button>
+              </td>
+            </tr>
+          ) : null}
           {canEdit && onCreateRow ? (
             <tr className={styles.newRow}>
               <td colSpan={Math.max(visible.length, 1) + (canEditSchema && onAddProperty ? 1 : 0)}>
@@ -365,6 +511,7 @@ export function DatabaseTable({
           ) : null}
         </tbody>
       </table>
+      </DndContext>
     </div>
   );
 }

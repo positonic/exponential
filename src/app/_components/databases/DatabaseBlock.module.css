@@ -213,3 +213,56 @@
   outline: none;
   padding: 0;
 }
+
+/* ── view controls ── */
+.controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.controlButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.controlButton:hover,
+.controlButton[data-active='true'] {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+/* ── column reorder / resize ── */
+.table th {
+  position: relative;
+}
+
+.table th[data-dragging='true'] {
+  opacity: 0.6;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.resizeHandle:hover,
+.resizeHandle[data-resizing='true'] {
+  background: var(--color-border-focus);
+}
+
+.loadMore td {
+  padding: 0;
+  border-bottom: none;
+}

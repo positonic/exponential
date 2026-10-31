@@ -13,10 +13,11 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DatabaseNode } from "~/lib/prd/database-node";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { usePageEditorContext } from "~/app/_components/pages/PageEditorContext";
-import type { PropertyDef } from "~/lib/databases/schema";
+import type { DatabaseView, PropertyDef } from "~/lib/databases/schema";
 import type { PickerUser } from "~/app/_components/shared/PersonPicker";
 import { DatabaseTable } from "./DatabaseTable";
 import type { PropertyDraft } from "./PropertyEditorPopover";
+import { ViewControls } from "./ViewControls";
 import styles from "./DatabaseBlock.module.css";
 
 /** Rows the block loads at once; the saved view pages beyond this (load more arrives with the view controls). */
@@ -62,7 +63,15 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     { id: databaseId ?? "" },
     { enabled: !!databaseId, retry: false },
   );
-  const rowsQuery = api.database.listRows.useQuery(rowsKey, { enabled: !!databaseId, retry: false });
+  // Pages of rows through the saved view; "Load more" fetches the next.
+  const rowsQuery = api.database.listRows.useInfiniteQuery(rowsKey, {
+    enabled: !!databaseId,
+    retry: false,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+  const rowPages = rowsQuery.data?.pages;
+  const rows = useMemo(() => rowPages?.flatMap((p) => p.rows) ?? [], [rowPages]);
+  const columns = rowPages?.[0]?.columns;
   const updateRow = api.database.updateRow.useMutation();
   const createRow = api.database.createRow.useMutation();
   const addProperty = api.database.addProperty.useMutation();
@@ -79,9 +88,18 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     }
   }, [editor.isEditable, liveName, cachedName, updateAttributes]);
 
+  /** Edit the cached rows across every loaded page; `append` adds to the last page. */
   const setRows = useCallback(
-    (update: (rows: Row[]) => Row[]) => {
-      utils.database.listRows.setData(rowsKey, (old) => (old ? { ...old, rows: update(old.rows) } : old));
+    (update: (rows: Row[]) => Row[], append?: Row) => {
+      utils.database.listRows.setInfiniteData(rowsKey, (old) => {
+        if (!old) return old;
+        const pages = old.pages.map((page) => ({ ...page, rows: update(page.rows) }));
+        if (append && pages.length) {
+          const last = pages[pages.length - 1]!;
+          pages[pages.length - 1] = { ...last, rows: [...last.rows, append] };
+        }
+        return { ...old, pages };
+      });
     },
     // rowsKey is rebuilt each render but only its id matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,7 +110,7 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
   const writeCell = useCallback(
     async (rowId: string, propertyId: string, value: unknown) => {
       if (!database) return;
-      const previous = utils.database.listRows.getData(rowsKey);
+      const previous = utils.database.listRows.getInfiniteData(rowsKey);
       const isTitle = propertyId === database.titlePropertyId;
       setRows((rows) =>
         rows.map((row) =>
@@ -108,7 +126,7 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
         setRows((rows) => rows.map((row) => (row.id === rowId ? saved : row)));
         void utils.page.get.invalidate({ id: rowId });
       } catch (error) {
-        utils.database.listRows.setData(rowsKey, previous);
+        utils.database.listRows.setInfiniteData(rowsKey, previous);
         notifications.show({
           color: "red",
           title: "Not saved",
@@ -125,7 +143,7 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     if (!databaseId) return null;
     try {
       const row = await createRow.mutateAsync({ id: databaseId, values: {} });
-      setRows((rows) => [...rows, row]);
+      setRows((rows) => rows, row);
       void utils.database.get.invalidate({ id: databaseId });
       return row.id;
     } catch (error) {
@@ -222,6 +240,23 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     [databaseId, refetchSchema, updateProperty],
   );
 
+  /** Save the view whole (ADR-0078 §6: one view per block), then re-read rows through it. */
+  const saveView = useCallback(
+    async (next: DatabaseView) => {
+      if (!databaseId) return;
+      // Show the new view at once; the server's copy replaces it on refetch.
+      utils.database.get.setData({ id: databaseId }, (old) => (old ? { ...old, view: next } : old));
+      try {
+        await updateDatabase.mutateAsync({ id: databaseId, view: next });
+        await refetchSchema();
+      } catch (error) {
+        await utils.database.get.invalidate({ id: databaseId });
+        failed("Could not save the view", error);
+      }
+    },
+    [databaseId, refetchSchema, updateDatabase, utils],
+  );
+
   const commitName = async () => {
     const next = renaming?.trim();
     setRenaming(null);
@@ -248,14 +283,22 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
           : "This database could not be loaded."}
       </div>
     );
-  } else if (!database || !rowsQuery.data) {
+  } else if (!database || !columns) {
     body = <div className={styles.state}>Loading…</div>;
   } else {
     body = (
       <DatabaseTable
         database={database}
-        rows={rowsQuery.data.rows}
-        columns={rowsQuery.data.columns}
+        rows={rows}
+        columns={columns}
+        view={database.view}
+        onReorderColumns={(propertyIds) => void saveView({ ...database.view, propertyOrder: propertyIds })}
+        onResizeColumn={(propertyId, width) =>
+          void saveView({ ...database.view, columnWidths: { ...database.view.columnWidths, [propertyId]: width } })
+        }
+        hasMore={rowsQuery.hasNextPage}
+        isLoadingMore={rowsQuery.isFetchingNextPage}
+        onLoadMore={() => void rowsQuery.fetchNextPage()}
         rowHref={workspaceSlug ? (rowId) => buildPageEditorPath(workspaceSlug, rowId) : undefined}
         workspaceId={workspaceId}
         people={people}
@@ -312,6 +355,9 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
           <span className={styles.meta}>
             {rowCount} row{rowCount === 1 ? "" : "s"}
           </span>
+        ) : null}
+        {database && editable ? (
+          <ViewControls properties={database.properties} view={database.view} onChangeView={(next) => void saveView(next)} />
         ) : null}
       </div>
       {body}

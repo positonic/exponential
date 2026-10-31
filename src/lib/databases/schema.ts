@@ -135,6 +135,8 @@ export const databaseViewSchema = z.object({
   hiddenPropertyIds: z.string().array().default([]),
   /** Column order by property id; properties missing here follow in definition order. */
   propertyOrder: z.string().array().default([]),
+  /** Column widths in px by property id, for the table block; absent columns size themselves. */
+  columnWidths: z.record(z.string(), z.number().int().min(40).max(1200)).optional(),
 });
 export type DatabaseView = z.infer<typeof databaseViewSchema>;
 
