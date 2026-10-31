@@ -54,6 +54,8 @@ import {
   reversePropertyFor,
   searchRelationTargets,
 } from "~/server/services/databases/relations";
+import { withoutProperty } from "~/server/services/databases/schema-edits";
+import { inverseProperty } from "~/lib/databases/relations";
 import type { PropertyValue } from "~/lib/databases/properties";
 
 /**
@@ -879,8 +881,10 @@ export const databaseRouter = createTRPCRouter({
   /**
    * Remove a property from the schema and the view. Row values under its id
    * stay where they are — unreachable, and dropped on the next write to that
-   * row — so a mistaken removal is undone by adding the id back. The title
-   * property cannot be removed.
+   * row — so a mistaken removal is undone by adding the id back. A relation
+   * is different (ADR-0078 §5): its edges go, and for a two-way relation so
+   * does the column on the other database, from whichever side is removed.
+   * The title property cannot be removed.
    */
   removeProperty: protectedProcedure
     .input(z.object({ id: z.string(), propertyId: z.string() }))
@@ -896,17 +900,32 @@ export const databaseRouter = createTRPCRouter({
           message: "The title property cannot be removed",
         });
       }
-      const updated = await writeDefinition(ctx.db, database.id, {
-        properties: properties.filter((p) => p.id !== def.id),
-        view: {
-          ...view,
-          sort: view.sort?.propertyId === def.id ? undefined : view.sort,
-          filters: view.filters.filter((f) => f.propertyId !== def.id),
-          hiddenPropertyIds: view.hiddenPropertyIds.filter((id) => id !== def.id),
-          propertyOrder: view.propertyOrder.filter((id) => id !== def.id),
-        },
+      if (def.type !== "relation") {
+        const updated = await writeDefinition(ctx.db, database.id, withoutProperty(properties, view, def.id));
+        reindex(ctx.db, database.pageId);
+        return presentDatabase(updated);
+      }
+
+      // The other side of a two-way relation, if it still has its column.
+      const otherId = def.relation?.targetDatabaseId;
+      const other = otherId && otherId !== database.id ? await loadDatabase(ctx.db, otherId).catch(() => null) : null;
+      const inverse = other ? inverseProperty(def, database.id, parseProperties(other.properties)) : undefined;
+
+      const updated = await ctx.db.$transaction(async (tx) => {
+        await tx.databaseRelation.deleteMany({ where: { databaseId: database.id, propertyId: def.id } });
+        const written = await writeDefinition(tx, database.id, withoutProperty(properties, view, def.id));
+        if (other && inverse) {
+          await tx.databaseRelation.deleteMany({ where: { databaseId: other.id, propertyId: inverse.id } });
+          await writeDefinition(
+            tx,
+            other.id,
+            withoutProperty(parseProperties(other.properties), parseView(other.view), inverse.id),
+          );
+        }
+        return written;
       });
       reindex(ctx.db, database.pageId);
+      if (other && inverse) reindex(ctx.db, other.pageId);
       return presentDatabase(updated);
     }),
 

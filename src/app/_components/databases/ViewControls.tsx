@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ActionIcon, Checkbox, Popover, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { useEffect, useRef, useState } from "react";
+import { ActionIcon, Checkbox, MultiSelect, Popover, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
 import { IconArrowsSort, IconEyeOff, IconFilter, IconPlus, IconX } from "@tabler/icons-react";
 import type { DatabaseView, Filter, FilterOp, PropertyDef, PropertyType } from "~/lib/databases/schema";
+import type { RelationTarget } from "~/lib/databases/relations";
 import styles from "./DatabaseBlock.module.css";
 
 /** The filter ops each property type takes — the same set `compileRowQuery` accepts. */
@@ -17,7 +18,7 @@ export const FILTER_OPS_BY_TYPE: Record<PropertyType, FilterOp[]> = {
   select: ["eq", "neq", "anyOf", "isEmpty", "isNotEmpty"],
   multiSelect: ["eq", "anyOf", "isEmpty", "isNotEmpty"],
   person: ["eq", "anyOf", "isEmpty", "isNotEmpty"],
-  relation: ["isEmpty", "isNotEmpty"],
+  relation: ["anyOf", "isEmpty", "isNotEmpty"],
   createdTime: ["before", "after"],
   lastEditedTime: ["before", "after"],
   createdBy: ["eq", "anyOf"],
@@ -50,6 +51,56 @@ interface ViewControlsProps {
   view: DatabaseView;
   /** Replace the saved view whole. */
   onChangeView: (next: DatabaseView) => void;
+  /** Targets a relation filter may name, by title; absent → relation filters take no value. */
+  onSearchRelation?: (def: PropertyDef, query: string) => Promise<RelationTarget[]>;
+}
+
+/**
+ * The targets an `anyOf` filter on a relation names, picked by title through
+ * the same search the cell uses. Titles are kept per pick; an id saved
+ * earlier shows as its id until the search finds it again.
+ */
+function RelationFilterValue({
+  value,
+  onChange,
+  onSearch,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+  onSearch: (query: string) => Promise<RelationTarget[]>;
+}) {
+  const [search, setSearch] = useState("");
+  const [found, setFound] = useState<RelationTarget[]>([]);
+  const [titles, setTitles] = useState<Map<string, string>>(new Map());
+  const latest = useRef(0);
+  useEffect(() => {
+    const call = ++latest.current;
+    void onSearch(search).then((targets) => {
+      if (call !== latest.current) return;
+      setFound(targets);
+      setTitles((prev) => {
+        const next = new Map(prev);
+        for (const t of targets) next.set(t.id, t.title);
+        return next;
+      });
+    });
+  }, [search, onSearch]);
+  const ids = new Set([...value, ...found.map((t) => t.id)]);
+  const data = [...ids].map((id) => ({ value: id, label: titles.get(id) ?? id }));
+  return (
+    <MultiSelect
+      size="xs"
+      data={data}
+      value={value}
+      searchable
+      searchValue={search}
+      onSearchChange={setSearch}
+      nothingFoundMessage="Nothing matches"
+      comboboxProps={{ withinPortal: true }}
+      onChange={onChange}
+      aria-label="Value"
+    />
+  );
 }
 
 const dropdownStyles = {
@@ -88,9 +139,29 @@ function ControlButton({
   );
 }
 
-/** The value a filter takes, typed by the property: a select picks an option, a checkbox yes/no, else text. */
-function FilterValue({ def, filter, onChange }: { def: PropertyDef; filter: Filter; onChange: (value: unknown) => void }) {
+/** The value a filter takes, typed by the property: a select picks an option, a checkbox yes/no, a relation its targets, else text. */
+function FilterValue({
+  def,
+  filter,
+  onChange,
+  onSearchRelation,
+}: {
+  def: PropertyDef;
+  filter: Filter;
+  onChange: (value: unknown) => void;
+  onSearchRelation?: (def: PropertyDef, query: string) => Promise<RelationTarget[]>;
+}) {
   if (NO_VALUE.has(filter.op)) return null;
+  if (def.type === "relation") {
+    if (!onSearchRelation) return null;
+    return (
+      <RelationFilterValue
+        value={Array.isArray(filter.value) ? (filter.value as string[]) : []}
+        onChange={onChange}
+        onSearch={(query) => onSearchRelation(def, query)}
+      />
+    );
+  }
   if (def.type === "checkbox") {
     return (
       <Select
@@ -159,7 +230,7 @@ function FilterValue({ def, filter, onChange }: { def: PropertyDef; filter: Filt
  * sort, filters and hidden columns — edited in popovers and saved whole on
  * the block. Column order and widths are edited on the header itself.
  */
-export function ViewControls({ properties, view, onChangeView }: ViewControlsProps) {
+export function ViewControls({ properties, view, onChangeView, onSearchRelation }: ViewControlsProps) {
   const [open, setOpen] = useState<"sort" | "filter" | "hide" | null>(null);
   const byId = new Map(properties.map((p) => [p.id, p]));
   const sortable = properties.filter((p) => p.type !== "relation");
@@ -305,7 +376,14 @@ export function ViewControls({ properties, view, onChangeView }: ViewControlsPro
                       <IconX size={14} />
                     </ActionIcon>
                   </div>
-                  {def ? <FilterValue def={def} filter={filter} onChange={(value) => updateFilter(index, { value })} /> : null}
+                  {def ? (
+                    <FilterValue
+                      def={def}
+                      filter={filter}
+                      onChange={(value) => updateFilter(index, { value })}
+                      onSearchRelation={onSearchRelation}
+                    />
+                  ) : null}
                 </div>
               );
             })}

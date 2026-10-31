@@ -406,7 +406,12 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
           </span>
         ) : null}
         {database && editable ? (
-          <ViewControls properties={database.properties} view={database.view} onChangeView={(next) => void saveView(next)} />
+          <ViewControls
+            properties={database.properties}
+            view={database.view}
+            onChangeView={(next) => void saveView(next)}
+            onSearchRelation={searchRelation}
+          />
         ) : null}
       </div>
       {body}

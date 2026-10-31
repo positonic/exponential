@@ -1334,6 +1334,51 @@ describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolve
     await expect(caller.database.searchTargets({ id: DB_ID, propertyId: TITLE_ID })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("removeProperty on a two-way relation removes its edges and the reverse column on the other database, from either side", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.database.removeProperty({ id: DB_ID, propertyId: PROBLEMS_ID });
+    expect(db.databaseRelation.deleteMany.mock.calls.map((c) => c[0])).toEqual([
+      { where: { databaseId: DB_ID, propertyId: PROBLEMS_ID } },
+      { where: { databaseId: TARGET_DB, propertyId: REVERSE_ID } },
+    ]);
+    const [here, there] = updates();
+    expect(here!.where.id).toBe(DB_ID);
+    expect(here!.data.properties!.map((p) => p.id)).toEqual([TITLE_ID, STATUS_ID]);
+    expect(there!.where.id).toBe(TARGET_DB);
+    expect(there!.data.properties!.map((p) => p.id)).toEqual(["ptitle000002"]);
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(TARGET_PAGE);
+
+    // From the reverse side, the forward column goes too.
+    db.databaseRelation.deleteMany.mockClear();
+    db.pageDatabase.update.mockClear();
+    await caller.database.removeProperty({ id: TARGET_DB, propertyId: REVERSE_ID });
+    expect(db.databaseRelation.deleteMany.mock.calls.map((c) => c[0])).toEqual([
+      { where: { databaseId: TARGET_DB, propertyId: REVERSE_ID } },
+      { where: { databaseId: DB_ID, propertyId: PROBLEMS_ID } },
+    ]);
+    expect(updates().map((u) => u.where.id)).toEqual([TARGET_DB, DB_ID]);
+  });
+
+  it("removeProperty on a native relation drops its edges and nothing else; a scalar removal touches no edge", async () => {
+    const TICKET_PROP = "pticket00001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: STATUS_ID, name: "Status", type: "text" },
+          { id: TICKET_PROP, name: "Ticket", type: "relation", relation: { targetKind: "TICKET", many: false } },
+        ],
+      }) as never,
+    );
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.database.removeProperty({ id: DB_ID, propertyId: TICKET_PROP });
+    expect(db.databaseRelation.deleteMany).toHaveBeenCalledTimes(1);
+    expect(db.databaseRelation.deleteMany.mock.calls[0]![0]).toEqual({ where: { databaseId: DB_ID, propertyId: TICKET_PROP } });
+    expect(updates()).toHaveLength(1);
+    await caller.database.removeProperty({ id: DB_ID, propertyId: STATUS_ID });
+    expect(db.databaseRelation.deleteMany).toHaveBeenCalledTimes(1);
+  });
+
   it("listInWorkspace lists attached databases of the workspace through the page access clause", async () => {
     db.pageDatabase.findMany.mockResolvedValue([
       { id: DB_ID, name: "Metrics", page: { id: PAGE_ID, title: "Data strategy" } },

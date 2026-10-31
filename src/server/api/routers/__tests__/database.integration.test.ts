@@ -396,6 +396,37 @@ describe("database router (integration)", () => {
     expect(await db.databaseRelation.count({ where: { rowPageId: latency.id, propertyId: ticketProp.id } })).toBe(0);
   });
 
+  it("relation filters run over the edges, and removing a relation property (or the database) removes the inverse column and every edge", async () => {
+    const { owner, page } = await setup(db, "db-rel-filters");
+    const { caller, database: metrics, latency, coverage } = await seedMetrics(db, owner.id, page.id);
+    const problems = await caller.database.create({ pageId: page.id, name: "Problems" });
+    const gaps = await caller.database.createRow({ id: problems.id, values: { Name: "Gaps" } });
+    const added = await caller.database.addProperty({ id: metrics.id, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: problems.id } });
+    const reverse = added.reverse!.property;
+    await caller.database.updateRow({ rowId: latency.id, values: { Problems: [gaps.id] } });
+
+    const linked = await caller.database.listRows({ id: metrics.id, view: { filters: [{ propertyId: added.property.id, op: "anyOf", value: [gaps.id] }], hiddenPropertyIds: [], propertyOrder: [] } });
+    expect(linked.rows.map((r) => r.id)).toEqual([latency.id]);
+    const unlinked = await caller.database.listRows({ id: metrics.id, view: { filters: [{ propertyId: added.property.id, op: "isEmpty" }], hiddenPropertyIds: [], propertyOrder: [] } });
+    expect(unlinked.rows.map((r) => r.id)).toEqual([coverage.id]);
+    const withMetric = await caller.database.listRows({ id: problems.id, view: { filters: [{ propertyId: reverse.id, op: "isNotEmpty" }], hiddenPropertyIds: [], propertyOrder: [] } });
+    expect(withMetric.rows.map((r) => r.id)).toEqual([gaps.id]);
+
+    // Removing the reverse side removes the forward column and every edge, both ways.
+    await caller.database.removeProperty({ id: problems.id, propertyId: reverse.id });
+    expect((await caller.database.get({ id: metrics.id })).properties.map((p) => p.name)).toEqual(["Name", "Status", "Score"]);
+    expect((await caller.database.get({ id: problems.id })).properties.map((p) => p.name)).toEqual(["Name"]);
+    expect(await db.databaseRelation.count({ where: { databaseId: { in: [metrics.id, problems.id] } } })).toBe(0);
+
+    // Deleting a database other columns point at takes those columns with it.
+    const again = await caller.database.addProperty({ id: metrics.id, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: problems.id } });
+    await caller.database.updateRow({ rowId: latency.id, values: { Problems: [gaps.id] } });
+    await caller.database.delete({ id: problems.id });
+    const after = await caller.database.get({ id: metrics.id });
+    expect(after.properties.find((p) => p.id === again.property.id)).toBeUndefined();
+    expect(await db.databaseRelation.count({ where: { databaseId: metrics.id } })).toBe(0);
+  });
+
   it("deleting the database, or the holding page, takes the rows with it", async () => {
     const { owner, page } = await setup(db, "db-cascade");
     const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);
