@@ -21,16 +21,23 @@ interface PublicRowRecord extends RowQueryRecord {
   publicSlug: string | null;
 }
 
-/** Display names for every person id the tables mention, in one query. */
+/** What a person without a display name is called on a public page. */
+export const ANONYMOUS_PERSON_LABEL = "Member";
+
+/**
+ * Display names for every person id the tables mention, in one query. This
+ * renders on public pages, so a user without a name is not identified by
+ * their email (or id) the way the authenticated projection may.
+ */
 async function personNames(db: Db, ids: Iterable<string>): Promise<(id: string) => string | undefined> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return () => undefined;
   const users = await db.user.findMany({
     where: { id: { in: unique } },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true },
   });
-  const names = new Map(users.map((u) => [u.id, u.name ?? u.email ?? u.id]));
-  return (id) => names.get(id);
+  const names = new Map(users.map((u) => [u.id, u.name ?? ANONYMOUS_PERSON_LABEL]));
+  return (id) => names.get(id) ?? ANONYMOUS_PERSON_LABEL;
 }
 
 /**

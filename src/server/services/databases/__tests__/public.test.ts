@@ -6,7 +6,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { mockDeep, mockReset } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
-import { publicDatabaseTables, publicRowHeader } from "../public";
+import { ANONYMOUS_PERSON_LABEL, publicDatabaseTables, publicRowHeader } from "../public";
 
 const db = mockDeep<PrismaClient>();
 const TITLE = "ptitle000001";
@@ -106,6 +106,26 @@ describe("publicRowHeader", () => {
         { name: "Added by", value: "Ana" },
       ],
     });
+  });
+
+  it("never shows an email: a person without a name is anonymous, and emails are not read", async () => {
+    db.user.findMany.mockResolvedValue([{ id: "u-ana", name: null }] as never);
+    db.pageDatabase.findUnique.mockResolvedValue({
+      name: "Metrics",
+      pageId: "page-1",
+      properties: [{ id: OWNER, name: "Owner", type: "person" }],
+    } as never);
+    const header = await publicRowHeader(db, {
+      id: "r1",
+      databaseId: "db1",
+      properties: { [OWNER]: ["u-ana", "u-gone"] },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      createdById: "u-ana",
+    });
+    expect(header?.fields).toEqual([{ name: "Owner", value: `${ANONYMOUS_PERSON_LABEL}, ${ANONYMOUS_PERSON_LABEL}` }]);
+    expect(db.user.findMany.mock.calls[0]![0]).toMatchObject({ select: { id: true, name: true } });
+    expect((db.user.findMany.mock.calls[0]![0] as { select: Record<string, boolean> }).select.email).toBeUndefined();
   });
 
   it("is null for an ordinary page", async () => {
