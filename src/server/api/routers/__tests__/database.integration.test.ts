@@ -427,6 +427,64 @@ describe("database router (integration)", () => {
     expect(await db.databaseRelation.count({ where: { databaseId: metrics.id } })).toBe(0);
   });
 
+  it("CSV import (V4 tracer): a three-column file with one bad number cell — the preview flags it, the commit creates the others with create revisions", async () => {
+    const { owner, page } = await setup(db, "db-csv");
+    const { caller, database, status, score } = await seedMetrics(db, owner.id, page.id);
+    const csv = ["Name,Status,Score,Owner", "Uptime,Tracked,99,Ana", "Error budget,Tracked,lots,Ben", "MTTR,Dropped,4,"].join("\n");
+
+    const preview = await caller.database.previewCsv({ id: database.id, csv });
+    expect(preview.mapping).toEqual({
+      Name: { kind: "property", propertyId: database.titlePropertyId },
+      Status: { kind: "property", propertyId: status.id },
+      Score: { kind: "property", propertyId: score.id },
+      Owner: { kind: "new", name: "Owner", type: "text" },
+    });
+    // "Dropped" is not a Status option yet: surfaced, not refused.
+    expect(preview.newOptions).toEqual({ [status.id]: ["Dropped"] });
+    expect(preview.importable).toBe(2);
+    expect(preview.rows[1]!.errors[0]).toMatchObject({ header: "Score", propertyName: "Score" });
+    expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(2);
+
+    const result = await caller.database.commitCsv({ id: database.id, csv, mapping: preview.mapping, note: "Q3 sheet" });
+    expect(result.created).toHaveLength(2);
+    expect(result.skipped).toEqual([{ index: 1, errors: [expect.objectContaining({ header: "Score" })] }]);
+    const owner_ = result.properties[0]!;
+    const after = await caller.database.get({ id: database.id });
+    expect(after.properties.map((p) => p.name)).toEqual(["Name", "Status", "Score", "Owner"]);
+    const statusAfter = after.properties.find((p) => p.id === status.id)!;
+    const dropped = statusAfter.options!.find((o) => o.name === "Dropped")!;
+    expect(dropped.id).toHaveLength(12);
+    const rows = await caller.database.listRows({ id: database.id });
+    const uptime = rows.rows.find((r) => r.title === "Uptime")!;
+    const tracked = status.options!.find((o) => o.name === "Tracked")!.id;
+    expect(uptime.values).toEqual({ [status.id]: tracked, [score.id]: 99, [owner_.id]: "Ana" });
+    expect(rows.rows.find((r) => r.title === "MTTR")!.values[status.id]).toBe(dropped.id);
+    expect(rows.rows.find((r) => r.title === "Error budget")).toBeUndefined();
+    for (const id of result.created) {
+      const revisions = await db.knowledgePageRevision.findMany({ where: { pageId: id } });
+      expect(revisions.map((r) => r.kind)).toEqual(["create"]);
+      expect(revisions[0]!.note).toBe("Q3 sheet");
+    }
+    // The page's table shows the imported rows.
+    const read = await caller.page.get({ id: page.id, format: "markdown" });
+    expect(read.body).toContain("| [Uptime](");
+    expect(read.body).toContain("| [MTTR](");
+    expect(read.body).not.toContain("Error budget");
+  });
+
+  it("a 200-row CSV imports in one commit, every row with a create revision", async () => {
+    const { owner, page } = await setup(db, "db-csv-200");
+    const { caller, database } = await seedMetrics(db, owner.id, page.id);
+    const csv = ["Name,Score", ...Array.from({ length: 200 }, (_, i) => `Metric ${i + 1},${i}`)].join("\n");
+    const preview = await caller.database.previewCsv({ id: database.id, csv });
+    expect(preview.importable).toBe(200);
+    const result = await caller.database.commitCsv({ id: database.id, csv, mapping: preview.mapping });
+    expect(result.created).toHaveLength(200);
+    expect(result.skipped).toEqual([]);
+    expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(202);
+    expect(await db.knowledgePageRevision.count({ where: { pageId: { in: result.created }, kind: "create" } })).toBe(200);
+  });
+
   it("deleting the database, or the holding page, takes the rows with it", async () => {
     const { owner, page } = await setup(db, "db-cascade");
     const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);
