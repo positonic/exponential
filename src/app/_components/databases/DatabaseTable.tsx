@@ -29,7 +29,7 @@ import { SelectCell } from "./cells/SelectCell";
 import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
 import { RelationCell } from "./cells/RelationCell";
-import type { RowRelations } from "~/lib/databases/relations";
+import type { RelationTarget, RowRelations } from "~/lib/databases/relations";
 import type { PickerUser } from "~/app/_components/shared/PersonPicker";
 import { PropertyEditorPopover, type PropertyDraft, type RelatableDatabase } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
@@ -76,6 +76,8 @@ interface DatabaseTableProps {
   onRemoveProperty?: (def: PropertyDef) => Promise<void> | void;
   /** Databases a new relation property may point at; absent → no relation type offered. */
   relatableDatabases?: RelatableDatabase[];
+  /** The relation picker's search; absent → relation cells are read-only. */
+  onSearchRelation?: (def: PropertyDef, query: string) => Promise<RelationTarget[]>;
   /** Add a select option from a cell and resolve with its id. */
   onCreateOption?: (def: PropertyDef, name: string) => Promise<string | null>;
   /** The saved view, for column widths. */
@@ -179,7 +181,7 @@ interface EditingCell {
 
 /** Cell types that open an inline text editor. Others edit in their own way or not at all. */
 const TEXT_EDITED = new Set(["title", "text", "number", "url"]);
-const READ_ONLY = new Set(["createdTime", "lastEditedTime", "createdBy", "relation"]);
+const READ_ONLY = new Set(["createdTime", "lastEditedTime", "createdBy"]);
 
 function isEditableType(def: PropertyDef): boolean {
   return !READ_ONLY.has(def.type);
@@ -207,6 +209,7 @@ export function DatabaseTable({
   onUpdateProperty,
   onRemoveProperty,
   relatableDatabases,
+  onSearchRelation,
   onCreateOption,
   view,
   onReorderColumns,
@@ -306,7 +309,8 @@ export function DatabaseTable({
           def.type === "select" ||
           def.type === "multiSelect" ||
           def.type === "date" ||
-          def.type === "person"
+          def.type === "person" ||
+          def.type === "relation"
         ) {
           // The pill button inside the cell opens the picker on Enter.
           e.currentTarget.querySelector<HTMLButtonElement>("button")?.click();
@@ -375,7 +379,15 @@ export function DatabaseTable({
       );
     }
     if (def.type === "relation") {
-      return <RelationCell targets={row.relations?.[def.id] ?? []} />;
+      return (
+        <RelationCell
+          def={def}
+          targets={row.relations?.[def.id] ?? []}
+          editable={canEdit}
+          onCommit={(next) => commit(row.id, def, next)}
+          onSearch={onSearchRelation ? (query) => onSearchRelation(def, query) : undefined}
+        />
+      );
     }
     if (def.type === "select" || def.type === "multiSelect") {
       return (

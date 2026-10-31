@@ -739,7 +739,7 @@ export const pageRouter = createTRPCRouter({
         // The editor needs to know whether to render read-only.
         canEdit: canEditKnowledgePage(access),
         /** Set on a Row: its database, the page holding it, and the property header (ADR-0078). */
-        database: row ? { ...row.database, header: row.header } : null,
+        database: row ? { ...row.database, header: row.header, relations: row.relations } : null,
       };
     }),
 

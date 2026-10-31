@@ -611,6 +611,7 @@ describe("rows are pages (ADR-0078 §3–4)", () => {
       pageId: PAGE_ID,
       pageTitle: "Data strategy",
       header: "**Status:** Tracked",
+      relations: {},
     });
     // The editor's `full` read gets the stored prose only, never the header,
     // so a lazy doc migration or autosave can't write the header into the body.
@@ -1302,6 +1303,35 @@ describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolve
     // Nothing on a native entity is ever written through a database.
     expect(db.keyResult.update).not.toHaveBeenCalled();
     expect(db.goal.update).not.toHaveBeenCalled();
+  });
+
+  it("searchTargets offers rows of the related database, or workspace entities of the kind, by title", async () => {
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "q1", title: "Gaps" }, { id: "q2", title: "" }] as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    const rows = await caller.database.searchTargets({ id: DB_ID, propertyId: PROBLEMS_ID, query: "ga" });
+    expect(db.knowledgePage.findMany.mock.calls[0]![0]).toMatchObject({
+      where: { databaseId: TARGET_DB, title: { contains: "ga", mode: "insensitive" } },
+      take: 20,
+    });
+    expect(rows).toEqual([
+      { kind: "ROW", id: "q1", title: "Gaps", href: "/w/acme/pages/q1" },
+      { kind: "ROW", id: "q2", title: "Untitled", href: "/w/acme/pages/q2" },
+    ]);
+
+    const TICKET_PROP = "pticket00001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: TICKET_PROP, name: "Ticket", type: "relation", relation: { targetKind: "TICKET", many: false } },
+        ],
+      }) as never,
+    );
+    db.ticket.findMany.mockResolvedValue([{ id: "t1", title: "Fix Okta callback", status: "QA", product: { slug: "clear" } }] as never);
+    const tickets = await caller.database.searchTargets({ id: DB_ID, propertyId: "Ticket" });
+    expect(db.ticket.findMany.mock.calls[0]![0]).toMatchObject({ where: { product: { workspaceId: WORKSPACE_ID } } });
+    expect(tickets).toEqual([{ kind: "TICKET", id: "t1", title: "Fix Okta callback", status: "QA", href: "/w/acme/products/clear/tickets/t1" }]);
+    await expect(caller.database.searchTargets({ id: DB_ID, propertyId: TITLE_ID })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("listInWorkspace lists attached databases of the workspace through the page access clause", async () => {

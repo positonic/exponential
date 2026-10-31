@@ -425,3 +425,136 @@ export function relationMarkdown(targets: readonly RelationTarget[] | undefined)
     })
     .join(", ");
 }
+
+export interface SearchRelationTargetsInput {
+  /** The relation property being filled. */
+  def: PropertyDef;
+  /** The database's workspace: native targets come from it. */
+  workspaceId: string;
+  workspaceSlug: string | null;
+  query: string;
+  limit: number;
+}
+
+/**
+ * What the relation picker offers: rows of the related database, or live
+ * entities of the target kind in the workspace, whose title contains
+ * `query` (case-insensitive), most recently edited first. The same shape a
+ * resolved target has, so the picker can show a pick before it is saved.
+ */
+export async function searchRelationTargets(
+  db: Db,
+  { def, workspaceId, workspaceSlug, query, limit }: SearchRelationTargetsInput,
+): Promise<RelationTarget[]> {
+  const rel = def.relation;
+  if (!rel) return [];
+  const q = query.trim();
+  const title = q ? { contains: q, mode: "insensitive" as const } : undefined;
+  switch (rel.targetKind) {
+    case "ROW": {
+      if (!rel.targetDatabaseId) return [];
+      const rows = await db.knowledgePage.findMany({
+        where: { databaseId: rel.targetDatabaseId, ...(title ? { title } : {}) },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: { id: true, title: true },
+      });
+      return rows.map((r) => ({
+        kind: "ROW" as const,
+        id: r.id,
+        title: r.title || "Untitled",
+        ...(workspaceSlug ? { href: buildPageEditorPath(workspaceSlug, r.id) } : {}),
+      }));
+    }
+    case "TICKET": {
+      const tickets = await db.ticket.findMany({
+        where: { product: { workspaceId }, ...(title ? { title } : {}) },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: { id: true, title: true, status: true, product: { select: { slug: true } } },
+      });
+      return tickets.map((t) => ({
+        kind: "TICKET" as const,
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        ...(workspaceSlug ? { href: `/w/${workspaceSlug}/products/${t.product.slug}/tickets/${t.id}` } : {}),
+      }));
+    }
+    case "PROJECT": {
+      const projects = await db.project.findMany({
+        where: { workspaceId, ...(title ? { name: title } : {}) },
+        // Projects carry no `updatedAt`; by name is the stable order.
+        orderBy: { name: "asc" },
+        take: limit,
+        select: { id: true, name: true, status: true, slug: true },
+      });
+      return projects.map((p) => ({
+        kind: "PROJECT" as const,
+        id: p.id,
+        title: p.name,
+        status: p.status,
+        ...(workspaceSlug ? { href: `/w/${workspaceSlug}/projects/${p.slug}` } : {}),
+      }));
+    }
+    case "FEATURE": {
+      const features = await db.feature.findMany({
+        where: { product: { workspaceId }, ...(title ? { name: title } : {}) },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: { id: true, name: true, status: true, product: { select: { slug: true } } },
+      });
+      return features.map((f) => ({
+        kind: "FEATURE" as const,
+        id: f.id,
+        title: f.name,
+        status: f.status,
+        ...(workspaceSlug ? { href: `/w/${workspaceSlug}/products/${f.product.slug}/features/${f.id}` } : {}),
+      }));
+    }
+    case "GOAL": {
+      const goals = await db.goal.findMany({
+        where: { workspaceId, ...(title ? { title } : {}) },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: { id: true, title: true, status: true },
+      });
+      return goals.map((g) => ({
+        kind: "GOAL" as const,
+        id: String(g.id),
+        title: g.title,
+        status: g.status,
+        ...(workspaceSlug ? { href: `/w/${workspaceSlug}/goals/${g.id}` } : {}),
+      }));
+    }
+    case "KEY_RESULT": {
+      const keyResults = await db.keyResult.findMany({
+        where: { OR: [{ workspaceId }, { goal: { workspaceId } }], ...(title ? { title } : {}) },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: { id: true, title: true, status: true, goalId: true },
+      });
+      return keyResults.map((k) => ({
+        kind: "KEY_RESULT" as const,
+        id: k.id,
+        title: k.title,
+        status: k.status,
+        ...(workspaceSlug ? { href: `/w/${workspaceSlug}/goals/${k.goalId}` } : {}),
+      }));
+    }
+    case "PAGE": {
+      const pages = await db.knowledgePage.findMany({
+        where: { workspaceId, databaseId: null, ...(title ? { title } : {}) },
+        orderBy: { updatedAt: "desc" },
+        take: limit,
+        select: { id: true, title: true },
+      });
+      return pages.map((p) => ({
+        kind: "PAGE" as const,
+        id: p.id,
+        title: p.title || "Untitled",
+        ...(workspaceSlug ? { href: buildPageEditorPath(workspaceSlug, p.id) } : {}),
+      }));
+    }
+  }
+}

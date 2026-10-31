@@ -126,6 +126,8 @@ export function renderRowHeader(
 /** What `page.get` adds to a Row: its database and the header above the prose. */
 export interface RowPageProjection {
   database: { id: string; name: string; pageId: string; pageTitle: string };
+  /** The row's relation targets by property id, resolved — for the row page's header cells. */
+  relations: RowRelations;
   /** The `**Name:** value` lines alone — for the editor host, which must not get them as prose. */
   header: string;
   /** The header, a blank line, then the stored prose (or the header alone) — for readers. */
@@ -200,6 +202,7 @@ export async function projectRowPage(
       pageId: database.pageId,
       pageTitle: database.page.title,
     },
+    relations: row.relations ?? {},
     header,
     body: header ? (prose ? `${header}\n\n${prose}` : header) : prose,
   };

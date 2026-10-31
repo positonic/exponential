@@ -309,6 +309,7 @@ function PageEditorContent({
                 id: page.id,
                 title: page.title,
                 values: rowValues(page.properties),
+                relations: page.database.relations,
                 createdById: page.createdById,
                 createdAt: page.createdAt,
                 updatedAt: page.updatedAt,

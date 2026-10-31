@@ -102,6 +102,7 @@ describe("database router (integration)", () => {
       pageId: page.id,
       pageTitle: "Data strategy",
       header: "**Status:** Tracked\n**Score:** 7",
+      relations: {},
     });
     // The editor's read gets the prose only (null here) and the header beside it.
     const full = await caller.page.get({ id: latency.id });

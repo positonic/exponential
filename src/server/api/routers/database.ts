@@ -52,6 +52,7 @@ import {
   loadRowRelations,
   replaceRowRelations,
   reversePropertyFor,
+  searchRelationTargets,
 } from "~/server/services/databases/relations";
 import type { PropertyValue } from "~/lib/databases/properties";
 
@@ -630,6 +631,36 @@ export const databaseRouter = createTRPCRouter({
         nextCursor: hasMore ? cursorFromOffset(offset + input.limit) : null,
         columns: visibleProperties(properties, view).map((p) => p.id),
       };
+    }),
+
+  /**
+   * What a relation cell may be set to: rows of the related database, or
+   * entities of the target kind in the workspace, matching `query` by
+   * title. Read access on the holding page; the picker's data source.
+   */
+  searchTargets: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        propertyId: z.string(),
+        query: z.string().max(200).default(""),
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "view");
+      const def = requireProperty(parseProperties(database.properties), input.propertyId);
+      if (def.type !== "relation") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `"${def.name}" is not a relation` });
+      }
+      return searchRelationTargets(ctx.db, {
+        def,
+        workspaceId: database.workspaceId,
+        workspaceSlug: database.workspace.slug,
+        query: input.query,
+        limit: input.limit,
+      });
     }),
 
   /**
