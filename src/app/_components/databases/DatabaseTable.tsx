@@ -143,7 +143,10 @@ function HeaderCell({
         transform: CSS.Translate.toString(transform),
         transition,
       }}
-      {...(sortable ? { ...attributes, ...listeners } : {})}
+      // dnd-kit's attributes include `role="button"`, which would strip the
+      // header's table semantics; the th stays a columnheader and keeps the
+      // drag handle's keyboard affordance (tabIndex, aria-roledescription).
+      {...(sortable ? { ...attributes, ...listeners, role: undefined } : {})}
     >
       {children}
       {onResize ? (

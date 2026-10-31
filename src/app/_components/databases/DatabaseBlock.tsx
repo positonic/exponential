@@ -319,6 +319,7 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
       data-database-id={databaseId ?? undefined}
       className={styles.block}
       data-selected={selected ? "true" : "false"}
+      aria-busy={updateRow.isPending}
       contentEditable={false}
     >
       <div className={styles.header}>

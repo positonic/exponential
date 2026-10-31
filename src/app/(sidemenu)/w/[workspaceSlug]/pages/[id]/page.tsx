@@ -95,6 +95,9 @@ function PageTitle({
       variant="unstyled"
       placeholder="Untitled"
       aria-label="Page title"
+      // `minHeight` lives on a class, not in `styles.input`: react-textarea-autosize
+      // throws in development when it is passed as an inline style.
+      classNames={{ input: 'min-h-0' }}
       styles={{
         input: {
           fontSize: TITLE_FONT_SIZE,
@@ -102,7 +105,6 @@ function PageTitle({
           lineHeight: 1.2,
           letterSpacing: '-0.01em',
           height: 'auto',
-          minHeight: 0,
           padding: 0,
           resize: 'none',
           overflow: 'hidden',

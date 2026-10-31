@@ -178,11 +178,14 @@ describe("DatabaseTable — editing", () => {
         onAddProperty={vi.fn()}
         onUpdateProperty={vi.fn()}
         onRemoveProperty={vi.fn()}
+        onReorderColumns={vi.fn()}
       />,
     );
     expect(screen.getByRole("button", { name: "Edit property Name" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit property Status" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add a property" })).toBeTruthy();
+    // Draggable headers keep their table semantics (dnd-kit's role="button" is not applied).
+    expect(screen.getAllByRole("columnheader").length).toBeGreaterThanOrEqual(2);
     // A select cell shows its option as a pill.
     expect(screen.getAllByRole("button", { name: "Status" })[0]!.textContent).toBe("Tracked");
   });

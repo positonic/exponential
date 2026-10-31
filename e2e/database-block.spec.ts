@@ -6,11 +6,23 @@
  *
  * The first spec to drive `RichDocEditor`; kept to the tracer path.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { loadFixture } from "./fixture-data";
 
 const fixture = loadFixture();
 const FIRST_PAINT_TIMEOUT = 60_000;
+
+/**
+ * Wait for the block's pending cell write to land. The block sets `aria-busy`
+ * while `database.updateRow` is in flight; a reload during that window
+ * aborts the request, so the spec waits for it to clear before reloading.
+ * (Network events are no use here: the tRPC link streams the response.)
+ */
+async function rowWriteSettled(block: Locator) {
+  // A quick write may already have landed before the first poll; that is fine.
+  await expect(block).toHaveAttribute("aria-busy", "true", { timeout: 2_000 }).catch(() => undefined);
+  await expect(block).toHaveAttribute("aria-busy", "false");
+}
 
 async function openEditor(page: Page) {
   await page.goto(fixture.databasePageUrl);
@@ -36,13 +48,14 @@ test("/database inserts a block; cells persist; the row is a page", async ({ pag
 
   // Add a select property from the header.
   await block.getByRole("button", { name: "Add a property" }).click();
-  const editorPopover = page.locator(".mantine-Popover-dropdown").last();
+  const editorPopover = page.getByRole("dialog", { name: "Add a property" });
+  await expect(editorPopover).toBeVisible();
   await editorPopover.getByLabel("Name").first().fill("Status");
   await editorPopover.getByLabel("Type").first().click();
-  await page.getByRole("option", { name: "Select" }).click();
+  await page.getByRole("option", { name: "Select", exact: true }).click();
   await editorPopover.getByLabel("New option").first().fill("Tracked");
   await editorPopover.getByRole("button", { name: "Add option" }).click();
-  await editorPopover.getByRole("button", { name: "Add" }).click();
+  await editorPopover.getByRole("button", { name: "Add", exact: true }).click();
   await expect(block.getByRole("columnheader", { name: /Status/ })).toBeVisible();
 
   // Add a row and type its title.
@@ -52,11 +65,13 @@ test("/database inserts a block; cells persist; the row is a page", async ({ pag
   await titleInput.fill("Alert latency");
   await titleInput.press("Enter");
   await expect(block.getByRole("link", { name: "Alert latency" })).toBeVisible();
+  await rowWriteSettled(block);
 
-  // Pick the select value.
-  await block.getByRole("button", { name: "Status" }).first().click();
-  await page.getByRole("option", { name: "Tracked" }).click();
+  // Pick the select value. The cell shows it at once (optimistically).
+  await block.getByRole("button", { name: "Status", exact: true }).first().click();
+  await page.getByRole("option", { name: "Tracked", exact: true }).click();
   await expect(block.getByText("Tracked", { exact: true })).toBeVisible();
+  await rowWriteSettled(block);
 
   // The values are on the server: a fresh load shows them.
   await page.reload();
