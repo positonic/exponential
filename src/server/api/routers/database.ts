@@ -6,10 +6,21 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { databaseMarker } from "~/lib/databases/marker";
 import {
+  ADDABLE_PROPERTY_TYPES,
   defaultTitleProperty,
   emptyView,
+  findProperty,
+  hasOptions,
+  newPropertyId,
+  normaliseOptions,
   parseProperties,
   parseView,
+  pillColorSchema,
+  propertyTypeSchema,
+  type DatabaseView,
+  type PillColor,
+  type PropertyDef,
+  type PropertyType,
 } from "~/lib/databases/schema";
 import {
   ensurePageAccess,
@@ -100,6 +111,80 @@ function asTRPCError(error: unknown): never {
 }
 
 const rowValuesInput = z.record(z.string().min(1), z.unknown());
+
+/** A type a caller may add or change a property to (never title, never relation — V3). */
+const addableTypeInput = propertyTypeSchema.refine(
+  (type): type is PropertyType => ADDABLE_PROPERTY_TYPES.includes(type),
+  { message: "A property cannot be given this type here" },
+);
+
+const optionInput = z.object({
+  /** Present when renaming or recolouring an existing option; absent for a new one. */
+  id: z.string().optional(),
+  name: boundedText("Option", TEXT_LIMITS.LABEL, { min: 1 }),
+  color: pillColorSchema.optional(),
+});
+
+/**
+ * Persist a changed definition and/or view. The only writer of those two
+ * columns, so every change passes through the same JSON shapes.
+ */
+async function writeDefinition(
+  db: PrismaClient,
+  id: string,
+  data: { properties?: PropertyDef[]; view?: DatabaseView },
+): Promise<DatabaseRow> {
+  return db.pageDatabase.update({
+    where: { id },
+    data: {
+      ...(data.properties
+        ? { properties: data.properties as unknown as Prisma.InputJsonValue }
+        : {}),
+      ...(data.view ? { view: data.view as unknown as Prisma.InputJsonValue } : {}),
+    },
+    select: DATABASE_SELECT,
+  });
+}
+
+function assertUniquePropertyName(
+  properties: readonly PropertyDef[],
+  name: string,
+  exceptId?: string,
+): void {
+  const wanted = name.trim().toLowerCase();
+  const clash = properties.find(
+    (p) => p.id !== exceptId && p.name.trim().toLowerCase() === wanted,
+  );
+  if (clash) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `A property named "${clash.name}" already exists`,
+    });
+  }
+}
+
+function normaliseOptionsOrThrow(
+  input: readonly { id?: string; name: string; color?: PillColor }[],
+  existing: PropertyDef["options"],
+) {
+  const { options, duplicateName } = normaliseOptions(input, existing ?? []);
+  if (duplicateName !== undefined) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Option "${duplicateName}" is listed twice`,
+    });
+  }
+  return options;
+}
+
+/** The property a caller named, or NOT_FOUND. */
+function requireProperty(properties: readonly PropertyDef[], key: string): PropertyDef {
+  const def = findProperty(properties, key);
+  if (!def) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `No property "${key}" on this database` });
+  }
+  return def;
+}
 
 export const databaseRouter = createTRPCRouter({
   /**
@@ -241,5 +326,181 @@ export const databaseRouter = createTRPCRouter({
         rows: slice.map(presentRow),
         nextCursor: hasMore ? slice[slice.length - 1]!.id : null,
       };
+    }),
+
+  /**
+   * Add a property. Select options get stable ids and palette colours; the
+   * new column goes last in the saved view. `title` exists once from
+   * creation and `relation` arrives with its own path (V3), so neither can
+   * be added here.
+   */
+  addProperty: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
+        type: addableTypeInput,
+        description: boundedText("Description", TEXT_LIMITS.SHORT).optional(),
+        options: optionInput.array().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      const properties = parseProperties(database.properties);
+      const view = parseView(database.view);
+
+      assertUniquePropertyName(properties, input.name);
+      if (input.options && !hasOptions(input.type)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Options apply to select and multiSelect properties only",
+        });
+      }
+      const def: PropertyDef = {
+        id: newPropertyId(),
+        name: input.name.trim(),
+        type: input.type,
+        ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+        ...(hasOptions(input.type)
+          ? { options: normaliseOptionsOrThrow(input.options ?? [], []) }
+          : {}),
+      };
+      const updated = await writeDefinition(ctx.db, database.id, {
+        properties: [...properties, def],
+        // An explicit column order grows by the new column; an empty order
+        // keeps following definition order.
+        view: view.propertyOrder.length
+          ? { ...view, propertyOrder: [...view.propertyOrder, def.id] }
+          : view,
+      });
+      return { property: def, database: presentDatabase(updated) };
+    }),
+
+  /**
+   * Rename, describe, retype or re-option a property. Touches the definition
+   * only — never a row: a renamed property or option keeps its id, so every
+   * stored value still resolves. A property is named by id or by name.
+   */
+  updateProperty: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        propertyId: z.string(),
+        name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }).optional(),
+        /** Null clears the description. */
+        description: boundedText("Description", TEXT_LIMITS.SHORT).nullish(),
+        type: addableTypeInput.optional(),
+        /** The full option list; an option left out is removed (rows keep the old id). */
+        options: optionInput.array().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      const properties = parseProperties(database.properties);
+      const current = requireProperty(properties, input.propertyId);
+
+      if (input.type !== undefined && input.type !== current.type) {
+        if (current.type === "title" || current.type === "relation") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `The ${current.type} property "${current.name}" keeps its type`,
+          });
+        }
+      }
+      const nextType = input.type ?? current.type;
+      if (input.options && !hasOptions(nextType)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Options apply to select and multiSelect properties only",
+        });
+      }
+      if (input.name !== undefined) {
+        assertUniquePropertyName(properties, input.name, current.id);
+      }
+
+      const next: PropertyDef = {
+        ...current,
+        name: input.name?.trim() ?? current.name,
+        type: nextType,
+      };
+      if (input.description !== undefined) {
+        if (input.description?.trim()) next.description = input.description.trim();
+        else delete next.description;
+      }
+      if (hasOptions(nextType)) {
+        next.options = input.options
+          ? normaliseOptionsOrThrow(input.options, current.options)
+          : (current.options ?? []);
+      } else {
+        delete next.options;
+      }
+
+      const updated = await writeDefinition(ctx.db, database.id, {
+        properties: properties.map((p) => (p.id === current.id ? next : p)),
+      });
+      return { property: next, database: presentDatabase(updated) };
+    }),
+
+  /**
+   * Remove a property from the schema and the view. Row values under its id
+   * stay where they are — unreachable, and dropped on the next write to that
+   * row — so a mistaken removal is undone by adding the id back. The title
+   * property cannot be removed.
+   */
+  removeProperty: protectedProcedure
+    .input(z.object({ id: z.string(), propertyId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      const properties = parseProperties(database.properties);
+      const view = parseView(database.view);
+      const def = requireProperty(properties, input.propertyId);
+      if (def.type === "title" || def.id === database.titlePropertyId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The title property cannot be removed",
+        });
+      }
+      const updated = await writeDefinition(ctx.db, database.id, {
+        properties: properties.filter((p) => p.id !== def.id),
+        view: {
+          ...view,
+          sort: view.sort?.propertyId === def.id ? undefined : view.sort,
+          filters: view.filters.filter((f) => f.propertyId !== def.id),
+          hiddenPropertyIds: view.hiddenPropertyIds.filter((id) => id !== def.id),
+          propertyOrder: view.propertyOrder.filter((id) => id !== def.id),
+        },
+      });
+      return presentDatabase(updated);
+    }),
+
+  /** Set the definition order — and the view's column order — to `propertyIds`, which must name every property once. */
+  reorderProperties: protectedProcedure
+    .input(z.object({ id: z.string(), propertyIds: z.string().array().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      const properties = parseProperties(database.properties);
+      const view = parseView(database.view);
+
+      const byId = new Map(properties.map((p) => [p.id, p]));
+      const unique = new Set(input.propertyIds);
+      const isPermutation =
+        unique.size === input.propertyIds.length &&
+        unique.size === properties.length &&
+        input.propertyIds.every((id) => byId.has(id));
+      if (!isPermutation) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "propertyIds must list every property of the database exactly once",
+        });
+      }
+      const updated = await writeDefinition(ctx.db, database.id, {
+        properties: input.propertyIds.map((id) => byId.get(id)!),
+        view: { ...view, propertyOrder: [...input.propertyIds] },
+      });
+      return presentDatabase(updated);
     }),
 });

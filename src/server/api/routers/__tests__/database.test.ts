@@ -336,6 +336,153 @@ describe("database.listRows and get", () => {
   });
 });
 
+describe("database properties", () => {
+  const db = getDbMock();
+  const SELECT_ID = "pselect00001";
+  const withSelect = () =>
+    databaseRow({
+      properties: [
+        { id: TITLE_ID, name: "Name", type: "title" },
+        { id: STATUS_ID, name: "Status", type: "text" },
+        {
+          id: SELECT_ID,
+          name: "Stage",
+          type: "select",
+          options: [
+            { id: "o_nm", name: "Not measured", color: "gray" },
+            { id: "o_tr", name: "Tracked", color: "green" },
+          ],
+        },
+      ],
+      view: { filters: [], hiddenPropertyIds: [], propertyOrder: [TITLE_ID, STATUS_ID, SELECT_ID] },
+    });
+  type Written = { properties?: { id: string; name: string; type: string; options?: { id: string; name: string; color: string }[] }[]; view?: { propertyOrder: string[]; hiddenPropertyIds: string[]; filters: unknown[] } };
+  const written = () => db.pageDatabase.update.mock.calls[0]![0].data as Written;
+
+  beforeEach(() => {
+    mockReset(db);
+    install(db);
+    db.pageDatabase.findUnique.mockImplementation((() => Promise.resolve(withSelect())) as never);
+    db.pageDatabase.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...withSelect(), ...args.data })) as never);
+  });
+
+  it("addProperty appends a select with minted option ids and colours, last in the view", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.addProperty({
+      id: DB_ID,
+      name: "Dimension",
+      type: "select",
+      options: [{ name: "Coverage" }, { name: "Latency", color: "red" }],
+    });
+    const data = written();
+    expect(data.properties).toHaveLength(4);
+    const added = data.properties![3]!;
+    expect(added).toMatchObject({ name: "Dimension", type: "select" });
+    expect(added.id).toHaveLength(12);
+    expect(added.options!.map((o) => o.name)).toEqual(["Coverage", "Latency"]);
+    expect(added.options![0]!.id).toHaveLength(12);
+    expect(added.options![1]!.color).toBe("red");
+    expect(data.view!.propertyOrder).toEqual([TITLE_ID, STATUS_ID, SELECT_ID, added.id]);
+    expect(result.property.id).toBe(added.id);
+    expect(result.database.properties).toHaveLength(4);
+    // A schema change never touches a row.
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+    expect(db.knowledgePage.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("addProperty refuses a duplicate name, a second title, a relation, and options on a text property", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(caller.database.addProperty({ id: DB_ID, name: "status", type: "text" })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: 'A property named "Status" already exists',
+    });
+    await expect(caller.database.addProperty({ id: DB_ID, name: "Other", type: "title" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.database.addProperty({ id: DB_ID, name: "Problems", type: "relation" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.database.addProperty({ id: DB_ID, name: "Notes", type: "text", options: [{ name: "x" }] }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(db.pageDatabase.update).not.toHaveBeenCalled();
+  });
+
+  it("a viewer cannot change the schema", async () => {
+    install(db, "viewer");
+    db.pageDatabase.findUnique.mockImplementation((() => Promise.resolve(withSelect())) as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    await expect(caller.database.addProperty({ id: DB_ID, name: "X", type: "text" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("updateProperty renames by name and re-options without changing any id", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.updateProperty({
+      id: DB_ID,
+      propertyId: "Stage",
+      name: "Status stage",
+      options: [{ id: "o_tr", name: "Being tracked" }, { name: "Dropped" }],
+    });
+    expect(result.property.id).toBe(SELECT_ID);
+    expect(result.property.name).toBe("Status stage");
+    const options = result.property.options!;
+    expect(options[0]).toMatchObject({ id: "o_tr", name: "Being tracked", color: "green" });
+    expect(options[1]!.id).not.toBe("o_nm");
+    expect(options).toHaveLength(2);
+    expect(written().properties![2]!.id).toBe(SELECT_ID);
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+  });
+
+  it("updateProperty keeps the title's type, rejects a name clash, and drops options when retyping to text", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(
+      caller.database.updateProperty({ id: DB_ID, propertyId: TITLE_ID, type: "text" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.database.updateProperty({ id: DB_ID, propertyId: STATUS_ID, name: "stage" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: 'A property named "Stage" already exists' });
+    const result = await caller.database.updateProperty({ id: DB_ID, propertyId: SELECT_ID, type: "text" });
+    expect(result.property.type).toBe("text");
+    expect(result.property.options).toBeUndefined();
+  });
+
+  it("removeProperty drops the column from the schema and the view, never the title", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(caller.database.removeProperty({ id: DB_ID, propertyId: TITLE_ID })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await caller.database.removeProperty({ id: DB_ID, propertyId: STATUS_ID });
+    const data = written();
+    expect(data.properties!.map((p) => p.id)).toEqual([TITLE_ID, SELECT_ID]);
+    expect(data.view!.propertyOrder).toEqual([TITLE_ID, SELECT_ID]);
+    // Row values under the removed id stay put.
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+    expect(db.knowledgePage.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("reorderProperties takes a permutation and nothing else", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(
+      caller.database.reorderProperties({ id: DB_ID, propertyIds: [SELECT_ID, TITLE_ID] }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const result = await caller.database.reorderProperties({
+      id: DB_ID,
+      propertyIds: [SELECT_ID, TITLE_ID, STATUS_ID],
+    });
+    expect(result.properties.map((p) => p.id)).toEqual([SELECT_ID, TITLE_ID, STATUS_ID]);
+    expect(result.view.propertyOrder).toEqual([SELECT_ID, TITLE_ID, STATUS_ID]);
+  });
+
+  it("createRow resolves a select option by name to its id and names the property on a bad option", async () => {
+    db.knowledgePage.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...rowPage("row-9", "Latency", null), properties: args.data.properties })) as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const row = await caller.database.createRow({ id: DB_ID, values: { Name: "Latency", Stage: "tracked" } });
+    expect(row.values).toEqual({ [SELECT_ID]: "o_tr" });
+
+    const error = await failureOf(caller.database.createRow({ id: DB_ID, values: { Stage: "Done" } }));
+    expect(error?.code).toBe("BAD_REQUEST");
+    expect(error?.message).toBe('Property "Stage" has no option "Done"; expects one of: Not measured, Tracked');
+  });
+});
+
 describe("page.get expands a database marker", () => {
   const db = getDbMock();
   beforeEach(() => {
@@ -369,6 +516,27 @@ describe("page.get expands a database marker", () => {
     const full = await caller.page.get({ id: PAGE_ID });
     expect(full.body).toContain("| Name | Status |");
     expect(full.bodyDoc).toEqual(pageRow().bodyDoc);
+  });
+
+  it("person cells show names, resolved in one user query", async () => {
+    const OWNER_ID = "powner000001";
+    db.pageDatabase.findMany.mockResolvedValue([
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: OWNER_ID, name: "Owner", type: "person" },
+        ],
+        view: { filters: [], hiddenPropertyIds: [], propertyOrder: [TITLE_ID, OWNER_ID] },
+      }),
+    ] as never);
+    db.knowledgePage.findMany.mockResolvedValue([
+      { ...rowPage("row-1", "Alert latency", null), properties: { [OWNER_ID]: ["u-ana", "u-gone"] } },
+    ] as never);
+    db.user.findMany.mockResolvedValue([{ id: "u-ana", name: "Ana", email: "ana@x.y" }] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const page = await caller.page.get({ id: PAGE_ID, format: "markdown" });
+    expect(page.body).toContain("| [Alert latency](/w/acme/pages/row-1) | Ana, u-gone |");
+    expect(db.user.findMany).toHaveBeenCalledTimes(1);
   });
 
   it("a section read sees the table under its heading", async () => {

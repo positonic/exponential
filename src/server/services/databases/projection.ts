@@ -10,7 +10,12 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-import { cellMarkdown, escapeTableCell, type PropertyValue } from "~/lib/databases/properties";
+import {
+  cellMarkdown,
+  escapeTableCell,
+  type CellContext,
+  type PropertyValue,
+} from "~/lib/databases/properties";
 import {
   parseProperties,
   parseView,
@@ -48,12 +53,17 @@ export function rowValues(json: unknown): Record<string, PropertyValue | null> {
     : {};
 }
 
-function cell(def: PropertyDef, row: ProjectedRow, titlePropertyId: string): string {
+function cell(
+  def: PropertyDef,
+  row: ProjectedRow,
+  titlePropertyId: string,
+  ctx: CellContext,
+): string {
   if (def.id === titlePropertyId || def.type === "title") {
     const title = escapeTableCell(row.title || "Untitled");
     return row.href ? `[${title.replace(/([[\]])/g, "\\$1")}](${row.href})` : title;
   }
-  return cellMarkdown(def, row.properties[def.id]);
+  return cellMarkdown(def, row.properties[def.id], ctx);
 }
 
 /**
@@ -63,13 +73,14 @@ function cell(def: PropertyDef, row: ProjectedRow, titlePropertyId: string): str
 export function renderDatabaseTable(
   database: ProjectedDatabase,
   titlePropertyId: string,
+  ctx: CellContext = {},
 ): string {
   const columns = visibleProperties(database.properties, database.view);
   if (columns.length === 0) return "";
   const header = `| ${columns.map((c) => escapeTableCell(c.name)).join(" | ")} |`;
   const rule = `| ${columns.map(() => "---").join(" | ")} |`;
   const lines = database.rows.map(
-    (row) => `| ${columns.map((c) => cell(c, row, titlePropertyId)).join(" | ")} |`,
+    (row) => `| ${columns.map((c) => cell(c, row, titlePropertyId, ctx)).join(" | ")} |`,
   );
   return [header, rule, ...lines].join("\n");
 }
@@ -135,21 +146,41 @@ export async function expandDatabaseMarkers(
     });
   }
 
+  const parsed = databases.map((database) => ({
+    id: database.id,
+    name: database.name,
+    properties: parseProperties(database.properties),
+    view: parseView(database.view),
+    rows: rowsByDatabase.get(database.id) ?? [],
+    titlePropertyId: database.titlePropertyId,
+  }));
+  const ctx = await personNames(db, parsed);
+
   const tables = new Map<string, string>();
-  for (const database of databases) {
-    tables.set(
-      database.id,
-      renderDatabaseTable(
-        {
-          id: database.id,
-          name: database.name,
-          properties: parseProperties(database.properties),
-          view: parseView(database.view),
-          rows: rowsByDatabase.get(database.id) ?? [],
-        },
-        database.titlePropertyId,
-      ),
-    );
+  for (const database of parsed) {
+    tables.set(database.id, renderDatabaseTable(database, database.titlePropertyId, ctx));
   }
   return expandMarkers(body, (id) => tables.get(id) ?? null);
+}
+
+/** Resolve every person value across the tables to a display name, in one query. */
+async function personNames(db: Db, databases: ProjectedDatabase[]): Promise<CellContext> {
+  const ids = new Set<string>();
+  for (const database of databases) {
+    const personIds = database.properties.filter((p) => p.type === "person").map((p) => p.id);
+    if (personIds.length === 0) continue;
+    for (const row of database.rows) {
+      for (const propertyId of personIds) {
+        const value = row.properties[propertyId];
+        for (const id of Array.isArray(value) ? value : value ? [String(value)] : []) ids.add(id);
+      }
+    }
+  }
+  if (ids.size === 0) return {};
+  const users = await db.user.findMany({
+    where: { id: { in: [...ids] } },
+    select: { id: true, name: true, email: true },
+  });
+  const names = new Map(users.map((u) => [u.id, u.name ?? u.email ?? u.id]));
+  return { personName: (id) => names.get(id) };
 }

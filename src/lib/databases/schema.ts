@@ -168,9 +168,51 @@ export function newPropertyId(): string {
   return id;
 }
 
+/** Select options use the same id shape as properties. */
+export const newOptionId = newPropertyId;
+
 /** The property every new database starts with; its value is the row page's title. */
 export function defaultTitleProperty(): PropertyDef {
   return { id: newPropertyId(), name: "Name", type: "title" };
+}
+
+/**
+ * The types a caller may add, or change a property to. `title` exists once
+ * per database from creation; `relation` is added through its own path (V3).
+ */
+export const ADDABLE_PROPERTY_TYPES: readonly PropertyType[] = PROPERTY_TYPES.filter(
+  (type) => type !== "title" && type !== "relation",
+);
+
+/** Types that carry select options. */
+export function hasOptions(type: PropertyType): boolean {
+  return type === "select" || type === "multiSelect";
+}
+
+/**
+ * Give every option an id and a colour. Options arriving with an id keep it
+ * (a rename or recolour); new ones are minted, cycling through the palette
+ * after the ones already taken. Names must be unique within the property.
+ */
+export function normaliseOptions(
+  input: readonly { id?: string; name: string; color?: PillColor }[],
+  existing: readonly SelectOption[] = [],
+): { options: SelectOption[]; duplicateName?: string } {
+  const byId = new Map(existing.map((o) => [o.id, o]));
+  const seen = new Set<string>();
+  const options: SelectOption[] = [];
+  let paletteCursor = existing.length;
+  for (const raw of input) {
+    const name = raw.name.trim();
+    const key = name.toLowerCase();
+    if (seen.has(key)) return { options: [], duplicateName: name };
+    seen.add(key);
+    const current = raw.id ? byId.get(raw.id) : undefined;
+    const color =
+      raw.color ?? current?.color ?? PILL_COLORS[paletteCursor++ % PILL_COLORS.length]!;
+    options.push({ id: current?.id ?? newOptionId(), name, color });
+  }
+  return { options };
 }
 
 /**
