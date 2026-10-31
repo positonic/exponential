@@ -27,6 +27,7 @@ import {
   type RowRelations,
 } from "~/lib/databases/relations";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 import { PropertyValueError } from "./values";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -69,6 +70,7 @@ async function existingTargets(
   kind: RelationTargetKind,
   ids: readonly string[],
   workspaceId: string,
+  userId: string,
 ): Promise<Set<string>> {
   switch (kind) {
     case "ROW":
@@ -109,9 +111,12 @@ async function existingTargets(
       return new Set(found.map((k) => k.id));
     }
     case "PAGE": {
-      // An ordinary page of the workspace; rows are reached as ROW targets.
+      // An ordinary page of the workspace the caller can read; rows are
+      // reached as ROW targets. Page access is the page's own (ADR-0069).
       const found = await db.knowledgePage.findMany({
-        where: { id: { in: [...ids] }, workspaceId, databaseId: null },
+        where: {
+          AND: [buildKnowledgePageAccessWhere(userId), { id: { in: [...ids] }, workspaceId, databaseId: null }],
+        },
         select: { id: true },
       });
       return new Set(found.map((p) => p.id));
@@ -123,6 +128,8 @@ export interface ReplaceRowRelationsInput {
   databaseId: string;
   /** The database's workspace: every target must be in it. */
   workspaceId: string;
+  /** The writer: a PAGE target must be a page they can read. */
+  userId: string;
   rowId: string;
   def: PropertyDef;
   /** The row's new targets, in order; empty clears the cell. */
@@ -138,7 +145,7 @@ export interface ReplaceRowRelationsInput {
  */
 export async function replaceRowRelations(
   tx: Db,
-  { databaseId, workspaceId, rowId, def, targetIds }: ReplaceRowRelationsInput,
+  { databaseId, workspaceId, userId, rowId, def, targetIds }: ReplaceRowRelationsInput,
 ): Promise<void> {
   const rel = def.relation;
   if (!rel) refuse(def, "has no relation target");
@@ -155,7 +162,7 @@ export async function replaceRowRelations(
       });
       present = new Set(found.map((r) => r.id));
     } else {
-      present = await existingTargets(tx, rel.targetKind, ids, workspaceId);
+      present = await existingTargets(tx, rel.targetKind, ids, workspaceId, userId);
     }
     const missing = ids.find((id) => !present.has(id));
     if (missing) {
@@ -197,6 +204,25 @@ export async function replaceRowRelations(
     where: { databaseId: target.id, propertyId: inverse.id, targetRowPageId: rowId },
   });
   for (const id of ids) {
+    if (inverse.relation && !inverse.relation.many) {
+      // The other side holds one target: this row replaces whatever the
+      // target row pointed at, on both sides, rather than joining it.
+      const displaced = await tx.databaseRelation.findMany({
+        where: { rowPageId: id, propertyId: inverse.id },
+        select: { id: true, targetRowPageId: true },
+      });
+      if (displaced.length > 0) {
+        await tx.databaseRelation.deleteMany({ where: { id: { in: displaced.map((e) => e.id) } } });
+        await tx.databaseRelation.deleteMany({
+          where: {
+            databaseId,
+            propertyId: def.id,
+            rowPageId: { in: displaced.map((e) => e.targetRowPageId).filter((x): x is string => !!x) },
+            targetRowPageId: id,
+          },
+        });
+      }
+    }
     const position = await tx.databaseRelation.count({
       where: { rowPageId: id, propertyId: inverse.id },
     });
@@ -318,12 +344,13 @@ async function resolveNativeTargets(
       case "KEY_RESULT": {
         const keyResults = await db.keyResult.findMany({
           where: { id: { in: ids } },
-          select: { id: true, title: true, status: true, goalId: true },
+          select: { id: true, title: true, status: true, statusOverride: true, goalId: true },
         });
         for (const k of keyResults) {
           resolved.set(key(kind, k.id), {
             title: k.title,
-            status: k.status,
+            // The effective status, as the OKR views show it.
+            status: k.statusOverride ?? k.status,
             href: slugHref(workspaceSlug, `/goals/${k.goalId}`),
           });
         }
@@ -432,6 +459,8 @@ export interface SearchRelationTargetsInput {
   /** The database's workspace: native targets come from it. */
   workspaceId: string;
   workspaceSlug: string | null;
+  /** The caller: pages and rows are offered through their own access (ADR-0069), never just by workspace. */
+  userId: string;
   query: string;
   limit: number;
 }
@@ -444,7 +473,7 @@ export interface SearchRelationTargetsInput {
  */
 export async function searchRelationTargets(
   db: Db,
-  { def, workspaceId, workspaceSlug, query, limit }: SearchRelationTargetsInput,
+  { def, workspaceId, workspaceSlug, userId, query, limit }: SearchRelationTargetsInput,
 ): Promise<RelationTarget[]> {
   const rel = def.relation;
   if (!rel) return [];
@@ -454,7 +483,9 @@ export async function searchRelationTargets(
     case "ROW": {
       if (!rel.targetDatabaseId) return [];
       const rows = await db.knowledgePage.findMany({
-        where: { databaseId: rel.targetDatabaseId, ...(title ? { title } : {}) },
+        where: {
+          AND: [buildKnowledgePageAccessWhere(userId), { databaseId: rel.targetDatabaseId, ...(title ? { title } : {}) }],
+        },
         orderBy: { updatedAt: "desc" },
         take: limit,
         select: { id: true, title: true },
@@ -532,19 +563,21 @@ export async function searchRelationTargets(
         where: { OR: [{ workspaceId }, { goal: { workspaceId } }], ...(title ? { title } : {}) },
         orderBy: { updatedAt: "desc" },
         take: limit,
-        select: { id: true, title: true, status: true, goalId: true },
+        select: { id: true, title: true, status: true, statusOverride: true, goalId: true },
       });
       return keyResults.map((k) => ({
         kind: "KEY_RESULT" as const,
         id: k.id,
         title: k.title,
-        status: k.status,
+        status: k.statusOverride ?? k.status,
         ...(workspaceSlug ? { href: `/w/${workspaceSlug}/goals/${k.goalId}` } : {}),
       }));
     }
     case "PAGE": {
       const pages = await db.knowledgePage.findMany({
-        where: { workspaceId, databaseId: null, ...(title ? { title } : {}) },
+        where: {
+          AND: [buildKnowledgePageAccessWhere(userId), { workspaceId, databaseId: null, ...(title ? { title } : {}) }],
+        },
         orderBy: { updatedAt: "desc" },
         take: limit,
         select: { id: true, title: true },
