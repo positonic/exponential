@@ -254,13 +254,15 @@ describe("database router (integration)", () => {
     const expanded = await caller.page.get({ id: page.id, format: "markdown" });
     await caller.page.update({ id: page.id, body: `${expanded.body}\n\nAppended by the CLI.`, baseVersion: expanded.docVersion });
     const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
-    // The marker survives; the table text lands in the body only until the
-    // editor re-derives the doc (the parse rule swallows it then), and the
-    // database stays attached and its rows untouched either way.
+    // The marker survives and the projected table is stripped from what is
+    // stored; the database stays attached and its rows untouched.
     expect(stored.body).toContain(databaseMarker(database.id));
+    expect(stored.body).not.toContain("| Name | Status | Score |");
     expect((await db.pageDatabase.findUniqueOrThrow({ where: { id: database.id } })).detachedAt).toBeNull();
     expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(2);
     const reread = await caller.page.get({ id: page.id, format: "markdown" });
     expect(reread.body).toContain("Appended by the CLI.");
+    // Exactly one table on re-read, not one per round trip.
+    expect(reread.body!.split("| Name | Status | Score |").length - 1).toBe(1);
   });
 });

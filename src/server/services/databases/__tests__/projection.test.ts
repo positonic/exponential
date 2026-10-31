@@ -10,7 +10,7 @@ import {
   renderDatabaseTable,
   type ProjectedDatabase,
 } from "../projection";
-import { collectDatabaseMarkerIds, databaseMarker } from "~/lib/databases/marker";
+import { collectDatabaseMarkerIds, databaseMarker, stripProjectedTables } from "~/lib/databases/marker";
 import { emptyView } from "~/lib/databases/schema";
 
 const TITLE = "p_title";
@@ -86,5 +86,24 @@ describe("expandMarkers", () => {
     const twice = [databaseMarker("b"), "text", databaseMarker("a"), databaseMarker("b")].join("\n");
     expect(collectDatabaseMarkerIds(twice)).toEqual(["b", "a"]);
     expect(collectDatabaseMarkerIds("no markers here <!-- database:x --> inline")).toEqual([]);
+  });
+});
+
+describe("stripProjectedTables", () => {
+  const table = "| Name | Status |\n| --- | --- |\n| A | x |";
+
+  it("removes the table (and trailer) directly under a marker, keeping the marker and the rest", () => {
+    const body = ["# Title", "", databaseMarker("db1"), "", table, "", "_60 more rows not shown._", "", "Closing."].join("\n");
+    expect(stripProjectedTables(body)).toBe(["# Title", "", databaseMarker("db1"), "", "Closing."].join("\n"));
+  });
+
+  it("is idempotent and leaves bodies without a marker or without a table alone", () => {
+    const plain = `Plain table:\n\n${table}`;
+    expect(stripProjectedTables(plain)).toBe(plain);
+    const bare = `${databaseMarker("db1")}\n\nA paragraph.\n\n${table}`;
+    expect(stripProjectedTables(bare)).toBe(bare);
+    const once = stripProjectedTables(`${databaseMarker("db1")}\n\n${table}`);
+    expect(once).toBe(databaseMarker("db1"));
+    expect(stripProjectedTables(once)).toBe(once);
   });
 });

@@ -46,6 +46,7 @@ import {
   projectRowPage,
 } from "~/server/services/databases/projection";
 import { syncPageDatabases } from "~/server/services/databases/sync";
+import { stripProjectedTables } from "~/lib/databases/marker";
 import {
   diffRevisionBodies,
   recordPageRevision,
@@ -973,7 +974,7 @@ export const pageRouter = createTRPCRouter({
             workspaceId: input.workspaceId,
             projectId: input.projectId ?? null,
             title: input.title?.trim() ? input.title.trim() : "Untitled",
-            body: input.body,
+            body: input.body === undefined ? undefined : stripProjectedTables(input.body),
             bodyDoc: input.bodyDoc as Prisma.InputJsonValue | undefined,
             includeInSearch: input.includeInSearch ?? true,
             source: input.source?.trim() ? input.source.trim() : null,
@@ -1039,8 +1040,13 @@ export const pageRouter = createTRPCRouter({
         assertNotRow(page, "placement and search inclusion");
       }
 
-      const { id, bodyDoc, body, baseVersion, projectId, note, source, ...rest } =
+      const { id, bodyDoc, body: rawBody, baseVersion, projectId, note, source, ...rest } =
         input;
+      // A Markdown writer may hand back a body it read *expanded* (a database
+      // block's table under its marker). The stored body holds markers only
+      // (ADR-0078 §7), so strip those tables before comparing or storing.
+      const body =
+        rawBody !== undefined && bodyDoc === undefined ? stripProjectedTables(rawBody) : rawBody;
       // `rest` carries title / includeInSearch / asOf straight through; an
       // explicit empty source clears the field.
       const provenance =

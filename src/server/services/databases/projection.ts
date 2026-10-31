@@ -23,7 +23,11 @@ import {
   type DatabaseView,
   type PropertyDef,
 } from "~/lib/databases/schema";
-import { collectDatabaseMarkerIds, DATABASE_MARKER_LINE_RE } from "~/lib/databases/marker";
+import {
+  collectDatabaseMarkerIds,
+  DATABASE_MARKER_LINE_RE,
+  stripProjectedTables,
+} from "~/lib/databases/marker";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { compileRowQuery, type RowQueryRecord } from "./query";
 
@@ -243,6 +247,9 @@ export async function expandDatabaseMarkers(
   if (!body) return body ?? null;
   const ids = collectDatabaseMarkerIds(body);
   if (ids.length === 0) return body;
+  // A body that somehow still carries a projected table (written before the
+  // Markdown path normalised it) expands once, not on top of the old copy.
+  body = stripProjectedTables(body);
 
   const databases = await db.pageDatabase.findMany({
     where: { id: { in: ids }, pageId },

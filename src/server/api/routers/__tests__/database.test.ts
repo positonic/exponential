@@ -820,6 +820,15 @@ ${databaseMarker(DB_ID)}` });
       data: { detachedAt: expect.any(Date) as Date },
     });
 
+    // A body read expanded and written back is stored as its marker alone.
+    db.knowledgePage.update.mockClear();
+    await caller.page.update({
+      id: PAGE_ID,
+      body: `# Round trip\n\n${databaseMarker(DB_ID)}\n\n| Name | Status |\n| --- | --- |\n| Alert latency | Tracked |\n\nClosing.`,
+    });
+    const written = db.knowledgePage.update.mock.calls[0]![0].data as { body?: string };
+    expect(written.body).toBe(`# Round trip\n\n${databaseMarker(DB_ID)}\n\nClosing.`);
+
     db.pageDatabase.updateMany.mockClear();
     await caller.page.update({ id: PAGE_ID, body: "# Body with no block" });
     expect(db.pageDatabase.updateMany).toHaveBeenCalledWith({

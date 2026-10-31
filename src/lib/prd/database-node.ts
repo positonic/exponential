@@ -2,7 +2,7 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MarkdownSerializerState } from "@tiptap/pm/markdown";
 
-import { databaseMarker } from "~/lib/databases/marker";
+import { databaseMarker, MORE_ROWS_LINE_RE } from "~/lib/databases/marker";
 
 /**
  * Block atom that stands for a Database inside a page body (ADR-0078 §2).
@@ -22,8 +22,6 @@ import { databaseMarker } from "~/lib/databases/marker";
  */
 
 const MARKER_RE = /^<!--\s*database:([A-Za-z0-9_-]+)\s*-->$/;
-/** The trailer `expandDatabaseMarkers` adds under a capped table. */
-const MORE_ROWS_RE = /^_\d+ more rows? not shown\._$/;
 
 /** The slice of markdown-it this plugin touches, typed locally so the lib stays an implicit dependency. */
 interface MarkdownItToken {
@@ -65,7 +63,7 @@ export function databaseMarkdownPlugin(md: MarkdownItLike): void {
         if (
           open?.type === "paragraph_open" &&
           inline?.type === "inline" &&
-          MORE_ROWS_RE.test(inline.content.trim()) &&
+          MORE_ROWS_LINE_RE.test(inline.content.trim()) &&
           close?.type === "paragraph_close"
         ) {
           next += 3;
