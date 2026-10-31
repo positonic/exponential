@@ -88,7 +88,17 @@ describe("database router (integration)", () => {
 
     const row = await caller.page.get({ id: latency.id, format: "markdown" });
     expect(row.body).toBe("**Status:** Tracked\n**Score:** 7");
-    expect(row.database).toEqual({ id: database.id, name: "Metrics", pageId: page.id, pageTitle: "Data strategy" });
+    expect(row.database).toEqual({
+      id: database.id,
+      name: "Metrics",
+      pageId: page.id,
+      pageTitle: "Data strategy",
+      header: "**Status:** Tracked\n**Score:** 7",
+    });
+    // The editor's read gets the prose only (null here) and the header beside it.
+    const full = await caller.page.get({ id: latency.id });
+    expect(full.body).toBeNull();
+    expect(full.database?.header).toBe("**Status:** Tracked\n**Score:** 7");
 
     const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: latency.id } });
     expect(stored.databaseId).toBe(database.id);

@@ -742,26 +742,27 @@ describe("rows are pages (ADR-0078 §3–4)", () => {
 
   it("updateRow merges against the row as it is under the lock, not the snapshot read before the transaction", async () => {
     const NOTES = "pnotes000001";
-    db.pageDatabase.findUnique.mockResolvedValue(
-      databaseRow({
-        properties: [
-          { id: TITLE_ID, name: "Name", type: "title" },
-          { id: STATUS_ID, name: "Status", type: "text" },
-          { id: NOTES, name: "Notes", type: "text" },
-        ],
-      }) as never,
-    );
+    const withNotes = databaseRow({
+      properties: [
+        { id: TITLE_ID, name: "Name", type: "title" },
+        { id: STATUS_ID, name: "Status", type: "text" },
+        { id: NOTES, name: "Notes", type: "text" },
+      ],
+    });
     // The pre-transaction read saw no Notes; a concurrent writer set one before our lock.
-    db.knowledgePage.findUnique.mockResolvedValue(rowFull({ properties: { [STATUS_ID]: "Tracked" } }) as never);
+    db.knowledgePage.findUnique.mockResolvedValue(
+      rowFull({ properties: { [STATUS_ID]: "Tracked" }, database: withNotes }) as never,
+    );
     db.$queryRaw.mockResolvedValue([{ properties: { [STATUS_ID]: "Tracked", [NOTES]: "set meanwhile" } }] as never);
     db.knowledgePage.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
       Promise.resolve({ ...rowPage(ROW_ID, "Alert latency", null), properties: args.data.properties })) as never);
     const caller = createMockCaller({ userId: OWNER, db });
     const row = await caller.database.updateRow({ rowId: ROW_ID, values: { Status: "Instrumenting" } });
     expect(row.values).toEqual({ [STATUS_ID]: "Instrumenting", [NOTES]: "set meanwhile" });
-    const lock = db.$queryRaw.mock.calls[0]![0] as unknown as { text: string; values: unknown[] };
-    expect(lock.text).toContain("FOR UPDATE");
-    expect(lock.values).toEqual([ROW_ID]);
+    // A tagged-template `$queryRaw` call: the strings array, then the bound values.
+    const [strings, ...bound] = db.$queryRaw.mock.calls[0]! as unknown as [readonly string[], ...unknown[]];
+    expect(strings.join("?")).toContain("FOR UPDATE");
+    expect(bound).toEqual([ROW_ID]);
   });
 
   it("updateRow clears a cell on null, rejects a bad value naming the property, and viewers cannot write", async () => {
