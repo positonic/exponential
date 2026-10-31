@@ -28,8 +28,10 @@ import { CheckboxCell } from "./cells/CheckboxCell";
 import { SelectCell } from "./cells/SelectCell";
 import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
+import { RelationCell } from "./cells/RelationCell";
+import type { RelationTarget, RowRelations } from "~/lib/databases/relations";
 import type { PickerUser } from "~/app/_components/shared/PersonPicker";
-import { PropertyEditorPopover, type PropertyDraft } from "./PropertyEditorPopover";
+import { PropertyEditorPopover, type PropertyDraft, type RelatableDatabase } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
 
 /** The slice of a database the table needs. */
@@ -43,6 +45,8 @@ export interface DatabaseTableRow {
   id: string;
   title: string;
   values: Record<string, PropertyValue | null>;
+  /** Relation targets by property id, resolved by the server. */
+  relations?: RowRelations;
   createdById: string;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -70,6 +74,10 @@ interface DatabaseTableProps {
   onAddProperty?: (draft: PropertyDraft) => Promise<void> | void;
   onUpdateProperty?: (def: PropertyDef, draft: PropertyDraft) => Promise<void> | void;
   onRemoveProperty?: (def: PropertyDef) => Promise<void> | void;
+  /** Databases a new relation property may point at; absent → no relation type offered. */
+  relatableDatabases?: RelatableDatabase[];
+  /** The relation picker's search; absent → relation cells are read-only. */
+  onSearchRelation?: (def: PropertyDef, query: string) => Promise<RelationTarget[]>;
   /** Add a select option from a cell and resolve with its id. */
   onCreateOption?: (def: PropertyDef, name: string) => Promise<string | null>;
   /** The saved view, for column widths. */
@@ -173,7 +181,7 @@ interface EditingCell {
 
 /** Cell types that open an inline text editor. Others edit in their own way or not at all. */
 const TEXT_EDITED = new Set(["title", "text", "number", "url"]);
-const READ_ONLY = new Set(["createdTime", "lastEditedTime", "createdBy", "relation"]);
+const READ_ONLY = new Set(["createdTime", "lastEditedTime", "createdBy"]);
 
 function isEditableType(def: PropertyDef): boolean {
   return !READ_ONLY.has(def.type);
@@ -200,6 +208,8 @@ export function DatabaseTable({
   onAddProperty,
   onUpdateProperty,
   onRemoveProperty,
+  relatableDatabases,
+  onSearchRelation,
   onCreateOption,
   view,
   onReorderColumns,
@@ -299,7 +309,8 @@ export function DatabaseTable({
           def.type === "select" ||
           def.type === "multiSelect" ||
           def.type === "date" ||
-          def.type === "person"
+          def.type === "person" ||
+          def.type === "relation"
         ) {
           // The pill button inside the cell opens the picker on Enter.
           e.currentTarget.querySelector<HTMLButtonElement>("button")?.click();
@@ -364,6 +375,17 @@ export function DatabaseTable({
           people={peopleById}
           editable={canEdit && def.type === "person"}
           onCommit={(next) => commit(row.id, def, next)}
+        />
+      );
+    }
+    if (def.type === "relation") {
+      return (
+        <RelationCell
+          def={def}
+          targets={row.relations?.[def.id] ?? []}
+          editable={canEdit}
+          onCommit={(next) => commit(row.id, def, next)}
+          onSearch={onSearchRelation ? (query) => onSearchRelation(def, query) : undefined}
         />
       );
     }
@@ -452,6 +474,7 @@ export function DatabaseTable({
                     </span>
                   }
                   onSubmit={(draft) => onAddProperty(draft)}
+                  relatableDatabases={relatableDatabases}
                 />
               </th>
             ) : null}

@@ -4,9 +4,11 @@
  * once a detached database has sat unclaimed for the retention window — share
  * one path, so the Knowledge index is cleaned the same way in both.
  */
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
+import { parseProperties, parseView, type PropertyDef } from "~/lib/databases/schema";
+import { withoutProperty } from "./schema-edits";
 
 /** How long a detached database keeps its rows before the purge takes them. */
 export const DETACHED_DATABASE_RETENTION_DAYS = 30;
@@ -17,18 +19,59 @@ export interface DeletedDatabase {
 }
 
 /**
- * Hard-delete a database. Its rows cascade in Postgres; their chunks in the
- * Knowledge index do not, so they are cleared here, after the delete, in one
- * statement. Returns how many rows went with it.
+ * Hard-delete a database. Its rows and its edges cascade in Postgres; the
+ * relation columns other databases of the workspace point at it with
+ * (ADR-0078 §5) are removed with their edges, so no table keeps a column
+ * to nothing; the rows' chunks in the Knowledge index are cleared after
+ * the delete, in one statement. Returns how many rows went with it.
  */
 export async function deleteDatabase(db: PrismaClient, databaseId: string): Promise<DeletedDatabase> {
+  const database = await db.pageDatabase.findUnique({
+    where: { id: databaseId },
+    select: { workspaceId: true },
+  });
   const rows = await db.knowledgePage.findMany({
     where: { databaseId },
     select: { id: true },
   });
-  await db.pageDatabase.delete({ where: { id: databaseId } });
+  await db.$transaction(async (tx) => {
+    if (database) await removeColumnsPointingAt(tx, database.workspaceId, databaseId);
+    await tx.pageDatabase.delete({ where: { id: databaseId } });
+  });
   await getEmbeddingTriggerService(db).clearPageChunksMany(rows.map((r) => r.id));
   return { id: databaseId, rowCount: rows.length };
+}
+
+/** Drop, from every other database of the workspace, the relation columns that target `databaseId`, and their edges. */
+async function removeColumnsPointingAt(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  databaseId: string,
+): Promise<void> {
+  const others = await tx.pageDatabase.findMany({
+    where: { workspaceId, id: { not: databaseId } },
+    select: { id: true, properties: true, view: true },
+  });
+  for (const other of others) {
+    const properties = parseProperties(other.properties);
+    const pointing = properties.filter((p) => p.relation?.targetDatabaseId === databaseId);
+    if (pointing.length === 0) continue;
+    let next: { properties: PropertyDef[]; view: ReturnType<typeof parseView> } = {
+      properties,
+      view: parseView(other.view),
+    };
+    for (const def of pointing) next = withoutProperty(next.properties, next.view, def.id);
+    await tx.databaseRelation.deleteMany({
+      where: { databaseId: other.id, propertyId: { in: pointing.map((p) => p.id) } },
+    });
+    await tx.pageDatabase.update({
+      where: { id: other.id },
+      data: {
+        properties: next.properties as unknown as Prisma.InputJsonValue,
+        view: next.view as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
 }
 
 export interface PurgeResult {

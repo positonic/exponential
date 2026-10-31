@@ -27,6 +27,8 @@ beforeEach(() => {
   mockReset(db);
   clearPageChunksMany.mockReset();
   db.pageDatabase.updateMany.mockResolvedValue({ count: 0 });
+  db.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(db)) as never);
+  db.pageDatabase.findMany.mockResolvedValue([] as never);
 });
 
 describe("databaseIdsInBody", () => {
@@ -88,5 +90,35 @@ describe("purgeDetachedDatabases", () => {
     });
     expect(result.purged).toEqual([{ id: "old-1", rowCount: 0 }]);
     expect(result.errors).toEqual([{ id: "old-2", message: "locked" }]);
+  });
+});
+
+describe("deleteDatabase and relations (ADR-0078 §5)", () => {
+  it("removes, from the other databases of the workspace, the relation columns that pointed at it, with their edges", async () => {
+    const PROBLEMS = "pproblems001";
+    const OTHER_REL = "pother000001";
+    db.pageDatabase.findUnique.mockResolvedValue({ workspaceId: "ws-1" } as never);
+    db.knowledgePage.findMany.mockResolvedValue([] as never);
+    db.pageDatabase.findMany.mockResolvedValue([
+      {
+        id: "db-2",
+        properties: [
+          { id: "pt", name: "Name", type: "title" },
+          { id: PROBLEMS, name: "Metrics", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: "db-1", many: true } },
+          { id: OTHER_REL, name: "Tickets", type: "relation", relation: { targetKind: "TICKET", many: true } },
+        ],
+        view: { filters: [{ propertyId: PROBLEMS, op: "isNotEmpty" }], hiddenPropertyIds: [], propertyOrder: ["pt", PROBLEMS, OTHER_REL] },
+      },
+      { id: "db-3", properties: [{ id: "pt3", name: "Name", type: "title" }], view: null },
+    ] as never);
+    await deleteDatabase(db, "db-1");
+    expect(db.pageDatabase.findMany.mock.calls[0]![0]).toMatchObject({ where: { workspaceId: "ws-1", id: { not: "db-1" } } });
+    expect(db.databaseRelation.deleteMany).toHaveBeenCalledWith({ where: { databaseId: "db-2", propertyId: { in: [PROBLEMS] } } });
+    expect(db.pageDatabase.update).toHaveBeenCalledTimes(1);
+    const data = db.pageDatabase.update.mock.calls[0]![0].data as { properties: { id: string }[]; view: { filters: unknown[]; propertyOrder: string[] } };
+    expect(data.properties.map((p) => p.id)).toEqual(["pt", OTHER_REL]);
+    expect(data.view.filters).toEqual([]);
+    expect(data.view.propertyOrder).toEqual(["pt", OTHER_REL]);
+    expect(db.pageDatabase.delete).toHaveBeenCalledWith({ where: { id: "db-1" } });
   });
 });

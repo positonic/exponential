@@ -12,6 +12,8 @@
  * which sorts correctly). Casts are guarded by `jsonb_typeof`: a property
  * retyped without rewriting rows (`updateProperty`) may still hold values
  * of the old type, which read as empty rather than failing the statement.
+ * Relation values are edges, not JSON (ADR-0078 §5), so their filters are
+ * `EXISTS` over `DatabaseRelation` on the row and property.
  */
 import { Prisma } from "@prisma/client";
 
@@ -137,7 +139,34 @@ function listValues(def: PropertyDef, filter: Filter): string[] {
   });
 }
 
+/** `EXISTS` over the row's edges under `def`, optionally to any of `targetIds`. */
+function hasEdge(def: PropertyDef, targetIds?: string[]): Prisma.Sql {
+  const to = targetIds
+    ? Prisma.sql` AND r."targetId" = ANY(${targetIds}::text[])`
+    : Prisma.empty;
+  return Prisma.sql`EXISTS (SELECT 1 FROM "DatabaseRelation" r WHERE r."rowPageId" = "KnowledgePage"."id" AND r."propertyId" = ${def.id}${to})`;
+}
+
+/** A relation takes `anyOf` (and `eq`/`neq` as its one-target forms), `isEmpty` and `isNotEmpty`. */
+function compileRelationFilter(def: PropertyDef, filter: Filter): Prisma.Sql {
+  switch (filter.op) {
+    case "isEmpty":
+      return Prisma.sql`NOT ${hasEdge(def)}`;
+    case "isNotEmpty":
+      return hasEdge(def);
+    case "anyOf":
+      return hasEdge(def, listValues(def, filter));
+    case "eq":
+      return hasEdge(def, [String(scalarValue(def, filter))]);
+    case "neq":
+      return Prisma.sql`NOT ${hasEdge(def, [String(scalarValue(def, filter))])}`;
+    default:
+      fail(def, filter.op, "is not supported on a relation property");
+  }
+}
+
 function compileFilter(def: PropertyDef, filter: Filter): Prisma.Sql {
+  if (def.type === "relation") return compileRelationFilter(def, filter);
   const computed =
     def.type === "createdTime" || def.type === "lastEditedTime" || def.type === "createdBy";
   switch (filter.op) {

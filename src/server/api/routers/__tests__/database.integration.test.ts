@@ -10,7 +10,15 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller } from "~/test/trpc-helpers";
-import { createUser, createWorkspace, addWorkspaceMember, createKnowledgePage } from "~/test/factories";
+import {
+  createUser,
+  createWorkspace,
+  addWorkspaceMember,
+  createKnowledgePage,
+  createProduct,
+  createTicket,
+  createGoal,
+} from "~/test/factories";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 import { purgeDetachedDatabases } from "~/server/services/databases/lifecycle";
 import { databaseMarker } from "~/lib/databases/marker";
@@ -94,6 +102,7 @@ describe("database router (integration)", () => {
       pageId: page.id,
       pageTitle: "Data strategy",
       header: "**Status:** Tracked\n**Score:** 7",
+      relations: {},
     });
     // The editor's read gets the prose only (null here) and the header beside it.
     const full = await caller.page.get({ id: latency.id });
@@ -246,6 +255,176 @@ describe("database router (integration)", () => {
     expect(result.purged).toEqual([{ id: database.id, rowCount: 2 }]);
     expect(await db.pageDatabase.count({ where: { id: database.id } })).toBe(0);
     expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(0);
+  });
+
+  it("relations (V3 tracer): a relation to another database writes edges both ways and the reverse column appears on its own", async () => {
+    const { owner, page } = await setup(db, "db-relations");
+    const { caller, database: metrics, latency, coverage } = await seedMetrics(db, owner.id, page.id);
+    const problems = await caller.database.create({ pageId: page.id, name: "Problems" });
+    const gaps = await caller.database.createRow({ id: problems.id, values: { Name: "Gaps" } });
+    const noise = await caller.database.createRow({ id: problems.id, values: { Name: "Noise" } });
+
+    // Metrics → Problems; Problems grows a "Metrics" column nobody created.
+    const added = await caller.database.addProperty({
+      id: metrics.id,
+      name: "Problems",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: problems.id },
+    });
+    expect(added.property.relation).toEqual({ targetKind: "ROW", targetDatabaseId: problems.id, many: true });
+    expect(added.reverse?.databaseId).toBe(problems.id);
+    const reverse = added.reverse!.property;
+    expect(reverse).toMatchObject({
+      name: "Metrics",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: metrics.id, inverseOf: { databaseId: metrics.id, propertyId: added.property.id } },
+    });
+    const problemsDef = await caller.database.get({ id: problems.id });
+    expect(problemsDef.properties.map((p) => p.name)).toEqual(["Name", "Metrics"]);
+
+    // Set one cell by name, CLI-style: a comma-separated list of row ids.
+    const written = await caller.database.updateRow({ rowId: latency.id, values: { Problems: `${gaps.id},${noise.id}` } });
+    expect(written.relations[added.property.id]!.map((t) => [t.id, t.title, t.href])).toEqual([
+      [gaps.id, "Gaps", `/w/db-relations/pages/${gaps.id}`],
+      [noise.id, "Noise", `/w/db-relations/pages/${noise.id}`],
+    ]);
+    // Nothing landed in the values column.
+    const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: latency.id } });
+    expect(Object.keys(stored.properties as Record<string, unknown>)).not.toContain(added.property.id);
+
+    // The other side reads the reverse value without anyone writing it.
+    const problemRows = await caller.database.listRows({ id: problems.id });
+    const byTitle = new Map(problemRows.rows.map((r) => [r.title, r]));
+    expect(byTitle.get("Gaps")!.relations[reverse.id]!.map((t) => t.title)).toEqual(["Alert latency"]);
+    expect(byTitle.get("Noise")!.relations[reverse.id]!.map((t) => t.title)).toEqual(["Alert latency"]);
+
+    // Rewriting the cell replaces the edges on both sides; a second metric appends on the target.
+    await caller.database.updateRow({ rowId: latency.id, values: { Problems: [gaps.id] } });
+    await caller.database.updateRow({ rowId: coverage.id, values: { Problems: [gaps.id] } });
+    const again = await caller.database.listRows({ id: problems.id });
+    const rows = new Map(again.rows.map((r) => [r.title, r]));
+    expect(rows.get("Gaps")!.relations[reverse.id]!.map((t) => t.title)).toEqual(["Alert latency", "Coverage"]);
+    expect(rows.get("Noise")!.relations[reverse.id]).toEqual([]);
+
+    // Writing from the reverse side keeps the forward side in step too.
+    await caller.database.updateRow({ rowId: noise.id, values: { Metrics: [coverage.id] } });
+    const metricRows = await caller.database.listRows({ id: metrics.id });
+    const coverageRow = metricRows.rows.find((r) => r.id === coverage.id)!;
+    expect(coverageRow.relations[added.property.id]!.map((t) => t.title).sort()).toEqual(["Gaps", "Noise"]);
+
+    // The page's Markdown (the Metrics table is the one in the body) and a row header carry the links.
+    const read = await caller.page.get({ id: page.id, format: "markdown" });
+    expect(read.body).toContain("| Name | Status | Score | Problems |");
+    expect(read.body).toContain(
+      `| [Alert latency](/w/db-relations/pages/${latency.id}) | Tracked | 7 | [Gaps](/w/db-relations/pages/${gaps.id}) |`,
+    );
+    const rowRead = await caller.page.get({ id: gaps.id, format: "markdown" });
+    expect(rowRead.body).toBe(
+      `**Metrics:** [Alert latency](/w/db-relations/pages/${latency.id}), [Coverage](/w/db-relations/pages/${coverage.id})`,
+    );
+
+    // A target that is not a row of the related database is refused naming the property.
+    await expect(
+      caller.database.updateRow({ rowId: latency.id, values: { Problems: [latency.id] } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining('"Problems"') as string });
+
+    // Deleting a row takes its edges on both sides with it.
+    await caller.database.deleteRow({ rowId: gaps.id });
+    expect(await db.databaseRelation.count({ where: { OR: [{ rowPageId: gaps.id }, { targetRowPageId: gaps.id }] } })).toBe(0);
+  });
+
+  it("a relation cannot point outside the workspace, and listInWorkspace offers only readable, attached databases", async () => {
+    const { owner, viewer, outsider, page, ws } = await setup(db, "db-relations-ws");
+    const { caller, database } = await seedMetrics(db, owner.id, page.id);
+    const other = await setup(db, "db-relations-other");
+    const foreign = await createTestCaller(other.owner.id).database.create({ pageId: other.page.id, name: "Elsewhere" });
+    await expect(
+      caller.database.addProperty({ id: database.id, name: "Far", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: foreign.id } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("same workspace") as string });
+
+    expect((await caller.database.listInWorkspace({ workspaceId: ws.id })).map((d) => d.name)).toEqual(["Metrics"]);
+    expect((await createTestCaller(viewer.id).database.listInWorkspace({ workspaceId: ws.id })).map((d) => d.name)).toEqual(["Metrics"]);
+    expect(await createTestCaller(outsider.id).database.listInWorkspace({ workspaceId: ws.id })).toEqual([]);
+  });
+
+  it("native relations: a Ticket and a Key result show their live title and status, are never written, and a deleted target reads (deleted) until the cell is next written", async () => {
+    const { owner, page, ws } = await setup(db, "db-natives");
+    const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);
+    const product = await createProduct(db, { workspaceId: ws.id, createdById: owner.id, slug: "clear" });
+    const ticket = await createTicket(db, { productId: product.id, createdById: owner.id, title: "Fix Okta callback", status: "IN_PROGRESS" });
+    const goal = await createGoal(db, { userId: owner.id, workspaceId: ws.id, title: "Faster alerts" });
+    const kr = await db.keyResult.create({
+      data: { title: "p95 under 2s", targetValue: 2, currentValue: 3.5, period: "Q4-2026", goalId: goal.id, userId: owner.id, workspaceId: ws.id },
+    });
+
+    const ticketProp = (await caller.database.addProperty({ id: database.id, name: "Ticket", type: "relation", relation: { targetKind: "TICKET", many: false } })).property;
+    const krProp = (await caller.database.addProperty({ id: database.id, name: "Key result", type: "relation", relation: { targetKind: "KEY_RESULT" } })).property;
+
+    const written = await caller.database.updateRow({ rowId: latency.id, values: { Ticket: ticket.id, "Key result": [kr.id] } });
+    expect(written.relations[ticketProp.id]).toEqual([
+      { kind: "TICKET", id: ticket.id, title: "Fix Okta callback", status: "IN_PROGRESS", href: `/w/db-natives/products/clear/tickets/${ticket.id}` },
+    ]);
+    expect(written.relations[krProp.id]).toEqual([
+      { kind: "KEY_RESULT", id: kr.id, title: "p95 under 2s", status: "on-track", href: `/w/db-natives/goals/${goal.id}` },
+    ]);
+    // Live: a status change on the ticket shows on the next read without any database write.
+    await db.ticket.update({ where: { id: ticket.id }, data: { status: "DONE" } });
+    const reread = await caller.database.listRows({ id: database.id });
+    expect(reread.rows.find((r) => r.id === latency.id)!.relations[ticketProp.id]![0]!.status).toBe("DONE");
+    // The Key result is read, never written (ADR-0050): its value is what it was.
+    const krAfter = await db.keyResult.findUniqueOrThrow({ where: { id: kr.id } });
+    expect(krAfter.currentValue).toBe(3.5);
+    expect(krAfter.updatedAt).toEqual(kr.updatedAt);
+
+    // A ticket of another workspace's product is refused naming the property.
+    const other = await setup(db, "db-natives-other");
+    const foreignProduct = await createProduct(db, { workspaceId: other.ws.id, createdById: other.owner.id, slug: "far" });
+    const foreignTicket = await createTicket(db, { productId: foreignProduct.id, createdById: other.owner.id, title: "Elsewhere" });
+    await expect(caller.database.updateRow({ rowId: latency.id, values: { Ticket: foreignTicket.id } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining('"Ticket"') as string,
+    });
+
+    // The Markdown projection links the entity; a deleted one reads "(deleted)" and the next write drops it.
+    const read = await caller.page.get({ id: latency.id, format: "markdown" });
+    expect(read.body).toContain(`**Ticket:** [Fix Okta callback](/w/db-natives/products/clear/tickets/${ticket.id})`);
+    await db.ticket.delete({ where: { id: ticket.id } });
+    const gone = await caller.page.get({ id: latency.id, format: "markdown" });
+    expect(gone.body).toContain("**Ticket:** (deleted)");
+    expect(await db.databaseRelation.count({ where: { rowPageId: latency.id, propertyId: ticketProp.id } })).toBe(1);
+    await caller.database.updateRow({ rowId: latency.id, values: { Ticket: null } });
+    expect(await db.databaseRelation.count({ where: { rowPageId: latency.id, propertyId: ticketProp.id } })).toBe(0);
+  });
+
+  it("relation filters run over the edges, and removing a relation property (or the database) removes the inverse column and every edge", async () => {
+    const { owner, page } = await setup(db, "db-rel-filters");
+    const { caller, database: metrics, latency, coverage } = await seedMetrics(db, owner.id, page.id);
+    const problems = await caller.database.create({ pageId: page.id, name: "Problems" });
+    const gaps = await caller.database.createRow({ id: problems.id, values: { Name: "Gaps" } });
+    const added = await caller.database.addProperty({ id: metrics.id, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: problems.id } });
+    const reverse = added.reverse!.property;
+    await caller.database.updateRow({ rowId: latency.id, values: { Problems: [gaps.id] } });
+
+    const linked = await caller.database.listRows({ id: metrics.id, view: { filters: [{ propertyId: added.property.id, op: "anyOf", value: [gaps.id] }], hiddenPropertyIds: [], propertyOrder: [] } });
+    expect(linked.rows.map((r) => r.id)).toEqual([latency.id]);
+    const unlinked = await caller.database.listRows({ id: metrics.id, view: { filters: [{ propertyId: added.property.id, op: "isEmpty" }], hiddenPropertyIds: [], propertyOrder: [] } });
+    expect(unlinked.rows.map((r) => r.id)).toEqual([coverage.id]);
+    const withMetric = await caller.database.listRows({ id: problems.id, view: { filters: [{ propertyId: reverse.id, op: "isNotEmpty" }], hiddenPropertyIds: [], propertyOrder: [] } });
+    expect(withMetric.rows.map((r) => r.id)).toEqual([gaps.id]);
+
+    // Removing the reverse side removes the forward column and every edge, both ways.
+    await caller.database.removeProperty({ id: problems.id, propertyId: reverse.id });
+    expect((await caller.database.get({ id: metrics.id })).properties.map((p) => p.name)).toEqual(["Name", "Status", "Score"]);
+    expect((await caller.database.get({ id: problems.id })).properties.map((p) => p.name)).toEqual(["Name"]);
+    expect(await db.databaseRelation.count({ where: { databaseId: { in: [metrics.id, problems.id] } } })).toBe(0);
+
+    // Deleting a database other columns point at takes those columns with it.
+    const again = await caller.database.addProperty({ id: metrics.id, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: problems.id } });
+    await caller.database.updateRow({ rowId: latency.id, values: { Problems: [gaps.id] } });
+    await caller.database.delete({ id: problems.id });
+    const after = await caller.database.get({ id: metrics.id });
+    expect(after.properties.find((p) => p.id === again.property.id)).toBeUndefined();
+    expect(await db.databaseRelation.count({ where: { databaseId: metrics.id } })).toBe(0);
   });
 
   it("deleting the database, or the holding page, takes the rows with it", async () => {

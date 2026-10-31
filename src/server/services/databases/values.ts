@@ -34,6 +34,8 @@ export interface CoercedRowValues {
   values: Record<string, PropertyValue | null>;
   /** The title property's value, when the caller set it; it is the row page's title. */
   title: string | undefined;
+  /** Relation targets by property id — edges to write, never values (ADR-0078 §3); empty clears. */
+  relations: Record<string, string[]>;
 }
 
 /**
@@ -47,6 +49,7 @@ export function coerceRowValues(
   raw: Record<string, unknown>,
 ): CoercedRowValues {
   const values: Record<string, PropertyValue | null> = {};
+  const relations: Record<string, string[]> = {};
   let title: string | undefined;
   for (const [key, rawValue] of Object.entries(raw)) {
     const def = findProperty(properties, key);
@@ -67,9 +70,11 @@ export function coerceRowValues(
     }
     if (def.type === "title") {
       title = typeof result.value === "string" ? result.value : "";
+    } else if (def.type === "relation") {
+      relations[def.id] = Array.isArray(result.value) ? result.value : [];
     } else {
       values[def.id] = result.value;
     }
   }
-  return { values, title };
+  return { values, title, relations };
 }

@@ -19,6 +19,8 @@ const SCORE = "p_score";
 const TAGS = "p_tags";
 const DUE = "p_due";
 const DONE = "p_done";
+const PROBLEMS = "p_problems";
+const EDGE = `EXISTS (SELECT 1 FROM "DatabaseRelation" r WHERE r."rowPageId" = "KnowledgePage"."id" AND r."propertyId" = $2`;
 /** The guarded numeric read of SCORE, as the second and third parameters. */
 const NUM = `(CASE WHEN jsonb_typeof("properties"->$2) = 'number' THEN ("properties"->>$3)::numeric END)`;
 
@@ -46,6 +48,7 @@ const properties: PropertyDef[] = [
   { id: DUE, name: "Due", type: "date" },
   { id: DONE, name: "Done", type: "checkbox" },
   { id: "p_created", name: "Created", type: "createdTime" },
+  { id: PROBLEMS, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: "db2", many: true } },
 ];
 
 function compile(view: Partial<DatabaseView>, paging = { limit: 50, offset: 0 }) {
@@ -127,6 +130,21 @@ describe("compileRowQuery", () => {
     const list = compile({ filters: [{ propertyId: TAGS, op: "anyOf", value: "Alpha,Beta" }] });
     expect(list.text).toContain('"properties"->$2 ?| $3::text[]');
     expect(list.values[2]).toEqual(["o_a", "o_b"]);
+  });
+
+  it("relation filters are EXISTS over the row's edges: anyOf by target id, isEmpty/isNotEmpty, eq/neq as one target", () => {
+    const anyOf = compile({ filters: [{ propertyId: PROBLEMS, op: "anyOf", value: ["q1", "q2"] }] });
+    expect(anyOf.text).toContain(`${EDGE} AND r."targetId" = ANY($3::text[]))`);
+    expect(anyOf.values.slice(0, 3)).toEqual(["db1", PROBLEMS, ["q1", "q2"]]);
+    expect(compile({ filters: [{ propertyId: PROBLEMS, op: "isEmpty" }] }).text).toContain(`NOT ${EDGE})`);
+    expect(compile({ filters: [{ propertyId: PROBLEMS, op: "isNotEmpty" }] }).text).toContain(`${EDGE})`);
+    // A CLI `--filter Problems=eq:q1` is the one-target anyOf; neq its negation.
+    const eq = compile({ filters: [{ propertyId: PROBLEMS, op: "eq", value: "q1" }] });
+    expect(eq.text).toContain(`${EDGE} AND r."targetId" = ANY($3::text[]))`);
+    expect(eq.values[2]).toEqual(["q1"]);
+    expect(compile({ filters: [{ propertyId: PROBLEMS, op: "neq", value: "q1" }] }).text).toContain(`NOT ${EDGE}`);
+    expect(() => compile({ filters: [{ propertyId: PROBLEMS, op: "contains", value: "q" }] })).toThrow(RowQueryError);
+    expect(() => compile({ filters: [{ propertyId: PROBLEMS, op: "anyOf", value: [] }] })).toThrow(RowQueryError);
   });
 
   it("joins several filters with AND, parameters in order", () => {

@@ -18,6 +18,7 @@ import type { PickerUser } from "~/app/_components/shared/PersonPicker";
 import { DatabaseTable } from "./DatabaseTable";
 import type { PropertyDraft } from "./PropertyEditorPopover";
 import { ViewControls } from "./ViewControls";
+import type { RelationTarget } from "~/lib/databases/relations";
 import styles from "./DatabaseBlock.module.css";
 
 /** Rows the block loads at once; the saved view pages beyond this (load more arrives with the view controls). */
@@ -57,6 +58,17 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     for (const m of members ?? []) map.set(m.id, { id: m.id, name: m.name, email: m.email, image: m.image });
     return map;
   }, [members]);
+
+  // What a new relation property may point at: the workspace's databases
+  // the editor can read, in the header's property editor.
+  const { data: relatable } = api.database.listInWorkspace.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId && editable, staleTime: 60_000 },
+  );
+  const relatableDatabases = useMemo(
+    () => relatable?.map((d) => ({ id: d.id, name: d.name, pageTitle: d.page.title })),
+    [relatable],
+  );
 
   const rowsKey = { id: databaseId ?? "", limit: BLOCK_ROW_LIMIT };
   const databaseQuery = api.database.get.useQuery(
@@ -106,25 +118,41 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     [utils, databaseId],
   );
 
-  /** Write one cell: apply it to the cached rows at once, confirm with the server's row, roll back if refused. */
+  /**
+   * Write one cell: apply it to the cached rows at once, confirm with the
+   * server's row, roll back if refused. A relation cell arrives as its
+   * picked targets: they show at once and their ids go to the server.
+   */
   const writeCell = useCallback(
     async (rowId: string, propertyId: string, value: unknown) => {
       if (!database) return;
       const previous = utils.database.listRows.getInfiniteData(rowsKey);
       const isTitle = propertyId === database.titlePropertyId;
+      const def = database.properties.find((p) => p.id === propertyId);
+      const targets = def?.type === "relation" ? (value as RelationTarget[]) : null;
       setRows((rows) =>
         rows.map((row) =>
           row.id !== rowId
             ? row
             : isTitle
               ? { ...row, title: typeof value === "string" ? value : "" }
-              : { ...row, values: { ...row.values, [propertyId]: value as Row["values"][string] } },
+              : targets
+                ? { ...row, relations: { ...row.relations, [propertyId]: targets } }
+                : { ...row, values: { ...row.values, [propertyId]: value as Row["values"][string] } },
         ),
       );
       try {
-        const saved = await updateRow.mutateAsync({ rowId, values: { [propertyId]: value } });
+        const saved = await updateRow.mutateAsync({
+          rowId,
+          values: { [propertyId]: targets ? targets.map((t) => t.id) : value },
+        });
         setRows((rows) => rows.map((row) => (row.id === rowId ? saved : row)));
         void utils.page.get.invalidate({ id: rowId });
+        // A two-way relation moved the other database's reverse column too.
+        const other = def?.relation?.targetDatabaseId;
+        if (targets && other && other !== databaseId) {
+          void utils.database.listRows.invalidate({ id: other });
+        }
       } catch (error) {
         utils.database.listRows.setInfiniteData(rowsKey, previous);
         notifications.show({
@@ -136,6 +164,15 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [database, databaseId, setRows, updateRow, utils],
+  );
+
+  /** The relation picker's data source: `database.searchTargets` for the property. */
+  const searchRelation = useCallback(
+    (def: PropertyDef, query: string) =>
+      databaseId
+        ? utils.database.searchTargets.fetch({ id: databaseId, propertyId: def.id, query })
+        : Promise.resolve([]),
+    [databaseId, utils],
   );
 
   /** Append an empty row and return its id so the table can open its title. */
@@ -174,15 +211,24 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
 
   const onAddProperty = useCallback(
     async (draft: PropertyDraft) => {
-      if (!databaseId || draft.type === "title" || draft.type === "relation") return;
+      if (!databaseId || draft.type === "title") return;
+      if (draft.type === "relation" && !draft.relation) return;
       try {
-        await addProperty.mutateAsync({ id: databaseId, ...draft, type: draft.type });
+        const result = await addProperty.mutateAsync({ id: databaseId, ...draft, type: draft.type });
         await refetchSchema();
+        // A two-way relation gave the other database a column: its block, if
+        // it is on this page, re-reads too.
+        if (result.reverse) {
+          await Promise.all([
+            utils.database.get.invalidate({ id: result.reverse.databaseId }),
+            utils.database.listRows.invalidate({ id: result.reverse.databaseId }),
+          ]);
+        }
       } catch (error) {
         failed("Could not add the property", error);
       }
     },
-    [addProperty, databaseId, refetchSchema],
+    [addProperty, databaseId, refetchSchema, utils],
   );
 
   const onUpdateProperty = useCallback(
@@ -308,6 +354,8 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
         onAddProperty={onAddProperty}
         onUpdateProperty={onUpdateProperty}
         onRemoveProperty={onRemoveProperty}
+        relatableDatabases={relatableDatabases}
+        onSearchRelation={searchRelation}
         onCreateOption={onCreateOption}
       />
     );
@@ -358,7 +406,12 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
           </span>
         ) : null}
         {database && editable ? (
-          <ViewControls properties={database.properties} view={database.view} onChangeView={(next) => void saveView(next)} />
+          <ViewControls
+            properties={database.properties}
+            view={database.view}
+            onChangeView={(next) => void saveView(next)}
+            onSearchRelation={searchRelation}
+          />
         ) : null}
       </div>
       {body}

@@ -12,15 +12,19 @@ import { CheckboxCell } from "./cells/CheckboxCell";
 import { SelectCell } from "./cells/SelectCell";
 import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
+import { RelationCell } from "./cells/RelationCell";
+import type { RelationTarget, RowRelations } from "~/lib/databases/relations";
 import styles from "./DatabaseBlock.module.css";
 
 const TEXT_EDITED = new Set(["text", "number", "url"]);
-const READ_ONLY = new Set(["createdTime", "lastEditedTime", "createdBy", "relation"]);
+const READ_ONLY = new Set(["createdTime", "lastEditedTime", "createdBy"]);
 
 export interface RowPropertiesRow {
   id: string;
   title: string;
   values: Record<string, PropertyValue | null>;
+  /** Relation targets by property id, resolved by the server. */
+  relations?: RowRelations;
   createdById: string;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -34,6 +38,8 @@ interface RowPropertiesHeaderViewProps {
   editable: boolean;
   onWrite: (propertyId: string, value: unknown) => void | Promise<void>;
   onCreateOption?: (def: PropertyDef, name: string) => Promise<string | null>;
+  /** The relation picker's search; absent → relation fields are read-only. */
+  onSearchRelation?: (def: PropertyDef, query: string) => Promise<RelationTarget[]>;
 }
 
 /** One property's field: the same cell the table uses, laid out as a row of the header. */
@@ -45,6 +51,7 @@ function PropertyField({
   editable,
   onWrite,
   onCreateOption,
+  onSearchRelation,
 }: Omit<RowPropertiesHeaderViewProps, "properties"> & { def: PropertyDef }) {
   const [editing, setEditing] = useState(false);
   const raw = computedValue(def, row) ?? row.values[def.id];
@@ -64,6 +71,16 @@ function PropertyField({
         editable={canEdit}
         onCommit={(v) => void onWrite(def.id, v)}
         onCreateOption={onCreateOption ? (name) => onCreateOption(def, name) : undefined}
+      />
+    );
+  } else if (def.type === "relation") {
+    control = (
+      <RelationCell
+        def={def}
+        targets={row.relations?.[def.id] ?? []}
+        editable={canEdit}
+        onCommit={(next) => void onWrite(def.id, next.map((t) => t.id))}
+        onSearch={onSearchRelation ? (query) => onSearchRelation(def, query) : undefined}
       />
     );
   } else if (def.type === "date") {
@@ -186,6 +203,12 @@ export function RowPropertiesHeader({ row, database, workspaceId, editable }: Ro
     [database.id, updateProperty, utils],
   );
 
+  const onSearchRelation = useCallback(
+    (def: PropertyDef, query: string) =>
+      utils.database.searchTargets.fetch({ id: database.id, propertyId: def.id, query }),
+    [database.id, utils],
+  );
+
   if (!definition) return null;
   return (
     <RowPropertiesHeaderView
@@ -196,6 +219,7 @@ export function RowPropertiesHeader({ row, database, workspaceId, editable }: Ro
       editable={editable}
       onWrite={onWrite}
       onCreateOption={onCreateOption}
+      onSearchRelation={onSearchRelation}
     />
   );
 }

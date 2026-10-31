@@ -30,7 +30,9 @@ import {
 } from "~/lib/databases/marker";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { rowValues } from "~/lib/databases/display";
+import type { RowRelations } from "~/lib/databases/relations";
 import { compileRowQuery, type RowQueryRecord } from "./query";
+import { loadRowRelations, relationMarkdown } from "./relations";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -52,6 +54,8 @@ export interface ProjectedRow {
   createdAt?: Date;
   updatedAt?: Date;
   createdById?: string;
+  /** Relation targets by property id, resolved; a relation cell is empty without them. */
+  relations?: RowRelations;
 }
 
 /** One database as the projection needs it. */
@@ -79,6 +83,7 @@ function cell(
     const title = escapeTableCell(row.title || "Untitled");
     return row.href ? `[${title.replace(/([[\]])/g, "\\$1")}](${row.href})` : title;
   }
+  if (def.type === "relation") return escapeTableCell(relationMarkdown(row.relations?.[def.id]));
   return cellMarkdown(def, computedValue(def, row) ?? row.properties[def.id], ctx);
 }
 
@@ -109,7 +114,10 @@ export function renderRowHeader(
   return properties
     .filter((def) => def.type !== "title")
     .map((def) => {
-      const value = cellMarkdown(def, computedValue(def, row) ?? row.properties[def.id], ctx);
+      const value =
+        def.type === "relation"
+          ? escapeTableCell(relationMarkdown(row.relations?.[def.id]))
+          : cellMarkdown(def, computedValue(def, row) ?? row.properties[def.id], ctx);
       return `**${escapeTableCell(def.name)}:** ${value || "—"}`;
     })
     .join("\n");
@@ -118,6 +126,8 @@ export function renderRowHeader(
 /** What `page.get` adds to a Row: its database and the header above the prose. */
 export interface RowPageProjection {
   database: { id: string; name: string; pageId: string; pageTitle: string };
+  /** The row's relation targets by property id, resolved — for the row page's header cells. */
+  relations: RowRelations;
   /** The `**Name:** value` lines alone — for the editor host, which must not get them as prose. */
   header: string;
   /** The header, a blank line, then the stored prose (or the header alone) — for readers. */
@@ -165,10 +175,12 @@ export async function projectRowPage(
       properties: true,
       view: true,
       page: { select: { title: true } },
+      workspace: { select: { slug: true } },
     },
   });
   if (!database) return null;
   const properties = parseProperties(database.properties);
+  const relations = await loadRowRelations(db, [page.id], properties, database.workspace.slug);
   const row: ProjectedRow = {
     id: page.id,
     title: page.title,
@@ -176,6 +188,7 @@ export async function projectRowPage(
     createdAt: page.createdAt,
     updatedAt: page.updatedAt,
     createdById: page.createdById,
+    relations: relations.get(page.id),
   };
   const ctx = await personNames(db, [
     { id: database.id, name: database.name, properties, view: parseView(database.view), rows: [row] },
@@ -189,6 +202,7 @@ export async function projectRowPage(
       pageId: database.pageId,
       pageTitle: database.page.title,
     },
+    relations: row.relations ?? {},
     header,
     body: header ? (prose ? `${header}\n\n${prose}` : header) : prose,
   };
@@ -299,6 +313,12 @@ export async function expandDatabaseMarkers(
             PROJECTION_ROW_LIMIT,
         )
       : 0;
+    const relations = await loadRowRelations(
+      db,
+      shown.map((row) => row.id),
+      properties,
+      database.workspace.slug,
+    );
     parsed.push({
       id: database.id,
       name: database.name,
@@ -312,6 +332,7 @@ export async function expandDatabaseMarkers(
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         createdById: row.createdById,
+        relations: relations.get(row.id),
       })),
       ...(moreRows ? { moreRows } : {}),
       titlePropertyId: database.titlePropertyId,

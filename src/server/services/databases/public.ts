@@ -11,6 +11,8 @@ import { parseProperties, parseView, visibleProperties } from "~/lib/databases/s
 import { buildPublicPagePath } from "~/lib/pages/public-url";
 import type { PublicDatabaseMap, PublicDatabaseTable } from "~/lib/pages/public-doc";
 import { compileRowQuery, type RowQueryRecord } from "./query";
+import { loadRowRelations } from "./relations";
+import type { RowRelations } from "~/lib/databases/relations";
 import { PROJECTION_ROW_LIMIT } from "./projection";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -19,6 +21,7 @@ interface PublicRowRecord extends RowQueryRecord {
   isPublic: boolean;
   publicId: string | null;
   publicSlug: string | null;
+  relations: RowRelations;
 }
 
 /** What a person without a display name is called on a public page. */
@@ -82,11 +85,14 @@ export async function publicDatabaseTables(db: Db, pageId: string): Promise<Publ
       select: { id: true, publicId: true, publicSlug: true },
     });
     const publicById = new Map(published.map((p) => [p.id, p]));
+    // Relation targets by title only: a public page links nothing it cannot vouch for.
+    const relations = await loadRowRelations(db, shown.map((r) => r.id), properties);
     const rows: PublicRowRecord[] = shown.map((row) => ({
       ...row,
       isPublic: publicById.has(row.id),
       publicId: publicById.get(row.id)?.publicId ?? null,
       publicSlug: publicById.get(row.id)?.publicSlug ?? null,
+      relations: relations.get(row.id) ?? {},
     }));
     prepared.push({ database, properties, view, rows });
   }
@@ -119,7 +125,9 @@ export async function publicDatabaseTables(db: Db, pageId: string): Promise<Publ
           cells: columns.map((def) =>
             def.id === database.titlePropertyId || def.type === "title"
               ? row.title || "Untitled"
-              : displayValue(def, computedValue(def, row) ?? values[def.id], { personName }),
+              : def.type === "relation"
+                ? relationTitles(row.relations[def.id])
+                : displayValue(def, computedValue(def, row) ?? values[def.id], { personName }),
           ),
           ...(row.publicId
             ? { href: buildPublicPagePath(row.publicSlug ?? "", row.publicId) }
@@ -153,11 +161,20 @@ export async function publicRowHeader(
     }
   }
   const personName = await personNames(db, ids);
+  const relations = (await loadRowRelations(db, [page.id], properties)).get(page.id) ?? {};
   return {
     database: { name: database.name, pageId: database.pageId },
     fields: properties.map((def) => ({
       name: def.name,
-      value: displayValue(def, computedValue(def, page) ?? values[def.id], { personName }),
+      value:
+        def.type === "relation"
+          ? relationTitles(relations[def.id])
+          : displayValue(def, computedValue(def, page) ?? values[def.id], { personName }),
     })),
   };
+}
+
+/** Relation targets as plain text for the public render — titles, no links. */
+function relationTitles(targets: RowRelations[string] | undefined): string {
+  return (targets ?? []).map((t) => t.title).join(", ");
 }

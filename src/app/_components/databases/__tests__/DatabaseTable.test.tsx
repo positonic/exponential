@@ -167,6 +167,35 @@ describe("DatabaseTable — editing", () => {
     expect(await screen.findByRole("textbox", { name: "Name" })).toBeTruthy();
   });
 
+  it("a relation cell shows each target as a pill, linked when it has a href", () => {
+    const PROBLEMS = "pproblems001";
+    render(
+      <DatabaseTable
+        database={{
+          titlePropertyId: TITLE,
+          properties: [
+            { id: TITLE, name: "Name", type: "title" },
+            { id: PROBLEMS, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: "db2", many: true } },
+          ],
+        }}
+        rows={[
+          {
+            ...rows[0]!,
+            relations: {
+              [PROBLEMS]: [
+                { kind: "ROW", id: "q1", title: "Gaps", href: "/w/acme/pages/q1" },
+                { kind: "ROW", id: "q2", title: "Noise" },
+              ],
+            },
+          },
+        ]}
+        columns={[TITLE, PROBLEMS]}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Gaps" }).getAttribute("href")).toBe("/w/acme/pages/q1");
+    expect(screen.getByText("Noise").tagName).toBe("SPAN");
+  });
+
   it("with schema handlers the header offers a property editor per column and an add button", () => {
     render(
       <DatabaseTable
