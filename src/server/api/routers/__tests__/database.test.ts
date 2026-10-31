@@ -1309,10 +1309,11 @@ describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolve
     db.knowledgePage.findMany.mockResolvedValue([{ id: "q1", title: "Gaps" }, { id: "q2", title: "" }] as never);
     const caller = createMockCaller({ userId: MEMBER, db });
     const rows = await caller.database.searchTargets({ id: DB_ID, propertyId: PROBLEMS_ID, query: "ga" });
-    expect(db.knowledgePage.findMany.mock.calls[0]![0]).toMatchObject({
-      where: { databaseId: TARGET_DB, title: { contains: "ga", mode: "insensitive" } },
-      take: 20,
-    });
+    // Rows are offered through the page access clause (their holding page), then the database and title.
+    const rowWhere = db.knowledgePage.findMany.mock.calls[0]![0]!.where as { AND: unknown[] };
+    expect(rowWhere.AND).toHaveLength(2);
+    expect(rowWhere.AND[1]).toEqual({ databaseId: TARGET_DB, title: { contains: "ga", mode: "insensitive" } });
+    expect(db.knowledgePage.findMany.mock.calls[0]![0]).toMatchObject({ take: 20 });
     expect(rows).toEqual([
       { kind: "ROW", id: "q1", title: "Gaps", href: "/w/acme/pages/q1" },
       { kind: "ROW", id: "q2", title: "Untitled", href: "/w/acme/pages/q2" },
@@ -1332,6 +1333,73 @@ describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolve
     expect(db.ticket.findMany.mock.calls[0]![0]).toMatchObject({ where: { product: { workspaceId: WORKSPACE_ID } } });
     expect(tickets).toEqual([{ kind: "TICKET", id: "t1", title: "Fix Okta callback", status: "QA", href: "/w/acme/products/clear/tickets/t1" }]);
     await expect(caller.database.searchTargets({ id: DB_ID, propertyId: TITLE_ID })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    // PAGE targets: only pages the caller can read, never the whole workspace.
+    const PAGE_PROP = "ppage0000001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: PAGE_PROP, name: "Spec", type: "relation", relation: { targetKind: "PAGE", many: false } },
+        ],
+      }) as never,
+    );
+    db.knowledgePage.findMany.mockClear();
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "pg1", title: "Data strategy" }] as never);
+    await caller.database.searchTargets({ id: DB_ID, propertyId: PAGE_PROP });
+    const pageWhere = db.knowledgePage.findMany.mock.calls[0]![0]!.where as { AND: [Record<string, unknown>, unknown] };
+    expect(pageWhere.AND[1]).toEqual({ workspaceId: WORKSPACE_ID, databaseId: null });
+    // The access clause names the caller (ownership, invitations, membership), not just the workspace.
+    expect(JSON.stringify(pageWhere.AND[0])).toContain(MEMBER);
+  });
+
+  it("a key result's relation shows its effective status: the manual override when one is set", async () => {
+    const KR = "pkr000000001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: KR, name: "Key result", type: "relation", relation: { targetKind: "KEY_RESULT", many: true } },
+        ],
+      }) as never,
+    );
+    db.$queryRaw.mockResolvedValue([rowPage(ROW_ID, "Alert latency", null)] as never);
+    db.databaseRelation.findMany.mockResolvedValue([
+      { rowPageId: ROW_ID, propertyId: KR, targetKind: "KEY_RESULT", targetId: "kr1", targetRowPage: null },
+    ] as never);
+    db.keyResult.findMany.mockResolvedValue([{ id: "kr1", title: "p95 under 2s", status: "on-track", statusOverride: "at-risk", goalId: 12 }] as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    const page = await caller.database.listRows({ id: DB_ID });
+    expect(page.rows[0]!.relations[KR]![0]!.status).toBe("at-risk");
+    expect(db.keyResult.findMany.mock.calls[0]![0]).toMatchObject({ select: { statusOverride: true } });
+  });
+
+  it("writing a row into a single-valued reverse column replaces what that target pointed at, on both sides", async () => {
+    // Metrics.Problems is many; Problems.Metrics (the reverse) holds one.
+    const singleReverse = { ...reverseDef, relation: { ...reverseDef.relation, many: false } };
+    db.pageDatabase.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(
+        args.where.id === TARGET_DB
+          ? problemsDatabase({ properties: [{ id: "ptitle000002", name: "Name", type: "title" }, singleReverse] })
+          : metricsWithProblems(),
+      )) as never);
+    db.knowledgePage.findUnique.mockResolvedValue(rowOfMetrics() as never);
+    db.$queryRaw.mockResolvedValue([{ properties: {} }] as never);
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "q1" }] as never);
+    db.knowledgePage.update.mockResolvedValue(rowPage(ROW_ID, "Alert latency", null) as never);
+    // q1 already points (through its single reverse) at another metric, row-0.
+    db.databaseRelation.findMany
+      .mockResolvedValueOnce([{ id: "edge-old", targetRowPageId: "row-0" }] as never)
+      .mockResolvedValueOnce([] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.database.updateRow({ rowId: ROW_ID, values: { Problems: ["q1"] } });
+    const deletes = db.databaseRelation.deleteMany.mock.calls.map((c) => c[0]);
+    // The displaced inverse edge and its forward mirror (row-0 → q1) both go before the new edge lands.
+    expect(deletes).toContainEqual({ where: { id: { in: ["edge-old"] } } });
+    expect(deletes).toContainEqual({
+      where: { databaseId: DB_ID, propertyId: PROBLEMS_ID, rowPageId: { in: ["row-0"] }, targetRowPageId: "q1" },
+    });
+    expect(db.databaseRelation.create.mock.calls[0]![0].data).toMatchObject({ rowPageId: "q1", propertyId: REVERSE_ID, targetId: ROW_ID });
   });
 
   it("removeProperty on a two-way relation removes its edges and the reverse column on the other database, from either side", async () => {
