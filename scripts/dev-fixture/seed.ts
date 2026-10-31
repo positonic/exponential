@@ -15,7 +15,7 @@
  *     design decision observable: 6 tickets exist, the accordion shows 5.
  */
 import { createHash } from "crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { encryptString } from "../../src/server/utils/encryption";
 import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
 
@@ -181,6 +181,9 @@ export interface SeededFixture {
    * schedule-meeting spec skips.
    */
   canScheduleWithContact: boolean;
+  /** A page with no database yet, for the database-block spec (ADR-0078). Reset on every seed. */
+  databasePageId: string;
+  databasePageUrl: string;
 }
 
 interface TicketSpec {
@@ -1117,8 +1120,36 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     }
   }
 
+  // The database-block spec drives the page editor from a known empty page:
+  // find or create it, and start it clean — no databases, prose only — so
+  // every run inserts the block afresh (ADR-0078).
+  const databasePageTitle = "Database block fixture";
+  const existingDatabasePage = await db.knowledgePage.findFirst({
+    where: { workspaceId: workspace.id, createdById: user.id, title: databasePageTitle, databaseId: null },
+    select: { id: true },
+  });
+  const databasePageBody = "# Database block fixture\n\nA page the e2e suite adds a database to.";
+  const databasePage = existingDatabasePage
+    ? await db.knowledgePage.update({
+        where: { id: existingDatabasePage.id },
+        data: { body: databasePageBody, bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } },
+        select: { id: true },
+      })
+    : await db.knowledgePage.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          title: databasePageTitle,
+          body: databasePageBody,
+        },
+        select: { id: true },
+      });
+  await db.pageDatabase.deleteMany({ where: { pageId: databasePage.id } });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    databasePageId: databasePage.id,
+    databasePageUrl: `/w/${FIXTURE.workspaceSlug}/pages/${databasePage.id}`,
     tagId: tag.id,
     tagName: FIXTURE.tagName,
     assistantName: FIXTURE.assistantName,
