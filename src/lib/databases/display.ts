@@ -9,6 +9,13 @@ import type { PropertyDef } from "./schema";
  * `cellMarkdown`, which must stay in step for the same types.
  */
 
+/** A stored `properties` column read as values keyed by property id. */
+export function rowValues(json: unknown): Record<string, PropertyValue | null> {
+  return json && typeof json === "object" && !Array.isArray(json)
+    ? (json as Record<string, PropertyValue | null>)
+    : {};
+}
+
 export interface DisplayContext {
   /** A person's display name by user id. */
   personName?: (userId: string) => string | undefined;

@@ -266,3 +266,46 @@
   padding: 0;
   border-bottom: none;
 }
+
+/* ── row page property header ── */
+.fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 6px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+
+.field {
+  display: contents;
+}
+
+.fieldLabel {
+  color: var(--color-text-muted);
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.fieldValue {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  color: var(--color-text-primary);
+}
+
+.fieldButton {
+  min-width: 80px;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: text;
+}
+
+.fieldButton:hover {
+  background: var(--color-bg-hover);
+}
