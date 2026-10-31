@@ -274,6 +274,7 @@ function requireProperty(properties: readonly PropertyDef[], key: string): Prope
 async function writeRelations(
   tx: Db,
   database: { id: string; workspaceId: string },
+  userId: string,
   rowId: string,
   properties: readonly PropertyDef[],
   relations: Record<string, string[]>,
@@ -284,6 +285,7 @@ async function writeRelations(
     await replaceRowRelations(tx, {
       databaseId: database.id,
       workspaceId: database.workspaceId,
+      userId,
       rowId,
       def,
       targetIds,
@@ -452,7 +454,7 @@ export const databaseRouter = createTRPCRouter({
           },
             select: ROW_SELECT,
           });
-          await writeRelations(tx, database, created.id, properties, relations);
+          await writeRelations(tx, database, userId, created.id, properties, relations);
           await recordPageRevision(tx, {
             pageId: created.id,
             kind: "create",
@@ -530,7 +532,7 @@ export const databaseRouter = createTRPCRouter({
             },
             select: ROW_SELECT,
           });
-          await writeRelations(tx, row.database, row.id, properties, relations);
+          await writeRelations(tx, row.database, userId, row.id, properties, relations);
           await recordPageRevision(tx, {
             pageId: row.id,
             kind: "properties",
@@ -660,6 +662,7 @@ export const databaseRouter = createTRPCRouter({
         def,
         workspaceId: database.workspaceId,
         workspaceSlug: database.workspace.slug,
+        userId: ctx.session.user.id,
         query: input.query,
         limit: input.limit,
       });
