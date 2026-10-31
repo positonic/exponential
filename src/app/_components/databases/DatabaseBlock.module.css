@@ -154,3 +154,62 @@
   color: var(--color-text-primary);
   background: var(--color-bg-hover);
 }
+
+/* ── header property buttons ── */
+.headerButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+
+.headerButton:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.addColumn {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* ── select pills ── */
+.pillButton {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 20px;
+  min-width: 24px;
+  align-items: center;
+  font: inherit;
+}
+
+.pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.cellEmpty {
+  color: var(--color-text-muted);
+}
+
+.nameInput {
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+}

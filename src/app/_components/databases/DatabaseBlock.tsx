@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -13,7 +13,9 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DatabaseNode } from "~/lib/prd/database-node";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { usePageEditorContext } from "~/app/_components/pages/PageEditorContext";
+import type { PropertyDef } from "~/lib/databases/schema";
 import { DatabaseTable } from "./DatabaseTable";
+import type { PropertyDraft } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
 
 /** Rows the block loads at once; the saved view pages beyond this (load more arrives with the view controls). */
@@ -49,6 +51,11 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
   const rowsQuery = api.database.listRows.useQuery(rowsKey, { enabled: !!databaseId, retry: false });
   const updateRow = api.database.updateRow.useMutation();
   const createRow = api.database.createRow.useMutation();
+  const addProperty = api.database.addProperty.useMutation();
+  const updateProperty = api.database.updateProperty.useMutation();
+  const removeProperty = api.database.removeProperty.useMutation();
+  const updateDatabase = api.database.update.useMutation();
+  const [renaming, setRenaming] = useState<string | null>(null);
   const database = databaseQuery.data;
   const liveName = database?.name;
 
@@ -117,6 +124,102 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     }
   }, [createRow, databaseId, setRows, utils]);
 
+  /** After a schema change: fresh definition and columns, rows re-read through the view. */
+  const refetchSchema = useCallback(async () => {
+    if (!databaseId) return;
+    await Promise.all([
+      utils.database.get.invalidate({ id: databaseId }),
+      utils.database.listRows.invalidate({ id: databaseId }),
+    ]);
+  }, [databaseId, utils]);
+
+  const failed = (title: string, error: unknown) =>
+    notifications.show({
+      color: "red",
+      title,
+      message: error instanceof Error ? error.message : "Please try again.",
+    });
+
+  const onAddProperty = useCallback(
+    async (draft: PropertyDraft) => {
+      if (!databaseId || draft.type === "title" || draft.type === "relation") return;
+      try {
+        await addProperty.mutateAsync({ id: databaseId, ...draft, type: draft.type });
+        await refetchSchema();
+      } catch (error) {
+        failed("Could not add the property", error);
+      }
+    },
+    [addProperty, databaseId, refetchSchema],
+  );
+
+  const onUpdateProperty = useCallback(
+    async (def: PropertyDef, draft: PropertyDraft) => {
+      if (!databaseId) return;
+      try {
+        await updateProperty.mutateAsync({
+          id: databaseId,
+          propertyId: def.id,
+          name: draft.name,
+          ...(draft.type !== def.type && draft.type !== "title" && draft.type !== "relation" ? { type: draft.type } : {}),
+          ...(draft.options ? { options: draft.options } : {}),
+        });
+        await refetchSchema();
+      } catch (error) {
+        failed("Could not save the property", error);
+      }
+    },
+    [databaseId, refetchSchema, updateProperty],
+  );
+
+  const onRemoveProperty = useCallback(
+    async (def: PropertyDef) => {
+      if (!databaseId) return;
+      try {
+        await removeProperty.mutateAsync({ id: databaseId, propertyId: def.id });
+        await refetchSchema();
+      } catch (error) {
+        failed("Could not remove the property", error);
+      }
+    },
+    [databaseId, refetchSchema, removeProperty],
+  );
+
+  /** Add one option to a select property from a cell; existing options keep their ids. */
+  const onCreateOption = useCallback(
+    async (def: PropertyDef, optionName: string) => {
+      if (!databaseId) return null;
+      try {
+        const result = await updateProperty.mutateAsync({
+          id: databaseId,
+          propertyId: def.id,
+          options: [...(def.options ?? []), { name: optionName }],
+        });
+        await refetchSchema();
+        return (
+          result.property.options?.find((o) => o.name.trim().toLowerCase() === optionName.trim().toLowerCase())?.id ??
+          null
+        );
+      } catch (error) {
+        failed("Could not add the option", error);
+        return null;
+      }
+    },
+    [databaseId, refetchSchema, updateProperty],
+  );
+
+  const commitName = async () => {
+    const next = renaming?.trim();
+    setRenaming(null);
+    if (!databaseId || !next || next === liveName) return;
+    try {
+      await updateDatabase.mutateAsync({ id: databaseId, name: next });
+      await utils.database.get.invalidate({ id: databaseId });
+    } catch (error) {
+      failed("Could not rename the database", error);
+    }
+  };
+
   const name = liveName ?? cachedName;
   const rowCount = database?.rowCount;
 
@@ -143,6 +246,10 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
         editable={editable}
         onWriteCell={writeCell}
         onCreateRow={addRow}
+        onAddProperty={onAddProperty}
+        onUpdateProperty={onUpdateProperty}
+        onRemoveProperty={onRemoveProperty}
+        onCreateOption={onCreateOption}
       />
     );
   }
@@ -157,7 +264,34 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     >
       <div className={styles.header}>
         <IconTable size={16} className="shrink-0 text-text-muted" />
-        <span className={styles.name}>{name}</span>
+        {renaming !== null ? (
+          <input
+            className={styles.nameInput}
+            value={renaming}
+            autoFocus
+            aria-label="Database name"
+            onChange={(e) => setRenaming(e.target.value)}
+            onBlur={() => void commitName()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void commitName();
+              if (e.key === "Escape") setRenaming(null);
+              e.stopPropagation();
+            }}
+          />
+        ) : (
+          <span
+            className={styles.name}
+            role={editable ? "button" : undefined}
+            tabIndex={editable ? 0 : undefined}
+            title={editable ? "Rename" : undefined}
+            onClick={() => editable && setRenaming(name)}
+            onKeyDown={(e) => {
+              if (editable && e.key === "Enter") setRenaming(name);
+            }}
+          >
+            {name}
+          </span>
+        )}
         {typeof rowCount === "number" ? (
           <span className={styles.meta}>
             {rowCount} row{rowCount === 1 ? "" : "s"}

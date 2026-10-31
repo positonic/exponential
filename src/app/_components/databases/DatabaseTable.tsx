@@ -5,8 +5,11 @@ import Link from "next/link";
 import type { PropertyValue } from "~/lib/databases/properties";
 import type { PropertyDef } from "~/lib/databases/schema";
 import { computedValue, displayValue, type DisplayContext } from "~/lib/databases/display";
+import { IconPlus } from "@tabler/icons-react";
 import { TextCell } from "./cells/TextCell";
 import { CheckboxCell } from "./cells/CheckboxCell";
+import { SelectCell } from "./cells/SelectCell";
+import { PropertyEditorPopover, type PropertyDraft } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
 
 /** The slice of a database the table needs. */
@@ -39,6 +42,12 @@ interface DatabaseTableProps {
   onWriteCell?: (rowId: string, propertyId: string, value: unknown) => void | Promise<void>;
   /** Append a row; resolve with its id so the table can start editing its title. */
   onCreateRow?: () => Promise<string | null | undefined> | string | null | undefined;
+  /** Schema edits from the header; absent → the header is static. */
+  onAddProperty?: (draft: PropertyDraft) => Promise<void> | void;
+  onUpdateProperty?: (def: PropertyDef, draft: PropertyDraft) => Promise<void> | void;
+  onRemoveProperty?: (def: PropertyDef) => Promise<void> | void;
+  /** Add a select option from a cell and resolve with its id. */
+  onCreateOption?: (def: PropertyDef, name: string) => Promise<string | null>;
 }
 
 interface EditingCell {
@@ -72,12 +81,17 @@ export function DatabaseTable({
   editable = false,
   onWriteCell,
   onCreateRow,
+  onAddProperty,
+  onUpdateProperty,
+  onRemoveProperty,
+  onCreateOption,
 }: DatabaseTableProps) {
   const byId = new Map(database.properties.map((p) => [p.id, p]));
   const visible = columns.map((id) => byId.get(id)).filter((p): p is PropertyDef => !!p);
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const canEdit = editable && !!onWriteCell;
+  const canEditSchema = editable && !!onUpdateProperty;
 
   // A row that vanished (deleted, filtered out) ends any edit on it.
   useEffect(() => {
@@ -98,7 +112,7 @@ export function DatabaseTable({
 
   const startEditing = (row: DatabaseTableRow, def: PropertyDef, initial?: string) => {
     if (!canEdit || !isEditableType(def)) return;
-    if (def.type === "checkbox") return; // flips on click/Space instead
+    if (!TEXT_EDITED.has(def.type)) return; // checkboxes flip, selects open their own picker
     setEditing({ rowId: row.id, propertyId: def.id, initial });
   };
 
@@ -130,10 +144,14 @@ export function DatabaseTable({
       case "Enter":
       case "F2":
         if (!canEdit) return;
-        e.preventDefault();
         if (def.type === "checkbox") {
+          e.preventDefault();
           commit(row.id, def, row.values[def.id] !== true);
+        } else if (def.type === "select" || def.type === "multiSelect") {
+          // The pill button inside the cell opens the picker on Enter.
+          e.currentTarget.querySelector<HTMLButtonElement>("button")?.click();
         } else {
+          e.preventDefault();
           startEditing(row, def);
         }
         return;
@@ -171,6 +189,17 @@ export function DatabaseTable({
           value={typeof raw === "boolean" ? raw : null}
           editable={canEdit}
           onCommit={(next) => commit(row.id, def, next)}
+        />
+      );
+    }
+    if (def.type === "select" || def.type === "multiSelect") {
+      return (
+        <SelectCell
+          def={def}
+          value={typeof raw === "string" || Array.isArray(raw) ? raw : null}
+          editable={canEdit}
+          onCommit={(next) => commit(row.id, def, next)}
+          onCreateOption={onCreateOption ? (name) => onCreateOption(def, name) : undefined}
         />
       );
     }
@@ -218,15 +247,36 @@ export function DatabaseTable({
           <tr>
             {visible.map((def) => (
               <th key={def.id} scope="col">
-                {def.name}
+                {canEditSchema ? (
+                  <PropertyEditorPopover
+                    property={def}
+                    target={<span>{def.name}</span>}
+                    onSubmit={(draft) => onUpdateProperty?.(def, draft)}
+                    onRemove={onRemoveProperty && def.type !== "title" ? () => onRemoveProperty(def) : undefined}
+                  />
+                ) : (
+                  def.name
+                )}
               </th>
             ))}
+            {canEditSchema && onAddProperty ? (
+              <th scope="col" className={styles.addColumn}>
+                <PropertyEditorPopover
+                  target={
+                    <span className="inline-flex items-center gap-1">
+                      <IconPlus size={12} /> Property
+                    </span>
+                  }
+                  onSubmit={(draft) => onAddProperty(draft)}
+                />
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && !canEdit ? (
             <tr>
-              <td className={styles.empty} colSpan={Math.max(visible.length, 1)}>
+              <td className={styles.empty} colSpan={Math.max(visible.length, 1) + (canEditSchema && onAddProperty ? 1 : 0)}>
                 No rows yet.
               </td>
             </tr>
@@ -256,12 +306,13 @@ export function DatabaseTable({
                     </td>
                   );
                 })}
+                {canEditSchema && onAddProperty ? <td className={styles.addColumn} /> : null}
               </tr>
             ))
           )}
           {canEdit && onCreateRow ? (
             <tr className={styles.newRow}>
-              <td colSpan={Math.max(visible.length, 1)}>
+              <td colSpan={Math.max(visible.length, 1) + (canEditSchema && onAddProperty ? 1 : 0)}>
                 <button type="button" className={styles.newRowButton} onClick={() => void handleCreateRow()}>
                   + New
                 </button>

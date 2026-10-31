@@ -167,6 +167,26 @@ describe("DatabaseTable — editing", () => {
     expect(await screen.findByRole("textbox", { name: "Name" })).toBeTruthy();
   });
 
+  it("with schema handlers the header offers a property editor per column and an add button", () => {
+    render(
+      <DatabaseTable
+        database={database}
+        rows={rows}
+        columns={[TITLE, STATUS]}
+        editable
+        onWriteCell={vi.fn()}
+        onAddProperty={vi.fn()}
+        onUpdateProperty={vi.fn()}
+        onRemoveProperty={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Edit property Name" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit property Status" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add a property" })).toBeTruthy();
+    // A select cell shows its option as a pill.
+    expect(screen.getAllByRole("button", { name: "Status" })[0]!.textContent).toBe("Tracked");
+  });
+
   it("read-only tables have no + New line and no focusable cells", () => {
     const { container } = render(<DatabaseTable database={database} rows={rows} columns={[TITLE, STATUS]} />);
     expect(screen.queryByRole("button", { name: "+ New" })).toBeNull();
