@@ -33,6 +33,8 @@ export type ValidationResult =
 export interface CellContext {
   /** A person's display name by user id; the id itself is shown when absent. */
   personName?: (userId: string) => string | undefined;
+  /** A relation target's title (and link) by property and target id; the id is shown when absent. */
+  relationTarget?: (def: PropertyDef, targetId: string) => { title: string; href?: string } | undefined;
 }
 
 interface PropertyKind {
@@ -203,10 +205,26 @@ const person: PropertyKind = {
       .join(", "),
 };
 
-/** Relation values are edges, never cell values (ADR-0078 §3); written in V3. */
+/**
+ * A relation cell takes the ids of its targets (a list, or comma-separated
+ * from the CLI). They are never stored as a value: the router turns them
+ * into edges (ADR-0078 §3), and the projection reads the edges back.
+ */
 const relation: PropertyKind = {
-  validate: () => reject("is a relation; its targets are set through relations, not values"),
-  markdown: (_def, value) => String(value),
+  validate(_def, raw) {
+    const ids = asList(raw);
+    if (!ids) return reject(`expects a target id or a list of them, got ${describe(raw)}`);
+    return accept([...new Set(ids.map((id) => id.trim()).filter(Boolean))]);
+  },
+  markdown: (def, value, ctx) =>
+    (Array.isArray(value) ? value : [String(value)])
+      .map((id) => {
+        const target = ctx.relationTarget?.(def, id);
+        if (!target) return id;
+        const title = target.title.replace(/([[\]])/g, "\\$1");
+        return target.href ? `[${title}](${target.href})` : title;
+      })
+      .join(", "),
 };
 
 /** Read-only types: the value comes from the row page, never from a write. */
@@ -238,10 +256,10 @@ const REGISTRY: Record<PropertyType, PropertyKind> = {
 /**
  * Validate one raw value against its property. `null`, `undefined` and an
  * empty string all clear the cell, whatever the type — except on read-only
- * and relation properties, which take no cell value at all.
+ * properties, which take no cell value at all.
  */
 export function validateValue(def: PropertyDef, raw: unknown): ValidationResult {
-  if (COMPUTED_PROPERTY_TYPES.has(def.type) || def.type === "relation") {
+  if (COMPUTED_PROPERTY_TYPES.has(def.type)) {
     return REGISTRY[def.type].validate(def, raw);
   }
   if (raw === null || raw === undefined || raw === "") {

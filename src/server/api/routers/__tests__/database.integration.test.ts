@@ -248,6 +248,96 @@ describe("database router (integration)", () => {
     expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(0);
   });
 
+  it("relations (V3 tracer): a relation to another database writes edges both ways and the reverse column appears on its own", async () => {
+    const { owner, page } = await setup(db, "db-relations");
+    const { caller, database: metrics, latency, coverage } = await seedMetrics(db, owner.id, page.id);
+    const problems = await caller.database.create({ pageId: page.id, name: "Problems" });
+    const gaps = await caller.database.createRow({ id: problems.id, values: { Name: "Gaps" } });
+    const noise = await caller.database.createRow({ id: problems.id, values: { Name: "Noise" } });
+
+    // Metrics → Problems; Problems grows a "Metrics" column nobody created.
+    const added = await caller.database.addProperty({
+      id: metrics.id,
+      name: "Problems",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: problems.id },
+    });
+    expect(added.property.relation).toEqual({ targetKind: "ROW", targetDatabaseId: problems.id, many: true });
+    expect(added.reverse?.databaseId).toBe(problems.id);
+    const reverse = added.reverse!.property;
+    expect(reverse).toMatchObject({
+      name: "Metrics",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: metrics.id, inverseOf: { databaseId: metrics.id, propertyId: added.property.id } },
+    });
+    const problemsDef = await caller.database.get({ id: problems.id });
+    expect(problemsDef.properties.map((p) => p.name)).toEqual(["Name", "Metrics"]);
+
+    // Set one cell by name, CLI-style: a comma-separated list of row ids.
+    const written = await caller.database.updateRow({ rowId: latency.id, values: { Problems: `${gaps.id},${noise.id}` } });
+    expect(written.relations[added.property.id]!.map((t) => [t.id, t.title, t.href])).toEqual([
+      [gaps.id, "Gaps", `/w/db-relations/pages/${gaps.id}`],
+      [noise.id, "Noise", `/w/db-relations/pages/${noise.id}`],
+    ]);
+    // Nothing landed in the values column.
+    const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: latency.id } });
+    expect(Object.keys(stored.properties as Record<string, unknown>)).not.toContain(added.property.id);
+
+    // The other side reads the reverse value without anyone writing it.
+    const problemRows = await caller.database.listRows({ id: problems.id });
+    const byTitle = new Map(problemRows.rows.map((r) => [r.title, r]));
+    expect(byTitle.get("Gaps")!.relations[reverse.id]!.map((t) => t.title)).toEqual(["Alert latency"]);
+    expect(byTitle.get("Noise")!.relations[reverse.id]!.map((t) => t.title)).toEqual(["Alert latency"]);
+
+    // Rewriting the cell replaces the edges on both sides; a second metric appends on the target.
+    await caller.database.updateRow({ rowId: latency.id, values: { Problems: [gaps.id] } });
+    await caller.database.updateRow({ rowId: coverage.id, values: { Problems: [gaps.id] } });
+    const again = await caller.database.listRows({ id: problems.id });
+    const rows = new Map(again.rows.map((r) => [r.title, r]));
+    expect(rows.get("Gaps")!.relations[reverse.id]!.map((t) => t.title)).toEqual(["Alert latency", "Coverage"]);
+    expect(rows.get("Noise")!.relations[reverse.id]).toEqual([]);
+
+    // Writing from the reverse side keeps the forward side in step too.
+    await caller.database.updateRow({ rowId: noise.id, values: { Metrics: [coverage.id] } });
+    const metricRows = await caller.database.listRows({ id: metrics.id });
+    const coverageRow = metricRows.rows.find((r) => r.id === coverage.id)!;
+    expect(coverageRow.relations[added.property.id]!.map((t) => t.title).sort()).toEqual(["Gaps", "Noise"]);
+
+    // The page's Markdown (the Metrics table is the one in the body) and a row header carry the links.
+    const read = await caller.page.get({ id: page.id, format: "markdown" });
+    expect(read.body).toContain("| Name | Status | Score | Problems |");
+    expect(read.body).toContain(
+      `| [Alert latency](/w/db-relations/pages/${latency.id}) | Tracked | 7 | [Gaps](/w/db-relations/pages/${gaps.id}) |`,
+    );
+    const rowRead = await caller.page.get({ id: gaps.id, format: "markdown" });
+    expect(rowRead.body).toBe(
+      `**Metrics:** [Alert latency](/w/db-relations/pages/${latency.id}), [Coverage](/w/db-relations/pages/${coverage.id})`,
+    );
+
+    // A target that is not a row of the related database is refused naming the property.
+    await expect(
+      caller.database.updateRow({ rowId: latency.id, values: { Problems: [latency.id] } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining('"Problems"') as string });
+
+    // Deleting a row takes its edges on both sides with it.
+    await caller.database.deleteRow({ rowId: gaps.id });
+    expect(await db.databaseRelation.count({ where: { OR: [{ rowPageId: gaps.id }, { targetRowPageId: gaps.id }] } })).toBe(0);
+  });
+
+  it("a relation cannot point outside the workspace, and listInWorkspace offers only readable, attached databases", async () => {
+    const { owner, viewer, outsider, page, ws } = await setup(db, "db-relations-ws");
+    const { caller, database } = await seedMetrics(db, owner.id, page.id);
+    const other = await setup(db, "db-relations-other");
+    const foreign = await createTestCaller(other.owner.id).database.create({ pageId: other.page.id, name: "Elsewhere" });
+    await expect(
+      caller.database.addProperty({ id: database.id, name: "Far", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: foreign.id } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("same workspace") as string });
+
+    expect((await caller.database.listInWorkspace({ workspaceId: ws.id })).map((d) => d.name)).toEqual(["Metrics"]);
+    expect((await createTestCaller(viewer.id).database.listInWorkspace({ workspaceId: ws.id })).map((d) => d.name)).toEqual(["Metrics"]);
+    expect(await createTestCaller(outsider.id).database.listInWorkspace({ workspaceId: ws.id })).toEqual([]);
+  });
+
   it("deleting the database, or the holding page, takes the rows with it", async () => {
     const { owner, page } = await setup(db, "db-cascade");
     const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);

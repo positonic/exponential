@@ -18,6 +18,7 @@ import {
   parseView,
   pillColorSchema,
   propertyTypeSchema,
+  relationTargetKindSchema,
   unknownPropertyInView,
   visibleProperties,
   type DatabaseView,
@@ -25,10 +26,12 @@ import {
   type PropertyDef,
   type PropertyType,
 } from "~/lib/databases/schema";
+import type { RowRelations } from "~/lib/databases/relations";
 import {
   ensurePageAccess,
   PAGE_ACCESS_SELECT,
 } from "~/server/services/pages/access";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 import { recordPageRevision } from "~/server/services/pages/revisions";
 import { publishOnePage } from "~/server/services/pages/publish";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
@@ -45,6 +48,11 @@ import {
   coerceRowValues,
   PropertyValueError,
 } from "~/server/services/databases/values";
+import {
+  loadRowRelations,
+  replaceRowRelations,
+  reversePropertyFor,
+} from "~/server/services/databases/relations";
 import type { PropertyValue } from "~/lib/databases/properties";
 
 /**
@@ -72,9 +80,12 @@ const DATABASE_SELECT = {
   page: {
     select: { ...PAGE_ACCESS_SELECT, title: true, includeInSearch: true, isPublic: true },
   },
+  /** For the links relation cells carry to row pages. */
+  workspace: { select: { slug: true } },
 } satisfies Prisma.PageDatabaseSelect;
 
 type DatabaseRow = Prisma.PageDatabaseGetPayload<{ select: typeof DATABASE_SELECT }>;
+type Db = PrismaClient | Prisma.TransactionClient;
 
 /** Everything a row read returns: the page's identity plus its typed values. */
 const ROW_SELECT = {
@@ -102,7 +113,7 @@ async function loadDatabase(db: PrismaClient, id: string): Promise<DatabaseRow> 
 
 /** The database as callers see it: parsed definitions, the holding page named. */
 function presentDatabase(database: DatabaseRow) {
-  const { page, properties, view, ...rest } = database;
+  const { page, properties, view, workspace: _workspace, ...rest } = database;
   return {
     ...rest,
     properties: parseProperties(properties),
@@ -111,9 +122,10 @@ function presentDatabase(database: DatabaseRow) {
   };
 }
 
-function presentRow(row: RowRecord) {
+/** A row as callers see it: typed values, and its relation targets resolved (empty lists when none). */
+function presentRow(row: RowRecord, relations: RowRelations = {}) {
   const { properties, ...rest } = row;
-  return { ...rest, values: rowValues(properties) };
+  return { ...rest, values: rowValues(properties), relations };
 }
 
 /** A typed rejection → BAD_REQUEST naming the property; anything else passes through. */
@@ -137,11 +149,25 @@ function assertViewResolves(properties: readonly PropertyDef[], view: DatabaseVi
 
 const rowValuesInput = z.record(z.string().min(1), z.unknown());
 
-/** A type a caller may add or change a property to (never title, never relation — V3). */
+/** A type a caller may change a property to (never title, never relation: a relation is created with its target and keeps it). */
 const addableTypeInput = propertyTypeSchema.refine(
   (type): type is PropertyType => ADDABLE_PROPERTY_TYPES.includes(type),
   { message: "A property cannot be given this type here" },
 );
+
+/** A type a caller may add: the addable ones, plus `relation` with its target (`title` exists once, from creation). */
+const creatableTypeInput = propertyTypeSchema.refine(
+  (type): type is PropertyType => type !== "title",
+  { message: "A property cannot be given this type here" },
+);
+
+/** Where a new relation property points. `ROW` names the related database; the other kinds name a native entity type. */
+const relationInput = z.object({
+  targetKind: relationTargetKindSchema,
+  targetDatabaseId: z.string().optional(),
+  /** Whether a cell holds several targets. Default true; the reverse column always does. */
+  many: z.boolean().default(true),
+});
 
 const optionInput = z.object({
   /** Present when renaming or recolouring an existing option; absent for a new one. */
@@ -155,7 +181,7 @@ const optionInput = z.object({
  * columns, so every change passes through the same JSON shapes.
  */
 async function writeDefinition(
-  db: PrismaClient,
+  db: Db,
   id: string,
   data: { properties?: PropertyDef[]; view?: DatabaseView },
 ): Promise<DatabaseRow> {
@@ -241,6 +267,30 @@ function requireProperty(properties: readonly PropertyDef[], key: string): Prope
   return def;
 }
 
+/** The relation cells of one write, each replacing the row's edges under its property (ADR-0078 §3). */
+async function writeRelations(
+  tx: Db,
+  databaseId: string,
+  rowId: string,
+  properties: readonly PropertyDef[],
+  relations: Record<string, string[]>,
+): Promise<void> {
+  for (const [propertyId, targetIds] of Object.entries(relations)) {
+    const def = properties.find((p) => p.id === propertyId);
+    if (def) await replaceRowRelations(tx, { databaseId, rowId, def, targetIds });
+  }
+}
+
+/** One row's resolved relations, for the row a write returns. */
+async function rowRelations(
+  db: PrismaClient,
+  rowId: string,
+  properties: readonly PropertyDef[],
+  workspaceSlug: string,
+): Promise<RowRelations> {
+  return (await loadRowRelations(db, [rowId], properties, workspaceSlug)).get(rowId) ?? {};
+}
+
 export const databaseRouter = createTRPCRouter({
   /**
    * Create a database on a page, with a title property. The caller then puts
@@ -315,6 +365,27 @@ export const databaseRouter = createTRPCRouter({
       }));
     }),
 
+  /**
+   * The attached databases of a workspace the caller can read, named with
+   * their holding page — what a relation property may point at.
+   */
+  listInWorkspace: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const databases = await ctx.db.pageDatabase.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          detachedAt: null,
+          page: {
+            AND: [buildKnowledgePageAccessWhere(ctx.session.user.id), { workspaceId: input.workspaceId }],
+          },
+        },
+        orderBy: [{ page: { title: "asc" } }, { createdAt: "asc" }],
+        select: { id: true, name: true, page: { select: { id: true, title: true } } },
+      });
+      return databases.map((d) => ({ id: d.id, name: d.name, page: d.page }));
+    }),
+
   /** One database: its definition, view, row count and holding page. */
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -354,10 +425,12 @@ export const databaseRouter = createTRPCRouter({
       } catch (error) {
         asTRPCError(error);
       }
-      const { values, title } = coerced;
+      const { values, title, relations } = coerced;
 
-      const row = await ctx.db.$transaction(async (tx) => {
-        const created = await tx.knowledgePage.create({
+      let row;
+      try {
+        row = await ctx.db.$transaction(async (tx) => {
+          const created = await tx.knowledgePage.create({
           data: {
             title: title?.trim() ? title.trim() : "Untitled",
             databaseId: database.id,
@@ -367,23 +440,27 @@ export const databaseRouter = createTRPCRouter({
             includeInSearch: database.page.includeInSearch,
             createdById: userId,
           },
-          select: ROW_SELECT,
+            select: ROW_SELECT,
+          });
+          await writeRelations(tx, database.id, created.id, properties, relations);
+          await recordPageRevision(tx, {
+            pageId: created.id,
+            kind: "create",
+            authorId: userId,
+            note: input.note,
+          });
+          return created;
         });
-        await recordPageRevision(tx, {
-          pageId: created.id,
-          kind: "create",
-          authorId: userId,
-          note: input.note,
-        });
-        return created;
-      });
+      } catch (error) {
+        asTRPCError(error);
+      }
       // Rows publish with their holding page (ADR-0078 §4): one added to a
       // page that is already public is public too, with its own URL.
       if (database.page.isPublic && !database.detachedAt) {
         await publishOnePage(ctx.db, row.id);
       }
       reindex(ctx.db, database.pageId, row.id);
-      return presentRow(row);
+      return presentRow(row, await rowRelations(ctx.db, row.id, properties, database.workspace.slug));
     }),
 
   /**
@@ -414,46 +491,55 @@ export const databaseRouter = createTRPCRouter({
       } catch (error) {
         asTRPCError(error);
       }
-      const { values, title } = coerced;
+      const { values, title, relations } = coerced;
       const known = new Set(properties.map((p) => p.id));
 
-      const updated = await ctx.db.$transaction(async (tx) => {
-        // Two callers editing different cells must both land: merge against
-        // the values as they are *now*, under a row lock, not against the
-        // snapshot read before the transaction.
-        const [locked] = await tx.$queryRaw<{ properties: Prisma.JsonValue }[]>`
-          SELECT "properties" FROM "KnowledgePage" WHERE "id" = ${row.id} FOR UPDATE
-        `;
-        if (!locked) throw new TRPCError({ code: "NOT_FOUND", message: "Row not found" });
-        const merged: Record<string, PropertyValue | null> = {};
-        for (const [id, value] of Object.entries(rowValues(locked.properties))) {
-          if (known.has(id) && value !== null) merged[id] = value;
-        }
-        for (const [id, value] of Object.entries(values)) {
-          if (value === null) delete merged[id];
-          else merged[id] = value;
-        }
-        const written = await tx.knowledgePage.update({
-          where: { id: row.id },
-          data: {
-            properties: merged,
-            ...(title !== undefined ? { title: title.trim() ? title.trim() : "Untitled" } : {}),
-          },
-          select: ROW_SELECT,
+      let updated;
+      try {
+        updated = await ctx.db.$transaction(async (tx) => {
+          // Two callers editing different cells must both land: merge against
+          // the values as they are *now*, under a row lock, not against the
+          // snapshot read before the transaction.
+          const [locked] = await tx.$queryRaw<{ properties: Prisma.JsonValue }[]>`
+            SELECT "properties" FROM "KnowledgePage" WHERE "id" = ${row.id} FOR UPDATE
+          `;
+          if (!locked) throw new TRPCError({ code: "NOT_FOUND", message: "Row not found" });
+          const merged: Record<string, PropertyValue | null> = {};
+          for (const [id, value] of Object.entries(rowValues(locked.properties))) {
+            if (known.has(id) && value !== null) merged[id] = value;
+          }
+          for (const [id, value] of Object.entries(values)) {
+            if (value === null) delete merged[id];
+            else merged[id] = value;
+          }
+          const written = await tx.knowledgePage.update({
+            where: { id: row.id },
+            data: {
+              properties: merged,
+              ...(title !== undefined ? { title: title.trim() ? title.trim() : "Untitled" } : {}),
+            },
+            select: ROW_SELECT,
+          });
+          await writeRelations(tx, row.database.id, row.id, properties, relations);
+          await recordPageRevision(tx, {
+            pageId: row.id,
+            kind: "properties",
+            authorId: userId,
+            note: input.note,
+            // A browser session is the table block; any token is a write from
+            // outside the editor, which never folds (as `page.update` decides).
+            fold: ctx.tokenType === undefined,
+          });
+          return written;
         });
-        await recordPageRevision(tx, {
-          pageId: row.id,
-          kind: "properties",
-          authorId: userId,
-          note: input.note,
-          // A browser session is the table block; any token is a write from
-          // outside the editor, which never folds (as `page.update` decides).
-          fold: ctx.tokenType === undefined,
-        });
-        return written;
-      });
+      } catch (error) {
+        asTRPCError(error);
+      }
       reindex(ctx.db, row.database.pageId, row.id);
-      return presentRow(updated);
+      return presentRow(
+        updated,
+        await rowRelations(ctx.db, row.id, properties, row.database.workspace.slug),
+      );
     }),
 
   /**
@@ -526,8 +612,14 @@ export const databaseRouter = createTRPCRouter({
       }
       const hasMore = rows.length > input.limit;
       const slice = hasMore ? rows.slice(0, input.limit) : rows;
+      const relations = await loadRowRelations(
+        ctx.db,
+        slice.map((r) => r.id),
+        properties,
+        database.workspace.slug,
+      );
       return {
-        rows: slice.map(presentRow),
+        rows: slice.map((row) => presentRow(row, relations.get(row.id))),
         nextCursor: hasMore ? cursorFromOffset(offset + input.limit) : null,
         columns: visibleProperties(properties, view).map((p) => p.id),
       };
@@ -567,22 +659,26 @@ export const databaseRouter = createTRPCRouter({
   /**
    * Add a property. Select options get stable ids and palette colours; the
    * new column goes last in the saved view. `title` exists once from
-   * creation and `relation` arrives with its own path (V3), so neither can
-   * be added here.
+   * creation. A `relation` to another database of the workspace is two-way
+   * (ADR-0078 §5): the other database grows a reverse column in the same
+   * transaction, named after this one, so the link reads from both sides.
+   * A relation to the database itself is one-way.
    */
   addProperty: protectedProcedure
     .input(
       z.object({
         id: z.string(),
         name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
-        type: addableTypeInput,
+        type: creatableTypeInput,
         description: boundedText("Description", TEXT_LIMITS.SHORT).optional(),
         options: optionInput.array().optional(),
+        relation: relationInput.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const database = await loadDatabase(ctx.db, input.id);
-      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      await ensurePageAccess(ctx.db, userId, database.page, "edit");
       const properties = parseProperties(database.properties);
       const view = parseView(database.view);
 
@@ -593,6 +689,45 @@ export const databaseRouter = createTRPCRouter({
           message: "Options apply to select and multiSelect properties only",
         });
       }
+      if (input.relation && input.type !== "relation") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A target applies to relation properties only",
+        });
+      }
+
+      // The database a ROW relation points at: same workspace, and — since
+      // it gains a column — one the caller may edit as well.
+      let target: DatabaseRow | null = null;
+      if (input.type === "relation") {
+        const relation = input.relation;
+        if (!relation) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "A relation property needs a target" });
+        }
+        if (relation.targetKind !== "ROW") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Relations to native entities cannot be created yet",
+          });
+        }
+        if (!relation.targetDatabaseId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "A relation to a database names the database it relates to",
+          });
+        }
+        target = await loadDatabase(ctx.db, relation.targetDatabaseId);
+        if (target.workspaceId !== database.workspaceId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "The related database must be in the same workspace",
+          });
+        }
+        if (target.id !== database.id) {
+          await ensurePageAccess(ctx.db, userId, target.page, "edit");
+        }
+      }
+
       const def: PropertyDef = {
         id: newPropertyId(),
         name: input.name.trim(),
@@ -601,17 +736,34 @@ export const databaseRouter = createTRPCRouter({
         ...(hasOptions(input.type)
           ? { options: normaliseOptionsOrThrow(input.options ?? [], []) }
           : {}),
+        ...(target && input.relation
+          ? { relation: { targetKind: "ROW" as const, targetDatabaseId: target.id, many: input.relation.many } }
+          : {}),
       };
-      const updated = await writeDefinition(ctx.db, database.id, {
-        properties: [...properties, def],
-        // An explicit column order grows by the new column; an empty order
-        // keeps following definition order.
-        view: view.propertyOrder.length
-          ? { ...view, propertyOrder: [...view.propertyOrder, def.id] }
-          : view,
+      // An explicit column order grows by the new column; an empty order
+      // keeps following definition order.
+      const grow = (current: DatabaseView, id: string): DatabaseView =>
+        current.propertyOrder.length
+          ? { ...current, propertyOrder: [...current.propertyOrder, id] }
+          : current;
+
+      const { updated, reverse } = await ctx.db.$transaction(async (tx) => {
+        const written = await writeDefinition(tx, database.id, {
+          properties: [...properties, def],
+          view: grow(view, def.id),
+        });
+        if (!target || target.id === database.id) return { updated: written, reverse: null };
+        const targetProperties = parseProperties(target.properties);
+        const reverseDef = reversePropertyFor(database, def, targetProperties);
+        await writeDefinition(tx, target.id, {
+          properties: [...targetProperties, reverseDef],
+          view: grow(parseView(target.view), reverseDef.id),
+        });
+        return { updated: written, reverse: { databaseId: target.id, property: reverseDef } };
       });
       reindex(ctx.db, database.pageId);
-      return { property: def, database: presentDatabase(updated) };
+      if (reverse && target) reindex(ctx.db, target.pageId);
+      return { property: def, database: presentDatabase(updated), reverse };
     }),
 
   /**

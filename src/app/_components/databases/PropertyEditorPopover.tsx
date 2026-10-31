@@ -40,6 +40,15 @@ export interface PropertyDraft {
   type: PropertyType;
   description?: string;
   options?: OptionDraft[];
+  /** For a new relation: the database it points at (ADR-0078 §5). */
+  relation?: { targetKind: "ROW"; targetDatabaseId: string };
+}
+
+/** A database a relation may point at, named with its holding page. */
+export interface RelatableDatabase {
+  id: string;
+  name: string;
+  pageTitle: string;
 }
 
 interface PropertyEditorPopoverProps {
@@ -49,6 +58,8 @@ interface PropertyEditorPopoverProps {
   target: React.ReactNode;
   onSubmit: (draft: PropertyDraft) => Promise<void> | void;
   onRemove?: () => Promise<void> | void;
+  /** Offered as targets when adding a relation; absent → the relation type is not offered. */
+  relatableDatabases?: RelatableDatabase[];
 }
 
 /**
@@ -57,28 +68,47 @@ interface PropertyEditorPopoverProps {
  * Options keep their ids through a rename, so changing "Tracked" to "Being
  * tracked" rewrites no row; a removed option's rows read as its raw id until
  * they are next written. The title property can be renamed but not retyped
- * or removed.
+ * or removed. A relation is created pointing at a database and keeps both
+ * its type and its target; editing one renames it.
  */
-export function PropertyEditorPopover({ property, target, onSubmit, onRemove }: PropertyEditorPopoverProps) {
+export function PropertyEditorPopover({
+  property,
+  target,
+  onSubmit,
+  onRemove,
+  relatableDatabases,
+}: PropertyEditorPopoverProps) {
   const [opened, setOpened] = useState(false);
   const [name, setName] = useState(property?.name ?? "");
   const [type, setType] = useState<PropertyType>(property?.type ?? "text");
   const [options, setOptions] = useState<OptionDraft[]>(property?.options ?? []);
+  const [targetDatabaseId, setTargetDatabaseId] = useState<string | null>(null);
   const [newOption, setNewOption] = useState("");
   const [saving, setSaving] = useState(false);
   const isTitle = property?.type === "title";
+  const isRelation = property?.type === "relation";
+  const isNewRelation = !property && type === "relation";
 
   useEffect(() => {
     if (!opened) return;
     setName(property?.name ?? "");
     setType(property?.type ?? "text");
     setOptions(property?.options ?? []);
+    setTargetDatabaseId(null);
     setNewOption("");
   }, [opened, property]);
 
-  const typeChoices = (isTitle ? (["title"] as PropertyType[]) : ADDABLE_PROPERTY_TYPES).map((t) => ({
-    value: t,
-    label: TYPE_LABELS[t],
+  // Title and relation keep their type; a new property may be a relation
+  // when there is something to relate it to.
+  const fixedType = property && (isTitle || isRelation) ? property.type : null;
+  const typeChoices = (
+    fixedType
+      ? [fixedType]
+      : [...ADDABLE_PROPERTY_TYPES, ...(!property && relatableDatabases ? (["relation"] as const) : [])]
+  ).map((t) => ({ value: t, label: TYPE_LABELS[t] }));
+  const relationChoices = (relatableDatabases ?? []).map((d) => ({
+    value: d.id,
+    label: d.pageTitle ? `${d.name} — ${d.pageTitle}` : d.name,
   }));
 
   const addOption = () => {
@@ -88,15 +118,20 @@ export function PropertyEditorPopover({ property, target, onSubmit, onRemove }: 
     setNewOption("");
   };
 
+  const canSubmit = name.trim().length > 0 && (!isNewRelation || !!targetDatabaseId);
+
   const submit = async () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onSubmit({
         name: trimmed,
         type,
         ...(hasOptions(type) ? { options } : {}),
+        ...(isNewRelation && targetDatabaseId
+          ? { relation: { targetKind: "ROW" as const, targetDatabaseId } }
+          : {}),
       });
       setOpened(false);
     } finally {
@@ -162,13 +197,26 @@ export function PropertyEditorPopover({ property, target, onSubmit, onRemove }: 
             label="Type"
             data={typeChoices}
             value={type}
-            disabled={isTitle}
+            disabled={isTitle || isRelation}
             allowDeselect={false}
             comboboxProps={{ withinPortal: true }}
             onChange={(next) => {
               if (next) setType(next as PropertyType);
             }}
           />
+          {isNewRelation ? (
+            <Select
+              size="xs"
+              label="Related database"
+              placeholder="Pick a database"
+              data={relationChoices}
+              value={targetDatabaseId}
+              searchable
+              nothingFoundMessage="No database to relate to"
+              comboboxProps={{ withinPortal: true }}
+              onChange={setTargetDatabaseId}
+            />
+          ) : null}
           {hasOptions(type) ? (
             <div className="flex flex-col gap-1">
               <Text size="xs" className="text-text-secondary">
@@ -232,7 +280,7 @@ export function PropertyEditorPopover({ property, target, onSubmit, onRemove }: 
             ) : (
               <span />
             )}
-            <Button size="xs" loading={saving} disabled={!name.trim()} onClick={() => void submit()}>
+            <Button size="xs" loading={saving} disabled={!canSubmit} onClick={() => void submit()}>
               {property ? "Save" : "Add"}
             </Button>
           </div>

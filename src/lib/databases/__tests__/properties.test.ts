@@ -112,9 +112,14 @@ describe("validateValue", () => {
     expect(validateValue(def("person"), 7)).toMatchObject({ ok: false });
   });
 
-  it("relation and the read-only types take no cell value", () => {
-    expect(validateValue(def("relation"), "row-1")).toMatchObject({ ok: false, reason: expect.stringContaining("relation") as string });
-    expect(validateValue(def("relation"), null)).toMatchObject({ ok: false });
+  it("relation takes target ids — a list or comma-separated — de-duplicated; null clears", () => {
+    expect(validateValue(def("relation"), "row-1, row-2,row-1")).toEqual({ ok: true, value: ["row-1", "row-2"] });
+    expect(validateValue(def("relation"), ["row-2"])).toEqual({ ok: true, value: ["row-2"] });
+    expect(validateValue(def("relation"), null)).toEqual({ ok: true, value: null });
+    expect(validateValue(def("relation"), 7)).toMatchObject({ ok: false, reason: expect.stringContaining("target id") as string });
+  });
+
+  it("the read-only types take no cell value", () => {
     expect(validateValue(def("createdTime"), "2026-10-31")).toEqual({ ok: false, reason: "is read-only (createdTime)" });
     expect(validateValue(def("createdBy"), null)).toMatchObject({ ok: false });
   });
@@ -134,6 +139,15 @@ describe("cellMarkdown", () => {
     expect(
       cellMarkdown(def("person"), ["u1", "u2"], { personName: (id) => (id === "u1" ? "Ana" : undefined) }),
     ).toBe("Ana, u2");
+  });
+
+  it("a relation cell links each target the context resolves and shows the id for one it cannot", () => {
+    const problems = def("relation", { relation: { targetKind: "ROW", targetDatabaseId: "db2", many: true } });
+    const relationTarget = (_def: PropertyDef, id: string) =>
+      id === "r1" ? { title: "Gaps [open]", href: "/w/acme/pages/r1" } : id === "r2" ? { title: "Noise" } : undefined;
+    expect(cellMarkdown(problems, ["r1", "r2", "r9"], { relationTarget })).toBe(
+      "[Gaps \\[open\\]](/w/acme/pages/r1), Noise, r9",
+    );
   });
 
   it("an empty value is an empty cell", () => {

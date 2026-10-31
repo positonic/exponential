@@ -28,8 +28,10 @@ import { CheckboxCell } from "./cells/CheckboxCell";
 import { SelectCell } from "./cells/SelectCell";
 import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
+import { RelationCell } from "./cells/RelationCell";
+import type { RowRelations } from "~/lib/databases/relations";
 import type { PickerUser } from "~/app/_components/shared/PersonPicker";
-import { PropertyEditorPopover, type PropertyDraft } from "./PropertyEditorPopover";
+import { PropertyEditorPopover, type PropertyDraft, type RelatableDatabase } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
 
 /** The slice of a database the table needs. */
@@ -43,6 +45,8 @@ export interface DatabaseTableRow {
   id: string;
   title: string;
   values: Record<string, PropertyValue | null>;
+  /** Relation targets by property id, resolved by the server. */
+  relations?: RowRelations;
   createdById: string;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -70,6 +74,8 @@ interface DatabaseTableProps {
   onAddProperty?: (draft: PropertyDraft) => Promise<void> | void;
   onUpdateProperty?: (def: PropertyDef, draft: PropertyDraft) => Promise<void> | void;
   onRemoveProperty?: (def: PropertyDef) => Promise<void> | void;
+  /** Databases a new relation property may point at; absent → no relation type offered. */
+  relatableDatabases?: RelatableDatabase[];
   /** Add a select option from a cell and resolve with its id. */
   onCreateOption?: (def: PropertyDef, name: string) => Promise<string | null>;
   /** The saved view, for column widths. */
@@ -200,6 +206,7 @@ export function DatabaseTable({
   onAddProperty,
   onUpdateProperty,
   onRemoveProperty,
+  relatableDatabases,
   onCreateOption,
   view,
   onReorderColumns,
@@ -367,6 +374,9 @@ export function DatabaseTable({
         />
       );
     }
+    if (def.type === "relation") {
+      return <RelationCell targets={row.relations?.[def.id] ?? []} />;
+    }
     if (def.type === "select" || def.type === "multiSelect") {
       return (
         <SelectCell
@@ -452,6 +462,7 @@ export function DatabaseTable({
                     </span>
                   }
                   onSubmit={(draft) => onAddProperty(draft)}
+                  relatableDatabases={relatableDatabases}
                 />
               </th>
             ) : null}

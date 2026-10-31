@@ -1024,3 +1024,204 @@ describe("page.get expands a database marker", () => {
     expect(page.body).not.toContain("## Risks");
   });
 });
+
+describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolved targets", () => {
+  const db = getDbMock();
+  const TARGET_DB = "db-2";
+  const TARGET_PAGE = "page-2";
+  const PROBLEMS_ID = "pproblems001";
+  const REVERSE_ID = "preverse0001";
+  const ROW_ID = "row-1";
+  const problemsDef = {
+    id: PROBLEMS_ID,
+    name: "Problems",
+    type: "relation",
+    relation: { targetKind: "ROW", targetDatabaseId: TARGET_DB, many: true },
+  };
+  const reverseDef = {
+    id: REVERSE_ID,
+    name: "Metrics",
+    type: "relation",
+    relation: {
+      targetKind: "ROW",
+      targetDatabaseId: DB_ID,
+      inverseOf: { databaseId: DB_ID, propertyId: PROBLEMS_ID },
+      many: true,
+    },
+  };
+  const metricsWithProblems = () =>
+    databaseRow({
+      properties: [
+        { id: TITLE_ID, name: "Name", type: "title" },
+        { id: STATUS_ID, name: "Status", type: "text" },
+        problemsDef,
+      ],
+    });
+  const problemsDatabase = (overrides: Record<string, unknown> = {}) =>
+    databaseRow({
+      id: TARGET_DB,
+      pageId: TARGET_PAGE,
+      name: "Problems",
+      properties: [{ id: "ptitle000002", name: "Name", type: "title" }, reverseDef],
+      view: { filters: [], hiddenPropertyIds: [], propertyOrder: [] },
+      titlePropertyId: "ptitle000002",
+      page: { ...databaseRow().page, id: TARGET_PAGE, title: "Problem register" },
+      ...overrides,
+    });
+  const rowOfMetrics = () =>
+    pageRow({
+      id: ROW_ID,
+      title: "Alert latency",
+      databaseId: DB_ID,
+      properties: { [STATUS_ID]: "Tracked" },
+      database: metricsWithProblems(),
+    });
+  type UpdateCall = { where: { id: string }; data: { properties?: { id: string; name: string; relation?: unknown }[] } };
+  const updates = () => db.pageDatabase.update.mock.calls.map((c) => c[0] as unknown as UpdateCall);
+
+  beforeEach(() => {
+    mockReset(db);
+    install(db);
+    db.pageDatabase.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(args.where.id === TARGET_DB ? problemsDatabase() : metricsWithProblems())) as never);
+    db.pageDatabase.update.mockImplementation(((args: { where: { id: string }; data: Record<string, unknown> }) =>
+      Promise.resolve({ ...(args.where.id === TARGET_DB ? problemsDatabase() : metricsWithProblems()), ...args.data })) as never);
+    db.databaseRelation.findMany.mockResolvedValue([] as never);
+    db.databaseRelation.count.mockResolvedValue(0);
+  });
+
+  it("addProperty with a ROW relation adds the column here and a reverse column on the related database, in one transaction", async () => {
+    // Metrics has no relation yet in this case.
+    db.pageDatabase.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(args.where.id === TARGET_DB ? problemsDatabase({ properties: [{ id: "ptitle000002", name: "Name", type: "title" }] }) : databaseRow())) as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.addProperty({
+      id: DB_ID,
+      name: "Problems",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: TARGET_DB },
+    });
+    expect(result.property).toMatchObject({ type: "relation", relation: { targetKind: "ROW", targetDatabaseId: TARGET_DB, many: true } });
+    const [forward, reverse] = updates();
+    expect(forward!.where.id).toBe(DB_ID);
+    expect(reverse!.where.id).toBe(TARGET_DB);
+    const added = reverse!.data.properties!.at(-1)!;
+    // Named after the source database, pointing back, and marked as the inverse.
+    expect(added).toMatchObject({
+      name: "Metrics",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: DB_ID, inverseOf: { databaseId: DB_ID, propertyId: result.property.id }, many: true },
+    });
+    expect(result.reverse).toEqual({ databaseId: TARGET_DB, property: added });
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    // Both holding pages re-index: each has a new column.
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(PAGE_ID);
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(TARGET_PAGE);
+  });
+
+  it("addProperty refuses a relation without a target, a target in another workspace, a target on a non-relation, and makes a self-relation one-way", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(caller.database.addProperty({ id: DB_ID, name: "Links", type: "relation" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      caller.database.addProperty({ id: DB_ID, name: "Links", type: "text", relation: { targetKind: "ROW", targetDatabaseId: TARGET_DB } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    db.pageDatabase.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(args.where.id === TARGET_DB ? problemsDatabase({ workspaceId: "ws-2" }) : databaseRow())) as never);
+    await expect(
+      caller.database.addProperty({ id: DB_ID, name: "Links", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: TARGET_DB } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("same workspace") as string });
+    expect(db.pageDatabase.update).not.toHaveBeenCalled();
+
+    const self = await caller.database.addProperty({
+      id: DB_ID,
+      name: "Depends on",
+      type: "relation",
+      relation: { targetKind: "ROW", targetDatabaseId: DB_ID, many: false },
+    });
+    expect(self.reverse).toBeNull();
+    expect(updates()).toHaveLength(1);
+    expect(self.property.relation?.many).toBe(false);
+  });
+
+  it("updateRow writes a relation cell as edges — replaced here, mirrored on the reverse column — and returns the targets resolved", async () => {
+    db.knowledgePage.findUnique.mockResolvedValue(rowOfMetrics() as never);
+    db.$queryRaw.mockResolvedValue([{ properties: { [STATUS_ID]: "Tracked" } }] as never);
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "q1" }, { id: "q2" }] as never);
+    db.knowledgePage.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...rowPage(ROW_ID, "Alert latency", "Tracked"), properties: args.data.properties })) as never);
+    db.databaseRelation.count.mockResolvedValueOnce(2).mockResolvedValueOnce(0);
+    db.databaseRelation.findMany.mockResolvedValue([
+      { rowPageId: ROW_ID, propertyId: PROBLEMS_ID, targetKind: "ROW", targetId: "q1", targetRowPage: { id: "q1", title: "Gaps" } },
+      { rowPageId: ROW_ID, propertyId: PROBLEMS_ID, targetKind: "ROW", targetId: "q2", targetRowPage: { id: "q2", title: "" } },
+    ] as never);
+
+    const caller = createMockCaller({ userId: OWNER, db });
+    const row = await caller.database.updateRow({ rowId: ROW_ID, values: { Problems: "q1, q2, q1" } });
+
+    // Targets are checked against the related database.
+    expect(db.knowledgePage.findMany.mock.calls[0]![0]).toMatchObject({ where: { id: { in: ["q1", "q2"] }, databaseId: TARGET_DB } });
+    // Forward edges: the old ones go, the new ones come in order.
+    expect(db.databaseRelation.deleteMany.mock.calls[0]![0]).toEqual({ where: { rowPageId: ROW_ID, propertyId: PROBLEMS_ID } });
+    expect(db.databaseRelation.createMany.mock.calls[0]![0]).toEqual({
+      data: [
+        { databaseId: DB_ID, propertyId: PROBLEMS_ID, rowPageId: ROW_ID, targetKind: "ROW", targetId: "q1", targetRowPageId: "q1", position: 0 },
+        { databaseId: DB_ID, propertyId: PROBLEMS_ID, rowPageId: ROW_ID, targetKind: "ROW", targetId: "q2", targetRowPageId: "q2", position: 1 },
+      ],
+    });
+    // Inverse edges: those that pointed at this row go; one is appended on each target.
+    expect(db.databaseRelation.deleteMany.mock.calls[1]![0]).toEqual({
+      where: { databaseId: TARGET_DB, propertyId: REVERSE_ID, targetRowPageId: ROW_ID },
+    });
+    expect(db.databaseRelation.create.mock.calls.map((c) => c[0].data)).toEqual([
+      { databaseId: TARGET_DB, propertyId: REVERSE_ID, rowPageId: "q1", targetKind: "ROW", targetId: ROW_ID, targetRowPageId: ROW_ID, position: 2 },
+      { databaseId: TARGET_DB, propertyId: REVERSE_ID, rowPageId: "q2", targetKind: "ROW", targetId: ROW_ID, targetRowPageId: ROW_ID, position: 0 },
+    ]);
+    // Nothing of it in the values column; the row comes back with its targets resolved.
+    const data = db.knowledgePage.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.properties).toEqual({ [STATUS_ID]: "Tracked" });
+    expect(row.relations[PROBLEMS_ID]).toEqual([
+      { kind: "ROW", id: "q1", title: "Gaps", href: "/w/acme/pages/q1" },
+      { kind: "ROW", id: "q2", title: "Untitled", href: "/w/acme/pages/q2" },
+    ]);
+    expect(db.knowledgePageRevision.create.mock.calls[0]![0].data).toMatchObject({ kind: "properties" });
+  });
+
+  it("updateRow refuses a target that is not a row of the related database, naming the property, and writes no edge", async () => {
+    db.knowledgePage.findUnique.mockResolvedValue(rowOfMetrics() as never);
+    db.$queryRaw.mockResolvedValue([{ properties: {} }] as never);
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "q1" }] as never);
+    db.knowledgePage.update.mockResolvedValue(rowPage(ROW_ID, "Alert latency", null) as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const error = await failureOf(caller.database.updateRow({ rowId: ROW_ID, values: { Problems: ["q1", "nope"] } }));
+    expect(error).toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining('"Problems"') as string });
+    expect(db.databaseRelation.createMany).not.toHaveBeenCalled();
+  });
+
+  it("listRows carries each row's relations, resolved in one query, empty lists where a row has none", async () => {
+    db.$queryRaw.mockResolvedValue([rowPage(ROW_ID, "Alert latency", "Tracked"), rowPage("row-2", "Coverage", null)] as never);
+    db.databaseRelation.findMany.mockResolvedValue([
+      { rowPageId: ROW_ID, propertyId: PROBLEMS_ID, targetKind: "ROW", targetId: "q1", targetRowPage: { id: "q1", title: "Gaps" } },
+    ] as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    const page = await caller.database.listRows({ id: DB_ID });
+    expect(db.databaseRelation.findMany).toHaveBeenCalledTimes(1);
+    expect(db.databaseRelation.findMany.mock.calls[0]![0]).toMatchObject({
+      where: { rowPageId: { in: [ROW_ID, "row-2"] }, propertyId: { in: [PROBLEMS_ID] } },
+    });
+    expect(page.rows[0]!.relations).toEqual({ [PROBLEMS_ID]: [{ kind: "ROW", id: "q1", title: "Gaps", href: `/w/acme/pages/q1` }] });
+    expect(page.rows[1]!.relations).toEqual({ [PROBLEMS_ID]: [] });
+  });
+
+  it("listInWorkspace lists attached databases of the workspace through the page access clause", async () => {
+    db.pageDatabase.findMany.mockResolvedValue([
+      { id: DB_ID, name: "Metrics", page: { id: PAGE_ID, title: "Data strategy" } },
+    ] as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    expect(await caller.database.listInWorkspace({ workspaceId: WORKSPACE_ID })).toEqual([
+      { id: DB_ID, name: "Metrics", page: { id: PAGE_ID, title: "Data strategy" } },
+    ]);
+    const where = db.pageDatabase.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({ workspaceId: WORKSPACE_ID, detachedAt: null });
+    expect(where.page).toBeDefined();
+  });
+});

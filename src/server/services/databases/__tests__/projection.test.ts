@@ -61,6 +61,35 @@ describe("renderDatabaseTable", () => {
     expect(table).not.toContain("Notes");
   });
 
+  it("a relation cell lists its resolved targets, linked, and a deleted one plain", () => {
+    const PROBLEMS = "p_problems";
+    const db = metrics({
+      properties: [
+        { id: TITLE, name: "Name", type: "title" },
+        { id: PROBLEMS, name: "Problems", type: "relation", relation: { targetKind: "ROW", targetDatabaseId: "db2", many: true } },
+      ],
+      view: emptyView([TITLE, PROBLEMS]),
+      rows: [
+        {
+          id: "r1",
+          title: "Alert latency",
+          properties: {},
+          relations: {
+            [PROBLEMS]: [
+              { kind: "ROW", id: "q1", title: "Gaps", href: "/w/acme/pages/q1" },
+              { kind: "ROW", id: "q2", title: "(deleted)", deleted: true },
+            ],
+          },
+        },
+        { id: "r2", title: "Coverage", properties: {}, relations: { [PROBLEMS]: [] } },
+      ],
+    });
+    expect(renderDatabaseTable(db, TITLE).split("\n").slice(2)).toEqual([
+      "| Alert latency | [Gaps](/w/acme/pages/q1), (deleted) |",
+      "| Coverage |  |",
+    ]);
+  });
+
   it("an empty database is a header with no rows", () => {
     expect(renderDatabaseTable(metrics({ rows: [] }), TITLE)).toBe(
       "| Name | Status | Notes |\n| --- | --- | --- |",

@@ -145,6 +145,7 @@ describe("EmbeddingTriggerService — pages", () => {
             ],
             view: { filters: [], hiddenPropertyIds: [], propertyOrder: [] },
             page: { title: "Holder" },
+            workspace: { slug: "acme" },
           }),
         },
         user: { findMany: vi.fn().mockResolvedValue([]) },

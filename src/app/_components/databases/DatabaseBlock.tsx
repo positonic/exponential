@@ -58,6 +58,17 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
     return map;
   }, [members]);
 
+  // What a new relation property may point at: the workspace's databases
+  // the editor can read, in the header's property editor.
+  const { data: relatable } = api.database.listInWorkspace.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId && editable, staleTime: 60_000 },
+  );
+  const relatableDatabases = useMemo(
+    () => relatable?.map((d) => ({ id: d.id, name: d.name, pageTitle: d.page.title })),
+    [relatable],
+  );
+
   const rowsKey = { id: databaseId ?? "", limit: BLOCK_ROW_LIMIT };
   const databaseQuery = api.database.get.useQuery(
     { id: databaseId ?? "" },
@@ -174,15 +185,24 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
 
   const onAddProperty = useCallback(
     async (draft: PropertyDraft) => {
-      if (!databaseId || draft.type === "title" || draft.type === "relation") return;
+      if (!databaseId || draft.type === "title") return;
+      if (draft.type === "relation" && !draft.relation) return;
       try {
-        await addProperty.mutateAsync({ id: databaseId, ...draft, type: draft.type });
+        const result = await addProperty.mutateAsync({ id: databaseId, ...draft, type: draft.type });
         await refetchSchema();
+        // A two-way relation gave the other database a column: its block, if
+        // it is on this page, re-reads too.
+        if (result.reverse) {
+          await Promise.all([
+            utils.database.get.invalidate({ id: result.reverse.databaseId }),
+            utils.database.listRows.invalidate({ id: result.reverse.databaseId }),
+          ]);
+        }
       } catch (error) {
         failed("Could not add the property", error);
       }
     },
-    [addProperty, databaseId, refetchSchema],
+    [addProperty, databaseId, refetchSchema, utils],
   );
 
   const onUpdateProperty = useCallback(
@@ -308,6 +328,7 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
         onAddProperty={onAddProperty}
         onUpdateProperty={onUpdateProperty}
         onRemoveProperty={onRemoveProperty}
+        relatableDatabases={relatableDatabases}
         onCreateOption={onCreateOption}
       />
     );
