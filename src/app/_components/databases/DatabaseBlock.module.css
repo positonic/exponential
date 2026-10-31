@@ -96,3 +96,61 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
+
+/* ── editable cells ── */
+.cell:focus {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+}
+
+.cell[data-editable='true'] {
+  cursor: cell;
+}
+
+.cellText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cellInput {
+  width: 100%;
+  min-width: 80px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.urlLink {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-primary);
+  text-underline-offset: 2px;
+}
+
+.newRow td {
+  padding: 0;
+  border-bottom: none;
+}
+
+.newRow td:hover {
+  background: transparent;
+}
+
+.newRowButton {
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.newRowButton:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
