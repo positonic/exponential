@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActionIcon, Checkbox, Popover, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
 import { IconArrowsSort, IconEyeOff, IconFilter, IconPlus, IconX } from "@tabler/icons-react";
 import type { DatabaseView, Filter, FilterOp, PropertyDef, PropertyType } from "~/lib/databases/schema";
@@ -37,6 +37,13 @@ const OP_LABELS: Record<FilterOp, string> = {
 };
 
 const NO_VALUE: ReadonlySet<FilterOp> = new Set(["isEmpty", "isNotEmpty"]);
+
+/** A filter the query compiler will accept: ops that take a value have one. */
+export function isCompleteFilter(filter: Filter): boolean {
+  if (NO_VALUE.has(filter.op)) return true;
+  if (filter.op === "anyOf") return Array.isArray(filter.value) && filter.value.length > 0;
+  return filter.value !== undefined && filter.value !== null && filter.value !== "";
+}
 
 interface ViewControlsProps {
   properties: PropertyDef[];
@@ -159,9 +166,28 @@ export function ViewControls({ properties, view, onChangeView }: ViewControlsPro
   const hideable = properties.filter((p) => p.type !== "title");
   const filterable = properties.filter((p) => FILTER_OPS_BY_TYPE[p.type].length > 0);
 
-  const setFilters = (filters: Filter[]) => onChangeView({ ...view, filters });
+  // Filters are drafted here and saved only once complete: a half-built
+  // filter would be refused by the row query and break the block (and the
+  // public page) until it was finished. The draft resyncs when the saved
+  // view changes underneath it.
+  const [draftFilters, setDraftFilters] = useState<Filter[]>(view.filters);
+  useEffect(() => {
+    setDraftFilters((drafts) => {
+      const incomplete = drafts.filter((f) => !isCompleteFilter(f));
+      return [...view.filters, ...incomplete];
+    });
+  }, [view.filters]);
+
+  const setFilters = (filters: Filter[]) => {
+    setDraftFilters(filters);
+    const complete = filters.filter(isCompleteFilter);
+    const saved = view.filters;
+    const unchanged =
+      complete.length === saved.length && complete.every((f, i) => JSON.stringify(f) === JSON.stringify(saved[i]));
+    if (!unchanged) onChangeView({ ...view, filters: complete });
+  };
   const updateFilter = (index: number, patch: Partial<Filter>) =>
-    setFilters(view.filters.map((f, i) => (i === index ? { ...f, ...patch } : f)));
+    setFilters(draftFilters.map((f, i) => (i === index ? { ...f, ...patch } : f)));
 
   return (
     <div className={styles.controls}>
@@ -220,8 +246,8 @@ export function ViewControls({ properties, view, onChangeView }: ViewControlsPro
         <Popover.Target>
           <div>
             <ControlButton
-              active={view.filters.length > 0}
-              label={view.filters.length ? `Filter (${view.filters.length})` : "Filter"}
+              active={draftFilters.length > 0}
+              label={draftFilters.length ? `Filter (${draftFilters.length})` : "Filter"}
               icon={<IconFilter size={13} />}
               onClick={() => setOpen(open === "filter" ? null : "filter")}
             />
@@ -233,13 +259,13 @@ export function ViewControls({ properties, view, onChangeView }: ViewControlsPro
               <Text size="xs" fw={600} className="text-text-primary">
                 Filters
               </Text>
-              {view.filters.length > 0 ? (
+              {draftFilters.length > 0 ? (
                 <UnstyledButton onClick={() => setFilters([])} className="text-[10px] text-text-muted hover:text-text-primary">
                   Clear all
                 </UnstyledButton>
               ) : null}
             </div>
-            {view.filters.map((filter, index) => {
+            {draftFilters.map((filter, index) => {
               const def = byId.get(filter.propertyId);
               const ops = def ? FILTER_OPS_BY_TYPE[def.type] : [];
               return (
@@ -274,7 +300,7 @@ export function ViewControls({ properties, view, onChangeView }: ViewControlsPro
                       size="sm"
                       variant="subtle"
                       aria-label="Remove filter"
-                      onClick={() => setFilters(view.filters.filter((_, i) => i !== index))}
+                      onClick={() => setFilters(draftFilters.filter((_, i) => i !== index))}
                     >
                       <IconX size={14} />
                     </ActionIcon>
@@ -289,7 +315,7 @@ export function ViewControls({ properties, view, onChangeView }: ViewControlsPro
               onClick={() => {
                 const first = filterable[0];
                 if (!first) return;
-                setFilters([...view.filters, { propertyId: first.id, op: FILTER_OPS_BY_TYPE[first.type][0]! }]);
+                setFilters([...draftFilters, { propertyId: first.id, op: FILTER_OPS_BY_TYPE[first.type][0]! }]);
               }}
             >
               <IconPlus size={12} /> Add filter

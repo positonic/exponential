@@ -32,13 +32,18 @@ describe("ViewControls", () => {
     );
   });
 
-  it("filter: Add filter appends one for the first filterable property with its first op", async () => {
+  it("filter: Add filter drafts one locally and saves it only once it has a value", async () => {
     const onChangeView = vi.fn();
     render(<ViewControls properties={properties} view={emptyView()} onChangeView={onChangeView} />);
     fireEvent.click(screen.getByRole("button", { name: "Filter" }));
     fireEvent.click(await screen.findByRole("button", { name: "Add filter" }));
+    // A `contains` with no text would be refused by the query: not saved yet.
+    expect(onChangeView).not.toHaveBeenCalled();
+    expect(FILTER_OPS_BY_TYPE.title[0]).toBe("contains");
+    const value = await screen.findAllByLabelText("Value");
+    fireEvent.change(value[0]!, { target: { value: "latency" } });
     expect(onChangeView).toHaveBeenCalledWith(
-      expect.objectContaining({ filters: [{ propertyId: TITLE, op: FILTER_OPS_BY_TYPE.title[0] }] }),
+      expect.objectContaining({ filters: [{ propertyId: TITLE, op: "contains", value: "latency" }] }),
     );
   });
 
