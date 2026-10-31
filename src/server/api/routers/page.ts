@@ -45,6 +45,7 @@ import {
   expandDatabaseMarkers,
   projectRowPage,
 } from "~/server/services/databases/projection";
+import { syncPageDatabases } from "~/server/services/databases/sync";
 import {
   diffRevisionBodies,
   recordPageRevision,
@@ -976,6 +977,10 @@ export const pageRouter = createTRPCRouter({
           },
         });
         await syncPageLinks(tx, created.id, input.bodyDoc as JSONContent | undefined);
+        await syncPageDatabases(tx, created.id, {
+          doc: input.bodyDoc as JSONContent | undefined,
+          body: input.body,
+        });
         await recordPageRevision(tx, {
           pageId: created.id,
           kind: "create",
@@ -1221,6 +1226,8 @@ export const pageRouter = createTRPCRouter({
                 });
               });
             await syncPageLinks(tx, id, carriedDoc);
+            // No doc to read blocks from on this path: the markers decide.
+            await syncPageDatabases(tx, id, { doc: carriedDoc, body });
             await recordPageRevision(tx, {
               pageId: id,
               kind: "markdown",
@@ -1286,6 +1293,7 @@ export const pageRouter = createTRPCRouter({
           select: { bodyDoc: true },
         });
         await syncPageLinks(tx, input.id, input.doc as JSONContent);
+        await syncPageDatabases(tx, input.id, { doc: input.doc as JSONContent });
         return row;
       });
       return { migrated: true, bodyDoc: updated.bodyDoc };
@@ -2333,6 +2341,7 @@ export const pageRouter = createTRPCRouter({
           });
         }
         await syncPageLinks(tx, input.id, doc);
+        await syncPageDatabases(tx, input.id, { doc, body: revision.body });
         const recorded = await recordPageRevision(tx, {
           pageId: input.id,
           kind: "restore",

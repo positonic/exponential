@@ -56,8 +56,9 @@ vi.mock("~/server/utils/reportHandledErrorServer", () => ({
 }));
 const triggerPageEmbedding = vi.fn();
 const clearPageChunks = vi.fn();
+const clearPageChunksMany = vi.fn();
 vi.mock("~/server/services/embedding/EmbeddingTriggerService", () => ({
-  getEmbeddingTriggerService: () => ({ triggerPageEmbedding, clearPageChunks }),
+  getEmbeddingTriggerService: () => ({ triggerPageEmbedding, clearPageChunks, clearPageChunksMany }),
 }));
 vi.mock("~/server/services/KnowledgeService", () => ({
   getKnowledgeService: () => ({ search: vi.fn() }),
@@ -733,6 +734,84 @@ describe("rows are pages (ADR-0078 §3–4)", () => {
     expect(result).toEqual({ id: ROW_ID, databaseId: DB_ID });
     expect(db.knowledgePage.delete).toHaveBeenCalledWith({ where: { id: ROW_ID } });
     expect(clearPageChunks).toHaveBeenCalledWith(ROW_ID);
+  });
+});
+
+describe("the block's lifecycle: detach, re-attach, delete, list", () => {
+  const db = getDbMock();
+  beforeEach(() => {
+    mockReset(db);
+    clearPageChunksMany.mockReset();
+    install(db);
+    db.pageDatabase.updateMany.mockResolvedValue({ count: 0 });
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 1 } as never);
+    db.pageLink.deleteMany.mockResolvedValue({ count: 0 } as never);
+  });
+
+  it("an editor save without the node detaches the database; a save with it re-attaches", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const without = { type: "doc", content: [{ type: "paragraph" }] };
+    await caller.page.update({ id: PAGE_ID, bodyDoc: without, body: "", baseVersion: 3 });
+    expect(db.pageDatabase.updateMany).toHaveBeenCalledWith({
+      where: { pageId: PAGE_ID, detachedAt: null },
+      data: { detachedAt: expect.any(Date) as Date },
+    });
+
+    db.pageDatabase.updateMany.mockClear();
+    const withNode = { type: "doc", content: [{ type: "database", attrs: { databaseId: DB_ID } }] };
+    await caller.page.update({ id: PAGE_ID, bodyDoc: withNode, body: databaseMarker(DB_ID), baseVersion: 3 });
+    expect(db.pageDatabase.updateMany).toHaveBeenCalledWith({
+      where: { pageId: PAGE_ID, id: { in: [DB_ID] }, detachedAt: { not: null } },
+      data: { detachedAt: null },
+    });
+  });
+
+  it("a Markdown write (the CLI) keeps the block by its marker and detaches a database whose marker is gone", async () => {
+    db.knowledgePage.update.mockResolvedValue(pageRow() as never);
+    const caller = createMockCaller({ userId: OWNER, db, tokenType: "api-token" });
+    await caller.page.update({ id: PAGE_ID, body: `# New body
+
+${databaseMarker(DB_ID)}` });
+    expect(db.pageDatabase.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { pageId: PAGE_ID, detachedAt: null, id: { notIn: [DB_ID] } },
+      data: { detachedAt: expect.any(Date) as Date },
+    });
+
+    db.pageDatabase.updateMany.mockClear();
+    await caller.page.update({ id: PAGE_ID, body: "# Body with no block" });
+    expect(db.pageDatabase.updateMany).toHaveBeenCalledWith({
+      where: { pageId: PAGE_ID, detachedAt: null },
+      data: { detachedAt: expect.any(Date) as Date },
+    });
+  });
+
+  it("database.delete needs edit access, deletes the database and clears its rows' chunks", async () => {
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "row-1" }, { id: "row-2" }] as never);
+    db.pageDatabase.delete.mockResolvedValue(databaseRow() as never);
+    const owner = createMockCaller({ userId: OWNER, db });
+    await expect(owner.database.delete({ id: DB_ID })).resolves.toEqual({ id: DB_ID, rowCount: 2 });
+    expect(db.pageDatabase.delete).toHaveBeenCalledWith({ where: { id: DB_ID } });
+    expect(clearPageChunksMany).toHaveBeenCalledWith(["row-1", "row-2"]);
+
+    install(db, "viewer");
+    const viewer = createMockCaller({ userId: MEMBER, db });
+    await expect(viewer.database.delete({ id: DB_ID })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("database.list shows a page's databases, detached ones included, with row counts", async () => {
+    const detachedAt = new Date("2026-10-20T00:00:00Z");
+    db.pageDatabase.findMany.mockResolvedValue([
+      { ...databaseRow(), _count: { rows: 3 } },
+      { ...databaseRow({ id: "db-2", name: "Problems", detachedAt }), _count: { rows: 1 } },
+    ] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const list = await caller.database.list({ pageId: PAGE_ID });
+    expect(list.map((d) => [d.id, d.name, d.rowCount, d.detachedAt])).toEqual([
+      [DB_ID, "Metrics", 3, null],
+      ["db-2", "Problems", 1, detachedAt],
+    ]);
+    expect(list[0]!.marker).toBe(databaseMarker(DB_ID));
+    expect((db.pageDatabase.findMany.mock.calls[0]![0] as { where: unknown }).where).toEqual({ pageId: PAGE_ID });
   });
 });
 

@@ -31,6 +31,7 @@ import {
 } from "~/server/services/pages/access";
 import { recordPageRevision } from "~/server/services/pages/revisions";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
+import { deleteDatabase } from "~/server/services/databases/lifecycle";
 import { rowValues } from "~/server/services/databases/projection";
 import {
   compileRowQuery,
@@ -273,6 +274,34 @@ export const databaseRouter = createTRPCRouter({
       return { ...presentDatabase(created), marker: databaseMarker(created.id) };
     }),
 
+  /**
+   * The databases a page holds, detached ones included, with row counts —
+   * what the CLI lists and what the "Removed databases" row (V2) restores
+   * from. A database is detached while its block is out of the body.
+   */
+  list: protectedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const page = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.pageId },
+        select: PAGE_ACCESS_SELECT,
+      });
+      if (!page) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+      }
+      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "view");
+      const databases = await ctx.db.pageDatabase.findMany({
+        where: { pageId: page.id },
+        orderBy: { createdAt: "asc" },
+        select: { ...DATABASE_SELECT, _count: { select: { rows: true } } },
+      });
+      return databases.map(({ _count, ...database }) => ({
+        ...presentDatabase(database),
+        rowCount: _count.rows,
+        marker: databaseMarker(database.id),
+      }));
+    }),
+
   /** One database: its definition, view, row count and holding page. */
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -398,6 +427,19 @@ export const databaseRouter = createTRPCRouter({
         return written;
       });
       return presentRow(updated);
+    }),
+
+  /**
+   * Delete a database and every row with it — the one explicit way rows are
+   * destroyed (removing the block only detaches; ADR-0078). Edit access on
+   * the holding page.
+   */
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
+      return deleteDatabase(ctx.db, database.id);
     }),
 
   /** Delete a Row — the page and its chunks in the Knowledge index. */
