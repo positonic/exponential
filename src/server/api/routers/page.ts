@@ -1,14 +1,10 @@
 import { z } from "zod";
-import { randomInt } from "crypto";
 import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { Prisma, type PrismaClient } from "@prisma/client";
-import {
-  PUBLIC_ID_ALPHABET,
-  PUBLIC_ID_LENGTH,
-  slugifyPageTitle,
-} from "~/lib/pages/public-url";
+import { slugifyPageTitle } from "~/lib/pages/public-url";
+import { PUBLIC_SETTINGS_SELECT, publishOnePage } from "~/server/services/pages/publish";
 import {
   collectPageLinkIds,
   remapPageLinkIds,
@@ -264,15 +260,6 @@ async function applicableSubpages(
 /** Most people `page.audience` returns; the rest are only counted. */
 const AUDIENCE_PEOPLE_LIMIT = 50;
 
-/** The publishing state the share popover renders (ADR-0038). */
-const PUBLIC_SETTINGS_SELECT = {
-  id: true,
-  isPublic: true,
-  publicId: true,
-  publicSlug: true,
-  publicSeoIndexed: true,
-  publishedAt: true,
-} satisfies Prisma.KnowledgePageSelect;
 
 /**
  * The occurrence a page is the notes canvas of (ADR-0059), enough to render
@@ -424,90 +411,19 @@ async function copyPlacement(
   return null;
 }
 
-/** Mint an 8-char lowercase-alphanumeric public id (ADR-0038). */
-function generatePublicId(): string {
-  let id = "";
-  for (let i = 0; i < PUBLIC_ID_LENGTH; i++) {
-    id += PUBLIC_ID_ALPHABET[randomInt(PUBLIC_ID_ALPHABET.length)];
-  }
-  return id;
-}
-
-/**
- * The publish core (ADR-0038), shared by `publish` and `publishMany`. Callers
- * must have already enforced edit access. First publish mints the immutable
- * `publicId` and derives `publicSlug` from the title; republish reuses both,
- * reviving old links.
- */
 /**
  * Publish a page and, when it holds databases, every row of them (ADR-0078
- * §4: rows publish with the holding page and never alone). Each row gets its
- * own public id and slug so its title can link from the public table.
+ * §4: rows publish with the holding page and never alone). Only *attached*
+ * databases count: a removed block's retained rows must not go public.
  */
 async function publishPage(db: PrismaClient, id: string) {
   const result = await publishOnePage(db, id);
   const rows = await db.knowledgePage.findMany({
-    where: { database: { pageId: id } },
+    where: { database: { pageId: id, detachedAt: null } },
     select: { id: true },
   });
   for (const row of rows) await publishOnePage(db, row.id);
   return result;
-}
-
-async function publishOnePage(db: PrismaClient, id: string) {
-  const existing = await db.knowledgePage.findUniqueOrThrow({
-    where: { id },
-    select: { title: true, publicId: true, publicSlug: true },
-  });
-
-  const publicSlug = existing.publicSlug ?? slugifyPageTitle(existing.title);
-
-  if (existing.publicId) {
-    return db.knowledgePage.update({
-      where: { id },
-      data: { isPublic: true, publicSlug, publishedAt: new Date() },
-      select: PUBLIC_SETTINGS_SELECT,
-    });
-  }
-
-  // Mint the id here rather than in the schema default so it only exists
-  // for pages that have actually been published. Retry on the (36^8)
-  // collision rather than pre-checking. `publicId: null` in the where
-  // guards against a concurrent first publish: the loser of that race
-  // must reuse the winner's id, never overwrite an id that may already
-  // have been shared.
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      return await db.knowledgePage.update({
-        where: { id, AND: [{ publicId: null }] },
-        data: {
-          isPublic: true,
-          publicId: generatePublicId(),
-          publicSlug,
-          publishedAt: new Date(),
-        },
-        select: PUBLIC_SETTINGS_SELECT,
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        // P2002: minted id collided with another page's — remint.
-        if (error.code === "P2002") continue;
-        // P2025: a concurrent publish minted first — keep its id.
-        if (error.code === "P2025") {
-          return db.knowledgePage.update({
-            where: { id },
-            data: { isPublic: true, publishedAt: new Date() },
-            select: PUBLIC_SETTINGS_SELECT,
-          });
-        }
-      }
-      throw error;
-    }
-  }
-  throw new TRPCError({
-    code: "INTERNAL_SERVER_ERROR",
-    message: "Could not allocate a public URL. Please try again.",
-  });
 }
 
 /** Cap on the pageLink graph walk — keeps a pathological/cyclic doc bounded. */
