@@ -2332,7 +2332,17 @@ export const pageRouter = createTRPCRouter({
       await ensurePageAccess(ctx.db, userId, page, "edit");
       const revision = await ctx.db.knowledgePageRevision.findUnique({
         where: { id: input.revisionId },
-        select: { id: true, pageId: true, title: true, body: true, bodyDoc: true, source: true, asOf: true, createdAt: true },
+        select: {
+          id: true,
+          pageId: true,
+          title: true,
+          body: true,
+          bodyDoc: true,
+          source: true,
+          asOf: true,
+          properties: true,
+          createdAt: true,
+        },
       });
       if (!revision || revision.pageId !== input.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
@@ -2354,6 +2364,16 @@ export const pageRouter = createTRPCRouter({
             // No stored doc → the editor re-derives one from the Markdown on
             // next open, as after a Markdown-source write.
             bodyDoc: doc ? (doc as Prisma.InputJsonValue) : Prisma.DbNull,
+            // A Row's values are part of its snapshot too (ADR-0078); an
+            // ordinary page's revision carries null and stays null.
+            ...(revision.properties !== undefined
+              ? {
+                  properties:
+                    revision.properties === null
+                      ? Prisma.DbNull
+                      : (revision.properties as Prisma.InputJsonValue),
+                }
+              : {}),
             docVersion: { increment: 1 },
           },
         });

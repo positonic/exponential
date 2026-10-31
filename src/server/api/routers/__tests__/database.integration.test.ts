@@ -161,6 +161,13 @@ describe("database router (integration)", () => {
     expect(revisions.map((r) => r.kind)).toEqual(["create", "properties"]);
     expect(revisions[1]!.properties).toEqual(updated.values);
 
+    // Restoring the row's first revision brings the values back with it.
+    const first = revisions[0]!;
+    await asMember.page.restore({ id: latency.id, revisionId: first.id });
+    const restored = await db.knowledgePage.findUniqueOrThrow({ where: { id: latency.id } });
+    expect(restored.properties).toEqual(first.properties);
+    expect((restored.properties as Record<string, unknown>)[status.id]).not.toBe(notMeasured);
+
     const asOutsider = createTestCaller(outsider.id);
     await expect(asOutsider.page.get({ id: latency.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(asOutsider.database.listRows({ id: database.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
