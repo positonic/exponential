@@ -410,16 +410,23 @@ export const databaseRouter = createTRPCRouter({
       }
       const { values, title } = coerced;
       const known = new Set(properties.map((p) => p.id));
-      const merged: Record<string, PropertyValue | null> = {};
-      for (const [id, value] of Object.entries(rowValues(row.properties))) {
-        if (known.has(id) && value !== null) merged[id] = value;
-      }
-      for (const [id, value] of Object.entries(values)) {
-        if (value === null) delete merged[id];
-        else merged[id] = value;
-      }
 
       const updated = await ctx.db.$transaction(async (tx) => {
+        // Two callers editing different cells must both land: merge against
+        // the values as they are *now*, under a row lock, not against the
+        // snapshot read before the transaction.
+        const [locked] = await tx.$queryRaw<{ properties: Prisma.JsonValue }[]>`
+          SELECT "properties" FROM "KnowledgePage" WHERE "id" = ${row.id} FOR UPDATE
+        `;
+        if (!locked) throw new TRPCError({ code: "NOT_FOUND", message: "Row not found" });
+        const merged: Record<string, PropertyValue | null> = {};
+        for (const [id, value] of Object.entries(rowValues(locked.properties))) {
+          if (known.has(id) && value !== null) merged[id] = value;
+        }
+        for (const [id, value] of Object.entries(values)) {
+          if (value === null) delete merged[id];
+          else merged[id] = value;
+        }
         const written = await tx.knowledgePage.update({
           where: { id: row.id },
           data: {
