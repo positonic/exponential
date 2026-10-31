@@ -30,6 +30,7 @@ import {
   PAGE_ACCESS_SELECT,
 } from "~/server/services/pages/access";
 import { recordPageRevision } from "~/server/services/pages/revisions";
+import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import { rowValues } from "~/server/services/databases/projection";
 import {
   compileRowQuery,
@@ -42,6 +43,7 @@ import {
   coerceRowValues,
   PropertyValueError,
 } from "~/server/services/databases/values";
+import type { PropertyValue } from "~/lib/databases/properties";
 
 /**
  * Databases (ADR-0078): the typed write path for a Database and its Rows.
@@ -198,6 +200,24 @@ function normaliseOptionsOrThrow(
   return options;
 }
 
+/** A Row with its database — the slice `updateRow` / `deleteRow` need. */
+const ROW_FOR_WRITE_SELECT = {
+  ...ROW_SELECT,
+  database: { select: DATABASE_SELECT },
+} satisfies Prisma.KnowledgePageSelect;
+
+async function loadRowForWrite(db: PrismaClient, rowId: string) {
+  const row = await db.knowledgePage.findUnique({
+    where: { id: rowId },
+    select: ROW_FOR_WRITE_SELECT,
+  });
+  if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Row not found" });
+  if (!row.database) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "This page is not a row of a database" });
+  }
+  return { ...row, database: row.database };
+}
+
 /** The property a caller named, or NOT_FOUND. */
 function requireProperty(properties: readonly PropertyDef[], key: string): PropertyDef {
   const def = findProperty(properties, key);
@@ -316,6 +336,79 @@ export const databaseRouter = createTRPCRouter({
         return created;
       });
       return presentRow(row);
+    }),
+
+  /**
+   * Write some of a Row's values. Keys are property ids or names; a value
+   * checked by the registry replaces the cell, `null` clears it, and cells
+   * not named are kept — minus any under a property that no longer exists,
+   * which this write finally drops. Records a `properties` revision on the
+   * row page (ADR-0074): from the table block it folds into the editor's
+   * session; from the CLI, MCP or an agent it is its own row.
+   */
+  updateRow: protectedProcedure
+    .input(
+      z.object({
+        rowId: z.string(),
+        values: rowValuesInput,
+        note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const row = await loadRowForWrite(ctx.db, input.rowId);
+      await ensurePageAccess(ctx.db, userId, row.database.page, "edit");
+
+      const properties = parseProperties(row.database.properties);
+      let coerced;
+      try {
+        coerced = coerceRowValues(properties, input.values);
+      } catch (error) {
+        asTRPCError(error);
+      }
+      const { values, title } = coerced;
+      const known = new Set(properties.map((p) => p.id));
+      const merged: Record<string, PropertyValue | null> = {};
+      for (const [id, value] of Object.entries(rowValues(row.properties))) {
+        if (known.has(id) && value !== null) merged[id] = value;
+      }
+      for (const [id, value] of Object.entries(values)) {
+        if (value === null) delete merged[id];
+        else merged[id] = value;
+      }
+
+      const updated = await ctx.db.$transaction(async (tx) => {
+        const written = await tx.knowledgePage.update({
+          where: { id: row.id },
+          data: {
+            properties: merged,
+            ...(title !== undefined ? { title: title.trim() ? title.trim() : "Untitled" } : {}),
+          },
+          select: ROW_SELECT,
+        });
+        await recordPageRevision(tx, {
+          pageId: row.id,
+          kind: "properties",
+          authorId: userId,
+          note: input.note,
+          // A browser session is the table block; any token is a write from
+          // outside the editor, which never folds (as `page.update` decides).
+          fold: ctx.tokenType === undefined,
+        });
+        return written;
+      });
+      return presentRow(updated);
+    }),
+
+  /** Delete a Row — the page and its chunks in the Knowledge index. */
+  deleteRow: protectedProcedure
+    .input(z.object({ rowId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const row = await loadRowForWrite(ctx.db, input.rowId);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, row.database.page, "edit");
+      await ctx.db.knowledgePage.delete({ where: { id: row.id } });
+      await getEmbeddingTriggerService(ctx.db).clearPageChunks(row.id);
+      return { id: row.id, databaseId: row.database.id };
     }),
 
   /**

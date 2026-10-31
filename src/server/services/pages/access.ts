@@ -22,6 +22,7 @@ export const PAGE_ACCESS_SELECT = {
   workspaceId: true,
   isInviteOnly: true,
   docVersion: true,
+  databaseId: true,
 } satisfies Prisma.KnowledgePageSelect;
 
 /** What the page access resolver needs to know about a Page. */
@@ -31,6 +32,22 @@ export interface PageForAccess {
   projectId: string | null;
   workspaceId: string;
   isInviteOnly: boolean;
+  /** Set on a Row (ADR-0078): access, placement and publishing follow its database's page. */
+  databaseId?: string | null;
+}
+
+/**
+ * Refuse a `page.*` mutation that would give a Row its own placement, sharing
+ * or publish state (ADR-0078 §4). Rows are made and removed through
+ * `database.*`; everything else about them follows the holding page.
+ */
+export function assertNotRow(page: { databaseId?: string | null }, action: string): void {
+  if (page.databaseId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Row pages follow their database: ${action} applies to the page that holds it`,
+    });
+  }
 }
 
 export type PageAccessPermission = "view" | "edit" | "manage";

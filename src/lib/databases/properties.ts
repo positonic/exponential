@@ -228,7 +228,11 @@ const REGISTRY: Record<PropertyType, PropertyKind> = {
   relation,
   createdTime: computed,
   lastEditedTime: computed,
-  createdBy: computed,
+  // Read-only like the times, but it names a person, so it reads like one.
+  createdBy: {
+    validate: (def, raw) => computed.validate(def, raw),
+    markdown: (def, value, ctx) => person.markdown(def, value, ctx),
+  },
 };
 
 /**

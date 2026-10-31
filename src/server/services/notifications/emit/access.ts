@@ -48,6 +48,7 @@ export async function filterRecipientsByAccess(
         projectId: true,
         workspaceId: true,
         isInviteOnly: true,
+        databaseId: true,
       },
     });
     if (!page) return [];

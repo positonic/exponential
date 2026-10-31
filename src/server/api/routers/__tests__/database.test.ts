@@ -55,8 +55,9 @@ vi.mock("~/server/utils/reportHandledErrorServer", () => ({
   reportHandledErrorServer: vi.fn(),
 }));
 const triggerPageEmbedding = vi.fn();
+const clearPageChunks = vi.fn();
 vi.mock("~/server/services/embedding/EmbeddingTriggerService", () => ({
-  getEmbeddingTriggerService: () => ({ triggerPageEmbedding }),
+  getEmbeddingTriggerService: () => ({ triggerPageEmbedding, clearPageChunks }),
 }));
 vi.mock("~/server/services/KnowledgeService", () => ({
   getKnowledgeService: () => ({ search: vi.fn() }),
@@ -545,6 +546,193 @@ describe("database properties", () => {
     const error = await failureOf(caller.database.createRow({ id: DB_ID, values: { Stage: "Done" } }));
     expect(error?.code).toBe("BAD_REQUEST");
     expect(error?.message).toBe('Property "Stage" has no option "Done"; expects one of: Not measured, Tracked');
+  });
+});
+
+describe("rows are pages (ADR-0078 §3–4)", () => {
+  const db = getDbMock();
+  const ROW_ID = "row-1";
+  /** A Row page as `page.get` and `loadPageForAccess` load it. */
+  const rowFull = (overrides: Record<string, unknown> = {}) =>
+    pageRow({
+      id: ROW_ID,
+      title: "Alert latency",
+      databaseId: DB_ID,
+      properties: { [STATUS_ID]: "Tracked" },
+      body: "How it is measured.",
+      createdAt: new Date("2026-10-03T00:00:00Z"),
+      updatedAt: new Date("2026-10-04T00:00:00Z"),
+      database: databaseRow(),
+      ...overrides,
+    });
+
+  beforeEach(() => {
+    mockReset(db);
+    clearPageChunks.mockReset();
+    install(db);
+    db.$queryRaw.mockResolvedValue([] as never);
+    db.knowledgePage.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(args.where.id === ROW_ID ? rowFull() : pageRow())) as never);
+  });
+
+  it("page.get on a row puts the property header over the prose and names the database", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const page = await caller.page.get({ id: ROW_ID, format: "markdown" });
+    expect(page.body).toBe("**Status:** Tracked\n\nHow it is measured.");
+    expect(page.database).toEqual({ id: DB_ID, name: "Metrics", pageId: PAGE_ID, pageTitle: "Data strategy" });
+    // An ordinary page says it belongs to no database.
+    const holder = await caller.page.get({ id: PAGE_ID, format: "markdown" });
+    expect(holder.database).toBeNull();
+  });
+
+  it("the header shows every non-title property, an empty cell as a dash, computed ones from the page", async () => {
+    const CREATED = "pcreated0001";
+    const BY = "pby000000001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: STATUS_ID, name: "Status", type: "text" },
+          { id: "pempty000001", name: "Owner notes", type: "text" },
+          { id: CREATED, name: "Created", type: "createdTime" },
+          { id: BY, name: "Added by", type: "createdBy" },
+        ],
+      }) as never,
+    );
+    db.user.findMany.mockResolvedValue([{ id: OWNER, name: "Owner", email: null }] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const page = await caller.page.get({ id: ROW_ID, format: "markdown" });
+    expect(page.body).toBe(
+      [
+        "**Status:** Tracked",
+        "**Owner notes:** —",
+        "**Created:** 2026-10-03T00:00:00.000Z",
+        "**Added by:** Owner",
+        "",
+        "How it is measured.",
+      ].join("\n"),
+    );
+  });
+
+  it("access to a row is the holding page's: an invite-only holder shuts out a workspace member", async () => {
+    // The row's own copied placement is workspace-visible; the holder is invite-only.
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({ page: { ...databaseRow().page, isInviteOnly: true } }) as never,
+    );
+    db.knowledgePageMember.findUnique.mockResolvedValue(null);
+    const member = createMockCaller({ userId: MEMBER, db });
+    const error = await failureOf(member.page.get({ id: ROW_ID }));
+    expect(error?.code).toBe("FORBIDDEN");
+    // The holder's owner still reads it.
+    const owner = createMockCaller({ userId: OWNER, db });
+    await expect(owner.page.get({ id: ROW_ID })).resolves.toMatchObject({ id: ROW_ID });
+  });
+
+  it("the Pages list and tree leave rows out", async () => {
+    db.knowledgePage.findMany.mockResolvedValue([] as never);
+    db.pageLink.findMany.mockResolvedValue([] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.list({ workspaceId: WORKSPACE_ID });
+    await caller.page.tree({ workspaceId: WORKSPACE_ID });
+    for (const call of db.knowledgePage.findMany.mock.calls) {
+      const where = (call[0] as { where: { AND: unknown[] } }).where;
+      expect(where.AND).toContainEqual({ databaseId: null });
+    }
+  });
+
+  it("the access where-clause judges a row by its holding page, never its own placement", async () => {
+    const { buildKnowledgePageAccessWhere } = await import("~/server/services/access");
+    const where = buildKnowledgePageAccessWhere(OWNER) as { OR: Record<string, unknown>[] };
+    expect(where.OR).toHaveLength(2);
+    expect(where.OR[0]).toMatchObject({ AND: [{ databaseId: null }, expect.anything()] });
+    expect(where.OR[1]).toMatchObject({
+      AND: [{ databaseId: { not: null } }, { database: { page: expect.anything() } }],
+    });
+  });
+
+  it("page.* refuses to move, share, publish, duplicate or delete a row", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const attempts: Promise<unknown>[] = [
+      caller.page.move({ id: ROW_ID, workspaceId: WORKSPACE_ID, projectId: null }),
+      caller.page.publish({ id: ROW_ID }),
+      caller.page.unpublish({ id: ROW_ID }),
+      caller.page.setInviteOnly({ id: ROW_ID, inviteOnly: true }),
+      caller.page.invite({ id: ROW_ID, userIds: [MEMBER], role: "viewer" }),
+      caller.page.duplicate({ id: ROW_ID }),
+      caller.page.delete({ id: ROW_ID }),
+      caller.page.update({ id: ROW_ID, projectId: null }),
+      caller.page.update({ id: ROW_ID, includeInSearch: false }),
+    ];
+    for (const attempt of attempts) {
+      const error = await failureOf(attempt);
+      expect(error?.code).toBe("FORBIDDEN");
+      expect(error?.message).toContain("Row pages follow their database");
+    }
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+    expect(db.knowledgePage.delete).not.toHaveBeenCalled();
+  });
+
+  it("page.update still takes a row's title, body and note", async () => {
+    db.knowledgePage.update.mockResolvedValue(rowFull({ title: "Alert latency (p95)" }) as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.update({ id: ROW_ID, title: "Alert latency (p95)" });
+    expect(db.knowledgePage.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("updateRow merges values, drops cells of removed properties, and records a properties revision", async () => {
+    const GONE = "pgone0000001";
+    db.knowledgePage.findUnique.mockResolvedValue(
+      rowFull({ properties: { [STATUS_ID]: "Tracked", [GONE]: "stale" } }) as never,
+    );
+    db.knowledgePage.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...rowPage(ROW_ID, "Alert latency", null), properties: args.data.properties })) as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const row = await caller.database.updateRow({
+      rowId: ROW_ID,
+      values: { Name: "Alert latency (p95)", Status: "Instrumenting" },
+      note: "Renamed after the review",
+    });
+    const data = db.knowledgePage.update.mock.calls[0]![0].data as Record<string, unknown>;
+    expect(data.properties).toEqual({ [STATUS_ID]: "Instrumenting" });
+    expect(data.title).toBe("Alert latency (p95)");
+    expect(row.values).toEqual({ [STATUS_ID]: "Instrumenting" });
+    expect(db.knowledgePageRevision.create.mock.calls[0]![0].data).toMatchObject({
+      kind: "properties",
+      authorId: OWNER,
+      note: "Renamed after the review",
+    });
+  });
+
+  it("updateRow clears a cell on null, rejects a bad value naming the property, and viewers cannot write", async () => {
+    db.knowledgePage.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...rowPage(ROW_ID, "Alert latency", null), properties: args.data.properties })) as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const cleared = await caller.database.updateRow({ rowId: ROW_ID, values: { Status: null } });
+    expect(cleared.values).toEqual({});
+
+    const error = await failureOf(caller.database.updateRow({ rowId: ROW_ID, values: { Status: 3 } }));
+    expect(error?.code).toBe("BAD_REQUEST");
+    expect(error?.message).toBe('Property "Status" expects text, got a number');
+
+    install(db, "viewer");
+    db.knowledgePage.findUnique.mockResolvedValue(rowFull() as never);
+    const viewer = createMockCaller({ userId: MEMBER, db });
+    await expect(viewer.database.updateRow({ rowId: ROW_ID, values: {} })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("updateRow on a page that is not a row is refused", async () => {
+    db.knowledgePage.findUnique.mockResolvedValue({ ...pageRow(), database: null } as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(caller.database.updateRow({ rowId: PAGE_ID, values: {} })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("deleteRow deletes the page and clears its chunks", async () => {
+    db.knowledgePage.delete.mockResolvedValue(rowFull() as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.deleteRow({ rowId: ROW_ID });
+    expect(result).toEqual({ id: ROW_ID, databaseId: DB_ID });
+    expect(db.knowledgePage.delete).toHaveBeenCalledWith({ where: { id: ROW_ID } });
+    expect(clearPageChunks).toHaveBeenCalledWith(ROW_ID);
   });
 });
 

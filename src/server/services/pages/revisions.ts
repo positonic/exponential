@@ -20,8 +20,18 @@ import { markdownBytes } from "~/lib/pages/markdown-outline";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-/** `baseline` rows are seeded by the migration for pages that predate history; never written here. */
-export type PageRevisionKind = "baseline" | "create" | "editor" | "markdown" | "restore";
+/**
+ * `baseline` rows are seeded by the migration for pages that predate history;
+ * never written here. `properties` is a Row's values written through
+ * `database.*` (ADR-0078): it snapshots body and properties both.
+ */
+export type PageRevisionKind =
+  | "baseline"
+  | "create"
+  | "editor"
+  | "markdown"
+  | "properties"
+  | "restore";
 
 /** Editor saves by one author inside this window are one revision. */
 export const REVISION_FOLD_WINDOW_MS = 10 * 60 * 1000;
@@ -37,6 +47,13 @@ export interface RecordPageRevisionInput {
   authorId: string | null;
   /** Why the change was made. A note always gets its own row. */
   note?: string | null;
+  /**
+   * Fold into the latest revision of the same kind by the same author inside
+   * the window. Defaults to true for `editor`; a `properties` write from the
+   * table block passes true too, so cell edits read as one session, while
+   * the same write from the CLI or an agent leaves it false.
+   */
+  fold?: boolean;
   now?: Date;
 }
 
@@ -72,7 +89,8 @@ export async function recordPageRevision(
   const properties =
     page.properties === null ? Prisma.DbNull : (page.properties as Prisma.InputJsonValue);
 
-  if (input.kind === "editor" && !note) {
+  const fold = input.fold ?? input.kind === "editor";
+  if (fold && !note) {
     const latest = await db.knowledgePageRevision.findFirst({
       where: { pageId: input.pageId },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -80,7 +98,7 @@ export async function recordPageRevision(
     });
     const foldable =
       latest &&
-      latest.kind === "editor" &&
+      latest.kind === input.kind &&
       latest.authorId === input.authorId &&
       !latest.note &&
       now.getTime() - latest.updatedAt.getTime() < REVISION_FOLD_WINDOW_MS;

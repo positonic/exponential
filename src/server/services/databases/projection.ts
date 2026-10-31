@@ -43,6 +43,10 @@ export interface ProjectedRow {
   properties: Record<string, PropertyValue | null>;
   /** Where the row page opens; the title cell links there when given. */
   href?: string;
+  /** The row page's own columns, behind the read-only property types. */
+  createdAt?: Date;
+  updatedAt?: Date;
+  createdById?: string;
 }
 
 /** One database as the projection needs it. */
@@ -73,7 +77,102 @@ function cell(
     const title = escapeTableCell(row.title || "Untitled");
     return row.href ? `[${title.replace(/([[\]])/g, "\\$1")}](${row.href})` : title;
   }
-  return cellMarkdown(def, row.properties[def.id], ctx);
+  return cellMarkdown(def, computedValue(def, row) ?? row.properties[def.id], ctx);
+}
+
+/** The value of a read-only property, taken from the row page itself. */
+function computedValue(def: PropertyDef, row: ProjectedRow): PropertyValue | null | undefined {
+  switch (def.type) {
+    case "createdTime":
+      return row.createdAt?.toISOString() ?? null;
+    case "lastEditedTime":
+      return row.updatedAt?.toISOString() ?? null;
+    case "createdBy":
+      return row.createdById ? [row.createdById] : null;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A Row page's property header (ADR-0078 §7): one `**Name:** value` line per
+ * property in definition order, the title left out (it is the page title).
+ * An empty cell reads as an em dash so the schema stays visible.
+ */
+export function renderRowHeader(
+  properties: readonly PropertyDef[],
+  row: ProjectedRow,
+  ctx: CellContext = {},
+): string {
+  return properties
+    .filter((def) => def.type !== "title")
+    .map((def) => {
+      const value = cellMarkdown(def, computedValue(def, row) ?? row.properties[def.id], ctx);
+      return `**${escapeTableCell(def.name)}:** ${value || "—"}`;
+    })
+    .join("\n");
+}
+
+/** What `page.get` adds to a Row: its database and the header above the prose. */
+export interface RowPageProjection {
+  database: { id: string; name: string; pageId: string; pageTitle: string };
+  /** The header, a blank line, then the stored prose (or the header alone). */
+  body: string | null;
+}
+
+/**
+ * Project a Row page: the key/value header from its values, over its own
+ * Markdown body. Null when the page is not a row or its database is gone.
+ */
+export async function projectRowPage(
+  db: Db,
+  page: {
+    id: string;
+    databaseId: string | null;
+    title: string;
+    body: string | null;
+    properties: unknown;
+    createdAt: Date;
+    updatedAt: Date;
+    createdById: string;
+  },
+): Promise<RowPageProjection | null> {
+  if (!page.databaseId) return null;
+  const database = await db.pageDatabase.findUnique({
+    where: { id: page.databaseId },
+    select: {
+      id: true,
+      name: true,
+      pageId: true,
+      properties: true,
+      view: true,
+      page: { select: { title: true } },
+    },
+  });
+  if (!database) return null;
+  const properties = parseProperties(database.properties);
+  const row: ProjectedRow = {
+    id: page.id,
+    title: page.title,
+    properties: rowValues(page.properties),
+    createdAt: page.createdAt,
+    updatedAt: page.updatedAt,
+    createdById: page.createdById,
+  };
+  const ctx = await personNames(db, [
+    { id: database.id, name: database.name, properties, view: parseView(database.view), rows: [row] },
+  ]);
+  const header = renderRowHeader(properties, row, ctx);
+  const prose = page.body?.trim() ? page.body : null;
+  return {
+    database: {
+      id: database.id,
+      name: database.name,
+      pageId: database.pageId,
+      pageTitle: database.page.title,
+    },
+    body: header ? (prose ? `${header}\n\n${prose}` : header) : prose,
+  };
 }
 
 /**
@@ -188,6 +287,9 @@ export async function expandDatabaseMarkers(
         title: row.title,
         properties: rowValues(row.properties),
         href: buildPageEditorPath(database.workspace.slug, row.id),
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        createdById: row.createdById,
       })),
       ...(moreRows ? { moreRows } : {}),
       titlePropertyId: database.titlePropertyId,
@@ -207,8 +309,10 @@ async function personNames(db: Db, databases: ProjectedDatabase[]): Promise<Cell
   const ids = new Set<string>();
   for (const database of databases) {
     const personIds = database.properties.filter((p) => p.type === "person").map((p) => p.id);
-    if (personIds.length === 0) continue;
+    const showsCreator = database.properties.some((p) => p.type === "createdBy");
+    if (personIds.length === 0 && !showsCreator) continue;
     for (const row of database.rows) {
+      if (showsCreator && row.createdById) ids.add(row.createdById);
       for (const propertyId of personIds) {
         const value = row.properties[propertyId];
         for (const id of Array.isArray(value) ? value : value ? [String(value)] : []) ids.add(id);
