@@ -887,6 +887,41 @@ ${databaseMarker(DB_ID)}` });
   });
 });
 
+describe("rows publish and unpublish with the holding page (ADR-0078 §4)", () => {
+  const db = getDbMock();
+  beforeEach(() => {
+    mockReset(db);
+    install(db);
+    db.knowledgePage.findUniqueOrThrow.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve({ title: args.where.id === PAGE_ID ? "Data strategy" : "Alert latency", publicId: null, publicSlug: null })) as never);
+    db.knowledgePage.update.mockImplementation(((args: { where: { id: string }; data: Record<string, unknown> }) =>
+      Promise.resolve({ id: args.where.id, isPublic: true, publicId: "pub", publicSlug: "s", publicSeoIndexed: false, publishedAt: new Date() })) as never);
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 2 } as never);
+  });
+
+  it("publish mints a public id for the page and for every row of its databases", async () => {
+    db.knowledgePage.findMany.mockResolvedValue([{ id: "row-1" }, { id: "row-2" }] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.publish({ id: PAGE_ID });
+    const published = db.knowledgePage.update.mock.calls.map((c) => (c[0] as { where: { id: string } }).where.id);
+    expect(published).toEqual([PAGE_ID, "row-1", "row-2"]);
+    const rowsWhere = db.knowledgePage.findMany.mock.calls[0]![0] as { where: unknown };
+    expect(rowsWhere.where).toEqual({ database: { pageId: PAGE_ID } });
+  });
+
+  it("unpublish takes the rows dark first, then the page", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.unpublish({ id: PAGE_ID });
+    expect(db.knowledgePage.updateMany).toHaveBeenCalledWith({
+      where: { database: { pageId: PAGE_ID } },
+      data: { isPublic: false },
+    });
+    expect(db.knowledgePage.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: PAGE_ID }, data: { isPublic: false } }),
+    );
+  });
+});
+
 describe("page.get expands a database marker", () => {
   const db = getDbMock();
   beforeEach(() => {

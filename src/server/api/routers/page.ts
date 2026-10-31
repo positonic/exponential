@@ -439,7 +439,22 @@ function generatePublicId(): string {
  * `publicId` and derives `publicSlug` from the title; republish reuses both,
  * reviving old links.
  */
+/**
+ * Publish a page and, when it holds databases, every row of them (ADR-0078
+ * §4: rows publish with the holding page and never alone). Each row gets its
+ * own public id and slug so its title can link from the public table.
+ */
 async function publishPage(db: PrismaClient, id: string) {
+  const result = await publishOnePage(db, id);
+  const rows = await db.knowledgePage.findMany({
+    where: { database: { pageId: id } },
+    select: { id: true },
+  });
+  for (const row of rows) await publishOnePage(db, row.id);
+  return result;
+}
+
+async function publishOnePage(db: PrismaClient, id: string) {
   const existing = await db.knowledgePage.findUniqueOrThrow({
     where: { id },
     select: { title: true, publicId: true, publicSlug: true },
@@ -1425,6 +1440,11 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "publishing");
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
+      // Rows go dark with their holding page (ADR-0078 §4).
+      await ctx.db.knowledgePage.updateMany({
+        where: { database: { pageId: input.id } },
+        data: { isPublic: false },
+      });
       return ctx.db.knowledgePage.update({
         where: { id: input.id },
         data: { isPublic: false },

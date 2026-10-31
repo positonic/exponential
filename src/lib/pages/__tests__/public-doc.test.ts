@@ -4,9 +4,11 @@ import type { JSONContent } from "@tiptap/core";
 
 import {
   collectPageLinkIds,
+  publicDatabaseTableNode,
   remapPageLinkIds,
   sanitizeDocForPublic,
   type PageLinkRewrite,
+  type PublicDatabaseTable,
 } from "../public-doc";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 
@@ -187,6 +189,51 @@ describe("sanitizeDocForPublic", () => {
     const snapshot = JSON.parse(JSON.stringify(input)) as JSONContent;
     sanitizeDocForPublic(input);
     expect(input).toEqual(snapshot);
+  });
+});
+
+describe("sanitizeDocForPublic — database blocks (ADR-0078)", () => {
+  const metrics: PublicDatabaseTable = {
+    name: "Metrics",
+    columns: ["Name", "Status"],
+    rows: [
+      { cells: ["Alert latency", "Tracked"], href: "/p/alert-latency-abcd1234" },
+      { cells: ["Coverage", ""] },
+    ],
+  };
+  const databaseNode = { type: "database", attrs: { databaseId: "db1", name: "Metrics" } };
+
+  it("renders a projected database as a static table, the title linking to the published row", () => {
+    const out = sanitizeDocForPublic(doc([databaseNode]), undefined, new Map([["db1", metrics]]));
+    const table = out.content?.[0];
+    expect(table?.type).toBe("table");
+    const [header, first, second] = table!.content!;
+    expect(header!.content!.map((c) => c.type)).toEqual(["tableHeader", "tableHeader"]);
+    expect(JSON.stringify(header)).toContain('"text":"Name"');
+    const titleText = first!.content![0]!.content![0]!.content![0]!;
+    expect(titleText.text).toBe("Alert latency");
+    expect(titleText.marks).toEqual([{ type: "link", attrs: { href: "/p/alert-latency-abcd1234" } }]);
+    // An unpublished row's title is plain text; an empty cell is an empty paragraph.
+    const secondTitle = second!.content![0]!.content![0]!.content![0]!;
+    expect(secondTitle.marks).toBeUndefined();
+    expect(second!.content![1]!.content![0]!.content).toEqual([]);
+    // It is the editor's own table node, so the shared extension set renders it.
+    const html = generateHTML(out, buildPrdExtensions());
+    expect(html).toContain("<table");
+    expect(html).toContain('href="/p/alert-latency-abcd1234"');
+    expect(html).not.toContain("db1");
+  });
+
+  it("drops a database block the caller did not project, leaving no id or name behind", () => {
+    const out = sanitizeDocForPublic(doc([databaseNode, { type: "paragraph", content: [{ type: "text", text: "after" }] }]));
+    expect(out.content?.map((n) => n.type)).toEqual(["paragraph"]);
+    expect(JSON.stringify(out)).not.toContain("Metrics");
+  });
+
+  it("publicDatabaseTableNode refuses a non-relative href on the title", () => {
+    const node = publicDatabaseTableNode({ ...metrics, rows: [{ cells: ["x", "y"], href: "javascript:alert(1)" }] });
+    const titleText = node.content![1]!.content![0]!.content![0]!.content![0]!;
+    expect(titleText.marks).toBeUndefined();
   });
 });
 

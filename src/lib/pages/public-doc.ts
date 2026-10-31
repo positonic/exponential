@@ -14,6 +14,8 @@ import type { JSONContent } from "@tiptap/core";
  *    public URL (live title); an unpublished/unknown target keeps only the
  *    cached title — the page id and internal workspace path are private and
  *    must not leak into public HTML
+ *  - `database` nodes (ADR-0078) become static `table` nodes from the
+ *    caller-supplied projection; a database not in the map is dropped
  *
  * Pure and isomorphic — unit-testable without a DOM.
  */
@@ -29,6 +31,55 @@ export interface PublicPageLinkTarget {
 
 export type PublicPageLinkMap = ReadonlyMap<string, PublicPageLinkTarget>;
 
+/** One row of a database as the public render shows it: one text per visible column. */
+export interface PublicDatabaseRow {
+  cells: string[];
+  /** The row page's public path when it is published; the title cell links there. */
+  href?: string;
+}
+
+/** A database projected for the public render (ADR-0078): visible columns in view order. */
+export interface PublicDatabaseTable {
+  name: string;
+  columns: string[];
+  rows: PublicDatabaseRow[];
+}
+
+export type PublicDatabaseMap = ReadonlyMap<string, PublicDatabaseTable>;
+
+function textNode(text: string, href?: string): JSONContent[] {
+  if (!text) return [];
+  return [
+    href && href.startsWith("/")
+      ? { type: "text", text, marks: [{ type: "link", attrs: { href } }] }
+      : { type: "text", text },
+  ];
+}
+
+/**
+ * A database block as a static Tiptap `table` (the editor's own table node),
+ * so the public page needs no renderer of its own: a header row of the
+ * visible properties, one row per Row, the title cell linking to the row's
+ * public URL when that row is published.
+ */
+export function publicDatabaseTableNode(table: PublicDatabaseTable): JSONContent {
+  const header = {
+    type: "tableRow",
+    content: table.columns.map((name) => ({
+      type: "tableHeader",
+      content: [{ type: "paragraph", content: textNode(name) }],
+    })),
+  };
+  const rows = table.rows.map((row) => ({
+    type: "tableRow",
+    content: row.cells.map((cell, index) => ({
+      type: "tableCell",
+      content: [{ type: "paragraph", content: textNode(cell, index === 0 ? row.href : undefined) }],
+    })),
+  }));
+  return { type: "table", content: [header, ...rows] };
+}
+
 function isSafeLinkMark(mark: { attrs?: Record<string, unknown> }): boolean {
   const href = mark.attrs?.href;
   return typeof href === "string" && SAFE_LINK_HREF.test(href.trim());
@@ -37,7 +88,17 @@ function isSafeLinkMark(mark: { attrs?: Record<string, unknown> }): boolean {
 function sanitizeNode(
   node: JSONContent,
   pageLinks: PublicPageLinkMap,
+  databases: PublicDatabaseMap,
 ): JSONContent | null {
+  if (node.type === "database") {
+    // A database the caller projected becomes a static table; one it did not
+    // (deleted, or the caller chose not to publish it) is left out entirely,
+    // so neither its id nor its name reaches the public HTML.
+    const databaseId = node.attrs?.databaseId;
+    const table = typeof databaseId === "string" ? databases.get(databaseId) : undefined;
+    return table ? publicDatabaseTableNode(table) : null;
+  }
+
   if (node.type === "pageLink") {
     const pageId = node.attrs?.pageId;
     const target =
@@ -82,7 +143,7 @@ function sanitizeNode(
   });
 
   const content = node.content
-    ?.map((child) => sanitizeNode(child, pageLinks))
+    ?.map((child) => sanitizeNode(child, pageLinks, databases))
     .filter((child): child is JSONContent => child !== null);
 
   return {
@@ -93,12 +154,14 @@ function sanitizeNode(
 }
 
 const NO_LINKS: PublicPageLinkMap = new Map();
+const NO_DATABASES: PublicDatabaseMap = new Map();
 
 export function sanitizeDocForPublic(
   doc: JSONContent,
   pageLinks: PublicPageLinkMap = NO_LINKS,
+  databases: PublicDatabaseMap = NO_DATABASES,
 ): JSONContent {
-  return sanitizeNode(doc, pageLinks) ?? { type: "doc", content: [] };
+  return sanitizeNode(doc, pageLinks, databases) ?? { type: "doc", content: [] };
 }
 
 /**
