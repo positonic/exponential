@@ -100,6 +100,7 @@ import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
 import { pageCommentRouter } from "./routers/pageComment";
+import { databaseRouter } from "./routers/database";
 import { yourWorkRouter } from "./routers/yourWork";
 /**
  * This is the primary router for your server.
@@ -203,6 +204,7 @@ export const appRouter = createTRPCRouter({
   voice: voiceRouter,
   page: pageRouter,
   pageComment: pageCommentRouter,
+  database: databaseRouter,
   yourWork: yourWorkRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,

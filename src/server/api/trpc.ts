@@ -22,6 +22,7 @@ import {
 } from "~/server/utils/jwt";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { conflictFromError } from "~/server/services/revisions/revisionConflict";
+import { propertyRejectionFromError } from "~/server/services/databases/values";
 import { isPersonCredential, resolvePrincipal, type Principal } from "~/server/services/access/principal";
 
 /**
@@ -228,6 +229,10 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
         // (entity, id, field, expected and current revision) so clients can
         // re-read and reconcile rather than parse the message.
         conflict: conflictFromError(error),
+        // A database write rejected by the property-type registry (ADR-0078):
+        // which property, and why, so the CLI and the table block can point at
+        // the cell instead of parsing the message.
+        property: propertyRejectionFromError(error),
       },
     };
   },

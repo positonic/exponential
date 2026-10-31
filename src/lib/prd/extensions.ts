@@ -14,6 +14,7 @@ import { Markdown } from "tiptap-markdown";
 import { CommentMark } from "./comment-mark";
 import { PlainTextClipboard } from "./plain-text-clipboard";
 import { PageLink } from "./page-link";
+import { DatabaseNode } from "./database-node";
 
 /**
  * The schema for the **PRD body** — the single scoped exception to ADR-0017
@@ -53,6 +54,14 @@ export function buildPrdExtensions(
      * blocks as diagrams); the codec and the public render use the base node.
      */
     codeBlock?: AnyExtension;
+    /**
+     * Override for the {@link DatabaseNode} block (ADR-0078) — the page
+     * editor passes `DatabaseWithView` (same schema + the table node view).
+     * The node is in every host's schema because the set is shared, but only
+     * a Page can hold a database (`database.create` needs a holding page),
+     * so Feature, Ticket and Insight bodies never contain one.
+     */
+    database?: AnyExtension;
   } = {},
 ): Extensions {
   return [
@@ -91,6 +100,7 @@ export function buildPrdExtensions(
     TableCell,
     CommentMark,
     options.pageLink ?? PageLink,
+    options.database ?? DatabaseNode,
     PlainTextClipboard,
     Placeholder.configure({
       placeholder: options.placeholder ?? PRD_DEFAULT_PLACEHOLDER,

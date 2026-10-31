@@ -36,6 +36,18 @@ import {
   writePageBodyIfVersion,
 } from "~/server/services/pages/page-links";
 import {
+  assertNotRow,
+  ensurePageAccess,
+  loadPageForAccess,
+  type PageForAccess,
+} from "~/server/services/pages/access";
+import {
+  expandDatabaseMarkers,
+  projectRowPage,
+} from "~/server/services/databases/projection";
+import { syncPageDatabases } from "~/server/services/databases/sync";
+import { stripProjectedTables } from "~/lib/databases/marker";
+import {
   diffRevisionBodies,
   recordPageRevision,
 } from "~/server/services/pages/revisions";
@@ -68,6 +80,9 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
  * server only stores it as JSON.
  */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+// Moved to the pages access service (shared with pageComment and database).
+export { ensurePageAccess, loadPageForAccess };
 
 /** One `page.search` hit. */
 export interface PageSearchResult {
@@ -273,16 +288,6 @@ const OCCURRENCE_CRUMB_SELECT = {
   },
 } satisfies Prisma.KnowledgePage$ceremonyOccurrenceArgs;
 
-/** A Page reduced to exactly what the access resolver needs. */
-const PAGE_ACCESS_SELECT = {
-  id: true,
-  createdById: true,
-  projectId: true,
-  workspaceId: true,
-  isInviteOnly: true,
-  docVersion: true,
-} satisfies Prisma.KnowledgePageSelect;
-
 /** Everything duplicate-with-sub-pages copies per page (+ access fields). */
 const DUPLICATE_SELECT = {
   id: true,
@@ -302,18 +307,6 @@ type DuplicateRow = Prisma.KnowledgePageGetPayload<{
   select: typeof DUPLICATE_SELECT;
 }>;
 
-/** Load the access-relevant slice of a Page (shared with the pageComment router). */
-export async function loadPageForAccess(db: PrismaClient, id: string) {
-  const page = await db.knowledgePage.findUnique({
-    where: { id },
-    select: PAGE_ACCESS_SELECT,
-  });
-  if (!page) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
-  }
-  return page;
-}
-
 /**
  * A Page's current `docVersion`, or null when it is gone. Inside a transaction
  * pass its `tx`: a second pooled connection could wait out the transaction
@@ -329,42 +322,6 @@ async function readPageDocVersion(
   });
   return row?.docVersion ?? null;
 }
-
-/** Throw unless the user has view/edit access (shared with the pageComment router). */
-export async function ensurePageAccess(
-  db: PrismaClient,
-  userId: string,
-  page: PageForAccess,
-  permission: "view" | "edit" | "manage",
-): Promise<void> {
-  const access = await getKnowledgePageAccess(db, userId, page);
-  const allowed =
-    permission === "view"
-      ? canViewKnowledgePage(access)
-      : permission === "edit"
-        ? canEditKnowledgePage(access)
-        : canManageKnowledgePageAccess(access);
-  if (!allowed) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        permission === "view"
-          ? "You don't have access to this page"
-          : permission === "edit"
-            ? "You don't have permission to edit this page"
-            : "Only the page's owner can change who it's shared with",
-    });
-  }
-}
-
-/** What the page access resolver needs to know about a Page. */
-type PageForAccess = {
-  id: string;
-  createdById: string;
-  projectId: string | null;
-  workspaceId: string;
-  isInviteOnly: boolean;
-};
 
 /**
  * Publishing gate (ADR-0038 + ADR-0069): edit access, and on an invite-only
@@ -627,6 +584,8 @@ export const pageRouter = createTRPCRouter({
       const filters: Prisma.KnowledgePageWhereInput[] = [
         buildKnowledgePageAccessWhere(userId),
         { workspaceId: input.workspaceId },
+        // Rows live in their database, not in the Pages list (ADR-0078 §3).
+        { databaseId: null },
       ];
       if (input.projectId) {
         filters.push({ projectId: input.projectId });
@@ -676,6 +635,8 @@ export const pageRouter = createTRPCRouter({
       const filters: Prisma.KnowledgePageWhereInput[] = [
         buildKnowledgePageAccessWhere(userId),
         { workspaceId: input.workspaceId },
+        // Rows are reached through their database, never the tree (ADR-0078 §3).
+        { databaseId: null },
       ];
       if (input.projectId) {
         filters.push({ projectId: input.projectId });
@@ -800,7 +761,19 @@ export const pageRouter = createTRPCRouter({
         });
       }
 
-      const fullBody = page.body ?? null;
+      // A database block is stored as a marker; readers see its table
+      // (ADR-0078 §7). Expanded before sectioning so a table under a heading
+      // is part of that section. A Row page instead gets its property header
+      // above its prose for readers — but the editor (`full`) gets the stored
+      // prose alone, with the header beside it in `database.header`: what the
+      // editor initialises from is what it saves back, and the header must
+      // never become editable prose.
+      const row = await projectRowPage(ctx.db, page);
+      const fullBody = row
+        ? input.format === "full"
+          ? (page.body ?? null)
+          : row.body
+        : await expandDatabaseMarkers(ctx.db, page.id, page.body);
       let body = fullBody;
       let section: { level: number; text: string; line: number } | null = null;
       if (input.section) {
@@ -834,6 +807,8 @@ export const pageRouter = createTRPCRouter({
         outline,
         // The editor needs to know whether to render read-only.
         canEdit: canEditKnowledgePage(access),
+        /** Set on a Row: its database, the page holding it, and the property header (ADR-0078). */
+        database: row ? { ...row.database, header: row.header } : null,
       };
     }),
 
@@ -999,7 +974,7 @@ export const pageRouter = createTRPCRouter({
             workspaceId: input.workspaceId,
             projectId: input.projectId ?? null,
             title: input.title?.trim() ? input.title.trim() : "Untitled",
-            body: input.body,
+            body: input.body === undefined ? undefined : stripProjectedTables(input.body),
             bodyDoc: input.bodyDoc as Prisma.InputJsonValue | undefined,
             includeInSearch: input.includeInSearch ?? true,
             source: input.source?.trim() ? input.source.trim() : null,
@@ -1008,6 +983,10 @@ export const pageRouter = createTRPCRouter({
           },
         });
         await syncPageLinks(tx, created.id, input.bodyDoc as JSONContent | undefined);
+        await syncPageDatabases(tx, created.id, {
+          doc: input.bodyDoc as JSONContent | undefined,
+          body: input.body,
+        });
         await recordPageRevision(tx, {
           pageId: created.id,
           kind: "create",
@@ -1057,9 +1036,17 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "edit");
+      if (input.projectId !== undefined || input.includeInSearch !== undefined) {
+        assertNotRow(page, "placement and search inclusion");
+      }
 
-      const { id, bodyDoc, body, baseVersion, projectId, note, source, ...rest } =
+      const { id, bodyDoc, body: rawBody, baseVersion, projectId, note, source, ...rest } =
         input;
+      // A Markdown writer may hand back a body it read *expanded* (a database
+      // block's table under its marker). The stored body holds markers only
+      // (ADR-0078 §7), so strip those tables before comparing or storing.
+      const body =
+        rawBody !== undefined && bodyDoc === undefined ? stripProjectedTables(rawBody) : rawBody;
       // `rest` carries title / includeInSearch / asOf straight through; an
       // explicit empty source clears the field.
       const provenance =
@@ -1250,6 +1237,8 @@ export const pageRouter = createTRPCRouter({
                 });
               });
             await syncPageLinks(tx, id, carriedDoc);
+            // No doc to read blocks from on this path: the markers decide.
+            await syncPageDatabases(tx, id, { doc: carriedDoc, body });
             await recordPageRevision(tx, {
               pageId: id,
               kind: "markdown",
@@ -1315,6 +1304,7 @@ export const pageRouter = createTRPCRouter({
           select: { bodyDoc: true },
         });
         await syncPageLinks(tx, input.id, input.doc as JSONContent);
+        await syncPageDatabases(tx, input.id, { doc: input.doc as JSONContent });
         return row;
       });
       return { migrated: true, bodyDoc: updated.bodyDoc };
@@ -1356,6 +1346,7 @@ export const pageRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "publishing");
       await ensureCanPublish(ctx.db, ctx.session.user.id, page);
       return publishPage(ctx.db, input.id);
     }),
@@ -1416,6 +1407,7 @@ export const pageRouter = createTRPCRouter({
       // ago gets published.)
       for (const id of ids) {
         const page = await loadPageForAccess(ctx.db, id);
+      assertNotRow(page, "publishing");
         await ensureCanPublish(ctx.db, userId, page);
       }
       const results = [];
@@ -1431,6 +1423,7 @@ export const pageRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "publishing");
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
       return ctx.db.knowledgePage.update({
         where: { id: input.id },
@@ -1452,6 +1445,7 @@ export const pageRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "publishing");
       await ensureCanPublish(ctx.db, ctx.session.user.id, page);
       return ctx.db.knowledgePage.update({
         where: { id: input.id },
@@ -1488,6 +1482,7 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "duplicating");
       await ensurePageAccess(ctx.db, userId, page, "view");
       const rootPlacement = await copyPlacement(ctx.db, userId, page);
       if (!rootPlacement) {
@@ -1703,6 +1698,7 @@ export const pageRouter = createTRPCRouter({
     .input(z.object({ id: z.string(), inviteOnly: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "sharing");
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "manage");
       if (input.inviteOnly) {
         const blocker = await inviteOnlyBlocker(ctx.db, page.id);
@@ -1733,6 +1729,7 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "sharing");
       await ensurePageAccess(ctx.db, userId, page, "manage");
       if (!page.isInviteOnly) {
         throw new TRPCError({
@@ -1807,6 +1804,7 @@ export const pageRouter = createTRPCRouter({
     .input(z.object({ id: z.string(), userId: z.string(), role: inviteRoleSchema }))
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "sharing");
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "manage");
       const { count } = await ctx.db.knowledgePageMember.updateMany({
         where: { pageId: page.id, userId: input.userId },
@@ -1823,6 +1821,7 @@ export const pageRouter = createTRPCRouter({
     .input(z.object({ id: z.string(), userId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "sharing");
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "manage");
       await ctx.db.knowledgePageMember.deleteMany({
         where: { pageId: page.id, userId: input.userId },
@@ -1844,6 +1843,7 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "sharing");
       await ensurePageAccess(ctx.db, userId, page, "manage");
       if (!page.isInviteOnly) {
         throw new TRPCError({
@@ -1909,6 +1909,7 @@ export const pageRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "moving");
       const crossWorkspace = input.workspaceId !== page.workspaceId;
       // Taking an invite-only page out of its workspace cuts off every invitee
       // who isn't in the new one — an unshare, which is the owner's call alone
@@ -1949,14 +1950,31 @@ export const pageRouter = createTRPCRouter({
           where: { id: input.id },
           data: { workspaceId: input.workspaceId, projectId: input.projectId },
         });
+        // A page's databases and their rows live where the page lives
+        // (ADR-0078 §4): same workspace, rows on the same project.
+        await tx.pageDatabase.updateMany({
+          where: { pageId: input.id },
+          data: { workspaceId: input.workspaceId },
+        });
+        await tx.knowledgePage.updateMany({
+          where: { database: { pageId: input.id } },
+          data: { workspaceId: input.workspaceId, projectId: input.projectId },
+        });
         if (crossWorkspace) {
           await tx.pageLink.deleteMany({
             where: { OR: [{ fromPageId: input.id }, { toPageId: input.id }] },
           });
         }
       });
-      // Search chunks are scoped by the page's placement — re-index.
-      getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(input.id);
+      // Search chunks are scoped by the page's placement — re-index the page
+      // and every row that moved with it.
+      const embeddings = getEmbeddingTriggerService(ctx.db);
+      embeddings.triggerPageEmbedding(input.id);
+      const movedRows = await ctx.db.knowledgePage.findMany({
+        where: { database: { pageId: input.id } },
+        select: { id: true },
+      });
+      for (const row of movedRows) embeddings.triggerPageEmbedding(row.id);
 
       const workspace = await ctx.db.workspace.findUniqueOrThrow({
         where: { id: input.workspaceId },
@@ -2314,7 +2332,17 @@ export const pageRouter = createTRPCRouter({
       await ensurePageAccess(ctx.db, userId, page, "edit");
       const revision = await ctx.db.knowledgePageRevision.findUnique({
         where: { id: input.revisionId },
-        select: { id: true, pageId: true, title: true, body: true, bodyDoc: true, source: true, asOf: true, createdAt: true },
+        select: {
+          id: true,
+          pageId: true,
+          title: true,
+          body: true,
+          bodyDoc: true,
+          source: true,
+          asOf: true,
+          properties: true,
+          createdAt: true,
+        },
       });
       if (!revision || revision.pageId !== input.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Revision not found" });
@@ -2336,6 +2364,16 @@ export const pageRouter = createTRPCRouter({
             // No stored doc → the editor re-derives one from the Markdown on
             // next open, as after a Markdown-source write.
             bodyDoc: doc ? (doc as Prisma.InputJsonValue) : Prisma.DbNull,
+            // A Row's values are part of its snapshot too (ADR-0078); an
+            // ordinary page's revision carries null and stays null.
+            ...(revision.properties !== undefined
+              ? {
+                  properties:
+                    revision.properties === null
+                      ? Prisma.DbNull
+                      : (revision.properties as Prisma.InputJsonValue),
+                }
+              : {}),
             docVersion: { increment: 1 },
           },
         });
@@ -2351,6 +2389,7 @@ export const pageRouter = createTRPCRouter({
           });
         }
         await syncPageLinks(tx, input.id, doc);
+        await syncPageDatabases(tx, input.id, { doc, body: revision.body });
         const recorded = await recordPageRevision(tx, {
           pageId: input.id,
           kind: "restore",
@@ -2370,6 +2409,7 @@ export const pageRouter = createTRPCRouter({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const page = await loadPageForAccess(ctx.db, input.id);
+      assertNotRow(page, "deleting");
       await ensurePageAccess(ctx.db, ctx.session.user.id, page, "edit");
       await ctx.db.knowledgePage.delete({ where: { id: input.id } });
       // Drop the Page's chunks from the Knowledge index so search can't return
