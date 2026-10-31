@@ -427,6 +427,43 @@ describe("database router (integration)", () => {
     expect(await db.databaseRelation.count({ where: { databaseId: metrics.id } })).toBe(0);
   });
 
+  it("CSV import (V4 tracer): a three-column file with one bad number cell — the preview flags it, the commit creates the others with create revisions", async () => {
+    const { owner, page } = await setup(db, "db-csv");
+    const { caller, database, score } = await seedMetrics(db, owner.id, page.id);
+    const csv = ["Name,Score,Owner", "Uptime,99,Ana", "Error budget,lots,Ben", "MTTR,4,"].join("\n");
+
+    const preview = await caller.database.previewCsv({ id: database.id, csv });
+    expect(preview.mapping).toEqual({
+      Name: { kind: "property", propertyId: database.titlePropertyId },
+      Score: { kind: "property", propertyId: score.id },
+      Owner: { kind: "new", name: "Owner", type: "text" },
+    });
+    expect(preview.importable).toBe(2);
+    expect(preview.rows[1]!.errors[0]).toMatchObject({ header: "Score", propertyName: "Score" });
+    expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(2);
+
+    const result = await caller.database.commitCsv({ id: database.id, csv, mapping: preview.mapping, note: "Q3 sheet" });
+    expect(result.created).toHaveLength(2);
+    expect(result.skipped).toEqual([{ index: 1, errors: [expect.objectContaining({ header: "Score" })] }]);
+    const owner_ = result.properties[0]!;
+    const after = await caller.database.get({ id: database.id });
+    expect(after.properties.map((p) => p.name)).toEqual(["Name", "Status", "Score", "Owner"]);
+    const rows = await caller.database.listRows({ id: database.id });
+    const uptime = rows.rows.find((r) => r.title === "Uptime")!;
+    expect(uptime.values).toEqual({ [score.id]: 99, [owner_.id]: "Ana" });
+    expect(rows.rows.find((r) => r.title === "Error budget")).toBeUndefined();
+    for (const id of result.created) {
+      const revisions = await db.knowledgePageRevision.findMany({ where: { pageId: id } });
+      expect(revisions.map((r) => r.kind)).toEqual(["create"]);
+      expect(revisions[0]!.note).toBe("Q3 sheet");
+    }
+    // The page's table shows the imported rows.
+    const read = await caller.page.get({ id: page.id, format: "markdown" });
+    expect(read.body).toContain("| [Uptime](");
+    expect(read.body).toContain("| [MTTR](");
+    expect(read.body).not.toContain("Error budget");
+  });
+
   it("deleting the database, or the holding page, takes the rows with it", async () => {
     const { owner, page } = await setup(db, "db-cascade");
     const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);

@@ -1392,3 +1392,97 @@ describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolve
     expect(where.page).toBeDefined();
   });
 });
+
+describe("CSV import (ADR-0078, V4): previewCsv and commitCsv", () => {
+  const db = getDbMock();
+  const SCORE_ID = "pscore000001";
+  const withScore = () =>
+    databaseRow({
+      properties: [
+        { id: TITLE_ID, name: "Name", type: "title" },
+        { id: STATUS_ID, name: "Status", type: "text" },
+        { id: SCORE_ID, name: "Score", type: "number" },
+      ],
+      view: { filters: [], hiddenPropertyIds: [], propertyOrder: [TITLE_ID, STATUS_ID, SCORE_ID] },
+    });
+  const csv = ["Name,Score,Owner", "Alert latency,7,Ana", "Coverage,lots,Ben", "Uptime,,"].join("\n");
+
+  beforeEach(() => {
+    mockReset(db);
+    install(db);
+    triggerPageEmbedding.mockClear();
+    db.pageDatabase.findUnique.mockImplementation((() => Promise.resolve(withScore())) as never);
+    db.pageDatabase.update.mockImplementation(((args: { data: Record<string, unknown> }) =>
+      Promise.resolve({ ...withScore(), ...args.data })) as never);
+    let n = 0;
+    db.knowledgePage.create.mockImplementation((() => Promise.resolve({ id: `row-${++n}` })) as never);
+  });
+
+  it("previewCsv suggests a mapping by header name, types every row and names the cell that does not fit; viewers may preview", async () => {
+    const caller = createMockCaller({ userId: MEMBER, db });
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "viewer", workspaceId: WORKSPACE_ID } as never);
+    const preview = await caller.database.previewCsv({ id: DB_ID, csv });
+    expect(preview.mapping).toEqual({
+      Name: { kind: "property", propertyId: TITLE_ID },
+      Score: { kind: "property", propertyId: SCORE_ID },
+      Owner: { kind: "new", name: "Owner", type: "text" },
+    });
+    expect(preview.columns.map((c) => [c.header, c.propertyName, c.type])).toEqual([
+      ["Name", "Name", "title"],
+      ["Score", "Score", "number"],
+      ["Owner", "Owner", "text"],
+    ]);
+    expect(preview.total).toBe(3);
+    expect(preview.importable).toBe(2);
+    expect(preview.rows[1]!.errors).toEqual([{ header: "Score", propertyName: "Score", reason: 'expects a number, got "lots"' }]);
+    expect(db.knowledgePage.create).not.toHaveBeenCalled();
+    // A mapping that does not fit is refused whole.
+    await expect(
+      caller.database.previewCsv({ id: DB_ID, csv, mapping: { Name: { kind: "property", propertyId: "nope" } } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("commitCsv mints the new column, creates only the rows with no error (each with a create revision), and re-indexes the holder once", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.commitCsv({
+      id: DB_ID,
+      csv,
+      mapping: {
+        Name: { kind: "property", propertyId: TITLE_ID },
+        Score: { kind: "property", propertyId: SCORE_ID },
+        Owner: { kind: "new", name: "Owner", type: "text" },
+      },
+      note: "From the Q3 sheet",
+    });
+    const owner = result.properties[0]!;
+    expect(owner).toMatchObject({ name: "Owner", type: "text" });
+    expect(owner.id).toHaveLength(12);
+    const definition = db.pageDatabase.update.mock.calls[0]![0].data as { properties: { id: string }[]; view: { propertyOrder: string[] } };
+    expect(definition.properties.map((p) => p.id)).toEqual([TITLE_ID, STATUS_ID, SCORE_ID, owner.id]);
+    expect(definition.view.propertyOrder).toEqual([TITLE_ID, STATUS_ID, SCORE_ID, owner.id]);
+
+    expect(result.created).toEqual(["row-1", "row-2"]);
+    expect(result.skipped).toEqual([{ index: 1, errors: [{ header: "Score", propertyName: "Score", reason: 'expects a number, got "lots"' }] }]);
+    const creates = db.knowledgePage.create.mock.calls.map((c) => c[0].data as Record<string, unknown>);
+    expect(creates[0]).toMatchObject({ title: "Alert latency", databaseId: DB_ID, properties: { [SCORE_ID]: 7, [owner.id]: "Ana" }, workspaceId: WORKSPACE_ID, createdById: OWNER });
+    // An empty cell is left out, not stored as null.
+    expect(creates[1]).toMatchObject({ title: "Uptime", properties: {} });
+    expect(db.knowledgePageRevision.create).toHaveBeenCalledTimes(2);
+    expect(db.knowledgePageRevision.create.mock.calls[0]![0].data).toMatchObject({ kind: "create", note: "From the Q3 sheet" });
+    // The holding page once, each row once.
+    expect(triggerPageEmbedding.mock.calls.map((c) => c[0])).toEqual([PAGE_ID, "row-1", "row-2"]);
+  });
+
+  it("commitCsv needs edit access and refuses a file past the row cap", async () => {
+    const mapping = { Name: { kind: "property" as const, propertyId: TITLE_ID } };
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "viewer", workspaceId: WORKSPACE_ID } as never);
+    await expect(createMockCaller({ userId: MEMBER, db }).database.commitCsv({ id: DB_ID, csv, mapping })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "member", workspaceId: WORKSPACE_ID } as never);
+    const big = ["Name", ...Array.from({ length: 2001 }, (_, i) => `Row ${i}`)].join("\n");
+    await expect(createMockCaller({ userId: OWNER, db }).database.commitCsv({ id: DB_ID, csv: big, mapping })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("2000") as string,
+    });
+    expect(db.knowledgePage.create).not.toHaveBeenCalled();
+  });
+});

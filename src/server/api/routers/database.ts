@@ -56,6 +56,15 @@ import {
 } from "~/server/services/databases/relations";
 import { withoutProperty } from "~/server/services/databases/schema-edits";
 import { inverseProperty } from "~/lib/databases/relations";
+import {
+  CsvMappingError,
+  parseCsv,
+  previewCsvRows,
+  resolveCsvColumns,
+  suggestCsvMapping,
+  type CsvMapping,
+  type CsvPreviewColumn,
+} from "~/lib/databases/csv";
 import type { PropertyValue } from "~/lib/databases/properties";
 
 /**
@@ -164,6 +173,23 @@ const creatableTypeInput = propertyTypeSchema.refine(
   { message: "A property cannot be given this type here" },
 );
 
+/** A CSV file as text. Two megabytes and two thousand rows is well past what a page's table is for. */
+const CSV_MAX_BYTES = 2_000_000;
+const CSV_MAX_ROWS = 2_000;
+const csvInput = z.string().min(1).max(CSV_MAX_BYTES);
+
+/** Where one CSV column lands: skipped, an existing property, or a new one. */
+const csvTargetInput = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("skip") }),
+  z.object({ kind: z.literal("property"), propertyId: z.string().min(1) }),
+  z.object({
+    kind: z.literal("new"),
+    name: boundedText("Name", TEXT_LIMITS.LABEL, { min: 1 }),
+    type: propertyTypeSchema,
+  }),
+]);
+const csvMappingInput = z.record(z.string(), csvTargetInput);
+
 /** Where a new relation property points. `ROW` names the related database; the other kinds name a native entity type. */
 const relationInput = z.object({
   targetKind: relationTargetKindSchema,
@@ -259,6 +285,31 @@ function reindex(db: PrismaClient, holdingPageId: string, rowId?: string): void 
   const embeddings = getEmbeddingTriggerService(db);
   embeddings.triggerPageEmbedding(holdingPageId);
   if (rowId) embeddings.triggerPageEmbedding(rowId);
+}
+
+/** A file parsed and its columns resolved against the schema, or BAD_REQUEST saying what is wrong with the mapping. */
+function resolveCsv(properties: readonly PropertyDef[], csv: string, mapping: CsvMapping | undefined) {
+  const parsed = parseCsv(csv);
+  if (parsed.headers.length === 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "The CSV has no header row" });
+  }
+  if (parsed.rows.length > CSV_MAX_ROWS) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `The CSV has ${parsed.rows.length} rows; import at most ${CSV_MAX_ROWS} at a time`,
+    });
+  }
+  const resolvedMapping = mapping ?? suggestCsvMapping(properties, parsed.headers);
+  let columns: CsvPreviewColumn[];
+  try {
+    columns = resolveCsvColumns(properties, parsed.headers, resolvedMapping);
+  } catch (error) {
+    if (error instanceof CsvMappingError) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: error.message, cause: error });
+    }
+    throw error;
+  }
+  return { parsed, mapping: resolvedMapping, columns, preview: previewCsvRows(columns, parsed) };
 }
 
 /** The property a caller named, or NOT_FOUND. */
@@ -632,6 +683,116 @@ export const databaseRouter = createTRPCRouter({
         rows: slice.map((row) => presentRow(row, relations.get(row.id))),
         nextCursor: hasMore ? cursorFromOffset(offset + input.limit) : null,
         columns: visibleProperties(properties, view).map((p) => p.id),
+      };
+    }),
+
+  /**
+   * A CSV against this database, before anything is created (ADR-0078,
+   * V4): the file's columns resolved through `mapping` — or a suggested
+   * one, by header name — and every row typed through the registry, with
+   * each cell that does not fit named. View access: this writes nothing.
+   */
+  previewCsv: protectedProcedure
+    .input(z.object({ id: z.string(), csv: csvInput, mapping: csvMappingInput.optional() }))
+    .query(async ({ ctx, input }) => {
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "view");
+      const properties = parseProperties(database.properties);
+      const { parsed, mapping, columns, preview } = resolveCsv(properties, input.csv, input.mapping);
+      return {
+        headers: parsed.headers,
+        mapping,
+        columns: columns.map((c) => ({
+          header: c.header,
+          target: c.target,
+          propertyName: c.def?.name ?? null,
+          type: c.def?.type ?? null,
+        })),
+        rows: preview.rows,
+        total: parsed.rows.length,
+        importable: preview.importable,
+      };
+    }),
+
+  /**
+   * Import a CSV: new columns become properties, then every row with no
+   * cell error becomes a Row with a `create` revision, in one transaction;
+   * rows with an error are reported and left uncreated. Rows publish with
+   * a public holding page as `createRow` does; the holding page re-indexes
+   * once (the trigger is debounced).
+   */
+  commitCsv: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        csv: csvInput,
+        mapping: csvMappingInput,
+        note: boundedText("Note", TEXT_LIMITS.SHORT).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const database = await loadDatabase(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, database.page, "edit");
+      const properties = parseProperties(database.properties);
+      const view = parseView(database.view);
+      const { columns, preview } = resolveCsv(properties, input.csv, input.mapping);
+
+      // New columns get real ids now; the preview keyed their cells by name.
+      const minted = new Map<string, PropertyDef>();
+      for (const column of columns) {
+        if (column.target.kind === "new" && column.def) {
+          minted.set(column.def.id, { ...column.def, id: newPropertyId() });
+        }
+      }
+      const added = [...minted.values()];
+      const importable = preview.rows.filter((row) => row.errors.length === 0);
+
+      const created = await ctx.db.$transaction(async (tx) => {
+        if (added.length > 0) {
+          await writeDefinition(tx, database.id, {
+            properties: [...properties, ...added],
+            view: view.propertyOrder.length
+              ? { ...view, propertyOrder: [...view.propertyOrder, ...added.map((p) => p.id)] }
+              : view,
+          });
+        }
+        const ids: string[] = [];
+        for (const row of importable) {
+          const values: Record<string, PropertyValue | null> = {};
+          for (const [key, value] of Object.entries(row.values)) {
+            if (value === null) continue;
+            values[minted.get(key)?.id ?? key] = value;
+          }
+          const page = await tx.knowledgePage.create({
+            data: {
+              title: row.title?.trim() ? row.title.trim() : "Untitled",
+              databaseId: database.id,
+              properties: values,
+              workspaceId: database.page.workspaceId,
+              projectId: database.page.projectId,
+              includeInSearch: database.page.includeInSearch,
+              createdById: userId,
+            },
+            select: { id: true },
+          });
+          await recordPageRevision(tx, { pageId: page.id, kind: "create", authorId: userId, note: input.note });
+          ids.push(page.id);
+        }
+        return ids;
+      });
+      if (database.page.isPublic && !database.detachedAt) {
+        for (const id of created) await publishOnePage(ctx.db, id);
+      }
+      reindex(ctx.db, database.pageId);
+      for (const id of created) getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
+      return {
+        created,
+        skipped: preview.rows
+          .filter((row) => row.errors.length > 0)
+          .map((row) => ({ index: row.index, errors: row.errors })),
+        properties: added,
+        total: preview.rows.length,
       };
     }),
 
