@@ -1950,14 +1950,31 @@ export const pageRouter = createTRPCRouter({
           where: { id: input.id },
           data: { workspaceId: input.workspaceId, projectId: input.projectId },
         });
+        // A page's databases and their rows live where the page lives
+        // (ADR-0078 §4): same workspace, rows on the same project.
+        await tx.pageDatabase.updateMany({
+          where: { pageId: input.id },
+          data: { workspaceId: input.workspaceId },
+        });
+        await tx.knowledgePage.updateMany({
+          where: { database: { pageId: input.id } },
+          data: { workspaceId: input.workspaceId, projectId: input.projectId },
+        });
         if (crossWorkspace) {
           await tx.pageLink.deleteMany({
             where: { OR: [{ fromPageId: input.id }, { toPageId: input.id }] },
           });
         }
       });
-      // Search chunks are scoped by the page's placement — re-index.
-      getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(input.id);
+      // Search chunks are scoped by the page's placement — re-index the page
+      // and every row that moved with it.
+      const embeddings = getEmbeddingTriggerService(ctx.db);
+      embeddings.triggerPageEmbedding(input.id);
+      const movedRows = await ctx.db.knowledgePage.findMany({
+        where: { database: { pageId: input.id } },
+        select: { id: true },
+      });
+      for (const row of movedRows) embeddings.triggerPageEmbedding(row.id);
 
       const workspace = await ctx.db.workspace.findUniqueOrThrow({
         where: { id: input.workspaceId },

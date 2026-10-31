@@ -689,6 +689,25 @@ describe("rows are pages (ADR-0078 §3–4)", () => {
     expect(db.knowledgePage.delete).not.toHaveBeenCalled();
   });
 
+  it("moving the holding page moves its databases and rows with it", async () => {
+    db.knowledgePage.update.mockResolvedValue(pageRow() as never);
+    db.pageDatabase.updateMany.mockResolvedValue({ count: 1 });
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 2 } as never);
+    db.knowledgePage.findMany.mockResolvedValue([{ id: ROW_ID }] as never);
+    db.workspace.findUniqueOrThrow.mockResolvedValue({ slug: "acme" } as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.move({ id: PAGE_ID, workspaceId: WORKSPACE_ID, projectId: null });
+    expect(db.pageDatabase.updateMany).toHaveBeenCalledWith({
+      where: { pageId: PAGE_ID },
+      data: { workspaceId: WORKSPACE_ID },
+    });
+    expect(db.knowledgePage.updateMany).toHaveBeenCalledWith({
+      where: { database: { pageId: PAGE_ID } },
+      data: { workspaceId: WORKSPACE_ID, projectId: null },
+    });
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(ROW_ID);
+  });
+
   it("page.update still takes a row's title, body and note", async () => {
     db.knowledgePage.update.mockResolvedValue(rowFull({ title: "Alert latency (p95)" }) as never);
     const caller = createMockCaller({ userId: OWNER, db });
