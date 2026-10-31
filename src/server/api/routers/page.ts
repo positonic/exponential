@@ -763,10 +763,15 @@ export const pageRouter = createTRPCRouter({
       // A database block is stored as a marker; readers see its table
       // (ADR-0078 §7). Expanded before sectioning so a table under a heading
       // is part of that section. A Row page instead gets its property header
-      // above its prose, and names its database for the crumb back.
+      // above its prose for readers — but the editor (`full`) gets the stored
+      // prose alone, with the header beside it in `database.header`: what the
+      // editor initialises from is what it saves back, and the header must
+      // never become editable prose.
       const row = await projectRowPage(ctx.db, page);
       const fullBody = row
-        ? row.body
+        ? input.format === "full"
+          ? (page.body ?? null)
+          : row.body
         : await expandDatabaseMarkers(ctx.db, page.id, page.body);
       let body = fullBody;
       let section: { level: number; text: string; line: number } | null = null;
@@ -801,8 +806,8 @@ export const pageRouter = createTRPCRouter({
         outline,
         // The editor needs to know whether to render read-only.
         canEdit: canEditKnowledgePage(access),
-        /** Set on a Row: the database it belongs to and the page holding it (ADR-0078). */
-        database: row?.database ?? null,
+        /** Set on a Row: its database, the page holding it, and the property header (ADR-0078). */
+        database: row ? { ...row.database, header: row.header } : null,
       };
     }),
 

@@ -585,7 +585,18 @@ describe("rows are pages (ADR-0078 §3–4)", () => {
     const caller = createMockCaller({ userId: OWNER, db });
     const page = await caller.page.get({ id: ROW_ID, format: "markdown" });
     expect(page.body).toBe("**Status:** Tracked\n\nHow it is measured.");
-    expect(page.database).toEqual({ id: DB_ID, name: "Metrics", pageId: PAGE_ID, pageTitle: "Data strategy" });
+    expect(page.database).toEqual({
+      id: DB_ID,
+      name: "Metrics",
+      pageId: PAGE_ID,
+      pageTitle: "Data strategy",
+      header: "**Status:** Tracked",
+    });
+    // The editor's `full` read gets the stored prose only, never the header,
+    // so a lazy doc migration or autosave can't write the header into the body.
+    const full = await caller.page.get({ id: ROW_ID });
+    expect(full.body).toBe("How it is measured.");
+    expect(full.database?.header).toBe("**Status:** Tracked");
     // An ordinary page says it belongs to no database.
     const holder = await caller.page.get({ id: PAGE_ID, format: "markdown" });
     expect(holder.database).toBeNull();
