@@ -300,6 +300,26 @@ describe("database.createRow", () => {
     expect(error?.code).toBe("FORBIDDEN");
   });
 
+  it("a row added to a published page is published with its own public id", async () => {
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({ page: { ...databaseRow().page, isPublic: true } }) as never,
+    );
+    db.knowledgePage.findUniqueOrThrow.mockResolvedValue({ title: "Alert latency", publicId: null, publicSlug: null } as never);
+    db.knowledgePage.update.mockResolvedValue({ id: "row-1", isPublic: true } as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.database.createRow({ id: DB_ID, values: { Name: "Alert latency" } });
+    const publish = db.knowledgePage.update.mock.calls[0]![0] as { where: { id: string }; data: Record<string, unknown> };
+    expect(publish.where.id).toBe("row-1");
+    expect(publish.data).toMatchObject({ isPublic: true, publicSlug: "alert-latency" });
+    expect(typeof publish.data.publicId).toBe("string");
+  });
+
+  it("a row added to an unpublished page stays unpublished", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.database.createRow({ id: DB_ID, values: { Name: "Alert latency" } });
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
+  });
+
   it("an empty values map still creates an Untitled row", async () => {
     const caller = createMockCaller({ userId: OWNER, db });
     await caller.database.createRow({ id: DB_ID });
@@ -905,8 +925,9 @@ describe("rows publish and unpublish with the holding page (ADR-0078 §4)", () =
     await caller.page.publish({ id: PAGE_ID });
     const published = db.knowledgePage.update.mock.calls.map((c) => (c[0] as { where: { id: string } }).where.id);
     expect(published).toEqual([PAGE_ID, "row-1", "row-2"]);
+    // Only rows of attached databases: a removed block's retained rows stay private.
     const rowsWhere = db.knowledgePage.findMany.mock.calls[0]![0] as { where: unknown };
-    expect(rowsWhere.where).toEqual({ database: { pageId: PAGE_ID } });
+    expect(rowsWhere.where).toEqual({ database: { pageId: PAGE_ID, detachedAt: null } });
   });
 
   it("unpublish takes the rows dark first, then the page", async () => {

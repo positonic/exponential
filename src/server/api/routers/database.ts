@@ -30,6 +30,7 @@ import {
   PAGE_ACCESS_SELECT,
 } from "~/server/services/pages/access";
 import { recordPageRevision } from "~/server/services/pages/revisions";
+import { publishOnePage } from "~/server/services/pages/publish";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import { deleteDatabase } from "~/server/services/databases/lifecycle";
 import { rowValues } from "~/server/services/databases/projection";
@@ -69,7 +70,7 @@ const DATABASE_SELECT = {
   createdAt: true,
   updatedAt: true,
   page: {
-    select: { ...PAGE_ACCESS_SELECT, title: true, includeInSearch: true },
+    select: { ...PAGE_ACCESS_SELECT, title: true, includeInSearch: true, isPublic: true },
   },
 } satisfies Prisma.PageDatabaseSelect;
 
@@ -376,6 +377,11 @@ export const databaseRouter = createTRPCRouter({
         });
         return created;
       });
+      // Rows publish with their holding page (ADR-0078 §4): one added to a
+      // page that is already public is public too, with its own URL.
+      if (database.page.isPublic && !database.detachedAt) {
+        await publishOnePage(ctx.db, row.id);
+      }
       reindex(ctx.db, database.pageId, row.id);
       return presentRow(row);
     }),
