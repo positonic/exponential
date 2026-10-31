@@ -65,6 +65,7 @@ import {
   type CsvMapping,
   type CsvPreviewColumn,
 } from "~/lib/databases/csv";
+import { resolveOptionNames, resolvePersonEmails } from "~/server/services/databases/csv";
 import type { PropertyValue } from "~/lib/databases/properties";
 
 /**
@@ -699,6 +700,7 @@ export const databaseRouter = createTRPCRouter({
       await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "view");
       const properties = parseProperties(database.properties);
       const { parsed, mapping, columns, preview } = resolveCsv(properties, input.csv, input.mapping);
+      await resolvePersonEmails(ctx.db, database.workspaceId, columns, preview);
       return {
         headers: parsed.headers,
         mapping,
@@ -711,6 +713,7 @@ export const databaseRouter = createTRPCRouter({
         rows: preview.rows,
         total: parsed.rows.length,
         importable: preview.importable,
+        newOptions: preview.newOptions,
       };
     }),
 
@@ -737,21 +740,36 @@ export const databaseRouter = createTRPCRouter({
       const properties = parseProperties(database.properties);
       const view = parseView(database.view);
       const { columns, preview } = resolveCsv(properties, input.csv, input.mapping);
+      await resolvePersonEmails(ctx.db, database.workspaceId, columns, preview);
 
-      // New columns get real ids now; the preview keyed their cells by name.
-      const minted = new Map<string, PropertyDef>();
+      // New columns get real ids now (the preview keyed their cells by
+      // name), and select properties — new or existing — get the options
+      // the file names that they lack, so every cell resolves to an id.
+      const written = new Map<string, PropertyDef>();
+      let next = [...properties];
       for (const column of columns) {
-        if (column.target.kind === "new" && column.def) {
-          minted.set(column.def.id, { ...column.def, id: newPropertyId() });
-        }
+        if (!column.def) continue;
+        const fresh = preview.newOptions[column.def.id] ?? [];
+        const isNew = column.target.kind === "new";
+        const base = isNew ? { ...column.def, id: newPropertyId() } : next.find((p) => p.id === column.def!.id)!;
+        const def: PropertyDef =
+          hasOptions(base.type) && (fresh.length > 0 || isNew)
+            ? {
+                ...base,
+                options: normaliseOptionsOrThrow([...(base.options ?? []), ...fresh.map((name) => ({ name }))], base.options),
+              }
+            : base;
+        written.set(column.def.id, def);
+        next = isNew ? [...next, def] : next.map((p) => (p.id === def.id ? def : p));
       }
-      const added = [...minted.values()];
+      const added = [...written.values()].filter((d) => !properties.some((p) => p.id === d.id));
+      const changed = added.length > 0 || [...written.values()].some((d) => d !== properties.find((p) => p.id === d.id));
       const importable = preview.rows.filter((row) => row.errors.length === 0);
 
       const created = await ctx.db.$transaction(async (tx) => {
-        if (added.length > 0) {
+        if (changed) {
           await writeDefinition(tx, database.id, {
-            properties: [...properties, ...added],
+            properties: next,
             view: view.propertyOrder.length
               ? { ...view, propertyOrder: [...view.propertyOrder, ...added.map((p) => p.id)] }
               : view,
@@ -760,9 +778,9 @@ export const databaseRouter = createTRPCRouter({
         const ids: string[] = [];
         for (const row of importable) {
           const values: Record<string, PropertyValue | null> = {};
-          for (const [key, value] of Object.entries(row.values)) {
-            if (value === null) continue;
-            values[minted.get(key)?.id ?? key] = value;
+          for (const [key, value] of Object.entries(resolveOptionNames(written, row.values))) {
+            if (value === null || value === undefined) continue;
+            values[written.get(key)?.id ?? key] = value as PropertyValue;
           }
           const page = await tx.knowledgePage.create({
             data: {

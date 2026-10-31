@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   CsvMappingError,
   parseCsv,
+  parseCsvCell,
   previewCsvRows,
   resolveCsvColumns,
   suggestCsvMapping,
@@ -69,6 +70,33 @@ describe("resolveCsvColumns", () => {
   });
 });
 
+describe("parseCsvCell — spreadsheet forms per type", () => {
+  const def = (type: PropertyDef["type"], extra: Partial<PropertyDef> = {}): PropertyDef => ({ id: `p_${type}`, name: type, type, ...extra });
+  it("numbers: separators, a currency sign, a percent, parentheses", () => {
+    expect(parseCsvCell(def("number"), "1,234.5").result).toEqual({ ok: true, value: 1234.5 });
+    expect(parseCsvCell(def("number"), "$42").result).toEqual({ ok: true, value: 42 });
+    expect(parseCsvCell(def("number"), "12%").result).toEqual({ ok: true, value: 12 });
+    expect(parseCsvCell(def("number"), "(7)").result).toEqual({ ok: true, value: -7 });
+    expect(parseCsvCell(def("number"), "lots").result.ok).toBe(false);
+  });
+  it("urls without a scheme are https; checkboxes take ticks and crosses; an empty cell clears", () => {
+    expect(parseCsvCell(def("url"), "example.com/docs").result).toEqual({ ok: true, value: "https://example.com/docs" });
+    expect(parseCsvCell(def("url"), "not a url").result.ok).toBe(false);
+    expect(parseCsvCell(def("checkbox"), "✓").result).toEqual({ ok: true, value: true });
+    expect(parseCsvCell(def("checkbox"), "x").result).toEqual({ ok: true, value: true });
+    expect(parseCsvCell(def("checkbox"), "✗").result).toEqual({ ok: true, value: false });
+    expect(parseCsvCell(def("checkbox"), "no").result).toEqual({ ok: true, value: false });
+    expect(parseCsvCell(def("date"), "  ").result).toEqual({ ok: true, value: null });
+  });
+  it("selects resolve option names to ids and keep (and report) names the property lacks; a multi-select splits on , or ;", () => {
+    const status = def("select", { options: [{ id: "o_tr", name: "Tracked", color: "green" }] });
+    expect(parseCsvCell(status, "tracked")).toEqual({ result: { ok: true, value: "o_tr" } });
+    expect(parseCsvCell(status, "Dropped")).toEqual({ result: { ok: true, value: "Dropped" }, newOptions: ["Dropped"] });
+    const tags = def("multiSelect", { options: [{ id: "o_a", name: "Alpha", color: "blue" }] });
+    expect(parseCsvCell(tags, "Alpha; Beta,Gamma")).toEqual({ result: { ok: true, value: ["o_a", "Beta", "Gamma"] }, newOptions: ["Beta", "Gamma"] });
+  });
+});
+
 describe("previewCsvRows", () => {
   it("types every row, names the cell that does not fit, and counts the importable ones", () => {
     const parsed = parseCsv(file);
@@ -85,5 +113,19 @@ describe("previewCsvRows", () => {
       { index: 2, title: "Uptime", values: { [SCORE]: null, "new:Owner": null }, errors: [] },
     ]);
     expect(preview.importable).toBe(2);
+    expect(preview.newOptions).toEqual({});
+  });
+
+  it("collects the option names each select column needs, once each, across rows", () => {
+    const parsed = parseCsv(["Name,Status,Tags", "A,Tracked,x;y", "B,dropped,y", "C,Dropped,"].join("\n"));
+    const columns = resolveCsvColumns(properties, parsed.headers, {
+      Name: { kind: "property", propertyId: TITLE },
+      Status: { kind: "property", propertyId: STATUS },
+      Tags: { kind: "new", name: "Tags", type: "multiSelect" },
+    });
+    const preview = previewCsvRows(columns, parsed);
+    expect(preview.newOptions).toEqual({ [STATUS]: ["dropped"], "new:Tags": ["x", "y"] });
+    expect(preview.rows.map((r) => r.values[STATUS])).toEqual(["o_tr", "dropped", "Dropped"]);
+    expect(preview.importable).toBe(3);
   });
 });

@@ -1,5 +1,5 @@
 import { parseCsv, type ParsedCsv } from "~/lib/contactCsvImport";
-import { validateValue, type PropertyValue } from "./properties";
+import { findOption, validateValue, type PropertyValue, type ValidationResult } from "./properties";
 import { ADDABLE_PROPERTY_TYPES, type PropertyDef, type PropertyType } from "./schema";
 
 /**
@@ -53,6 +53,13 @@ export interface CsvPreview {
   rows: CsvPreviewRow[];
   /** Rows with no cell error — the ones a commit would create. */
   importable: number;
+  /**
+   * Select / multi-select option names the file uses that the property
+   * does not have yet, by the column's definition id (`new:<name>` for a
+   * new column), in order of first appearance. Shown before the import;
+   * the commit creates them. Cells naming them hold the name until then.
+   */
+  newOptions: Record<string, string[]>;
 }
 
 /** Types a new column may be given from a CSV: the addable scalars (never title or relation). */
@@ -154,15 +161,65 @@ export function resolveCsvColumns(
   return columns;
 }
 
+/** A spreadsheet number: thousands separators, a currency sign or a trailing % stripped; parentheses negative. */
+function numberText(text: string): string {
+  let t = text.replace(/[\s,_]/g, "").replace(/^[$€£¥]/, "").replace(/%$/, "");
+  const negative = /^\(.*\)$/.test(t);
+  if (negative) t = `-${t.slice(1, -1)}`;
+  return t;
+}
+
+/** A URL cell without a scheme (`example.com/docs`) is taken as https. */
+function urlText(text: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(text) || !/^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(text) ? text : `https://${text}`;
+}
+
+/** Spreadsheet checkbox marks beside the registry's words. */
+const CHECK_MARKS: Record<string, boolean> = { "✓": true, "✔": true, x: true, "☑": true, "✗": false, "☐": false };
+
+/** The names a select cell carries: a multi-select splits on `,` or `;`. */
+function optionNames(def: PropertyDef, text: string): string[] {
+  const parts = def.type === "multiSelect" ? text.split(/[,;]/) : [text];
+  return [...new Set(parts.map((p) => p.trim()).filter(Boolean))];
+}
+
+export interface CsvCellResult {
+  result: ValidationResult;
+  /** Option names the cell uses that the property does not have (select types only). */
+  newOptions?: string[];
+}
+
 /**
- * One cell as the registry reads it. An empty cell clears. A select or
- * multi-select value that names no option is accepted as its name — the
- * commit creates the option (V4 action 2 widens this per type).
+ * One cell as a spreadsheet writes it, read through the property's type.
+ * An empty cell clears. Numbers may carry separators, a currency sign or a
+ * percent; URLs may lack their scheme; checkboxes take ticks and crosses
+ * beside yes/no; a multi-select splits on commas or semicolons. A select
+ * value that names no option is kept as its name and reported — the
+ * commit creates the option — rather than refused.
  */
-export function parseCsvCell(def: PropertyDef, text: string): ReturnType<typeof validateValue> {
+export function parseCsvCell(def: PropertyDef, text: string): CsvCellResult {
   const trimmed = text.trim();
-  if (trimmed === "") return { ok: true, value: null };
-  return validateValue(def, trimmed);
+  if (trimmed === "") return { result: { ok: true, value: null } };
+  switch (def.type) {
+    case "number":
+      return { result: validateValue(def, numberText(trimmed)) };
+    case "url":
+      return { result: validateValue(def, urlText(trimmed)) };
+    case "checkbox": {
+      const mark = CHECK_MARKS[trimmed.toLowerCase()];
+      return { result: mark === undefined ? validateValue(def, trimmed) : { ok: true, value: mark } };
+    }
+    case "select":
+    case "multiSelect": {
+      const names = optionNames(def, trimmed);
+      const values = names.map((name) => findOption(def, name)?.id ?? name);
+      const newOptions = names.filter((name) => !findOption(def, name));
+      const value = def.type === "select" ? values[0]! : values;
+      return { result: { ok: true, value }, ...(newOptions.length ? { newOptions } : {}) };
+    }
+    default:
+      return { result: validateValue(def, trimmed) };
+  }
 }
 
 /**
@@ -172,6 +229,7 @@ export function parseCsvCell(def: PropertyDef, text: string): ReturnType<typeof 
  */
 export function previewCsvRows(columns: readonly CsvPreviewColumn[], parsed: ParsedCsv): CsvPreview {
   const indexOf = new Map(parsed.headers.map((h, i) => [h, i]));
+  const newOptions: Record<string, string[]> = {};
   const rows: CsvPreviewRow[] = parsed.rows.map((cells, index) => {
     const values: Record<string, PropertyValue | null> = {};
     const errors: CsvCellError[] = [];
@@ -179,7 +237,13 @@ export function previewCsvRows(columns: readonly CsvPreviewColumn[], parsed: Par
     for (const column of columns) {
       if (!column.def) continue;
       const text = cells[indexOf.get(column.header) ?? -1] ?? "";
-      const result = parseCsvCell(column.def, text);
+      const { result, newOptions: names } = parseCsvCell(column.def, text);
+      if (names?.length) {
+        const list = (newOptions[column.def.id] ??= []);
+        for (const name of names) {
+          if (!list.some((n) => n.toLowerCase() === name.toLowerCase())) list.push(name);
+        }
+      }
       if (!result.ok) {
         errors.push({ header: column.header, propertyName: column.def.name, reason: result.reason });
         continue;
@@ -189,5 +253,5 @@ export function previewCsvRows(columns: readonly CsvPreviewColumn[], parsed: Par
     }
     return { index, title, values, errors };
   });
-  return { columns: [...columns], rows, importable: rows.filter((r) => r.errors.length === 0).length };
+  return { columns: [...columns], rows, importable: rows.filter((r) => r.errors.length === 0).length, newOptions };
 }

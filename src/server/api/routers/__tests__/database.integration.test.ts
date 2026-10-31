@@ -429,15 +429,18 @@ describe("database router (integration)", () => {
 
   it("CSV import (V4 tracer): a three-column file with one bad number cell — the preview flags it, the commit creates the others with create revisions", async () => {
     const { owner, page } = await setup(db, "db-csv");
-    const { caller, database, score } = await seedMetrics(db, owner.id, page.id);
-    const csv = ["Name,Score,Owner", "Uptime,99,Ana", "Error budget,lots,Ben", "MTTR,4,"].join("\n");
+    const { caller, database, status, score } = await seedMetrics(db, owner.id, page.id);
+    const csv = ["Name,Status,Score,Owner", "Uptime,Tracked,99,Ana", "Error budget,Tracked,lots,Ben", "MTTR,Dropped,4,"].join("\n");
 
     const preview = await caller.database.previewCsv({ id: database.id, csv });
     expect(preview.mapping).toEqual({
       Name: { kind: "property", propertyId: database.titlePropertyId },
+      Status: { kind: "property", propertyId: status.id },
       Score: { kind: "property", propertyId: score.id },
       Owner: { kind: "new", name: "Owner", type: "text" },
     });
+    // "Dropped" is not a Status option yet: surfaced, not refused.
+    expect(preview.newOptions).toEqual({ [status.id]: ["Dropped"] });
     expect(preview.importable).toBe(2);
     expect(preview.rows[1]!.errors[0]).toMatchObject({ header: "Score", propertyName: "Score" });
     expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(2);
@@ -448,9 +451,14 @@ describe("database router (integration)", () => {
     const owner_ = result.properties[0]!;
     const after = await caller.database.get({ id: database.id });
     expect(after.properties.map((p) => p.name)).toEqual(["Name", "Status", "Score", "Owner"]);
+    const statusAfter = after.properties.find((p) => p.id === status.id)!;
+    const dropped = statusAfter.options!.find((o) => o.name === "Dropped")!;
+    expect(dropped.id).toHaveLength(12);
     const rows = await caller.database.listRows({ id: database.id });
     const uptime = rows.rows.find((r) => r.title === "Uptime")!;
-    expect(uptime.values).toEqual({ [score.id]: 99, [owner_.id]: "Ana" });
+    const tracked = status.options!.find((o) => o.name === "Tracked")!.id;
+    expect(uptime.values).toEqual({ [status.id]: tracked, [score.id]: 99, [owner_.id]: "Ana" });
+    expect(rows.rows.find((r) => r.title === "MTTR")!.values[status.id]).toBe(dropped.id);
     expect(rows.rows.find((r) => r.title === "Error budget")).toBeUndefined();
     for (const id of result.created) {
       const revisions = await db.knowledgePageRevision.findMany({ where: { pageId: id } });

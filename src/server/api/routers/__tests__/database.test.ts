@@ -1473,6 +1473,66 @@ describe("CSV import (ADR-0078, V4): previewCsv and commitCsv", () => {
     expect(triggerPageEmbedding.mock.calls.map((c) => c[0])).toEqual([PAGE_ID, "row-1", "row-2"]);
   });
 
+  it("previewCsv resolves person emails to workspace members and reports the options a select column lacks", async () => {
+    const PERSON_ID = "pperson00001";
+    const SELECT_ID = "pselect00001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: PERSON_ID, name: "Owner", type: "person" },
+          { id: SELECT_ID, name: "Stage", type: "select", options: [{ id: "o_tr", name: "Tracked", color: "green" }] },
+        ],
+      }) as never,
+    );
+    db.workspaceUser.findMany.mockResolvedValue([{ userId: "u-ana", user: { email: "ana@acme.io" } }] as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    const preview = await caller.database.previewCsv({
+      id: DB_ID,
+      csv: ["Name,Owner,Stage", "A,Ana@acme.io,Tracked", "B,nobody@acme.io,Dropped", "C,u-ben,dropped"].join("\n"),
+    });
+    expect(db.workspaceUser.findMany.mock.calls[0]![0]).toMatchObject({ where: { workspaceId: WORKSPACE_ID } });
+    expect(preview.rows[0]!.values).toEqual({ [PERSON_ID]: ["u-ana"], [SELECT_ID]: "o_tr" });
+    expect(preview.rows[1]!.errors).toEqual([{ header: "Owner", propertyName: "Owner", reason: 'names a person who is not in this workspace: "nobody@acme.io"' }]);
+    expect(preview.rows[2]!.values).toEqual({ [PERSON_ID]: ["u-ben"], [SELECT_ID]: "dropped" });
+    expect(preview.newOptions).toEqual({ [SELECT_ID]: ["Dropped"] });
+    expect(preview.importable).toBe(2);
+  });
+
+  it("commitCsv creates the options a select column lacks — on an existing property and on a new one — and stores ids, not names", async () => {
+    const SELECT_ID = "pselect00001";
+    db.pageDatabase.findUnique.mockResolvedValue(
+      databaseRow({
+        properties: [
+          { id: TITLE_ID, name: "Name", type: "title" },
+          { id: SELECT_ID, name: "Stage", type: "select", options: [{ id: "o_tr", name: "Tracked", color: "green" }] },
+        ],
+        view: { filters: [], hiddenPropertyIds: [], propertyOrder: [TITLE_ID, SELECT_ID] },
+      }) as never,
+    );
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.commitCsv({
+      id: DB_ID,
+      csv: ["Name,Stage,Tags", "A,Tracked,x;y", "B,Dropped,y"].join("\n"),
+      mapping: {
+        Name: { kind: "property", propertyId: TITLE_ID },
+        Stage: { kind: "property", propertyId: SELECT_ID },
+        Tags: { kind: "new", name: "Tags", type: "multiSelect" },
+      },
+    });
+    const definition = db.pageDatabase.update.mock.calls[0]![0].data as { properties: { id: string; name: string; options?: { id: string; name: string }[] }[] };
+    const stage = definition.properties.find((p) => p.id === SELECT_ID)!;
+    expect(stage.options!.map((o) => o.name)).toEqual(["Tracked", "Dropped"]);
+    const dropped = stage.options![1]!;
+    expect(dropped.id).toHaveLength(12);
+    const tags = definition.properties.find((p) => p.name === "Tags")!;
+    expect(tags.options!.map((o) => o.name)).toEqual(["x", "y"]);
+    expect(result.properties.map((p) => p.name)).toEqual(["Tags"]);
+    const creates = db.knowledgePage.create.mock.calls.map((c) => (c[0].data as { properties: Record<string, unknown> }).properties);
+    expect(creates[0]).toEqual({ [SELECT_ID]: "o_tr", [tags.id]: [tags.options![0]!.id, tags.options![1]!.id] });
+    expect(creates[1]).toEqual({ [SELECT_ID]: dropped.id, [tags.id]: [tags.options![1]!.id] });
+  });
+
   it("commitCsv needs edit access and refuses a file past the row cap", async () => {
     const mapping = { Name: { kind: "property" as const, propertyId: TITLE_ID } };
     db.workspaceUser.findUnique.mockResolvedValue({ role: "viewer", workspaceId: WORKSPACE_ID } as never);
