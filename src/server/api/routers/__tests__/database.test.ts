@@ -231,6 +231,7 @@ describe("database.createRow", () => {
   const db = getDbMock();
   beforeEach(() => {
     mockReset(db);
+    triggerPageEmbedding.mockReset();
     install(db);
     db.knowledgePage.create.mockImplementation(((args: { data: Record<string, unknown> }) =>
       Promise.resolve({
@@ -260,6 +261,9 @@ describe("database.createRow", () => {
     // The title lives on the page, not in the values column.
     expect(data.properties).not.toHaveProperty(TITLE_ID);
     expect(row).toMatchObject({ id: "row-1", title: "Alert latency", values: { [STATUS_ID]: "Tracked" } });
+    // The holding page's table and the row's header are both re-indexed.
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(PAGE_ID);
+    expect(triggerPageEmbedding).toHaveBeenCalledWith("row-1");
     // A row starts its own history (ADR-0074), with the caller's note.
     expect(db.knowledgePageRevision.create).toHaveBeenCalledTimes(1);
     expect(db.knowledgePageRevision.create.mock.calls[0]![0].data).toMatchObject({
@@ -453,6 +457,7 @@ describe("database properties", () => {
     expect(data.view!.propertyOrder).toEqual([TITLE_ID, STATUS_ID, SELECT_ID, added.id]);
     expect(result.property.id).toBe(added.id);
     expect(result.database.properties).toHaveLength(4);
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(PAGE_ID);
     // A schema change never touches a row.
     expect(db.knowledgePage.update).not.toHaveBeenCalled();
     expect(db.knowledgePage.updateMany).not.toHaveBeenCalled();
@@ -734,6 +739,7 @@ describe("rows are pages (ADR-0078 §3–4)", () => {
     expect(result).toEqual({ id: ROW_ID, databaseId: DB_ID });
     expect(db.knowledgePage.delete).toHaveBeenCalledWith({ where: { id: ROW_ID } });
     expect(clearPageChunks).toHaveBeenCalledWith(ROW_ID);
+    expect(triggerPageEmbedding).toHaveBeenCalledWith(PAGE_ID);
   });
 });
 

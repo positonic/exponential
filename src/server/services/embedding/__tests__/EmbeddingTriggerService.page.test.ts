@@ -30,9 +30,10 @@ type FakePage = {
   createdById?: string;
 } | null;
 
-function makeService(page: FakePage) {
+function makeService(page: FakePage, extra: Record<string, unknown> = {}) {
   const db = {
     knowledgePage: { findUnique: vi.fn().mockResolvedValue(page) },
+    ...extra,
   } as unknown as ConstructorParameters<typeof EmbeddingTriggerService>[0];
   return new EmbeddingTriggerService(db);
 }
@@ -95,6 +96,37 @@ describe("EmbeddingTriggerService — pages", () => {
     svc.triggerPageEmbedding("p1", 100);
     await vi.advanceTimersByTimeAsync(100);
     expect(embedSource).toHaveBeenCalledTimes(1);
+  });
+
+  it("embeds a database block as its projected table, not the stored marker (ADR-0078)", async () => {
+    const TITLE = "ptitle000001";
+    const svc = makeService(
+      { ...fullPage, body: "# Page\n\n<!-- database:db1 -->" },
+      {
+        pageDatabase: {
+          findMany: vi.fn().mockResolvedValue([
+            {
+              id: "db1",
+              name: "Metrics",
+              properties: [{ id: TITLE, name: "Name", type: "title" }],
+              view: { filters: [], hiddenPropertyIds: [], propertyOrder: [] },
+              titlePropertyId: TITLE,
+              workspace: { slug: "acme" },
+            },
+          ]),
+        },
+        $queryRaw: vi.fn().mockResolvedValue([
+          { id: "r1", title: "Alert latency", properties: {}, databaseId: "db1", createdById: "u1", createdAt: new Date(), updatedAt: new Date() },
+        ]),
+        user: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+    );
+    svc.triggerPageEmbedding("p1", 100);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(embedSource).toHaveBeenCalledTimes(1);
+    const source = embedSource.mock.calls[0]![0] as { getContent(): string | null };
+    expect(source.getContent()).toContain("| Name |");
+    expect(source.getContent()).toContain("[Alert latency](/w/acme/pages/r1)");
   });
 
   it("clearPageChunks deletes immediately and cancels a pending embed", async () => {

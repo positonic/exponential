@@ -219,6 +219,18 @@ async function loadRowForWrite(db: PrismaClient, rowId: string) {
   return { ...row, database: row.database };
 }
 
+/**
+ * A database's table is part of its holding page's projected body, and a
+ * row's values are its own page's header — so every write re-indexes the
+ * holding page, and a row write its row too. Debounced inside the service;
+ * fire-and-forget, as `page.update` does.
+ */
+function reindex(db: PrismaClient, holdingPageId: string, rowId?: string): void {
+  const embeddings = getEmbeddingTriggerService(db);
+  embeddings.triggerPageEmbedding(holdingPageId);
+  if (rowId) embeddings.triggerPageEmbedding(rowId);
+}
+
 /** The property a caller named, or NOT_FOUND. */
 function requireProperty(properties: readonly PropertyDef[], key: string): PropertyDef {
   const def = findProperty(properties, key);
@@ -364,6 +376,7 @@ export const databaseRouter = createTRPCRouter({
         });
         return created;
       });
+      reindex(ctx.db, database.pageId, row.id);
       return presentRow(row);
     }),
 
@@ -426,6 +439,7 @@ export const databaseRouter = createTRPCRouter({
         });
         return written;
       });
+      reindex(ctx.db, row.database.pageId, row.id);
       return presentRow(updated);
     }),
 
@@ -439,7 +453,9 @@ export const databaseRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const database = await loadDatabase(ctx.db, input.id);
       await ensurePageAccess(ctx.db, ctx.session.user.id, database.page, "edit");
-      return deleteDatabase(ctx.db, database.id);
+      const deleted = await deleteDatabase(ctx.db, database.id);
+      reindex(ctx.db, database.pageId);
+      return deleted;
     }),
 
   /** Delete a Row — the page and its chunks in the Knowledge index. */
@@ -450,6 +466,7 @@ export const databaseRouter = createTRPCRouter({
       await ensurePageAccess(ctx.db, ctx.session.user.id, row.database.page, "edit");
       await ctx.db.knowledgePage.delete({ where: { id: row.id } });
       await getEmbeddingTriggerService(ctx.db).clearPageChunks(row.id);
+      reindex(ctx.db, row.database.pageId);
       return { id: row.id, databaseId: row.database.id };
     }),
 
@@ -530,6 +547,7 @@ export const databaseRouter = createTRPCRouter({
         },
         select: DATABASE_SELECT,
       });
+      reindex(ctx.db, database.pageId);
       return presentDatabase(updated);
     }),
 
@@ -579,6 +597,7 @@ export const databaseRouter = createTRPCRouter({
           ? { ...view, propertyOrder: [...view.propertyOrder, def.id] }
           : view,
       });
+      reindex(ctx.db, database.pageId);
       return { property: def, database: presentDatabase(updated) };
     }),
 
@@ -645,6 +664,7 @@ export const databaseRouter = createTRPCRouter({
       const updated = await writeDefinition(ctx.db, database.id, {
         properties: properties.map((p) => (p.id === current.id ? next : p)),
       });
+      reindex(ctx.db, database.pageId);
       return { property: next, database: presentDatabase(updated) };
     }),
 
@@ -678,6 +698,7 @@ export const databaseRouter = createTRPCRouter({
           propertyOrder: view.propertyOrder.filter((id) => id !== def.id),
         },
       });
+      reindex(ctx.db, database.pageId);
       return presentDatabase(updated);
     }),
 
@@ -706,6 +727,7 @@ export const databaseRouter = createTRPCRouter({
         properties: input.propertyIds.map((id) => byId.get(id)!),
         view: { ...view, propertyOrder: [...input.propertyIds] },
       });
+      reindex(ctx.db, database.pageId);
       return presentDatabase(updated);
     }),
 });

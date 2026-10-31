@@ -121,6 +121,20 @@ export interface RowPageProjection {
 }
 
 /**
+ * The Markdown a reader outside the editor should see for any page: a Row's
+ * header over its prose, or an ordinary page's body with its database
+ * markers expanded. `page.get`, the embedding sweep and any exporter read
+ * through this, so search and agents see the same text.
+ */
+export async function projectedPageBody(
+  db: Db,
+  page: Parameters<typeof projectRowPage>[1],
+): Promise<string | null> {
+  const row = await projectRowPage(db, page);
+  return row ? row.body : expandDatabaseMarkers(db, page.id, page.body);
+}
+
+/**
  * Project a Row page: the key/value header from its values, over its own
  * Markdown body. Null when the page is not a row or its database is gone.
  */

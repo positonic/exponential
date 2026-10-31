@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { getKnowledgeService } from "../KnowledgeService";
 import { TranscriptionSource } from "./sources/TranscriptionSource";
 import { PageSource } from "./sources/PageSource";
+import { projectedPageBody } from "~/server/services/databases/projection";
 import type { EmbeddingResult, EmbeddingStatus } from "./types";
 
 /**
@@ -85,7 +86,10 @@ export class EmbeddingTriggerService {
       return;
     }
 
-    const result = await knowledgeService.embedSource(PageSource.fromEntity(page));
+    // What gets indexed is what a reader sees (ADR-0078 §7): a database
+    // block's table, or a row's property header, not the stored marker.
+    const body = await projectedPageBody(this.db, page);
+    const result = await knowledgeService.embedSource(PageSource.fromEntity({ ...page, body }));
     if (result.success) {
       console.log(
         `[EmbeddingTriggerService] Embedded page ${pageId}: ${result.chunkCount} chunks`,
