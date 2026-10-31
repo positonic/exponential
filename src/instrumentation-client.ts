@@ -1,5 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 
+import { initPostHogBrowser } from "~/lib/analytics/posthogBrowser";
+
 const vercelEnv = process.env.NEXT_PUBLIC_VERCEL_ENV;
 
 // Report from production AND preview deploys; local dev stays silent.
@@ -13,5 +15,9 @@ if (vercelEnv === "production" || vercelEnv === "preview") {
     release: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
   });
 }
+
+// Page views and session replay. A no-op unless NEXT_PUBLIC_POSTHOG_KEY is set
+// (it is only set on Vercel production), so local dev stays silent by default.
+initPostHogBrowser(process.env.NEXT_PUBLIC_POSTHOG_KEY);
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

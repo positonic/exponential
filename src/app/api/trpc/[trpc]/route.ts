@@ -1,8 +1,9 @@
 import * as Sentry from "@sentry/nextjs";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { type NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 
 import { env } from "~/env";
+import { flushAnalytics } from "~/server/analytics/posthog";
 import { appRouter } from "~/server/api/root";
 import { createTRPCContext } from "~/server/api/trpc";
 
@@ -18,8 +19,11 @@ const createContext = async (req: NextRequest) => {
   });
 };
 
-const handler = (req: NextRequest) =>
-  fetchRequestHandler({
+const handler = (req: NextRequest) => {
+  // Analytics events captured by the tRPC middleware queue in memory; send
+  // them once the response is out, before Vercel freezes the function.
+  after(flushAnalytics);
+  return fetchRequestHandler({
     endpoint: "/api/trpc",
     req,
     router: appRouter,
@@ -49,5 +53,6 @@ const handler = (req: NextRequest) =>
       }
     },
   });
+};
 
 export { handler as GET, handler as POST };

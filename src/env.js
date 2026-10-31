@@ -65,6 +65,12 @@ export const env = createEnv({
     // Method through agentGuidance.method while it is still a draft
     // (content/docs/method/_release.json). Default: "exponential".
     METHOD_PREVIEW_WORKSPACE_SLUGS: z.string().optional(),
+    // PostHog product analytics, captured server-side at the tRPC layer
+    // (src/server/analytics/posthog.ts). Optional: falls back to
+    // NEXT_PUBLIC_POSTHOG_KEY, and with neither set analytics is disabled.
+    // The key is a project API key (write-only); host defaults to the EU cloud.
+    POSTHOG_KEY: z.string().optional(),
+    POSTHOG_HOST: z.string().url().optional(),
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -87,6 +93,10 @@ export const env = createEnv({
     // applicationServerKey for pushManager.subscribe(). Optional: push
     // notifications degrade gracefully when unset.
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
+    // PostHog project API key (public by design). Turns on browser page views
+    // and session replay (src/lib/analytics/posthogBrowser.ts), and is also
+    // the server-side key unless POSTHOG_KEY overrides it. Unset = disabled.
+    NEXT_PUBLIC_POSTHOG_KEY: z.string().optional(),
   },
 
   /**
@@ -107,9 +117,12 @@ export const env = createEnv({
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     METHOD_PREVIEW_WORKSPACE_SLUGS: process.env.METHOD_PREVIEW_WORKSPACE_SLUGS,
+    POSTHOG_KEY: process.env.POSTHOG_KEY,
+    POSTHOG_HOST: process.env.POSTHOG_HOST,
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
