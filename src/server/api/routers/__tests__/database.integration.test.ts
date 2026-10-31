@@ -472,6 +472,19 @@ describe("database router (integration)", () => {
     expect(read.body).not.toContain("Error budget");
   });
 
+  it("a 200-row CSV imports in one commit, every row with a create revision", async () => {
+    const { owner, page } = await setup(db, "db-csv-200");
+    const { caller, database } = await seedMetrics(db, owner.id, page.id);
+    const csv = ["Name,Score", ...Array.from({ length: 200 }, (_, i) => `Metric ${i + 1},${i}`)].join("\n");
+    const preview = await caller.database.previewCsv({ id: database.id, csv });
+    expect(preview.importable).toBe(200);
+    const result = await caller.database.commitCsv({ id: database.id, csv, mapping: preview.mapping });
+    expect(result.created).toHaveLength(200);
+    expect(result.skipped).toEqual([]);
+    expect(await db.knowledgePage.count({ where: { databaseId: database.id } })).toBe(202);
+    expect(await db.knowledgePageRevision.count({ where: { pageId: { in: result.created }, kind: "create" } })).toBe(200);
+  });
+
   it("deleting the database, or the holding page, takes the rows with it", async () => {
     const { owner, page } = await setup(db, "db-cascade");
     const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);

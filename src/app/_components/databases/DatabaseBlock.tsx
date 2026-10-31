@@ -6,8 +6,9 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
+import { UnstyledButton } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
-import { IconTable } from "@tabler/icons-react";
+import { IconTable, IconUpload } from "@tabler/icons-react";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { DatabaseNode } from "~/lib/prd/database-node";
@@ -18,6 +19,7 @@ import type { PickerUser } from "~/app/_components/shared/PersonPicker";
 import { DatabaseTable } from "./DatabaseTable";
 import type { PropertyDraft } from "./PropertyEditorPopover";
 import { ViewControls } from "./ViewControls";
+import { CsvImportDialog } from "./CsvImportDialog";
 import type { RelationTarget } from "~/lib/databases/relations";
 import styles from "./DatabaseBlock.module.css";
 
@@ -91,6 +93,7 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
   const removeProperty = api.database.removeProperty.useMutation();
   const updateDatabase = api.database.update.useMutation();
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const database = databaseQuery.data;
   const liveName = database?.name;
 
@@ -413,8 +416,30 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
             onSearchRelation={searchRelation}
           />
         ) : null}
+        {database && editable && databaseId ? (
+          <UnstyledButton
+            className={styles.headerButton}
+            aria-label="Import CSV"
+            title="Import rows from a CSV"
+            onClick={(e) => {
+              e.stopPropagation();
+              setImporting(true);
+            }}
+          >
+            <IconUpload size={14} /> Import
+          </UnstyledButton>
+        ) : null}
       </div>
       {body}
+      {database && databaseId ? (
+        <CsvImportDialog
+          databaseId={databaseId}
+          properties={database.properties}
+          opened={importing}
+          onClose={() => setImporting(false)}
+          onImported={refetchSchema}
+        />
+      ) : null}
     </NodeViewWrapper>
   );
 }
