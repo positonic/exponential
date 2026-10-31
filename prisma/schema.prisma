@@ -170,6 +170,7 @@ model User {
   workspaceMemberships           WorkspaceUser[]
   resources                      Resource[]
   knowledgePages                 KnowledgePage[]
+  pageDatabasesCreated           PageDatabase[]                  @relation("PageDatabaseCreator")
   workspaceInvitationsCreated    WorkspaceInvitation[]           @relation("InvitationCreator")
   // CRM relations
   crmContactsCreated             CrmContact[]                    @relation("CrmContactCreatedBy")
@@ -538,6 +539,7 @@ model Workspace {
   teams                   Team[]
   resources               Resource[]
   knowledgePages          KnowledgePage[]
+  pageDatabases           PageDatabase[]
   invitations             WorkspaceInvitation[]
   views                   View[]
   lists                   List[]
@@ -3612,6 +3614,12 @@ model KnowledgePage {
   // without them is a page a reader cannot trust.
   source           String?
   asOf             DateTime?
+  // Row of a Database (ADR-0078). Set, the page is a Row: `properties` holds
+  // its scalar values keyed by stable property id, `title` is the title
+  // property, and access, placement and publish state follow the database's
+  // holding page. Never set by `page.*` writes — rows are made by `database.*`.
+  databaseId       String?
+  properties       Json?
   workspaceId      String
   projectId        String?
   createdById      String
@@ -3621,6 +3629,14 @@ model KnowledgePage {
   workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project   Project?               @relation(fields: [projectId], references: [id], onDelete: SetNull)
   createdBy User                   @relation(fields: [createdById], references: [id])
+  /// The Database this page is a Row of (ADR-0078); deleting it deletes the row.
+  database  PageDatabase?          @relation("DatabaseRows", fields: [databaseId], references: [id], onDelete: Cascade)
+  /// Databases whose block sits in this page's body (ADR-0078).
+  databases PageDatabase[]         @relation("PageDatabaseHolder")
+  /// Relation edges whose source is this Row.
+  relationsFrom DatabaseRelation[] @relation("DatabaseRelationFrom")
+  /// Relation edges that target this Row (`targetKind: ROW`).
+  relationsToRow DatabaseRelation[] @relation("DatabaseRelationToRow")
   features  FeaturePage[]
   comments  KnowledgePageComment[]
   /// Snapshots of the page after each write (ADR-0074).
@@ -3639,6 +3655,79 @@ model KnowledgePage {
   @@index([workspaceId])
   @@index([projectId])
   @@index([createdById])
+  @@index([databaseId])
+}
+
+/// A Database (ADR-0078): a typed set of Rows with a schema of Properties,
+/// living as one `database` node in the holding page's `bodyDoc` and owned by
+/// that page — no route, no list of its own. `properties` is the ordered
+/// property definitions and `view` the single saved table view (both shaped
+/// by `src/lib/databases/schema.ts`); ids inside them are stable, so a rename
+/// never touches a row. Rows are `KnowledgePage`s with `databaseId` set.
+/// Removing the node from the body *detaches* the database (`detachedAt`)
+/// rather than deleting it; rows go only on explicit delete, with the holding
+/// page, or when the purge sweeps databases detached for over 30 days.
+model PageDatabase {
+  id              String    @id @default(cuid())
+  pageId          String
+  workspaceId     String
+  name            String
+  properties      Json
+  view            Json
+  titlePropertyId String
+  detachedAt      DateTime?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  page      KnowledgePage      @relation("PageDatabaseHolder", fields: [pageId], references: [id], onDelete: Cascade)
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User               @relation("PageDatabaseCreator", fields: [createdById], references: [id])
+  rows      KnowledgePage[]    @relation("DatabaseRows")
+  relations DatabaseRelation[]
+
+  @@index([pageId])
+  @@index([workspaceId])
+}
+
+/// What a relation edge points at (ADR-0078). `ROW` is another database's
+/// Row; the rest are native entities, which a database reads and never writes.
+enum DatabaseRelationTargetKind {
+  ROW
+  TICKET
+  PROJECT
+  FEATURE
+  GOAL
+  KEY_RESULT
+  PAGE
+}
+
+/// One relation value: (row, property, target). Relation values live here,
+/// never inside `KnowledgePage.properties`, so the reverse direction is one
+/// query. `targetId` is polymorphic (a Goal's Int id is stored as its string
+/// form) and carries no FK — a dangling native target renders as "(deleted)"
+/// and is dropped on the next write to that cell. A `ROW` target also fills
+/// `targetRowPageId`, a real FK, so a deleted row page removes its edges in
+/// both directions. Created in V1a, written from V3 (relations).
+model DatabaseRelation {
+  id              String                     @id @default(cuid())
+  databaseId      String
+  propertyId      String
+  rowPageId       String
+  targetKind      DatabaseRelationTargetKind
+  targetId        String
+  /// Equal to `targetId` when `targetKind` is `ROW`; null otherwise.
+  targetRowPageId String?
+  position        Int
+
+  database      PageDatabase   @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  rowPage       KnowledgePage  @relation("DatabaseRelationFrom", fields: [rowPageId], references: [id], onDelete: Cascade)
+  targetRowPage KnowledgePage? @relation("DatabaseRelationToRow", fields: [targetRowPageId], references: [id], onDelete: Cascade)
+
+  @@unique([rowPageId, propertyId, targetKind, targetId])
+  @@index([targetKind, targetId])
+  @@index([databaseId])
+  @@index([targetRowPageId])
 }
 
 /// The page's history (ADR-0074; ADR-0071 change integrity). One row is a
@@ -3659,10 +3748,13 @@ model KnowledgePageRevision {
   /// Provenance as it stood (ADR-0074): restored with the rest of the snapshot.
   source     String?
   asOf       DateTime?
+  /// A Row's property values as they stood (ADR-0078); null on ordinary pages.
+  properties Json?
   /// UTF-8 size of `body`, stored at write time so listing history never reads bodies.
   bodyBytes  Int      @default(0)
-  /// "baseline" | "create" | "editor" | "markdown" | "restore". A baseline is the
-  /// unattributed starting row seeded for pages that predate history.
+  /// "baseline" | "create" | "editor" | "markdown" | "properties" | "restore".
+  /// A baseline is the unattributed starting row seeded for pages that predate
+  /// history; "properties" is a Row's values written outside the editor.
   kind       String
   /// Why this change was made — free text from the writer.
   note       String?

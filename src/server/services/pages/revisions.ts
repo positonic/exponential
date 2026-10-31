@@ -50,7 +50,15 @@ export async function recordPageRevision(
 ): Promise<{ id: string; folded: boolean }> {
   const page = await db.knowledgePage.findUnique({
     where: { id: input.pageId },
-    select: { title: true, body: true, bodyDoc: true, source: true, asOf: true, docVersion: true },
+    select: {
+      title: true,
+      body: true,
+      bodyDoc: true,
+      source: true,
+      asOf: true,
+      properties: true,
+      docVersion: true,
+    },
   });
   if (!page) {
     throw new Error(`recordPageRevision: page ${input.pageId} not found`);
@@ -60,6 +68,9 @@ export async function recordPageRevision(
   // A null doc is written as SQL NULL (not JSON `null`), matching the page row.
   const bodyDoc =
     page.bodyDoc === null ? Prisma.DbNull : (page.bodyDoc as Prisma.InputJsonValue);
+  // A Row's values travel with its body (ADR-0078); null on an ordinary page.
+  const properties =
+    page.properties === null ? Prisma.DbNull : (page.properties as Prisma.InputJsonValue);
 
   if (input.kind === "editor" && !note) {
     const latest = await db.knowledgePageRevision.findFirst({
@@ -83,6 +94,7 @@ export async function recordPageRevision(
           bodyDoc,
           source: page.source,
           asOf: page.asOf,
+          properties,
           bodyBytes: markdownBytes(page.body),
           updatedAt: now,
         },
@@ -100,6 +112,7 @@ export async function recordPageRevision(
       bodyDoc,
       source: page.source,
       asOf: page.asOf,
+      properties,
       bodyBytes: markdownBytes(page.body),
       kind: input.kind,
       note,

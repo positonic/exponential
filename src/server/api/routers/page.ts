@@ -36,6 +36,12 @@ import {
   writePageBodyIfVersion,
 } from "~/server/services/pages/page-links";
 import {
+  ensurePageAccess,
+  loadPageForAccess,
+  type PageForAccess,
+} from "~/server/services/pages/access";
+import { expandDatabaseMarkers } from "~/server/services/databases/projection";
+import {
   diffRevisionBodies,
   recordPageRevision,
 } from "~/server/services/pages/revisions";
@@ -68,6 +74,9 @@ import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/co
  * server only stores it as JSON.
  */
 const prosemirrorDoc = z.record(z.string(), z.unknown());
+
+// Moved to the pages access service (shared with pageComment and database).
+export { ensurePageAccess, loadPageForAccess };
 
 /** One `page.search` hit. */
 export interface PageSearchResult {
@@ -273,16 +282,6 @@ const OCCURRENCE_CRUMB_SELECT = {
   },
 } satisfies Prisma.KnowledgePage$ceremonyOccurrenceArgs;
 
-/** A Page reduced to exactly what the access resolver needs. */
-const PAGE_ACCESS_SELECT = {
-  id: true,
-  createdById: true,
-  projectId: true,
-  workspaceId: true,
-  isInviteOnly: true,
-  docVersion: true,
-} satisfies Prisma.KnowledgePageSelect;
-
 /** Everything duplicate-with-sub-pages copies per page (+ access fields). */
 const DUPLICATE_SELECT = {
   id: true,
@@ -302,18 +301,6 @@ type DuplicateRow = Prisma.KnowledgePageGetPayload<{
   select: typeof DUPLICATE_SELECT;
 }>;
 
-/** Load the access-relevant slice of a Page (shared with the pageComment router). */
-export async function loadPageForAccess(db: PrismaClient, id: string) {
-  const page = await db.knowledgePage.findUnique({
-    where: { id },
-    select: PAGE_ACCESS_SELECT,
-  });
-  if (!page) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
-  }
-  return page;
-}
-
 /**
  * A Page's current `docVersion`, or null when it is gone. Inside a transaction
  * pass its `tx`: a second pooled connection could wait out the transaction
@@ -329,42 +316,6 @@ async function readPageDocVersion(
   });
   return row?.docVersion ?? null;
 }
-
-/** Throw unless the user has view/edit access (shared with the pageComment router). */
-export async function ensurePageAccess(
-  db: PrismaClient,
-  userId: string,
-  page: PageForAccess,
-  permission: "view" | "edit" | "manage",
-): Promise<void> {
-  const access = await getKnowledgePageAccess(db, userId, page);
-  const allowed =
-    permission === "view"
-      ? canViewKnowledgePage(access)
-      : permission === "edit"
-        ? canEditKnowledgePage(access)
-        : canManageKnowledgePageAccess(access);
-  if (!allowed) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        permission === "view"
-          ? "You don't have access to this page"
-          : permission === "edit"
-            ? "You don't have permission to edit this page"
-            : "Only the page's owner can change who it's shared with",
-    });
-  }
-}
-
-/** What the page access resolver needs to know about a Page. */
-type PageForAccess = {
-  id: string;
-  createdById: string;
-  projectId: string | null;
-  workspaceId: string;
-  isInviteOnly: boolean;
-};
 
 /**
  * Publishing gate (ADR-0038 + ADR-0069): edit access, and on an invite-only
@@ -800,7 +751,10 @@ export const pageRouter = createTRPCRouter({
         });
       }
 
-      const fullBody = page.body ?? null;
+      // A database block is stored as a marker; readers see its table
+      // (ADR-0078 §7). Expanded before sectioning so a table under a heading
+      // is part of that section.
+      const fullBody = await expandDatabaseMarkers(ctx.db, page.id, page.body);
       let body = fullBody;
       let section: { level: number; text: string; line: number } | null = null;
       if (input.section) {

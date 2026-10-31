@@ -3,7 +3,7 @@ import type { JSONContent } from "@tiptap/core";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
-import { loadPageForAccess, ensurePageAccess } from "./page";
+import { loadPageForAccess, ensurePageAccess } from "~/server/services/pages/access";
 import { sendPageMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
 import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
 import {
