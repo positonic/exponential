@@ -80,15 +80,20 @@ export class EmbeddingTriggerService {
       where: { id: pageId },
     });
 
-    // Gone, opted out, or empty → ensure no stale chunks linger.
-    if (!page || !page.includeInSearch || !page.body || page.body.trim() === "") {
+    // Gone or opted out → ensure no stale chunks linger.
+    if (!page || !page.includeInSearch) {
       await knowledgeService.deleteChunks("page", pageId);
       return;
     }
-
     // What gets indexed is what a reader sees (ADR-0078 §7): a database
-    // block's table, or a row's property header, not the stored marker.
+    // block's table, or a row's property header, not the stored marker. A
+    // row with values and no prose is content, so emptiness is judged on
+    // the projection, not the stored body.
     const body = await projectedPageBody(this.db, page);
+    if (!body || body.trim() === "") {
+      await knowledgeService.deleteChunks("page", pageId);
+      return;
+    }
     const result = await knowledgeService.embedSource(PageSource.fromEntity({ ...page, body }));
     if (result.success) {
       console.log(

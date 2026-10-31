@@ -129,6 +129,34 @@ describe("EmbeddingTriggerService — pages", () => {
     expect(source.getContent()).toContain("[Alert latency](/w/acme/pages/r1)");
   });
 
+  it("embeds a row that has values but no prose as its property header (ADR-0078)", async () => {
+    const STATUS = "pstatus00001";
+    const svc = makeService(
+      { ...fullPage, body: null, databaseId: "db1", properties: { [STATUS]: "Tracked" } } as never,
+      {
+        pageDatabase: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: "db1",
+            name: "Metrics",
+            pageId: "holder",
+            properties: [
+              { id: "ptitle000001", name: "Name", type: "title" },
+              { id: STATUS, name: "Status", type: "text" },
+            ],
+            view: { filters: [], hiddenPropertyIds: [], propertyOrder: [] },
+            page: { title: "Holder" },
+          }),
+        },
+        user: { findMany: vi.fn().mockResolvedValue([]) },
+      },
+    );
+    svc.triggerPageEmbedding("p1", 100);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(deleteChunks).not.toHaveBeenCalled();
+    const source = embedSource.mock.calls[0]![0] as { getContent(): string | null };
+    expect(source.getContent()).toBe("**Status:** Tracked");
+  });
+
   it("clearPageChunks deletes immediately and cancels a pending embed", async () => {
     const svc = makeService(fullPage);
     svc.triggerPageEmbedding("p1", 100);
