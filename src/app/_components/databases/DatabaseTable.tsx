@@ -9,6 +9,9 @@ import { IconPlus } from "@tabler/icons-react";
 import { TextCell } from "./cells/TextCell";
 import { CheckboxCell } from "./cells/CheckboxCell";
 import { SelectCell } from "./cells/SelectCell";
+import { DateCell } from "./cells/DateCell";
+import { PersonCell } from "./cells/PersonCell";
+import type { PickerUser } from "~/app/_components/shared/PersonPicker";
 import { PropertyEditorPopover, type PropertyDraft } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
 
@@ -36,6 +39,10 @@ interface DatabaseTableProps {
   /** Where a row's title links; absent → plain text. */
   rowHref?: (rowId: string) => string;
   display?: DisplayContext;
+  /** The workspace whose members person cells offer. */
+  workspaceId?: string | null;
+  /** Workspace members by id, for person and created-by cells. */
+  people?: ReadonlyMap<string, PickerUser>;
   /** Cells edit in place and a "+ New" line appends rows. */
   editable?: boolean;
   /** Write one cell. The title property's value is the row title. */
@@ -78,6 +85,8 @@ export function DatabaseTable({
   columns,
   rowHref,
   display,
+  workspaceId,
+  people,
   editable = false,
   onWriteCell,
   onCreateRow,
@@ -92,6 +101,14 @@ export function DatabaseTable({
   const tableRef = useRef<HTMLTableElement>(null);
   const canEdit = editable && !!onWriteCell;
   const canEditSchema = editable && !!onUpdateProperty;
+  const peopleById = people ?? new Map<string, PickerUser>();
+  const displayCtx: DisplayContext = {
+    personName: (id) => {
+      const user = peopleById.get(id);
+      return user ? (user.name ?? user.email ?? undefined) : display?.personName?.(id);
+    },
+    ...display,
+  };
 
   // A row that vanished (deleted, filtered out) ends any edit on it.
   useEffect(() => {
@@ -147,7 +164,12 @@ export function DatabaseTable({
         if (def.type === "checkbox") {
           e.preventDefault();
           commit(row.id, def, row.values[def.id] !== true);
-        } else if (def.type === "select" || def.type === "multiSelect") {
+        } else if (
+          def.type === "select" ||
+          def.type === "multiSelect" ||
+          def.type === "date" ||
+          def.type === "person"
+        ) {
           // The pill button inside the cell opens the picker on Enter.
           e.currentTarget.querySelector<HTMLButtonElement>("button")?.click();
         } else {
@@ -180,7 +202,7 @@ export function DatabaseTable({
     const isTitle = def.id === database.titlePropertyId || def.type === "title";
     const isEditing = editing?.rowId === row.id && editing.propertyId === def.id;
     const raw = isTitle ? row.title : (computedValue(def, row) ?? row.values[def.id]);
-    const text = isTitle ? row.title || "Untitled" : displayValue(def, raw, display);
+    const text = isTitle ? row.title || "Untitled" : displayValue(def, raw, displayCtx);
 
     if (def.type === "checkbox") {
       return (
@@ -188,6 +210,28 @@ export function DatabaseTable({
           def={def}
           value={typeof raw === "boolean" ? raw : null}
           editable={canEdit}
+          onCommit={(next) => commit(row.id, def, next)}
+        />
+      );
+    }
+    if (def.type === "date") {
+      return (
+        <DateCell
+          def={def}
+          value={typeof raw === "string" ? raw : null}
+          editable={canEdit}
+          onCommit={(next) => commit(row.id, def, next)}
+        />
+      );
+    }
+    if (def.type === "person" || def.type === "createdBy") {
+      return (
+        <PersonCell
+          def={def}
+          value={Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : null}
+          workspaceId={workspaceId}
+          people={peopleById}
+          editable={canEdit && def.type === "person"}
           onCommit={(next) => commit(row.id, def, next)}
         />
       );

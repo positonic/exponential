@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -14,6 +14,7 @@ import { DatabaseNode } from "~/lib/prd/database-node";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { usePageEditorContext } from "~/app/_components/pages/PageEditorContext";
 import type { PropertyDef } from "~/lib/databases/schema";
+import type { PickerUser } from "~/app/_components/shared/PersonPicker";
 import { DatabaseTable } from "./DatabaseTable";
 import type { PropertyDraft } from "./PropertyEditorPopover";
 import styles from "./DatabaseBlock.module.css";
@@ -40,8 +41,21 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
   const pageCtx = usePageEditorContext();
   const { workspace } = useWorkspace();
   const workspaceSlug = pageCtx?.workspaceSlug ?? workspace?.slug ?? null;
+  const workspaceId = pageCtx?.workspaceId ?? workspace?.id ?? null;
   const editable = pageCtx?.editable ?? editor.isEditable;
   const utils = api.useUtils();
+
+  // Members by id for person and created-by cells — one shared query per
+  // workspace, the same one PersonPicker reads.
+  const { data: members } = api.workspace.listMembers.useQuery(
+    { workspaceId: workspaceId ?? "" },
+    { enabled: !!workspaceId, staleTime: 60_000 },
+  );
+  const people = useMemo(() => {
+    const map = new Map<string, PickerUser>();
+    for (const m of members ?? []) map.set(m.id, { id: m.id, name: m.name, email: m.email, image: m.image });
+    return map;
+  }, [members]);
 
   const rowsKey = { id: databaseId ?? "", limit: BLOCK_ROW_LIMIT };
   const databaseQuery = api.database.get.useQuery(
@@ -243,6 +257,8 @@ function DatabaseBlock({ node, editor, updateAttributes, selected }: NodeViewPro
         rows={rowsQuery.data.rows}
         columns={rowsQuery.data.columns}
         rowHref={workspaceSlug ? (rowId) => buildPageEditorPath(workspaceSlug, rowId) : undefined}
+        workspaceId={workspaceId}
+        people={people}
         editable={editable}
         onWriteCell={writeCell}
         onCreateRow={addRow}
