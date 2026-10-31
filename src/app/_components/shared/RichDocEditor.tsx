@@ -26,6 +26,7 @@ import { createSaveQueue } from "~/lib/prd/save-queue";
 import { selectionToMarkdown } from "~/lib/prd/selection-markdown";
 import { PageLinkWithView } from "./PageLinkView";
 import { CodeBlockWithView } from "./CodeBlockView";
+import { DatabaseWithView } from "~/app/_components/databases/DatabaseBlock";
 import "@mantine/tiptap/styles.css";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -456,6 +457,7 @@ export function RichDocEditor({
         ...(placeholder ? { placeholder } : {}),
         pageLink: PageLinkWithView,
         codeBlock: CodeBlockWithView,
+        database: DatabaseWithView,
       }),
       ...(editable
         ? [SlashCommand.configure({ extraCommands: slashExtras ?? [] })]

@@ -29,6 +29,7 @@ import {
   stripProjectedTables,
 } from "~/lib/databases/marker";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
+import { rowValues } from "~/lib/databases/display";
 import { compileRowQuery, type RowQueryRecord } from "./query";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -64,12 +65,9 @@ export interface ProjectedDatabase {
   moreRows?: number;
 }
 
-/** A stored `properties` column read as values keyed by property id. */
-export function rowValues(json: unknown): Record<string, PropertyValue | null> {
-  return json && typeof json === "object" && !Array.isArray(json)
-    ? (json as Record<string, PropertyValue | null>)
-    : {};
-}
+// `rowValues` lives in the client-safe display module; re-exported for the
+// server callers that always read it from here.
+export { rowValues };
 
 function cell(
   def: PropertyDef,

@@ -3656,6 +3656,8 @@ model KnowledgePage {
   @@index([projectId])
   @@index([createdById])
   @@index([databaseId])
+  /// Serves the `properties @> …` filters `compileRowQuery` emits (ADR-0078).
+  @@index([properties(ops: JsonbPathOps)], type: Gin, map: "KnowledgePage_properties_gin_idx")
 }
 
 /// A Database (ADR-0078): a typed set of Rows with a schema of Properties,
