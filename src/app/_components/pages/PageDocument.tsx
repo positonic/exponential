@@ -4,7 +4,7 @@ import { useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { JSONContent } from "@tiptap/core";
 import { notifications } from "@mantine/notifications";
-import { IconFileText } from "@tabler/icons-react";
+import { IconFileText, IconTable } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import {
   RichDocEditor,
@@ -13,6 +13,7 @@ import {
 import type { SlashCommandItem } from "~/lib/prd/slash-command";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { useAnchoredComments } from "~/app/_components/prd/useAnchoredComments";
+import { PageEditorProvider } from "./PageEditorContext";
 
 interface PageDocumentProps {
   pageId: string;
@@ -41,7 +42,9 @@ interface PageDocumentProps {
  *
  * Adds the Pages-only `/page` slash command: creates a sibling page (same
  * workspace + project), drops a `pageLink` block at the cursor, flushes the
- * autosave so the link survives navigation, and opens the new page.
+ * autosave so the link survives navigation, and opens the new page. And
+ * `/database` (ADR-0078): creates a database on this page and drops its
+ * `database` block at the cursor; the node view renders the table.
  */
 export function PageDocument({
   pageId,
@@ -61,6 +64,8 @@ export function PageDocument({
   const uploadImage = api.page.uploadImage.useMutation();
   const createPage = api.page.create.useMutation();
   const createPageMutate = createPage.mutate;
+  const createDatabase = api.database.create.useMutation();
+  const createDatabaseMutate = createDatabase.mutate;
 
   const createComment = api.pageComment.create.useMutation();
   const replyComment = api.pageComment.reply.useMutation();
@@ -171,12 +176,50 @@ export function PageDocument({
           );
         },
       },
+      {
+        title: "Database",
+        description: "A typed table; each row is a page",
+        icon: IconTable,
+        run: ({ editor, range }) => {
+          editor.chain().focus().deleteRange(range).run();
+          createDatabaseMutate(
+            { pageId, name: "New database" },
+            {
+              onSuccess: (database) => {
+                if (editor.isDestroyed) return;
+                editor
+                  .chain()
+                  .focus()
+                  .insertContent({
+                    type: "database",
+                    attrs: { databaseId: database.id, name: database.name },
+                  })
+                  .run();
+                // Save now: the node is what keeps the database attached to
+                // the page, and a tab closed before the debounced autosave
+                // would leave it detached.
+                void (async () => {
+                  await handleRef.current?.flushSave();
+                  void utils.database.list.invalidate({ pageId });
+                })();
+              },
+              onError: () => {
+                notifications.show({
+                  title: "Could not create database",
+                  message: "Please try again.",
+                  color: "red",
+                });
+              },
+            },
+          );
+        },
+      },
     ],
-    [createPageMutate, workspaceId, projectId, workspaceSlug, pageId, router, utils],
+    [createPageMutate, createDatabaseMutate, workspaceId, projectId, workspaceSlug, pageId, router, utils],
   );
 
   return (
-    <>
+    <PageEditorProvider value={{ pageId, workspaceId, workspaceSlug, editable }}>
       {/* The reading surface: Notion-grade typography (globals.css
           `.knowledge-page`) and air below the last block, so a short page
           does not end hard against the sections below it. Clicking that air
@@ -226,6 +269,6 @@ export function PageDocument({
       />
       </div>
       {anchored.panel}
-    </>
+    </PageEditorProvider>
   );
 }

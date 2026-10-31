@@ -1,0 +1,98 @@
+/*
+ * The database block inside a page body (ADR-0078): a framed table with a
+ * small header, sized to the page column. Tokens only — colours, radius and
+ * shadow come from the theme, so a database restyles with it.
+ */
+
+.block {
+  margin: 12px 0;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  overflow: hidden;
+}
+
+.block[data-selected='true'] {
+  border-color: var(--color-border-focus);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-secondary);
+  background: var(--color-bg-secondary);
+}
+
+.name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border-primary);
+}
+
+.table td {
+  padding: 6px 12px;
+  color: var(--color-text-primary);
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-bg-hover);
+}
+
+.titleCell a {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.titleCell a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-primary);
+  text-underline-offset: 2px;
+}
+
+.empty {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.state {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
