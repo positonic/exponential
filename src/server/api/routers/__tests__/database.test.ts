@@ -1212,6 +1212,98 @@ describe("relations (ADR-0078 §5): edges both ways, the reverse column, resolve
     expect(page.rows[1]!.relations).toEqual({ [PROBLEMS_ID]: [] });
   });
 
+  it("addProperty with a native kind makes a one-way relation: no target database, no reverse column", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.database.addProperty({
+      id: DB_ID,
+      name: "Ticket",
+      type: "relation",
+      relation: { targetKind: "TICKET", many: false },
+    });
+    expect(result.property.relation).toEqual({ targetKind: "TICKET", many: false });
+    expect(result.reverse).toBeNull();
+    expect(updates()).toHaveLength(1);
+    await expect(
+      caller.database.addProperty({ id: DB_ID, name: "Odd", type: "relation", relation: { targetKind: "GOAL", targetDatabaseId: TARGET_DB } }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("updateRow with a native target checks it lives in the workspace (a Ticket through its Product) and writes a plain edge", async () => {
+    const TICKET_PROP = "pticket00001";
+    const withTicket = databaseRow({
+      properties: [
+        { id: TITLE_ID, name: "Name", type: "title" },
+        { id: TICKET_PROP, name: "Ticket", type: "relation", relation: { targetKind: "TICKET", many: false } },
+      ],
+    });
+    db.knowledgePage.findUnique.mockResolvedValue(pageRow({ id: ROW_ID, databaseId: DB_ID, properties: {}, database: withTicket }) as never);
+    db.$queryRaw.mockResolvedValue([{ properties: {} }] as never);
+    db.ticket.findMany
+      .mockResolvedValueOnce([{ id: "t1" }] as never)
+      .mockResolvedValueOnce([{ id: "t1", title: "Fix Okta callback", status: "IN_PROGRESS", product: { slug: "clear" } }] as never);
+    db.knowledgePage.update.mockResolvedValue(rowPage(ROW_ID, "Alert latency", null) as never);
+    db.databaseRelation.findMany.mockResolvedValue([
+      { rowPageId: ROW_ID, propertyId: TICKET_PROP, targetKind: "TICKET", targetId: "t1", targetRowPage: null },
+    ] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const row = await caller.database.updateRow({ rowId: ROW_ID, values: { Ticket: "t1" } });
+    expect(db.ticket.findMany.mock.calls[0]![0]).toMatchObject({ where: { id: { in: ["t1"] }, product: { workspaceId: WORKSPACE_ID } } });
+    expect(db.databaseRelation.createMany.mock.calls[0]![0]).toEqual({
+      data: [{ databaseId: DB_ID, propertyId: TICKET_PROP, rowPageId: ROW_ID, targetKind: "TICKET", targetId: "t1", targetRowPageId: null, position: 0 }],
+    });
+    // No reverse side to keep in step.
+    expect(db.pageDatabase.findUnique).toHaveBeenCalledTimes(0);
+    expect(row.relations[TICKET_PROP]).toEqual([
+      { kind: "TICKET", id: "t1", title: "Fix Okta callback", status: "IN_PROGRESS", href: "/w/acme/products/clear/tickets/t1" },
+    ]);
+
+    // Two targets on a single-valued relation, or one from another workspace, are refused naming the property.
+    await expect(caller.database.updateRow({ rowId: ROW_ID, values: { Ticket: ["t1", "t2"] } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("one target") as string,
+    });
+    db.ticket.findMany.mockResolvedValueOnce([] as never);
+    await expect(caller.database.updateRow({ rowId: ROW_ID, values: { Ticket: "t-elsewhere" } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("not in this workspace") as string,
+    });
+  });
+
+  it("listRows resolves native targets to their live title and status, one query per kind, and marks a vanished one (deleted)", async () => {
+    const KR = "pkr000000001";
+    const GOAL = "pgoal0000001";
+    const withNatives = databaseRow({
+      properties: [
+        { id: TITLE_ID, name: "Name", type: "title" },
+        { id: KR, name: "Key result", type: "relation", relation: { targetKind: "KEY_RESULT", many: true } },
+        { id: GOAL, name: "Goal", type: "relation", relation: { targetKind: "GOAL", many: true } },
+      ],
+    });
+    db.pageDatabase.findUnique.mockResolvedValue(withNatives as never);
+    db.$queryRaw.mockResolvedValue([rowPage(ROW_ID, "Alert latency", null)] as never);
+    db.databaseRelation.findMany.mockResolvedValue([
+      { rowPageId: ROW_ID, propertyId: KR, targetKind: "KEY_RESULT", targetId: "kr1", targetRowPage: null },
+      { rowPageId: ROW_ID, propertyId: KR, targetKind: "KEY_RESULT", targetId: "kr-gone", targetRowPage: null },
+      { rowPageId: ROW_ID, propertyId: GOAL, targetKind: "GOAL", targetId: "12", targetRowPage: null },
+    ] as never);
+    db.keyResult.findMany.mockResolvedValue([{ id: "kr1", title: "p95 under 2s", status: "on-track", goalId: 12 }] as never);
+    db.goal.findMany.mockResolvedValue([{ id: 12, title: "Faster alerts", status: "active" }] as never);
+    const caller = createMockCaller({ userId: MEMBER, db });
+    const page = await caller.database.listRows({ id: DB_ID });
+    expect(db.keyResult.findMany).toHaveBeenCalledTimes(1);
+    expect(db.goal.findMany.mock.calls[0]![0]).toMatchObject({ where: { id: { in: [12] } } });
+    expect(page.rows[0]!.relations).toEqual({
+      [KR]: [
+        { kind: "KEY_RESULT", id: "kr1", title: "p95 under 2s", status: "on-track", href: "/w/acme/goals/12" },
+        { kind: "KEY_RESULT", id: "kr-gone", title: "(deleted)", deleted: true },
+      ],
+      [GOAL]: [{ kind: "GOAL", id: "12", title: "Faster alerts", status: "active", href: "/w/acme/goals/12" }],
+    });
+    // Nothing on a native entity is ever written through a database.
+    expect(db.keyResult.update).not.toHaveBeenCalled();
+    expect(db.goal.update).not.toHaveBeenCalled();
+  });
+
   it("listInWorkspace lists attached databases of the workspace through the page access clause", async () => {
     db.pageDatabase.findMany.mockResolvedValue([
       { id: DB_ID, name: "Metrics", page: { id: PAGE_ID, title: "Data strategy" } },

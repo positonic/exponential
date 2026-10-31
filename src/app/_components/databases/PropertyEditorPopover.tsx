@@ -6,10 +6,13 @@ import { IconPlus, IconTrash, IconX } from "@tabler/icons-react";
 import {
   ADDABLE_PROPERTY_TYPES,
   hasOptions,
+  RELATION_TARGET_KINDS,
   type PillColor,
   type PropertyDef,
   type PropertyType,
+  type RelationTargetKind,
 } from "~/lib/databases/schema";
+import { RELATION_TARGET_LABELS } from "~/lib/databases/relations";
 import styles from "./DatabaseBlock.module.css";
 
 const TYPE_LABELS: Record<PropertyType, string> = {
@@ -40,8 +43,8 @@ export interface PropertyDraft {
   type: PropertyType;
   description?: string;
   options?: OptionDraft[];
-  /** For a new relation: the database it points at (ADR-0078 §5). */
-  relation?: { targetKind: "ROW"; targetDatabaseId: string };
+  /** For a new relation: what it points at — a database (`ROW`, named) or a native entity kind (ADR-0078 §5). */
+  relation?: { targetKind: RelationTargetKind; targetDatabaseId?: string };
 }
 
 /** A database a relation may point at, named with its holding page. */
@@ -82,6 +85,7 @@ export function PropertyEditorPopover({
   const [name, setName] = useState(property?.name ?? "");
   const [type, setType] = useState<PropertyType>(property?.type ?? "text");
   const [options, setOptions] = useState<OptionDraft[]>(property?.options ?? []);
+  const [targetKind, setTargetKind] = useState<RelationTargetKind>("ROW");
   const [targetDatabaseId, setTargetDatabaseId] = useState<string | null>(null);
   const [newOption, setNewOption] = useState("");
   const [saving, setSaving] = useState(false);
@@ -94,6 +98,7 @@ export function PropertyEditorPopover({
     setName(property?.name ?? "");
     setType(property?.type ?? "text");
     setOptions(property?.options ?? []);
+    setTargetKind("ROW");
     setTargetDatabaseId(null);
     setNewOption("");
   }, [opened, property]);
@@ -104,8 +109,9 @@ export function PropertyEditorPopover({
   const typeChoices = (
     fixedType
       ? [fixedType]
-      : [...ADDABLE_PROPERTY_TYPES, ...(!property && relatableDatabases ? (["relation"] as const) : [])]
+      : [...ADDABLE_PROPERTY_TYPES, ...(!property ? (["relation"] as const) : [])]
   ).map((t) => ({ value: t, label: TYPE_LABELS[t] }));
+  const kindChoices = RELATION_TARGET_KINDS.map((k) => ({ value: k, label: RELATION_TARGET_LABELS[k] }));
   const relationChoices = (relatableDatabases ?? []).map((d) => ({
     value: d.id,
     label: d.pageTitle ? `${d.name} — ${d.pageTitle}` : d.name,
@@ -118,7 +124,7 @@ export function PropertyEditorPopover({
     setNewOption("");
   };
 
-  const canSubmit = name.trim().length > 0 && (!isNewRelation || !!targetDatabaseId);
+  const canSubmit = name.trim().length > 0 && (!isNewRelation || targetKind !== "ROW" || !!targetDatabaseId);
 
   const submit = async () => {
     const trimmed = name.trim();
@@ -129,8 +135,13 @@ export function PropertyEditorPopover({
         name: trimmed,
         type,
         ...(hasOptions(type) ? { options } : {}),
-        ...(isNewRelation && targetDatabaseId
-          ? { relation: { targetKind: "ROW" as const, targetDatabaseId } }
+        ...(isNewRelation
+          ? {
+              relation:
+                targetKind === "ROW"
+                  ? { targetKind, targetDatabaseId: targetDatabaseId ?? undefined }
+                  : { targetKind },
+            }
           : {}),
       });
       setOpened(false);
@@ -205,6 +216,19 @@ export function PropertyEditorPopover({
             }}
           />
           {isNewRelation ? (
+            <Select
+              size="xs"
+              label="Relates to"
+              data={kindChoices}
+              value={targetKind}
+              allowDeselect={false}
+              comboboxProps={{ withinPortal: true }}
+              onChange={(next) => {
+                if (next) setTargetKind(next as RelationTargetKind);
+              }}
+            />
+          ) : null}
+          {isNewRelation && targetKind === "ROW" ? (
             <Select
               size="xs"
               label="Related database"

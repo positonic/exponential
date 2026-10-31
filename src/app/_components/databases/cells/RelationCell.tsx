@@ -8,17 +8,30 @@ interface RelationCellProps {
   targets: readonly RelationTarget[];
 }
 
+/** `IN_PROGRESS` → `in progress`, `on-track` → `on track`: native statuses as words. */
+function humanStatus(status: string): string {
+  return status.toLowerCase().replace(/[_-]+/g, " ");
+}
+
 /**
  * A relation cell: one pill per target, linking to the target where the
  * reader may open it. Targets are resolved by the server (`listRows`), so
- * the cell shows the row's or entity's current title, never a stored copy.
+ * the cell shows the row's or entity's current title — and, for a native
+ * entity, its live status — never a stored copy.
  */
 export function RelationCell({ targets }: RelationCellProps) {
   if (targets.length === 0) return <span className={styles.cellEmpty}>—</span>;
   return (
     <span className={styles.pillButton}>
       {targets.map((target) => {
-        const label = target.deleted ? "(deleted)" : target.title;
+        const label = (
+          <>
+            {target.deleted ? "(deleted)" : target.title}
+            {target.status && !target.deleted ? (
+              <span className={styles.relationStatus}>{humanStatus(target.status)}</span>
+            ) : null}
+          </>
+        );
         return target.href && !target.deleted ? (
           <Link
             key={`${target.kind}:${target.id}`}

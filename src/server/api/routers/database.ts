@@ -270,14 +270,21 @@ function requireProperty(properties: readonly PropertyDef[], key: string): Prope
 /** The relation cells of one write, each replacing the row's edges under its property (ADR-0078 §3). */
 async function writeRelations(
   tx: Db,
-  databaseId: string,
+  database: { id: string; workspaceId: string },
   rowId: string,
   properties: readonly PropertyDef[],
   relations: Record<string, string[]>,
 ): Promise<void> {
   for (const [propertyId, targetIds] of Object.entries(relations)) {
     const def = properties.find((p) => p.id === propertyId);
-    if (def) await replaceRowRelations(tx, { databaseId, rowId, def, targetIds });
+    if (!def) continue;
+    await replaceRowRelations(tx, {
+      databaseId: database.id,
+      workspaceId: database.workspaceId,
+      rowId,
+      def,
+      targetIds,
+    });
   }
 }
 
@@ -442,7 +449,7 @@ export const databaseRouter = createTRPCRouter({
           },
             select: ROW_SELECT,
           });
-          await writeRelations(tx, database.id, created.id, properties, relations);
+          await writeRelations(tx, database, created.id, properties, relations);
           await recordPageRevision(tx, {
             pageId: created.id,
             kind: "create",
@@ -520,7 +527,7 @@ export const databaseRouter = createTRPCRouter({
             },
             select: ROW_SELECT,
           });
-          await writeRelations(tx, row.database.id, row.id, properties, relations);
+          await writeRelations(tx, row.database, row.id, properties, relations);
           await recordPageRevision(tx, {
             pageId: row.id,
             kind: "properties",
@@ -662,7 +669,8 @@ export const databaseRouter = createTRPCRouter({
    * creation. A `relation` to another database of the workspace is two-way
    * (ADR-0078 §5): the other database grows a reverse column in the same
    * transaction, named after this one, so the link reads from both sides.
-   * A relation to the database itself is one-way.
+   * A relation to the database itself, or to a native entity kind (Ticket,
+   * Project, Feature, Goal, Key result, Page), is one-way.
    */
   addProperty: protectedProcedure
     .input(
@@ -697,34 +705,40 @@ export const databaseRouter = createTRPCRouter({
       }
 
       // The database a ROW relation points at: same workspace, and — since
-      // it gains a column — one the caller may edit as well.
+      // it gains a column — one the caller may edit as well. A native kind
+      // names no target here; each cell names its own entity.
       let target: DatabaseRow | null = null;
+      let relation: PropertyDef["relation"];
       if (input.type === "relation") {
-        const relation = input.relation;
-        if (!relation) {
+        if (!input.relation) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "A relation property needs a target" });
         }
-        if (relation.targetKind !== "ROW") {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Relations to native entities cannot be created yet",
-          });
-        }
-        if (!relation.targetDatabaseId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "A relation to a database names the database it relates to",
-          });
-        }
-        target = await loadDatabase(ctx.db, relation.targetDatabaseId);
-        if (target.workspaceId !== database.workspaceId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "The related database must be in the same workspace",
-          });
-        }
-        if (target.id !== database.id) {
-          await ensurePageAccess(ctx.db, userId, target.page, "edit");
+        if (input.relation.targetKind === "ROW") {
+          if (!input.relation.targetDatabaseId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "A relation to a database names the database it relates to",
+            });
+          }
+          target = await loadDatabase(ctx.db, input.relation.targetDatabaseId);
+          if (target.workspaceId !== database.workspaceId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "The related database must be in the same workspace",
+            });
+          }
+          if (target.id !== database.id) {
+            await ensurePageAccess(ctx.db, userId, target.page, "edit");
+          }
+          relation = { targetKind: "ROW", targetDatabaseId: target.id, many: input.relation.many };
+        } else {
+          if (input.relation.targetDatabaseId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Only a relation to a database names a database",
+            });
+          }
+          relation = { targetKind: input.relation.targetKind, many: input.relation.many };
         }
       }
 
@@ -736,9 +750,7 @@ export const databaseRouter = createTRPCRouter({
         ...(hasOptions(input.type)
           ? { options: normaliseOptionsOrThrow(input.options ?? [], []) }
           : {}),
-        ...(target && input.relation
-          ? { relation: { targetKind: "ROW" as const, targetDatabaseId: target.id, many: input.relation.many } }
-          : {}),
+        ...(relation ? { relation } : {}),
       };
       // An explicit column order grows by the new column; an empty order
       // keeps following definition order.

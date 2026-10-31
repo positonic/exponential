@@ -10,7 +10,15 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller } from "~/test/trpc-helpers";
-import { createUser, createWorkspace, addWorkspaceMember, createKnowledgePage } from "~/test/factories";
+import {
+  createUser,
+  createWorkspace,
+  addWorkspaceMember,
+  createKnowledgePage,
+  createProduct,
+  createTicket,
+  createGoal,
+} from "~/test/factories";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 import { purgeDetachedDatabases } from "~/server/services/databases/lifecycle";
 import { databaseMarker } from "~/lib/databases/marker";
@@ -336,6 +344,55 @@ describe("database router (integration)", () => {
     expect((await caller.database.listInWorkspace({ workspaceId: ws.id })).map((d) => d.name)).toEqual(["Metrics"]);
     expect((await createTestCaller(viewer.id).database.listInWorkspace({ workspaceId: ws.id })).map((d) => d.name)).toEqual(["Metrics"]);
     expect(await createTestCaller(outsider.id).database.listInWorkspace({ workspaceId: ws.id })).toEqual([]);
+  });
+
+  it("native relations: a Ticket and a Key result show their live title and status, are never written, and a deleted target reads (deleted) until the cell is next written", async () => {
+    const { owner, page, ws } = await setup(db, "db-natives");
+    const { caller, database, latency } = await seedMetrics(db, owner.id, page.id);
+    const product = await createProduct(db, { workspaceId: ws.id, createdById: owner.id, slug: "clear" });
+    const ticket = await createTicket(db, { productId: product.id, createdById: owner.id, title: "Fix Okta callback", status: "IN_PROGRESS" });
+    const goal = await createGoal(db, { userId: owner.id, workspaceId: ws.id, title: "Faster alerts" });
+    const kr = await db.keyResult.create({
+      data: { title: "p95 under 2s", targetValue: 2, currentValue: 3.5, period: "Q4-2026", goalId: goal.id, userId: owner.id, workspaceId: ws.id },
+    });
+
+    const ticketProp = (await caller.database.addProperty({ id: database.id, name: "Ticket", type: "relation", relation: { targetKind: "TICKET", many: false } })).property;
+    const krProp = (await caller.database.addProperty({ id: database.id, name: "Key result", type: "relation", relation: { targetKind: "KEY_RESULT" } })).property;
+
+    const written = await caller.database.updateRow({ rowId: latency.id, values: { Ticket: ticket.id, "Key result": [kr.id] } });
+    expect(written.relations[ticketProp.id]).toEqual([
+      { kind: "TICKET", id: ticket.id, title: "Fix Okta callback", status: "IN_PROGRESS", href: `/w/db-natives/products/clear/tickets/${ticket.id}` },
+    ]);
+    expect(written.relations[krProp.id]).toEqual([
+      { kind: "KEY_RESULT", id: kr.id, title: "p95 under 2s", status: "on-track", href: `/w/db-natives/goals/${goal.id}` },
+    ]);
+    // Live: a status change on the ticket shows on the next read without any database write.
+    await db.ticket.update({ where: { id: ticket.id }, data: { status: "DONE" } });
+    const reread = await caller.database.listRows({ id: database.id });
+    expect(reread.rows.find((r) => r.id === latency.id)!.relations[ticketProp.id]![0]!.status).toBe("DONE");
+    // The Key result is read, never written (ADR-0050): its value is what it was.
+    const krAfter = await db.keyResult.findUniqueOrThrow({ where: { id: kr.id } });
+    expect(krAfter.currentValue).toBe(3.5);
+    expect(krAfter.updatedAt).toEqual(kr.updatedAt);
+
+    // A ticket of another workspace's product is refused naming the property.
+    const other = await setup(db, "db-natives-other");
+    const foreignProduct = await createProduct(db, { workspaceId: other.ws.id, createdById: other.owner.id, slug: "far" });
+    const foreignTicket = await createTicket(db, { productId: foreignProduct.id, createdById: other.owner.id, title: "Elsewhere" });
+    await expect(caller.database.updateRow({ rowId: latency.id, values: { Ticket: foreignTicket.id } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining('"Ticket"') as string,
+    });
+
+    // The Markdown projection links the entity; a deleted one reads "(deleted)" and the next write drops it.
+    const read = await caller.page.get({ id: latency.id, format: "markdown" });
+    expect(read.body).toContain(`**Ticket:** [Fix Okta callback](/w/db-natives/products/clear/tickets/${ticket.id})`);
+    await db.ticket.delete({ where: { id: ticket.id } });
+    const gone = await caller.page.get({ id: latency.id, format: "markdown" });
+    expect(gone.body).toContain("**Ticket:** (deleted)");
+    expect(await db.databaseRelation.count({ where: { rowPageId: latency.id, propertyId: ticketProp.id } })).toBe(1);
+    await caller.database.updateRow({ rowId: latency.id, values: { Ticket: null } });
+    expect(await db.databaseRelation.count({ where: { rowPageId: latency.id, propertyId: ticketProp.id } })).toBe(0);
   });
 
   it("deleting the database, or the holding page, takes the rows with it", async () => {
