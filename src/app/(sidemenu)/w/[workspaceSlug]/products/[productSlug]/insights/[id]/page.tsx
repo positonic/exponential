@@ -67,6 +67,7 @@ import {
   type InsightStatus,
   type InsightType,
 } from "~/app/_components/product/insightMeta";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 const SCORE_OPTIONS = ["1", "2", "3", "4", "5"].map((v) => ({ value: v, label: v }));
 
@@ -88,6 +89,7 @@ export default function InsightDetailPage() {
     { id: insightId },
     { enabled: !!insightId },
   );
+  useProductDetailTitle(insight?.title);
 
   // Local drafts for text fields that save on blur.
   const [title, setTitle] = useState("");

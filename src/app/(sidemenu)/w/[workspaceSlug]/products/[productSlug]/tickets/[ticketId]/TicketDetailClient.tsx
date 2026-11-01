@@ -76,6 +76,7 @@ import {
   useActivityFilter,
 } from "~/app/_components/shared/ActivityFilterMenu";
 import { useTicketActivity } from "~/hooks/useTicketActivity";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -296,6 +297,7 @@ export function TicketDetailClient() {
       },
     );
   const isLoading = ticketId ? isTicketLoading : isResolving;
+  useProductDetailTitle(ticket?.title);
 
   // Data for selectors
   const members = workspace?.members ?? [];
