@@ -6,7 +6,9 @@
  * `getById` must require workspace membership (it previously returned any epic
  * to any authenticated user), and the gate must be the centralized
  * `getWorkspaceMembership` resolver so team-based workspace members are
- * admitted, matching the ticket/feature/product routers.
+ * admitted, matching the ticket/feature/product routers. Also covers the owner
+ * hand-over on `update`: the new owner must be a member of the epic's
+ * workspace, and `null` is refused because `Epic.ownerId` is NOT NULL.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -96,6 +98,38 @@ function mockMembership(dbMock: DeepMockProxy<PrismaClient>, kind: MembershipKin
       ? ({ role: "member", team: { workspaceId: WORKSPACE_ID } } as never)
       : null,
   );
+}
+
+/**
+ * Per-user membership. `update` resolves the caller and the prospective owner
+ * through the same `getWorkspaceMembership`, so the stub must tell them apart:
+ * `direct` ids hold a WorkspaceUser row, `team` ids reach the workspace only
+ * through a team, everyone else is an outsider.
+ */
+function stubMembershipByUser(
+  dbMock: DeepMockProxy<PrismaClient>,
+  members: { direct: string[]; team?: string[] },
+) {
+  dbMock.workspaceUser.findUnique.mockImplementation(((args: {
+    where?: { userId_workspaceId?: { userId?: string } };
+  }) => {
+    const userId = args.where?.userId_workspaceId?.userId;
+    return Promise.resolve(
+      userId && members.direct.includes(userId)
+        ? { role: "member", workspaceId: WORKSPACE_ID }
+        : null,
+    );
+  }) as never);
+  dbMock.teamUser.findFirst.mockImplementation(((args: {
+    where?: { userId?: string };
+  }) => {
+    const userId = args.where?.userId;
+    return Promise.resolve(
+      userId && (members.team ?? []).includes(userId)
+        ? { role: "member", team: { workspaceId: WORKSPACE_ID } }
+        : null,
+    );
+  }) as never);
 }
 
 describe("epic router access gating (mocked)", () => {
@@ -254,6 +288,78 @@ describe("epic router access gating (mocked)", () => {
       ).rejects.toMatchObject({ code: "NOT_FOUND" });
       expect(dbMock.epic.update).not.toHaveBeenCalled();
     });
+
+    // Owner hand-over: the case that motivated it is an agent's service
+    // account creating an epic for a person and then giving it to them.
+    it("hands the epic to another member of its workspace", async () => {
+      stubMembershipByUser(dbMock, { direct: [USER_ID, "user-colleague"] });
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+      dbMock.epic.update.mockResolvedValue(
+        { ...EPIC, ownerId: "user-colleague" } as never,
+      );
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.update({ id: EPIC.id, ownerId: "user-colleague" });
+
+      expect(dbMock.epic.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: EPIC.id },
+          data: expect.objectContaining({ ownerId: "user-colleague" }),
+        }),
+      );
+    });
+
+    it("accepts a team-based member as owner — the same set that can read it", async () => {
+      stubMembershipByUser(dbMock, { direct: [USER_ID], team: ["user-teammate"] });
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+      dbMock.epic.update.mockResolvedValue(EPIC as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.update({ id: EPIC.id, ownerId: "user-teammate" });
+
+      expect(dbMock.epic.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ ownerId: "user-teammate" }),
+        }),
+      );
+    });
+
+    it("refuses a non-member as owner, without confirming the id exists", async () => {
+      stubMembershipByUser(dbMock, { direct: [USER_ID] });
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.epic.update({ id: EPIC.id, ownerId: "user-outsider" }),
+      ).rejects.toMatchObject({
+        code: "NOT_FOUND",
+        message: "Owner not found in this workspace",
+      });
+      expect(dbMock.epic.update).not.toHaveBeenCalled();
+    });
+
+    it("refuses to clear the owner: Epic.ownerId is NOT NULL", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await expect(
+        caller.epic.update({ id: EPIC.id, ownerId: null }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.epic.update).not.toHaveBeenCalled();
+    });
+
+    it("leaves the owner alone when ownerId is omitted", async () => {
+      mockMembership(dbMock, "direct");
+      dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+      dbMock.epic.update.mockResolvedValue(EPIC as never);
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.epic.update({ id: EPIC.id, name: "Renamed" });
+
+      const [call] = dbMock.epic.update.mock.calls;
+      expect(call?.[0].data).not.toHaveProperty("ownerId");
+    });
   });
 });
 
@@ -313,6 +419,18 @@ describe("epic router role gating (mocked)", () => {
     const caller = createMockCaller({ userId: USER_ID, db: dbMock });
     await caller.epic.update({ id: EPIC.id, name: "Renamed" });
     expect(dbMock.epic.update).toHaveBeenCalled();
+  });
+
+  it("refuses a viewer handing an epic over, before looking the new owner up", async () => {
+    stubRole("viewer");
+    dbMock.epic.findUnique.mockResolvedValue(EPIC as never);
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.epic.update({ id: EPIC.id, ownerId: "someone-else" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // One membership lookup: the caller's. The write gate stays in front.
+    expect(dbMock.workspaceUser.findUnique).toHaveBeenCalledTimes(1);
+    expect(dbMock.epic.update).not.toHaveBeenCalled();
   });
 
   it("refuses a viewer deleting an epic they own", async () => {

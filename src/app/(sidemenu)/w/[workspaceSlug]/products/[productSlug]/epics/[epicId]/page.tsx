@@ -41,6 +41,7 @@ import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { TagSelector } from "~/app/_components/TagSelector";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import { EPIC_PRIORITY_OPTIONS, EPIC_STATUS_OPTIONS } from "~/types/epic";
 import type { EpicPriority, EpicStatus } from "~/types/epic";
 
@@ -468,10 +469,30 @@ export default function EpicDetailPage() {
           />
         </PropertyRow>
 
+        {/* Owner: hand-over only. The roster is the epic's own workspace —
+            membership is checked against it, not the one in the address bar —
+            and the picker cannot clear, because an epic always has an owner. */}
         <PropertyRow icon={<IconUser size={14} />} label="Owner">
-          <Text size="xs" className="text-text-primary">
-            {epic.owner.name ?? epic.owner.email ?? "—"}
-          </Text>
+          <PersonPicker
+            trigger="field"
+            showFieldLabel={false}
+            label="Owner"
+            workspaceId={epic.workspace.id}
+            value={epic.ownerId}
+            selectedUser={epic.owner}
+            clearable={false}
+            onChange={(id) => {
+              if (id && id !== epic.ownerId) {
+                updateEpic.mutate({ id: epicId, ownerId: id });
+              }
+            }}
+            fieldProps={{
+              size: "xs",
+              variant: "unstyled",
+              classNames: { input: "text-text-primary text-xs font-medium cursor-pointer" },
+              styles: { input: { height: 24, minHeight: 24 } },
+            }}
+          />
         </PropertyRow>
 
         <PropertyDivider />

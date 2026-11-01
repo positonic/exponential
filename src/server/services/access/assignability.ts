@@ -45,13 +45,19 @@ import { blankToNull } from "~/server/utils/blankToNull";
  * and is skipped — unassigning is always allowed.
  *
  * Used by the ticket router, where the workspace is never ambiguous: a ticket's
- * workspace comes from its product. Actions, whose scope can be a project, a
- * team, or nothing at all, use `canAssignToUnscopedAction` below.
+ * workspace comes from its product — and by the epic router for an epic's
+ * owner, whose `name` and `email` come back through the same kind of include.
+ * Actions, whose scope can be a project, a team, or nothing at all, use
+ * `canAssignToUnscopedAction` below.
+ *
+ * `label` names the reference in the error ("Assignee", "Owner"); the rule is
+ * the same whichever it is.
  */
 export async function assertAssignableUser(
   db: PrismaClient,
   workspaceId: string,
   assigneeId: string | null | undefined,
+  label = "Assignee",
 ): Promise<void> {
   if (!assigneeId) return;
 
@@ -59,7 +65,7 @@ export async function assertAssignableUser(
   if (!membership) {
     throw new TRPCError({
       code: "NOT_FOUND",
-      message: "Assignee not found in this workspace",
+      message: `${label} not found in this workspace`,
     });
   }
 }
