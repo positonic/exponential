@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
@@ -8,6 +9,7 @@ import {
   hasProjectAccess,
   canEditProject,
 } from "~/server/services/access";
+import { resolvePrincipal, type PrincipalContext } from "~/server/services/access/principal";
 
 const contentTypeEnum = z.enum([
   "web_page",
@@ -111,9 +113,98 @@ const resourceListSelect = {
   project: { select: { id: true, name: true } },
 } as const;
 
+/**
+ * Whose Resources a caller works on (ADR-0079). A person works on their own.
+ * An agent — an External agent's key or an Assistant — works on its OWNER's,
+ * because a reading list is a personal store the agent keeps for someone,
+ * like their time (ADR-0061). It reaches only the owner's rows in workspaces
+ * the owner has delegated to it, so the carve-out never goes past ADR-0049's
+ * delegation; the owner's no-workspace rows stay out of its reach.
+ */
+export interface ResourceScope {
+  /** Whose rows: the caller, or the agent's owner. */
+  ownerId: string;
+  /** Everyone a workspace or project gate must admit: the caller, and the owner under an agent. */
+  gateUserIds: string[];
+  /** The agent recorded as `createdByAgentId`; null for a person. */
+  agentId: string | null;
+  /** Under an agent, the workspaces it was granted; null = no limit. */
+  workspaceIds: string[] | null;
+}
+
+export async function resolveResourceScope(ctx: PrincipalContext): Promise<ResourceScope> {
+  const principal = await resolvePrincipal(ctx);
+  if (principal.kind !== "agent") {
+    return {
+      ownerId: principal.userId,
+      gateUserIds: [principal.userId],
+      agentId: null,
+      workspaceIds: null,
+    };
+  }
+  const memberships = await ctx.db.workspaceUser.findMany({
+    where: { userId: principal.userId },
+    select: { workspaceId: true },
+  });
+  return {
+    ownerId: principal.ownerId,
+    gateUserIds: [principal.userId, principal.ownerId],
+    agentId: principal.agentId,
+    workspaceIds: memberships.map((m) => m.workspaceId),
+  };
+}
+
+/** The rows a scope may read or change. */
+function scopedRows(scope: ResourceScope): Prisma.ResourceWhereInput {
+  return {
+    userId: scope.ownerId,
+    ...(scope.workspaceIds && { workspaceId: { in: scope.workspaceIds } }),
+  };
+}
+
+/** Every gate user must be a member of the workspace. */
+async function assertWorkspaceMember(
+  db: PrismaClient,
+  scope: ResourceScope,
+  workspaceId: string,
+  error: TRPCError,
+): Promise<void> {
+  const members = await db.workspaceUser.count({
+    where: { workspaceId, userId: { in: scope.gateUserIds } },
+  });
+  if (members < scope.gateUserIds.length) throw error;
+}
+
+/** Every gate user must pass `allowed` on the project. */
+async function assertProjectAccess(
+  db: PrismaClient,
+  scope: ResourceScope,
+  projectId: string,
+  allowed: (access: Awaited<ReturnType<typeof getProjectAccess>>) => boolean,
+  error: TRPCError,
+): Promise<void> {
+  for (const userId of scope.gateUserIds) {
+    if (!allowed(await getProjectAccess(db, userId, projectId))) throw error;
+  }
+}
+
+/** Under an agent a Resource must sit in a delegated workspace (ADR-0079). */
+function assertAgentCanPlace(scope: ResourceScope, workspaceId: string | null | undefined): void {
+  if (scope.agentId && !workspaceId) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "An agent must save a Resource into a workspace",
+    });
+  }
+}
+
+const resourceProcedure = protectedProcedure.use(async ({ ctx, next }) =>
+  next({ ctx: { scope: await resolveResourceScope(ctx) } }),
+);
+
 export const resourceRouter = createTRPCRouter({
   // Create a new resource
-  create: protectedProcedure
+  create: resourceProcedure
     .input(
       z.object({
         title: z.string().min(1),
@@ -140,31 +231,29 @@ export const resourceRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
+      const { scope } = ctx;
+      assertAgentCanPlace(scope, input.workspaceId);
 
       // Verify project access if specified — creating a resource in a project
       // requires edit access to that project.
       if (input.projectId) {
-        const access = await getProjectAccess(ctx.db, userId, input.projectId);
-        if (!canEditProject(access)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Project not found or access denied",
-          });
-        }
+        await assertProjectAccess(
+          ctx.db,
+          scope,
+          input.projectId,
+          canEditProject,
+          new TRPCError({ code: "FORBIDDEN", message: "Project not found or access denied" }),
+        );
       }
 
       // Verify workspace access if specified
       if (input.workspaceId) {
-        const workspaceUser = await ctx.db.workspaceUser.findFirst({
-          where: { workspaceId: input.workspaceId, userId },
-        });
-        if (!workspaceUser) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Workspace not found or access denied",
-          });
-        }
+        await assertWorkspaceMember(
+          ctx.db,
+          scope,
+          input.workspaceId,
+          new TRPCError({ code: "NOT_FOUND", message: "Workspace not found or access denied" }),
+        );
       }
 
       const content = deriveContent(input);
@@ -174,10 +263,12 @@ export const resourceRouter = createTRPCRouter({
       const hasBody = Boolean(content ?? input.rawContent);
 
       // Dedupe by URL (D-0027): a URL the caller already saved is brought
-      // back to the queue and refreshed, never duplicated.
+      // back to the queue and refreshed, never duplicated. An agent only
+      // matches rows in its scope, so a re-save never reveals or moves a row
+      // its owner keeps outside the delegated workspaces.
       const existing = input.url
         ? await ctx.db.resource.findFirst({
-            where: { userId, url: input.url },
+            where: { ...scopedRows(scope), url: input.url },
           })
         : null;
 
@@ -241,7 +332,8 @@ export const resourceRouter = createTRPCRouter({
           fetchedAt: input.url ? new Date() : null,
           wordCount,
           tags: input.tags,
-          userId,
+          userId: scope.ownerId,
+          createdByAgentId: scope.agentId,
           projectId: input.projectId,
           workspaceId: input.workspaceId,
           readStatus: input.readStatus,
@@ -267,13 +359,11 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Get a single resource by ID
-  get: protectedProcedure
+  get: resourceProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       const resource = await ctx.db.resource.findFirst({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
         include: {
           project: { select: { id: true, name: true } },
           workspace: { select: { id: true, name: true } },
@@ -298,7 +388,7 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // List resources with filters
-  list: protectedProcedure
+  list: resourceProcedure
     .input(
       z.object({
         projectId: z.string().optional(),
@@ -315,26 +405,27 @@ export const resourceRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
+      const { scope } = ctx;
 
       // Gate: filtering by a specific project requires access to that project.
       if (input.projectId) {
-        const access = await getProjectAccess(ctx.db, userId, input.projectId);
-        if (!hasProjectAccess(access)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not have access to this project",
-          });
-        }
+        await assertProjectAccess(
+          ctx.db,
+          scope,
+          input.projectId,
+          hasProjectAccess,
+          new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this project" }),
+        );
       }
 
       const where: Record<string, unknown> = {
-        userId,
+        ...scopedRows(scope),
         ...(input.projectId && { projectId: input.projectId }),
         // A workspace view also lists the caller's rows that have no
         // workspace (saved from the unscoped /knowledge-base page, or
         // pre-dating workspaces) — otherwise they show up nowhere. Safe
-        // because `userId` already limits the list to the caller's own rows.
+        // because `userId` already limits the list to the caller's own rows;
+        // an agent's `workspaceId IN` scope still drops them.
         // Under AND so it can't collide with the title/description `OR` below.
         ...(input.workspaceId && {
           AND: [{ OR: [{ workspaceId: input.workspaceId }, { workspaceId: null }] }],
@@ -382,7 +473,7 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Update a resource
-  update: protectedProcedure
+  update: resourceProcedure
     .input(
       z.object({
         id: z.string(),
@@ -397,11 +488,11 @@ export const resourceRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
+      const { scope } = ctx;
 
       // Verify resource exists and belongs to user
       const existing = await ctx.db.resource.findFirst({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(scope) },
       });
 
       if (!existing) {
@@ -414,12 +505,20 @@ export const resourceRouter = createTRPCRouter({
       // Verify new project access if changing — moving a resource into a
       // project requires edit access to that project.
       if (input.projectId) {
-        const access = await getProjectAccess(ctx.db, userId, input.projectId);
-        if (!canEditProject(access)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Project not found or access denied",
-          });
+        await assertProjectAccess(
+          ctx.db,
+          scope,
+          input.projectId,
+          canEditProject,
+          new TRPCError({ code: "FORBIDDEN", message: "Project not found or access denied" }),
+        );
+      }
+
+      // An agent may move a Resource only between its delegated workspaces.
+      if (scope.agentId && input.workspaceId !== undefined) {
+        assertAgentCanPlace(scope, input.workspaceId);
+        if (input.workspaceId && !scope.workspaceIds?.includes(input.workspaceId)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found or access denied" });
         }
       }
 
@@ -459,13 +558,11 @@ export const resourceRouter = createTRPCRouter({
   // Reading list: move a resource between to_read / reading / read.
   // Marking read stamps readAt (first time only); un-reading clears it.
   // Deliberately touches nothing else — no fetch, no embedding.
-  setReadStatus: protectedProcedure
+  setReadStatus: resourceProcedure
     .input(z.object({ id: z.string(), readStatus: readStatusEnum }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       const existing = await ctx.db.resource.findFirst({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
         select: { id: true, readStatus: true, readAt: true },
       });
       if (!existing) {
@@ -480,13 +577,11 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Archive a resource (soft delete)
-  archive: protectedProcedure
+  archive: resourceProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       const resource = await ctx.db.resource.updateMany({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
         data: { archivedAt: new Date() },
       });
 
@@ -501,13 +596,11 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Unarchive a resource
-  unarchive: protectedProcedure
+  unarchive: resourceProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       const resource = await ctx.db.resource.updateMany({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
         data: { archivedAt: null },
       });
 
@@ -522,18 +615,16 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Delete a resource permanently
-  delete: protectedProcedure
+  delete: resourceProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       // Delete embeddings first
       const knowledgeService = getKnowledgeService(ctx.db);
       await knowledgeService.deleteChunks("resource", input.id);
 
       // Delete the resource
       const deleted = await ctx.db.resource.deleteMany({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
       });
 
       if (deleted.count === 0) {
@@ -547,13 +638,11 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Regenerate embeddings for a resource
-  regenerateEmbeddings: protectedProcedure
+  regenerateEmbeddings: resourceProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       const resource = await ctx.db.resource.findFirst({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
       });
 
       if (!resource) {
@@ -577,13 +666,11 @@ export const resourceRouter = createTRPCRouter({
     }),
 
   // Toggle pinned-as-context for a resource
-  setPinned: protectedProcedure
+  setPinned: resourceProcedure
     .input(z.object({ id: z.string(), pinned: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
-
       const existing = await ctx.db.resource.findFirst({
-        where: { id: input.id, userId },
+        where: { id: input.id, ...scopedRows(ctx.scope) },
       });
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Resource not found" });
@@ -598,7 +685,7 @@ export const resourceRouter = createTRPCRouter({
 
   // Search resources using semantic search.
   // workspaceId is REQUIRED — KnowledgeService.search refuses unscoped calls.
-  search: protectedProcedure
+  search: resourceProcedure
     .input(
       z.object({
         query: z.string().min(1),
@@ -608,37 +695,33 @@ export const resourceRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
+      const { scope } = ctx;
 
       // Gate: must be a member of the workspace being searched.
-      const wsMembership = await ctx.db.workspaceUser.findUnique({
-        where: { userId_workspaceId: { userId, workspaceId: input.workspaceId } },
-        select: { userId: true },
-      });
-      if (!wsMembership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      await assertWorkspaceMember(
+        ctx.db,
+        scope,
+        input.workspaceId,
+        new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this workspace" }),
+      );
 
       // Gate: filtering by a specific project requires access to that project.
       if (input.projectId) {
-        const access = await getProjectAccess(ctx.db, userId, input.projectId);
-        if (!hasProjectAccess(access)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You do not have access to this project",
-          });
-        }
+        await assertProjectAccess(
+          ctx.db,
+          scope,
+          input.projectId,
+          hasProjectAccess,
+          new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this project" }),
+        );
       }
 
       const { KnowledgeService } = await import("~/server/services/KnowledgeService");
       const knowledgeService = getKnowledgeService(ctx.db);
       const results = await knowledgeService.search(input.query, {
         workspaceId: input.workspaceId,
-        userId,
-        resourceViewerId: userId,
+        userId: scope.ownerId,
+        resourceViewerId: scope.ownerId,
         projectId: input.projectId,
         sourceTypes: ["resource"],
         limit: input.limit,

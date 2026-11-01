@@ -372,6 +372,8 @@ model ExternalAgent {
   keys       ExternalAgentKey[]
   /// Time entries this agent wrote on its owner's behalf (ADR-0061).
   timeEntries TimeEntry[]       @relation("TimeEntryAuthorAgent")
+  /// Resources this agent saved to its owner's list (ADR-0079).
+  resources   Resource[]        @relation("ResourceAuthorAgent")
   /// Present when this row is an Assistant's principal (ADR-0067). Such rows are
   /// managed from Settings → Assistant, not the External agents page.
   assistant   Assistant?
@@ -3502,9 +3504,13 @@ model Resource {
 
   // Organization
   tags        String[]
+  /// Whose list this is. Under an agent this is the agent's OWNER, never the
+  /// shadow user (ADR-0079); the writer is `createdByAgentId`.
   userId      String
   projectId   String?
   workspaceId String?
+  /// ExternalAgent that saved the row; null for rows a person saved.
+  createdByAgentId String?
 
   // Agent context injection
   pinnedAsContext Boolean @default(false)
@@ -3525,6 +3531,7 @@ model Resource {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   project   Project?   @relation(fields: [projectId], references: [id])
   workspace Workspace? @relation(fields: [workspaceId], references: [id])
+  createdByAgent ExternalAgent? @relation("ResourceAuthorAgent", fields: [createdByAgentId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([userId, readStatus])

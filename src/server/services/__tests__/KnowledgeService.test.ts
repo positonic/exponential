@@ -483,9 +483,23 @@ describe("KnowledgeService — workspace scoping", () => {
       const { fragments, bound } = nestedSql(queryRawCalls[0]!);
       // Ownership comes from the joined Resource row (`r`), not the chunk's
       // copied userId, so a deleted resource's orphaned chunks never match.
-      expect(fragments).toContain(`kc."sourceType" <> 'resource' OR r."userId" = `);
+      expect(fragments).toContain(`kc."sourceType" <> 'resource' OR (r."userId" = `);
       expect(fragments).not.toContain(`kc."userId" =`);
       expect(bound).toContain("u-7");
+    });
+
+    it("reads a resource's workspace from the live row, so a moved resource's stale chunks never match", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", resourceViewerId: "u-7" });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      // A workspace move does not re-embed, so the chunk's workspaceId can be
+      // stale; the live row must sit in the searched workspace (ADR-0079).
+      expect(fragments).toContain(` AND r."workspaceId" = `);
+      expect(bound).toContain("ws-A");
     });
 
     it("drops resource chunks entirely when no resourceViewerId is given (fails closed)", async () => {

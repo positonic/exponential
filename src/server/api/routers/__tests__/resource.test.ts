@@ -491,3 +491,121 @@ describe("resource router — reading list (mocked)", () => {
     });
   });
 });
+
+/**
+ * ADR-0079: under an agent (an `exp_agent_…` key or an Assistant) the router
+ * works on the OWNER's Resources, inside the workspaces delegated to the agent,
+ * and records the agent as the author.
+ */
+describe("resource router — agent works on its owner's list (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const SHADOW_ID = "shadow-1";
+  const OWNER_ID = "owner-1";
+  const AGENT_ID = "agent-1";
+
+  const agentCaller = () =>
+    createMockCaller({ userId: SHADOW_ID, db: dbMock, tokenType: "agent-key" });
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    embedResourceMock.mockReset();
+    dbMock.resource.findFirst.mockResolvedValue(null);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    dbMock.externalAgent.findUnique.mockResolvedValue({ id: AGENT_ID, ownerId: OWNER_ID } as never);
+    // The owner delegated w1 to the agent; both are members of it.
+    dbMock.workspaceUser.findMany.mockResolvedValue([{ workspaceId: "w1" }] as never);
+    dbMock.workspaceUser.count.mockResolvedValue(2);
+  });
+
+  it("saves into the owner's list and records the agent as author", async () => {
+    dbMock.resource.create.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+
+    await agentCaller().resource.create({
+      title: "A link",
+      url: "https://example.com/post",
+      contentType: "bookmark",
+      workspaceId: "w1",
+      generateEmbeddings: false,
+    });
+
+    const data = dbMock.resource.create.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ userId: OWNER_ID, createdByAgentId: AGENT_ID, workspaceId: "w1" });
+    expect(dbMock.workspaceUser.count).toHaveBeenCalledWith({
+      where: { workspaceId: "w1", userId: { in: [SHADOW_ID, OWNER_ID] } },
+    });
+    // Dedupe looks only at the owner's rows the agent can reach.
+    expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
+      url: "https://example.com/post",
+    });
+  });
+
+  it("refuses a save with no workspace", async () => {
+    await expect(
+      agentCaller().resource.create({ title: "A link", url: "https://example.com/post" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" } satisfies Partial<TRPCError>);
+    expect(dbMock.resource.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a workspace the agent and its owner do not both belong to", async () => {
+    dbMock.workspaceUser.count.mockResolvedValue(1);
+
+    await expect(
+      agentCaller().resource.create({ title: "A link", url: "https://example.com/post", workspaceId: "w2" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" } satisfies Partial<TRPCError>);
+    expect(dbMock.resource.create).not.toHaveBeenCalled();
+  });
+
+  it("lists the owner's rows in delegated workspaces, never no-workspace rows", async () => {
+    dbMock.resource.findMany.mockResolvedValue([]);
+
+    await agentCaller().resource.list({ readStatus: "unread", workspaceId: "w1" });
+
+    const where = dbMock.resource.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
+      AND: [{ OR: [{ workspaceId: "w1" }, { workspaceId: null }] }],
+      readStatus: { in: ["to_read", "reading"] },
+    });
+  });
+
+  it("marks read only on the owner's rows it can reach", async () => {
+    dbMock.resource.findFirst.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+    dbMock.resource.update.mockResolvedValue(fakeResource({ readStatus: "read" }));
+
+    await agentCaller().resource.setReadStatus({ id: "r1", readStatus: "read" });
+
+    expect(dbMock.resource.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "r1", userId: OWNER_ID, workspaceId: { in: ["w1"] } },
+      }),
+    );
+  });
+
+  it("cannot move a Resource out of its delegated workspaces", async () => {
+    dbMock.resource.findFirst.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+
+    await expect(
+      agentCaller().resource.update({ id: "r1", workspaceId: "w2" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" } satisfies Partial<TRPCError>);
+    await expect(
+      agentCaller().resource.update({ id: "r1", workspaceId: null }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" } satisfies Partial<TRPCError>);
+    expect(dbMock.resource.update).not.toHaveBeenCalled();
+  });
+
+  it("a person still saves to their own list with no agent author", async () => {
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    dbMock.resource.create.mockResolvedValue(fakeResource());
+    const caller = createMockCaller({ userId: "caller-1", db: dbMock, tokenType: "api-token" });
+
+    await caller.resource.create({ title: "A link", url: "https://example.com/post" });
+
+    const data = dbMock.resource.create.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ userId: "caller-1", createdByAgentId: null });
+    expect(dbMock.workspaceUser.findMany).not.toHaveBeenCalled();
+  });
+});
