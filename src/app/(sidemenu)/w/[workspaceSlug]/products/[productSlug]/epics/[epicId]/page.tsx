@@ -46,6 +46,7 @@ import { TagSelector } from "~/app/_components/TagSelector";
 import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import { EPIC_PRIORITY_OPTIONS, EPIC_STATUS_OPTIONS } from "~/types/epic";
 import type { EpicPriority, EpicStatus } from "~/types/epic";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -94,6 +95,7 @@ export default function EpicDetailPage() {
     { id: epicId },
     { enabled: !!epicId },
   );
+  useProductDetailTitle(epic?.name);
 
   const { data: products } = api.product.product.list.useQuery(
     { workspaceId: workspaceId ?? "" },

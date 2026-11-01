@@ -65,6 +65,7 @@ import {
   FEATURE_STATUS_COLORS,
 } from "~/lib/feature-statuses";
 import type { JSONContent } from "@tiptap/core";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -94,6 +95,7 @@ export default function FeatureDetailPage() {
     { id: featureId },
     { enabled: !!featureId },
   );
+  useProductDetailTitle(feature?.name);
 
   const { data: tags } = api.tag.list.useQuery(
     { workspaceId: workspaceId ?? "" },
