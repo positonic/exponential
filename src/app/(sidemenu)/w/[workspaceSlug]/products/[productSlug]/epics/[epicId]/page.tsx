@@ -140,7 +140,16 @@ export default function EpicDetailPage() {
       setTitleValue(epic.name);
       return;
     }
-    if (trimmed !== epic.name) updateEpic.mutate({ id: epicId, name: trimmed });
+    if (trimmed === epic.name) return;
+    // Patch the cache first: leaving edit mode re-seeds the field from it, and
+    // the old name would flash back until the invalidation refetch lands.
+    utils.epic.getById.setData({ id: epicId }, (old) =>
+      old ? { ...old, name: trimmed } : old,
+    );
+    updateEpic.mutate(
+      { id: epicId, name: trimmed },
+      { onError: () => void utils.epic.getById.invalidate({ id: epicId }) },
+    );
   };
 
   const deleteEpic = api.epic.delete.useMutation({
