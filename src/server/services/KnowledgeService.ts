@@ -635,16 +635,19 @@ export class KnowledgeService {
       transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
     }
 
-    // Resource access: owner only. The query already joins the live Resource
-    // row (`r`), so ownership is read from it rather than from the chunk — a
-    // deleted Resource's orphaned chunks never match.
+    // Resource access: owner only, in the searched workspace. The query
+    // already joins the live Resource row (`r`), so ownership and workspace
+    // are read from it rather than from the chunk — a deleted Resource's
+    // orphaned chunks never match, and neither do the stale chunks of one
+    // moved to another workspace (a move does not re-embed), which would
+    // otherwise let an agent read a row moved out of its delegation (ADR-0079).
     const searchesResources =
       !sourceTypes?.length || sourceTypes.includes("resource");
     let resourceAccessCondition = Prisma.empty;
     if (searchesResources && !resourceViewerId) {
       resourceAccessCondition = Prisma.sql`AND kc."sourceType" <> 'resource'`;
     } else if (searchesResources && resourceViewerId) {
-      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR r."userId" = ${resourceViewerId})`;
+      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR (r."userId" = ${resourceViewerId} AND r."workspaceId" = ${workspaceId}))`;
     }
 
     // Execute vector search with parameterized query
