@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ActionIcon,
+  Avatar,
   Badge,
   Group,
   Menu,
   Skeleton,
   Stack,
   Text,
+  Textarea,
   Tooltip,
 } from "@mantine/core";
 import { DateInput } from "@mantine/dates";
@@ -39,7 +41,7 @@ import {
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
-import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { EpicDescriptionEditor } from "~/app/_components/product/EpicDescriptionEditor";
 import { TagSelector } from "~/app/_components/TagSelector";
 import { EPIC_PRIORITY_OPTIONS, EPIC_STATUS_OPTIONS } from "~/types/epic";
 import type { EpicPriority, EpicStatus } from "~/types/epic";
@@ -119,6 +121,26 @@ export default function EpicDetailPage() {
       });
     },
   });
+
+  // Local draft of the title. A refetch (e.g. after a sidebar edit) must not
+  // clobber an edit in progress, so server data only seeds it while the field
+  // is not focused.
+  const [titleValue, setTitleValue] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  useEffect(() => {
+    if (epic && !editingTitle) setTitleValue(epic.name);
+  }, [epic, editingTitle]);
+
+  const commitTitle = () => {
+    setEditingTitle(false);
+    if (!epic) return;
+    const trimmed = titleValue.trim();
+    if (!trimmed) {
+      setTitleValue(epic.name);
+      return;
+    }
+    if (trimmed !== epic.name) updateEpic.mutate({ id: epicId, name: trimmed });
+  };
 
   const deleteEpic = api.epic.delete.useMutation({
     onSuccess: async () => {
@@ -233,9 +255,32 @@ export default function EpicDetailPage() {
             </Group>
 
             <Group justify="space-between" align="flex-start">
-              <Text size="xl" fw={700} className="text-text-primary flex-1">
-                {epic.name}
-              </Text>
+              <Textarea
+                aria-label="Epic title"
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.currentTarget.value)}
+                onFocus={() => setEditingTitle(true)}
+                autosize
+                minRows={1}
+                maxRows={3}
+                variant="unstyled"
+                classNames={{ input: "text-text-primary font-bold text-xl p-0 leading-tight resize-none" }}
+                styles={{ root: { flex: 1 }, input: { fontWeight: 700, fontSize: "1.25rem" } }}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  } else if (e.key === "Escape") {
+                    setTitleValue(epic.name);
+                    setEditingTitle(false);
+                    // Blur after the reset lands, so commitTitle sees the
+                    // reverted value and saves nothing.
+                    const el = e.currentTarget;
+                    requestAnimationFrame(() => el.blur());
+                  }
+                }}
+              />
               <Menu position="bottom-end" withinPortal>
                 <Menu.Target>
                   <ActionIcon variant="subtle" className="text-text-muted">
@@ -278,12 +323,13 @@ export default function EpicDetailPage() {
             </Group>
           </div>
 
-          {/* Description */}
-          {epic.description && (
-            <CollapsibleSection title="Description">
-              <MarkdownRenderer content={epic.description} variant="prose" />
-            </CollapsibleSection>
-          )}
+          {/* Description — keyed on the epic: the editor loads its content
+              once per mount. */}
+          <EpicDescriptionEditor
+            key={epicId}
+            epicId={epicId}
+            description={epic.description ?? null}
+          />
 
           {/* Tickets */}
           <CollapsibleSection
@@ -358,6 +404,20 @@ export default function EpicDetailPage() {
                           </Badge>
                         )}
                       <PriorityIcon priority={ticket.priority ?? 4} size={14} />
+                      {ticket.assignee ? (
+                        <Tooltip label={ticket.assignee.name ?? "Assigned"}>
+                          <Avatar
+                            src={ticket.assignee.image}
+                            size={18}
+                            radius="xl"
+                            className="shrink-0"
+                          >
+                            {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
+                          </Avatar>
+                        </Tooltip>
+                      ) : (
+                        <span className="w-[18px] shrink-0" aria-hidden />
+                      )}
                     </Link>
                   ))}
                 </div>
