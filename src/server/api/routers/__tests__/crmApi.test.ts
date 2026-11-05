@@ -57,6 +57,18 @@ vi.mock("~/server/auth", () => ({
   signOut: vi.fn(),
 }));
 
+// Pipeline-level access (getProjectAccess) needs a project graph the mock DB
+// doesn't model; tests flip this to cover the allowed and denied paths.
+const projectAccess = vi.hoisted(() => ({ allowed: true }));
+vi.mock("~/server/services/access", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/server/services/access")>();
+  return {
+    ...actual,
+    getProjectAccess: vi.fn(async () => null),
+    hasProjectAccess: vi.fn(() => projectAccess.allowed),
+  };
+});
+
 const dbHolder: { current: DeepMockProxy<PrismaClient> | null } = { current: null };
 
 function getDbMock(): DeepMockProxy<PrismaClient> {
@@ -330,6 +342,185 @@ describe("crmApi router (mocked)", () => {
       const args = dbMock.project.findFirst.mock.calls[0]?.[0] as any;
       expect(args.where.id).toBe("p-2");
       expect(args.where.status).toBeUndefined();
+    });
+  });
+  // ────────────────────────────────────────────────────────────────────
+  // pipelineCreate / dealMove across pipelines (ADR-0033)
+  // ────────────────────────────────────────────────────────────────────
+  describe("pipelineCreate", () => {
+    it("creates a pipeline with the default stages and a unique slug", async () => {
+      dbMock.project.findFirst
+        .mockResolvedValueOnce({ id: "taken" } as never) // "hiring" is taken
+        .mockResolvedValueOnce(null);
+      dbMock.project.create.mockResolvedValue({ id: "p-new" } as never);
+
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmApi.pipelineCreate({ workspaceId, name: " Hiring " });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const args = dbMock.project.create.mock.calls[0]?.[0] as any;
+      expect(args.data).toMatchObject({
+        name: "Hiring",
+        slug: "hiring_1",
+        type: "pipeline",
+        status: "ACTIVE",
+        workspaceId,
+        createdById: callerId,
+      });
+      expect(
+        args.data.pipelineStages.create.map((st: { name: string }) => st.name),
+      ).toEqual(["Lead", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]);
+    });
+
+    it("refuses a caller outside the workspace", async () => {
+      dbMock.workspaceUser.findFirst.mockResolvedValue(null);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.crmApi.pipelineCreate({ workspaceId, name: "Hiring" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.project.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("dealCreate", () => {
+    beforeEach(() => {
+      projectAccess.allowed = true;
+      dbMock.project.findFirst.mockResolvedValue({ id: "p-sales" } as never);
+    });
+
+    it("rejects a stage that is not on the target pipeline", async () => {
+      dbMock.pipelineStage.findUnique.mockResolvedValue({ id: "s-hire", projectId: "p-hiring" } as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.crmApi.dealCreate({ workspaceId, stageId: "s-hire", title: "Acme" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.deal.create).not.toHaveBeenCalled();
+    });
+
+    it("creates the deal when the stage is on the pipeline", async () => {
+      dbMock.pipelineStage.findUnique.mockResolvedValue({ id: "s-lead", projectId: "p-sales" } as never);
+      dbMock.deal.findFirst.mockResolvedValue(null);
+      dbMock.deal.create.mockResolvedValue({
+        id: "d-1",
+        title: "Acme",
+        stageId: "s-lead",
+        stage: { name: "Lead" },
+      } as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmApi.dealCreate({ workspaceId, stageId: "s-lead", title: "Acme" });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = (dbMock.deal.create.mock.calls[0]?.[0] as any).data;
+      expect(data).toMatchObject({ projectId: "p-sales", stageId: "s-lead" });
+    });
+  });
+
+  describe("dealMove", () => {
+    const deal = {
+      id: "d-1",
+      workspaceId,
+      projectId: "p-sales",
+      stageId: "s-lead",
+      closedAt: null,
+      stage: { id: "s-lead", name: "Lead", type: "active" },
+    };
+    const stage = (id: string, projectId: string) =>
+      ({ id, projectId, name: id, type: "active" }) as never;
+
+    beforeEach(() => {
+      projectAccess.allowed = true;
+      dbMock.deal.findUnique.mockResolvedValue(deal as never);
+      dbMock.deal.update.mockResolvedValue({ ...deal, id: "d-1" } as never);
+    });
+
+    it("moves within the deal's pipeline without changing projectId", async () => {
+      dbMock.pipelineStage.findUnique.mockResolvedValue(stage("s-won", "p-sales"));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmApi.dealMove({ id: "d-1", stageId: "s-won", stageOrder: 0 });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = (dbMock.deal.update.mock.calls[0]?.[0] as any).data;
+      expect(data.stageId).toBe("s-won");
+      expect(data.projectId).toBeUndefined();
+    });
+
+    it("rejects a stage from another pipeline when no pipelineId is given", async () => {
+      dbMock.pipelineStage.findUnique.mockResolvedValue(stage("s-hire", "p-hiring"));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.crmApi.dealMove({ id: "d-1", stageId: "s-hire", stageOrder: 0 }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.deal.update).not.toHaveBeenCalled();
+    });
+
+    it("moves to another pipeline and updates projectId when pipelineId is given", async () => {
+      dbMock.project.findFirst.mockResolvedValue({ id: "p-hiring" } as never);
+      dbMock.pipelineStage.findUnique.mockResolvedValue(stage("s-hire", "p-hiring"));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await caller.crmApi.dealMove({
+        id: "d-1",
+        stageId: "s-hire",
+        stageOrder: 0,
+        pipelineId: "p-hiring",
+      });
+
+      // The target pipeline is looked up inside the deal's own workspace.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const where = (dbMock.project.findFirst.mock.calls[0]?.[0] as any).where;
+      expect(where).toMatchObject({ workspaceId, type: "pipeline", id: "p-hiring" });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data = (dbMock.deal.update.mock.calls[0]?.[0] as any).data;
+      expect(data).toMatchObject({ projectId: "p-hiring", stageId: "s-hire" });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const activity = (dbMock.dealActivity.create.mock.calls[0]?.[0] as any).data;
+      expect(activity.metadata).toMatchObject({
+        fromPipelineId: "p-sales",
+        toPipelineId: "p-hiring",
+      });
+    });
+
+    it("rejects a stage that is on neither pipeline", async () => {
+      dbMock.project.findFirst.mockResolvedValue({ id: "p-hiring" } as never);
+      dbMock.pipelineStage.findUnique.mockResolvedValue(stage("s-other", "p-grants"));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.crmApi.dealMove({
+          id: "d-1",
+          stageId: "s-other",
+          stageOrder: 0,
+          pipelineId: "p-hiring",
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.deal.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects a target pipeline the caller cannot access", async () => {
+      projectAccess.allowed = false;
+      dbMock.project.findFirst.mockResolvedValue({ id: "p-hiring" } as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.crmApi.dealMove({
+          id: "d-1",
+          stageId: "s-hire",
+          stageOrder: 0,
+          pipelineId: "p-hiring",
+        }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.deal.update).not.toHaveBeenCalled();
+    });
+
+    it("rejects a target pipeline outside the deal's workspace", async () => {
+      dbMock.project.findFirst.mockResolvedValue(null);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      await expect(
+        caller.crmApi.dealMove({
+          id: "d-1",
+          stageId: "s-x",
+          stageOrder: 0,
+          pipelineId: "p-elsewhere",
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(dbMock.deal.update).not.toHaveBeenCalled();
     });
   });
 });
