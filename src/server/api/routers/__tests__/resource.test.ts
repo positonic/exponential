@@ -88,6 +88,20 @@ vi.mock("~/server/services/KnowledgeService", () => ({
   }),
 }));
 
+// A YouTube save hands its summary to `after()`; run the callback inline and
+// stub the enrichment so no vendor is called.
+const { afterMock, enrichMock } = vi.hoisted(() => ({
+  afterMock: vi.fn((cb: () => unknown) => void cb()),
+  enrichMock: vi.fn(),
+}));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  after: (cb: () => unknown) => afterMock(cb),
+}));
+vi.mock("~/server/services/youtubeSummary/enrichYouTubeResource", () => ({
+  enrichYouTubeResource: enrichMock,
+}));
+
 import { createMockCaller } from "~/test/trpc-helpers";
 import {
   readTransition,
@@ -190,11 +204,40 @@ describe("resource router — reading list (mocked)", () => {
     mockReset(dbMock);
     embedResourceMock.mockReset();
     embedResourceMock.mockResolvedValue(3);
+    afterMock.mockClear();
+    enrichMock.mockReset();
     // No row for the URL unless a test says otherwise (dedupe, D-0027).
     dbMock.resource.findFirst.mockResolvedValue(null);
   });
 
   describe("create", () => {
+    it("summarises a saved YouTube link after the response, honouring the embed choice", async () => {
+      const url = "https://youtu.be/dQw4w9WgXcQ";
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt1", url, summary: null }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "youtu.be", url, contentType: "bookmark", generateEmbeddings: false });
+
+      expect(afterMock).toHaveBeenCalledTimes(1);
+      expect(enrichMock).toHaveBeenCalledWith(dbMock, "yt1", { embed: false });
+    });
+
+    it("does not schedule a summary for other links, or for a video already summarised", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      dbMock.resource.create.mockResolvedValue(fakeResource());
+      await caller.resource.create({ title: "A link", url: "https://example.com/post", contentType: "bookmark" });
+
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const existing = fakeResource({ id: "yt2", url, summary: "### Overview\nDone." });
+      dbMock.resource.findFirst.mockResolvedValue(existing);
+      dbMock.resource.update.mockResolvedValue(existing);
+      await caller.resource.create({ title: "youtube.com", url, contentType: "bookmark" });
+
+      expect(afterMock).not.toHaveBeenCalled();
+      expect(enrichMock).not.toHaveBeenCalled();
+    });
+
     it("saves a bare URL as to_read and never embeds it (indexing follows content)", async () => {
       dbMock.resource.create.mockResolvedValue(fakeResource());
       const caller = createMockCaller({ userId: callerId, db: dbMock });

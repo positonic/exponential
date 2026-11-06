@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { htmlToMarkdown } from "~/lib/content/contentFormat";
 import {
@@ -10,6 +11,8 @@ import {
   canEditProject,
 } from "~/server/services/access";
 import { resolvePrincipal, type PrincipalContext } from "~/server/services/access/principal";
+import { enrichYouTubeResource } from "~/server/services/youtubeSummary/enrichYouTubeResource";
+import { youtubeVideoId } from "~/utils/youtube";
 
 const contentTypeEnum = z.enum([
   "web_page",
@@ -17,7 +20,25 @@ const contentTypeEnum = z.enum([
   "pdf",
   "bookmark",
   "note",
+  // Set by the YouTube summary once a saved video is summarised.
+  "video",
 ]);
+
+/**
+ * A saved YouTube link gets its real title, a summary and its captions after
+ * the response, so the save stays instant. Needs a request scope for
+ * `after()`; the cron sweep retries what this misses.
+ */
+function summarizeYouTubeAfterResponse(
+  db: PrismaClient,
+  resource: { id: string; url: string | null; summary: string | null },
+  embed: boolean,
+): void {
+  if (resource.summary || !youtubeVideoId(resource.url)) return;
+  after(async () => {
+    await enrichYouTubeResource(db, resource.id, { embed });
+  });
+}
 
 // Reading list: has the owner consumed this Resource yet? Orthogonal to
 // archivedAt. Indexing follows *content*, never read state — a bare URL
@@ -107,6 +128,7 @@ const resourceListSelect = {
   pinnedAsContext: true,
   readStatus: true,
   readAt: true,
+  summary: true,
   createdAt: true,
   updatedAt: true,
   archivedAt: true,
@@ -315,6 +337,8 @@ export const resourceRouter = createTRPCRouter({
           }
         }
 
+        summarizeYouTubeAfterResponse(ctx.db, resource, input.generateEmbeddings);
+
         return { resource, created: false };
       }
 
@@ -354,6 +378,8 @@ export const resourceRouter = createTRPCRouter({
           // Don't fail the request if embedding fails
         }
       }
+
+      summarizeYouTubeAfterResponse(ctx.db, resource, input.generateEmbeddings);
 
       return { resource, created: true };
     }),
