@@ -54,4 +54,40 @@ export function getVideoIdFromYoutubeUrl(url: string): string {
     console.error('Error extracting video ID from URL:', error);
     throw new Error('Invalid URL provided. Please provide a valid YouTube URL.');
   }
-} 
+}
+
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+]);
+
+const VIDEO_ID = /^[\w-]{11}$/;
+
+/**
+ * The 11-character video id of a YouTube URL, or null for any other URL.
+ * Unlike `getVideoIdFromYoutubeUrl` it never throws or logs, so it can test
+ * arbitrary saved links (Reading list) on the server and in the browser.
+ */
+export function youtubeVideoId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!YOUTUBE_HOSTS.has(host)) return null;
+
+  if (host === 'youtu.be') {
+    const id = parsed.pathname.split('/')[1] ?? '';
+    return VIDEO_ID.test(id) ? id : null;
+  }
+  const v = parsed.searchParams.get('v');
+  if (v && VIDEO_ID.test(v)) return v;
+  const match = /^\/(?:embed|v|shorts|live)\/([\w-]{11})(?:[/?#]|$)/.exec(parsed.pathname);
+  return match?.[1] ?? null;
+}

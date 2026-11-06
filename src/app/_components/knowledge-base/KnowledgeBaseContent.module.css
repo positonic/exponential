@@ -140,6 +140,13 @@ button.rowMain {
   color: var(--color-text-muted);
 }
 
+/* A Reading-list video's summary, expanded under its row. */
+.rowSummary {
+  padding: 4px 0 12px 26px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
 .rowLabel {
   flex-shrink: 0;
   font-size: 12px;

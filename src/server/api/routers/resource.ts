@@ -11,6 +11,8 @@ import {
   canEditProject,
 } from "~/server/services/access";
 import { resolvePrincipal, type PrincipalContext } from "~/server/services/access/principal";
+import { enrichYouTubeResource } from "~/server/services/youtubeSummary/enrichYouTubeResource";
+import { youtubeVideoId } from "~/utils/youtube";
 
 const contentTypeEnum = z.enum([
   "web_page",
@@ -18,25 +20,44 @@ const contentTypeEnum = z.enum([
   "pdf",
   "bookmark",
   "note",
+  // Set by the YouTube summary once a saved video is summarised.
+  "video",
 ]);
 
 /**
- * Embed a Resource once the response has gone out. A save must not wait on
- * the embedding API: the row is what the caller asked for, and a slow or
- * hung OpenAI call would otherwise hold the save open (the UI stays busy and
- * a retry writes nothing new). The search index catches up a moment later. A
- * failure is logged, never surfaced; `reindex` re-runs it on demand.
- *
- * Needs a request scope (`after()` throws outside one); every caller of this
- * router — tRPC over HTTP, the Slack webhook, server components — has one.
+ * Embed a Resource where nobody is waiting on the result. A failure is logged,
+ * never surfaced: the row is saved, and `reindex` re-runs it on demand.
  */
-function embedAfterResponse(db: PrismaClient, resourceId: string, context: string): void {
+async function embedSafely(db: PrismaClient, resourceId: string, context: string): Promise<void> {
+  try {
+    await getKnowledgeService(db).embedResource(resourceId);
+  } catch (error) {
+    console.error(`[resourceRouter] Failed to embed resource ${resourceId} (${context}):`, error);
+  }
+}
+
+/**
+ * The slow work a save triggers, once the response has gone out, so the save
+ * returns straight away: embedding a body the caller sent (a hung OpenAI call
+ * would otherwise hold the save open), and giving a YouTube link its real
+ * title, summary and captions. The cron sweep retries what enrichment misses.
+ *
+ * One `after()` callback on purpose: Next runs separate callbacks concurrently,
+ * and enrichment re-embeds the same row once it has the transcript, so two
+ * would race to replace its chunks. Needs a request scope (`after()` throws
+ * outside one); every caller of this router — tRPC over HTTP, the Slack
+ * webhook, server components — has one.
+ */
+function processSaveAfterResponse(
+  db: PrismaClient,
+  resource: { id: string; url: string | null; summary: string | null },
+  options: { embedBody: boolean; embedTranscript: boolean; context: string },
+): void {
+  const enrich = !resource.summary && youtubeVideoId(resource.url) !== null;
+  if (!options.embedBody && !enrich) return;
   after(async () => {
-    try {
-      await getKnowledgeService(db).embedResource(resourceId);
-    } catch (error) {
-      console.error(`[resourceRouter] Failed to embed resource ${resourceId} (${context}):`, error);
-    }
+    if (options.embedBody) await embedSafely(db, resource.id, options.context);
+    if (enrich) await enrichYouTubeResource(db, resource.id, { embed: options.embedTranscript });
   });
 }
 
@@ -128,6 +149,7 @@ const resourceListSelect = {
   pinnedAsContext: true,
   readStatus: true,
   readAt: true,
+  summary: true,
   createdAt: true,
   updatedAt: true,
   archivedAt: true,
@@ -324,9 +346,11 @@ export const resourceRouter = createTRPCRouter({
           },
         });
 
-        if (input.generateEmbeddings && hasBody) {
-          embedAfterResponse(ctx.db, resource.id, "re-save");
-        }
+        processSaveAfterResponse(ctx.db, resource, {
+          embedBody: input.generateEmbeddings && hasBody,
+          embedTranscript: input.generateEmbeddings,
+          context: "re-save",
+        });
 
         return { resource, created: false };
       }
@@ -354,10 +378,11 @@ export const resourceRouter = createTRPCRouter({
         },
       });
 
-      // Generate embeddings if requested and content is available
-      if (input.generateEmbeddings && hasBody) {
-        embedAfterResponse(ctx.db, resource.id, "create");
-      }
+      processSaveAfterResponse(ctx.db, resource, {
+        embedBody: input.generateEmbeddings && hasBody,
+        embedTranscript: input.generateEmbeddings,
+        context: "create",
+      });
 
       return { resource, created: true };
     }),
@@ -545,7 +570,7 @@ export const resourceRouter = createTRPCRouter({
 
       // Regenerate embeddings if content changed or requested
       if (regenerateEmbeddings || input.content) {
-        embedAfterResponse(ctx.db, resource.id, "update");
+        after(() => embedSafely(ctx.db, resource.id, "update"));
       }
 
       return { resource };

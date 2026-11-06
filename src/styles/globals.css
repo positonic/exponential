@@ -81,7 +81,7 @@
        Mantine is already painting the body with, so referencing it is a
        no-op rather than a second font. */
     --font-sans: var(--mantine-font-family);
-    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace, "SF Mono", Menlo, monospace;
 
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
@@ -1089,7 +1089,7 @@ body {
 
   /* Type: the auth surface deliberately paints Inter. Radius comes from the
      global shape tokens on :root. */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--font-inter, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ==========================================================================
@@ -1519,9 +1519,9 @@ body {
   --ch-cta-glow: 0 10px 22px -10px var(--ch-brand-shadow);
 
   /* Type */
-  --ch-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --ch-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --ch-font-display: "Fraunces", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
+  --ch-font-sans: var(--font-inter, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ch-font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace, "SF Mono", Menlo, monospace;
+  --ch-font-display: var(--font-fraunces, "Fraunces"), var(--font-inter, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
 
 }
 
