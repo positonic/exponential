@@ -17,6 +17,7 @@ import {
   Modal,
   UnstyledButton,
   Box,
+  Checkbox,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -64,6 +65,15 @@ const contentTypeLabels = {
 };
 
 type ContentType = keyof typeof contentTypeLabels;
+
+/**
+ * Whether the Add modal ticks "Add to reading list" for a type. Pages and
+ * bookmarks are usually saved to read later; notes and documents are usually
+ * things you wrote or already read. The checkbox overrides it either way.
+ */
+function queuedByDefault(contentType: ContentType): boolean {
+  return contentType === 'web_page' || contentType === 'bookmark';
+}
 
 // Search filter chips. Each maps to the Knowledge index source types it
 // covers; uploaded documents sit with Resources (both are saved, not authored).
@@ -167,6 +177,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     content: '',
     contentType: 'web_page' as ContentType,
     description: '',
+    addToReadingList: queuedByDefault('web_page'),
   });
 
   // Queries
@@ -233,6 +244,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         content: '',
         contentType: 'web_page',
         description: '',
+        addToReadingList: queuedByDefault('web_page'),
       });
     },
   });
@@ -301,9 +313,10 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       description: newResource.description || undefined,
       generateEmbeddings: true,
       workspaceId,
-      // The modal is for reference material you already have, not a queue.
-      readStatus: 'read',
+      readStatus: newResource.addToReadingList ? 'to_read' : 'read',
     });
+    // Show the queue the new row landed in.
+    if (newResource.addToReadingList) setReadingView('unread');
   };
 
   const handleDeleteResource = (id: string) => {
@@ -791,7 +804,10 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               { value: 'bookmark', label: 'Bookmark' },
             ]}
             value={newResource.contentType}
-            onChange={(value) => setNewResource({ ...newResource, contentType: (value ?? 'web_page') as ContentType })}
+            onChange={(value) => {
+              const contentType = (value ?? 'web_page') as ContentType;
+              setNewResource({ ...newResource, contentType, addToReadingList: queuedByDefault(contentType) });
+            }}
             classNames={{
               input: 'bg-surface-primary border-border-primary text-text-primary',
               label: 'text-text-secondary',
@@ -832,6 +848,17 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
             classNames={{
               input: 'bg-surface-primary border-border-primary text-text-primary',
               label: 'text-text-secondary',
+            }}
+          />
+
+          <Checkbox
+            label="Add to reading list"
+            description="Shows it under Up next to read. Leave unticked for things you've already read."
+            checked={newResource.addToReadingList}
+            onChange={(e) => setNewResource({ ...newResource, addToReadingList: e.currentTarget.checked })}
+            classNames={{
+              label: 'text-text-primary',
+              description: 'text-text-muted',
             }}
           />
 
