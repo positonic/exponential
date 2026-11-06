@@ -84,7 +84,8 @@ export interface ReaderContent {
   /**
    * How to read `body`. Saved as Markdown, a literal tag in it (a code example)
    * must not read as HTML; anything else may be legacy or captured HTML, which
-   * the renderer detects and sanitises.
+   * `MarkdownRenderer` detects and passes through DOMPurify. See
+   * `reader.render.test.tsx`.
    */
   bodyFormat: 'markdown' | 'auto';
   /** The disclosure's label: a summary leads, so the full text folds away under it. */
