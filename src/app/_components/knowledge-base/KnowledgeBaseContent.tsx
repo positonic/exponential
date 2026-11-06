@@ -16,6 +16,7 @@ import {
   Select,
   Modal,
   UnstyledButton,
+  Box,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -43,6 +44,8 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
 import styles from './KnowledgeBaseContent.module.css';
+import { classifyQuickSave } from './quickSave';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 
 const contentTypeIcons = {
   web_page: IconLink,
@@ -90,29 +93,29 @@ function shortDate(date: Date | string): string {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function isHttpUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value.trim());
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The row's title: a link when there is somewhere to go (external URLs open
- * in a new tab), plain text otherwise — notes without a URL have no detail
- * page yet.
+ * in a new tab), a button that opens the reader for a url-less row (a note),
+ * plain text otherwise.
  */
 function RowMain({
   href,
   external,
+  onOpen,
   children,
 }: {
   href: string | null;
   external?: boolean;
+  onOpen?: () => void;
   children: React.ReactNode;
 }) {
+  if (!href && onOpen) {
+    return (
+      <button type="button" className={styles.rowMain} onClick={onOpen}>
+        {children}
+      </button>
+    );
+  }
   if (!href) return <div className={styles.rowMain}>{children}</div>;
   if (external) {
     return (
@@ -154,6 +157,8 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const [readingView, setReadingView] = useState<'unread' | 'read'>('unread');
   const [isSavingLink, setIsSavingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState('');
+  // The url-less Resource (a note) open in the reader modal.
+  const [readingId, setReadingId] = useState<string | null>(null);
 
   // Form state for new resource
   const [newResource, setNewResource] = useState({
@@ -205,6 +210,13 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     },
   );
 
+  const readerQuery = api.resource.get.useQuery(
+    { id: readingId ?? '' },
+    { enabled: Boolean(readingId) },
+  );
+  const readerResource = readingId ? readerQuery.data?.resource : undefined;
+  const readerBody = (readerResource?.content ?? readerResource?.description ?? '').trim();
+
   // Mutations
   const refetchAllResources = () => {
     void refetchRecent();
@@ -250,20 +262,31 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     onSuccess: refetchAllResources,
   });
 
-  const linkDraftValid = isHttpUrl(linkDraft);
-
   const handleSaveLink = () => {
-    if (!linkDraftValid || saveLinkMutation.isPending) return;
-    const url = linkDraft.trim();
-    // A bare link has no body, so there is nothing to embed: the Reading
-    // list is findable by title and URL, never by semantic search, until a
-    // URL fetcher exists (follow-up to ticket pink.grape).
+    const draft = classifyQuickSave(linkDraft);
+    if (!draft || saveLinkMutation.isPending) return;
+    if (draft.kind === 'link') {
+      // A bare link has no body, so there is nothing to embed: the Reading
+      // list is findable by title and URL, never by semantic search, until a
+      // URL fetcher exists (follow-up to ticket pink.grape).
+      saveLinkMutation.mutate({
+        title: hostnameOf(draft.url) ?? draft.url,
+        url: draft.url,
+        contentType: 'bookmark',
+        readStatus: 'to_read',
+        generateEmbeddings: false,
+        workspaceId,
+      });
+      return;
+    }
+    // Pasted text or markdown: the text is the body, so index it.
     saveLinkMutation.mutate({
-      title: hostnameOf(url) ?? url,
-      url,
-      contentType: 'bookmark',
+      title: draft.title,
+      content: draft.content,
+      contentType: 'note',
+      mimeType: 'text/markdown',
       readStatus: 'to_read',
-      generateEmbeddings: false,
+      generateEmbeddings: true,
       workspaceId,
     });
   };
@@ -406,39 +429,39 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
             onClick={() => setIsSavingLink((v) => !v)}
           >
             <IconPlus size={12} stroke={2} />
-            Save link
+            Save
           </button>
         </Group>
       </div>
 
       {isSavingLink && (
-        <TextInput
+        <Textarea
           autoFocus
+          autosize
+          minRows={1}
+          maxRows={8}
           size="sm"
           mb={6}
-          placeholder="Paste a link and press Enter"
-          aria-label="Link to read later"
+          placeholder="Paste a link, text or markdown and press Enter"
+          description="Shift+Enter for a new line"
+          aria-label="Link, text or markdown to read later"
           value={linkDraft}
           onChange={(e) => {
             setLinkDraft(e.currentTarget.value);
             if (saveLinkMutation.isError) saveLinkMutation.reset();
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSaveLink();
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              handleSaveLink();
+            }
             if (e.key === 'Escape') {
               setIsSavingLink(false);
               setLinkDraft('');
             }
           }}
-          error={
-            linkDraft.trim() && !linkDraftValid
-              ? 'Enter a full http(s) URL'
-              : saveLinkMutation.isError
-                ? "Couldn't save the link. Try again."
-                : undefined
-          }
+          error={saveLinkMutation.isError ? "Couldn't save that. Try again." : undefined}
           disabled={saveLinkMutation.isPending}
-          leftSection={<IconLink size={14} stroke={1.75} />}
           rightSection={
             <ActionIcon
               variant="subtle"
@@ -461,17 +484,18 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       ) : readingRows.length === 0 ? (
         <div className={styles.empty}>
           {readingView === 'unread'
-            ? 'Nothing queued. Save a link to read it later.'
+            ? 'Nothing queued. Save a link or a note to read it later.'
             : 'Nothing marked as read yet.'}
         </div>
       ) : (
         readingRows.map((resource) => {
           const isRead = resource.readStatus === 'read';
           const host = hostnameOf(resource.url);
+          const ReadingIcon = contentTypeIcons[resource.contentType as ContentType] ?? IconBookmark;
           return (
             <div key={resource.id} className={styles.row}>
-              <RowMain href={resource.url} external>
-                <IconBookmark size={14} stroke={1.75} className={styles.rowIcon} />
+              <RowMain href={resource.url} external onOpen={() => setReadingId(resource.id)}>
+                <ReadingIcon size={14} stroke={1.75} className={styles.rowIcon} />
                 <span className={styles.rowTitle}>{resource.title}</span>
               </RowMain>
               <span className={styles.rowLabel}>
@@ -534,7 +558,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           const Icon = contentTypeIcons[contentType] ?? IconFileText;
           return (
             <div key={resource.id} className={styles.row}>
-              <RowMain href={resource.url} external>
+              <RowMain href={resource.url} external onOpen={() => setReadingId(resource.id)}>
                 <Icon size={14} stroke={1.75} className={styles.rowIcon} />
                 <span className={styles.rowTitle}>{resource.title}</span>
                 {resource.pinnedAsContext && (
@@ -682,6 +706,56 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           </SimpleGrid>
         )}
       </Container>
+
+      {/* Reader for url-less Resources (notes) */}
+      <Modal
+        opened={Boolean(readingId)}
+        onClose={() => setReadingId(null)}
+        title={readerResource?.title ?? ''}
+        size="lg"
+        classNames={{
+          header: 'bg-surface-secondary border-b border-border-primary',
+          body: 'bg-surface-secondary',
+          title: 'text-text-primary font-semibold',
+        }}
+      >
+        {readerQuery.isLoading ? (
+          <Stack gap="xs" pt="md">
+            <Skeleton height={14} />
+            <Skeleton height={14} />
+            <Skeleton height={14} width="60%" />
+          </Stack>
+        ) : readerQuery.isError ? (
+          <Text size="sm" pt="md" className="text-text-muted">
+            Couldn&apos;t load this. Try again.
+          </Text>
+        ) : readerBody ? (
+          <Box pt="md">
+            <MarkdownRenderer content={readerBody} variant="prose" />
+          </Box>
+        ) : (
+          <Text size="sm" pt="md" className="text-text-muted">
+            Nothing saved in this one but its title.
+          </Text>
+        )}
+        {readerResource && readerResource.readStatus !== 'read' && (
+          <Group justify="flex-end" mt="lg">
+            <Button
+              color="brand"
+              leftSection={<IconCheck size={14} />}
+              loading={setReadStatusMutation.isPending}
+              onClick={() =>
+                setReadStatusMutation.mutate(
+                  { id: readerResource.id, readStatus: 'read' },
+                  { onSuccess: () => setReadingId(null) },
+                )
+              }
+            >
+              Mark as read
+            </Button>
+          </Group>
+        )}
+      </Modal>
 
       {/* Add Resource Modal */}
       <Modal

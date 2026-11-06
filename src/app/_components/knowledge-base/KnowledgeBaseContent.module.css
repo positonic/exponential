@@ -112,6 +112,15 @@
   text-decoration: none;
 }
 
+/* A url-less row (a note) opens in the reader, so RowMain is a button. */
+button.rowMain {
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .rowTitle {
   flex-shrink: 1;
   min-width: 0;
