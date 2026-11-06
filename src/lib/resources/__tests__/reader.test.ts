@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  anySummaryPending,
   isSummaryPending,
   knowledgeHref,
   readerContent,
@@ -26,6 +27,27 @@ describe('isSummaryPending', () => {
     expect(isSummaryPending({ url: VIDEO, summary: null, createdAt: new Date(now - SUMMARY_PENDING_MS) }, now)).toBe(false);
     expect(isSummaryPending({ url: ARTICLE, summary: null, createdAt: justSaved }, now)).toBe(false);
     expect(isSummaryPending({ url: null, summary: null, createdAt: justSaved }, now)).toBe(false);
+  });
+});
+
+describe('anySummaryPending', () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+
+  it('stops polling for a video that never got a summary', () => {
+    const monthsOld = { url: VIDEO, summary: null, createdAt: new Date('2026-08-01T00:00:00Z') };
+
+    expect(anySummaryPending([monthsOld], now)).toBe(false);
+    // With the real clock too: the failure was an array index standing in for `now`.
+    expect(anySummaryPending([monthsOld, monthsOld])).toBe(false);
+  });
+
+  it('polls while any row is waiting', () => {
+    const fresh = { url: VIDEO, summary: null, createdAt: new Date(now - 1_000) };
+    const done = { url: VIDEO, summary: 'done', createdAt: new Date(now - 1_000) };
+
+    expect(anySummaryPending([done, fresh], now)).toBe(true);
+    expect(anySummaryPending([done], now)).toBe(false);
+    expect(anySummaryPending([], now)).toBe(false);
   });
 });
 

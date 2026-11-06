@@ -29,6 +29,15 @@ export function isSummaryPending(resource: SummaryFields, now: number = Date.now
   );
 }
 
+/**
+ * Whether a list should keep polling. Named rather than `some(isSummaryPending)`:
+ * `some` passes the array index second, which would land in `now` and make
+ * every unsummarised video look brand new, so the list would never stop.
+ */
+export function anySummaryPending(resources: SummaryFields[], now: number = Date.now()): boolean {
+  return resources.some((resource) => isSummaryPending(resource, now));
+}
+
 /** The reader's address. A row with no workspace still opens inside the current one. */
 export function resourceReaderHref(id: string, workspaceSlug?: string | null): string {
   return workspaceSlug ? `/w/${workspaceSlug}/knowledge-base/${id}` : `/knowledge-base/${id}`;

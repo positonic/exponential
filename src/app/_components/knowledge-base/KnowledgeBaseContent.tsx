@@ -45,6 +45,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
 import {
+  anySummaryPending,
   isSummaryPending,
   resourceReaderHref,
   safeSourceUrl,
@@ -91,7 +92,7 @@ const LIST_LIMIT = 8;
 
 /** Poll a resource list while any row in it is waiting for its summary. */
 function pollWhileSummarizing(query: { state: { data?: { resources: SummaryFields[] } } }) {
-  return query.state.data?.resources.some(isSummaryPending) ? SUMMARY_POLL_MS : false;
+  return anySummaryPending(query.state.data?.resources ?? []) ? SUMMARY_POLL_MS : false;
 }
 
 /** Hostname for a row's label, or null when the URL does not parse. */
