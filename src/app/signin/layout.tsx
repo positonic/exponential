@@ -1,5 +1,6 @@
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
+import { fontVariables } from "~/lib/fonts";
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider } from '@mantine/core';
@@ -29,7 +30,7 @@ export default async function SignInLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} h-full scroll-smooth`} suppressHydrationWarning>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${fontVariables} h-full scroll-smooth`} suppressHydrationWarning>
       <body className="h-full w-full overflow-x-hidden">
         <ThemeProvider domain={domain}>
           <TRPCReactProvider>
