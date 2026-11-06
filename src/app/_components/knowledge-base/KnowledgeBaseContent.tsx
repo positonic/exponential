@@ -18,6 +18,7 @@ import {
   UnstyledButton,
   Box,
   Checkbox,
+  Input,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -47,6 +48,7 @@ import { keepPreviousData } from '@tanstack/react-query';
 import styles from './KnowledgeBaseContent.module.css';
 import { classifyQuickSave } from './quickSave';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
 const contentTypeIcons = {
   web_page: IconLink,
@@ -310,6 +312,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       url: newResource.url || undefined,
       content: newResource.content || undefined,
       contentType: newResource.contentType,
+      mimeType: newResource.content ? 'text/markdown' : undefined,
       description: newResource.description || undefined,
       generateEmbeddings: true,
       workspaceId,
@@ -838,18 +841,19 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
             }}
           />
 
-          <Textarea
+          <Input.Wrapper
             label="Content"
-            description="Pasted content is indexed, so search can find it by meaning."
-            placeholder="Paste or type content here..."
-            minRows={6}
-            value={newResource.content}
-            onChange={(e) => setNewResource({ ...newResource, content: e.currentTarget.value })}
-            classNames={{
-              input: 'bg-surface-primary border-border-primary text-text-primary',
-              label: 'text-text-secondary',
-            }}
-          />
+            description="Markdown. Pasted content is indexed, so search can find it by meaning."
+            classNames={{ label: 'text-text-secondary' }}
+          >
+            <MarkdownInput
+              value={newResource.content}
+              onChange={(content) => setNewResource({ ...newResource, content })}
+              placeholder="Paste or type content here..."
+              minRows={6}
+              maxRows={16}
+            />
+          </Input.Wrapper>
 
           <Checkbox
             label="Add to reading list"
