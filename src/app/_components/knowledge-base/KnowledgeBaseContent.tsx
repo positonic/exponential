@@ -36,8 +36,7 @@ import {
   IconInfoCircle,
   IconX,
   IconBrandYoutube,
-  IconChevronDown,
-  IconChevronUp,
+  IconExternalLink,
 } from '@tabler/icons-react';
 import { useState } from 'react';
 import Link from 'next/link';
@@ -45,7 +44,14 @@ import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
-import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import {
+  isSummaryPending,
+  resourceReaderHref,
+  safeSourceUrl,
+  sourceLinkLabel,
+  SUMMARY_POLL_MS,
+  type SummaryFields,
+} from '~/lib/resources/reader';
 import { youtubeVideoId } from '~/utils/youtube';
 import styles from './KnowledgeBaseContent.module.css';
 
@@ -83,28 +89,6 @@ const FILTERS: { id: Filter; label: string; icon: React.ElementType; sourceTypes
 
 const LIST_LIMIT = 8;
 
-/**
- * A saved YouTube link is summarised on the server after the save returns
- * (usually within a minute). Until then the row says so and the lists poll;
- * past this window the server's cron sweep owns it and the row stops waiting.
- */
-const SUMMARY_PENDING_MS = 90_000;
-const SUMMARY_POLL_MS = 4_000;
-
-interface SummaryFields {
-  url: string | null;
-  summary: string | null;
-  createdAt: Date;
-}
-
-function isSummaryPending(resource: SummaryFields): boolean {
-  return (
-    !resource.summary &&
-    youtubeVideoId(resource.url) !== null &&
-    Date.now() - new Date(resource.createdAt).getTime() < SUMMARY_PENDING_MS
-  );
-}
-
 /** Poll a resource list while any row in it is waiting for its summary. */
 function pollWhileSummarizing(query: { state: { data?: { resources: SummaryFields[] } } }) {
   return query.state.data?.resources.some(isSummaryPending) ? SUMMARY_POLL_MS : false;
@@ -135,8 +119,8 @@ function isHttpUrl(value: string): boolean {
 
 /**
  * The row's title: a link when there is somewhere to go (external URLs open
- * in a new tab), plain text otherwise — notes without a URL have no detail
- * page yet.
+ * in a new tab), plain text otherwise. A Resource's title always goes to the
+ * reader; `SourceLink` is the way to the original.
  */
 function RowMain({
   href,
@@ -159,6 +143,36 @@ function RowMain({
     <Link href={href} className={styles.rowMain}>
       {children}
     </Link>
+  );
+}
+
+/**
+ * The way to the original, beside a title that opens the reader. Always takes
+ * its slot, so labels line up down a column whether or not a row has a URL.
+ */
+function SourceLink({ url, onOpen }: { url: string | null | undefined; onOpen?: () => void }) {
+  const href = safeSourceUrl(url);
+  const label = sourceLinkLabel(href);
+  return (
+    <span className={styles.sourceSlot}>
+      {href && (
+        <Tooltip label={label}>
+          <ActionIcon
+            component="a"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="subtle"
+            color="gray"
+            size="sm"
+            aria-label={label}
+            onClick={onOpen}
+          >
+            <IconExternalLink size={14} stroke={1.75} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+    </span>
   );
 }
 
@@ -188,15 +202,6 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const [readingView, setReadingView] = useState<'unread' | 'read'>('unread');
   const [isSavingLink, setIsSavingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState('');
-  // Reading-list rows whose summary is expanded.
-  const [openSummaries, setOpenSummaries] = useState<Set<string>>(new Set());
-  const toggleSummary = (id: string) =>
-    setOpenSummaries((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   // Form state for new resource
   const [newResource, setNewResource] = useState({
@@ -295,6 +300,13 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const archiveResourceMutation = api.resource.archive.useMutation({
     onSuccess: refetchAllResources,
   });
+
+  // Opening the original counts as opening the item (D-0031), as the reader does.
+  const markOpened = (resource: { id: string; readStatus: string }) => {
+    if (resource.readStatus === 'to_read') {
+      setReadStatusMutation.mutate({ id: resource.id, readStatus: 'reading' });
+    }
+  };
 
   const linkDraftValid = isHttpUrl(linkDraft);
 
@@ -397,15 +409,19 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       <div style={{ opacity: searchQueryResult.isFetching ? 0.6 : 1, transition: 'opacity 150ms ease' }}>
         {searchResults.map((result) => {
           const contentType = result.contentType as ContentType | undefined;
-          const isExternal = result.sourceType === 'resource' && !!result.url;
-          // Meetings → recording page; Pages → the page; Resources → their
-          // source URL. Notes without a URL have no detail page yet.
+          const isResource = result.sourceType === 'resource';
+          const isExternal = result.sourceType === 'document' && !!result.url;
+          // Meetings → recording page; Pages → the page; Resources → the
+          // reader, like every other Resource title here; uploaded documents
+          // have no reader, so → their file.
           const href =
             result.sourceType === 'transcription'
               ? `/recording/${result.sourceId}`
               : result.sourceType === 'page'
                 ? (workspaceSlug ? `/w/${workspaceSlug}/pages/${result.sourceId}` : null)
-                : (result.url ?? null);
+                : isResource
+                  ? resourceReaderHref(result.sourceId, workspaceSlug)
+                  : (result.url ?? null);
           const Icon =
             result.sourceType === 'transcription'
               ? IconMicrophone
@@ -426,6 +442,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                 <span className={styles.rowSnippet}>{result.content}</span>
               </RowMain>
               <span className={styles.rowLabel}>{label}</span>
+              {isResource && <SourceLink url={result.url} />}
             </div>
           );
         })}
@@ -514,71 +531,49 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         readingRows.map((resource) => {
           const isRead = resource.readStatus === 'read';
           const host = hostnameOf(resource.url);
-          const isVideo = youtubeVideoId(resource.url) !== null;
-          const RowIcon = isVideo ? IconBrandYoutube : IconBookmark;
-          const summaryOpen = openSummaries.has(resource.id);
+          const RowIcon = youtubeVideoId(resource.url) ? IconBrandYoutube : IconBookmark;
           return (
-            <div key={resource.id}>
-              <div className={styles.row}>
-                <RowMain href={resource.url} external>
-                  <RowIcon size={14} stroke={1.75} className={styles.rowIcon} />
-                  <span className={styles.rowTitle}>{resource.title}</span>
-                </RowMain>
-                <span className={styles.rowLabel}>
-                  {isSummaryPending(resource)
-                    ? 'Summarizing…'
-                    : isRead && resource.readAt
-                      ? `Read ${shortDate(resource.readAt)}`
-                      : host && host !== resource.title
-                        ? host
-                        : `Saved ${shortDate(resource.createdAt)}`}
-                </span>
-                {resource.summary && (
-                  <Tooltip label={summaryOpen ? 'Hide summary' : 'Show summary'}>
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      size="sm"
-                      aria-label={summaryOpen ? 'Hide summary' : 'Show summary'}
-                      aria-expanded={summaryOpen}
-                      onClick={() => toggleSummary(resource.id)}
-                    >
-                      {summaryOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
-                    </ActionIcon>
-                  </Tooltip>
-                )}
-                <div className={styles.rowActions}>
-                  <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      size="sm"
-                      aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
-                      onClick={() =>
-                        setReadStatusMutation.mutate({ id: resource.id, readStatus: isRead ? 'to_read' : 'read' })
-                      }
-                    >
-                      {isRead ? <IconArrowBackUp size={14} /> : <IconCheck size={14} />}
-                    </ActionIcon>
-                  </Tooltip>
-                  <Tooltip label="Archive">
-                    <ActionIcon
-                      variant="subtle"
-                      color="gray"
-                      size="sm"
-                      aria-label="Archive"
-                      onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
-                    >
-                      <IconArchive size={14} />
-                    </ActionIcon>
-                  </Tooltip>
-                </div>
+            <div key={resource.id} className={styles.row}>
+              <RowMain href={resourceReaderHref(resource.id, workspaceSlug)}>
+                <RowIcon size={14} stroke={1.75} className={styles.rowIcon} />
+                <span className={styles.rowTitle}>{resource.title}</span>
+              </RowMain>
+              <span className={styles.rowLabel}>
+                {isSummaryPending(resource)
+                  ? 'Summarizing…'
+                  : isRead && resource.readAt
+                    ? `Read ${shortDate(resource.readAt)}`
+                    : host && host !== resource.title
+                      ? host
+                      : `Saved ${shortDate(resource.createdAt)}`}
+              </span>
+              <SourceLink url={resource.url} onOpen={() => markOpened(resource)} />
+              <div className={styles.rowActions}>
+                <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
+                    onClick={() =>
+                      setReadStatusMutation.mutate({ id: resource.id, readStatus: isRead ? 'to_read' : 'read' })
+                    }
+                  >
+                    {isRead ? <IconArrowBackUp size={14} /> : <IconCheck size={14} />}
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Archive">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                    aria-label="Archive"
+                    onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
+                  >
+                    <IconArchive size={14} />
+                  </ActionIcon>
+                </Tooltip>
               </div>
-              {summaryOpen && resource.summary && (
-                <div className={styles.rowSummary}>
-                  <MarkdownRenderer content={resource.summary} variant="compact" />
-                </div>
-              )}
             </div>
           );
         })
@@ -606,7 +601,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           const Icon = contentTypeIcons[contentType] ?? IconFileText;
           return (
             <div key={resource.id} className={styles.row}>
-              <RowMain href={resource.url} external>
+              <RowMain href={resourceReaderHref(resource.id, workspaceSlug)}>
                 <Icon size={14} stroke={1.75} className={styles.rowIcon} />
                 <span className={styles.rowTitle}>{resource.title}</span>
                 {resource.pinnedAsContext && (
@@ -618,6 +613,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               <span className={styles.rowLabel}>
                 {contentTypeLabels[contentType] ?? resource.contentType} · {shortDate(resource.createdAt)}
               </span>
+              <SourceLink url={resource.url} onOpen={() => markOpened(resource)} />
               <div className={styles.rowActions}>
                 <Tooltip label={resource.pinnedAsContext ? 'Unpin from agent chats' : 'Pin to every agent chat'}>
                   <ActionIcon
