@@ -72,13 +72,21 @@ export interface ReaderContentFields {
   summary: string | null;
   content: string | null;
   rawContent: string | null;
+  description: string | null;
   contentType: string;
+  mimeType: string | null;
 }
 
 export interface ReaderContent {
   summary: string | null;
   /** The full text. `content` is Markdown; a row with only `rawContent` has article HTML. */
   body: string | null;
+  /**
+   * How to read `body`. Saved as Markdown, a literal tag in it (a code example)
+   * must not read as HTML; anything else may be legacy or captured HTML, which
+   * the renderer detects and sanitises.
+   */
+  bodyFormat: 'markdown' | 'auto';
   /** The disclosure's label: a summary leads, so the full text folds away under it. */
   bodyLabel: string;
   /** Nothing to read in-app: only the link was saved. */
@@ -91,10 +99,12 @@ function nonBlank(text: string | null): string | null {
 
 export function readerContent(resource: ReaderContentFields): ReaderContent {
   const summary = nonBlank(resource.summary);
-  const body = nonBlank(resource.content) ?? nonBlank(resource.rawContent);
+  const content = nonBlank(resource.content);
+  const body = content ?? nonBlank(resource.rawContent) ?? nonBlank(resource.description);
   return {
     summary,
     body,
+    bodyFormat: content && resource.mimeType === 'text/markdown' ? 'markdown' : 'auto',
     bodyLabel: resource.contentType === 'video' ? 'Transcript' : 'Full article',
     isEmpty: !summary && !body,
   };

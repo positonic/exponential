@@ -86,12 +86,20 @@ describe('sourceLinkLabel', () => {
 });
 
 describe('readerContent', () => {
-  const base = { summary: null, content: null, rawContent: null, contentType: 'web_page' };
+  const base = {
+    summary: null,
+    content: null,
+    rawContent: null,
+    description: null,
+    contentType: 'web_page',
+    mimeType: null,
+  };
 
   it('leads a summarised video with the summary, its transcript behind a label', () => {
     expect(readerContent({ ...base, summary: '### Overview', content: 'words', contentType: 'video' })).toEqual({
       summary: '### Overview',
       body: 'words',
+      bodyFormat: 'auto',
       bodyLabel: 'Transcript',
       isEmpty: false,
     });
@@ -107,6 +115,21 @@ describe('readerContent', () => {
     const out = readerContent({ ...base, content: 'markdown', rawContent: '<p>html</p>' });
     expect(out).toMatchObject({ summary: null, body: 'markdown', bodyLabel: 'Full article', isEmpty: false });
     expect(readerContent({ ...base, rawContent: '<p>html</p>' }).body).toBe('<p>html</p>');
+  });
+
+  it('keeps a note saved as Markdown from being read as HTML', () => {
+    const note = { ...base, content: 'Use <div> here', contentType: 'note', mimeType: 'text/markdown' };
+    expect(readerContent(note).bodyFormat).toBe('markdown');
+    expect(readerContent({ ...base, content: '<p>legacy</p>' }).bodyFormat).toBe('auto');
+    // The mime type describes `content`; captured HTML is still detected and sanitised.
+    expect(readerContent({ ...base, rawContent: '<p>html</p>', mimeType: 'text/markdown' }).bodyFormat).toBe('auto');
+  });
+
+  it('falls back to the description when nothing else was saved', () => {
+    expect(readerContent({ ...base, description: 'A line about it' })).toMatchObject({
+      body: 'A line about it',
+      isEmpty: false,
+    });
   });
 
   it('is empty for a bare link, including whitespace-only fields', () => {

@@ -134,7 +134,7 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
     );
   }
 
-  const { summary, body, bodyLabel, isEmpty } = readerContent(resource);
+  const { summary, body, bodyFormat, bodyLabel, isEmpty } = readerContent(resource);
   const sourceUrl = safeSourceUrl(resource.url);
   const sourceLabel = sourceLinkLabel(sourceUrl);
   const isRead = resource.readStatus === 'read';
@@ -219,10 +219,10 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
           (summary ? (
             <details className={styles.fullText}>
               <summary>{bodyLabel}</summary>
-              <MarkdownRenderer content={body} variant="prose" />
+              <MarkdownRenderer content={body} variant="prose" format={bodyFormat} />
             </details>
           ) : (
-            <MarkdownRenderer content={body} variant="prose" />
+            <MarkdownRenderer content={body} variant="prose" format={bodyFormat} />
           ))}
 
         {isEmpty &&
@@ -233,9 +233,11 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
             </Group>
           ) : (
             <Text className={styles.notice}>
-              {youtubeVideoId(resource.url)
-                ? 'No summary for this video yet.'
-                : 'Only the link was saved for this page.'}
+              {!sourceUrl
+                ? 'Nothing saved in this one but its title.'
+                : youtubeVideoId(resource.url)
+                  ? 'No summary for this video yet.'
+                  : 'Only the link was saved for this page.'}
             </Text>
           ))}
       </article>
