@@ -112,15 +112,6 @@
   text-decoration: none;
 }
 
-/* A url-less row (a note) opens in the reader, so RowMain is a button. */
-button.rowMain {
-  background: none;
-  border: 0;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
 .rowTitle {
   flex-shrink: 1;
   min-width: 0;
@@ -140,11 +131,12 @@ button.rowMain {
   color: var(--color-text-muted);
 }
 
-/* A Reading-list video's summary, expanded under its row. */
-.rowSummary {
-  padding: 4px 0 12px 26px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
+/* Holds a row's link to the original; empty for a row with no URL, so the
+   labels still line up down the column. */
+.sourceSlot {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 22px;
 }
 
 .rowLabel {
