@@ -88,12 +88,20 @@ vi.mock("~/server/services/KnowledgeService", () => ({
   }),
 }));
 
-// A YouTube save hands its summary to `after()`; run the callback inline and
-// stub the enrichment so no vendor is called.
-const { afterMock, enrichMock } = vi.hoisted(() => ({
-  afterMock: vi.fn((cb: () => unknown) => void cb()),
-  enrichMock: vi.fn(),
-}));
+// Slow work runs in `after()`, once the response is sent. Outside a request
+// scope `after` throws, so queue the callbacks and let a test run them with
+// `flushAfter()` — which also proves the save returned first. Enrichment is
+// stubbed so no vendor is called.
+const { afterMock, afterQueue, enrichMock } = vi.hoisted(() => {
+  const afterQueue: Array<() => unknown> = [];
+  return {
+    afterQueue,
+    afterMock: vi.fn((cb: () => unknown) => {
+      afterQueue.push(cb);
+    }),
+    enrichMock: vi.fn(),
+  };
+});
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   after: (cb: () => unknown) => afterMock(cb),
@@ -101,6 +109,9 @@ vi.mock("next/server", async (importOriginal) => ({
 vi.mock("~/server/services/youtubeSummary/enrichYouTubeResource", () => ({
   enrichYouTubeResource: enrichMock,
 }));
+async function flushAfter(): Promise<void> {
+  for (const cb of afterQueue.splice(0)) await cb();
+}
 
 import { createMockCaller } from "~/test/trpc-helpers";
 import {
@@ -203,6 +214,7 @@ describe("resource router — reading list (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     embedResourceMock.mockReset();
+    afterQueue.length = 0;
     embedResourceMock.mockResolvedValue(3);
     afterMock.mockClear();
     enrichMock.mockReset();
@@ -219,6 +231,7 @@ describe("resource router — reading list (mocked)", () => {
       await caller.resource.create({ title: "youtu.be", url, contentType: "bookmark", generateEmbeddings: false });
 
       expect(afterMock).toHaveBeenCalledTimes(1);
+      await flushAfter();
       expect(enrichMock).toHaveBeenCalledWith(dbMock, "yt1", { embed: false });
     });
 
@@ -236,6 +249,28 @@ describe("resource router — reading list (mocked)", () => {
 
       expect(afterMock).not.toHaveBeenCalled();
       expect(enrichMock).not.toHaveBeenCalled();
+    });
+
+    it("embeds a YouTube save's body and enriches it in one callback, body first, so they can't race", async () => {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt2", url }));
+      const order: string[] = [];
+      embedResourceMock.mockImplementation(async () => {
+        order.push("embed");
+        return 3;
+      });
+      enrichMock.mockImplementation(async () => {
+        order.push("enrich");
+      });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "A video", url, content: "pasted body", contentType: "bookmark" });
+
+      // Next runs separate after() callbacks concurrently; enrichment re-embeds this row.
+      expect(afterMock).toHaveBeenCalledTimes(1);
+      await flushAfter();
+      expect(order).toEqual(["embed", "enrich"]);
+      expect(enrichMock).toHaveBeenCalledWith(dbMock, "yt2", { embed: true });
     });
 
     it("saves a bare URL as to_read and never embeds it (indexing follows content)", async () => {
@@ -269,7 +304,31 @@ describe("resource router — reading list (mocked)", () => {
       const data = dbMock.resource.create.mock.calls[0]![0].data;
       expect(data.readStatus).toBe("read");
       expect(data.readAt).toBeInstanceOf(Date);
+      // The save returned before embedding started; it runs after the response.
+      expect(embedResourceMock).not.toHaveBeenCalled();
+      await flushAfter();
       expect(embedResourceMock).toHaveBeenCalledWith("r1");
+    });
+
+    it("returns the saved row even when embedding fails afterwards", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource());
+      embedResourceMock.mockRejectedValue(new Error("embedding API down"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({
+        title: "Notes",
+        content: "some pasted text",
+        contentType: "note",
+      });
+
+      expect(out.created).toBe(true);
+      await expect(flushAfter()).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to embed resource r1 (create)"),
+        expect.any(Error),
+      );
+      errorSpy.mockRestore();
     });
 
     it("derives content and wordCount from article HTML and reports created: true", async () => {
@@ -305,6 +364,7 @@ describe("resource router — reading list (mocked)", () => {
         generateEmbeddings: true,
       });
 
+      await flushAfter();
       expect(embedResourceMock).toHaveBeenCalledWith("r3");
     });
 
@@ -408,6 +468,7 @@ describe("resource router — reading list (mocked)", () => {
         const data = dbMock.resource.update.mock.calls[0]![0].data;
         expect(data.readStatus).toBe("read");
         expect(data.readAt).toBeInstanceOf(Date);
+        await flushAfter();
         expect(embedResourceMock).toHaveBeenCalledWith("old");
       });
 
@@ -553,6 +614,7 @@ describe("resource router — agent works on its owner's list (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     embedResourceMock.mockReset();
+    afterQueue.length = 0;
     dbMock.resource.findFirst.mockResolvedValue(null);
     dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
     dbMock.externalAgent.findUnique.mockResolvedValue({ id: AGENT_ID, ownerId: OWNER_ID } as never);

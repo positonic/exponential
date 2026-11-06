@@ -25,18 +25,39 @@ const contentTypeEnum = z.enum([
 ]);
 
 /**
- * A saved YouTube link gets its real title, a summary and its captions after
- * the response, so the save stays instant. Needs a request scope for
- * `after()`; the cron sweep retries what this misses.
+ * Embed a Resource where nobody is waiting on the result. A failure is logged,
+ * never surfaced: the row is saved, and `reindex` re-runs it on demand.
  */
-function summarizeYouTubeAfterResponse(
+async function embedSafely(db: PrismaClient, resourceId: string, context: string): Promise<void> {
+  try {
+    await getKnowledgeService(db).embedResource(resourceId);
+  } catch (error) {
+    console.error(`[resourceRouter] Failed to embed resource ${resourceId} (${context}):`, error);
+  }
+}
+
+/**
+ * The slow work a save triggers, once the response has gone out, so the save
+ * returns straight away: embedding a body the caller sent (a hung OpenAI call
+ * would otherwise hold the save open), and giving a YouTube link its real
+ * title, summary and captions. The cron sweep retries what enrichment misses.
+ *
+ * One `after()` callback on purpose: Next runs separate callbacks concurrently,
+ * and enrichment re-embeds the same row once it has the transcript, so two
+ * would race to replace its chunks. Needs a request scope (`after()` throws
+ * outside one); every caller of this router — tRPC over HTTP, the Slack
+ * webhook, server components — has one.
+ */
+function processSaveAfterResponse(
   db: PrismaClient,
   resource: { id: string; url: string | null; summary: string | null },
-  embed: boolean,
+  options: { embedBody: boolean; embedTranscript: boolean; context: string },
 ): void {
-  if (resource.summary || !youtubeVideoId(resource.url)) return;
+  const enrich = !resource.summary && youtubeVideoId(resource.url) !== null;
+  if (!options.embedBody && !enrich) return;
   after(async () => {
-    await enrichYouTubeResource(db, resource.id, { embed });
+    if (options.embedBody) await embedSafely(db, resource.id, options.context);
+    if (enrich) await enrichYouTubeResource(db, resource.id, { embed: options.embedTranscript });
   });
 }
 
@@ -325,19 +346,11 @@ export const resourceRouter = createTRPCRouter({
           },
         });
 
-        if (input.generateEmbeddings && hasBody) {
-          try {
-            const knowledgeService = getKnowledgeService(ctx.db);
-            await knowledgeService.embedResource(resource.id);
-          } catch (error) {
-            console.error(
-              `[resourceRouter] Failed to re-embed resource ${resource.id} on re-save:`,
-              error
-            );
-          }
-        }
-
-        summarizeYouTubeAfterResponse(ctx.db, resource, input.generateEmbeddings);
+        processSaveAfterResponse(ctx.db, resource, {
+          embedBody: input.generateEmbeddings && hasBody,
+          embedTranscript: input.generateEmbeddings,
+          context: "re-save",
+        });
 
         return { resource, created: false };
       }
@@ -365,21 +378,11 @@ export const resourceRouter = createTRPCRouter({
         },
       });
 
-      // Generate embeddings if requested and content is available
-      if (input.generateEmbeddings && hasBody) {
-        try {
-          const knowledgeService = getKnowledgeService(ctx.db);
-          await knowledgeService.embedResource(resource.id);
-        } catch (error) {
-          console.error(
-            `[resourceRouter] Failed to generate embeddings for resource ${resource.id}:`,
-            error
-          );
-          // Don't fail the request if embedding fails
-        }
-      }
-
-      summarizeYouTubeAfterResponse(ctx.db, resource, input.generateEmbeddings);
+      processSaveAfterResponse(ctx.db, resource, {
+        embedBody: input.generateEmbeddings && hasBody,
+        embedTranscript: input.generateEmbeddings,
+        context: "create",
+      });
 
       return { resource, created: true };
     }),
@@ -567,15 +570,7 @@ export const resourceRouter = createTRPCRouter({
 
       // Regenerate embeddings if content changed or requested
       if (regenerateEmbeddings || input.content) {
-        try {
-          const knowledgeService = getKnowledgeService(ctx.db);
-          await knowledgeService.embedResource(resource.id);
-        } catch (error) {
-          console.error(
-            `[resourceRouter] Failed to regenerate embeddings for resource ${resource.id}:`,
-            error
-          );
-        }
+        after(() => embedSafely(ctx.db, resource.id, "update"));
       }
 
       return { resource };
