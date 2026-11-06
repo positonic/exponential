@@ -35,6 +35,9 @@ import {
   IconPinnedFilled,
   IconInfoCircle,
   IconX,
+  IconBrandYoutube,
+  IconChevronDown,
+  IconChevronUp,
 } from '@tabler/icons-react';
 import { useState } from 'react';
 import Link from 'next/link';
@@ -42,6 +45,8 @@ import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
+import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { youtubeVideoId } from '~/utils/youtube';
 import styles from './KnowledgeBaseContent.module.css';
 
 const contentTypeIcons = {
@@ -50,6 +55,7 @@ const contentTypeIcons = {
   pdf: IconFileText,
   bookmark: IconBookmark,
   note: IconNote,
+  video: IconBrandYoutube,
 };
 
 const contentTypeLabels = {
@@ -58,6 +64,7 @@ const contentTypeLabels = {
   pdf: 'PDF',
   bookmark: 'Bookmark',
   note: 'Note',
+  video: 'Video',
 };
 
 type ContentType = keyof typeof contentTypeLabels;
@@ -75,6 +82,33 @@ const FILTERS: { id: Filter; label: string; icon: React.ElementType; sourceTypes
 ];
 
 const LIST_LIMIT = 8;
+
+/**
+ * A saved YouTube link is summarised on the server after the save returns
+ * (usually within a minute). Until then the row says so and the lists poll;
+ * past this window the server's cron sweep owns it and the row stops waiting.
+ */
+const SUMMARY_PENDING_MS = 90_000;
+const SUMMARY_POLL_MS = 4_000;
+
+interface SummaryFields {
+  url: string | null;
+  summary: string | null;
+  createdAt: Date;
+}
+
+function isSummaryPending(resource: SummaryFields): boolean {
+  return (
+    !resource.summary &&
+    youtubeVideoId(resource.url) !== null &&
+    Date.now() - new Date(resource.createdAt).getTime() < SUMMARY_PENDING_MS
+  );
+}
+
+/** Poll a resource list while any row in it is waiting for its summary. */
+function pollWhileSummarizing(query: { state: { data?: { resources: SummaryFields[] } } }) {
+  return query.state.data?.resources.some(isSummaryPending) ? SUMMARY_POLL_MS : false;
+}
 
 /** Hostname for a row's label, or null when the URL does not parse. */
 function hostnameOf(url: string | null | undefined): string | null {
@@ -154,6 +188,15 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
   const [readingView, setReadingView] = useState<'unread' | 'read'>('unread');
   const [isSavingLink, setIsSavingLink] = useState(false);
   const [linkDraft, setLinkDraft] = useState('');
+  // Reading-list rows whose summary is expanded.
+  const [openSummaries, setOpenSummaries] = useState<Set<string>>(new Set());
+  const toggleSummary = (id: string) =>
+    setOpenSummaries((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // Form state for new resource
   const [newResource, setNewResource] = useState({
@@ -169,7 +212,10 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     data: recentData,
     isLoading: recentLoading,
     refetch: refetchRecent,
-  } = api.resource.list.useQuery({ limit: LIST_LIMIT, workspaceId });
+  } = api.resource.list.useQuery(
+    { limit: LIST_LIMIT, workspaceId },
+    { refetchInterval: pollWhileSummarizing }
+  );
 
   const {
     data: readingData,
@@ -177,7 +223,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     refetch: refetchReading,
   } = api.resource.list.useQuery(
     { limit: LIST_LIMIT, workspaceId, readStatus: readingView },
-    { placeholderData: keepPreviousData }
+    { placeholderData: keepPreviousData, refetchInterval: pollWhileSummarizing }
   );
 
   // Debounce the typed query so we only search after the user pauses,
@@ -468,45 +514,71 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         readingRows.map((resource) => {
           const isRead = resource.readStatus === 'read';
           const host = hostnameOf(resource.url);
+          const isVideo = youtubeVideoId(resource.url) !== null;
+          const RowIcon = isVideo ? IconBrandYoutube : IconBookmark;
+          const summaryOpen = openSummaries.has(resource.id);
           return (
-            <div key={resource.id} className={styles.row}>
-              <RowMain href={resource.url} external>
-                <IconBookmark size={14} stroke={1.75} className={styles.rowIcon} />
-                <span className={styles.rowTitle}>{resource.title}</span>
-              </RowMain>
-              <span className={styles.rowLabel}>
-                {isRead && resource.readAt
-                  ? `Read ${shortDate(resource.readAt)}`
-                  : host && host !== resource.title
-                    ? host
-                    : `Saved ${shortDate(resource.createdAt)}`}
-              </span>
-              <div className={styles.rowActions}>
-                <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    size="sm"
-                    aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
-                    onClick={() =>
-                      setReadStatusMutation.mutate({ id: resource.id, readStatus: isRead ? 'to_read' : 'read' })
-                    }
-                  >
-                    {isRead ? <IconArrowBackUp size={14} /> : <IconCheck size={14} />}
-                  </ActionIcon>
-                </Tooltip>
-                <Tooltip label="Archive">
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    size="sm"
-                    aria-label="Archive"
-                    onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
-                  >
-                    <IconArchive size={14} />
-                  </ActionIcon>
-                </Tooltip>
+            <div key={resource.id}>
+              <div className={styles.row}>
+                <RowMain href={resource.url} external>
+                  <RowIcon size={14} stroke={1.75} className={styles.rowIcon} />
+                  <span className={styles.rowTitle}>{resource.title}</span>
+                </RowMain>
+                <span className={styles.rowLabel}>
+                  {isSummaryPending(resource)
+                    ? 'Summarizing…'
+                    : isRead && resource.readAt
+                      ? `Read ${shortDate(resource.readAt)}`
+                      : host && host !== resource.title
+                        ? host
+                        : `Saved ${shortDate(resource.createdAt)}`}
+                </span>
+                {resource.summary && (
+                  <Tooltip label={summaryOpen ? 'Hide summary' : 'Show summary'}>
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      aria-label={summaryOpen ? 'Hide summary' : 'Show summary'}
+                      aria-expanded={summaryOpen}
+                      onClick={() => toggleSummary(resource.id)}
+                    >
+                      {summaryOpen ? <IconChevronUp size={14} /> : <IconChevronDown size={14} />}
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+                <div className={styles.rowActions}>
+                  <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      aria-label={isRead ? 'Mark as unread' : 'Mark as read'}
+                      onClick={() =>
+                        setReadStatusMutation.mutate({ id: resource.id, readStatus: isRead ? 'to_read' : 'read' })
+                      }
+                    >
+                      {isRead ? <IconArrowBackUp size={14} /> : <IconCheck size={14} />}
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label="Archive">
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      aria-label="Archive"
+                      onClick={() => archiveResourceMutation.mutate({ id: resource.id })}
+                    >
+                      <IconArchive size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </div>
               </div>
+              {summaryOpen && resource.summary && (
+                <div className={styles.rowSummary}>
+                  <MarkdownRenderer content={resource.summary} variant="compact" />
+                </div>
+              )}
             </div>
           );
         })
