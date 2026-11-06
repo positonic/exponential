@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { htmlToMarkdown } from "~/lib/content/contentFormat";
 import {
@@ -18,6 +19,26 @@ const contentTypeEnum = z.enum([
   "bookmark",
   "note",
 ]);
+
+/**
+ * Embed a Resource once the response has gone out. A save must not wait on
+ * the embedding API: the row is what the caller asked for, and a slow or
+ * hung OpenAI call would otherwise hold the save open (the UI stays busy and
+ * a retry writes nothing new). The search index catches up a moment later. A
+ * failure is logged, never surfaced; `reindex` re-runs it on demand.
+ *
+ * Needs a request scope (`after()` throws outside one); every caller of this
+ * router — tRPC over HTTP, the Slack webhook, server components — has one.
+ */
+function embedAfterResponse(db: PrismaClient, resourceId: string, context: string): void {
+  after(async () => {
+    try {
+      await getKnowledgeService(db).embedResource(resourceId);
+    } catch (error) {
+      console.error(`[resourceRouter] Failed to embed resource ${resourceId} (${context}):`, error);
+    }
+  });
+}
 
 // Reading list: has the owner consumed this Resource yet? Orthogonal to
 // archivedAt. Indexing follows *content*, never read state — a bare URL
@@ -304,15 +325,7 @@ export const resourceRouter = createTRPCRouter({
         });
 
         if (input.generateEmbeddings && hasBody) {
-          try {
-            const knowledgeService = getKnowledgeService(ctx.db);
-            await knowledgeService.embedResource(resource.id);
-          } catch (error) {
-            console.error(
-              `[resourceRouter] Failed to re-embed resource ${resource.id} on re-save:`,
-              error
-            );
-          }
+          embedAfterResponse(ctx.db, resource.id, "re-save");
         }
 
         return { resource, created: false };
@@ -343,16 +356,7 @@ export const resourceRouter = createTRPCRouter({
 
       // Generate embeddings if requested and content is available
       if (input.generateEmbeddings && hasBody) {
-        try {
-          const knowledgeService = getKnowledgeService(ctx.db);
-          await knowledgeService.embedResource(resource.id);
-        } catch (error) {
-          console.error(
-            `[resourceRouter] Failed to generate embeddings for resource ${resource.id}:`,
-            error
-          );
-          // Don't fail the request if embedding fails
-        }
+        embedAfterResponse(ctx.db, resource.id, "create");
       }
 
       return { resource, created: true };
@@ -541,15 +545,7 @@ export const resourceRouter = createTRPCRouter({
 
       // Regenerate embeddings if content changed or requested
       if (regenerateEmbeddings || input.content) {
-        try {
-          const knowledgeService = getKnowledgeService(ctx.db);
-          await knowledgeService.embedResource(resource.id);
-        } catch (error) {
-          console.error(
-            `[resourceRouter] Failed to regenerate embeddings for resource ${resource.id}:`,
-            error
-          );
-        }
+        embedAfterResponse(ctx.db, resource.id, "update");
       }
 
       return { resource };

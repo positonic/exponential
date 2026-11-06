@@ -88,6 +88,20 @@ vi.mock("~/server/services/KnowledgeService", () => ({
   }),
 }));
 
+// Embedding runs in `after()`, once the response is sent. Outside a request
+// scope `after` throws, so queue the callbacks and let a test run them with
+// `flushAfter()` — which also proves the save returned before embedding.
+const { afterQueue } = vi.hoisted(() => ({ afterQueue: [] as Array<() => unknown> }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  after: (cb: () => unknown) => {
+    afterQueue.push(cb);
+  },
+}));
+async function flushAfter(): Promise<void> {
+  for (const cb of afterQueue.splice(0)) await cb();
+}
+
 import { createMockCaller } from "~/test/trpc-helpers";
 import {
   readTransition,
@@ -189,6 +203,7 @@ describe("resource router — reading list (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     embedResourceMock.mockReset();
+    afterQueue.length = 0;
     embedResourceMock.mockResolvedValue(3);
     // No row for the URL unless a test says otherwise (dedupe, D-0027).
     dbMock.resource.findFirst.mockResolvedValue(null);
@@ -226,7 +241,31 @@ describe("resource router — reading list (mocked)", () => {
       const data = dbMock.resource.create.mock.calls[0]![0].data;
       expect(data.readStatus).toBe("read");
       expect(data.readAt).toBeInstanceOf(Date);
+      // The save returned before embedding started; it runs after the response.
+      expect(embedResourceMock).not.toHaveBeenCalled();
+      await flushAfter();
       expect(embedResourceMock).toHaveBeenCalledWith("r1");
+    });
+
+    it("returns the saved row even when embedding fails afterwards", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource());
+      embedResourceMock.mockRejectedValue(new Error("embedding API down"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({
+        title: "Notes",
+        content: "some pasted text",
+        contentType: "note",
+      });
+
+      expect(out.created).toBe(true);
+      await expect(flushAfter()).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to embed resource r1 (create)"),
+        expect.any(Error),
+      );
+      errorSpy.mockRestore();
     });
 
     it("derives content and wordCount from article HTML and reports created: true", async () => {
@@ -262,6 +301,7 @@ describe("resource router — reading list (mocked)", () => {
         generateEmbeddings: true,
       });
 
+      await flushAfter();
       expect(embedResourceMock).toHaveBeenCalledWith("r3");
     });
 
@@ -365,6 +405,7 @@ describe("resource router — reading list (mocked)", () => {
         const data = dbMock.resource.update.mock.calls[0]![0].data;
         expect(data.readStatus).toBe("read");
         expect(data.readAt).toBeInstanceOf(Date);
+        await flushAfter();
         expect(embedResourceMock).toHaveBeenCalledWith("old");
       });
 
@@ -510,6 +551,7 @@ describe("resource router — agent works on its owner's list (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     embedResourceMock.mockReset();
+    afterQueue.length = 0;
     dbMock.resource.findFirst.mockResolvedValue(null);
     dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
     dbMock.externalAgent.findUnique.mockResolvedValue({ id: AGENT_ID, ownerId: OWNER_ID } as never);
