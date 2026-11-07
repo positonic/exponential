@@ -8,6 +8,7 @@ import type {
   EmbeddingSource,
   EmbeddingResult,
   EmbeddingOptions,
+  EmbeddingSection,
   EmbeddingSourceType,
 } from "./embedding/types";
 
@@ -177,7 +178,10 @@ export class KnowledgeService {
 
     try {
       // Chunk the content before starting transaction
-      const chunks = this.chunkText(content, maxTokensPerChunk, chunkOverlap);
+      const sections = source.getSections?.();
+      const chunks = sections
+        ? this.chunkSections(sections, maxTokensPerChunk, chunkOverlap)
+        : this.chunkText(content, maxTokensPerChunk, chunkOverlap);
 
       if (chunks.length === 0) {
         return { success: true, chunkCount: 0 };
@@ -345,6 +349,31 @@ export class KnowledgeService {
   /**
    * Chunk text into ~500 token segments with sentence boundary awareness
    */
+  /** Chunk each section on its own, repeating its context on every chunk. */
+  chunkSections(
+    sections: EmbeddingSection[],
+    maxTokens: number = DEFAULT_CHUNK_SIZE,
+    overlapTokens: number = DEFAULT_CHUNK_OVERLAP
+  ): Chunk[] {
+    const chunks: Chunk[] = [];
+    let offset = 0;
+    for (const { context, text } of sections) {
+      const contextTokens = this.estimateTokens(context);
+      const room = Math.max(overlapTokens + 1, maxTokens - contextTokens);
+      for (const chunk of this.chunkText(text, room, overlapTokens)) {
+        chunks.push({
+          text: `${context}\n\n${chunk.text}`,
+          index: chunks.length,
+          startPos: offset + chunk.startPos,
+          endPos: offset + chunk.endPos,
+          tokenCount: contextTokens + chunk.tokenCount,
+        });
+      }
+      offset += text.length;
+    }
+    return chunks;
+  }
+
   chunkText(
     text: string,
     maxTokens: number = DEFAULT_CHUNK_SIZE,

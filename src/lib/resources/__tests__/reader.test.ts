@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   anySummaryPending,
   isSummaryPending,
+  isVideoArticle,
   knowledgeHref,
   readerContent,
   resourceReaderHref,
@@ -85,6 +86,14 @@ describe('sourceLinkLabel', () => {
   });
 });
 
+describe('isVideoArticle', () => {
+  it('needs both the video type and a Markdown body', () => {
+    expect(isVideoArticle({ contentType: 'video', mimeType: 'text/markdown' })).toBe(true);
+    expect(isVideoArticle({ contentType: 'video', mimeType: null })).toBe(false);
+    expect(isVideoArticle({ contentType: 'note', mimeType: 'text/markdown' })).toBe(false);
+  });
+});
+
 describe('readerContent', () => {
   const base = {
     summary: null,
@@ -95,12 +104,38 @@ describe('readerContent', () => {
     mimeType: null,
   };
 
-  it('leads a summarised video with the summary, its transcript behind a label', () => {
+  it('shows a video article as the page, with its transcript offered below and no repeated standfirst', () => {
+    expect(
+      readerContent({
+        ...base,
+        summary: 'The standfirst.',
+        content: 'The standfirst.\n\n## One\nDetail <div>.',
+        rawContent: '[0:12] The words.',
+        contentType: 'video',
+        mimeType: 'text/markdown',
+      }),
+    ).toEqual({
+      summary: null,
+      body: 'The standfirst.\n\n## One\nDetail <div>.',
+      bodyFormat: 'markdown',
+      bodyLabel: 'Article',
+      transcript: '[0:12] The words.',
+      isEmpty: false,
+    });
+  });
+
+  it('shows a video article with no transcript (the Gemini path)', () => {
+    const out = readerContent({ ...base, content: 'Article.', contentType: 'video', mimeType: 'text/markdown' });
+    expect(out).toMatchObject({ body: 'Article.', transcript: null, isEmpty: false });
+  });
+
+  it('leads a video summarised the old way with the summary, its transcript behind a label', () => {
     expect(readerContent({ ...base, summary: '### Overview', content: 'words', contentType: 'video' })).toEqual({
       summary: '### Overview',
       body: 'words',
       bodyFormat: 'auto',
       bodyLabel: 'Transcript',
+      transcript: null,
       isEmpty: false,
     });
   });

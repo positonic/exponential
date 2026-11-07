@@ -5,31 +5,26 @@ import {
   defaultYouTubeSummaryDeps,
   fetchVideoMeta,
   isYouTubeSummaryConfigured,
-  summarizeYouTubeVideo,
+  writeVideoArticle,
   type YouTubeSummaryDeps,
 } from "./youtubeSummary";
+import { ARTICLE_MIME_TYPE, isVideoArticle } from "~/lib/resources/reader";
 import { youtubeVideoId } from "~/utils/youtube";
 
 /**
- * After a request returns, the function has until the route's `maxDuration`
- * (60 s on tRPC). Leave room for the DB writes; a video that needs longer is
- * picked up by the cron sweep, which has five minutes.
+ * One job has five minutes (`maxDuration` on its route). Leave room for
+ * embedding and the DB writes; the cron sweep retries what doesn't finish.
  */
-export const AFTER_RESPONSE_BUDGET_MS = 50_000;
+export const ARTICLE_BUDGET_MS = 240_000;
 
 export type EnrichOutcome =
-  | { status: "skipped"; reason: "not_found" | "not_youtube" | "already_summarized" | "not_configured" }
-  | { status: "summarized"; source: "supadata" | "gemini" }
+  | { status: "skipped"; reason: "not_found" | "not_youtube" | "already_written" | "not_configured" }
+  | { status: "written"; source: "supadata" | "gemini" }
   | { status: "failed" };
 
 export interface EnrichOptions {
   deps?: YouTubeSummaryDeps;
   budgetMs?: number;
-  /**
-   * Index the transcript into the Knowledge index. Only when the save asked
-   * for it: capturing a body never implies embedding it (D-0026).
-   */
-  embed?: boolean;
 }
 
 function wordCount(text: string): number | null {
@@ -56,11 +51,23 @@ export function isPlaceholderTitle(title: string, url: string): boolean {
 }
 
 /**
- * Give a saved YouTube link its real title, a summary and (when captions
- * exist) the transcript as its body. Idempotent: a Resource that already has
- * a summary is left alone, and the write is conditional on `summary` still
- * being null, so the after-response hook and the cron sweep can race safely.
- * Never throws: it runs where nobody is waiting for an error.
+ * Rows the job may still write to: anything but a finished video article. As
+ * `OR`s, because `NOT` on a nullable column would skip rows with a null mimeType.
+ */
+const NOT_YET_AN_ARTICLE = {
+  OR: [{ contentType: { not: "video" } }, { mimeType: null }, { mimeType: { not: ARTICLE_MIME_TYPE } }],
+};
+
+/**
+ * Give a saved YouTube link its real title and an article to read, keep the
+ * transcript as the source, and index the article so the video is searchable.
+ * Unlike other saves, this always indexes: a video is saved to be remembered
+ * (decision 2026-11-07, amends D-0026 for videos).
+ *
+ * Idempotent: a finished article is left alone, and the write is conditional
+ * on there still not being one, so overlapping jobs can't both write. A failure
+ * changes nothing but the title, so a video summarised the old way keeps what it
+ * has until an article exists. Never throws: nobody is waiting for an error.
  */
 export async function enrichYouTubeResource(
   db: PrismaClient,
@@ -73,58 +80,68 @@ export async function enrichYouTubeResource(
 
     const resource = await db.resource.findUnique({
       where: { id: resourceId },
-      select: { id: true, url: true, title: true, author: true, summary: true },
+      select: {
+        id: true,
+        url: true,
+        title: true,
+        author: true,
+        content: true,
+        contentType: true,
+        mimeType: true,
+      },
     });
     if (!resource) return { status: "skipped", reason: "not_found" };
-    if (resource.summary) return { status: "skipped", reason: "already_summarized" };
+    if (isVideoArticle(resource)) return { status: "skipped", reason: "already_written" };
     const videoId = youtubeVideoId(resource.url);
     if (!videoId || !resource.url) return { status: "skipped", reason: "not_youtube" };
 
-    const deadline = Date.now() + (options.budgetMs ?? AFTER_RESPONSE_BUDGET_MS);
+    const deadline = Date.now() + (options.budgetMs ?? ARTICLE_BUDGET_MS);
     const watchUrl = canonicalWatchUrl(videoId);
     const meta = await fetchVideoMeta(watchUrl, deps);
     const title =
       meta?.title && isPlaceholderTitle(resource.title, resource.url) ? meta.title : resource.title;
     const author = resource.author ?? meta?.author ?? null;
 
-    const result = await summarizeYouTubeVideo(watchUrl, title, deps, deadline);
+    const result = await writeVideoArticle(watchUrl, title, deps, deadline);
 
     if (!result) {
-      // No summary this time, but the real title is still worth keeping.
+      // No article this time, but the real title is still worth keeping.
       if (title !== resource.title || author !== resource.author) {
         await db.resource.updateMany({
-          where: { id: resource.id, summary: null },
+          where: { id: resource.id, ...NOT_YET_AN_ARTICLE },
           data: { title, author },
         });
       }
       return { status: "failed" };
     }
 
+    // Gemini returns no transcript. A video summarised the old way has its
+    // transcript in `content`, which the article is about to replace, so move it.
+    const transcript = result.transcript ?? (resource.contentType === "video" ? resource.content : null);
+
     const { count } = await db.resource.updateMany({
-      where: { id: resource.id, summary: null },
+      where: { id: resource.id, ...NOT_YET_AN_ARTICLE },
       data: {
         title,
         author,
-        summary: result.summary,
+        summary: result.standfirst,
+        content: result.article,
+        mimeType: ARTICLE_MIME_TYPE,
         contentType: "video",
-        ...(result.transcript && {
-          content: result.transcript,
-          wordCount: wordCount(result.transcript),
-          fetchedAt: new Date(),
-        }),
+        wordCount: wordCount(result.article),
+        fetchedAt: new Date(),
+        ...(transcript && { rawContent: transcript }),
       },
     });
-    if (count === 0) return { status: "skipped", reason: "already_summarized" };
+    if (count === 0) return { status: "skipped", reason: "already_written" };
 
-    if (options.embed && result.transcript) {
-      try {
-        await getKnowledgeService(db).embedResource(resource.id);
-      } catch (error) {
-        console.error(`[youtubeSummary] Failed to embed resource ${resource.id}:`, error);
-      }
+    try {
+      await getKnowledgeService(db).embedResource(resource.id);
+    } catch (error) {
+      console.error(`[youtubeSummary] Failed to embed resource ${resource.id}:`, error);
     }
 
-    return { status: "summarized", source: result.source };
+    return { status: "written", source: result.source };
   } catch (error) {
     console.error(`[youtubeSummary] Enriching resource ${resourceId} failed:`, error);
     return { status: "failed" };

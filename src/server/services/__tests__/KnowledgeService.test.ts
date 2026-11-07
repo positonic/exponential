@@ -162,6 +162,34 @@ function meetingFindMany(db: unknown): ReturnType<typeof vi.fn> {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+describe("KnowledgeService — chunkSections", () => {
+  const svc = () => new KnowledgeService({} as never);
+
+  it("repeats a section's context on every chunk and numbers chunks across sections", () => {
+    const long = "A sentence about contracts that goes on for a while. ".repeat(80);
+
+    const chunks = svc().chunkSections([
+      { context: "A talk", text: "The standfirst." },
+      { context: "A talk › Composing (41:49)", text: long },
+    ]);
+
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks[0]!.text).toBe("A talk\n\nThe standfirst.");
+    for (const chunk of chunks.slice(1)) {
+      expect(chunk.text.startsWith("A talk › Composing (41:49)\n\n")).toBe(true);
+    }
+    expect(chunks.map((c) => c.index)).toEqual(chunks.map((_, i) => i));
+  });
+
+  it("keeps each chunk within the size limit, counting its context", () => {
+    const long = "A sentence about contracts that goes on for a while. ".repeat(200);
+
+    for (const chunk of svc().chunkSections([{ context: "A title ".repeat(10), text: long }], 200, 20)) {
+      expect(chunk.tokenCount).toBeLessThanOrEqual(220);
+    }
+  });
+});
+
 describe("KnowledgeService — workspace scoping", () => {
   describe("embedSource", () => {
     it("stamps workspaceId on every chunk insert (batch path)", async () => {

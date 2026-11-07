@@ -8,12 +8,25 @@ import { youtubeVideoId } from '~/utils/youtube';
  */
 
 /**
- * A saved YouTube link is summarised on the server after the save returns,
- * usually within a minute. Until then the UI says so and polls; past this
- * window the cron sweep owns it and the UI stops waiting.
+ * A saved YouTube link gets its article on the server after the save returns,
+ * which can take minutes. Until then the UI says so and polls; past this window
+ * (the job's own limit) the cron sweep owns it and the UI stops waiting.
  */
-export const SUMMARY_PENDING_MS = 90_000;
-export const SUMMARY_POLL_MS = 4_000;
+export const SUMMARY_PENDING_MS = 300_000;
+export const SUMMARY_POLL_MS = 10_000;
+
+/** How a Resource's `content` is marked as Markdown. */
+export const ARTICLE_MIME_TYPE = 'text/markdown';
+
+/**
+ * A video written up as an article: `content` is the article, `rawContent` the
+ * transcript and `summary` the article's opening. A video summarised before
+ * 2026-11-07 has a short `summary` and its transcript in `content` until it's
+ * saved again.
+ */
+export function isVideoArticle(resource: { contentType: string; mimeType: string | null }): boolean {
+  return resource.contentType === 'video' && resource.mimeType === ARTICLE_MIME_TYPE;
+}
 
 export interface SummaryFields {
   url: string | null;
@@ -90,6 +103,8 @@ export interface ReaderContent {
   bodyFormat: 'markdown' | 'auto';
   /** The disclosure's label: a summary leads, so the full text folds away under it. */
   bodyLabel: string;
+  /** A video article's transcript, offered below the article. */
+  transcript: string | null;
   /** Nothing to read in-app: only the link was saved. */
   isEmpty: boolean;
 }
@@ -102,11 +117,23 @@ export function readerContent(resource: ReaderContentFields): ReaderContent {
   const summary = nonBlank(resource.summary);
   const content = nonBlank(resource.content);
   const body = content ?? nonBlank(resource.rawContent) ?? nonBlank(resource.description);
+  if (isVideoArticle(resource) && content) {
+    // The article opens with its own standfirst, which is what `summary` holds.
+    return {
+      summary: null,
+      body: content,
+      bodyFormat: 'markdown',
+      bodyLabel: 'Article',
+      transcript: nonBlank(resource.rawContent),
+      isEmpty: false,
+    };
+  }
   return {
     summary,
     body,
-    bodyFormat: content && resource.mimeType === 'text/markdown' ? 'markdown' : 'auto',
+    bodyFormat: content && resource.mimeType === ARTICLE_MIME_TYPE ? 'markdown' : 'auto',
     bodyLabel: resource.contentType === 'video' ? 'Transcript' : 'Full article',
+    transcript: null,
     isEmpty: !summary && !body,
   };
 }

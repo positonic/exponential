@@ -5,8 +5,8 @@ import { db } from "~/server/db";
 import { runYouTubeSummarySweep } from "~/server/services/youtubeSummary/youtubeSummarySweep";
 
 /**
- * Cron endpoint: retries the summary for YouTube links saved to the Reading
- * list whose after-response summary didn't land. Bounded and idempotent —
+ * Cron endpoint: retries the article for YouTube links saved to the Reading
+ * list whose first attempt didn't land. Bounded and idempotent —
  * see `services/youtubeSummary/youtubeSummarySweep`.
  *
  * Call via: GET /api/cron/summarize-youtube-resources
@@ -15,8 +15,8 @@ import { runYouTubeSummarySweep } from "~/server/services/youtubeSummary/youtube
  * secret refuses to run rather than opening the route to anyone.
  */
 
-// Up to ten videos, each a transcript fetch plus a summary call.
-export const maxDuration = 300;
+// Only hands each video to its own job, so this stays short.
+export const maxDuration = 60;
 
 export async function GET(_request: NextRequest) {
   try {

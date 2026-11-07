@@ -11,7 +11,8 @@ import {
   canEditProject,
 } from "~/server/services/access";
 import { resolvePrincipal, type PrincipalContext } from "~/server/services/access/principal";
-import { enrichYouTubeResource } from "~/server/services/youtubeSummary/enrichYouTubeResource";
+import { triggerVideoArticle } from "~/server/services/youtubeSummary/triggerVideoArticle";
+import { isVideoArticle } from "~/lib/resources/reader";
 import { youtubeVideoId } from "~/utils/youtube";
 
 const contentTypeEnum = z.enum([
@@ -39,25 +40,25 @@ async function embedSafely(db: PrismaClient, resourceId: string, context: string
 /**
  * The slow work a save triggers, once the response has gone out, so the save
  * returns straight away: embedding a body the caller sent (a hung OpenAI call
- * would otherwise hold the save open), and giving a YouTube link its real
- * title, summary and captions. The cron sweep retries what enrichment misses.
+ * would otherwise hold the save open), and starting a YouTube link's article
+ * job. The cron sweep retries what that job misses.
  *
  * One `after()` callback on purpose: Next runs separate callbacks concurrently,
- * and enrichment re-embeds the same row once it has the transcript, so two
- * would race to replace its chunks. Needs a request scope (`after()` throws
+ * and the article job re-embeds the same row, so the body's embedding finishes
+ * before it starts. Needs a request scope (`after()` throws
  * outside one); every caller of this router — tRPC over HTTP, the Slack
  * webhook, server components — has one.
  */
 function processSaveAfterResponse(
   db: PrismaClient,
-  resource: { id: string; url: string | null; summary: string | null },
-  options: { embedBody: boolean; embedTranscript: boolean; context: string },
+  resource: { id: string; url: string | null; contentType: string; mimeType: string | null },
+  options: { embedBody: boolean; context: string },
 ): void {
-  const enrich = !resource.summary && youtubeVideoId(resource.url) !== null;
+  const enrich = !isVideoArticle(resource) && youtubeVideoId(resource.url) !== null;
   if (!options.embedBody && !enrich) return;
   after(async () => {
     if (options.embedBody) await embedSafely(db, resource.id, options.context);
-    if (enrich) await enrichYouTubeResource(db, resource.id, { embed: options.embedTranscript });
+    if (enrich) await triggerVideoArticle(resource.id);
   });
 }
 
@@ -316,6 +317,9 @@ export const resourceRouter = createTRPCRouter({
         : null;
 
       if (existing) {
+        // A video's article is the body. Saving its page again (the extension
+        // captures one) must not replace it with a scrape of the watch page.
+        const replacesBody = hasBody && !isVideoArticle(existing);
         const read = readTransition(
           resaveReadStatus(input.readStatus, existing.readStatus),
           existing.readStatus,
@@ -326,7 +330,7 @@ export const resourceRouter = createTRPCRouter({
           data: {
             archivedAt: null,
             ...read,
-            ...(hasBody && {
+            ...(replacesBody && {
               title: input.title,
               content,
               rawContent: input.rawContent,
@@ -347,8 +351,7 @@ export const resourceRouter = createTRPCRouter({
         });
 
         processSaveAfterResponse(ctx.db, resource, {
-          embedBody: input.generateEmbeddings && hasBody,
-          embedTranscript: input.generateEmbeddings,
+          embedBody: input.generateEmbeddings && replacesBody,
           context: "re-save",
         });
 
@@ -380,7 +383,6 @@ export const resourceRouter = createTRPCRouter({
 
       processSaveAfterResponse(ctx.db, resource, {
         embedBody: input.generateEmbeddings && hasBody,
-        embedTranscript: input.generateEmbeddings,
         context: "create",
       });
 
