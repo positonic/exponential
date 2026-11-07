@@ -92,22 +92,22 @@ vi.mock("~/server/services/KnowledgeService", () => ({
 // scope `after` throws, so queue the callbacks and let a test run them with
 // `flushAfter()` — which also proves the save returned first. Enrichment is
 // stubbed so no vendor is called.
-const { afterMock, afterQueue, enrichMock } = vi.hoisted(() => {
+const { afterMock, afterQueue, triggerArticleMock } = vi.hoisted(() => {
   const afterQueue: Array<() => unknown> = [];
   return {
     afterQueue,
     afterMock: vi.fn((cb: () => unknown) => {
       afterQueue.push(cb);
     }),
-    enrichMock: vi.fn(),
+    triggerArticleMock: vi.fn(),
   };
 });
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   after: (cb: () => unknown) => afterMock(cb),
 }));
-vi.mock("~/server/services/youtubeSummary/enrichYouTubeResource", () => ({
-  enrichYouTubeResource: enrichMock,
+vi.mock("~/server/services/youtubeSummary/triggerVideoArticle", () => ({
+  triggerVideoArticle: triggerArticleMock,
 }));
 async function flushAfter(): Promise<void> {
   for (const cb of afterQueue.splice(0)) await cb();
@@ -217,41 +217,76 @@ describe("resource router — reading list (mocked)", () => {
     afterQueue.length = 0;
     embedResourceMock.mockResolvedValue(3);
     afterMock.mockClear();
-    enrichMock.mockReset();
+    triggerArticleMock.mockReset();
     // No row for the URL unless a test says otherwise (dedupe, D-0027).
     dbMock.resource.findFirst.mockResolvedValue(null);
   });
 
   describe("create", () => {
-    it("summarises a saved YouTube link after the response, honouring the embed choice", async () => {
+    it("starts a saved YouTube link's article job after the response", async () => {
       const url = "https://youtu.be/dQw4w9WgXcQ";
-      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt1", url, summary: null }));
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt1", url }));
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       await caller.resource.create({ title: "youtu.be", url, contentType: "bookmark", generateEmbeddings: false });
 
       expect(afterMock).toHaveBeenCalledTimes(1);
+      expect(triggerArticleMock).not.toHaveBeenCalled();
       await flushAfter();
-      expect(enrichMock).toHaveBeenCalledWith(dbMock, "yt1", { embed: false });
+      expect(triggerArticleMock).toHaveBeenCalledWith("yt1");
     });
 
-    it("does not schedule a summary for other links, or for a video already summarised", async () => {
+    it("does not start a job for other links, or for a video that already has an article", async () => {
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       dbMock.resource.create.mockResolvedValue(fakeResource());
       await caller.resource.create({ title: "A link", url: "https://example.com/post", contentType: "bookmark" });
 
       const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-      const existing = fakeResource({ id: "yt2", url, summary: "### Overview\nDone." });
+      const existing = fakeResource({ id: "yt2", url, contentType: "video", mimeType: "text/markdown" });
       dbMock.resource.findFirst.mockResolvedValue(existing);
       dbMock.resource.update.mockResolvedValue(existing);
       await caller.resource.create({ title: "youtube.com", url, contentType: "bookmark" });
 
       expect(afterMock).not.toHaveBeenCalled();
-      expect(enrichMock).not.toHaveBeenCalled();
+      expect(triggerArticleMock).not.toHaveBeenCalled();
     });
 
-    it("embeds a YouTube save's body and enriches it in one callback, body first, so they can't race", async () => {
+    it("re-saving a video summarised the old way starts a job, to give it an article", async () => {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const existing = fakeResource({ id: "old", url, contentType: "video", summary: "### Overview\nOld." });
+      dbMock.resource.findFirst.mockResolvedValue(existing);
+      dbMock.resource.update.mockResolvedValue(existing);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "youtube.com", url, contentType: "bookmark" });
+      await flushAfter();
+
+      expect(triggerArticleMock).toHaveBeenCalledWith("old");
+    });
+
+    it("re-saving a video's page keeps its article rather than storing a scrape of the page", async () => {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const existing = fakeResource({ id: "yt3", url, contentType: "video", mimeType: "text/markdown" });
+      dbMock.resource.findFirst.mockResolvedValue(existing);
+      dbMock.resource.update.mockResolvedValue(existing);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({
+        title: "Some talk - YouTube",
+        url,
+        rawContent: "<p>Scraped watch page</p>",
+        contentType: "web_page",
+      });
+
+      const data = dbMock.resource.update.mock.calls[0]![0].data;
+      expect(data).not.toHaveProperty("content");
+      expect(data).not.toHaveProperty("rawContent");
+      expect(data).not.toHaveProperty("title");
+      expect(afterMock).not.toHaveBeenCalled();
+    });
+
+    it("embeds a YouTube save's body and starts its job in one callback, body first, so they can't race", async () => {
       const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
       dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt2", url }));
       const order: string[] = [];
@@ -259,18 +294,18 @@ describe("resource router — reading list (mocked)", () => {
         order.push("embed");
         return 3;
       });
-      enrichMock.mockImplementation(async () => {
+      triggerArticleMock.mockImplementation(async () => {
         order.push("enrich");
       });
       const caller = createMockCaller({ userId: callerId, db: dbMock });
 
       await caller.resource.create({ title: "A video", url, content: "pasted body", contentType: "bookmark" });
 
-      // Next runs separate after() callbacks concurrently; enrichment re-embeds this row.
+      // Next runs separate after() callbacks concurrently; the job re-embeds this row.
       expect(afterMock).toHaveBeenCalledTimes(1);
       await flushAfter();
       expect(order).toEqual(["embed", "enrich"]);
-      expect(enrichMock).toHaveBeenCalledWith(dbMock, "yt2", { embed: true });
+      expect(triggerArticleMock).toHaveBeenCalledWith("yt2");
     });
 
     it("saves a bare URL as to_read and never embeds it (indexing follows content)", async () => {

@@ -581,7 +581,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               </RowMain>
               <span className={styles.rowLabel}>
                 {isSummaryPending(resource)
-                  ? 'Summarizing…'
+                  ? 'Writing article…'
                   : isRead && resource.readAt
                     ? `Read ${shortDate(resource.readAt)}`
                     : host && host !== resource.title

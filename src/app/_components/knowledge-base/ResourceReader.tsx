@@ -15,6 +15,7 @@ import { api } from '~/trpc/react';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
 import {
   isSummaryPending,
+  isVideoArticle,
   knowledgeHref,
   readerContent,
   safeSourceUrl,
@@ -134,7 +135,7 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
     );
   }
 
-  const { summary, body, bodyFormat, bodyLabel, isEmpty } = readerContent(resource);
+  const { summary, body, bodyFormat, bodyLabel, transcript, isEmpty } = readerContent(resource);
   const sourceUrl = safeSourceUrl(resource.url);
   const sourceLabel = sourceLinkLabel(sourceUrl);
   const isRead = resource.readStatus === 'read';
@@ -144,7 +145,8 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
     host === resource.title ? null : host,
     resource.author,
     resource.publishedAt ? new Date(resource.publishedAt).toLocaleDateString() : null,
-    resource.contentType === 'video' ? null : readingTime(resource.wordCount),
+    // A transcript's length isn't a reading time; an article's is.
+    resource.contentType === 'video' && !isVideoArticle(resource) ? null : readingTime(resource.wordCount),
   ].filter(Boolean);
 
   return (
@@ -215,28 +217,38 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
           </section>
         )}
 
-        {body &&
-          (summary ? (
-            <details className={styles.fullText}>
-              <summary>{bodyLabel}</summary>
+        <div className={styles.articleBody}>
+          {body &&
+            (summary ? (
+              <details className={styles.fullText}>
+                <summary>{bodyLabel}</summary>
+                <MarkdownRenderer content={body} variant="prose" format={bodyFormat} />
+              </details>
+            ) : (
               <MarkdownRenderer content={body} variant="prose" format={bodyFormat} />
+            ))}
+
+          {transcript && (
+            <details className={styles.fullText}>
+              <summary>Transcript</summary>
+              {/* Captions, so never HTML; soft breaks keep each timed line apart. */}
+              <MarkdownRenderer content={transcript} variant="prose" format="markdown" softBreaks />
             </details>
-          ) : (
-            <MarkdownRenderer content={body} variant="prose" format={bodyFormat} />
-          ))}
+          )}
+        </div>
 
         {isEmpty &&
           (isSummaryPending(resource) ? (
             <Group gap="sm" className={styles.notice}>
               <Loader size="xs" />
-              <Text inherit>Summarizing this video…</Text>
+              <Text inherit>Writing the article. A long video can take a few minutes.</Text>
             </Group>
           ) : (
             <Text className={styles.notice}>
               {!sourceUrl
                 ? 'Nothing saved in this one but its title.'
                 : youtubeVideoId(resource.url)
-                  ? 'No summary for this video yet.'
+                  ? 'No article for this video yet.'
                   : 'Only the link was saved for this page.'}
             </Text>
           ))}
