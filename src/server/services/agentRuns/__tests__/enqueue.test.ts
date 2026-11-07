@@ -40,7 +40,7 @@ describe("enqueueAgentRunsForAssignees", () => {
   it("only an Assistant's principal gets a run — plain External agents keep picking actions up themselves", async () => {
     await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
     expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
-      where: { shadowUserId: { in: [SHADOW] }, assistant: { isNot: null } },
+      where: { shadowUserId: { in: [SHADOW] }, assistant: { is: { retiredAt: null } } },
     });
   });
 
@@ -135,7 +135,7 @@ describe("resumeWaitingRunsOnReply", () => {
       where: {
         actionId: ACTION,
         status: "WAITING_ON_OWNER",
-        agent: { assistant: { isNot: null } },
+        agent: { assistant: { is: { retiredAt: null } } },
         OR: [{ requestedById: "owner-1" }, { agent: { ownerId: "owner-1" } }],
       },
       select: { agentId: true },
@@ -189,3 +189,29 @@ describe("resumeWaitingRunsOnReply", () => {
   });
 });
 
+describe("a retired Assistant is never run-eligible (ADR-0072)", () => {
+  const db = mockDeep<PrismaClient>();
+
+  beforeEach(() => {
+    mockReset(db);
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+  });
+
+  it("assignment filters on a non-retired Assistant, not merely an Assistant", async () => {
+    await enqueueAgentRunsForAssignees(db, { actionId: "action-1", userIds: ["shadow-1"], requestedById: "human-1" });
+
+    const where = db.externalAgent.findMany.mock.calls[0]?.[0]?.where;
+    expect(where).toEqual({ shadowUserId: { in: ["shadow-1"] }, assistant: { is: { retiredAt: null } } });
+    expect(db.agentRun.create).not.toHaveBeenCalled();
+  });
+
+  it("a reply resumes only non-retired Assistants' waiting runs", async () => {
+    db.agentRun.findMany.mockResolvedValue([] as never);
+    await resumeWaitingRunsOnReply(db, { actionId: "action-1", authorId: "owner-1", commentId: "c-1" });
+
+    expect(db.agentRun.findMany.mock.calls[0]?.[0]?.where).toMatchObject({
+      agent: { assistant: { is: { retiredAt: null } } },
+    });
+    expect(db.agentRun.create).not.toHaveBeenCalled();
+  });
+});

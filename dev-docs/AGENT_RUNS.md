@@ -15,7 +15,7 @@ How an **Assistant** becomes an assignee, what happens when an Action is assigne
 | Asks for help | In the chat | `ask-owner` comment mentioning whoever assigned the Action (the owner when nobody did); the run pauses, and that person's or the owner's reply resumes it | Comments and @mentions by convention |
 | Visible progress | Chat stream | Title spinner, "Working 1m · called N tools" pill, owner-only transcript, Delegated inbox tab | Comments and status changes |
 
-**The gate that keeps these apart:** `enqueueAgentRunsForAssignees` only creates a run for a principal whose External agent has an `assistant` (`assistant: { isNot: null }`). Assigning a plain External agent starts **no** hosted run, so a self-driving bot is never double-worked by the dispatcher. V2 widens hosted-run eligibility to agents whose `executor` is `LOCAL_CLI`, where the owner's own runner claims the run instead of polling actions.
+**The gate that keeps these apart:** `enqueueAgentRunsForAssignees` only creates a run for a principal whose External agent has a **non-retired** `assistant` (`RUN_ELIGIBLE_AGENT_WHERE` = `assistant: { is: { retiredAt: null } }`, ADR-0072 — retirement keeps the Assistant row, so `isNot: null` alone would leave a retired Assistant eligible; the reply-resume uses the same filter). Assigning a plain External agent starts **no** hosted run, so a self-driving bot is never double-worked by the dispatcher. V2 widens hosted-run eligibility to agents whose `executor` is `LOCAL_CLI`, where the owner's own runner claims the run instead of polling actions.
 
 ## Data model
 

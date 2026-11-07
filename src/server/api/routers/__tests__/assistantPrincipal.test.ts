@@ -254,24 +254,36 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     ]);
   });
 
-  it("deleting the Assistant deletes its principal: keys, memberships, agent, shadow user", async () => {
-    dbMock.externalAgent.findUnique.mockResolvedValue({
-      id: AGENT_ID,
-      shadowUserId: SHADOW_USER_ID,
-      shadowUser: { image: null },
+  it("deleting the Assistant retires it: keys and memberships go, the principal stays (ADR-0072)", async () => {
+    dbMock.assistant.findUniqueOrThrow.mockResolvedValue({
+      id: owned.id,
+      createdById: OWNER_ID,
+      retiredAt: null,
+      externalAgent: { id: AGENT_ID, shadowUserId: SHADOW_USER_ID },
     } as never);
-    dbMock.user.delete.mockResolvedValue({} as never);
+    dbMock.externalAgentKey.deleteMany.mockResolvedValue({ count: 0 });
+    dbMock.workspaceUser.findMany.mockResolvedValue([] as never);
+    dbMock.workspaceUser.deleteMany.mockResolvedValue({ count: 1 });
+    dbMock.actionAssignee.findMany.mockResolvedValue([] as never);
+    dbMock.actionAssignee.deleteMany.mockResolvedValue({ count: 0 });
+    dbMock.agentRun.findMany.mockResolvedValue([] as never);
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
     await caller.assistant.delete({ id: owned.id });
 
+    expect(dbMock.assistant.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: owned.id },
+        data: expect.objectContaining({ retiredAt: expect.any(Date) as Date }),
+      }),
+    );
     expect(dbMock.externalAgentKey.deleteMany).toHaveBeenCalledWith({ where: { agentId: AGENT_ID } });
     expect(dbMock.workspaceUser.deleteMany).toHaveBeenCalledWith({
       where: { userId: SHADOW_USER_ID },
     });
-    expect(dbMock.externalAgent.delete).toHaveBeenCalledWith({ where: { id: AGENT_ID } });
-    expect(dbMock.user.delete).toHaveBeenCalledWith({ where: { id: SHADOW_USER_ID } });
-    // The Assistant row goes with the agent (FK cascade) — no direct delete.
+    // Its runs cascade from the External agent, so neither it nor the shadow user is deleted.
+    expect(dbMock.externalAgent.delete).not.toHaveBeenCalled();
+    expect(dbMock.user.delete).not.toHaveBeenCalled();
     expect(dbMock.assistant.delete).not.toHaveBeenCalled();
   });
 });

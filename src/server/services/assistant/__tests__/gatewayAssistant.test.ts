@@ -53,7 +53,7 @@ describe("findGatewayAssistant", () => {
     await expect(findGatewayAssistant(db, USER_ID)).resolves.toBeNull();
   });
 
-  it("only considers the caller's default assistants in workspaces they can still access, newest first", async () => {
+  it("only considers the caller's non-retired default assistants in workspaces they can still access, newest first", async () => {
     db.user.findUnique.mockResolvedValue(null as never);
     db.assistant.findMany.mockResolvedValue([] as never);
 
@@ -64,6 +64,7 @@ describe("findGatewayAssistant", () => {
         where: {
           createdById: USER_ID,
           isDefault: true,
+          retiredAt: null,
           workspace: buildWorkspaceAccessWhere(USER_ID),
         },
         orderBy: { updatedAt: "desc" },

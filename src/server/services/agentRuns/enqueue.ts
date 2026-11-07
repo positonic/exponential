@@ -1,5 +1,5 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { LIVE_RUN_STATUSES, NO_RUN_KANBAN_STATES } from "./constants";
+import { LIVE_RUN_STATUSES, NO_RUN_KANBAN_STATES, RUN_ELIGIBLE_AGENT_WHERE } from "./constants";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -23,13 +23,13 @@ export async function enqueueAgentRunsForAssignees(
 ): Promise<Array<{ id: string; agentId: string; executor: "MASTRA" | "LOCAL_CLI" }>> {
   if (input.userIds.length === 0) return [];
 
-  // V1: only an Assistant's principal gets a hosted run. A plain External
+  // V1: only a (non-retired) Assistant's principal gets a hosted run. A plain External
   // agent (Hermes-class software, a Grok Bot, …) keeps today's contract — it
   // sees the assignment notification and picks the action up itself — so the
   // dispatcher never does the same work in parallel with it. V2's local
   // runner widens this to `executor = LOCAL_CLI` agents that claim runs.
   const agents = await db.externalAgent.findMany({
-    where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
+    where: { shadowUserId: { in: input.userIds }, ...RUN_ELIGIBLE_AGENT_WHERE },
     select: { id: true, executor: true },
   });
   if (agents.length === 0) return [];
@@ -145,7 +145,7 @@ export async function resumeWaitingRunsOnReply(
     where: {
       actionId: input.actionId,
       status: "WAITING_ON_OWNER",
-      agent: { assistant: { isNot: null } },
+      agent: RUN_ELIGIBLE_AGENT_WHERE,
       OR: [{ requestedById: input.authorId }, { agent: { ownerId: input.authorId } }],
     },
     select: { agentId: true },
