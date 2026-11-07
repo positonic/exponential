@@ -494,6 +494,24 @@ describe("enrichYouTubeResource", () => {
     });
   });
 
+  it("clears a scraped watch page when only Gemini could write the article, so it isn't offered as the transcript", async () => {
+    db.resource.findUnique.mockResolvedValue({
+      ...savedLink,
+      content: "Scraped page as Markdown",
+      contentType: "web_page",
+    } as never);
+    const fetch = fakeFetch({
+      [OEMBED]: json({}),
+      [METADATA]: metadataMissing,
+      [SUPADATA]: json({ error: "transcript-unavailable" }, 404),
+      [GEMINI]: geminiOk,
+    });
+
+    await enrichYouTubeResource(db, "r1", { deps: deps({ fetch }) });
+
+    expect(db.resource.updateMany.mock.calls[0]![0].data).toMatchObject({ content: LINKED, rawContent: null });
+  });
+
   it("keeps a title the person typed", async () => {
     db.resource.findUnique.mockResolvedValue({ ...savedLink, title: "For Monday" } as never);
     const fetch = fakeFetch({

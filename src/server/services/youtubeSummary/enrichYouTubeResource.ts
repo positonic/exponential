@@ -117,6 +117,8 @@ export async function enrichYouTubeResource(
 
     // Gemini returns no transcript. A video summarised the old way has its
     // transcript in `content`, which the article is about to replace, so move it.
+    // Anything else in `rawContent` is a scrape of the watch page, which the
+    // reader would otherwise offer as the transcript, so it's cleared.
     const transcript = result.transcript ?? (resource.contentType === "video" ? resource.content : null);
 
     const { count } = await db.resource.updateMany({
@@ -130,7 +132,7 @@ export async function enrichYouTubeResource(
         contentType: "video",
         wordCount: wordCount(result.article),
         fetchedAt: new Date(),
-        ...(transcript && { rawContent: transcript }),
+        rawContent: transcript,
       },
     });
     if (count === 0) return { status: "skipped", reason: "already_written" };
