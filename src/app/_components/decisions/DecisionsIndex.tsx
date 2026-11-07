@@ -28,6 +28,7 @@ import { LogDecisionModal } from "./LogDecisionModal";
 import { DecisionPeekDrawer, DecisionPeekProvider, usePeekLink } from "./DecisionPeek";
 import { adrStatusBadge, decisionStatusBadge, type PeekPreview } from "./DetailPreview";
 import {
+  agentDecisionAuthor,
   decisionToLogRow,
   filterLogRows,
   groupLogRows,
@@ -259,7 +260,7 @@ function DecisionLogRow({
     meta.push(
       <span className="dec-meta__source">
         <IconPencil size={11} stroke={1.75} />
-        {decision.source === "AGENT" ? "Logged by Zoe" : "Logged by hand"}
+        {`Logged by ${agentDecisionAuthor(decision) ?? "hand"}`}
       </span>,
     );
   }

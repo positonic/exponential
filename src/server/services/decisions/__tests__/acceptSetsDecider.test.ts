@@ -23,6 +23,7 @@ import { confirmDraft, setStatus } from "../decisionService";
 
 const WORKSPACE_ID = "ws-1";
 const PERSON = { id: "u-1", name: "James", email: "James@Example.test", isAgent: false };
+const HUMAN = { kind: "human", userId: PERSON.id, surface: "web" } as const;
 const AGENT_DECIDER = { id: "decider-agent", userId: "agent-1", user: { isAgent: true } };
 const HUMAN_DECIDER = { id: "decider-human", userId: "u-2", user: { isAgent: false } };
 /** An external meeting participant: a person with no account. */
@@ -98,8 +99,8 @@ describe("accepting sets the decider", () => {
   });
 
   describe("setStatus", () => {
-    const accept = (extra: { actorIsAgent?: boolean } = {}) =>
-      setStatus(db, { decisionId: ROW.id, workspaceId: WORKSPACE_ID, userId: PERSON.id, status: "ACCEPTED", ...extra });
+    const accept = () =>
+      setStatus(db, { decisionId: ROW.id, workspaceId: WORKSPACE_ID, userId: PERSON.id, principal: HUMAN, status: "ACCEPTED" });
 
     it("a person accepting a decision with no deciders becomes its sole decider, in the same write", async () => {
       withRow({ deciders: [] });
@@ -135,18 +136,13 @@ describe("accepting sets the decider", () => {
       expect(updateData()).not.toHaveProperty("deciders");
     });
 
-    it("an agent principal accepting never becomes the decider", async () => {
+    it("a shadow user is never seated as the decider, even if a caller passes it as a person", async () => {
+      // Agent principals are refused outright (recordIntegrity.test.ts); this
+      // is the user-row check behind that.
       db.user.findUnique.mockResolvedValue({ ...PERSON, isAgent: true } as never);
       withRow({ deciders: [] });
       await accept();
       expect(updateData()).not.toHaveProperty("deciders");
-
-      // An agent-key caller is known to be an agent before any lookup.
-      clearWrites();
-      db.user.findUnique.mockClear();
-      await accept({ actorIsAgent: true });
-      expect(updateData()).not.toHaveProperty("deciders");
-      expect(db.user.findUnique).not.toHaveBeenCalled();
     });
 
     it("other transitions leave the deciders alone", async () => {
@@ -155,6 +151,7 @@ describe("accepting sets the decider", () => {
         decisionId: ROW.id,
         workspaceId: WORKSPACE_ID,
         userId: PERSON.id,
+        principal: HUMAN,
         status: "DEPRECATED",
       });
       expect(updateData()).not.toHaveProperty("deciders");
@@ -164,7 +161,7 @@ describe("accepting sets the decider", () => {
 
   describe("confirmDraft", () => {
     const confirm = (status?: "OPEN" | "PROPOSED" | "ACCEPTED" | "SUPERSEDED" | "DEPRECATED") =>
-      confirmDraft(db, { decisionId: ROW.id, workspaceId: WORKSPACE_ID, userId: PERSON.id, status });
+      confirmDraft(db, { decisionId: ROW.id, workspaceId: WORKSPACE_ID, userId: PERSON.id, principal: HUMAN, status });
 
     it("confirms and accepts in ONE transaction, claims the decider, and records both events", async () => {
       withRow({ reviewState: "DRAFT", status: "PROPOSED", deciders: [] });
