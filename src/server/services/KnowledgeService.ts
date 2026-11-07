@@ -338,17 +338,16 @@ export class KnowledgeService {
   }
 
   /**
-   * Split text into sentences
+   * Split text into sentences. Text after the last punctuation mark (a list
+   * item, a code block) is a sentence too, or it would never reach the index.
+   * Closing marks stay with their sentence, so `**Bold.** Next` splits cleanly.
    */
   splitIntoSentences(text: string): string[] {
     // Split on sentence boundaries while preserving the delimiter
-    const sentences = text.match(/[^.!?]+[.!?]+[\s]*/g) ?? [text];
+    const sentences = text.match(/[^.!?]+(?:[.!?]+[*_)\]"'”’]*\s*|$)/g) ?? [text];
     return sentences.map((s) => s.trim()).filter((s) => s.length > 0);
   }
 
-  /**
-   * Chunk text into ~500 token segments with sentence boundary awareness
-   */
   /** Chunk each section on its own, repeating its context on every chunk. */
   chunkSections(
     sections: EmbeddingSection[],
@@ -374,6 +373,9 @@ export class KnowledgeService {
     return chunks;
   }
 
+  /**
+   * Chunk text into ~500 token segments with sentence boundary awareness
+   */
   chunkText(
     text: string,
     maxTokens: number = DEFAULT_CHUNK_SIZE,

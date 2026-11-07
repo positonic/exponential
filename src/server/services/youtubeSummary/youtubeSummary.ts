@@ -380,7 +380,10 @@ export async function writeArticle(
 }
 
 interface GeminiResponse {
-  candidates?: Array<{ content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
+  candidates?: Array<{
+    finishReason?: string;
+    content?: { parts?: Array<{ text?: unknown; thought?: unknown }> };
+  }>;
   error?: { message?: string };
 }
 
@@ -424,6 +427,11 @@ export async function writeArticleWithGemini(
   const body = (await res.json().catch(() => ({}))) as GeminiResponse;
   if (!res.ok) {
     throw new VideoSourceError("gemini", `${res.status} ${body.error?.message ?? ""}`.trim());
+  }
+  // A cut-off article would read as a whole one, and be final once saved.
+  const finishReason = body.candidates?.[0]?.finishReason;
+  if (finishReason && finishReason !== "STOP") {
+    throw new VideoSourceError("gemini", `stopped early: ${finishReason}`);
   }
   const article = (body.candidates?.[0]?.content?.parts ?? [])
     .filter((part) => part.thought !== true && typeof part.text === "string")

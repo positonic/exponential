@@ -162,8 +162,38 @@ function meetingFindMany(db: unknown): ReturnType<typeof vi.fn> {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+describe("KnowledgeService — splitIntoSentences", () => {
+  const split = (text: string) => new KnowledgeService({} as never).splitIntoSentences(text);
+
+  it("keeps text after the last punctuation mark", () => {
+    expect(split("A sentence.\n\n- Redis")).toEqual(["A sentence.", "- Redis"]);
+    expect(split("One. Two! ```\ncode\n```")).toEqual(["One.", "Two!", "```\ncode\n```"]);
+  });
+
+  it("keeps closing marks with their sentence", () => {
+    expect(split("**Bold lead.** The rest. *Italic.* \"Quoted.\" End")).toEqual([
+      "**Bold lead.**",
+      "The rest.",
+      "*Italic.*",
+      "\"Quoted.\"",
+      "End",
+    ]);
+  });
+
+  it("still handles text with no punctuation at all", () => {
+    expect(split("no punctuation here")).toEqual(["no punctuation here"]);
+    expect(split("")).toEqual([""].filter(Boolean));
+  });
+});
+
 describe("KnowledgeService — chunkSections", () => {
   const svc = () => new KnowledgeService({} as never);
+
+  it("indexes a section's unpunctuated ending", () => {
+    const chunks = svc().chunkSections([{ context: "T › S", text: "A sentence.\n\n- Redis" }]);
+
+    expect(chunks.map((c) => c.text).join(" ")).toContain("- Redis");
+  });
 
   it("repeats a section's context on every chunk and numbers chunks across sections", () => {
     const long = "A sentence about contracts that goes on for a while. ".repeat(80);

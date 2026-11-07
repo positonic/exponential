@@ -282,6 +282,28 @@ describe("writeVideoArticle", () => {
     expect(body.contents[0]!.parts[1]!.text).toContain("With Dan Barrett.");
   });
 
+  it.each(["MAX_TOKENS", "SAFETY"])("never saves a Gemini article that stopped early with %s", async (finishReason) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetch = fakeFetch({
+      [METADATA]: metadataMissing,
+      [GEMINI]: json({ candidates: [{ finishReason, content: { parts: [{ text: ARTICLE }] } }] }),
+    });
+
+    expect(await writeVideoArticle(WATCH, "A talk", deps({ fetch, anthropic: null }), deadline())).toBeNull();
+    warn.mockRestore();
+  });
+
+  it("accepts a Gemini article that finished normally", async () => {
+    const fetch = fakeFetch({
+      [METADATA]: metadataMissing,
+      [GEMINI]: json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: ARTICLE }] } }] }),
+    });
+
+    const out = await writeVideoArticle(WATCH, "A talk", deps({ fetch, anthropic: null }), deadline());
+
+    expect(out?.source).toBe("gemini");
+  });
+
   it("falls back to Gemini when Supadata errors (blocked, out of credit)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const fetch = fakeFetch({
