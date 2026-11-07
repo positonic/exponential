@@ -31,9 +31,9 @@ const docsRedirects = JSON.parse(
  * `script-src 'unsafe-inline'` is required by Next.js's inline bootstrap
  * scripts until a nonce strategy is adopted; 'unsafe-eval' is dev-only
  * (eval sourcemaps). Origins listed: Google Analytics (@next/third-parties),
- * the OpenAI realtime voice session, and Loom embeds. Sentry and Vercel
- * Analytics both go through same-origin paths (/monitoring tunnel,
- * /_vercel/insights), so 'self' covers them.
+ * the OpenAI realtime voice session, and Loom embeds. Sentry, Vercel
+ * Analytics and PostHog all go through same-origin paths (/monitoring tunnel,
+ * /_vercel/insights, /ingest rewrites), so 'self' covers them.
  */
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -83,6 +83,11 @@ const CSP_ENFORCED =
 
 /** @type {import("next").NextConfig} */
 const config = {
+  // PostHog's ingestion endpoints use trailing slashes (`/e/`, `/flags/`);
+  // Next's default redirect would bounce every event through a 308. The
+  // redirect is restored for page paths in src/middleware.ts — it is
+  // load-bearing for auth there (see src/lib/trailingSlash.ts).
+  skipTrailingSlashRedirect: true,
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
   experimental: {
@@ -111,6 +116,20 @@ const config = {
         destination: "/features/team-weekly-review",
         permanent: true,
       },
+    ];
+  },
+
+  /**
+   * Same-origin proxy for PostHog (src/lib/analytics/posthogBrowser.ts), so ad
+   * blockers don't drop events and the CSP needs no PostHog origins. EU cloud,
+   * matching the server-side client's default host. Excluded from the auth
+   * middleware alongside /monitoring.
+   */
+  async rewrites() {
+    return [
+      { source: "/ingest/static/:path*", destination: "https://eu-assets.i.posthog.com/static/:path*" },
+      { source: "/ingest/array/:path*", destination: "https://eu-assets.i.posthog.com/array/:path*" },
+      { source: "/ingest/:path*", destination: "https://eu.i.posthog.com/:path*" },
     ];
   },
 
