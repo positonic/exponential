@@ -15,7 +15,7 @@ vi.mock("../postAgendaToMatrix", () => ({ postAgendaToMatrix }));
 const reportHandledErrorServer = vi.hoisted(() => vi.fn());
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
 
-import { circulateAgenda, sweepDueAgendas } from "../circulateAgenda";
+import { agendaChangedSinceSent, circulateAgenda, sweepDueAgendas } from "../circulateAgenda";
 
 const now = new Date("2026-09-10T08:00:00Z");
 const occ = {
@@ -53,6 +53,23 @@ describe("circulateAgenda", () => {
       db,
       expect.objectContaining({ entityType: "ceremony_occurrence", entityId: "occ-1", action: "agenda_circulated", userId: null }),
     );
+  });
+
+  it("records how many people the send reached on the agenda snapshot", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => Promise<unknown>) => fn(db)) as never);
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occ as never)
+      .mockResolvedValueOnce({ agenda: { version: 1, generatedAt: "x", sections: [] } } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    emitNotification.mockResolvedValueOnce(["u-owner", "u-1", "u-2"] as never);
+
+    await circulateAgenda(db, "occ-1", { actorUserId: "u-3", now });
+
+    expect(db.ceremonyOccurrence.update).toHaveBeenLastCalledWith({
+      where: { id: "occ-1" },
+      data: { agenda: { version: 1, generatedAt: "x", sections: [], sentRecipientCount: 3 } },
+    });
   });
 
   it("is a no-op without an agenda, or when already circulated unless forced", async () => {
@@ -175,5 +192,24 @@ describe("sweepDueAgendas", () => {
     expect(generateAgenda).toHaveBeenCalledWith(db, "booked-early", { now });
     expect(res.generated).toBe(1);
     expect(res.circulated).toBe(1);
+  });
+});
+
+describe("agendaChangedSinceSent", () => {
+  it("is true only when the agenda was regenerated after it was sent", () => {
+    const sent = new Date("2026-11-10T12:25:00Z");
+    expect(agendaChangedSinceSent(new Date("2026-11-10T12:49:00Z"), sent)).toBe(true);
+    // The sweep stamps both with one `now`.
+    expect(agendaChangedSinceSent(sent, sent)).toBe(false);
+    expect(agendaChangedSinceSent(new Date("2026-11-10T12:00:00Z"), sent)).toBe(false);
+    expect(agendaChangedSinceSent(new Date("2026-11-10T12:49:00Z"), null)).toBe(false);
+    expect(agendaChangedSinceSent(null, sent)).toBe(false);
+  });
+
+  it("is true when an item was added by hand after the send", () => {
+    const sent = new Date("2026-11-10T12:25:00Z");
+    expect(agendaChangedSinceSent(sent, sent, "2026-11-10T13:00:00Z")).toBe(true);
+    expect(agendaChangedSinceSent(sent, sent, "2026-11-10T12:00:00Z")).toBe(false);
+    expect(agendaChangedSinceSent(sent, null, "2026-11-10T13:00:00Z")).toBe(false);
   });
 });

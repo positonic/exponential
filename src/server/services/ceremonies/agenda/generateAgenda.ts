@@ -6,15 +6,15 @@
  */
 import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { buildAgenda, type SectionRunResult } from "./buildAgenda";
-import { getSectionModule } from "./sections";
+import { buildAgenda } from "./buildAgenda";
+import { runAgendaSections } from "./runSections";
 import { readAgendaSnapshot, readAgendaTemplate, type AgendaSnapshot, type SectionContext } from "./types";
 import { narrateAgenda, type NarrateOptions } from "./narrateAgenda";
 import { withAgendaTransaction } from "./items";
 import { dropEmptyAutoSections, withAutoProjectsSection } from "./autoSections";
 import { formatOccurrenceLabel } from "../activity";
 import { resolveParticipantUserIds } from "../participants";
-import { ensureSeededOccurrenceNotesPage } from "../notesSeed";
+import { ensureEmptyOccurrenceNotesPage } from "../notesSeed";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 export interface GenerateAgendaResult {
@@ -71,16 +71,7 @@ export async function generateAgenda(
   // The template, plus the linked-projects section the ceremony carries
   // without listing it (`includeProjects`, on by default).
   const template = withAutoProjectsSection(readAgendaTemplate(ceremony.agendaTemplate), ceremony.includeProjects);
-  const results: SectionRunResult[] = [];
-  for (const section of template) {
-    const mod = getSectionModule(section.type);
-    if (!mod) {
-      results.push({ section, items: [], emptyReason: `No query for "${section.type}" yet` });
-      continue;
-    }
-    const items = await mod.run(ctx, section);
-    results.push({ section, items, emptyReason: items.length === 0 ? "Nothing to raise" : null });
-  }
+  const results = await runAgendaSections(ctx, template);
 
   // The snapshot we read at the top of this function is stale by now: the
   // section queries above took a while, and someone may have resolved or
@@ -129,17 +120,15 @@ export async function generateAgenda(
   }
 
   // The notes canvas (a Knowledge Page, ADR-0033) exists from the first
-  // generation on, seeded with the section headings and the pre-read — which
-  // is why it runs after narration. A page anyone has written in is never
-  // touched again. Its failure must not undo the agenda that is already
-  // durable above, so it is reported rather than thrown; the next generation
-  // retries.
+  // generation on, created empty: the agenda above it is the only copy of the
+  // agenda. Its failure must not undo the agenda that is already durable
+  // above, so it is reported rather than thrown; the next generation retries.
   try {
-    await ensureSeededOccurrenceNotesPage(db, occurrence, ceremony, agenda);
+    await ensureEmptyOccurrenceNotesPage(db, occurrence, ceremony);
   } catch (error) {
-    console.error("[ceremonies] ensureSeededOccurrenceNotesPage failed; the agenda is stored without a notes page:", error);
+    console.error("[ceremonies] ensureEmptyOccurrenceNotesPage failed; the agenda is stored without a notes page:", error);
     reportHandledErrorServer(error, {
-      area: "ceremonies.ensureSeededOccurrenceNotesPage",
+      area: "ceremonies.ensureEmptyOccurrenceNotesPage",
       context: { occurrenceId: occurrence.id },
     });
   }

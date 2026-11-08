@@ -134,6 +134,8 @@ describe("addAgendaItem / reorderAgendaItems", () => {
     const items = added.sections[0]!.items;
     expect(items).toHaveLength(3);
     expect(items[2]).toMatchObject({ sectionKey: "blk", title: "Talk about hiring", refType: "text", addedByUserId: "u-1", order: 2 });
+    // A hand edit is recorded so a send before it reads as "changed since".
+    expect(added.editedAt).toBe(now.toISOString());
     await expect(addAgendaItem(db, "occ-1", { sectionKey: "nope", title: "x", userId: "u-1" })).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: added } as never);
