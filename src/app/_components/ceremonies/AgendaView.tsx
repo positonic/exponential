@@ -8,6 +8,7 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { AgendaItem, AgendaItemLive, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 import { linkAgendaRefs, type AgendaRefLinkContext } from "./linkAgendaRefs";
 import { formatDecisionLabel } from "~/lib/decision-label";
+import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
 
 /**
  * Whether resolving the item means anything: an action gets done, an open
@@ -62,6 +63,12 @@ interface AgendaViewProps {
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
   /** Where D-numbers and ticket numbers in hand-added items link to. */
   refLinks?: AgendaRefLinkContext;
+  /**
+   * When given, an open or proposed decision item offers Decide: the
+   * Decision Log's status menu, inline. `onChanged` runs after the status
+   * lands (the page resolves the item on ACCEPTED and refreshes).
+   */
+  decide?: { workspaceId: string; onChanged: (itemId: string, status: string) => void };
 }
 
 /**
@@ -72,7 +79,7 @@ interface AgendaViewProps {
  * so its title and detail are Markdown (ADR-0017): a `[link](url)` becomes a
  * link, and a bare `D-0150` or `#1339` links to its record (`refLinks`).
  */
-export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, refLinks }: AgendaViewProps) {
+export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, refLinks, decide }: AgendaViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const prose = (text: string) => (refLinks ? linkAgendaRefs(text, refLinks) : text);
   const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
@@ -162,6 +169,21 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                         </Group>
                       );
                     })()}
+                    {decide && item.live?.kind === "decision" && OPEN_DECISION.has(item.live.status) && (
+                      <div className="mt-1" data-testid={`agenda-item-decide-${item.id}`}>
+                        <DecisionStatusMenu
+                          workspaceId={decide.workspaceId}
+                          decision={{
+                            id: item.refId,
+                            label: formatDecisionLabel(item.live.number),
+                            status: item.live.status as "OPEN" | "PROPOSED",
+                          }}
+                          targetLabel="Decide"
+                          size="compact-xs"
+                          onChanged={(status) => decide.onChanged(item.id, status)}
+                        />
+                      </div>
+                    )}
                     {/* Query decision items already carry "D-0003 · open question" in their detail. */}
                     {item.live?.kind === "decision" && item.addedByUserId && (
                       <Group gap={6} mt={2} data-testid={`agenda-item-live-${item.id}`}>

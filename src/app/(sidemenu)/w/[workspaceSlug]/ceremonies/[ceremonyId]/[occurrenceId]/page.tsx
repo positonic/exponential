@@ -384,6 +384,14 @@ export default function OccurrencePage() {
             onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
             onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
             refLinks={{ workspaceSlug: workspace.slug, productSlug: occurrence.ceremony.product?.slug ?? null }}
+            decide={{
+              workspaceId,
+              // Accepting the Decision resolves its line; any other move just refreshes the live status.
+              onChanged: (itemId, status) =>
+                status === "ACCEPTED"
+                  ? resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved: true })
+                  : void invalidate(),
+            }}
           />
         ) : (
           <Paper withBorder radius="md" p="lg">

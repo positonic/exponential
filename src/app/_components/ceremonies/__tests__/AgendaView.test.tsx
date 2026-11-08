@@ -5,8 +5,17 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "~/test/test-utils";
+import { render, screen, fireEvent } from "~/test/test-utils";
 import "@testing-library/jest-dom/vitest";
+
+// The real menu talks to tRPC; here it is a button that reports a decision.
+vi.mock("~/app/_components/decisions/DecisionStatusMenu", () => ({
+  DecisionStatusMenu: (props: { targetLabel?: string; onChanged?: (status: string) => void }) => (
+    <button type="button" onClick={() => props.onChanged?.("ACCEPTED")}>
+      {props.targetLabel}
+    </button>
+  ),
+}));
 
 import { AgendaView, actionLiveState, isResolvableItem } from "../AgendaView";
 import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
@@ -144,6 +153,32 @@ describe("AgendaView decision items", () => {
     expect(screen.getByTestId("agenda-item-live-dec")).toHaveTextContent("D-0150");
     expect(screen.getByTestId("agenda-item-state-dec")).toHaveTextContent("open question");
     expect(screen.getByTestId("agenda-item-resolve-dec")).not.toBeChecked();
+  });
+});
+
+describe("AgendaView inline Decide", () => {
+  const withDecisions = (status: string): AgendaSnapshot => ({
+    ...agenda,
+    sections: [
+      {
+        key: "dec",
+        type: "decisions_pending",
+        title: "Decisions pending",
+        items: [item("d", { refType: "decision", detail: "D-0150 · open question", live: { kind: "decision", status, number: 150 } })],
+      },
+    ],
+  });
+
+  it("offers Decide on an open decision and reports the new status", () => {
+    const onChanged = vi.fn();
+    render(<AgendaView agenda={withDecisions("OPEN")} decide={{ workspaceId: "ws-1", onChanged }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Decide" }));
+    expect(onChanged).toHaveBeenCalledWith("d", "ACCEPTED");
+  });
+
+  it("offers no Decide once the decision is accepted", () => {
+    render(<AgendaView agenda={withDecisions("ACCEPTED")} decide={{ workspaceId: "ws-1", onChanged: vi.fn() }} />);
+    expect(screen.queryByTestId("agenda-item-decide-d")).not.toBeInTheDocument();
   });
 });
 
