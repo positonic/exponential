@@ -110,3 +110,40 @@ describe("buildAgenda", () => {
     expect(next.sections[0]!.items[0]!.resolvedAt).toBe("2026-09-09T18:00:00Z");
   });
 });
+
+describe("carried-over dedupe", () => {
+  const tpl: AgendaTemplateSection[] = [
+    { key: "carry", type: "carried_over", title: "Carried over" },
+    { key: "dec", type: "decisions_pending", title: "Decisions pending" },
+  ];
+
+  it("drops a stored carried copy of a record another section produced this run, but keeps hand items", () => {
+    const previous: AgendaSnapshot = {
+      version: 1,
+      generatedAt: "x",
+      sections: [
+        {
+          key: "carry",
+          type: "carried_over",
+          title: "Carried over",
+          items: [
+            item("carry:carried:decision:d-150", "carry", { refType: "decision", refId: "d-150", carriedFromOccurrenceId: "occ-0", carryCount: 3 }),
+            item("carry:carried:action:a-1", "carry", { refType: "action", refId: "a-1", carriedFromOccurrenceId: "occ-0" }),
+            item("carry:hand:1", "carry", { refType: "text", refId: "carry:hand:1", addedByUserId: "u-1" }),
+          ],
+        },
+      ],
+    };
+    const snap = buildAgenda(
+      tpl,
+      [
+        { section: tpl[0]!, items: [] },
+        { section: tpl[1]!, items: [item("dec:decision:d-150", "dec", { refType: "decision", refId: "d-150" })] },
+      ],
+      previous,
+      now,
+    );
+    const ids = snap.sections.flatMap((s) => s.items.map((i) => i.id));
+    expect(ids).toEqual(["carry:carried:action:a-1", "carry:hand:1", "dec:decision:d-150"]);
+  });
+});

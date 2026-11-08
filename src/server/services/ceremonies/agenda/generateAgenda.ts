@@ -6,8 +6,8 @@
  */
 import { TRPCError } from "@trpc/server";
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { buildAgenda, type SectionRunResult } from "./buildAgenda";
-import { getSectionModule } from "./sections";
+import { buildAgenda } from "./buildAgenda";
+import { runAgendaSections } from "./runSections";
 import { readAgendaSnapshot, readAgendaTemplate, type AgendaSnapshot, type SectionContext } from "./types";
 import { narrateAgenda, type NarrateOptions } from "./narrateAgenda";
 import { withAgendaTransaction } from "./items";
@@ -71,16 +71,7 @@ export async function generateAgenda(
   // The template, plus the linked-projects section the ceremony carries
   // without listing it (`includeProjects`, on by default).
   const template = withAutoProjectsSection(readAgendaTemplate(ceremony.agendaTemplate), ceremony.includeProjects);
-  const results: SectionRunResult[] = [];
-  for (const section of template) {
-    const mod = getSectionModule(section.type);
-    if (!mod) {
-      results.push({ section, items: [], emptyReason: `No query for "${section.type}" yet` });
-      continue;
-    }
-    const items = await mod.run(ctx, section);
-    results.push({ section, items, emptyReason: items.length === 0 ? "Nothing to raise" : null });
-  }
+  const results = await runAgendaSections(ctx, template);
 
   // The snapshot we read at the top of this function is stale by now: the
   // section queries above took a while, and someone may have resolved or

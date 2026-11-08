@@ -2,9 +2,11 @@
  * `carried_over`: every unresolved item from the previous occurrence's
  * agenda, copied with `carriedFromOccurrenceId` so a reader sees how long
  * a topic has been parked. Items already re-derived by their own section
- * this time (same record id) are left to that section.
+ * this time (same record id) are left to that section: the runner calls this
+ * module last with `producedRefIds`, so D-0150 shows once under "Decisions
+ * pending" rather than twice with two different carry counts.
  */
-import { readAgendaSnapshot, type AgendaItem, type SectionModule } from "../types";
+import { agendaRefKey, readAgendaSnapshot, type AgendaItem, type SectionModule } from "../types";
 
 export const carriedOverSection: SectionModule = {
   type: "carried_over",
@@ -21,6 +23,7 @@ export const carriedOverSection: SectionModule = {
     for (const prevSection of previous.sections) {
       for (const item of prevSection.items) {
         if (item.resolvedAt) continue;
+        if (ctx.producedRefIds?.has(agendaRefKey(item))) continue;
         const id = `${section.key}:carried:${item.refType}:${item.refId}`;
         const candidate: AgendaItem = {
           ...item,

@@ -135,6 +135,21 @@ export interface SectionContext {
    * a fixture so no unit test reaches an external provider.
    */
   readCalendar?: CalendarReader;
+  /**
+   * `<refType>:<refId>` of every record the other sections of this agenda
+   * produced in the current run. Only set for the modules that run last
+   * (`carried_over`), so they can leave a record to the section that
+   * re-derived it instead of listing it twice.
+   */
+  producedRefIds?: ReadonlySet<string>;
+}
+
+/** Section types that must see what the rest of the agenda produced, so they run last. */
+export const RUN_LAST_SECTION_TYPES: ReadonlySet<string> = new Set(["carried_over"]);
+
+/** The key `producedRefIds` holds for an item: one per underlying record. */
+export function agendaRefKey(item: Pick<AgendaItem, "refType" | "refId">): string {
+  return `${item.refType}:${item.refId}`;
 }
 
 export interface SectionModule {

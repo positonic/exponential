@@ -132,4 +132,25 @@ describe("carried_over section", () => {
     const db = mockDeep<PrismaClient>();
     expect(await carriedOverSection.run(ctx(db), { key: "c", type: "carried_over", title: "C" })).toEqual([]);
   });
+  it("skips a record another section of this agenda produced (producedRefIds)", async () => {
+    const db = mockDeep<PrismaClient>();
+    const previous = {
+      id: "occ-0",
+      agenda: {
+        version: 1,
+        generatedAt: "x",
+        sections: [
+          { key: "dec", type: "decisions_pending", title: "Decisions pending", items: [
+            { id: "dec:decision:d-150", sectionKey: "dec", title: "D-0150", refType: "decision", refId: "d-150", order: 0, carryCount: 3 },
+            { id: "dec:decision:d-151", sectionKey: "dec", title: "D-0151", refType: "decision", refId: "d-151", order: 1 },
+          ] },
+        ],
+      },
+    } as unknown as CeremonyOccurrence;
+    const items = await carriedOverSection.run(
+      ctx(db, { previousOccurrence: previous, producedRefIds: new Set(["decision:d-150"]) }),
+      { key: "carry", type: "carried_over", title: "Carried over" },
+    );
+    expect(items.map((i) => i.refId)).toEqual(["d-151"]);
+  });
 });

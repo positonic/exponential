@@ -4,7 +4,7 @@
  * (resolved, reorder) carried over from the previous snapshot of the same
  * occurrence so regeneration never loses a person's edits.
  */
-import type { AgendaItem, AgendaSection, AgendaSnapshot, AgendaTemplateSection } from "./types";
+import { agendaRefKey, RUN_LAST_SECTION_TYPES, type AgendaItem, type AgendaSection, type AgendaSnapshot, type AgendaTemplateSection } from "./types";
 
 export interface SectionRunResult {
   section: AgendaTemplateSection;
@@ -21,6 +21,13 @@ export function buildAgenda(
 ): AgendaSnapshot {
   const byKey = new Map(results.map((r) => [r.section.key, r]));
   const prevSections = new Map((previous?.sections ?? []).map((s) => [s.key, s]));
+  // Records the other sections produced this run. A carried copy of one of
+  // them (left in the stored snapshot by an earlier generation, or seeded by
+  // `carryOverToNext`) is dropped from the carried-over section, so a record
+  // is never listed twice on one agenda.
+  const produced = new Set(
+    results.filter((r) => !RUN_LAST_SECTION_TYPES.has(r.section.type)).flatMap((r) => r.items.map(agendaRefKey)),
+  );
 
   const sections: AgendaSection[] = template.map((tpl) => {
     const run = byKey.get(tpl.key);
@@ -43,8 +50,12 @@ export function buildAgenda(
 
     // Hand-added and carried items are not re-derivable from a query, so they
     // ride along unchanged until someone resolves or removes them.
+    const dedupe = RUN_LAST_SECTION_TYPES.has(tpl.type);
     const kept: AgendaItem[] = (prev?.items ?? []).filter(
-      (i) => !freshIds.has(i.id) && (i.addedByUserId || i.carriedFromOccurrenceId),
+      (i) =>
+        !freshIds.has(i.id) &&
+        (i.addedByUserId || i.carriedFromOccurrenceId) &&
+        !(dedupe && !i.addedByUserId && produced.has(agendaRefKey(i))),
     );
 
     const items = [...fresh, ...kept]
