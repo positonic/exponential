@@ -381,7 +381,24 @@ export default function OccurrencePage() {
             onToggleResolved={(itemId, resolved) =>
               resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved })
             }
-            onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
+            workspaceId={workspaceId}
+            onAddItem={(sectionKey, input) =>
+              addItem.mutate(
+                input.kind === "decision"
+                  ? { workspaceId, occurrenceId: occurrence.id, sectionKey, kind: "decision", decisionId: input.decisionId }
+                  : input.kind === "action"
+                    ? {
+                        workspaceId,
+                        occurrenceId: occurrence.id,
+                        sectionKey,
+                        kind: "action",
+                        title: input.title,
+                        assigneeId: input.assigneeId,
+                        dueDate: input.dueDate,
+                      }
+                    : { workspaceId, occurrenceId: occurrence.id, sectionKey, kind: "note", title: input.title },
+              )
+            }
             onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
             refLinks={{ workspaceSlug: workspace.slug, productSlug: occurrence.ceremony.product?.slug ?? null }}
             decide={{

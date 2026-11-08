@@ -17,6 +17,8 @@ vi.mock("~/app/_components/decisions/DecisionStatusMenu", () => ({
   ),
 }));
 
+vi.mock("../AgendaAddItem", () => ({ AgendaAddItem: () => <div data-testid="add-box" /> }));
+
 import { AgendaView, actionLiveState, isResolvableItem } from "../AgendaView";
 import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 

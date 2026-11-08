@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { ActionIcon, Avatar, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from "@mantine/core";
-import { IconArrowDown, IconArrowUp, IconPlus } from "@tabler/icons-react";
+import { ActionIcon, Avatar, Badge, Checkbox, Group, Paper, Stack, Text } from "@mantine/core";
+import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { AgendaItem, AgendaItemLive, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 import { linkAgendaRefs, type AgendaRefLinkContext } from "./linkAgendaRefs";
 import { formatDecisionLabel } from "~/lib/decision-label";
 import { DecisionStatusMenu } from "~/app/_components/decisions/DecisionStatusMenu";
+import { AgendaAddItem, type AgendaAddInput } from "./AgendaAddItem";
 
 /**
  * Whether resolving the item means anything: an action gets done, an open
@@ -57,8 +57,10 @@ interface AgendaViewProps {
   goalsHref?: string;
   /** When given, items of a resolvable kind (see `isResolvableItem`) get a resolve checkbox. */
   onToggleResolved?: (itemId: string, resolved: boolean) => void;
-  /** When given, each section gets an "add item" input. */
-  onAddItem?: (sectionKey: string, title: string) => void;
+  /** When given (with `workspaceId`), each section gets the add box: Note, Action or Decision. */
+  onAddItem?: (sectionKey: string, input: AgendaAddInput) => void;
+  /** The workspace the add box's owner picker and decision search look in. */
+  workspaceId?: string;
   /** When given, items get move up/down controls, shown on hover or focus. */
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
   /** Where D-numbers and ticket numbers in hand-added items link to. */
@@ -79,8 +81,7 @@ interface AgendaViewProps {
  * so its title and detail are Markdown (ADR-0017): a `[link](url)` becomes a
  * link, and a bare `D-0150` or `#1339` links to its record (`refLinks`).
  */
-export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, refLinks, decide }: AgendaViewProps) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, refLinks, decide, workspaceId }: AgendaViewProps) {
   const prose = (text: string) => (refLinks ? linkAgendaRefs(text, refLinks) : text);
   const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
     const next = ids.slice();
@@ -249,36 +250,7 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
               ))}
             </Stack>
           )}
-          {onAddItem && (
-            <Group gap="xs" mt={8} wrap="nowrap">
-              <TextInput
-                size="xs"
-                placeholder="Add an item by hand (Markdown links work)"
-                value={drafts[section.key] ?? ""}
-                onChange={(e) => setDrafts({ ...drafts, [section.key]: e.currentTarget.value })}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (drafts[section.key] ?? "").trim()) {
-                    onAddItem(section.key, drafts[section.key]!.trim());
-                    setDrafts({ ...drafts, [section.key]: "" });
-                  }
-                }}
-                style={{ flex: 1 }}
-                data-testid={`agenda-add-${section.key}`}
-              />
-              <Button
-                size="xs"
-                variant="subtle"
-                leftSection={<IconPlus size={12} />}
-                disabled={!(drafts[section.key] ?? "").trim()}
-                onClick={() => {
-                  onAddItem(section.key, drafts[section.key]!.trim());
-                  setDrafts({ ...drafts, [section.key]: "" });
-                }}
-              >
-                Add
-              </Button>
-            </Group>
-          )}
+          {onAddItem && workspaceId && <AgendaAddItem sectionKey={section.key} workspaceId={workspaceId} onAdd={onAddItem} />}
         </Paper>
       ))}
     </Stack>
