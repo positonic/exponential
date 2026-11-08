@@ -17,7 +17,7 @@ import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoA
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import { agendaChangedSinceSent, circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
-import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
+import { addAgendaItem, reorderAgendaItems, resolveAgendaItem } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix, removeAgendaFromMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony, canManageCeremonyAs } from "~/server/services/ceremonies/access";
 import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
@@ -876,7 +876,8 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      const agenda = await setAgendaItemResolved(ctx.db, occurrence.id, input.itemId, input.resolved);
+      // An Action-backed item completes (or reopens) the Action itself.
+      const agenda = await resolveAgendaItem(ctx.db, occurrence.id, input.itemId, input.resolved, actionWriteDeps(ctx).actor);
       return { occurrenceId: occurrence.id, agenda };
     }),
 

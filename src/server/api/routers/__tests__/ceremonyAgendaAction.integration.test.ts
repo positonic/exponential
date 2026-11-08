@@ -80,6 +80,26 @@ describe("ceremony agenda action items", () => {
     expect(read.agenda?.sections[0]!.items[0]!.live).toMatchObject({ kind: "action", status: "COMPLETED" });
   });
 
+  it("ticking the item completes the Action; unticking reopens it", async () => {
+    const { owner, zineb, ws, occurrence } = await setup();
+    const caller = createTestCaller(owner.id);
+    const added = await caller.ceremony.addAgendaItem({
+      workspaceId: ws.id,
+      occurrenceId: occurrence.id,
+      sectionKey: "actions",
+      kind: "action",
+      title: "Send the deck",
+      assigneeId: zineb.id,
+    });
+    const item = added.agenda.sections[0]!.items[0]!;
+
+    await caller.ceremony.resolveAgendaItem({ workspaceId: ws.id, occurrenceId: occurrence.id, itemId: item.id, resolved: true });
+    expect(await db.action.findUniqueOrThrow({ where: { id: item.refId } })).toMatchObject({ status: "COMPLETED" });
+
+    await caller.ceremony.resolveAgendaItem({ workspaceId: ws.id, occurrenceId: occurrence.id, itemId: item.id, resolved: false });
+    expect(await db.action.findUniqueOrThrow({ where: { id: item.refId } })).toMatchObject({ status: "ACTIVE" });
+  });
+
   it("keeps the old title-and-detail call working as a note", async () => {
     const { owner, ws, occurrence } = await setup();
     const caller = createTestCaller(owner.id);

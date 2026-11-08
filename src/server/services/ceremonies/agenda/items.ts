@@ -68,6 +68,34 @@ export async function setAgendaItemResolved(
   });
 }
 
+/**
+ * Tick or untick an agenda item (V9). On an item that references an Action
+ * the Action itself is completed or reopened, through the Action write
+ * module and its edit gate, so the agenda and the owner's list never
+ * disagree; then the item's own `resolvedAt` follows. Other items only flip
+ * `resolvedAt`.
+ */
+export async function resolveAgendaItem(
+  db: PrismaClient,
+  occurrenceId: string,
+  itemId: string,
+  resolved: boolean,
+  actor: ActionActor,
+  now = new Date(),
+): Promise<AgendaSnapshot> {
+  const occurrence = await db.ceremonyOccurrence.findUnique({ where: { id: occurrenceId }, select: { agenda: true } });
+  const agenda = occurrence ? readAgendaSnapshot(occurrence.agenda) : null;
+  if (!agenda) throw new TRPCError({ code: "NOT_FOUND", message: "This occurrence has no agenda yet" });
+  const item = agenda.sections.flatMap((s) => s.items).find((i) => i.id === itemId);
+  if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Agenda item not found" });
+  if (item.refType === "action") {
+    // Lazy for the same reason as createAction in addAgendaItem.
+    const { applyActionUpdate } = await import("~/server/services/actions/applyActionUpdate");
+    await applyActionUpdate({ db, actor }, item.refId, { status: resolved ? "COMPLETED" : "ACTIVE" });
+  }
+  return setAgendaItemResolved(db, occurrenceId, itemId, resolved, now);
+}
+
 export interface AddAgendaItemInput {
   sectionKey: string;
   title: string;
