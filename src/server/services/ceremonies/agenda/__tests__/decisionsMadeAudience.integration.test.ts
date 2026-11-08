@@ -76,6 +76,7 @@ describe("decisions_made audience", () => {
     await action("Open project work", { projectId: open.id });
     await action("Restricted project work", { projectId: restricted.id });
     await action("Added on last week's agenda", { occurrenceId: previous.id });
+    await action("Added on last week's agenda, restricted project", { occurrenceId: previous.id, projectId: restricted.id });
 
     const items = await occurrenceActionsSection.run(
       {

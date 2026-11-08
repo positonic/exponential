@@ -23,9 +23,17 @@ export const occurrenceActionsSection: SectionModule = {
   async run(ctx, section) {
     const previous = ctx.previousOccurrence;
     if (!previous) return [];
-    // The occurrence's own action points were posted to the shared agenda
-    // by whoever added them, so listing them again exposes nothing new.
-    const branches: Prisma.ActionWhereInput[] = [{ occurrenceId: previous.id }];
+    // The occurrence's own action points were posted to the shared agenda by
+    // whoever added them. A project-less one stays listed (its author put it
+    // in front of everyone); one in a restricted project does not, because
+    // this line adds its owner and due date, which the agenda showed only to
+    // people who can read the project.
+    const branches: Prisma.ActionWhereInput[] = [
+      {
+        occurrenceId: previous.id,
+        OR: [{ projectId: null }, buildWorkspaceAudienceActionWhere(ctx.workspaceId)],
+      },
+    ];
     if (ctx.projectIds.length && ctx.participantUserIds.length) {
       branches.push({
         // The snapshot is read by every workspace member: only Actions the
