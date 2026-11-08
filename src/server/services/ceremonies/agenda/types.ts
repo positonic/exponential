@@ -198,6 +198,8 @@ export function agendaRefKey(item: Pick<AgendaItem, "refType" | "refId">): strin
 
 export interface SectionModule {
   type: string;
+  /** Why the section is empty when the query finds nothing; "Nothing to raise" when unset. */
+  emptyReason?: string;
   run(ctx: SectionContext, section: AgendaTemplateSection): Promise<AgendaItem[]>;
 }
 

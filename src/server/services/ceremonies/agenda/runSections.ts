@@ -19,7 +19,7 @@ export async function runAgendaSections(ctx: SectionContext, template: AgendaTem
       return;
     }
     const items = await mod.run(sectionCtx, section);
-    byKey.set(section.key, { section, items, emptyReason: items.length === 0 ? "Nothing to raise" : null });
+    byKey.set(section.key, { section, items, emptyReason: items.length === 0 ? (mod.emptyReason ?? "Nothing to raise") : null });
     if (!RUN_LAST_SECTION_TYPES.has(section.type)) for (const item of items) produced.add(agendaRefKey(item));
   };
 

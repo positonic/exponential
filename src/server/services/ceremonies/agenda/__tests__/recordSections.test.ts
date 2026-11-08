@@ -1,0 +1,65 @@
+import { describe, expect, it } from "vitest";
+import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client";
+import { mockDeep } from "vitest-mock-extended";
+import { occurrenceActionsSection } from "../sections/occurrence_actions";
+import type { SectionContext } from "../types";
+
+const now = new Date("2026-11-17T10:00:00Z");
+const prevStart = new Date("2026-11-10T10:00:00Z");
+const previous = { id: "occ-0", scheduledStart: prevStart, agenda: null } as unknown as CeremonyOccurrence;
+
+function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): SectionContext {
+  return {
+    db,
+    workspaceId: "ws-1",
+    ceremony: { id: "cer-1", workspaceId: "ws-1", productId: null } as Ceremony,
+    occurrence: { id: "occ-1", scheduledStart: now } as CeremonyOccurrence,
+    previousOccurrence: previous,
+    participantUserIds: ["u-1", "u-2"],
+    projectIds: [],
+    now,
+    workspacePath: "/w/clear",
+    ...overrides,
+  };
+}
+
+describe("occurrence_actions", () => {
+  it("lists the previous occurrence's Actions with owner, due date and status, resolved from completedAt", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([
+      { id: "a-1", name: "Respond to stakeholders", status: "COMPLETED", dueDate: new Date("2026-11-14T00:00:00Z"), completedAt: new Date("2026-11-13T09:00:00Z"), project: null, assignees: [{ user: { name: "Zineb" } }] },
+      { id: "a-2", name: "Send the deck", status: "ACTIVE", dueDate: new Date("2026-11-12T00:00:00Z"), completedAt: null, project: null, assignees: [] },
+      { id: "a-3", name: "Draft the memo", status: "ACTIVE", dueDate: null, completedAt: null, project: null, assignees: [{ user: { name: "Andi" } }] },
+    ] as never);
+
+    const items = await occurrenceActionsSection.run(ctx(db), { key: "status", type: "occurrence_actions", title: "Status on action points" });
+
+    const where = db.action.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({ workspaceId: "ws-1", status: { notIn: ["DRAFT", "DELETED"] } });
+    // No project: only the occurrence's own actions, never participants' personal ones.
+    expect(where.OR).toEqual([{ occurrenceId: "occ-0" }]);
+    expect(items.map((i) => [i.id, i.detail, i.resolvedAt])).toEqual([
+      ["status:action:a-1", "Zineb · due 14 Nov · done", "2026-11-13T09:00:00.000Z"],
+      ["status:action:a-2", "unassigned · due 12 Nov · overdue", null],
+      ["status:action:a-3", "Andi · open", null],
+    ]);
+    expect(items[0]).toMatchObject({ refType: "action", refId: "a-1", href: "/w/clear/actions/a-1" });
+  });
+
+  it("inside the ceremony's projects, also lists participants' actions due since the previous occurrence", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([] as never);
+    await occurrenceActionsSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "status", type: "occurrence_actions", title: "S" });
+    expect(db.action.findMany.mock.calls[0]![0]!.where!.OR).toEqual([
+      { occurrenceId: "occ-0" },
+      { projectId: { in: ["prj-1"] }, assignees: { some: { userId: { in: ["u-1", "u-2"] } } }, dueDate: { gte: prevStart } },
+    ]);
+  });
+
+  it("is empty with its own reason when there is no previous occurrence", async () => {
+    const db = mockDeep<PrismaClient>();
+    expect(await occurrenceActionsSection.run(ctx(db, { previousOccurrence: null }), { key: "s", type: "occurrence_actions", title: "S" })).toEqual([]);
+    expect(db.action.findMany).not.toHaveBeenCalled();
+    expect(occurrenceActionsSection.emptyReason).toBe("No action points from the last occurrence.");
+  });
+});

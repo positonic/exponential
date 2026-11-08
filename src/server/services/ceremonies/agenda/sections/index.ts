@@ -22,6 +22,7 @@ import { completedTodaySection } from "./completed_today";
 import { activityTodaySection } from "./activity_today";
 import { timeTodaySection } from "./time_today";
 import { tomorrowSection } from "./tomorrow";
+import { occurrenceActionsSection } from "./occurrence_actions";
 
 const MODULES: SectionModule[] = [
   okrReviewSection,
@@ -32,6 +33,8 @@ const MODULES: SectionModule[] = [
   freeTextSection,
   decisionsPendingSection,
   projectStateSection,
+  // Record-backed sections (V10): last time's action points.
+  occurrenceActionsSection,
   // Daily brief (the ceremony a person holds with themselves each morning)
   yesterdaySection,
   todaysMeetingsSection,
