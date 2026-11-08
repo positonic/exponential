@@ -17,7 +17,7 @@ import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoA
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
 import { agendaChangedSinceSent, circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
-import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
+import { addAgendaItem, reorderAgendaItems, resolveAgendaItem } from "~/server/services/ceremonies/agenda/items";
 import { postAgendaToMatrix, removeAgendaFromMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
 import { canManageCeremony, canManageCeremonyAs } from "~/server/services/ceremonies/access";
 import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
@@ -32,7 +32,10 @@ import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { AGENDA_ITEM_KINDS, readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { parseDecisionLabel } from "~/lib/decision-label";
+import { enrichAgendaLive } from "~/server/services/ceremonies/agenda/live";
+import { actionWriteDeps } from "~/server/services/actions/types";
 import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
 import { ONE_OFF_SECTION_TYPES } from "~/server/services/ceremonies/oneOffPresets";
 import { findCeremonyForMeetingUrl } from "~/server/services/ceremonies/matchMeetingUrl";
@@ -601,7 +604,11 @@ export const ceremonyRouter = createTRPCRouter({
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
-      const agenda = readAgendaSnapshot(occurrence.agenda);
+      const stored = readAgendaSnapshot(occurrence.agenda);
+      // Live owner, due date and status for items that reference records.
+      const agenda = stored
+        ? await enrichAgendaLive(ctx.db, stored, { workspaceId: input.workspaceId, userId })
+        : null;
       const { scheduledMeeting } = occurrence;
       return {
         ...occurrence,
@@ -870,13 +877,50 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      const agenda = await setAgendaItemResolved(ctx.db, occurrence.id, input.itemId, input.resolved);
+      // An Action-backed item completes (or reopens) the Action itself.
+      const agenda = await resolveAgendaItem(ctx.db, occurrence.id, input.itemId, input.resolved, actionWriteDeps(ctx).actor);
       return { occurrenceId: occurrence.id, agenda };
     }),
 
-  /** Add an item by hand to a section; kept across regeneration. */
+  /**
+   * Add an item by hand to a section; kept across regeneration (V9). `kind`
+   * says what it is: a note (the default, so a caller that sends only a title
+   * and detail keeps working), or an action, which creates a real Action
+   * owned by `assigneeId` and due `dueDate`, linked to this occurrence.
+   */
   addAgendaItem: protectedProcedure
-    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), title: z.string().trim().min(1).max(300), detail: z.string().max(500).nullish() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        sectionKey: z.string(),
+        // Optional only for a decision item, which defaults to the Decision's statement.
+        title: z.string().trim().max(300).optional(),
+        detail: z.string().max(5000).nullish(),
+        kind: z.enum(AGENDA_ITEM_KINDS).optional(),
+        assigneeId: z.string().nullish(),
+        // Coerced: agents post over plain JSON, where a date arrives as a string.
+        dueDate: z.coerce.date().nullish(),
+        decisionId: z.string().nullish(),
+        // The number behind D-0150; a "D-0150" label is accepted too.
+        decisionNumber: z
+          .union([z.number().int().positive(), z.string().trim()])
+          .nullish()
+          .transform((v, zctx) => {
+            if (v === null || v === undefined || typeof v === "number") return v;
+            const n = parseDecisionLabel(v) ?? (/^\d+$/.test(v) ? Number(v) : null);
+            if (n === null) {
+              zctx.addIssue({ code: z.ZodIssueCode.custom, message: "Not a decision number" });
+              return z.NEVER;
+            }
+            return n;
+          }),
+      }).superRefine((v, zctx) => {
+        if (v.kind !== "decision" && !v.title) {
+          zctx.addIssue({ code: z.ZodIssueCode.custom, path: ["title"], message: "Title is required" });
+        }
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
@@ -884,7 +928,18 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      const agenda = await addAgendaItem(ctx.db, occurrence.id, { sectionKey: input.sectionKey, title: input.title, detail: input.detail, userId: ctx.session.user.id });
+      const agenda = await addAgendaItem(ctx.db, occurrence.id, {
+        sectionKey: input.sectionKey,
+        title: input.title ?? "",
+        detail: input.detail,
+        userId: ctx.session.user.id,
+        kind: input.kind,
+        assigneeId: input.assigneeId,
+        dueDate: input.dueDate,
+        decisionId: input.decisionId,
+        decisionNumber: input.decisionNumber,
+        actor: actionWriteDeps(ctx).actor,
+      });
       return { occurrenceId: occurrence.id, agenda };
     }),
 

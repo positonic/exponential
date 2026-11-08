@@ -1169,6 +1169,11 @@ model Action {
   lastUpdatedBy     String? // 'AGENT' | 'USER_EMAIL' | 'USER_WHATSAPP' | 'USER_UI'
   lastUpdatedSource String?
 
+  /// The ceremony occurrence this action was created from as an agenda item
+  /// (ADR-0059, V9). Mirrors `Decision.occurrenceId`; read by the
+  /// `occurrence_actions` agenda section.
+  occurrenceId      String?
+
   createdBy            User                        @relation(fields: [createdById], references: [id])
   project              Project?                    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   team                 Team?                       @relation(fields: [teamId], references: [id])
@@ -1177,6 +1182,7 @@ model Action {
   schedule             TaskSchedule?               @relation(fields: [scheduleId], references: [id])
   epic                 Epic?                       @relation(fields: [epicId], references: [id], onDelete: SetNull)
   ticket               Ticket?                     @relation("TicketActions", fields: [ticketId], references: [id], onDelete: SetNull)
+  occurrence           CeremonyOccurrence?         @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
   recurringParent      RecurringTask?              @relation("RecurringInstances", fields: [recurringParentId], references: [id])
   parentChunk          Action?                     @relation("ActionChunks", fields: [parentChunkId], references: [id], onDelete: SetNull)
   childChunks          Action[]                    @relation("ActionChunks")
@@ -1230,6 +1236,7 @@ model Action {
   @@index([isBounty])
   @@index([bountyStatus])
   @@index([sourceType, sourceId])
+  @@index([occurrenceId])
 }
 
 /// "`action` is blocked by `dependsOn`" — the Action analogue of
@@ -2804,6 +2811,8 @@ model CeremonyOccurrence {
   recordedMeetings   TranscriptionSession[]
   /// Decisions logged as outputs of this occurrence (ADR-0060).
   decisions          Decision[]
+  /// Actions created from this occurrence's agenda (V9).
+  actions            Action[]
   /// Per-participant async updates (V3).
   updates            CeremonyOccurrenceUpdate[]
 

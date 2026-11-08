@@ -63,7 +63,38 @@ export interface AgendaItem {
   lines?: Array<AgendaItemLine | string> | null;
   /** App-relative link to the record, when it has a page. */
   href?: string | null;
+  /**
+   * The referenced record's current state, attached by `getOccurrence` at
+   * read time (`enrichAgendaLive`). A view, never written to the snapshot, so
+   * an Action completed elsewhere shows as done on the next read without a
+   * regeneration.
+   */
+  live?: AgendaItemLive | null;
 }
+
+export interface AgendaLivePerson {
+  id: string;
+  name: string | null;
+  image: string | null;
+}
+
+export type AgendaItemLive =
+  | {
+      kind: "action";
+      status: string;
+      completedAt: string | null;
+      dueDate: string | null;
+      assignees: AgendaLivePerson[];
+    }
+  | {
+      kind: "decision";
+      status: string;
+      number: number;
+    };
+
+/** What an agenda item added by hand is (V9): a record, or a note. */
+export const AGENDA_ITEM_KINDS = ["note", "action", "decision"] as const;
+export type AgendaItemKind = (typeof AGENDA_ITEM_KINDS)[number];
 
 export interface AgendaSection {
   key: string;

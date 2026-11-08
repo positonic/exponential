@@ -841,6 +841,69 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("addAgendaItem kinds", () => {
+    it("accepts a D-label for a decision item and requires a title for the other kinds", async () => {
+      withWorkspaceRole(db, "member");
+      db.$transaction.mockImplementation(((fn: (tx: typeof db) => Promise<unknown>) => fn(db)) as never);
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-1" } as never);
+      db.ceremonyOccurrence.findUnique
+        .mockResolvedValueOnce({ workspaceId: WORKSPACE_ID, ceremony: { workspace: { slug: "ws" } } } as never)
+        .mockResolvedValueOnce({ agenda: { version: 1, generatedAt: "x", sections: [{ key: "dec", type: "free_text", title: "D", items: [] }] } } as never);
+      db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+      db.decision.findFirst.mockResolvedValue({ id: "d-150", statement: "Ship CSV export?" } as never);
+
+      const res = await caller(db).ceremony.addAgendaItem({
+        workspaceId: WORKSPACE_ID,
+        occurrenceId: "occ-1",
+        sectionKey: "dec",
+        kind: "decision",
+        decisionNumber: "D-0150",
+      });
+
+      expect(db.decision.findFirst.mock.calls[0]![0]!.where).toMatchObject({ number: 150 });
+      expect(res.agenda.sections[0]!.items[0]).toMatchObject({ refType: "decision", refId: "d-150" });
+
+      await expect(
+        caller(db).ceremony.addAgendaItem({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1", sectionKey: "dec", kind: "note" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+  });
+
+  describe("getOccurrence live record state", () => {
+    it("returns an action item with its Action's current owner, due date and status", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({
+        id: "occ-1",
+        status: "PLANNED",
+        agenda: {
+          version: 1,
+          generatedAt: "x",
+          sections: [
+            {
+              key: "s",
+              type: "free_text",
+              title: "S",
+              items: [{ id: "s:hand:1", sectionKey: "s", title: "Respond", refType: "action", refId: "act-1", order: 0, addedByUserId: USER_ID }],
+            },
+          ],
+        },
+        agendaGeneratedAt: null,
+        agendaCirculatedAt: null,
+        ceremony: { id: "cer-1", name: "PP", kind: "CUSTOM", ownerId: USER_ID, isOneOff: false, purpose: null },
+        recordedMeetings: [],
+        scheduledMeeting: null,
+      } as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({ status: "PLANNED", agenda: null, ceremony: { kind: "CUSTOM" } } as never);
+      db.action.findMany.mockResolvedValue([
+        { id: "act-1", status: "COMPLETED", completedAt: new Date("2026-11-09T10:00:00Z"), dueDate: null, assignees: [{ user: { id: "u-z", name: "Zineb", image: null } }] },
+      ] as never);
+
+      const res = await caller(db).ceremony.getOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      expect(res.agenda?.sections[0]!.items[0]!.live).toMatchObject({ kind: "action", status: "COMPLETED", assignees: [{ name: "Zineb" }] });
+    });
+  });
+
   describe("getOccurrence on a one-off", () => {
     it("returns isOneOff, the purpose and the booking with attendee names only", async () => {
       withWorkspaceRole(db, "member");

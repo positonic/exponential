@@ -5,10 +5,21 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "~/test/test-utils";
+import { render, screen, fireEvent } from "~/test/test-utils";
 import "@testing-library/jest-dom/vitest";
 
-import { AgendaView, isResolvableItem } from "../AgendaView";
+// The real menu talks to tRPC; here it is a button that reports a decision.
+vi.mock("~/app/_components/decisions/DecisionStatusMenu", () => ({
+  DecisionStatusMenu: (props: { targetLabel?: string; onChanged?: (status: string) => void }) => (
+    <button type="button" onClick={() => props.onChanged?.("ACCEPTED")}>
+      {props.targetLabel}
+    </button>
+  ),
+}));
+
+vi.mock("../AgendaAddItem", () => ({ AgendaAddItem: () => <div data-testid="add-box" /> }));
+
+import { AgendaView, actionLiveState, isItemResolved, isResolvableItem } from "../AgendaView";
 import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 const item = (id: string, extra: Partial<AgendaItem>): AgendaItem => ({
@@ -48,6 +59,8 @@ describe("isResolvableItem", () => {
     expect(isResolvableItem({ refType: "decision" })).toBe(true);
     expect(isResolvableItem({ refType: "text", addedByUserId: "u-1" })).toBe(true);
     expect(isResolvableItem({ refType: "text" })).toBe(false);
+    expect(isResolvableItem({ refType: "decision", live: { kind: "decision", status: "PROPOSED", number: 1 } })).toBe(true);
+    expect(isResolvableItem({ refType: "decision", live: { kind: "decision", status: "ACCEPTED", number: 1 } })).toBe(false);
     for (const refType of ["cycle", "project", "key_result", "goal", "meeting", "ticket"] as const) {
       expect(isResolvableItem({ refType })).toBe(false);
     }
@@ -98,5 +111,97 @@ describe("AgendaView", () => {
     expect(screen.getByRole("link", { name: "#1339" })).toHaveAttribute("href", "/w/clear/products/clear-app/tickets/1339");
     expect(screen.getByRole("link", { name: "D-0150" })).toHaveAttribute("href", "/w/clear/decisions/d/D-0150");
     expect(screen.getByTestId("agenda-item-detail-q")).toHaveTextContent("due 8 Nov · *Andi*");
+  });
+
+  it("shows an Action-backed item's owner, due date and live status, ticked when the Action is done", () => {
+    const live: AgendaSnapshot = {
+      ...agenda,
+      sections: [
+        {
+          key: "s",
+          type: "free_text",
+          title: "Actions",
+          items: [
+            item("act", {
+              refType: "action",
+              addedByUserId: "u-1",
+              live: { kind: "action", status: "COMPLETED", completedAt: "2026-11-09T10:00:00Z", dueDate: "2026-11-14T00:00:00Z", assignees: [{ id: "u-z", name: "Zineb", image: null }] },
+            }),
+          ],
+        },
+      ],
+    };
+    render(<AgendaView agenda={live} onToggleResolved={vi.fn()} />);
+    expect(screen.getByTestId("agenda-item-live-act")).toHaveTextContent("Zineb · due 14 Nov");
+    expect(screen.getByTestId("agenda-item-state-act")).toHaveTextContent("done");
+    expect(screen.getByTestId("agenda-item-resolve-act")).toBeChecked();
+  });
+});
+
+describe("AgendaView decision items", () => {
+  it("shows a linked Decision's D-number and live status on a hand item", () => {
+    const withDecision: AgendaSnapshot = {
+      ...agenda,
+      sections: [
+        {
+          key: "s",
+          type: "free_text",
+          title: "Decisions",
+          items: [item("dec", { refType: "decision", addedByUserId: "u-1", live: { kind: "decision", status: "OPEN", number: 150 } })],
+        },
+      ],
+    };
+    render(<AgendaView agenda={withDecision} onToggleResolved={vi.fn()} />);
+    expect(screen.getByTestId("agenda-item-live-dec")).toHaveTextContent("D-0150");
+    expect(screen.getByTestId("agenda-item-state-dec")).toHaveTextContent("open question");
+    expect(screen.getByTestId("agenda-item-resolve-dec")).not.toBeChecked();
+  });
+});
+
+describe("AgendaView inline Decide", () => {
+  const withDecisions = (status: string): AgendaSnapshot => ({
+    ...agenda,
+    sections: [
+      {
+        key: "dec",
+        type: "decisions_pending",
+        title: "Decisions pending",
+        items: [item("d", { refType: "decision", detail: "D-0150 · open question", live: { kind: "decision", status, number: 150 } })],
+      },
+    ],
+  });
+
+  it("offers Decide on an open decision and reports the new status", () => {
+    const onChanged = vi.fn();
+    render(<AgendaView agenda={withDecisions("OPEN")} decide={{ workspaceId: "ws-1", onChanged }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Decide" }));
+    expect(onChanged).toHaveBeenCalledWith("d", "ACCEPTED");
+  });
+
+  it("offers no Decide once the decision is accepted", () => {
+    render(<AgendaView agenda={withDecisions("ACCEPTED")} decide={{ workspaceId: "ws-1", onChanged: vi.fn() }} />);
+    expect(screen.queryByTestId("agenda-item-decide-d")).not.toBeInTheDocument();
+  });
+});
+
+describe("isItemResolved", () => {
+  const action = (status: string) => ({ kind: "action" as const, status, completedAt: null, dueDate: null, assignees: [] });
+  it("follows the live Action both ways, and the tick otherwise", () => {
+    // Ticked once, reopened from the actions page: open again.
+    expect(isItemResolved({ resolvedAt: "2026-11-09T10:00:00Z", live: action("ACTIVE") })).toBe(false);
+    expect(isItemResolved({ resolvedAt: null, live: action("COMPLETED") })).toBe(true);
+    expect(isItemResolved({ resolvedAt: "2026-11-09T10:00:00Z", live: { kind: "decision", status: "OPEN", number: 1 } })).toBe(true);
+    expect(isItemResolved({ resolvedAt: null, live: { kind: "decision", status: "ACCEPTED", number: 1 } })).toBe(true);
+    expect(isItemResolved({ resolvedAt: null })).toBe(false);
+  });
+});
+
+describe("actionLiveState", () => {
+  const base = { kind: "action" as const, completedAt: null, assignees: [] };
+  const now = new Date("2026-11-10T12:00:00Z");
+  it("is done, overdue or open", () => {
+    expect(actionLiveState({ ...base, status: "COMPLETED", dueDate: "2026-11-01T00:00:00Z" }, now)).toBe("done");
+    expect(actionLiveState({ ...base, status: "ACTIVE", dueDate: "2026-11-01T00:00:00Z" }, now)).toBe("overdue");
+    expect(actionLiveState({ ...base, status: "ACTIVE", dueDate: null }, now)).toBe("open");
   });
 });
