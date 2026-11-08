@@ -19,7 +19,7 @@ vi.mock("~/app/_components/decisions/DecisionStatusMenu", () => ({
 
 vi.mock("../AgendaAddItem", () => ({ AgendaAddItem: () => <div data-testid="add-box" /> }));
 
-import { AgendaView, actionLiveState, isResolvableItem } from "../AgendaView";
+import { AgendaView, actionLiveState, isItemResolved, isResolvableItem } from "../AgendaView";
 import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 const item = (id: string, extra: Partial<AgendaItem>): AgendaItem => ({
@@ -181,6 +181,18 @@ describe("AgendaView inline Decide", () => {
   it("offers no Decide once the decision is accepted", () => {
     render(<AgendaView agenda={withDecisions("ACCEPTED")} decide={{ workspaceId: "ws-1", onChanged: vi.fn() }} />);
     expect(screen.queryByTestId("agenda-item-decide-d")).not.toBeInTheDocument();
+  });
+});
+
+describe("isItemResolved", () => {
+  const action = (status: string) => ({ kind: "action" as const, status, completedAt: null, dueDate: null, assignees: [] });
+  it("follows the live Action both ways, and the tick otherwise", () => {
+    // Ticked once, reopened from the actions page: open again.
+    expect(isItemResolved({ resolvedAt: "2026-11-09T10:00:00Z", live: action("ACTIVE") })).toBe(false);
+    expect(isItemResolved({ resolvedAt: null, live: action("COMPLETED") })).toBe(true);
+    expect(isItemResolved({ resolvedAt: "2026-11-09T10:00:00Z", live: { kind: "decision", status: "OPEN", number: 1 } })).toBe(true);
+    expect(isItemResolved({ resolvedAt: null, live: { kind: "decision", status: "ACCEPTED", number: 1 } })).toBe(true);
+    expect(isItemResolved({ resolvedAt: null })).toBe(false);
   });
 });
 

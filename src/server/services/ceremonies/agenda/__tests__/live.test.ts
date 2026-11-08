@@ -40,6 +40,8 @@ describe("enrichAgendaLive", () => {
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ id: { in: ["act-1"] }, workspaceId: "ws-1" });
     expect(where.AND).toBeDefined();
+    // Decisions too are viewer-scoped (meeting, project or workspace access).
+    expect(db.decision.findMany.mock.calls[0]![0]!.where).toMatchObject({ AND: [expect.objectContaining({ workspaceId: "ws-1", reviewState: "CONFIRMED" })] });
     const [a, d, note] = res.sections[0]!.items;
     expect(a!.live).toEqual({
       kind: "action",

@@ -99,18 +99,4 @@ describe("ceremony agenda action items", () => {
     await caller.ceremony.resolveAgendaItem({ workspaceId: ws.id, occurrenceId: occurrence.id, itemId: item.id, resolved: false });
     expect(await db.action.findUniqueOrThrow({ where: { id: item.refId } })).toMatchObject({ status: "ACTIVE" });
   });
-
-  it("keeps the old title-and-detail call working as a note", async () => {
-    const { owner, ws, occurrence } = await setup();
-    const caller = createTestCaller(owner.id);
-    const res = await caller.ceremony.addAgendaItem({
-      workspaceId: ws.id,
-      occurrenceId: occurrence.id,
-      sectionKey: "actions",
-      title: "Risk: vendor contract",
-      detail: "Renewal due **Friday**",
-    });
-    expect(res.agenda.sections[0]!.items[0]).toMatchObject({ refType: "text", detail: "Renewal due **Friday**" });
-    expect(await db.action.count({ where: { occurrenceId: occurrence.id } })).toBe(0);
-  });
 });

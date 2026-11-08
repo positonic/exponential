@@ -105,6 +105,8 @@ describe("blockers section", () => {
 describe("carried_over section", () => {
   it("copies the previous occurrence's unresolved items with carriedFromOccurrenceId, skipping resolved ones", async () => {
     const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
+    db.decision.findMany.mockResolvedValue([] as never);
     const previous = {
       id: "occ-0",
       scheduledStart: new Date("2026-09-09T08:00:00Z"),
@@ -131,6 +133,8 @@ describe("carried_over section", () => {
 
   it("emits one item per record when the same record is unresolved in two previous sections, keeping the higher carry count", async () => {
     const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
+    db.decision.findMany.mockResolvedValue([] as never);
     const previous = {
       id: "occ-0",
       scheduledStart: new Date("2026-09-09T08:00:00Z"),
@@ -153,12 +157,37 @@ describe("carried_over section", () => {
     expect(items[0]!.order).toBe(0);
   });
 
+  it("does not carry an Action completed elsewhere though its line was never ticked", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "COMPLETED" }, { id: "a-3", status: "ACTIVE" }] as never);
+    const previous = {
+      id: "occ-0",
+      agenda: {
+        version: 1,
+        generatedAt: "x",
+        sections: [
+          { key: "act", type: "free_text", title: "Action points", items: [
+            { id: "act:hand:1", sectionKey: "act", title: "Done elsewhere", refType: "action", refId: "a-1", order: 0, addedByUserId: "u-1" },
+            { id: "act:hand:2", sectionKey: "act", title: "Deleted", refType: "action", refId: "a-2", order: 1, addedByUserId: "u-1" },
+            { id: "act:hand:3", sectionKey: "act", title: "Still open", refType: "action", refId: "a-3", order: 2, addedByUserId: "u-1" },
+          ] },
+        ],
+      },
+    } as unknown as CeremonyOccurrence;
+    const items = await carriedOverSection.run(ctx(db, { previousOccurrence: previous }), { key: "carry", type: "carried_over", title: "Carried over" });
+    expect(items.map((i) => i.refId)).toEqual(["a-3"]);
+  });
+
   it("is empty without a previous agenda", async () => {
     const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
+    db.decision.findMany.mockResolvedValue([] as never);
     expect(await carriedOverSection.run(ctx(db), { key: "c", type: "carried_over", title: "C" })).toEqual([]);
   });
   it("skips a record another section of this agenda produced (producedRefIds)", async () => {
     const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
+    db.decision.findMany.mockResolvedValue([] as never);
     const previous = {
       id: "occ-0",
       agenda: {

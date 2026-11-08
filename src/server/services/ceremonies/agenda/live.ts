@@ -9,7 +9,8 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import { buildActionAccessWhere } from "~/server/services/access/resolvers/actionResolver";
-import type { AgendaItemLive, AgendaSnapshot } from "./types";
+import { buildDecisionAccessWhere } from "~/server/services/access/resolvers/decisionResolver";
+import type { AgendaItem, AgendaItemLive, AgendaSnapshot } from "./types";
 
 export async function enrichAgendaLive(
   db: PrismaClient,
@@ -43,7 +44,7 @@ export async function enrichAgendaLive(
       : Promise.resolve([]),
     decisionIds.size
       ? db.decision.findMany({
-          where: { id: { in: [...decisionIds] }, workspaceId: scope.workspaceId },
+          where: { id: { in: [...decisionIds] }, AND: [buildDecisionAccessWhere(scope.userId, scope.workspaceId)] },
           select: { id: true, status: true, number: true },
         })
       : Promise.resolve([]),
@@ -71,4 +72,43 @@ export async function enrichAgendaLive(
       }),
     })),
   };
+}
+
+/** Action statuses that close the work: nothing left to carry. */
+const SETTLED_ACTION: ReadonlySet<string> = new Set(["COMPLETED", "CANCELLED", "DELETED"]);
+/** Decision statuses that no longer ask for a decision. */
+const SETTLED_DECISION: ReadonlySet<string> = new Set(["ACCEPTED", "SUPERSEDED", "DEPRECATED"]);
+
+/**
+ * The items that still need carrying to the next occurrence: not ticked,
+ * and, for an item that references a record, the record still open. An
+ * Action completed from the actions page (or a Decision accepted in the Log)
+ * is settled though nobody ticked its line. Server-side bookkeeping, so not
+ * viewer-scoped. One query per record type.
+ */
+export async function filterUnsettledItems<T extends Pick<AgendaItem, "refType" | "refId" | "resolvedAt">>(
+  db: PrismaClient,
+  items: T[],
+): Promise<T[]> {
+  const open = items.filter((i) => !i.resolvedAt);
+  const actionIds = [...new Set(open.filter((i) => i.refType === "action").map((i) => i.refId))];
+  const decisionIds = [...new Set(open.filter((i) => i.refType === "decision").map((i) => i.refId))];
+  const [actions, decisions] = await Promise.all([
+    actionIds.length ? db.action.findMany({ where: { id: { in: actionIds } }, select: { id: true, status: true } }) : Promise.resolve([]),
+    decisionIds.length ? db.decision.findMany({ where: { id: { in: decisionIds } }, select: { id: true, status: true } }) : Promise.resolve([]),
+  ]);
+  const actionStatus = new Map(actions.map((a) => [a.id, a.status]));
+  const decisionStatus = new Map(decisions.map((d) => [d.id, d.status]));
+  return open.filter((item) => {
+    if (item.refType === "action") {
+      const status = actionStatus.get(item.refId);
+      // A deleted row has nothing left to chase.
+      return status !== undefined && !SETTLED_ACTION.has(status);
+    }
+    if (item.refType === "decision") {
+      const status = decisionStatus.get(item.refId);
+      return status === undefined || !SETTLED_DECISION.has(status);
+    }
+    return true;
+  });
 }

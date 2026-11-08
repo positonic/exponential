@@ -25,12 +25,17 @@ export function actionLiveState(live: Extract<AgendaItemLive, { kind: "action" }
   return "open";
 }
 
-/** An item reads as resolved when someone ticked it, or when the record it references is settled. */
+/**
+ * Whether an item reads as resolved. For an Action the live status is the
+ * truth both ways (ticking completes it, and one reopened from the actions
+ * page reads open again though its line was once ticked). A Decision line
+ * is resolved when ticked (covered, though still open) or once accepted.
+ * Anything else, or a record the viewer cannot read, follows the tick.
+ */
 export function isItemResolved(item: Pick<AgendaItem, "resolvedAt" | "live">): boolean {
-  if (item.resolvedAt) return true;
   if (item.live?.kind === "action") return item.live.status === "COMPLETED";
-  if (item.live?.kind === "decision") return item.live.status === "ACCEPTED";
-  return false;
+  if (item.resolvedAt) return true;
+  return item.live?.kind === "decision" && item.live.status === "ACCEPTED";
 }
 
 const STATE_COLOR = { done: "green", overdue: "red", open: "gray" } as const;

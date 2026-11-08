@@ -7,7 +7,9 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { readAgendaSnapshot, type AgendaItem, type AgendaItemKind, type AgendaSnapshot } from "./types";
 import type { ActionActor } from "~/server/services/actions/types";
+import { buildDecisionAccessWhere } from "~/server/services/access/resolvers/decisionResolver";
 import { appendMeetingSummaryToNotes } from "../notesSeed";
+import { filterUnsettledItems } from "./live";
 
 /**
  * Loaded on the failure path only: the reporter imports the Prisma singleton,
@@ -201,9 +203,12 @@ export async function addAgendaItem(
     }
     const decision = await db.decision.findFirst({
       where: {
-        workspaceId: occurrence.workspaceId,
-        reviewState: { not: "REJECTED" },
         ...(input.decisionId ? { id: input.decisionId } : { number: input.decisionNumber! }),
+        // Only a Decision the adder may read (confirmed, and visible through
+        // its meeting, project or the workspace): its statement is copied
+        // onto an agenda every workspace member can see. A restricted one
+        // reads as not found, as the decision router would answer.
+        AND: [buildDecisionAccessWhere(input.userId, occurrence.workspaceId)],
       },
       select: { id: true, statement: true },
     });
@@ -291,7 +296,9 @@ export async function carryOverToNext(db: PrismaClient, fromOccurrenceId: string
     });
     const agenda = from ? readAgendaSnapshot(from.agenda) : null;
     if (!from || !agenda) return 0;
-    const unresolved: AgendaItem[] = agenda.sections.flatMap((s) => s.items.filter((i) => !i.resolvedAt));
+    // Settled by the record, not only the tick: an Action completed from the
+    // actions page is not carried, one reopened there is (filterUnsettledItems).
+    const unresolved: AgendaItem[] = await filterUnsettledItems(tx as unknown as PrismaClient, agenda.sections.flatMap((s) => s.items));
     if (unresolved.length === 0) return 0;
 
     const next = await tx.ceremonyOccurrence.findFirst({

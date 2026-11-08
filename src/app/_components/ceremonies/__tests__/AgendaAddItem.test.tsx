@@ -26,7 +26,7 @@ vi.mock("~/app/_components/shared/PersonPicker", () => ({
   ),
 }));
 
-import { AgendaAddItem } from "../AgendaAddItem";
+import { AgendaAddItem, parseDecisionSearchNumber } from "../AgendaAddItem";
 
 describe("AgendaAddItem", () => {
   it("adds a note by default", () => {
@@ -53,5 +53,15 @@ describe("AgendaAddItem", () => {
     fireEvent.click(screen.getByText("+ Decision"));
     expect(screen.getByTestId("agenda-add-decision-s")).toBeInTheDocument();
     expect(screen.getByTestId("agenda-add-submit-s")).toBeDisabled();
+  });
+});
+
+describe("parseDecisionSearchNumber", () => {
+  it("reads a D-number or bare number, and leaves a statement search alone", () => {
+    expect(parseDecisionSearchNumber("D-0150")).toBe(150);
+    expect(parseDecisionSearchNumber("d150")).toBe(150);
+    expect(parseDecisionSearchNumber("150")).toBe(150);
+    expect(parseDecisionSearchNumber("ship csv")).toBeNull();
+    expect(parseDecisionSearchNumber("")).toBeNull();
   });
 });

@@ -59,6 +59,7 @@ describe("setAgendaItemResolved", () => {
 describe("carryOverToNext", () => {
   it("seeds unresolved items into the next occurrence's carried_over section when it already has an agenda", async () => {
     const db = withTx(mockDeep<PrismaClient>());
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", ceremonyId: "cer-1", scheduledStart: now, agenda } as never);
     db.ceremonyOccurrence.findFirst.mockResolvedValue({
       id: "occ-2",
@@ -79,6 +80,7 @@ describe("carryOverToNext", () => {
 
   it("does nothing when the next occurrence has no agenda yet (the section derives it at generation)", async () => {
     const db = withTx(mockDeep<PrismaClient>());
+    db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ id: "occ-1", ceremonyId: "cer-1", scheduledStart: now, agenda } as never);
     db.ceremonyOccurrence.findFirst.mockResolvedValue({ id: "occ-2", agenda: null } as never);
     expect(await carryOverToNext(db, "occ-1")).toBe(0);
@@ -302,7 +304,8 @@ describe("addAgendaItem kind decision", () => {
 
     const res = await addAgendaItem(db, "occ-1", { kind: "decision", sectionKey: "blk", title: "", userId: "u-1", decisionNumber: 150 }, now);
 
-    expect(db.decision.findFirst.mock.calls[0]![0]!.where).toMatchObject({ workspaceId: "ws-1", number: 150, reviewState: { not: "REJECTED" } });
+    // Scoped to what the adder may read: a restricted Decision reads as not found.
+    expect(db.decision.findFirst.mock.calls[0]![0]!.where).toMatchObject({ number: 150, AND: [expect.objectContaining({ workspaceId: "ws-1", reviewState: "CONFIRMED" })] });
     expect(res.sections[0]!.items[2]).toMatchObject({
       refType: "decision",
       refId: "d-150",

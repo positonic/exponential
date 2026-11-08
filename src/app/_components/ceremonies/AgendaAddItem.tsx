@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button, Group, SegmentedControl, Select, Stack, TextInput } from "@mantine/core";
 import { DateInput } from "@mantine/dates";
 import { IconPlus } from "@tabler/icons-react";
+import { useDebouncedValue } from "@mantine/hooks";
 import { api } from "~/trpc/react";
 import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 
@@ -14,6 +15,12 @@ export type AgendaAddInput =
   | { kind: "decision"; decisionId: string };
 
 type Mode = AgendaAddInput["kind"];
+
+/** "D-0150", "d150" or "150" → 150; anything else is a statement search. */
+export function parseDecisionSearchNumber(term: string): number | null {
+  const match = /^(?:d-?)?(\d{1,9})$/i.exec(term);
+  return match ? Number(match[1]) : null;
+}
 
 interface AgendaAddItemProps {
   sectionKey: string;
@@ -34,8 +41,20 @@ export function AgendaAddItem({ sectionKey, workspaceId, onAdd }: AgendaAddItemP
   const [dueDate, setDueDate] = useState<Date | null>(null);
   const [decisionId, setDecisionId] = useState<string | null>(null);
 
-  // Loaded only while the Decision picker is showing.
-  const { data: decisions } = api.decision.list.useQuery({ workspaceId, limit: 200 }, { enabled: mode === "decision" });
+  // Searched on the server, so every decision is reachable however long the
+  // Log grows: "D-0150" or "150" looks up that number, anything else the
+  // statement. Loaded only while the Decision picker is showing.
+  const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebouncedValue(search.trim(), 250);
+  const number = parseDecisionSearchNumber(debouncedSearch);
+  const { data: decisions } = api.decision.list.useQuery(
+    {
+      workspaceId,
+      limit: 50,
+      ...(number !== null ? { number } : debouncedSearch ? { search: debouncedSearch } : {}),
+    },
+    { enabled: mode === "decision", placeholderData: (prev) => prev },
+  );
   const decisionOptions = (decisions ?? []).map((d) => ({ value: d.id, label: `${d.label} — ${d.statement}` }));
 
   const reset = () => {
@@ -43,6 +62,7 @@ export function AgendaAddItem({ sectionKey, workspaceId, onAdd }: AgendaAddItemP
     setAssigneeId(null);
     setDueDate(null);
     setDecisionId(null);
+    setSearch("");
   };
   const canAdd = mode === "decision" ? Boolean(decisionId) : Boolean(title.trim());
   const submit = () => {
@@ -76,6 +96,10 @@ export function AgendaAddItem({ sectionKey, workspaceId, onAdd }: AgendaAddItemP
             value={decisionId}
             onChange={setDecisionId}
             searchable
+            searchValue={search}
+            onSearchChange={setSearch}
+            // The server already filtered; don't filter its answer again.
+            filter={({ options }) => options}
             nothingFoundMessage="No match"
             className="min-w-0 flex-1"
             data-testid={`agenda-add-decision-${sectionKey}`}
