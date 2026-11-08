@@ -20,9 +20,10 @@ export type { EmitNotificationInput } from "./types";
  *
  * Fire-and-forget: callers `void` this; it never throws. Resolves to the
  * recipients it notified (after the actor and access filters), so a caller
- * can record who an event reached; empty when resolution itself failed.
+ * can record who an event reached, or to `null` when resolving them failed:
+ * an empty list means nobody was due the notification, never an error.
  */
-export async function emitNotification(input: EmitNotificationInput): Promise<string[]> {
+export async function emitNotification(input: EmitNotificationInput): Promise<string[] | null> {
   const { actorUserId } = input;
 
   try {
@@ -46,7 +47,7 @@ export async function emitNotification(input: EmitNotificationInput): Promise<st
     return recipientIds;
   } catch (error) {
     console.error(`[emitNotification] ${input.category} failed:`, error);
-    return [];
+    return null;
   }
 }
 

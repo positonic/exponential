@@ -125,6 +125,25 @@ describe("emitNotification — Assignment tracer", () => {
     );
   });
 
+  it("resolves to the recipients it notified, or null when resolving them failed", async () => {
+    const reached = await emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: "actor1",
+      subject: { actionId: "a1", assignedUserIds: ["assignee1", "actor1"] },
+      db,
+    });
+    expect(reached).toEqual(["assignee1"]);
+
+    canAccessMock.mockRejectedValueOnce(new Error("db down"));
+    const failed = await emitNotification({
+      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+      actorUserId: "actor1",
+      subject: { actionId: "a1", assignedUserIds: ["assignee1"] },
+      db,
+    });
+    expect(failed).toBeNull();
+  });
+
   it("never notifies the actor about their own action (self-assign)", async () => {
     await emitNotification({
       category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
