@@ -75,6 +75,31 @@ describe("blockers section", () => {
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ projectId: { in: ["prj-1"] } });
   });
+
+  it("with participants but no project, counts only actions assigned to a participant", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([] as never);
+    await blockersSection.run(ctx(db), { key: "blk", type: "blockers", title: "Blockers" });
+    const where = db.action.findMany.mock.calls[0]![0]!.where!;
+    expect(where.projectId).toBeUndefined();
+    expect(where.AND).toEqual([{ OR: [{ assignees: { some: { userId: { in: ["u-1", "u-2"] } } } }] }]);
+  });
+
+  it("inside a project, also counts actions participants created and actions nobody owns", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.action.findMany.mockResolvedValue([] as never);
+    await blockersSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "blk", type: "blockers", title: "Blockers" });
+    const where = db.action.findMany.mock.calls[0]![0]!.where!;
+    expect(where.AND).toEqual([
+      {
+        OR: [
+          { assignees: { some: { userId: { in: ["u-1", "u-2"] } } } },
+          { createdById: { in: ["u-1", "u-2"] } },
+          { assignees: { none: {} } },
+        ],
+      },
+    ]);
+  });
 });
 
 describe("carried_over section", () => {
