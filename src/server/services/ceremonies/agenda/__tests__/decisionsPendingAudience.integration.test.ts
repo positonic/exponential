@@ -54,10 +54,19 @@ describe("decisions_pending audience", () => {
     await decision("From the all-hands", { transcriptionSessionId: teamMeeting.id });
     await decision("In the restricted project", { projectId: restricted.id });
     await decision("From the private meeting", { transcriptionSessionId: privateMeeting.id });
+    // Not confirmed yet: a draft never reaches an agenda.
+    await db.decision.create({
+      data: { workspaceId: ws.id, number: ++n, statement: "Draft decision", status: "OPEN", reviewState: "DRAFT", createdById: owner.id },
+    });
+    // Another workspace's open, confirmed Decision.
+    const other = await createWorkspace(db, { ownerId: owner.id });
+    await db.decision.create({
+      data: { workspaceId: other.id, number: 1, statement: "Other workspace", status: "OPEN", reviewState: "CONFIRMED", createdById: owner.id },
+    });
     return { owner, ws, open, restricted };
   }
 
-  it("lists workspace-visible pending Decisions and leaves out restricted and private ones", async () => {
+  it("lists workspace-visible pending Decisions and leaves out restricted, private, draft and other-workspace ones", async () => {
     const { owner, ws } = await seed();
     const items = await decisionsPendingSection.run(sectionCtx(db, ws.id, ws.slug, owner.id, []), {
       key: "dec",
