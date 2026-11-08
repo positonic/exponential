@@ -576,6 +576,8 @@ export const ceremonyRouter = createTRPCRouter({
               purpose: true,
               teamId: true,
               owner: { select: { id: true, name: true, email: true } },
+              // Ticket numbers in hand-added items link into this product.
+              product: { select: { slug: true } },
             },
           },
           recordedMeetings: { select: { id: true } },

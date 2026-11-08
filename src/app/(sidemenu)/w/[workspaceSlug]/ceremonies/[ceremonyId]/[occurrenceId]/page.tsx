@@ -383,6 +383,7 @@ export default function OccurrencePage() {
             }
             onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
             onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
+            refLinks={{ workspaceSlug: workspace.slug, productSlug: occurrence.ceremony.product?.slug ?? null }}
           />
         ) : (
           <Paper withBorder radius="md" p="lg">

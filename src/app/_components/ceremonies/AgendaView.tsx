@@ -6,6 +6,7 @@ import { ActionIcon, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInp
 import { IconArrowDown, IconArrowUp, IconPlus } from "@tabler/icons-react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { linkAgendaRefs, type AgendaRefLinkContext } from "./linkAgendaRefs";
 
 /**
  * Whether resolving the item means anything: an action gets done, an open
@@ -28,17 +29,21 @@ interface AgendaViewProps {
   onAddItem?: (sectionKey: string, title: string) => void;
   /** When given, items get move up/down controls, shown on hover or focus. */
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
+  /** Where D-numbers and ticket numbers in hand-added items link to. */
+  refLinks?: AgendaRefLinkContext;
 }
 
 /**
  * Renders an agenda snapshot: sections in order, items with detail and links
  * (ADR-0059). The pre-read narrative is not rendered here: it is the body of
  * the notification and the Matrix post, opened from the page's status line. Query items carry record names and render as plain text; a
- * hand-added item is prose a person typed here, so it is Markdown (ADR-0017)
- * and a `[link](url)` in it becomes a link.
+ * hand-added item (by a person or an agent through `addAgendaItem`) is prose,
+ * so its title and detail are Markdown (ADR-0017): a `[link](url)` becomes a
+ * link, and a bare `D-0150` or `#1339` links to its record (`refLinks`).
  */
-export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder }: AgendaViewProps) {
+export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, refLinks }: AgendaViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const prose = (text: string) => (refLinks ? linkAgendaRefs(text, refLinks) : text);
   const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
     const next = ids.slice();
     const target = index + delta;
@@ -85,7 +90,7 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                           {item.title}
                         </Link>
                       ) : item.addedByUserId ? (
-                        <MarkdownRenderer content={item.title} variant="inline" />
+                        <MarkdownRenderer content={prose(item.title)} variant="inline" />
                       ) : (
                         item.title
                       )}
@@ -96,8 +101,8 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                       )}
                     </Text>
                     {item.detail && (
-                      <Text size="xs" className="text-text-muted">
-                        {item.detail}
+                      <Text size="xs" className="text-text-muted" data-testid={`agenda-item-detail-${item.id}`}>
+                        {item.addedByUserId ? <MarkdownRenderer content={prose(item.detail)} variant="inline" /> : item.detail}
                       </Text>
                     )}
                     {/* Goal chips (ADR-0059): what the item rolls up to, when known. */}

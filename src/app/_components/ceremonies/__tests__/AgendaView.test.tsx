@@ -76,4 +76,27 @@ describe("AgendaView", () => {
     expect(screen.queryByText(/must not render here/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("agenda-narrative")).not.toBeInTheDocument();
   });
+
+  it("renders hand-item detail as Markdown with D-number and ticket links; query detail stays text", () => {
+    const withDetail: AgendaSnapshot = {
+      ...agenda,
+      sections: [
+        {
+          key: "s",
+          type: "free_text",
+          title: "Risks",
+          items: [
+            item("hand", { addedByUserId: "u-1", title: "James: signal-to-event grouping", detail: "**See** #1339 and D-0150" }),
+            item("q", { refType: "action", order: 1, detail: "due 8 Nov · *Andi*" }),
+          ],
+        },
+      ],
+    };
+    render(<AgendaView agenda={withDetail} refLinks={{ workspaceSlug: "clear", productSlug: "clear-app" }} />);
+    const detail = screen.getByTestId("agenda-item-detail-hand");
+    expect(detail.querySelector("strong")).toHaveTextContent("See");
+    expect(screen.getByRole("link", { name: "#1339" })).toHaveAttribute("href", "/w/clear/products/clear-app/tickets/1339");
+    expect(screen.getByRole("link", { name: "D-0150" })).toHaveAttribute("href", "/w/clear/decisions/d/D-0150");
+    expect(screen.getByTestId("agenda-item-detail-q")).toHaveTextContent("due 8 Nov · *Andi*");
+  });
 });
