@@ -60,7 +60,9 @@ export async function circulateAgenda(
     const fresh = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrence.id }, select: { agenda: true } });
     const current = readAgendaSnapshot(fresh?.agenda);
     if (!current) return;
-    const next: AgendaSnapshot = { ...current, sentRecipientCount: recipients.length };
+    // `null` when the notification pipeline failed: the line then says
+    // "Sent <when>" rather than claiming a send to zero people.
+    const next: AgendaSnapshot = { ...current, sentRecipientCount: recipients ? recipients.length : null };
     await tx.ceremonyOccurrence.update({ where: { id: occurrence.id }, data: { agenda: next as unknown as Prisma.InputJsonValue } });
   });
   // The ceremony's Matrix room, when it has one, gets the agenda too. A
