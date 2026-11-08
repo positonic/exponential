@@ -87,5 +87,9 @@ export function buildAgenda(
     narrative: null,
     narratedAt: null,
     ...(previous?.matrixPosts?.length ? { matrixPosts: previous.matrixPosts } : {}),
+    // Who the last send reached is a fact about that send, not this
+    // generation, so it survives the rebuild. `editedAt` does not: a fresh
+    // generation is itself newer than any earlier hand edit.
+    ...(typeof previous?.sentRecipientCount === "number" ? { sentRecipientCount: previous.sentRecipientCount } : {}),
   };
 }

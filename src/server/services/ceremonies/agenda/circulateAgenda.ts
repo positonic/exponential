@@ -5,7 +5,7 @@
  * once is never circulated again by the cron; a person may re-circulate on
  * purpose through the mutation.
  */
-import { type PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
@@ -13,6 +13,8 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import { formatOccurrenceLabel } from "../activity";
 import { generateAgenda } from "./generateAgenda";
 import { postAgendaToMatrix } from "./postAgendaToMatrix";
+import { withAgendaTransaction } from "./items";
+import { readAgendaSnapshot, type AgendaSnapshot } from "./types";
 
 export async function circulateAgenda(
   db: PrismaClient,
@@ -39,7 +41,7 @@ export async function circulateAgenda(
   if (occurrence.status === "SKIPPED") return { circulated: false };
   if (occurrence.agendaCirculatedAt && !opts.force) return { circulated: false };
 
-  await emitNotification({
+  const recipients = await emitNotification({
     db,
     category: NOTIFICATION_CATEGORIES.AGENDA_READY,
     actorUserId: opts.actorUserId,
@@ -51,6 +53,15 @@ export async function circulateAgenda(
       agendaCirculatedAt: now,
       ...(occurrence.status === "PLANNED" ? { status: "AGENDA_CIRCULATED" } : {}),
     },
+  });
+  // Record who this send reached on the snapshot ("Sent to N"). Its own
+  // read-modify-write, so an edit made since the read above is not reverted.
+  await withAgendaTransaction(db, async (tx) => {
+    const fresh = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrence.id }, select: { agenda: true } });
+    const current = readAgendaSnapshot(fresh?.agenda);
+    if (!current) return;
+    const next: AgendaSnapshot = { ...current, sentRecipientCount: recipients.length };
+    await tx.ceremonyOccurrence.update({ where: { id: occurrence.id }, data: { agenda: next as unknown as Prisma.InputJsonValue } });
   });
   // The ceremony's Matrix room, when it has one, gets the agenda too. A
   // failed post is reported inside and never fails the circulation.
@@ -75,13 +86,21 @@ export async function circulateAgenda(
 }
 
 /**
- * True when the agenda was regenerated after it was sent, so what
- * participants received is no longer what the page shows. Derived from the
- * two stamps; the sweep stamps both with one `now`, so an automatic
- * generate-and-send never reads as changed.
+ * True when the agenda changed after it was sent, so what participants
+ * received is no longer what the page shows: it was regenerated, or someone
+ * (a person or an agent) added an item by hand. The sweep stamps generation
+ * and circulation with one `now`, so an automatic generate-and-send never
+ * reads as changed.
  */
-export function agendaChangedSinceSent(generatedAt: Date | null, circulatedAt: Date | null): boolean {
-  return Boolean(generatedAt && circulatedAt && generatedAt.getTime() > circulatedAt.getTime());
+export function agendaChangedSinceSent(
+  generatedAt: Date | null,
+  circulatedAt: Date | null,
+  editedAt?: string | null,
+): boolean {
+  if (!circulatedAt) return false;
+  const sent = circulatedAt.getTime();
+  if (generatedAt && generatedAt.getTime() > sent) return true;
+  return Boolean(editedAt && new Date(editedAt).getTime() > sent);
 }
 
 export interface AgendaSweepResult {

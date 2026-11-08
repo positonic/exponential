@@ -106,6 +106,19 @@ export interface AgendaSnapshot {
    * has already seen and silently swallow the message.
    */
   matrixPosts?: AgendaMatrixPost[];
+  /**
+   * When a person or agent last changed the agenda's content by hand
+   * (`addAgendaItem`). Belongs to one generation, like the narrative; a later
+   * edit than the last send means participants have an older agenda.
+   */
+  editedAt?: string | null;
+  /**
+   * How many people the last agenda notification reached, recorded when it
+   * was sent so the "Sent to N" line never shifts with later membership
+   * changes. Carried across regeneration; absent on agendas sent before it
+   * was recorded.
+   */
+  sentRecipientCount?: number | null;
 }
 
 /** One section of the ceremony's template, as stored in `Ceremony.agendaTemplate`. */

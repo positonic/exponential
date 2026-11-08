@@ -18,9 +18,11 @@ export type { EmitNotificationInput } from "./types";
  * delivery — recording the per-channel outcome. Failures stay for the
  * `/api/cron/process-notifications` worker to retry.
  *
- * Fire-and-forget: callers `void` this; it never throws.
+ * Fire-and-forget: callers `void` this; it never throws. Resolves to the
+ * recipients it notified (after the actor and access filters), so a caller
+ * can record who an event reached; empty when resolution itself failed.
  */
-export async function emitNotification(input: EmitNotificationInput): Promise<void> {
+export async function emitNotification(input: EmitNotificationInput): Promise<string[]> {
   const { actorUserId } = input;
 
   try {
@@ -41,8 +43,10 @@ export async function emitNotification(input: EmitNotificationInput): Promise<vo
         );
       }
     }
+    return recipientIds;
   } catch (error) {
     console.error(`[emitNotification] ${input.category} failed:`, error);
+    return [];
   }
 }
 

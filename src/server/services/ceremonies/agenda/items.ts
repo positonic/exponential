@@ -92,6 +92,9 @@ export async function addAgendaItem(
       detail: input.detail?.trim() ? input.detail.trim() : null,
     });
     section.emptyReason = null;
+    // An item added after the agenda was sent means participants have an
+    // older agenda: the page reads this as "changed since" (agendaChangedSinceSent).
+    agenda.editedAt = now.toISOString();
     await tx.ceremonyOccurrence.update({ where: { id: occurrenceId }, data: { agenda: agenda as unknown as Prisma.InputJsonValue } });
     return agenda;
   });

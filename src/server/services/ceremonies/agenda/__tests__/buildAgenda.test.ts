@@ -147,3 +147,18 @@ describe("carried-over dedupe", () => {
     expect(ids).toEqual(["carry:carried:action:a-1", "carry:hand:1", "dec:decision:d-150"]);
   });
 });
+
+describe("send record across regeneration", () => {
+  it("carries sentRecipientCount but drops editedAt", () => {
+    const previous: AgendaSnapshot = {
+      version: 1,
+      generatedAt: "x",
+      sections: [],
+      sentRecipientCount: 4,
+      editedAt: "2026-09-09T09:00:00Z",
+    };
+    const snap = buildAgenda(template, [], previous, now);
+    expect(snap.sentRecipientCount).toBe(4);
+    expect(snap.editedAt).toBeUndefined();
+  });
+});

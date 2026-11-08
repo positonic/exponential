@@ -28,7 +28,6 @@ import {
   saveMyUpdate,
 } from "~/server/services/ceremonies/updates/occurrenceUpdates";
 import { getOccurrenceSummary } from "~/server/services/ceremonies/updates/summary";
-import { resolveParticipantUserIds } from "~/server/services/ceremonies/participants";
 import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server/services/ceremonies/skip";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
@@ -574,7 +573,6 @@ export const ceremonyRouter = createTRPCRouter({
               agendaTemplate: true,
               isOneOff: true,
               purpose: true,
-              teamId: true,
               owner: { select: { id: true, name: true, email: true } },
               // Ticket numbers in hand-added items link into this product.
               product: { select: { slug: true } },
@@ -603,15 +601,14 @@ export const ceremonyRouter = createTRPCRouter({
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
-      // Who the agenda notification goes to, for the "Sent to N" status line.
-      const recipientCount = occurrence.agendaCirculatedAt
-        ? (await resolveParticipantUserIds(ctx.db, occurrence.ceremony)).length
-        : 0;
+      const agenda = readAgendaSnapshot(occurrence.agenda);
       const { scheduledMeeting } = occurrence;
       return {
         ...occurrence,
-        changedSinceSent: agendaChangedSinceSent(occurrence.agendaGeneratedAt, occurrence.agendaCirculatedAt),
-        recipientCount,
+        changedSinceSent: agendaChangedSinceSent(occurrence.agendaGeneratedAt, occurrence.agendaCirculatedAt, agenda?.editedAt),
+        // Who the last send reached, recorded at send time; null for agendas
+        // sent before that was recorded (the line then omits the count).
+        recipientCount: occurrence.agendaCirculatedAt ? (agenda?.sentRecipientCount ?? null) : null,
         isOneOff: occurrence.ceremony.isOneOff,
         purpose: occurrence.ceremony.purpose,
         // Attendee names only — external attendees' addresses stay off the page.
@@ -623,7 +620,7 @@ export const ceremonyRouter = createTRPCRouter({
               attendees: scheduledMeeting.attendees.map((a) => ({ userId: a.userId, name: a.name })),
             }
           : null,
-        agenda: readAgendaSnapshot(occurrence.agenda),
+        agenda,
         canGenerate,
         skipProposal,
         recordedMeetings: occurrence.recordedMeetings.map((m) => {

@@ -50,6 +50,21 @@ describe("AgendaSentStatus", () => {
     expect(onResend).toHaveBeenCalledTimes(1);
   });
 
+  it("omits the count when the send did not record one", () => {
+    render(
+      <AgendaSentStatus
+        agendaGeneratedAt={SENT}
+        agendaCirculatedAt={SENT}
+        changedSinceSent={false}
+        recipientCount={null}
+        recipientNoun="participants"
+        narrative={null}
+      />,
+    );
+    expect(screen.getByTestId("agenda-sent-status")).toHaveTextContent(/^Sent \S/);
+    expect(screen.getByTestId("agenda-sent-status")).not.toHaveTextContent("Sent to");
+  });
+
   it("opens the narrative in a modal", async () => {
     render(
       <AgendaSentStatus

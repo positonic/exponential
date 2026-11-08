@@ -55,6 +55,23 @@ describe("circulateAgenda", () => {
     );
   });
 
+  it("records how many people the send reached on the agenda snapshot", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => Promise<unknown>) => fn(db)) as never);
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occ as never)
+      .mockResolvedValueOnce({ agenda: { version: 1, generatedAt: "x", sections: [] } } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    emitNotification.mockResolvedValueOnce(["u-owner", "u-1", "u-2"] as never);
+
+    await circulateAgenda(db, "occ-1", { actorUserId: "u-3", now });
+
+    expect(db.ceremonyOccurrence.update).toHaveBeenLastCalledWith({
+      where: { id: "occ-1" },
+      data: { agenda: { version: 1, generatedAt: "x", sections: [], sentRecipientCount: 3 } },
+    });
+  });
+
   it("is a no-op without an agenda, or when already circulated unless forced", async () => {
     const db = mockDeep<PrismaClient>();
     db.ceremonyOccurrence.findUnique.mockResolvedValueOnce({ ...occ, agenda: null } as never);
@@ -187,5 +204,12 @@ describe("agendaChangedSinceSent", () => {
     expect(agendaChangedSinceSent(new Date("2026-11-10T12:00:00Z"), sent)).toBe(false);
     expect(agendaChangedSinceSent(new Date("2026-11-10T12:49:00Z"), null)).toBe(false);
     expect(agendaChangedSinceSent(null, sent)).toBe(false);
+  });
+
+  it("is true when an item was added by hand after the send", () => {
+    const sent = new Date("2026-11-10T12:25:00Z");
+    expect(agendaChangedSinceSent(sent, sent, "2026-11-10T13:00:00Z")).toBe(true);
+    expect(agendaChangedSinceSent(sent, sent, "2026-11-10T12:00:00Z")).toBe(false);
+    expect(agendaChangedSinceSent(sent, null, "2026-11-10T13:00:00Z")).toBe(false);
   });
 });

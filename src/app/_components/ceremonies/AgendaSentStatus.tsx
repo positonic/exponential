@@ -12,8 +12,8 @@ interface AgendaSentStatusProps {
   agendaCirculatedAt: Date | string | null;
   /** The agenda was regenerated after it was sent (`agendaGeneratedAt > agendaCirculatedAt`). */
   changedSinceSent: boolean;
-  /** How many people the agenda notification went to. */
-  recipientCount: number;
+  /** How many people the last agenda notification reached; null when it was not recorded. */
+  recipientCount: number | null;
   /** "participants", or "attendees" for a one-off meeting. */
   recipientNoun: string;
   /** The pre-read narrative: the body of the notification and the Matrix post. */
@@ -26,7 +26,7 @@ interface AgendaSentStatusProps {
 /**
  * One line that says whether participants have the agenda the page shows
  * (ADR-0059): "Sent to 4 participants Mon 10 Nov 12:25", or "Sent … · changed
- * since · Resend" once it was regenerated after sending. The pre-read
+ * since · Resend" once it was regenerated or edited by hand after sending. The pre-read
  * narrative is not on the page; it opens from here as what was sent.
  */
 export function AgendaSentStatus({
@@ -50,7 +50,9 @@ export function AgendaSentStatus({
         {sentAt
           ? changedSinceSent
             ? `Sent ${sentAt}`
-            : `Sent to ${recipientCount} ${recipientCount === 1 ? recipientNoun.replace(/s$/, "") : recipientNoun} ${sentAt}`
+            : recipientCount === null
+              ? `Sent ${sentAt}`
+              : `Sent to ${recipientCount} ${recipientCount === 1 ? recipientNoun.replace(/s$/, "") : recipientNoun} ${sentAt}`
           : "Not sent yet"}
       </Text>
       {changedSinceSent && (
