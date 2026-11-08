@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
 import { occurrenceActionsSection } from "../sections/occurrence_actions";
+import { buildWorkspaceAudienceActionWhere } from "~/server/services/access/resolvers/actionResolver";
 import { decisionsMadeSection } from "../sections/decisions_made";
 import { buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 import type { SectionContext } from "../types";
@@ -54,7 +55,12 @@ describe("occurrence_actions", () => {
     await occurrenceActionsSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "status", type: "occurrence_actions", title: "S" });
     expect(db.action.findMany.mock.calls[0]![0]!.where!.OR).toEqual([
       { occurrenceId: "occ-0" },
-      { projectId: { in: ["prj-1"] }, assignees: { some: { userId: { in: ["u-1", "u-2"] } } }, dueDate: { gte: prevStart, lte: now } },
+      {
+        ...buildWorkspaceAudienceActionWhere("ws-1"),
+        projectId: { in: ["prj-1"] },
+        assignees: { some: { userId: { in: ["u-1", "u-2"] } } },
+        dueDate: { gte: prevStart, lte: now },
+      },
     ]);
   });
 
