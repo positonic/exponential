@@ -61,4 +61,41 @@ describe("runAgendaSections", () => {
     const results = await runAgendaSections(ctx(db, null), [{ key: "x", type: "nope", title: "X" }]);
     expect(results[0]).toMatchObject({ items: [], emptyReason: 'No query for "nope" yet' });
   });
+
+  it("carried_over defers to occurrence_actions: last week's action point shows once, with its status", async () => {
+    const db = mockDeep<PrismaClient>();
+    // occurrence_actions finds the Action created from last week's agenda …
+    db.action.findMany.mockImplementation(((args: { select?: Record<string, unknown> }) =>
+      Promise.resolve(
+        args.select && "name" in args.select
+          ? [{ id: "a-1", name: "Respond to stakeholders", status: "ACTIVE", dueDate: null, completedAt: null, project: null, assignees: [{ user: { name: "Zineb" } }] }]
+          : [{ id: "a-1", status: "ACTIVE" }],
+      )) as never);
+    db.decision.findMany.mockResolvedValue([] as never);
+    // … which last week's agenda also holds, unticked.
+    const previous = {
+      version: 1,
+      generatedAt: "x",
+      sections: [
+        {
+          key: "act",
+          type: "free_text",
+          title: "Action points",
+          items: [{ id: "act:hand:1", sectionKey: "act", title: "Respond to stakeholders", refType: "action", refId: "a-1", order: 0, addedByUserId: "u-1" }],
+        },
+      ],
+    };
+    const template: AgendaTemplateSection[] = [
+      { key: "carry", type: "carried_over", title: "Carried over" },
+      { key: "status", type: "occurrence_actions", title: "Status on action points" },
+      { key: "made", type: "decisions_made", title: "Decisions made" },
+    ];
+
+    const results = await runAgendaSections(ctx(db, previous), template);
+
+    expect(results.map((r) => [r.section.key, r.items.length])).toEqual([["carry", 0], ["status", 1], ["made", 0]]);
+    expect(results[1]!.items[0]).toMatchObject({ refId: "a-1", detail: "Zineb · open" });
+    // Each record-backed section explains its own emptiness.
+    expect(results[2]!.emptyReason).toBe("No decisions accepted since the last occurrence.");
+  });
 });
