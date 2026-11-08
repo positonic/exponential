@@ -226,7 +226,9 @@ export default function CeremonyPage() {
               {describeCadence(ceremony.cadenceRule)} · {ceremony.timezone} · {ceremony.durationMinutes} min
             </Text>
           </div>
-          {ceremony.canEdit && workspaceId && (
+          {/* One-offs have no cadence, and `ceremony.update` rejects the
+              cadence fields the editor always sends, so they get no editor. */}
+          {ceremony.canEdit && !ceremony.isOneOff && workspaceId && (
             <Button
               variant="default"
               size="sm"

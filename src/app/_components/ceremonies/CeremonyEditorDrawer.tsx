@@ -235,7 +235,7 @@ export function CeremonyEditorDrawer({
   const isEdit = Boolean(ceremonyId);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
-  const { data: existing, isLoading: loadingExisting } = api.ceremony.get.useQuery(
+  const { data: existing } = api.ceremony.get.useQuery(
     { workspaceId, id: ceremonyId ?? "" },
     { enabled: opened && Boolean(ceremonyId) },
   );
@@ -263,6 +263,10 @@ export function CeremonyEditorDrawer({
   }, [matrixRooms, form.matrixRoomId]);
 
   const [seededFor, setSeededFor] = useState<string | null>(null);
+  const seedKey = ceremonyId ? `edit:${ceremonyId}` : `new:${template?.slug ?? "blank"}`;
+  // Until the form holds this ceremony's values it may still hold the last
+  // one opened; saving then would write those values over this ceremony.
+  const isSeeded = opened && seededFor === seedKey;
   useEffect(() => {
     if (!opened) {
       setSeededFor(null);
@@ -270,7 +274,6 @@ export function CeremonyEditorDrawer({
       setIconPickerOpen(false);
       return;
     }
-    const seedKey = ceremonyId ? `edit:${ceremonyId}` : `new:${template?.slug ?? "blank"}`;
     if (seededFor === seedKey) return;
     if (ceremonyId) {
       if (existing) {
@@ -281,7 +284,7 @@ export function CeremonyEditorDrawer({
     }
     setForm(template ? fromTemplate(template) : emptyForm());
     setSeededFor(seedKey);
-  }, [opened, ceremonyId, template, existing, seededFor]);
+  }, [opened, ceremonyId, template, existing, seededFor, seedKey]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -334,6 +337,7 @@ export function CeremonyEditorDrawer({
   const meetingUrlInvalid = form.meetingUrl.trim() !== "" && meetingUrlKey(form.meetingUrl) === null;
   const matrixRoomMissing = form.postToMatrix && !form.matrixRoomId;
   const canSave =
+    isSeeded &&
     form.name.trim().length > 0 &&
     form.cadenceRule.trim().length > 0 &&
     form.startsOn !== null &&
@@ -402,7 +406,7 @@ export function CeremonyEditorDrawer({
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">{eyebrow}</div>
               <div className="truncate text-base font-semibold text-text-primary">
-                {form.name.trim() || "Untitled ceremony"}
+                {isSeeded ? form.name.trim() || "Untitled ceremony" : "Loading…"}
               </div>
             </div>
             <Drawer.CloseButton />
@@ -410,7 +414,7 @@ export function CeremonyEditorDrawer({
         </Drawer.Header>
 
         <ScrollArea className="min-h-0 flex-1" type="hover" scrollbarSize={8}>
-          {isEdit && loadingExisting ? (
+          {!isSeeded ? (
             <Stack gap="md" p="lg">
               <Skeleton height={36} />
               <Skeleton height={120} />
