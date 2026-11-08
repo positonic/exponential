@@ -3,6 +3,7 @@ import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client"
 import { mockDeep } from "vitest-mock-extended";
 import { occurrenceActionsSection } from "../sections/occurrence_actions";
 import { decisionsMadeSection } from "../sections/decisions_made";
+import { buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 import type { SectionContext } from "../types";
 
 const now = new Date("2026-11-17T10:00:00Z");
@@ -36,7 +37,7 @@ describe("occurrence_actions", () => {
     const items = await occurrenceActionsSection.run(ctx(db), { key: "status", type: "occurrence_actions", title: "Status on action points" });
 
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
-    expect(where).toMatchObject({ workspaceId: "ws-1", status: { notIn: ["DRAFT", "DELETED"] } });
+    expect(where).toMatchObject({ workspaceId: "ws-1", status: { notIn: ["DRAFT", "DELETED", "CANCELLED"] } });
     // No project: only the occurrence's own actions, never participants' personal ones.
     expect(where.OR).toEqual([{ occurrenceId: "occ-0" }]);
     expect(items.map((i) => [i.id, i.detail, i.resolvedAt])).toEqual([
@@ -53,7 +54,7 @@ describe("occurrence_actions", () => {
     await occurrenceActionsSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "status", type: "occurrence_actions", title: "S" });
     expect(db.action.findMany.mock.calls[0]![0]!.where!.OR).toEqual([
       { occurrenceId: "occ-0" },
-      { projectId: { in: ["prj-1"] }, assignees: { some: { userId: { in: ["u-1", "u-2"] } } }, dueDate: { gte: prevStart } },
+      { projectId: { in: ["prj-1"] }, assignees: { some: { userId: { in: ["u-1", "u-2"] } } }, dueDate: { gte: prevStart, lte: now } },
     ]);
   });
 
@@ -79,8 +80,10 @@ describe("decisions_made", () => {
     });
 
     const where = db.decision.findMany.mock.calls[0]![0]!.where!;
-    expect(where).toMatchObject({ workspaceId: "ws-1", reviewState: "CONFIRMED", status: "ACCEPTED" });
+    expect(where).toMatchObject({ status: "ACCEPTED" });
     expect(where.AND).toEqual([
+      // Audience-safe: only what every workspace member may read.
+      buildWorkspaceAudienceDecisionWhere("ws-1"),
       { OR: [{ decidedAt: { gte: prevStart, lte: now } }, { decidedAt: null, updatedAt: { gte: prevStart, lte: now } }] },
       { OR: [{ productId: "prod-1" }, { productId: null }] },
     ]);
@@ -105,5 +108,22 @@ describe("decisions_made", () => {
     const db2 = mockDeep<PrismaClient>();
     expect(await decisionsMadeSection.run(ctx(db2, { previousOccurrence: null }), { key: "m", type: "decisions_made", title: "M" })).toEqual([]);
     expect(db2.decision.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildWorkspaceAudienceDecisionWhere", () => {
+  it("admits only confirmed Decisions reachable through a workspace-wide path", () => {
+    expect(buildWorkspaceAudienceDecisionWhere("ws-1")).toEqual({
+      workspaceId: "ws-1",
+      reviewState: "CONFIRMED",
+      OR: [
+        { transcriptionSessionId: null, projectId: null },
+        { transcriptionSessionId: null, project: { OR: [{ isRestricted: false }, { isPublic: true }] } },
+        {
+          transcriptionSessionId: { not: null },
+          transcriptionSession: { OR: [{ projectId: null, workspaceId: "ws-1" }, { project: { OR: [{ isRestricted: false }, { isPublic: true }] } }] },
+        },
+      ],
+    });
   });
 });

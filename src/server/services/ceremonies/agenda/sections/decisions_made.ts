@@ -4,10 +4,14 @@
  * ceremony's projects, else its product plus product-less decisions, else
  * the workspace). Read from the Decision Log, so "Decisions made since last
  * week" is a list of records, not prose about them. `decidedAt` dates the
- * acceptance; rows without one fall back to `updatedAt`.
+ * acceptance; rows without one fall back to `updatedAt`. Only Decisions the
+ * whole workspace may read are listed (`buildWorkspaceAudienceDecisionWhere`):
+ * one behind a restricted project or a private recording stays off the
+ * shared agenda.
  */
 import type { AgendaItem, SectionModule } from "../types";
 import { formatDecisionLabel } from "~/lib/decision-label";
+import { buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 
 export const decisionsMadeSection: SectionModule = {
   type: "decisions_made",
@@ -18,10 +22,11 @@ export const decisionsMadeSection: SectionModule = {
     const since = previous.scheduledStart;
     const decisions = await ctx.db.decision.findMany({
       where: {
-        workspaceId: ctx.workspaceId,
-        reviewState: "CONFIRMED",
         status: "ACCEPTED",
         AND: [
+          // The statement is copied into a snapshot every workspace member
+          // sees, so only Decisions every member may read.
+          buildWorkspaceAudienceDecisionWhere(ctx.workspaceId),
           {
             OR: [
               { decidedAt: { gte: since, lte: ctx.now } },

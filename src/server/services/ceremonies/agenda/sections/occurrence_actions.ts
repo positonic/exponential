@@ -2,7 +2,7 @@
  * `occurrence_actions` (V10): status on last time's action points. The
  * Actions created from the previous occurrence's agenda (`Action.occurrenceId`,
  * V9), plus, inside the ceremony's projects, Actions assigned to a participant
- * and due since the previous occurrence, each with owner, due date and status.
+ * that fell due between the previous occurrence and now (cancelled ones left out), each with owner, due date and status.
  * Resolution is a query fact (`completedAt`), as in `retro_actions`, so an
  * Action completed between two generations is never shown as outstanding.
  *
@@ -27,11 +27,13 @@ export const occurrenceActionsSection: SectionModule = {
       branches.push({
         projectId: { in: ctx.projectIds },
         assignees: { some: { userId: { in: ctx.participantUserIds } } },
-        dueDate: { gte: previous.scheduledStart },
+        // Became due since last time: not everything due in the weeks ahead.
+        dueDate: { gte: previous.scheduledStart, lte: ctx.now },
       });
     }
     const actions = await ctx.db.action.findMany({
-      where: { workspaceId: ctx.workspaceId, status: { notIn: ["DRAFT", "DELETED"] }, OR: branches },
+      // Cancelled work is settled, not outstanding (cancelling clears completedAt).
+      where: { workspaceId: ctx.workspaceId, status: { notIn: ["DRAFT", "DELETED", "CANCELLED"] }, OR: branches },
       select: {
         id: true,
         name: true,
