@@ -74,6 +74,16 @@ export async function circulateAgenda(
   return { circulated: true };
 }
 
+/**
+ * True when the agenda was regenerated after it was sent, so what
+ * participants received is no longer what the page shows. Derived from the
+ * two stamps; the sweep stamps both with one `now`, so an automatic
+ * generate-and-send never reads as changed.
+ */
+export function agendaChangedSinceSent(generatedAt: Date | null, circulatedAt: Date | null): boolean {
+  return Boolean(generatedAt && circulatedAt && generatedAt.getTime() > circulatedAt.getTime());
+}
+
 export interface AgendaSweepResult {
   candidates: number;
   generated: number;

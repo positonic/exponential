@@ -11,6 +11,7 @@ import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { AgendaView } from "~/app/_components/ceremonies/AgendaView";
+import { AgendaSentStatus } from "~/app/_components/ceremonies/AgendaSentStatus";
 import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUpdatePanel";
 import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceAsyncSummary";
 import { OccurrenceSkipBanner } from "~/app/_components/ceremonies/OccurrenceSkipBanner";
@@ -242,13 +243,23 @@ export default function OccurrencePage() {
                 {occurrence.ceremony.owner.name ?? occurrence.ceremony.owner.email ?? "—"}
                 {isOneOff && attendeeNames.length > 0 ? ` · with ${attendeeNames.join(", ")}` : ""}
               </Text>
-              {occurrence.agendaGeneratedAt && (
-                <Text size="xs" className="text-text-muted">
-                  agenda generated {new Date(occurrence.agendaGeneratedAt).toLocaleString()}
-                  {occurrence.agendaCirculatedAt ? ` · circulated ${new Date(occurrence.agendaCirculatedAt).toLocaleString()}` : ""}
-                </Text>
-              )}
             </Group>
+            <div className="mt-1">
+              <AgendaSentStatus
+                agendaGeneratedAt={occurrence.agendaGeneratedAt}
+                agendaCirculatedAt={occurrence.agendaCirculatedAt}
+                changedSinceSent={occurrence.changedSinceSent}
+                recipientCount={occurrence.recipientCount}
+                recipientNoun={isOneOff ? "attendees" : "participants"}
+                narrative={occurrence.agenda?.narrative}
+                onResend={
+                  occurrence.canGenerate && occurrence.status !== "SKIPPED"
+                    ? () => generate.mutate({ workspaceId, occurrenceId: occurrence.id, circulate: true })
+                    : undefined
+                }
+                resendLoading={generate.isPending && Boolean(generate.variables?.circulate)}
+              />
+            </div>
           </div>
           {occurrence.canGenerate && occurrence.status !== "SKIPPED" && (
             <Group gap="xs">
@@ -372,11 +383,6 @@ export default function OccurrencePage() {
             }
             onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
             onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
-            narrativeHint={
-              occurrence.notesPageId
-                ? "This pre-read is a snapshot. The editable copy lives in the notes page below, under \"Draft agenda\"."
-                : undefined
-            }
           />
         ) : (
           <Paper withBorder radius="md" p="lg">

@@ -818,6 +818,29 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("getOccurrence sent status", () => {
+    it("reports an agenda regenerated after it was sent, and how many people it went to", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({
+        id: "occ-1",
+        status: "AGENDA_CIRCULATED",
+        agenda: null,
+        agendaGeneratedAt: new Date("2026-11-10T12:49:00Z"),
+        agendaCirculatedAt: new Date("2026-11-10T12:25:00Z"),
+        ceremony: { id: "cer-1", name: "Product Prioritisation", kind: "CUSTOM", ownerId: USER_ID, isOneOff: false, purpose: null, teamId: null },
+        recordedMeetings: [],
+        scheduledMeeting: null,
+      } as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({ status: "AGENDA_CIRCULATED", agenda: null, ceremony: { kind: "CUSTOM" } } as never);
+      db.ceremonyParticipant.findMany.mockResolvedValue([{ userId: "u-1" }, { userId: "u-2" }, { userId: "u-3" }, { userId: "u-4" }] as never);
+
+      const res = await caller(db).ceremony.getOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      expect(res.changedSinceSent).toBe(true);
+      expect(res.recipientCount).toBe(4);
+    });
+  });
+
   describe("getOccurrence on a one-off", () => {
     it("returns isOneOff, the purpose and the booking with attendee names only", async () => {
       withWorkspaceRole(db, "member");

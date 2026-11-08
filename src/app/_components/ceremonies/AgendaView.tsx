@@ -20,17 +20,16 @@ interface AgendaViewProps {
   onAddItem?: (sectionKey: string, title: string) => void;
   /** When given, items get move up/down controls. */
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
-  /** A line under the pre-read, e.g. pointing at the editable copy in the notes page. */
-  narrativeHint?: string;
 }
 
 /**
  * Renders an agenda snapshot: sections in order, items with detail and links
- * (ADR-0059). Query items carry record names and render as plain text; a
+ * (ADR-0059). The pre-read narrative is not rendered here: it is the body of
+ * the notification and the Matrix post, opened from the page's status line. Query items carry record names and render as plain text; a
  * hand-added item is prose a person typed here, so it is Markdown (ADR-0017)
  * and a `[link](url)` in it becomes a link.
  */
-export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder, narrativeHint }: AgendaViewProps) {
+export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onReorder }: AgendaViewProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const move = (sectionKey: string, ids: string[], index: number, delta: number) => {
     const next = ids.slice();
@@ -41,19 +40,6 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
   };
   return (
     <Stack gap="md" data-testid="agenda-view">
-      {agenda.narrative && (
-        <Paper withBorder radius="md" p="md" data-testid="agenda-narrative">
-          <Text size="xs" fw={600} tt="uppercase" className="text-text-muted" mb={6}>
-            Pre-read
-          </Text>
-          <MarkdownRenderer content={agenda.narrative} variant="compact" />
-          {narrativeHint && (
-            <Text size="xs" className="text-text-muted" mt={8} data-testid="agenda-narrative-hint">
-              {narrativeHint}
-            </Text>
-          )}
-        </Paper>
-      )}
       {agenda.sections.map((section) => (
         <Paper key={section.key} withBorder radius="md" p="md" data-testid={`agenda-section-${section.key}`}>
           <Group justify="space-between" mb={6}>

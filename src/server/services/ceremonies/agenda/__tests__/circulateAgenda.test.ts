@@ -15,7 +15,7 @@ vi.mock("../postAgendaToMatrix", () => ({ postAgendaToMatrix }));
 const reportHandledErrorServer = vi.hoisted(() => vi.fn());
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
 
-import { circulateAgenda, sweepDueAgendas } from "../circulateAgenda";
+import { agendaChangedSinceSent, circulateAgenda, sweepDueAgendas } from "../circulateAgenda";
 
 const now = new Date("2026-09-10T08:00:00Z");
 const occ = {
@@ -175,5 +175,17 @@ describe("sweepDueAgendas", () => {
     expect(generateAgenda).toHaveBeenCalledWith(db, "booked-early", { now });
     expect(res.generated).toBe(1);
     expect(res.circulated).toBe(1);
+  });
+});
+
+describe("agendaChangedSinceSent", () => {
+  it("is true only when the agenda was regenerated after it was sent", () => {
+    const sent = new Date("2026-11-10T12:25:00Z");
+    expect(agendaChangedSinceSent(new Date("2026-11-10T12:49:00Z"), sent)).toBe(true);
+    // The sweep stamps both with one `now`.
+    expect(agendaChangedSinceSent(sent, sent)).toBe(false);
+    expect(agendaChangedSinceSent(new Date("2026-11-10T12:00:00Z"), sent)).toBe(false);
+    expect(agendaChangedSinceSent(new Date("2026-11-10T12:49:00Z"), null)).toBe(false);
+    expect(agendaChangedSinceSent(null, sent)).toBe(false);
   });
 });
