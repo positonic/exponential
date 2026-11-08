@@ -106,7 +106,9 @@ describe("carried_over section", () => {
   it("copies the previous occurrence's unresolved items with carriedFromOccurrenceId, skipping resolved ones", async () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
-    db.decision.findMany.mockResolvedValue([] as never);
+    // Every referenced Decision still exists and is open.
+    db.decision.findMany.mockImplementation(((args: { where: { id: { in: string[] } } }) =>
+      Promise.resolve(args.where.id.in.map((id) => ({ id, status: "OPEN" })))) as never);
     const previous = {
       id: "occ-0",
       scheduledStart: new Date("2026-09-09T08:00:00Z"),
@@ -134,7 +136,9 @@ describe("carried_over section", () => {
   it("emits one item per record when the same record is unresolved in two previous sections, keeping the higher carry count", async () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
-    db.decision.findMany.mockResolvedValue([] as never);
+    // Every referenced Decision still exists and is open.
+    db.decision.findMany.mockImplementation(((args: { where: { id: { in: string[] } } }) =>
+      Promise.resolve(args.where.id.in.map((id) => ({ id, status: "OPEN" })))) as never);
     const previous = {
       id: "occ-0",
       scheduledStart: new Date("2026-09-09T08:00:00Z"),
@@ -155,6 +159,27 @@ describe("carried_over section", () => {
     expect(items.map((i) => i.id)).toEqual(["carry:carried:decision:d-1"]);
     expect(items[0]!.carryCount).toBe(4);
     expect(items[0]!.order).toBe(0);
+  });
+
+  it("does not carry a deleted or accepted Decision, and carries an open one", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.decision.findMany.mockResolvedValue([{ id: "d-open", status: "OPEN" }, { id: "d-acc", status: "ACCEPTED" }] as never);
+    const previous = {
+      id: "occ-0",
+      agenda: {
+        version: 1,
+        generatedAt: "x",
+        sections: [
+          { key: "dec", type: "free_text", title: "D", items: [
+            { id: "dec:hand:1", sectionKey: "dec", title: "Open", refType: "decision", refId: "d-open", order: 0, addedByUserId: "u-1" },
+            { id: "dec:hand:2", sectionKey: "dec", title: "Accepted", refType: "decision", refId: "d-acc", order: 1, addedByUserId: "u-1" },
+            { id: "dec:hand:3", sectionKey: "dec", title: "Deleted", refType: "decision", refId: "d-gone", order: 2, addedByUserId: "u-1" },
+          ] },
+        ],
+      },
+    } as unknown as CeremonyOccurrence;
+    const items = await carriedOverSection.run(ctx(db, { previousOccurrence: previous }), { key: "carry", type: "carried_over", title: "Carried over" });
+    expect(items.map((i) => i.refId)).toEqual(["d-open"]);
   });
 
   it("does not carry an Action completed elsewhere though its line was never ticked", async () => {
@@ -181,13 +206,17 @@ describe("carried_over section", () => {
   it("is empty without a previous agenda", async () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
-    db.decision.findMany.mockResolvedValue([] as never);
+    // Every referenced Decision still exists and is open.
+    db.decision.findMany.mockImplementation(((args: { where: { id: { in: string[] } } }) =>
+      Promise.resolve(args.where.id.in.map((id) => ({ id, status: "OPEN" })))) as never);
     expect(await carriedOverSection.run(ctx(db), { key: "c", type: "carried_over", title: "C" })).toEqual([]);
   });
   it("skips a record another section of this agenda produced (producedRefIds)", async () => {
     const db = mockDeep<PrismaClient>();
     db.action.findMany.mockResolvedValue([{ id: "a-1", status: "ACTIVE" }] as never);
-    db.decision.findMany.mockResolvedValue([] as never);
+    // Every referenced Decision still exists and is open.
+    db.decision.findMany.mockImplementation(((args: { where: { id: { in: string[] } } }) =>
+      Promise.resolve(args.where.id.in.map((id) => ({ id, status: "OPEN" })))) as never);
     const previous = {
       id: "occ-0",
       agenda: {

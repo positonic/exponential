@@ -7,7 +7,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { readAgendaSnapshot, type AgendaItem, type AgendaItemKind, type AgendaSnapshot } from "./types";
 import type { ActionActor } from "~/server/services/actions/types";
-import { buildDecisionAccessWhere } from "~/server/services/access/resolvers/decisionResolver";
+import { buildDecisionAccessWhere, buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 import { appendMeetingSummaryToNotes } from "../notesSeed";
 import { filterUnsettledItems } from "./live";
 
@@ -201,18 +201,27 @@ export async function addAgendaItem(
     if (!input.decisionId && !input.decisionNumber) {
       throw new TRPCError({ code: "BAD_REQUEST", message: "A decision item needs a decision id or D-number" });
     }
+    const ref = input.decisionId ? { id: input.decisionId } : { number: input.decisionNumber! };
+    // The adder must be able to read it (a restricted one reads as not
+    // found, as the decision router would answer) …
     const decision = await db.decision.findFirst({
-      where: {
-        ...(input.decisionId ? { id: input.decisionId } : { number: input.decisionNumber! }),
-        // Only a Decision the adder may read (confirmed, and visible through
-        // its meeting, project or the workspace): its statement is copied
-        // onto an agenda every workspace member can see. A restricted one
-        // reads as not found, as the decision router would answer.
-        AND: [buildDecisionAccessWhere(input.userId, occurrence.workspaceId)],
-      },
+      where: { ...ref, AND: [buildDecisionAccessWhere(input.userId, occurrence.workspaceId)] },
       select: { id: true, statement: true },
     });
     if (!decision) throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found in this workspace" });
+    // … and so must everyone else: the statement is copied into a snapshot
+    // every workspace member reads and that is circulated by notification
+    // and Matrix. One behind a restricted project or a private recording is
+    // refused, though the adder can read it.
+    const shareable = await db.decision.count({
+      where: { id: decision.id, AND: [buildWorkspaceAudienceDecisionWhere(occurrence.workspaceId)] },
+    });
+    if (shareable === 0) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "That decision is in a restricted project or a private meeting, so it can't go on an agenda the whole workspace reads",
+      });
+    }
     return writeHandItem(db, occurrenceId, input.sectionKey, now, (id) => ({
       id,
       title: title || decision.statement,

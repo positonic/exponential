@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
 import { occurrenceActionsSection } from "../sections/occurrence_actions";
+import { buildWorkspaceAudienceActionWhere } from "~/server/services/access/resolvers/actionResolver";
 import { decisionsMadeSection } from "../sections/decisions_made";
 import { buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 import type { SectionContext } from "../types";
@@ -39,7 +40,7 @@ describe("occurrence_actions", () => {
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
     expect(where).toMatchObject({ workspaceId: "ws-1", status: { notIn: ["DRAFT", "DELETED", "CANCELLED"] } });
     // No project: only the occurrence's own actions, never participants' personal ones.
-    expect(where.OR).toEqual([{ occurrenceId: "occ-0" }]);
+    expect(where.OR).toEqual([{ occurrenceId: "occ-0", OR: [{ projectId: null }, buildWorkspaceAudienceActionWhere("ws-1")] }]);
     expect(items.map((i) => [i.id, i.detail, i.resolvedAt])).toEqual([
       ["status:action:a-1", "Zineb · due 14 Nov · done", "2026-11-13T09:00:00.000Z"],
       ["status:action:a-2", "unassigned · due 12 Nov · overdue", null],
@@ -53,8 +54,13 @@ describe("occurrence_actions", () => {
     db.action.findMany.mockResolvedValue([] as never);
     await occurrenceActionsSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "status", type: "occurrence_actions", title: "S" });
     expect(db.action.findMany.mock.calls[0]![0]!.where!.OR).toEqual([
-      { occurrenceId: "occ-0" },
-      { projectId: { in: ["prj-1"] }, assignees: { some: { userId: { in: ["u-1", "u-2"] } } }, dueDate: { gte: prevStart, lte: now } },
+      { occurrenceId: "occ-0", OR: [{ projectId: null }, buildWorkspaceAudienceActionWhere("ws-1")] },
+      {
+        ...buildWorkspaceAudienceActionWhere("ws-1"),
+        projectId: { in: ["prj-1"] },
+        assignees: { some: { userId: { in: ["u-1", "u-2"] } } },
+        dueDate: { gte: prevStart, lte: now },
+      },
     ]);
   });
 
