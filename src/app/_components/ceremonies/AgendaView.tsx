@@ -5,20 +5,28 @@ import { useState } from "react";
 import { ActionIcon, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from "@mantine/core";
 import { IconArrowDown, IconArrowUp, IconPlus } from "@tabler/icons-react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import type { AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
-/** Item kinds that should roll up to an objective; the rest (cycles, text) need no chip. */
-const GOAL_BEARING: ReadonlySet<string> = new Set(["action", "decision", "key_result", "ticket", "project"]);
+/**
+ * Whether resolving the item means anything: an action gets done, an open
+ * question gets decided, a point someone added by hand gets covered. A
+ * cycle's progress, a project card, a key result or a meeting is context to
+ * read, not a task to tick, so those get a bullet instead of a checkbox.
+ */
+export function isResolvableItem(item: Pick<AgendaItem, "refType" | "addedByUserId">): boolean {
+  if (item.refType === "action" || item.refType === "decision") return true;
+  return item.refType === "text" && Boolean(item.addedByUserId);
+}
 
 interface AgendaViewProps {
   agenda: AgendaSnapshot;
   /** App-relative path of the OKR dashboard for goal chips. */
   goalsHref?: string;
-  /** When given, each item gets a resolve checkbox. */
+  /** When given, items of a resolvable kind (see `isResolvableItem`) get a resolve checkbox. */
   onToggleResolved?: (itemId: string, resolved: boolean) => void;
   /** When given, each section gets an "add item" input. */
   onAddItem?: (sectionKey: string, title: string) => void;
-  /** When given, items get move up/down controls. */
+  /** When given, items get move up/down controls, shown on hover or focus. */
   onReorder?: (sectionKey: string, itemIds: string[]) => void;
 }
 
@@ -43,12 +51,7 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
       {agenda.sections.map((section) => (
         <Paper key={section.key} withBorder radius="md" p="md" data-testid={`agenda-section-${section.key}`}>
           <Group justify="space-between" mb={6}>
-            <Group gap="xs">
-              <Text fw={600}>{section.title}</Text>
-              <Badge size="xs" variant="light">
-                {section.type.replace(/_/g, " ")}
-              </Badge>
-            </Group>
+            <Text fw={600}>{section.title}</Text>
             {section.minutes ? (
               <Text size="xs" className="text-text-muted">
                 {section.minutes} min
@@ -62,8 +65,8 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
           ) : (
             <Stack gap={6}>
               {section.items.map((item, index) => (
-                <div key={item.id} className="flex items-start gap-2" data-testid={`agenda-item-${item.id}`}>
-                  {onToggleResolved ? (
+                <div key={item.id} className="group flex items-start gap-2" data-testid={`agenda-item-${item.id}`}>
+                  {onToggleResolved && isResolvableItem(item) ? (
                     <Checkbox
                       size="xs"
                       mt={3}
@@ -97,7 +100,7 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                         {item.detail}
                       </Text>
                     )}
-                    {/* Goal chips (ADR-0059): what the item rolls up to, or an honest flag that nothing does. */}
+                    {/* Goal chips (ADR-0059): what the item rolls up to, when known. */}
                     {(item.goalTitle ?? item.keyResultTitle) ? (
                       <Group gap={4} mt={2} data-testid={`agenda-goal-${item.id}`}>
                         {(() => {
@@ -124,14 +127,16 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                           );
                         })()}
                       </Group>
-                    ) : GOAL_BEARING.has(item.refType) ? (
-                      <Text size="xs" className="text-text-muted" fs="italic" data-testid={`agenda-nogoal-${item.id}`}>
-                        no goal linked
-                      </Text>
                     ) : null}
                   </div>
                   {onReorder && section.items.length > 1 && (
-                    <Group gap={0} ml="auto" wrap="nowrap">
+                    <Group
+                      gap={0}
+                      ml="auto"
+                      wrap="nowrap"
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+                      data-testid={`agenda-item-reorder-${item.id}`}
+                    >
                       <ActionIcon size="xs" variant="subtle" color="gray" aria-label="Move up" disabled={index === 0} onClick={() => move(section.key, section.items.map((i) => i.id), index, -1)}>
                         <IconArrowUp size={12} />
                       </ActionIcon>
