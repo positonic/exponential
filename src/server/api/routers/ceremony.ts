@@ -32,7 +32,8 @@ import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { AGENDA_ITEM_KINDS, readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { parseDecisionLabel } from "~/lib/decision-label";
 import { enrichAgendaLive } from "~/server/services/ceremonies/agenda/live";
 import { actionWriteDeps } from "~/server/services/actions/types";
 import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
@@ -893,12 +894,31 @@ export const ceremonyRouter = createTRPCRouter({
         workspaceId: z.string(),
         occurrenceId: z.string(),
         sectionKey: z.string(),
-        title: z.string().trim().min(1).max(300),
+        // Optional only for a decision item, which defaults to the Decision's statement.
+        title: z.string().trim().max(300).optional(),
         detail: z.string().max(5000).nullish(),
-        kind: z.enum(["note", "action"]).optional(),
+        kind: z.enum(AGENDA_ITEM_KINDS).optional(),
         assigneeId: z.string().nullish(),
         // Coerced: agents post over plain JSON, where a date arrives as a string.
         dueDate: z.coerce.date().nullish(),
+        decisionId: z.string().nullish(),
+        // The number behind D-0150; a "D-0150" label is accepted too.
+        decisionNumber: z
+          .union([z.number().int().positive(), z.string().trim()])
+          .nullish()
+          .transform((v, zctx) => {
+            if (v === null || v === undefined || typeof v === "number") return v;
+            const n = parseDecisionLabel(v) ?? (/^\d+$/.test(v) ? Number(v) : null);
+            if (n === null) {
+              zctx.addIssue({ code: z.ZodIssueCode.custom, message: "Not a decision number" });
+              return z.NEVER;
+            }
+            return n;
+          }),
+      }).superRefine((v, zctx) => {
+        if (v.kind !== "decision" && !v.title) {
+          zctx.addIssue({ code: z.ZodIssueCode.custom, path: ["title"], message: "Title is required" });
+        }
       }),
     )
     .use(requireWorkspaceMembership("edit"))
@@ -910,12 +930,14 @@ export const ceremonyRouter = createTRPCRouter({
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
       const agenda = await addAgendaItem(ctx.db, occurrence.id, {
         sectionKey: input.sectionKey,
-        title: input.title,
+        title: input.title ?? "",
         detail: input.detail,
         userId: ctx.session.user.id,
         kind: input.kind,
         assigneeId: input.assigneeId,
         dueDate: input.dueDate,
+        decisionId: input.decisionId,
+        decisionNumber: input.decisionNumber,
         actor: actionWriteDeps(ctx).actor,
       });
       return { occurrenceId: occurrence.id, agenda };

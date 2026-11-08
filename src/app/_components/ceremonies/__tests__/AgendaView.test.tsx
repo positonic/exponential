@@ -48,6 +48,8 @@ describe("isResolvableItem", () => {
     expect(isResolvableItem({ refType: "decision" })).toBe(true);
     expect(isResolvableItem({ refType: "text", addedByUserId: "u-1" })).toBe(true);
     expect(isResolvableItem({ refType: "text" })).toBe(false);
+    expect(isResolvableItem({ refType: "decision", live: { kind: "decision", status: "PROPOSED", number: 1 } })).toBe(true);
+    expect(isResolvableItem({ refType: "decision", live: { kind: "decision", status: "ACCEPTED", number: 1 } })).toBe(false);
     for (const refType of ["cycle", "project", "key_result", "goal", "meeting", "ticket"] as const) {
       expect(isResolvableItem({ refType })).toBe(false);
     }
@@ -122,6 +124,26 @@ describe("AgendaView", () => {
     expect(screen.getByTestId("agenda-item-live-act")).toHaveTextContent("Zineb · due 14 Nov");
     expect(screen.getByTestId("agenda-item-state-act")).toHaveTextContent("done");
     expect(screen.getByTestId("agenda-item-resolve-act")).toBeChecked();
+  });
+});
+
+describe("AgendaView decision items", () => {
+  it("shows a linked Decision's D-number and live status on a hand item", () => {
+    const withDecision: AgendaSnapshot = {
+      ...agenda,
+      sections: [
+        {
+          key: "s",
+          type: "free_text",
+          title: "Decisions",
+          items: [item("dec", { refType: "decision", addedByUserId: "u-1", live: { kind: "decision", status: "OPEN", number: 150 } })],
+        },
+      ],
+    };
+    render(<AgendaView agenda={withDecision} onToggleResolved={vi.fn()} />);
+    expect(screen.getByTestId("agenda-item-live-dec")).toHaveTextContent("D-0150");
+    expect(screen.getByTestId("agenda-item-state-dec")).toHaveTextContent("open question");
+    expect(screen.getByTestId("agenda-item-resolve-dec")).not.toBeChecked();
   });
 });
 

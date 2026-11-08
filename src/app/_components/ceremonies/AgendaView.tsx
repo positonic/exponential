@@ -7,6 +7,7 @@ import { IconArrowDown, IconArrowUp, IconPlus } from "@tabler/icons-react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import type { AgendaItem, AgendaItemLive, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 import { linkAgendaRefs, type AgendaRefLinkContext } from "./linkAgendaRefs";
+import { formatDecisionLabel } from "~/lib/decision-label";
 
 /**
  * Whether resolving the item means anything: an action gets done, an open
@@ -23,15 +24,29 @@ export function actionLiveState(live: Extract<AgendaItemLive, { kind: "action" }
   return "open";
 }
 
-/** An item reads as resolved when someone ticked it, or when the Action it references is done. */
+/** An item reads as resolved when someone ticked it, or when the record it references is settled. */
 export function isItemResolved(item: Pick<AgendaItem, "resolvedAt" | "live">): boolean {
-  return Boolean(item.resolvedAt) || (item.live?.kind === "action" && item.live.status === "COMPLETED");
+  if (item.resolvedAt) return true;
+  if (item.live?.kind === "action") return item.live.status === "COMPLETED";
+  if (item.live?.kind === "decision") return item.live.status === "ACCEPTED";
+  return false;
 }
 
 const STATE_COLOR = { done: "green", overdue: "red", open: "gray" } as const;
 
-export function isResolvableItem(item: Pick<AgendaItem, "refType" | "addedByUserId">): boolean {
-  if (item.refType === "action" || item.refType === "decision") return true;
+/** Decision statuses that still ask for a decision. */
+const OPEN_DECISION: ReadonlySet<string> = new Set(["OPEN", "PROPOSED"]);
+
+/** How a Decision's status reads on an agenda line. */
+function decisionStatusLabel(status: string): string {
+  return status === "OPEN" ? "open question" : status.toLowerCase();
+}
+
+export function isResolvableItem(item: Pick<AgendaItem, "refType" | "addedByUserId" | "live">): boolean {
+  if (item.refType === "action") return true;
+  // A decision is resolvable while it is still open or proposed; one already
+  // accepted (or superseded) is a fact to read, not a question to close.
+  if (item.refType === "decision") return item.live?.kind !== "decision" || OPEN_DECISION.has(item.live.status);
   return item.refType === "text" && Boolean(item.addedByUserId);
 }
 
@@ -147,6 +162,22 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                         </Group>
                       );
                     })()}
+                    {/* Query decision items already carry "D-0003 · open question" in their detail. */}
+                    {item.live?.kind === "decision" && item.addedByUserId && (
+                      <Group gap={6} mt={2} data-testid={`agenda-item-live-${item.id}`}>
+                        <Badge size="xs" variant="outline">
+                          {formatDecisionLabel(item.live.number)}
+                        </Badge>
+                        <Badge
+                          size="xs"
+                          variant="light"
+                          color={OPEN_DECISION.has(item.live.status) ? "yellow" : item.live.status === "ACCEPTED" ? "green" : "gray"}
+                          data-testid={`agenda-item-state-${item.id}`}
+                        >
+                          {decisionStatusLabel(item.live.status)}
+                        </Badge>
+                      </Group>
+                    )}
                     {/* Goal chips (ADR-0059): what the item rolls up to, when known. */}
                     {(item.goalTitle ?? item.keyResultTitle) ? (
                       <Group gap={4} mt={2} data-testid={`agenda-goal-${item.id}`}>

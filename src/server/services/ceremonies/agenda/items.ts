@@ -111,6 +111,9 @@ export interface AddAgendaItemInput {
   dueDate?: Date | null;
   /** kind "action": the writer, for the Action write module's gates. Required for that kind. */
   actor?: ActionActor;
+  /** kind "decision": the Decision to link, by id or by its number (150 for D-0150). */
+  decisionId?: string | null;
+  decisionNumber?: number | null;
 }
 
 /**
@@ -183,6 +186,38 @@ export async function addAgendaItem(
         cause: error,
       });
     }
+  }
+
+  if (kind === "decision") {
+    // Links an existing Decision; never creates one. Creation stays with
+    // decision.create and its draft-confirm rules (ADR-0070).
+    const occurrence = await db.ceremonyOccurrence.findUnique({
+      where: { id: occurrenceId },
+      select: { workspaceId: true, ceremony: { select: { workspace: { select: { slug: true } } } } },
+    });
+    if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+    if (!input.decisionId && !input.decisionNumber) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "A decision item needs a decision id or D-number" });
+    }
+    const decision = await db.decision.findFirst({
+      where: {
+        workspaceId: occurrence.workspaceId,
+        reviewState: { not: "REJECTED" },
+        ...(input.decisionId ? { id: input.decisionId } : { number: input.decisionNumber! }),
+      },
+      select: { id: true, statement: true },
+    });
+    if (!decision) throw new TRPCError({ code: "NOT_FOUND", message: "Decision not found in this workspace" });
+    return writeHandItem(db, occurrenceId, input.sectionKey, now, (id) => ({
+      id,
+      title: title || decision.statement,
+      refType: "decision",
+      refId: decision.id,
+      addedByUserId: input.userId,
+      // The D-number and live status render from `live` (enrichAgendaLive).
+      detail,
+      href: `/w/${occurrence.ceremony.workspace.slug}/decisions/d/${decision.id}`,
+    }));
   }
 
   return writeHandItem(db, occurrenceId, input.sectionKey, now, (id) => ({

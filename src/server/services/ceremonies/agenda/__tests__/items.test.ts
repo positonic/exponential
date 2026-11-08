@@ -287,3 +287,43 @@ describe("resolveAgendaItem", () => {
     expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
   });
 });
+
+describe("addAgendaItem kind decision", () => {
+  beforeEach(() => createAction.mockReset());
+  const occ = { workspaceId: "ws-1", ceremony: { workspace: { slug: "clear" } } };
+
+  it("links an existing Decision by number, defaulting the title to its statement, and creates none", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occ as never)
+      .mockResolvedValueOnce({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    db.decision.findFirst.mockResolvedValue({ id: "d-150", statement: "Ship CSV export?" } as never);
+
+    const res = await addAgendaItem(db, "occ-1", { kind: "decision", sectionKey: "blk", title: "", userId: "u-1", decisionNumber: 150 }, now);
+
+    expect(db.decision.findFirst.mock.calls[0]![0]!.where).toMatchObject({ workspaceId: "ws-1", number: 150, reviewState: { not: "REJECTED" } });
+    expect(res.sections[0]!.items[2]).toMatchObject({
+      refType: "decision",
+      refId: "d-150",
+      title: "Ship CSV export?",
+      href: "/w/clear/decisions/d/d-150",
+      addedByUserId: "u-1",
+    });
+    expect(db.decision.create).not.toHaveBeenCalled();
+    expect(createAction).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown decision, and a call naming none", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(occ as never);
+    db.decision.findFirst.mockResolvedValue(null);
+    await expect(
+      addAgendaItem(db, "occ-1", { kind: "decision", sectionKey: "blk", title: "", userId: "u-1", decisionId: "nope" }, now),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      addAgendaItem(db, "occ-1", { kind: "decision", sectionKey: "blk", title: "", userId: "u-1" }, now),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+  });
+});
