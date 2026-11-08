@@ -72,6 +72,23 @@ describe("circulateAgenda", () => {
     });
   });
 
+  it("records no count when the notification pipeline failed, rather than zero", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.$transaction.mockImplementation(((fn: (tx: PrismaClient) => Promise<unknown>) => fn(db)) as never);
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occ as never)
+      .mockResolvedValueOnce({ agenda: { version: 1, generatedAt: "x", sections: [], sentRecipientCount: 4 } } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    emitNotification.mockResolvedValueOnce(null as never);
+
+    await circulateAgenda(db, "occ-1", { actorUserId: "u-3", now });
+
+    expect(db.ceremonyOccurrence.update).toHaveBeenLastCalledWith({
+      where: { id: "occ-1" },
+      data: { agenda: { version: 1, generatedAt: "x", sections: [], sentRecipientCount: null } },
+    });
+  });
+
   it("is a no-op without an agenda, or when already circulated unless forced", async () => {
     const db = mockDeep<PrismaClient>();
     db.ceremonyOccurrence.findUnique.mockResolvedValueOnce({ ...occ, agenda: null } as never);
