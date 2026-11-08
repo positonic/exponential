@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "~/test/test-utils";
 import "@testing-library/jest-dom/vitest";
 
-import { AgendaView, isResolvableItem } from "../AgendaView";
+import { AgendaView, actionLiveState, isResolvableItem } from "../AgendaView";
 import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 
 const item = (id: string, extra: Partial<AgendaItem>): AgendaItem => ({
@@ -98,5 +98,39 @@ describe("AgendaView", () => {
     expect(screen.getByRole("link", { name: "#1339" })).toHaveAttribute("href", "/w/clear/products/clear-app/tickets/1339");
     expect(screen.getByRole("link", { name: "D-0150" })).toHaveAttribute("href", "/w/clear/decisions/d/D-0150");
     expect(screen.getByTestId("agenda-item-detail-q")).toHaveTextContent("due 8 Nov · *Andi*");
+  });
+
+  it("shows an Action-backed item's owner, due date and live status, ticked when the Action is done", () => {
+    const live: AgendaSnapshot = {
+      ...agenda,
+      sections: [
+        {
+          key: "s",
+          type: "free_text",
+          title: "Actions",
+          items: [
+            item("act", {
+              refType: "action",
+              addedByUserId: "u-1",
+              live: { kind: "action", status: "COMPLETED", completedAt: "2026-11-09T10:00:00Z", dueDate: "2026-11-14T00:00:00Z", assignees: [{ id: "u-z", name: "Zineb", image: null }] },
+            }),
+          ],
+        },
+      ],
+    };
+    render(<AgendaView agenda={live} onToggleResolved={vi.fn()} />);
+    expect(screen.getByTestId("agenda-item-live-act")).toHaveTextContent("Zineb · due 14 Nov");
+    expect(screen.getByTestId("agenda-item-state-act")).toHaveTextContent("done");
+    expect(screen.getByTestId("agenda-item-resolve-act")).toBeChecked();
+  });
+});
+
+describe("actionLiveState", () => {
+  const base = { kind: "action" as const, completedAt: null, assignees: [] };
+  const now = new Date("2026-11-10T12:00:00Z");
+  it("is done, overdue or open", () => {
+    expect(actionLiveState({ ...base, status: "COMPLETED", dueDate: "2026-11-01T00:00:00Z" }, now)).toBe("done");
+    expect(actionLiveState({ ...base, status: "ACTIVE", dueDate: "2026-11-01T00:00:00Z" }, now)).toBe("overdue");
+    expect(actionLiveState({ ...base, status: "ACTIVE", dueDate: null }, now)).toBe("open");
   });
 });

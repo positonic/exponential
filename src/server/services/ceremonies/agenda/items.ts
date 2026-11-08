@@ -5,7 +5,8 @@
  */
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { readAgendaSnapshot, type AgendaItem, type AgendaSnapshot } from "./types";
+import { readAgendaSnapshot, type AgendaItem, type AgendaItemKind, type AgendaSnapshot } from "./types";
+import type { ActionActor } from "~/server/services/actions/types";
 import { appendMeetingSummaryToNotes } from "../notesSeed";
 
 /**
@@ -67,30 +68,121 @@ export async function setAgendaItemResolved(
   });
 }
 
-/** A person adds an item by hand; it survives regeneration (buildAgenda keeps `addedByUserId` items). */
+export interface AddAgendaItemInput {
+  sectionKey: string;
+  title: string;
+  /** Markdown. A note's supporting line; an action's description. */
+  detail?: string | null;
+  /** Who added it (`addedByUserId`); hand items survive regeneration. */
+  userId: string;
+  /** What the item is (V9). Omitted means a note, the shape every caller used before kinds existed. */
+  kind?: AgendaItemKind;
+  /** kind "action": the owner; omitted leaves the Action unassigned. */
+  assigneeId?: string | null;
+  /** kind "action": when it is due. */
+  dueDate?: Date | null;
+  /** kind "action": the writer, for the Action write module's gates. Required for that kind. */
+  actor?: ActionActor;
+}
+
+/**
+ * A person (or an agent) adds an item by hand; it survives regeneration
+ * (buildAgenda keeps `addedByUserId` items). A note is prose on the
+ * snapshot. An action item creates a real Action first, through the Action
+ * write module, in the ceremony's project when it has exactly one and linked
+ * to this occurrence, and the item references it, so the work lands on its
+ * owner's list and is chased like any Action.
+ */
 export async function addAgendaItem(
   db: PrismaClient,
   occurrenceId: string,
-  input: { sectionKey: string; title: string; detail?: string | null; userId: string },
+  input: AddAgendaItemInput,
   now = new Date(),
+): Promise<AgendaSnapshot> {
+  const kind = input.kind ?? "note";
+  const title = input.title.trim();
+  const detail = input.detail?.trim() ? input.detail.trim() : null;
+
+  if (kind === "action") {
+    if (!input.actor) throw new TRPCError({ code: "BAD_REQUEST", message: "An action item needs the writer's identity" });
+    const occurrence = await db.ceremonyOccurrence.findUnique({
+      where: { id: occurrenceId },
+      select: {
+        workspaceId: true,
+        agenda: true,
+        ceremony: { select: { projects: { select: { projectId: true } }, workspace: { select: { slug: true } } } },
+      },
+    });
+    const agenda = occurrence ? readAgendaSnapshot(occurrence.agenda) : null;
+    if (!occurrence || !agenda) throw new TRPCError({ code: "NOT_FOUND", message: "This occurrence has no agenda yet" });
+    // Refuse before creating anything: an Action for a section that does not exist would be orphaned.
+    if (!agenda.sections.some((s) => s.key === input.sectionKey)) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Agenda section not found" });
+    }
+    const projects = occurrence.ceremony.projects;
+    // Loaded here, not at the top: the Action write module reaches the Prisma
+    // singleton at load, and this module is imported by routers and meeting
+    // services whose unit tests run without one (see reportCaptureError).
+    const { createAction } = await import("~/server/services/actions/createAction");
+    const action = await createAction(
+      { db, actor: input.actor },
+      {
+        name: title,
+        ...(detail ? { description: detail } : {}),
+        source: "ceremony",
+        workspaceId: occurrence.workspaceId,
+        ...(projects.length === 1 ? { projectId: projects[0]!.projectId } : {}),
+        ...(input.assigneeId ? { assigneeIds: [input.assigneeId] } : {}),
+        ...(input.dueDate ? { dueDate: input.dueDate } : {}),
+        occurrenceId,
+      },
+    );
+    try {
+      return await writeHandItem(db, occurrenceId, input.sectionKey, now, (id) => ({
+        id,
+        title,
+        refType: "action",
+        refId: action.id,
+        addedByUserId: input.userId,
+        detail,
+        href: `/w/${occurrence.ceremony.workspace.slug}/actions/${action.id}`,
+      }));
+    } catch (error) {
+      // The Action is committed and stays; say which one, so it is not lost.
+      throw new TRPCError({
+        code: error instanceof TRPCError ? error.code : "INTERNAL_SERVER_ERROR",
+        message: `Created the action "${title}" (${action.id}) but could not add it to the agenda`,
+        cause: error,
+      });
+    }
+  }
+
+  return writeHandItem(db, occurrenceId, input.sectionKey, now, (id) => ({
+    id,
+    title,
+    refType: "text",
+    refId: id,
+    addedByUserId: input.userId,
+    detail,
+  }));
+}
+
+/** Append one hand item to a section inside the agenda transaction. */
+async function writeHandItem(
+  db: PrismaClient,
+  occurrenceId: string,
+  sectionKey: string,
+  now: Date,
+  build: (id: string) => Omit<AgendaItem, "sectionKey" | "order">,
 ): Promise<AgendaSnapshot> {
   return withAgendaTransaction(db, async (tx) => {
     const occurrence = await tx.ceremonyOccurrence.findUnique({ where: { id: occurrenceId }, select: { agenda: true } });
     const agenda = occurrence ? readAgendaSnapshot(occurrence.agenda) : null;
     if (!agenda) throw new TRPCError({ code: "NOT_FOUND", message: "This occurrence has no agenda yet" });
-    const section = agenda.sections.find((s) => s.key === input.sectionKey);
+    const section = agenda.sections.find((s) => s.key === sectionKey);
     if (!section) throw new TRPCError({ code: "NOT_FOUND", message: "Agenda section not found" });
     const id = `${section.key}:hand:${now.getTime().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    section.items.push({
-      id,
-      sectionKey: section.key,
-      title: input.title.trim(),
-      refType: "text",
-      refId: id,
-      order: section.items.length,
-      addedByUserId: input.userId,
-      detail: input.detail?.trim() ? input.detail.trim() : null,
-    });
+    section.items.push({ ...build(id), sectionKey: section.key, order: section.items.length });
     section.emptyReason = null;
     // An item added after the agenda was sent means participants have an
     // older agenda: the page reads this as "changed since" (agendaChangedSinceSent).

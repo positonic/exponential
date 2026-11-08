@@ -841,6 +841,41 @@ describe("ceremony router", () => {
     });
   });
 
+  describe("getOccurrence live record state", () => {
+    it("returns an action item with its Action's current owner, due date and status", async () => {
+      withWorkspaceRole(db, "member");
+      db.ceremonyOccurrence.findFirst.mockResolvedValue({
+        id: "occ-1",
+        status: "PLANNED",
+        agenda: {
+          version: 1,
+          generatedAt: "x",
+          sections: [
+            {
+              key: "s",
+              type: "free_text",
+              title: "S",
+              items: [{ id: "s:hand:1", sectionKey: "s", title: "Respond", refType: "action", refId: "act-1", order: 0, addedByUserId: USER_ID }],
+            },
+          ],
+        },
+        agendaGeneratedAt: null,
+        agendaCirculatedAt: null,
+        ceremony: { id: "cer-1", name: "PP", kind: "CUSTOM", ownerId: USER_ID, isOneOff: false, purpose: null },
+        recordedMeetings: [],
+        scheduledMeeting: null,
+      } as never);
+      db.ceremonyOccurrence.findUnique.mockResolvedValue({ status: "PLANNED", agenda: null, ceremony: { kind: "CUSTOM" } } as never);
+      db.action.findMany.mockResolvedValue([
+        { id: "act-1", status: "COMPLETED", completedAt: new Date("2026-11-09T10:00:00Z"), dueDate: null, assignees: [{ user: { id: "u-z", name: "Zineb", image: null } }] },
+      ] as never);
+
+      const res = await caller(db).ceremony.getOccurrence({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      expect(res.agenda?.sections[0]!.items[0]!.live).toMatchObject({ kind: "action", status: "COMPLETED", assignees: [{ name: "Zineb" }] });
+    });
+  });
+
   describe("getOccurrence on a one-off", () => {
     it("returns isOneOff, the purpose and the booking with attendee names only", async () => {
       withWorkspaceRole(db, "member");

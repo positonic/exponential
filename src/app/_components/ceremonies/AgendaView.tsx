@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ActionIcon, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from "@mantine/core";
+import { ActionIcon, Avatar, Badge, Button, Checkbox, Group, Paper, Stack, Text, TextInput } from "@mantine/core";
 import { IconArrowDown, IconArrowUp, IconPlus } from "@tabler/icons-react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
-import type { AgendaItem, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import type { AgendaItem, AgendaItemLive, AgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
 import { linkAgendaRefs, type AgendaRefLinkContext } from "./linkAgendaRefs";
 
 /**
@@ -14,6 +14,22 @@ import { linkAgendaRefs, type AgendaRefLinkContext } from "./linkAgendaRefs";
  * cycle's progress, a project card, a key result or a meeting is context to
  * read, not a task to tick, so those get a bullet instead of a checkbox.
  */
+const dueFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+
+/** Where a referenced Action stands right now: done, past due, or open. */
+export function actionLiveState(live: Extract<AgendaItemLive, { kind: "action" }>, now = new Date()): "done" | "overdue" | "open" {
+  if (live.status === "COMPLETED") return "done";
+  if (live.dueDate && new Date(live.dueDate).getTime() < now.getTime()) return "overdue";
+  return "open";
+}
+
+/** An item reads as resolved when someone ticked it, or when the Action it references is done. */
+export function isItemResolved(item: Pick<AgendaItem, "resolvedAt" | "live">): boolean {
+  return Boolean(item.resolvedAt) || (item.live?.kind === "action" && item.live.status === "COMPLETED");
+}
+
+const STATE_COLOR = { done: "green", overdue: "red", open: "gray" } as const;
+
 export function isResolvableItem(item: Pick<AgendaItem, "refType" | "addedByUserId">): boolean {
   if (item.refType === "action" || item.refType === "decision") return true;
   return item.refType === "text" && Boolean(item.addedByUserId);
@@ -75,16 +91,16 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                     <Checkbox
                       size="xs"
                       mt={3}
-                      checked={Boolean(item.resolvedAt)}
+                      checked={isItemResolved(item)}
                       onChange={(e) => onToggleResolved(item.id, e.currentTarget.checked)}
-                      aria-label={item.resolvedAt ? "Reopen item" : "Mark item resolved"}
+                      aria-label={isItemResolved(item) ? "Reopen item" : "Mark item resolved"}
                       data-testid={`agenda-item-resolve-${item.id}`}
                     />
                   ) : (
                     <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" aria-hidden />
                   )}
                   <div className="min-w-0">
-                    <Text size="sm" td={item.resolvedAt ? "line-through" : undefined}>
+                    <Text size="sm" td={isItemResolved(item) ? "line-through" : undefined}>
                       {item.href ? (
                         <Link href={item.href} className="hover:underline">
                           {item.title}
@@ -105,6 +121,32 @@ export function AgendaView({ agenda, goalsHref, onToggleResolved, onAddItem, onR
                         {item.addedByUserId ? <MarkdownRenderer content={prose(item.detail)} variant="inline" /> : item.detail}
                       </Text>
                     )}
+                    {item.live?.kind === "action" && (() => {
+                      const live = item.live;
+                      const state = actionLiveState(live);
+                      const owners = live.assignees.map((a) => a.name ?? "Someone");
+                      return (
+                        <Group gap={6} mt={2} wrap="wrap" data-testid={`agenda-item-live-${item.id}`}>
+                          {live.assignees.length > 0 ? (
+                            <Avatar.Group spacing={6}>
+                              {live.assignees.slice(0, 3).map((a) => (
+                                <Avatar key={a.id} src={a.image} size={16} radius="xl" alt={a.name ?? ""}>
+                                  {(a.name ?? "?").slice(0, 1)}
+                                </Avatar>
+                              ))}
+                            </Avatar.Group>
+                          ) : null}
+                          <Text size="xs" className="text-text-muted">
+                            {[owners.length ? owners.join(", ") : "unassigned", live.dueDate ? `due ${new Date(live.dueDate).toLocaleDateString("en-GB", dueFmt)}` : null]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </Text>
+                          <Badge size="xs" variant="light" color={STATE_COLOR[state]} data-testid={`agenda-item-state-${item.id}`}>
+                            {state}
+                          </Badge>
+                        </Group>
+                      );
+                    })()}
                     {/* Goal chips (ADR-0059): what the item rolls up to, when known. */}
                     {(item.goalTitle ?? item.keyResultTitle) ? (
                       <Group gap={4} mt={2} data-testid={`agenda-goal-${item.id}`}>

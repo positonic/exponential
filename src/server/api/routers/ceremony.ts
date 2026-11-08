@@ -33,6 +33,8 @@ import { emitNotification } from "~/server/services/notifications/emit/emitNotif
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { enrichAgendaLive } from "~/server/services/ceremonies/agenda/live";
+import { actionWriteDeps } from "~/server/services/actions/types";
 import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
 import { ONE_OFF_SECTION_TYPES } from "~/server/services/ceremonies/oneOffPresets";
 import { findCeremonyForMeetingUrl } from "~/server/services/ceremonies/matchMeetingUrl";
@@ -601,7 +603,11 @@ export const ceremonyRouter = createTRPCRouter({
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
-      const agenda = readAgendaSnapshot(occurrence.agenda);
+      const stored = readAgendaSnapshot(occurrence.agenda);
+      // Live owner, due date and status for items that reference records.
+      const agenda = stored
+        ? await enrichAgendaLive(ctx.db, stored, { workspaceId: input.workspaceId, userId })
+        : null;
       const { scheduledMeeting } = occurrence;
       return {
         ...occurrence,
@@ -874,9 +880,26 @@ export const ceremonyRouter = createTRPCRouter({
       return { occurrenceId: occurrence.id, agenda };
     }),
 
-  /** Add an item by hand to a section; kept across regeneration. */
+  /**
+   * Add an item by hand to a section; kept across regeneration (V9). `kind`
+   * says what it is: a note (the default, so a caller that sends only a title
+   * and detail keeps working), or an action, which creates a real Action
+   * owned by `assigneeId` and due `dueDate`, linked to this occurrence.
+   */
   addAgendaItem: protectedProcedure
-    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), title: z.string().trim().min(1).max(300), detail: z.string().max(500).nullish() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        sectionKey: z.string(),
+        title: z.string().trim().min(1).max(300),
+        detail: z.string().max(5000).nullish(),
+        kind: z.enum(["note", "action"]).optional(),
+        assigneeId: z.string().nullish(),
+        // Coerced: agents post over plain JSON, where a date arrives as a string.
+        dueDate: z.coerce.date().nullish(),
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
@@ -884,7 +907,16 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      const agenda = await addAgendaItem(ctx.db, occurrence.id, { sectionKey: input.sectionKey, title: input.title, detail: input.detail, userId: ctx.session.user.id });
+      const agenda = await addAgendaItem(ctx.db, occurrence.id, {
+        sectionKey: input.sectionKey,
+        title: input.title,
+        detail: input.detail,
+        userId: ctx.session.user.id,
+        kind: input.kind,
+        assigneeId: input.assigneeId,
+        dueDate: input.dueDate,
+        actor: actionWriteDeps(ctx).actor,
+      });
       return { occurrenceId: occurrence.id, agenda };
     }),
 

@@ -8,6 +8,8 @@ import { mockDeep } from "vitest-mock-extended";
 
 const appendMeetingSummaryToNotes = vi.hoisted(() => vi.fn());
 vi.mock("../../notesSeed", () => ({ appendMeetingSummaryToNotes }));
+const createAction = vi.hoisted(() => vi.fn());
+vi.mock("~/server/services/actions/createAction", () => ({ createAction }));
 const reportHandledErrorServer = vi.hoisted(() => vi.fn());
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
 
@@ -141,5 +143,97 @@ describe("addAgendaItem / reorderAgendaItems", () => {
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: added } as never);
     const reordered = await reorderAgendaItems(db, "occ-1", { sectionKey: "blk", itemIds: [items[2]!.id, "blk:action:a-1"] });
     expect(reordered.sections[0]!.items.map((i) => [i.id, i.order])).toEqual([[items[2]!.id, 0], ["blk:action:a-1", 1], ["blk:action:a-2", 2]]);
+  });
+});
+
+describe("addAgendaItem kinds", () => {
+  const actor = { userId: "u-1", isAdmin: false };
+  const occurrenceRow = (projects: string[]) => ({
+    workspaceId: "ws-1",
+    agenda: JSON.parse(JSON.stringify(agenda)),
+    ceremony: { projects: projects.map((projectId) => ({ projectId })), workspace: { slug: "clear" } },
+  });
+
+  beforeEach(() => createAction.mockReset());
+
+  it("treats a call without a kind as a note", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    const res = await addAgendaItem(db, "occ-1", { sectionKey: "blk", title: "Risk: vendor", detail: "**late**", userId: "u-1" }, now);
+    expect(res.sections[0]!.items[2]).toMatchObject({ refType: "text", title: "Risk: vendor", detail: "**late**" });
+    expect(createAction).not.toHaveBeenCalled();
+  });
+
+  it("creates one Action in the ceremony's single project, linked to the occurrence, and references it", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occurrenceRow(["prj-1"]) as never)
+      .mockResolvedValueOnce({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    createAction.mockResolvedValue({ id: "act-9" });
+    const due = new Date("2026-11-14T00:00:00Z");
+
+    const res = await addAgendaItem(
+      db,
+      "occ-1",
+      { kind: "action", sectionKey: "blk", title: "Respond to stakeholders", detail: "revised metrics", userId: "u-1", assigneeId: "u-zineb", dueDate: due, actor },
+      now,
+    );
+
+    expect(createAction).toHaveBeenCalledTimes(1);
+    expect(createAction).toHaveBeenCalledWith(
+      { db, actor },
+      {
+        name: "Respond to stakeholders",
+        description: "revised metrics",
+        source: "ceremony",
+        workspaceId: "ws-1",
+        projectId: "prj-1",
+        assigneeIds: ["u-zineb"],
+        dueDate: due,
+        occurrenceId: "occ-1",
+      },
+    );
+    expect(res.sections[0]!.items[2]).toMatchObject({
+      refType: "action",
+      refId: "act-9",
+      href: "/w/clear/actions/act-9",
+      addedByUserId: "u-1",
+      title: "Respond to stakeholders",
+    });
+  });
+
+  it("puts the Action in no project when the ceremony has several, and leaves it unassigned without an owner", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occurrenceRow(["prj-1", "prj-2"]) as never)
+      .mockResolvedValueOnce({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
+    db.ceremonyOccurrence.update.mockResolvedValue({} as never);
+    createAction.mockResolvedValue({ id: "act-10" });
+    await addAgendaItem(db, "occ-1", { kind: "action", sectionKey: "blk", title: "Follow up", userId: "u-1", actor }, now);
+    const input = createAction.mock.calls[0]![1] as Record<string, unknown>;
+    expect(input).not.toHaveProperty("projectId");
+    expect(input).not.toHaveProperty("assigneeIds");
+  });
+
+  it("refuses an unknown section before creating anything", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValueOnce(occurrenceRow([]) as never);
+    await expect(
+      addAgendaItem(db, "occ-1", { kind: "action", sectionKey: "nope", title: "x", userId: "u-1", actor }, now),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(createAction).not.toHaveBeenCalled();
+  });
+
+  it("names the Action it created when the agenda write then fails", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique
+      .mockResolvedValueOnce(occurrenceRow([]) as never)
+      .mockResolvedValueOnce({ agenda: null } as never);
+    createAction.mockResolvedValue({ id: "act-11" });
+    await expect(
+      addAgendaItem(db, "occ-1", { kind: "action", sectionKey: "blk", title: "Ship it", userId: "u-1", actor }, now),
+    ).rejects.toThrow(/act-11/);
   });
 });
