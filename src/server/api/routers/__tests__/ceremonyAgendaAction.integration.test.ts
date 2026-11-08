@@ -99,4 +99,23 @@ describe("ceremony agenda action items", () => {
     await caller.ceremony.resolveAgendaItem({ workspaceId: ws.id, occurrenceId: occurrence.id, itemId: item.id, resolved: false });
     expect(await db.action.findUniqueOrThrow({ where: { id: item.refId } })).toMatchObject({ status: "ACTIVE" });
   });
+
+  it("refuses to link a Decision the whole workspace cannot read, though the adder can", async () => {
+    const { owner, ws, occurrence } = await setup();
+    const restricted = await createProject(db, { createdById: owner.id, workspaceId: ws.id, isRestricted: true });
+    const decision = await db.decision.create({
+      data: { workspaceId: ws.id, number: 1, statement: "Restructure the team", status: "OPEN", reviewState: "CONFIRMED", createdById: owner.id, projectId: restricted.id },
+    });
+    const open = await db.decision.create({
+      data: { workspaceId: ws.id, number: 2, statement: "Ship CSV export?", status: "OPEN", reviewState: "CONFIRMED", createdById: owner.id },
+    });
+    const caller = createTestCaller(owner.id);
+
+    await expect(
+      caller.ceremony.addAgendaItem({ workspaceId: ws.id, occurrenceId: occurrence.id, sectionKey: "actions", kind: "decision", decisionId: decision.id }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const res = await caller.ceremony.addAgendaItem({ workspaceId: ws.id, occurrenceId: occurrence.id, sectionKey: "actions", kind: "decision", decisionNumber: "D-0002" });
+    expect(res.agenda.sections[0]!.items.map((i) => i.refId)).toEqual([open.id]);
+  });
 });

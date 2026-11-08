@@ -851,6 +851,7 @@ describe("ceremony router", () => {
         .mockResolvedValueOnce({ agenda: { version: 1, generatedAt: "x", sections: [{ key: "dec", type: "free_text", title: "D", items: [] }] } } as never);
       db.ceremonyOccurrence.update.mockResolvedValue({} as never);
       db.decision.findFirst.mockResolvedValue({ id: "d-150", statement: "Ship CSV export?" } as never);
+      db.decision.count.mockResolvedValue(1);
 
       const res = await caller(db).ceremony.addAgendaItem({
         workspaceId: WORKSPACE_ID,

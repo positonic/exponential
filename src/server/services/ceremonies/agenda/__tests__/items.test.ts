@@ -301,6 +301,7 @@ describe("addAgendaItem kind decision", () => {
       .mockResolvedValueOnce({ agenda: JSON.parse(JSON.stringify(agenda)) } as never);
     db.ceremonyOccurrence.update.mockResolvedValue({} as never);
     db.decision.findFirst.mockResolvedValue({ id: "d-150", statement: "Ship CSV export?" } as never);
+    db.decision.count.mockResolvedValue(1);
 
     const res = await addAgendaItem(db, "occ-1", { kind: "decision", sectionKey: "blk", title: "", userId: "u-1", decisionNumber: 150 }, now);
 
@@ -315,6 +316,18 @@ describe("addAgendaItem kind decision", () => {
     });
     expect(db.decision.create).not.toHaveBeenCalled();
     expect(createAction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision the adder can read but the whole workspace cannot", async () => {
+    const db = withTx(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(occ as never);
+    db.decision.findFirst.mockResolvedValue({ id: "d-9", statement: "Restructure the team" } as never);
+    db.decision.count.mockResolvedValue(0);
+    await expect(
+      addAgendaItem(db, "occ-1", { kind: "decision", sectionKey: "blk", title: "", userId: "u-1", decisionNumber: 9 }, now),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.decision.count.mock.calls[0]![0]!.where).toMatchObject({ id: "d-9", AND: [expect.objectContaining({ workspaceId: "ws-1", reviewState: "CONFIRMED" })] });
+    expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
   });
 
   it("refuses an unknown decision, and a call naming none", async () => {

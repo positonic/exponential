@@ -107,7 +107,8 @@ export async function filterUnsettledItems<T extends Pick<AgendaItem, "refType" 
     }
     if (item.refType === "decision") {
       const status = decisionStatus.get(item.refId);
-      return status === undefined || !SETTLED_DECISION.has(status);
+      // A deleted Decision, like a deleted Action, has nothing left to carry.
+      return status !== undefined && !SETTLED_DECISION.has(status);
     }
     return true;
   });
