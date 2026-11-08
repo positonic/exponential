@@ -235,14 +235,14 @@ export function CeremonyEditorDrawer({
   const isEdit = Boolean(ceremonyId);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
-  const { data: existing } = api.ceremony.get.useQuery(
+  const { data: existing, error: existingError } = api.ceremony.get.useQuery(
     { workspaceId, id: ceremonyId ?? "" },
     { enabled: opened && Boolean(ceremonyId) },
   );
   const { data: members = [] } = api.workspace.listMembers.useQuery({ workspaceId }, { enabled: opened });
   const { data: products = [] } = api.product.product.list.useQuery({ workspaceId }, { enabled: opened });
   const { data: projects = [] } = api.project.getAll.useQuery({ workspaceId }, { enabled: opened });
-  const { data: teams = [] } = api.team.list.useQuery(undefined, { enabled: opened });
+  const { data: workspaceTeams = [] } = api.team.list.useQuery({ workspaceId }, { enabled: opened });
   const [form, setForm] = useState<FormState>(emptyForm);
   // Matrix destination (ADR-0059): the workspace's registered servers and the
   // rooms their bots have joined, the same source the summary picker uses.
@@ -300,10 +300,6 @@ export function CeremonyEditorDrawer({
   const memberOptions = useMemo(
     () => members.map((m) => ({ value: m.id, label: m.name ?? m.email ?? m.id })),
     [members],
-  );
-  const workspaceTeams = useMemo(
-    () => teams.filter((t) => (t as { workspaceId?: string | null }).workspaceId === workspaceId),
-    [teams, workspaceId],
   );
 
   const onDone = async () => {
@@ -414,7 +410,16 @@ export function CeremonyEditorDrawer({
         </Drawer.Header>
 
         <ScrollArea className="min-h-0 flex-1" type="hover" scrollbarSize={8}>
-          {!isSeeded ? (
+          {!isSeeded && isEdit && existingError ? (
+            <Stack gap={4} p="lg">
+              <Text size="sm" fw={500}>
+                Couldn&apos;t load this ceremony
+              </Text>
+              <Text size="sm" className="text-text-muted">
+                {existingError.message}
+              </Text>
+            </Stack>
+          ) : !isSeeded ? (
             <Stack gap="md" p="lg">
               <Skeleton height={36} />
               <Skeleton height={120} />
