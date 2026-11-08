@@ -37,6 +37,7 @@ const SECTION_ICON: Record<string, string> = {
   project_state: "📁",
   dri_projects: "📁",
   decisions_pending: "⚖️",
+  decisions_made: "✔️",
   occurrence_actions: "📋",
   blockers: "🚧",
   free_text: "💬",

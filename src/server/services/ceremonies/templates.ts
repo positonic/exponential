@@ -21,6 +21,7 @@ export type AgendaSectionType =
   // Record-backed (V10): the previous occurrence's action points and the
   // Decisions accepted since it, read from the records rather than typed.
   | "occurrence_actions"
+  | "decisions_made"
   // Daily-brief sections: the Daily summary digest's sections as agenda
   // queries (ADR-0059 daily summary), each scoped to the participants.
   | "yesterday"
@@ -47,6 +48,7 @@ export const AGENDA_SECTION_TYPES: ReadonlyArray<{ value: AgendaSectionType; lab
   { value: "retro_actions", label: "Retro actions", hint: "Actions from the previous retrospective, with status" },
   { value: "project_state", label: "Project state", hint: "The linked project's status, movement since last time, and dates coming up" },
   { value: "occurrence_actions", label: "Status on action points", hint: "Actions from the previous occurrence, and participants' project actions due since, with owner and status" },
+  { value: "decisions_made", label: "Decisions made", hint: "Decisions accepted since the previous occurrence, in scope" },
   { value: "free_text", label: "Free text", hint: "Owner-written items" },
   { value: "yesterday", label: "Yesterday", hint: "Participants' calendar events yesterday, with their recordings" },
   { value: "todays_meetings", label: "Today's meetings", hint: "Participants' calendar events today" },

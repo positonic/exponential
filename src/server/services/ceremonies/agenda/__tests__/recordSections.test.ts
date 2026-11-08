@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
 import { occurrenceActionsSection } from "../sections/occurrence_actions";
+import { decisionsMadeSection } from "../sections/decisions_made";
 import type { SectionContext } from "../types";
 
 const now = new Date("2026-11-17T10:00:00Z");
@@ -61,5 +62,48 @@ describe("occurrence_actions", () => {
     expect(await occurrenceActionsSection.run(ctx(db, { previousOccurrence: null }), { key: "s", type: "occurrence_actions", title: "S" })).toEqual([]);
     expect(db.action.findMany).not.toHaveBeenCalled();
     expect(occurrenceActionsSection.emptyReason).toBe("No action points from the last occurrence.");
+  });
+});
+
+describe("decisions_made", () => {
+  it("lists confirmed Decisions accepted since the previous occurrence started, in scope", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.decision.findMany.mockResolvedValue([
+      { id: "d-160", number: 160, statement: "Drop the CSV export", decidedAt: new Date("2026-11-12T00:00:00Z"), owner: { name: "Zineb" }, goal: null, keyResult: null },
+    ] as never);
+
+    const items = await decisionsMadeSection.run(ctx(db, { ceremony: { id: "cer-1", workspaceId: "ws-1", productId: "prod-1" } as Ceremony }), {
+      key: "made",
+      type: "decisions_made",
+      title: "Decisions made",
+    });
+
+    const where = db.decision.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({ workspaceId: "ws-1", reviewState: "CONFIRMED", status: "ACCEPTED" });
+    expect(where.AND).toEqual([
+      { OR: [{ decidedAt: { gte: prevStart, lte: now } }, { decidedAt: null, updatedAt: { gte: prevStart, lte: now } }] },
+      { OR: [{ productId: "prod-1" }, { productId: null }] },
+    ]);
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: "made:decision:d-160",
+        refType: "decision",
+        refId: "d-160",
+        title: "Drop the CSV export",
+        detail: "D-0160 · accepted · owner Zineb",
+        href: "/w/clear/decisions/d/d-160",
+      }),
+    ]);
+  });
+
+  it("scopes to the ceremony's projects when it has some, and is empty without a previous occurrence", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.decision.findMany.mockResolvedValue([] as never);
+    await decisionsMadeSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "m", type: "decisions_made", title: "M" });
+    expect(db.decision.findMany.mock.calls[0]![0]!.where!.AND).toContainEqual({ projectId: { in: ["prj-1"] } });
+
+    const db2 = mockDeep<PrismaClient>();
+    expect(await decisionsMadeSection.run(ctx(db2, { previousOccurrence: null }), { key: "m", type: "decisions_made", title: "M" })).toEqual([]);
+    expect(db2.decision.findMany).not.toHaveBeenCalled();
   });
 });
