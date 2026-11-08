@@ -5,8 +5,8 @@
  * ceremony belongs to a product. Ticket URLs are product-scoped, so without
  * a product a bare `#1339` stays text rather than guessing one.
  *
- * Only plain text is touched: inline code, existing Markdown links, angle
- * links and bare URLs (whose `#fragment` is not a ticket) pass through as
+ * Only plain text is touched: fenced and inline code, existing Markdown
+ * links, angle links and bare URLs (whose `#fragment` is not a ticket) pass through as
  * written.
  */
 export interface AgendaRefLinkContext {
@@ -14,8 +14,12 @@ export interface AgendaRefLinkContext {
   productSlug?: string | null;
 }
 
-/** Spans left untouched; one capturing group so `split` keeps them at odd indexes. */
-const PROTECTED = /(`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[^>\n]+>|https?:\/\/[^\s)]+)/g;
+/**
+ * Spans left untouched; one capturing group so `split` keeps them at odd
+ * indexes. Fenced code blocks come first so a reference inside one stays the
+ * author's literal text.
+ */
+const PROTECTED = /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`|!?\[[^\]\n]*\]\([^)\n]*\)|<[^>\n]+>|https?:\/\/[^\s)]+)/g;
 const DECISION = /(^|[^\w/-])D-(\d{4,})\b/g;
 const TICKET = /(^|[^\w&/#])#(\d+)\b/g;
 

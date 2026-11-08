@@ -21,6 +21,13 @@ describe("linkAgendaRefs", () => {
     expect(linkAgendaRefs(md, ctx)).toBe(md);
   });
 
+  it("leaves references inside fenced code blocks as written", () => {
+    const md = "Before D-0150\n```\nD-0151 and #12\n```\n~~~\n#13\n~~~\nafter #14";
+    expect(linkAgendaRefs(md, ctx)).toBe(
+      "Before [D-0150](/w/clear/decisions/d/D-0150)\n```\nD-0151 and #12\n```\n~~~\n#13\n~~~\nafter [#14](/w/clear/products/clear-app/tickets/14)",
+    );
+  });
+
   it("ignores short D- forms and a heading marker", () => {
     expect(linkAgendaRefs("D-12 stays; # 5 stays", ctx)).toBe("D-12 stays; # 5 stays");
   });
