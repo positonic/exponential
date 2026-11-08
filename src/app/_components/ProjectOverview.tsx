@@ -22,7 +22,7 @@ import { ProjectTimeline } from "./ProjectTimeline";
 import { CreateGoalModal } from "./CreateGoalModal";
 import { CreateActionModal } from "./CreateActionModal";
 import { CeremonyIconTile } from "./ceremonies/CeremonyIcon";
-import { CEREMONY_KIND_LABELS } from "./ceremonies/CeremonyEditorModal";
+import { CEREMONY_KIND_LABELS } from "./ceremonies/CeremonyEditorDrawer";
 import { describeCadence } from "~/lib/ceremonies/cadence";
 import { toPlainText } from "~/lib/content/plainText";
 import styles from "./ProjectOverview.module.css";
