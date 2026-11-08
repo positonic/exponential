@@ -53,7 +53,7 @@ test("an Action added from the agenda is ticked once it is completed elsewhere",
   const box = page.locator('[data-testid^="agenda-add-box-"]').first();
   await box.getByText("+ Action").click();
   await box.locator('[data-testid^="agenda-add-title-"]').fill(title);
-  await box.getByText("Owner").click();
+  await box.getByText("Owner", { exact: true }).click();
   await page.getByRole("option", { name: /Dev Fixture/ }).first().click();
   await box.locator('[data-testid^="agenda-add-submit-"]').click();
 

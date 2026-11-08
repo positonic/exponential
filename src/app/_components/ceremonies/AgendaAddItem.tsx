@@ -123,7 +123,7 @@ export function AgendaAddItem({ sectionKey, workspaceId, onAdd }: AgendaAddItemP
               workspaceId={workspaceId}
               value={assigneeId}
               onChange={(id) => setAssigneeId(id)}
-              noneLabel="Owner"
+              label="Owner"
               clearable
             />
             <DateInput
