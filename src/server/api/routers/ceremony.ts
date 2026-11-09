@@ -1138,7 +1138,14 @@ export const ceremonyRouter = createTRPCRouter({
       }
       const resolve = (name: string | undefined) => (name ? byKey.get(name.trim().toLowerCase()) ?? null : null);
 
-      const results: Array<{ slug: string; action: "created" | "updated"; occurrencesCreated: number; unresolved: string[] }> = [];
+      const results: Array<{
+        slug: string;
+        action: "created" | "updated";
+        occurrencesCreated: number;
+        occurrencesDeleted: number;
+        occurrencesSkipped: number;
+        unresolved: string[];
+      }> = [];
       for (const def of input.definitions) {
         const slug = slugify(def.slug);
         const existing = await ctx.db.ceremony.findUnique({
@@ -1168,38 +1175,56 @@ export const ceremonyRouter = createTRPCRouter({
         // resets aliases, kind, agenda, duration, lead time, owner or
         // participants it did not mention.
         const present = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
-        const ceremony = existing
-          ? await ctx.db.ceremony.update({
-              where: { id: existing.id },
-              data: {
-                ...present,
-                timezone,
-                startsOn,
-                ...(agendaTemplate ? { agendaTemplate: agendaTemplate as Prisma.InputJsonValue } : {}),
-                ...(ownerId ? { ownerId } : {}),
-                ...(participantIds
-                  ? { participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) } }
-                  : {}),
-              },
+        // A re-import that changes the cadence reconciles future occurrences
+        // exactly as `update` does (`applyCadenceChange`); otherwise the old
+        // ticks would linger beside the new ones and both get agendas.
+        const { ceremony, occurrencesDeleted, occurrencesSkipped } = existing
+          ? await ctx.db.$transaction(async (tx) => {
+              const updated = await tx.ceremony.update({
+                where: { id: existing.id },
+                data: {
+                  ...present,
+                  timezone,
+                  startsOn,
+                  ...(agendaTemplate ? { agendaTemplate: agendaTemplate as Prisma.InputJsonValue } : {}),
+                  ...(ownerId ? { ownerId } : {}),
+                  ...(participantIds
+                    ? { participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) } }
+                    : {}),
+                },
+              });
+              const reconciled = await applyCadenceChange(tx, existing, updated);
+              return { ceremony: updated, ...reconciled };
             })
-          : await ctx.db.ceremony.create({
-              data: {
-                ...present,
-                name: def.name!,
-                cadenceRule: def.cadenceRule!,
-                slug,
-                timezone,
-                startsOn,
-                workspaceId: input.workspaceId,
-                ownerId: ownerId ?? userId,
-                createdById: userId,
-                agendaTemplate: (agendaTemplate ?? []) as Prisma.InputJsonValue,
-                participants: { create: Array.from(participantIds ?? []).map((id) => ({ userId: id })) },
-              },
-            });
+          : {
+              occurrencesDeleted: 0,
+              occurrencesSkipped: 0,
+              ceremony: await ctx.db.ceremony.create({
+                data: {
+                  ...present,
+                  name: def.name!,
+                  cadenceRule: def.cadenceRule!,
+                  slug,
+                  timezone,
+                  startsOn,
+                  workspaceId: input.workspaceId,
+                  ownerId: ownerId ?? userId,
+                  createdById: userId,
+                  agendaTemplate: (agendaTemplate ?? []) as Prisma.InputJsonValue,
+                  participants: { create: Array.from(participantIds ?? []).map((id) => ({ userId: id })) },
+                },
+              }),
+            };
         const occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
         await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, userId);
-        results.push({ slug, action: existing ? "updated" : "created", occurrencesCreated, unresolved });
+        results.push({
+          slug,
+          action: existing ? "updated" : "created",
+          occurrencesCreated,
+          occurrencesDeleted,
+          occurrencesSkipped,
+          unresolved,
+        });
       }
       return results;
     }),

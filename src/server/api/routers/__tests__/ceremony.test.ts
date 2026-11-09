@@ -440,7 +440,9 @@ describe("ceremony router", () => {
         startsOn: new Date("2026-06-01"),
       });
 
-      expect(res).toEqual([{ slug: "daily-standup", action: "created", occurrencesCreated: 5, unresolved: ["Zed"] }]);
+      expect(res).toEqual([
+        { slug: "daily-standup", action: "created", occurrencesCreated: 5, occurrencesDeleted: 0, occurrencesSkipped: 0, unresolved: ["Zed"] },
+      ]);
       const data = db.ceremony.create.mock.calls[0]![0].data;
       expect(data.ownerId).toBe("u-andi");
       expect(data.timezone).toBe("Europe/Berlin");
@@ -449,6 +451,7 @@ describe("ceremony router", () => {
 
     it("re-import keeps the owner and participants unless the file resolves them", async () => {
       withWorkspaceRole(db, "admin");
+      withAgendaTransactionMock(db);
       db.workspaceUser.findMany.mockResolvedValue([] as never);
       const existingRow = { id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", slug: "daily-standup", kind: "STANDUP", aliases: ["Daily Standup", "Standup"], startsOn: new Date("2026-06-01"), cadenceRule: cadence.cadenceRule, timezone: "Europe/Berlin", durationMinutes: 15, leadTimeHours: 12, agendaTemplate: [{ key: "blockers", type: "blockers", title: "Blockers" }] };
       db.ceremony.findUnique.mockResolvedValue(existingRow as never);
@@ -471,6 +474,49 @@ describe("ceremony router", () => {
       // Timezone and anchor come from the existing row when the file has none.
       expect(data.timezone).toBe("Europe/Berlin");
       expect(db.ceremony.create).not.toHaveBeenCalled();
+      // No cadence field changed, so no occurrence is looked at.
+      expect(db.ceremonyOccurrence.findMany).not.toHaveBeenCalled();
+      expect(res[0]).toMatchObject({ occurrencesDeleted: 0, occurrencesSkipped: 0 });
+    });
+
+    it("re-import with a new cadence reconciles future occurrences the way update does", async () => {
+      withWorkspaceRole(db, "admin");
+      withAgendaTransactionMock(db);
+      db.workspaceUser.findMany.mockResolvedValue([] as never);
+      const existingRow = { id: "cer-1", workspaceId: WORKSPACE_ID, name: "Daily Standup", slug: "daily-standup", isOneOff: false, isActive: true, startsOn: cadence.startsOn, cadenceRule: cadence.cadenceRule, timezone: "Europe/Berlin", durationMinutes: 15, leadTimeHours: 24, agendaTemplate: [] };
+      const tuesdays = "FREQ=WEEKLY;BYDAY=TU;BYHOUR=9;BYMINUTE=0";
+      db.ceremony.findUnique.mockResolvedValue(existingRow as never);
+      db.ceremony.update.mockResolvedValue({ ...existingRow, cadenceRule: tuesdays } as never);
+      // Two Monday ticks the Tuesday rule drops: one empty, one with an async update.
+      const monday = (iso: string) => new Date(iso);
+      const occ = (id: string, start: Date, updates: number) => ({
+        id,
+        scheduledStart: start,
+        scheduledEnd: new Date(start.getTime() + 15 * 60_000),
+        cadenceStart: start,
+        agenda: null,
+        agendaCirculatedAt: null,
+        notesPageId: null,
+        _count: { updates, decisions: 0, actions: 0 },
+      });
+      db.ceremonyOccurrence.findMany.mockResolvedValue([
+        occ("occ-empty", monday("2027-01-04T08:00:00.000Z"), 0),
+        occ("occ-updated", monday("2027-01-11T08:00:00.000Z"), 1),
+      ] as never);
+      db.ceremonyOccurrence.deleteMany.mockResolvedValue({ count: 1 });
+      db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
+      db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 2 });
+
+      const res = await caller(db).ceremony.importDefinitions({
+        workspaceId: WORKSPACE_ID,
+        definitions: [{ slug: "daily-standup", cadenceRule: tuesdays }],
+      });
+
+      expect(db.ceremonyOccurrence.deleteMany.mock.calls[0]![0]!.where).toMatchObject({ id: { in: ["occ-empty"] } });
+      expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ["occ-updated"] } }, data: expect.objectContaining({ status: "SKIPPED" }) }),
+      );
+      expect(res[0]).toMatchObject({ action: "updated", occurrencesCreated: 2, occurrencesDeleted: 1, occurrencesSkipped: 1 });
     });
 
     it("refuses a partial definition for a ceremony that does not exist yet", async () => {
