@@ -348,6 +348,9 @@ function InviteLandingPage({
   const [sendError, setSendError] = useState<string | null>(null);
   const { data: providers } = api.auth.getConfiguredProviders.useQuery();
   const emailOffered = providers?.email !== false;
+  // The "or" divider only separates the form from OAuth buttons; while the
+  // query loads, keep it (most installs have both).
+  const oauthOffered = !providers || providers.google || providers.microsoft || providers.discord;
 
   const daysUntilExpiry = useMemo(() => {
     const ms = new Date(invitation.expiresAt).getTime() - Date.now();
@@ -574,7 +577,7 @@ function InviteLandingPage({
             {/* Hidden only once the server says no Sign-in code can be
                 delivered: while the query loads the form stays, so it
                 doesn't flicker on installs that have email. */}
-            {emailOffered && (
+            {emailOffered && oauthOffered && (
               <div className="or-div">
                 <span className="or-div__line" />
                 <span className="or-div__txt">or email a sign-in code</span>

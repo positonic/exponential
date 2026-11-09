@@ -51,6 +51,12 @@ describe("resolveSignInMethods", () => {
     expect(methods.missing).not.toEqual([]);
   });
 
+  it("Notion alone is not a way in: /signin offers no Notion button", () => {
+    const methods = resolveSignInMethods({ NOTION_CLIENT_ID: "n-id", NOTION_CLIENT_SECRET: "n-secret" });
+    expect(methods.notion).toBe(true);
+    expect(methods.missing).not.toEqual([]);
+  });
+
   it("treats empty strings as unset", () => {
     expect(resolveSignInMethods({ GOOGLE_CLIENT_ID: "", GOOGLE_CLIENT_SECRET: "" }).google).toBe(false);
   });

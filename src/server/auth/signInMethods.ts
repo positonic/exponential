@@ -98,8 +98,9 @@ export function resolveSignInMethods(env: SignInEnv): SignInMethods {
     emailDelivery,
   };
 
-  const hasWayIn =
-    methods.google || methods.discord || methods.notion || methods.microsoft || emailDelivery !== null;
+  // Notion registers as a provider (it connects a Notion workspace) but
+  // /signin offers no Notion button, so it is not a way in.
+  const hasWayIn = methods.google || methods.discord || methods.microsoft || emailDelivery !== null;
 
   return {
     ...methods,
