@@ -322,8 +322,14 @@ export function CeremonyEditorDrawer({
     onError: (e) => notifications.show({ title: "Couldn't create ceremony", message: e.message, color: "red" }),
   });
   const update = api.ceremony.update.useMutation({
-    onSuccess: async () => {
-      notifications.show({ title: "Ceremony saved", message: "Changes apply to future occurrences.", color: "green" });
+    onSuccess: async (res) => {
+      // Occurrences the new schedule no longer covers but that already had
+      // notes, updates or decisions are skipped, not deleted; say so.
+      const skipped =
+        res.occurrencesSkipped > 0
+          ? ` ${res.occurrencesSkipped} upcoming occurrence${res.occurrencesSkipped === 1 ? " is" : "s are"} off the new schedule but had notes or updates, so ${res.occurrencesSkipped === 1 ? "it was" : "they were"} skipped rather than removed.`
+          : "";
+      notifications.show({ title: "Ceremony saved", message: `Changes apply to future occurrences.${skipped}`, color: "green" });
       await onDone();
     },
     onError: (e) => notifications.show({ title: "Couldn't save ceremony", message: e.message, color: "red" }),

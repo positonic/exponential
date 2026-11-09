@@ -783,38 +783,88 @@ describe("ceremony router", () => {
   });
 
   describe("update on a cadence change", () => {
-    it("regenerates only the planned ticks still on the cadence, keeping moved and ad hoc occurrences", async () => {
+    const existing = {
+      id: "cer-1",
+      workspaceId: WORKSPACE_ID,
+      name: "Daily Standup",
+      slug: "daily-standup",
+      ownerId: USER_ID,
+      isOneOff: false,
+      isActive: true,
+      durationMinutes: 15,
+      leadTimeHours: 24,
+      agendaTemplate: [],
+      ...cadence,
+    };
+    // Mondays 09:00 Berlin, far enough ahead to stay in the future.
+    const tick = new Date("2027-01-04T08:00:00.000Z");
+    const nextTick = new Date("2027-01-11T08:00:00.000Z");
+    const occ = (id: string, start: Date, extra: Record<string, unknown> = {}) => ({
+      id,
+      scheduledStart: start,
+      scheduledEnd: new Date(start.getTime() + 15 * 60_000),
+      cadenceStart: start,
+      agenda: null,
+      agendaCirculatedAt: null,
+      notesPageId: null,
+      _count: { updates: 0, decisions: 0, actions: 0 },
+      ...extra,
+    });
+
+    it("deletes empty ticks the new rule drops, skips ones holding input, keeps moved rows, and reports the counts", async () => {
       withWorkspaceRole(db, "member");
       withAgendaTransactionMock(db);
-      const existing = {
-        id: "cer-1",
-        workspaceId: WORKSPACE_ID,
-        name: "Daily Standup",
-        slug: "daily-standup",
-        ownerId: USER_ID,
-        isOneOff: false,
-        isActive: true,
-        durationMinutes: 15,
-        leadTimeHours: 24,
-        agendaTemplate: [],
-        ...cadence,
-      };
       db.ceremony.findFirst.mockResolvedValue(existing as never);
       db.ceremony.update.mockResolvedValue({ ...existing, cadenceRule: "FREQ=WEEKLY;BYDAY=TU;BYHOUR=9;BYMINUTE=0" } as never);
-      const tick = new Date("2026-11-02T08:00:00.000Z");
       db.ceremonyOccurrence.findMany.mockResolvedValue([
-        { id: "occ-on-tick", scheduledStart: tick, cadenceStart: tick },
-        { id: "occ-moved", scheduledStart: new Date("2026-11-10T10:00:00.000Z"), cadenceStart: new Date("2026-11-09T08:00:00.000Z") },
+        occ("occ-on-tick", tick),
+        occ("occ-with-notes", nextTick, { notesPageId: "page-1", _count: { updates: 2, decisions: 1, actions: 0 } }),
+        occ("occ-moved", new Date("2027-01-19T10:00:00.000Z"), { cadenceStart: new Date("2027-01-18T08:00:00.000Z") }),
       ] as never);
       db.ceremonyOccurrence.deleteMany.mockResolvedValue({ count: 1 });
+      db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
       db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 0 });
 
-      await caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", cadenceRule: "FREQ=WEEKLY;BYDAY=TU;BYHOUR=9;BYMINUTE=0" });
+      const res = await caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", cadenceRule: "FREQ=WEEKLY;BYDAY=TU;BYHOUR=9;BYMINUTE=0" });
 
       // Ad hoc rows (null cadenceStart) are excluded by the query itself …
       expect(db.ceremonyOccurrence.findMany.mock.calls[0]![0]!.where).toMatchObject({ cadenceStart: { not: null } });
-      // … and a moved row survives the delete.
-      expect(db.ceremonyOccurrence.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["occ-on-tick"] } } });
+      // … a moved row survives, an empty one goes, and one with notes is skipped, not lost.
+      expect(db.ceremonyOccurrence.deleteMany.mock.calls[0]![0]!.where).toMatchObject({ id: { in: ["occ-on-tick"] } });
+      expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ["occ-with-notes"] } }, data: expect.objectContaining({ status: "SKIPPED" }) }),
+      );
+      expect(res).toMatchObject({ occurrencesDeleted: 1, occurrencesSkipped: 1 });
+    });
+
+    it("on a duration-only change keeps every occurrence and its id, only moving the end time", async () => {
+      withWorkspaceRole(db, "member");
+      withAgendaTransactionMock(db);
+      db.ceremony.findFirst.mockResolvedValue(existing as never);
+      db.ceremony.update.mockResolvedValue({ ...existing, durationMinutes: 45 } as never);
+      db.ceremonyOccurrence.findMany.mockResolvedValue([occ("occ-1", tick, { agenda: { version: 2, sections: [] } }), occ("occ-2", nextTick)] as never);
+      db.ceremonyOccurrence.createMany.mockResolvedValue({ count: 0 });
+
+      const res = await caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", durationMinutes: 45 });
+
+      expect(db.ceremonyOccurrence.deleteMany).not.toHaveBeenCalled();
+      expect(db.ceremonyOccurrence.updateMany).not.toHaveBeenCalled();
+      expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({ where: { id: "occ-1" }, data: { scheduledEnd: new Date(tick.getTime() + 45 * 60_000) } });
+      expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({ where: { id: "occ-2" }, data: { scheduledEnd: new Date(nextTick.getTime() + 45 * 60_000) } });
+      expect(res).toMatchObject({ occurrencesDeleted: 0, occurrencesSkipped: 0 });
+    });
+
+    it("touches no occurrence when no cadence field changed", async () => {
+      withWorkspaceRole(db, "member");
+      withAgendaTransactionMock(db);
+      db.ceremony.findFirst.mockResolvedValue(existing as never);
+      db.ceremony.update.mockResolvedValue({ ...existing, name: "Standup" } as never);
+
+      const res = await caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", name: "Standup" });
+
+      expect(db.ceremonyOccurrence.findMany).not.toHaveBeenCalled();
+      expect(db.ceremonyOccurrence.createMany).not.toHaveBeenCalled();
+      expect(res).toMatchObject({ occurrencesCreated: 0, occurrencesDeleted: 0, occurrencesSkipped: 0 });
     });
   });
 

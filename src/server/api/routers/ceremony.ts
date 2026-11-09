@@ -9,6 +9,7 @@ import {
   getTranscriptionAccess,
 } from "~/server/services/access/resolvers/transcriptionResolver";
 import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
+import { applyCadenceChange, cadenceChanged as didCadenceChange } from "~/server/services/ceremonies/cadenceChange";
 import { addOccurrence, rescheduleOccurrence } from "~/server/services/ceremonies/schedule";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
@@ -1032,8 +1033,10 @@ export const ceremonyRouter = createTRPCRouter({
 
   /**
    * Edit a definition. Existing occurrences keep their snapshot; when the
-   * cadence changes, future PLANNED occurrences that nothing has attached to
-   * yet are dropped and regenerated so the schedule follows the new rule.
+   * cadence changes, future planned ticks are reconciled with the new rule
+   * (`applyCadenceChange`): rows still on it keep their id, empty rows off it
+   * are deleted, and rows off it that hold notes, updates or decisions are
+   * skipped rather than lost. The counts come back on the result.
    */
   update: protectedProcedure
     .input(
@@ -1066,13 +1069,14 @@ export const ceremonyRouter = createTRPCRouter({
         if (clash) throw new TRPCError({ code: "CONFLICT", message: `A ceremony with slug "${slug}" already exists` });
       }
 
-      const cadenceChanged =
-        cadenceRule !== existing.cadenceRule ||
-        timezone !== existing.timezone ||
-        (fields.startsOn !== undefined && fields.startsOn.getTime() !== existing.startsOn.getTime()) ||
-        (fields.durationMinutes !== undefined && fields.durationMinutes !== existing.durationMinutes);
+      const cadenceChanged = didCadenceChange(existing, {
+        cadenceRule,
+        timezone,
+        startsOn: fields.startsOn ?? existing.startsOn,
+        durationMinutes: fields.durationMinutes ?? existing.durationMinutes,
+      });
 
-      const ceremony = await ctx.db.$transaction(async (tx) => {
+      const { ceremony, occurrencesDeleted, occurrencesSkipped } = await ctx.db.$transaction(async (tx) => {
         const updated = await tx.ceremony.update({
           where: { id },
           data: {
@@ -1091,27 +1095,8 @@ export const ceremonyRouter = createTRPCRouter({
             ...(projects ? { projects: { deleteMany: {}, create: projects.map((projectId) => ({ projectId })) } } : {}),
           },
         });
-        if (cadenceChanged) {
-          // Future planned ticks are regenerated from the new rule. An
-          // occurrence someone moved off its tick or added by hand is a
-          // deliberate act and stays (ADR-0059 amendment, 2026-10-21).
-          const untouched = await tx.ceremonyOccurrence.findMany({
-            where: {
-              ceremonyId: id,
-              status: "PLANNED",
-              scheduledStart: { gt: new Date() },
-              scheduledMeetingId: null,
-              recordedMeetings: { none: {} },
-              cadenceStart: { not: null },
-            },
-            select: { id: true, scheduledStart: true, cadenceStart: true },
-          });
-          const onTick = untouched.filter((o) => o.cadenceStart?.getTime() === o.scheduledStart.getTime());
-          if (onTick.length > 0) {
-            await tx.ceremonyOccurrence.deleteMany({ where: { id: { in: onTick.map((o) => o.id) } } });
-          }
-        }
-        return updated;
+        const reconciled = await applyCadenceChange(tx, existing, updated);
+        return { ceremony: updated, ...reconciled };
       });
 
       let occurrencesCreated = 0;
@@ -1119,7 +1104,7 @@ export const ceremonyRouter = createTRPCRouter({
         occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
         await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, ctx.session.user.id);
       }
-      return { ceremony, occurrencesCreated };
+      return { ceremony, occurrencesCreated, occurrencesDeleted, occurrencesSkipped };
     }),
 
   /**
