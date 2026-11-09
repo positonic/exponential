@@ -23,6 +23,7 @@ import {
   canManageProjectMembers,
 } from "./resolvers/projectResolver";
 import { getActionAccess, canViewAction, canEditAction } from "./resolvers/actionResolver";
+import { projectAccessDeniedError } from "./projectDenial";
 
 // ── Type for the tRPC middleware context ────────────────────────────
 interface MiddlewareCtx {
@@ -225,10 +226,15 @@ export function requireProjectAccess(
     const access = await getProjectAccess(ctx.db, userId, projectId);
 
     if (permission === "view" && !hasProjectAccess(access)) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "You do not have access to this project",
-      });
+      // Names the account, the project and the missing access, so an agent's
+      // owner reading this in a terminal knows what to grant and where.
+      throw await projectAccessDeniedError(
+        ctx.db,
+        userId,
+        projectId,
+        "view this project",
+        access,
+      );
     }
 
     if (
