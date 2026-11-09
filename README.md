@@ -99,7 +99,7 @@ install needs, then:
 ```bash
 SKIP_ENV_VALIDATION=1 npm run build
 npm run start:selfhost      # checks env and pgvector, applies migrations, serves
-npm run scheduler:selfhost  # in a second process: runs the scheduled jobs
+npm run scheduler:selfhost  # in a second process: runs the scheduled jobs (reads the same .env)
 ```
 
 Sign-up is open: anyone who can reach the install and complete a sign-in gets
