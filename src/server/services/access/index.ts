@@ -123,6 +123,7 @@ export {
   buildKnowledgePageAccessWhere,
   listKnowledgePageViewers,
   canManageKnowledgePageAccess,
+  canShareKnowledgePage,
   isKnowledgePageInviteRole,
 } from "./resolvers/knowledgePageResolver";
 export type {

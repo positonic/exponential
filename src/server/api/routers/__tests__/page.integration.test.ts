@@ -660,6 +660,96 @@ describe("page router", () => {
     });
   });
 
+  describe("page grants on unrestricted pages (ADR-0080)", () => {
+    /** A restricted project the author owns, a page in it, and a workspace
+     * member outside the project. */
+    async function setup(slug: string) {
+      const author = await createUser(db);
+      const outsider = await createUser(db);
+      const bystander = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: author.id, slug });
+      await addWorkspaceMember(db, ws.id, outsider.id, "member");
+      await addWorkspaceMember(db, ws.id, bystander.id, "member");
+      const project = await createProject(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        isRestricted: true,
+      });
+      const page = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        projectId: project.id,
+        title: "Project plan",
+      });
+      return { author, outsider, bystander, ws, project, page };
+    }
+    const listed = async (userId: string, workspaceId: string) =>
+      (await createTestCaller(userId).page.list({ workspaceId })).map((p) => p.id);
+
+    it("a grant lets a member outside a restricted project in; removing it takes them out", async () => {
+      const { author, outsider, bystander, ws, page } = await setup("pg-grant-tracer");
+      await expect(createTestCaller(outsider.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [outsider.id],
+        role: "viewer",
+      });
+      await expect(createTestCaller(outsider.id).page.get({ id: page.id })).resolves.toMatchObject({
+        id: page.id,
+        canEdit: false,
+      });
+      expect(await listed(outsider.id, ws.id)).toContain(page.id);
+      // A member with no grant is still kept out by the project.
+      expect(await listed(bystander.id, ws.id)).not.toContain(page.id);
+
+      await createTestCaller(author.id).page.removeInvite({ id: page.id, userId: outsider.id });
+      await expect(createTestCaller(outsider.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+      expect(await listed(outsider.id, ws.id)).not.toContain(page.id);
+    });
+
+    it("an editor grant lets the grantee edit", async () => {
+      const { author, outsider, page } = await setup("pg-grant-editor");
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [outsider.id],
+        role: "editor",
+      });
+      await expect(createTestCaller(outsider.id).page.get({ id: page.id })).resolves.toMatchObject({
+        canEdit: true,
+      });
+    });
+
+    it("restricting keeps the grants, and un-restricting brings the project audience back", async () => {
+      const { author, outsider, ws, project, page } = await setup("pg-grant-restrict");
+      const member = await createUser(db);
+      await addWorkspaceMember(db, ws.id, member.id, "member");
+      await addProjectMember(db, project.id, member.id, "editor");
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [outsider.id], role: "viewer" });
+
+      await caller.page.setInviteOnly({ id: page.id, inviteOnly: true });
+      expect(await listed(outsider.id, ws.id)).toContain(page.id);
+      expect(await listed(member.id, ws.id)).not.toContain(page.id);
+
+      await caller.page.setInviteOnly({ id: page.id, inviteOnly: false });
+      expect(await listed(outsider.id, ws.id)).toContain(page.id);
+      expect(await listed(member.id, ws.id)).toContain(page.id);
+    });
+
+    it("a grantee who leaves the workspace loses the page from their list", async () => {
+      const { author, outsider, ws, page } = await setup("pg-grant-leave");
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [outsider.id],
+        role: "viewer",
+      });
+      await db.workspaceUser.deleteMany({ where: { workspaceId: ws.id, userId: outsider.id } });
+      await expect(createTestCaller(outsider.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
+      expect(await db.knowledgePageMember.count({ where: { pageId: page.id } })).toBe(1);
+    });
+  });
+
   describe("invite-only pages (ADR-0069)", () => {
     /** A workspace with an owner (who is also the page author), an admin, a
      * member who gets invited, a member who doesn't, and an outsider. */
@@ -753,16 +843,11 @@ describe("page router", () => {
       });
     });
 
-    it("rejects inviting people outside the workspace, and inviting before invite-only", async () => {
-      const { author, outsider, invitee, ws, page } = await setup("pg-io-guard");
+    it("rejects inviting people outside the workspace", async () => {
+      const { author, outsider, page } = await setup("pg-io-guard");
       const caller = createTestCaller(author.id);
       await expect(
         caller.page.invite({ id: page.id, userIds: [outsider.id], role: "viewer" }),
-      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-
-      const open = await createPage(db, { createdById: author.id, workspaceId: ws.id });
-      await expect(
-        caller.page.invite({ id: open.id, userIds: [invitee.id], role: "viewer" }),
       ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     });
 

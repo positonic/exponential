@@ -12,11 +12,17 @@
  * - It has no project and they are a member of its workspace (any role may
  *   view; edit requires a non-viewer role).
  *
- * An **invite-only** Page (ADR-0069) replaces the last two paths entirely: it
- * is visible to its owner and its invitees (`KnowledgePageMember`) who still
- * belong to its workspace — nobody else, workspace owners/admins included.
- * Project placement grants nothing. Invitee role "editor" may edit; "viewer"
- * may only view. Only the owner manages access ({@link canManageKnowledgePageAccess}).
+ * - They hold a **grant** on it (`KnowledgePageMember`, ADR-0080) and still
+ *   belong to its workspace. A grant adds to whatever placement allows, in
+ *   every mode; with both, the higher level wins. Role "editor" may edit;
+ *   "viewer" may only view.
+ *
+ * A **restricted** (invite-only) Page (ADR-0069) drops the placement paths: it
+ * is visible to its owner and its grantees who still belong to its workspace —
+ * nobody else, workspace owners/admins included. Project placement grants
+ * nothing. Anyone who can edit a page may share it
+ * ({@link canShareKnowledgePage}); only the owner restricts it
+ * ({@link canManageKnowledgePageAccess}).
  *
  * A **Row** of a Database (ADR-0078 §4, `databaseId` set) has no access of
  * its own: every question about it is answered for the page that holds its
@@ -38,7 +44,7 @@ import {
   filterWorkspaceMembers,
 } from "./workspaceResolver";
 
-/** An invitee's role on an invite-only Page (ADR-0069). */
+/** A grantee's role on a Page (ADR-0069, ADR-0080). */
 export type KnowledgePageInviteRole = "viewer" | "editor";
 
 export function isKnowledgePageInviteRole(
@@ -49,11 +55,11 @@ export function isKnowledgePageInviteRole(
 
 export interface KnowledgePageAccessInfo {
   isOwner: boolean;
-  /** Invite-only page: only the owner and invitees get in (ADR-0069). */
+  /** Restricted (invite-only) page: only the owner and grantees get in (ADR-0069). */
   isInviteOnly: boolean;
   /**
-   * The caller's invite role on an invite-only page — null when not invited,
-   * when no longer a member of the page's workspace, or on any other page.
+   * The caller's grant role on the page, in any mode (ADR-0080) — null when
+   * they hold no grant or no longer belong to the page's workspace.
    */
   inviteRole: KnowledgePageInviteRole | null;
   /** Whether the page is assigned to a project. */
@@ -118,23 +124,29 @@ export async function getKnowledgePageAccess(
   }
   const isOwner = page.createdById === userId;
 
+  // The grant counts in every mode, but only while the grantee still belongs
+  // to the page's workspace (the row outlives membership; ADR-0069).
+  const [invite, membership, projectAccess] = await Promise.all([
+    db.knowledgePageMember.findUnique({
+      where: { pageId_userId: { pageId: page.id, userId } },
+      select: { role: true },
+    }),
+    getWorkspaceMembership(db, userId, page.workspaceId),
+    page.projectId && !page.isInviteOnly
+      ? getProjectAccess(db, userId, page.projectId)
+      : Promise.resolve(null),
+  ]);
+  const inviteRole =
+    invite && membership && isKnowledgePageInviteRole(invite.role)
+      ? invite.role
+      : null;
+
   if (page.isInviteOnly) {
-    // Project and workspace paths don't apply — only the invite does, and
-    // only while the invitee still belongs to the page's workspace.
-    const [invite, membership] = await Promise.all([
-      db.knowledgePageMember.findUnique({
-        where: { pageId_userId: { pageId: page.id, userId } },
-        select: { role: true },
-      }),
-      getWorkspaceMembership(db, userId, page.workspaceId),
-    ]);
+    // Restricted: project and workspace paths don't apply — only the grant.
     return {
       isOwner,
       isInviteOnly: true,
-      inviteRole:
-        invite && membership && isKnowledgePageInviteRole(invite.role)
-          ? invite.role
-          : null,
+      inviteRole,
       hasProject: !!page.projectId,
       hasProjectAccess: false,
       canEditProject: false,
@@ -142,25 +154,16 @@ export async function getKnowledgePageAccess(
     };
   }
 
-  let projectAccess = null;
-  if (page.projectId) {
-    projectAccess = await getProjectAccess(db, userId, page.projectId);
-  }
-
-  let workspaceRole: WorkspaceRole | null = null;
-  if (!page.projectId) {
-    const membership = await getWorkspaceMembership(
-      db,
-      userId,
-      page.workspaceId,
-    );
-    workspaceRole = membership?.role ?? null;
-  }
+  // Workspace role decides only project-less pages; a project page's
+  // workspace route runs through the project resolver.
+  const workspaceRole: WorkspaceRole | null = page.projectId
+    ? null
+    : (membership?.role ?? null);
 
   return {
     isOwner,
     isInviteOnly: false,
-    inviteRole: null,
+    inviteRole,
     hasProject: !!page.projectId,
     hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
     canEditProject: projectAccess ? canEditProject(projectAccess) : false,
@@ -171,18 +174,31 @@ export async function getKnowledgePageAccess(
 /** Check if user can view this page. */
 export function canViewKnowledgePage(access: KnowledgePageAccessInfo): boolean {
   if (access.isOwner) return true;
-  // Invite-only: the invite is the only way in (no admin escape hatch).
-  if (access.isInviteOnly) return access.inviteRole !== null;
+  // A grant admits in every mode (ADR-0080).
+  if (access.inviteRole !== null) return true;
+  // Restricted: the grant is the only way in (no admin escape hatch).
+  if (access.isInviteOnly) return false;
+  return inheritedView(access);
+}
+
+/** Check if user can edit this page. */
+export function canEditKnowledgePage(access: KnowledgePageAccessInfo): boolean {
+  if (access.isOwner) return true;
+  if (access.inviteRole === "editor") return true;
+  if (access.isInviteOnly) return false;
+  return inheritedEdit(access);
+}
+
+/** View through placement alone: the page's project, or its workspace. */
+function inheritedView(access: KnowledgePageAccessInfo): boolean {
   // Project access is authoritative for project-assigned pages.
   if (access.hasProject) return access.hasProjectAccess;
   // Project-less pages: any workspace member (any role) may view.
   return access.workspaceRole !== null;
 }
 
-/** Check if user can edit this page. */
-export function canEditKnowledgePage(access: KnowledgePageAccessInfo): boolean {
-  if (access.isOwner) return true;
-  if (access.isInviteOnly) return access.inviteRole === "editor";
+/** Edit through placement alone. */
+function inheritedEdit(access: KnowledgePageAccessInfo): boolean {
   if (access.hasProject) return access.canEditProject;
   // Project-less pages: workspace members may edit, except viewers
   // (viewer is a read-only role).
@@ -190,9 +206,19 @@ export function canEditKnowledgePage(access: KnowledgePageAccessInfo): boolean {
 }
 
 /**
- * Who may change a page's sharing — its invite-only mode and its invitees, and
- * publish an invite-only page to the web (ADR-0069). The owner alone, so an
- * invited editor can never widen a page they were let into.
+ * Who may add people to a page (ADR-0080): anyone who can edit it. A non-owner
+ * may change or remove only the grants they added, and may not grant editor to
+ * a workspace Viewer — the router enforces both, since they depend on the row.
+ */
+export function canShareKnowledgePage(access: KnowledgePageAccessInfo): boolean {
+  return canEditKnowledgePage(access);
+}
+
+/**
+ * Who may restrict a page (turn invite-only on or off), publish a restricted
+ * page to the web, and change grants someone else added (ADR-0069, ADR-0080).
+ * The owner alone, so an editor can never widen a page beyond the owner's
+ * choice or undo another person's sharing.
  */
 export function canManageKnowledgePageAccess(
   access: KnowledgePageAccessInfo,
@@ -227,10 +253,10 @@ function ownPageAccessWhere(userId: string): Prisma.KnowledgePageWhereInput {
     OR: [
       // Page owner
       { createdById: userId },
-      // Invite-only pages: invitees still in the page's workspace, nobody else
+      // Grantees still in the page's workspace, in every mode — on a
+      // restricted page this is the only way in besides ownership (ADR-0080)
       {
         AND: [
-          { isInviteOnly: true },
           { members: { some: { userId } } },
           { workspace: buildWorkspaceAccessWhere(userId) },
         ],
@@ -315,8 +341,13 @@ export async function listKnowledgePageViewers(
   // a project-less page uses its own workspace.
   const workspaceId = page.projectId ? project?.workspaceId : page.workspaceId;
 
-  const [workspaceUsers, workspaceTeamUsers, projectMembers, projectTeamUsers] =
-    await Promise.all([
+  const [
+    workspaceUsers,
+    workspaceTeamUsers,
+    projectMembers,
+    projectTeamUsers,
+    grants,
+  ] = await Promise.all([
       workspaceId
         ? db.workspaceUser.findMany({
             where: { workspaceId },
@@ -341,7 +372,24 @@ export async function listKnowledgePageViewers(
             select: { userId: true },
           })
         : [],
+      db.knowledgePageMember.findMany({
+        where: { pageId: page.id },
+        select: { userId: true, role: true },
+      }),
     ]);
+  // A grant counts only while the grantee belongs to the page's workspace —
+  // the same membership test the per-user resolver runs.
+  const grantMembers = await filterWorkspaceMembers(
+    db,
+    page.workspaceId,
+    grants.map((g) => g.userId),
+  );
+  const grantRoles = new Map<string, KnowledgePageInviteRole>();
+  for (const { userId, role } of grants) {
+    if (grantMembers.has(userId) && isKnowledgePageInviteRole(role)) {
+      grantRoles.set(userId, role);
+    }
+  }
 
   // Workspace role per user: a direct WorkspaceUser row wins; otherwise a team
   // linked to the workspace grants "member" (getWorkspaceMembership's fallback).
@@ -360,6 +408,7 @@ export async function listKnowledgePageViewers(
     ...workspaceRoles.keys(),
     ...projectMemberIds,
     ...projectTeamIds,
+    ...grantRoles.keys(),
   ]);
   if (project) candidates.add(project.createdById);
 
@@ -380,7 +429,7 @@ export async function listKnowledgePageViewers(
     const access: KnowledgePageAccessInfo = {
       isOwner: page.createdById === userId,
       isInviteOnly: false,
-      inviteRole: null,
+      inviteRole: grantRoles.get(userId) ?? null,
       hasProject: !!page.projectId,
       hasProjectAccess: projectAccess ? hasProjectAccess(projectAccess) : false,
       // View-only question; edit rights don't affect who is in the audience.
@@ -393,6 +442,7 @@ export async function listKnowledgePageViewers(
       viaAdminEscapeHatch:
         !!projectAccess?.isRestricted &&
         !access.isOwner &&
+        access.inviteRole === null &&
         !projectAccess.isCreator &&
         !projectAccess.isMember,
     });

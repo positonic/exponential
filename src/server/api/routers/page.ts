@@ -1649,8 +1649,10 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * Invite workspace members to an invite-only page (owner only, ADR-0069).
-   * Everyone must belong to the page's workspace — no guests in v1. Re-inviting
+   * Grant workspace members access to a page, in any mode (ADR-0080): on a
+   * restricted page the grant is the only way in; elsewhere it adds to what
+   * the project or workspace already allows. Everyone must belong to the
+   * page's workspace — no guests (ADR-0069). Re-inviting
    * someone updates their role; only people new to the page are notified.
    */
   invite: protectedProcedure
@@ -1666,12 +1668,6 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
       await ensurePageAccess(ctx.db, userId, page, "manage");
-      if (!page.isInviteOnly) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Make the page invite-only before inviting people",
-        });
-      }
 
       const userIds = [...new Set(input.userIds)].filter(
         (id) => id !== page.createdById,

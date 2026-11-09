@@ -13,7 +13,9 @@ import type { PrismaClient } from "@prisma/client";
 import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
+  canEditKnowledgePage,
   listKnowledgePageViewers,
+  buildKnowledgePageAccessWhere,
 } from "../resolvers/knowledgePageResolver";
 
 interface FakeProject {
@@ -32,6 +34,8 @@ interface Fixture {
   teamUsers: { userId: string; teamId: string; role: string }[];
   projectMembers: { userId: string; projectId: string; role: string }[];
   pageMembers: { userId: string; pageId: string; role: string }[];
+  /** Databases (ADR-0078) and the page that holds each. */
+  databases?: { id: string; page: TestPage }[];
 }
 
 interface Where {
@@ -62,6 +66,10 @@ function fakeDb(f: Fixture): PrismaClient {
       teamWorkspace(row.teamId) === where.team.workspaceId);
 
   const db = {
+    pageDatabase: {
+      findUnique: ({ where }: { where: Where }) =>
+        Promise.resolve(f.databases?.find((d) => d.id === where.id) ?? null),
+    },
     project: {
       findUnique: ({ where }: { where: Where }) =>
         Promise.resolve(f.projects.find((p) => p.id === where.id) ?? null),
@@ -196,6 +204,23 @@ interface TestPage {
   projectId: string | null;
   workspaceId: string;
   isInviteOnly: boolean;
+  databaseId?: string | null;
+}
+
+/** The fixture with no grants, for tests about placement alone. */
+function noGrants(f: Fixture): Fixture {
+  return { ...f, pageMembers: [] };
+}
+
+async function editors(f: Fixture, page: TestPage): Promise<string[]> {
+  const db = fakeDb(f);
+  const result: string[] = [];
+  for (const userId of USERS) {
+    if (canEditKnowledgePage(await getKnowledgePageAccess(db, userId, page))) {
+      result.push(userId);
+    }
+  }
+  return result.sort();
 }
 
 function testPage(overrides: Partial<TestPage>): TestPage {
@@ -225,7 +250,7 @@ async function expectParity(f: Fixture, page: TestPage) {
 
 describe("listKnowledgePageViewers", () => {
   it("project-less page: the author plus every workspace member, team route included", async () => {
-    const viewers = await expectParity(fixture({}), testPage({}));
+    const viewers = await expectParity(noGrants(fixture({})), testPage({}));
     expect(viewers.map((v) => v.userId).sort()).toEqual(
       ["admin", "author", "member", "owner", "teamGuy", "viewer"].sort(),
     );
@@ -233,11 +258,11 @@ describe("listKnowledgePageViewers", () => {
   });
 
   it("unrestricted project: workspace, project team and project members", async () => {
-    await expectParity(fixture({}), testPage({ projectId: "p1" }));
+    await expectParity(noGrants(fixture({})), testPage({ projectId: "p1" }));
   });
 
   it("restricted project: only creator, members, author and admins (flagged)", async () => {
-    const viewers = await expectParity(fixture({ isRestricted: true }), testPage({ projectId: "p1" }));
+    const viewers = await expectParity(noGrants(fixture({ isRestricted: true })), testPage({ projectId: "p1" }));
     expect(viewers.map((v) => v.userId).sort()).toEqual(
       ["admin", "author", "member", "owner", "projMember"].sort(),
     );
@@ -248,7 +273,7 @@ describe("listKnowledgePageViewers", () => {
 
   it("restricted project created by an admin: the admin is not flagged as escape hatch", async () => {
     const viewers = await expectParity(
-      fixture({ isRestricted: true, createdById: "admin" }),
+      noGrants(fixture({ isRestricted: true, createdById: "admin" })),
       testPage({ projectId: "p1" }),
     );
     expect(viewers.find((v) => v.userId === "admin")?.viaAdminEscapeHatch).toBe(
@@ -278,5 +303,96 @@ describe("listKnowledgePageViewers", () => {
     f.pageMembers = [];
     const viewers = await expectParity(f, testPage({ isInviteOnly: true }));
     expect(viewers.map((v) => v.userId)).toEqual(["author"]);
+  });
+});
+
+/**
+ * Grants on pages that are not restricted (ADR-0080): a grant adds to what
+ * placement allows, lapses when the grantee leaves the workspace, and the
+ * higher of the two levels wins.
+ */
+describe("page grants on unrestricted pages", () => {
+  it("restricted project: a workspace member outside the project gets in by grant", async () => {
+    const f = fixture({ isRestricted: true });
+    f.pageMembers = [
+      { userId: "teamGuy", pageId: "pg", role: "viewer" },
+      { userId: "viewer", pageId: "pg", role: "editor" },
+    ];
+    const page = testPage({ projectId: "p1" });
+    const viewers = await expectParity(f, page);
+    expect(viewers.map((v) => v.userId).sort()).toEqual(
+      ["admin", "author", "member", "owner", "projMember", "teamGuy", "viewer"].sort(),
+    );
+    // Grantees are named, not escape-hatch admins.
+    expect(viewers.find((v) => v.userId === "teamGuy")?.viaAdminEscapeHatch).toBe(false);
+    // The viewer grantee may not edit; the editor grantee may — even though
+    // their workspace role is the read-only Viewer.
+    const canEdit = await editors(f, page);
+    expect(canEdit).toContain("viewer");
+    expect(canEdit).not.toContain("teamGuy");
+  });
+
+  it("an admin who also holds a grant is not flagged as the escape hatch", async () => {
+    const f = fixture({ isRestricted: true });
+    f.pageMembers = [{ userId: "admin", pageId: "pg", role: "viewer" }];
+    const viewers = await expectParity(f, testPage({ projectId: "p1" }));
+    expect(viewers.find((v) => v.userId === "admin")?.viaAdminEscapeHatch).toBe(false);
+    expect(viewers.find((v) => v.userId === "owner")?.viaAdminEscapeHatch).toBe(true);
+  });
+
+  it("workspace page: a viewer grant never lowers a member's inherited edit right", async () => {
+    const f = fixture({});
+    f.pageMembers = [
+      { userId: "member", pageId: "pg", role: "viewer" },
+      { userId: "viewer", pageId: "pg", role: "editor" },
+    ];
+    const page = testPage({});
+    await expectParity(f, page);
+    const canEdit = await editors(f, page);
+    // member edits by workspace role despite a viewer grant; the workspace
+    // Viewer edits by the editor grant (the higher of the two).
+    expect(canEdit).toEqual(["admin", "author", "member", "owner", "teamGuy", "viewer"].sort());
+  });
+
+  it("a grantee who left the workspace gets nothing from the grant", async () => {
+    const f = fixture({ isRestricted: true });
+    f.pageMembers = [
+      { userId: "stranger", pageId: "pg", role: "editor" },
+      { userId: "projTeam", pageId: "pg", role: "viewer" },
+    ];
+    const viewers = await expectParity(f, testPage({ projectId: "p1" }));
+    const ids = viewers.map((v) => v.userId);
+    expect(ids).not.toContain("stranger");
+    expect(ids).not.toContain("projTeam");
+  });
+
+  it("a grant with an unknown role admits nobody", async () => {
+    const f = fixture({ isRestricted: true });
+    f.pageMembers = [{ userId: "teamGuy", pageId: "pg", role: "superuser" }];
+    const viewers = await expectParity(f, testPage({ projectId: "p1" }));
+    expect(viewers.map((v) => v.userId)).not.toContain("teamGuy");
+  });
+
+  it("a Row of a Database follows the grants on the page that holds it", async () => {
+    const holder = testPage({ projectId: "p1" });
+    const f = fixture({ isRestricted: true });
+    f.pageMembers = [{ userId: "teamGuy", pageId: "pg", role: "editor" }];
+    f.databases = [{ id: "db1", page: holder }];
+    const row = testPage({ id: "row1", databaseId: "db1", createdById: "stranger" });
+    const viewers = await expectParity(f, row);
+    expect(viewers.map((v) => v.userId)).toContain("teamGuy");
+    expect(viewers.map((v) => v.userId)).not.toContain("stranger");
+    expect(await editors(f, row)).toContain("teamGuy");
+  });
+});
+
+describe("buildKnowledgePageAccessWhere", () => {
+  // The SQL twin is checked against a real DB in page.integration.test.ts;
+  // here we pin the grant branch's shape: outside the mode switch, and
+  // bounded by workspace membership.
+  it("admits grantees in every mode, while they belong to the workspace", () => {
+    const where = JSON.stringify(buildKnowledgePageAccessWhere("u1"));
+    expect(where).toContain('{"AND":[{"members":{"some":{"userId":"u1"}}},{"workspace"');
+    expect(where).not.toContain('{"isInviteOnly":true}');
   });
 });
