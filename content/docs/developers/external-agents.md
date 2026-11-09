@@ -43,7 +43,7 @@ Joining a workspace makes the agent an ordinary **member**, so it sees what memb
 2. Open the project, go to its **Members** tab and search for the agent by name. Agents in the project's workspace are listed with an **Agent** badge.
 3. Add it as **Editor** (to create and edit pages and actions in the project) or **Viewer** (read only). Agents can't be project admins.
 
-Two rules keep this safe. The agent's owner must already have access to the project — a project admin can't let someone's agent in around them — and when the owner is removed from the project, their agents leave with them.
+Three rules keep this safe. The agent's owner must already have access to the project — a project admin can't let someone's agent in around them — and an agent can be an editor only if its owner can edit the project. When the owner is removed from the project, their agents leave with them. And when the agent loses the workspace (its owner revokes it, or leaves or is demoted), it loses every project membership in that workspace too.
 
 If the agent is refused, the error says why. A refusal on a restricted project reads like `Access denied: Claude Desktop (cmsf…, an agent owned by James) can't read this page. "Manage Syntrofi" is a restricted project and Claude Desktop is not one of its members. A project admin can add Claude Desktop under the project's Members tab.`
 

@@ -169,7 +169,13 @@ function installWorld(db: DeepMockProxy<PrismaClient>) {
 
   db.projectMember.findFirst.mockImplementation(((args: { where: { userId: string } }) => {
     const role = projectMembers.get(args.where.userId);
-    return Promise.resolve(role ? { role } : null);
+    if (!role) return Promise.resolve(null);
+    const user = USERS.find((u) => u.id === args.where.userId);
+    return Promise.resolve({
+      id: `pm-${args.where.userId}`,
+      role,
+      user: { isAgent: user?.isAgent ?? false },
+    });
   }) as never);
   db.projectMember.findUnique.mockImplementation(((args: {
     where: { projectId_userId: { userId: string } };
@@ -417,5 +423,82 @@ describe("without a grant", () => {
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(projectMembers.has(CLAUDE.id)).toBe(false);
+  });
+});
+
+// ── Review findings on the first cut ─────────────────────────────────────────
+
+describe("the owner's capability is the ceiling, not just their presence", () => {
+  it("an owner who can only view the project cannot delegate editing", async () => {
+    const james = callerFor(JAMES);
+    await james.project.addMember({ projectId: PROJECT_ID, userId: ANDI.id, role: "viewer" });
+
+    await expect(
+      james.project.addMember({ projectId: PROJECT_ID, userId: ANDI_AGENT.id, role: "editor" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(projectMembers.has(ANDI_AGENT.id)).toBe(false);
+
+    await james.project.addMember({ projectId: PROJECT_ID, userId: ANDI_AGENT.id, role: "viewer" });
+    expect(projectMembers.get(ANDI_AGENT.id)).toBe("viewer");
+  });
+
+  it("updateMemberRole applies the same ceiling", async () => {
+    const james = callerFor(JAMES);
+    await james.project.addMember({ projectId: PROJECT_ID, userId: ANDI.id, role: "viewer" });
+    await james.project.addMember({ projectId: PROJECT_ID, userId: ANDI_AGENT.id, role: "viewer" });
+    getDbMock().projectMember.update.mockResolvedValue({ id: "pm", role: "editor" } as never);
+
+    await expect(
+      james.project.updateMemberRole({ projectId: PROJECT_ID, userId: ANDI_AGENT.id, role: "editor" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      james.project.updateMemberRole({ projectId: PROJECT_ID, userId: ANDI_AGENT.id, role: "admin" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
+
+describe("project grants do not outlive the workspace delegation", () => {
+  it("revoking the agent's workspace removes its project memberships there", async () => {
+    const { revokeAgentProjectMembershipsInWorkspace } = await import(
+      "~/server/services/externalAgentAccess"
+    );
+    projectMembers.set(CLAUDE.id, "editor");
+
+    await revokeAgentProjectMembershipsInWorkspace(getDbMock(), [CLAUDE.id], WORKSPACE_ID);
+
+    expect(projectMembers.has(CLAUDE.id)).toBe(false);
+    expect(getDbMock().projectMember.deleteMany).toHaveBeenCalledWith({
+      where: { userId: { in: [CLAUDE.id] }, project: { workspaceId: WORKSPACE_ID } },
+    });
+  });
+
+  it("the owner leaving the workspace takes their agents' project memberships with them", async () => {
+    const { cascadeOwnerRemovedFromWorkspace } = await import(
+      "~/server/services/externalAgentAccess"
+    );
+    const db = getDbMock();
+    db.workspaceUser.deleteMany.mockResolvedValue({ count: 1 });
+    projectMembers.set(CLAUDE.id, "editor");
+
+    await cascadeOwnerRemovedFromWorkspace(db, JAMES.id, WORKSPACE_ID);
+
+    expect(projectMembers.has(CLAUDE.id)).toBe(false);
+  });
+});
+
+describe("user.searchByEmail with agentsInWorkspaceId", () => {
+  it("keeps the name filter and the principal filter as two AND-ed clauses", async () => {
+    const db = getDbMock();
+    db.user.findMany.mockResolvedValue([]);
+
+    await callerFor(JAMES).user.searchByEmail({
+      query: "claude",
+      agentsInWorkspaceId: WORKSPACE_ID,
+    });
+
+    const where = (db.user.findMany.mock.calls[0]?.[0] as { where: { AND: unknown[] } }).where;
+    expect(where.AND).toHaveLength(2);
+    expect(JSON.stringify(where.AND[0])).toContain("claude");
+    expect(JSON.stringify(where.AND[1])).toContain(WORKSPACE_ID);
   });
 });

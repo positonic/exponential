@@ -1,10 +1,35 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 
-import { getProjectAccess, hasProjectAccess } from "./access/resolvers/projectResolver";
+import {
+  canEditProject,
+  getProjectAccess,
+  hasProjectAccess,
+} from "./access/resolvers/projectResolver";
 import { getWorkspaceMembership } from "./access/resolvers/workspaceResolver";
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * Agents losing a workspace also lose every direct project membership in it.
+ * A `ProjectMember` row grants project access on its own, so without this the
+ * grants `assertAgentProjectMembership` admitted would outlive the workspace
+ * delegation that authorised them. Returns the number of rows removed.
+ */
+export async function revokeAgentProjectMembershipsInWorkspace(
+  db: Db,
+  shadowUserIds: string[],
+  workspaceId: string,
+): Promise<number> {
+  if (shadowUserIds.length === 0) return 0;
+  const result = await db.projectMember.deleteMany({
+    where: {
+      userId: { in: shadowUserIds },
+      project: { workspaceId },
+    },
+  });
+  return result.count;
+}
 
 /**
  * Delegation invariant (ADR-0049): an External agent's workspace access never
@@ -28,12 +53,14 @@ export async function cascadeOwnerRemovedFromWorkspace(
   });
   if (agents.length === 0) return 0;
 
+  const shadowUserIds = agents.map((a) => a.shadowUserId);
   const result = await db.workspaceUser.deleteMany({
     where: {
       workspaceId,
-      userId: { in: agents.map((a) => a.shadowUserId) },
+      userId: { in: shadowUserIds },
     },
   });
+  await revokeAgentProjectMembershipsInWorkspace(db, shadowUserIds, workspaceId);
   return result.count;
 }
 
@@ -134,6 +161,17 @@ export async function assertAgentProjectMembership(
         `${agent.name} can't be given "${project.name}": its owner ` +
         `(${owner?.name ?? "another member"}) has no access to this project, and an agent's access never exceeds its owner's. ` +
         `Add the owner first.`,
+    });
+  }
+  // The ceiling is the owner's actual capability, not just their presence: an
+  // owner who can only view the project cannot delegate editing.
+  if (role === "editor" && !canEditProject(ownerAccess)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        `${agent.name} can't edit "${project.name}": its owner ` +
+        `(${owner?.name ?? "another member"}) can only view this project, and an agent's access never exceeds its owner's. ` +
+        `Add the agent as a viewer, or make the owner an editor first.`,
     });
   }
 }

@@ -105,10 +105,13 @@ restriction for view.
 
 **External agents** (ADR-0049) reach a restricted project only as explicit
 `ProjectMember`s — they are never workspace admins, so the escape hatch never
-applies. `project.addMember` admits an agent's shadow user when it is already a
-member of the project's workspace, its owner has access to the project, and the
-role is `editor` or `viewer` (`assertAgentProjectMembership`); `removeMember`
-on a person also removes that person's agents (`cascadeOwnerRemovedFromProject`).
+applies. `project.addMember` and `updateMemberRole` admit an agent's shadow user
+when it is already a member of the project's workspace, its owner has access to
+the project, and the role is `viewer`, or `editor` only if the owner can edit
+(`assertAgentProjectMembership`); `removeMember` on a person also removes that
+person's agents (`cascadeOwnerRemovedFromProject`), and losing the workspace
+(`externalAgent.revokeWorkspace`, `cascadeOwnerRemovedFromWorkspace`) drops the
+agent's project memberships there (`revokeAgentProjectMembershipsInWorkspace`).
 A project refusal is worded by `projectAccessDeniedError`: it names the account
 (and its owner for an agent), the project and the missing access, so the person
 reading it in a terminal knows what to grant. Use it instead of a bare

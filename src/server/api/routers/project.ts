@@ -1347,11 +1347,10 @@ export const projectRouter = createTRPCRouter({
           message: "Project member not found",
         });
       }
-      if (member.user.isAgent && input.role === "admin") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "An agent can be a project editor or viewer, not an admin",
-        });
+      if (member.user.isAgent) {
+        // Same ceiling as adding it: never admin, editor only when the owner
+        // can edit the project.
+        await assertAgentProjectMembership(ctx.db, input.userId, input.projectId, input.role);
       }
 
       return ctx.db.projectMember.update({

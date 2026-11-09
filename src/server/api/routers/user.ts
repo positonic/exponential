@@ -103,25 +103,27 @@ export const userRouter = createTRPCRouter({
           { name: { contains: input.query, mode: 'insensitive' as const } },
         ],
       };
+      // Most callers add the picked user by email; Assistants and External
+      // agents are emailless shadow principals (ADR-0049) granted their
+      // workspaces from their own settings, so they are left out — unless the
+      // caller asks for the agents already in a given workspace.
+      const matchesPrincipal = input.agentsInWorkspaceId
+        ? {
+            OR: [
+              { isAgent: false },
+              {
+                isAgent: true,
+                workspaceMemberships: { some: { workspaceId: input.agentsInWorkspaceId } },
+              },
+            ],
+          }
+        : { isAgent: false };
       return ctx.db.user.findMany({
         where: {
-          ...matchesQuery,
+          // Two OR groups, so both must hold: a bare spread would let the
+          // second `OR` overwrite the first.
+          AND: [matchesQuery, matchesPrincipal],
           id: { not: ctx.session.user.id },
-          // Most callers add the picked user by email; Assistants and External
-          // agents are emailless shadow principals (ADR-0049) granted their
-          // workspaces from their own settings, so they are left out — unless
-          // the caller asks for the agents already in a given workspace.
-          ...(input.agentsInWorkspaceId
-            ? {
-                OR: [
-                  { isAgent: false },
-                  {
-                    isAgent: true,
-                    workspaceMemberships: { some: { workspaceId: input.agentsInWorkspaceId } },
-                  },
-                ],
-              }
-            : { isAgent: false }),
           ...(input.excludeTeamId ? {
             teams: { none: { teamId: input.excludeTeamId } },
           } : {}),

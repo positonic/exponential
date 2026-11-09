@@ -17,6 +17,8 @@ const db = mockDeep<PrismaClient>();
 
 beforeEach(() => {
   mockReset(db);
+  // Losing a workspace also drops the agents' direct project grants there.
+  db.projectMember.deleteMany.mockResolvedValue({ count: 0 });
 });
 
 describe("cascadeOwnerRemovedFromWorkspace", () => {
@@ -39,6 +41,20 @@ describe("cascadeOwnerRemovedFromWorkspace", () => {
       where: {
         workspaceId: "ws-1",
         userId: { in: ["shadow-1", "shadow-2"] },
+      },
+    });
+  });
+
+  it("also removes the agents' direct project memberships in that workspace", async () => {
+    db.externalAgent.findMany.mockResolvedValue([{ shadowUserId: "shadow-1" }] as never);
+    db.workspaceUser.deleteMany.mockResolvedValue({ count: 1 });
+
+    await cascadeOwnerRemovedFromWorkspace(db, "owner-1", "ws-1");
+
+    expect(db.projectMember.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: { in: ["shadow-1"] },
+        project: { workspaceId: "ws-1" },
       },
     });
   });
