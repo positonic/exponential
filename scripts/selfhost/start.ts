@@ -12,7 +12,11 @@
  *   3. pgvector preflight — this Postgres must provide pgvector 0.5.0+.
  *   4. Apply pending migrations (`prisma migrate deploy`; Prisma's advisory
  *      lock makes concurrent starts safe).
- *   5. Serve (`next start`, which honours PORT, default 3000).
+ *   5. Reference data — the idempotent, user-independent part of the seed
+ *      (LifeDomains, system Tags, default Differentiators and Audiences),
+ *      which no migration inserts and first-run screens rely on. Never the
+ *      whole of `prisma/seed.ts`.
+ *   6. Serve (`next start`, which honours PORT, default 3000).
  *
  * exponential.im never runs this: Vercel builds with `vercel.json`'s
  * buildCommand, migrations run from `.github/workflows/prisma-migrate.yml`, and
@@ -22,6 +26,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { seedReferenceData } from "../../prisma/referenceData";
 import {
   checkPgvector,
   explainMigrationFailure,
@@ -130,11 +135,37 @@ async function migrate(): Promise<void> {
   }
 }
 
+/** Arbitrary, fixed: serialises reference-data writes across concurrent starts. */
+const REFERENCE_DATA_LOCK = 7_061_002;
+
+async function ensureReferenceData(): Promise<void> {
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient();
+  try {
+    // System tags are find-then-create (no unique key covers a null
+    // workspaceId), so two replicas starting together could both insert.
+    // A transaction-scoped advisory lock makes them take turns.
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REFERENCE_DATA_LOCK})`;
+        await seedReferenceData(tx);
+      },
+      { timeout: 60_000 },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new StartupError(`Could not write reference data: ${message}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 export async function main(): Promise<number> {
   applySelfHostDefaults(process.env);
   await preflightEnvironment();
   await preflightPgvector();
   await migrate();
+  await ensureReferenceData();
   console.log(`[selfhost] Starting Exponential on port ${process.env.PORT ?? "3000"}…`);
   return run("next", ["start"]);
 }
