@@ -2031,16 +2031,22 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "moving");
       const crossWorkspace = input.workspaceId !== page.workspaceId;
-      // Taking an invite-only page out of its workspace cuts off every invitee
-      // who isn't in the new one — an unshare, which is the owner's call alone
-      // (ADR-0069). Within the workspace, placement grants nothing on such a
-      // page, so an invited editor may still re-file it under a project.
-      await ensurePageAccess(
-        ctx.db,
-        userId,
-        page,
-        crossWorkspace && page.isInviteOnly ? "manage" : "edit",
-      );
+      // Taking a page out of its workspace cuts off every grantee who isn't in
+      // the new one — an unshare. On a restricted page that is the owner's call
+      // alone (ADR-0069); on any other page, a non-owner may unshare only the
+      // grants they added (ADR-0080), so a grant someone else added makes the
+      // move owner-only too. Within the workspace grants are untouched, so an
+      // editor may still re-file the page under a project.
+      const unsharesOthers =
+        crossWorkspace &&
+        (page.isInviteOnly ||
+          (await ctx.db.knowledgePageMember.count({
+            where: {
+              pageId: page.id,
+              OR: [{ invitedById: null }, { invitedById: { not: userId } }],
+            },
+          })) > 0);
+      await ensurePageAccess(ctx.db, userId, page, unsharesOthers ? "manage" : "edit");
       await assertCanPlacePage(ctx.db, userId, input.workspaceId, input.projectId);
 
       if (crossWorkspace) {

@@ -1213,5 +1213,29 @@ describe("page router", () => {
       const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
       expect(stored).toMatchObject({ workspaceId: to.id, projectId: null, isInviteOnly: true });
     });
+
+    it("an editor can't take a page out of its workspace past someone else's grant (ADR-0080)", async () => {
+      const { owner, from, to } = await setup("pg-mv-grant");
+      const editor = await createUser(db);
+      const grantee = await createUser(db);
+      await addWorkspaceMember(db, from.id, editor.id, "member");
+      await addWorkspaceMember(db, to.id, editor.id, "member");
+      await addWorkspaceMember(db, from.id, grantee.id, "member");
+      const page = await createPage(db, { createdById: owner.id, workspaceId: from.id });
+      const asEditor = createTestCaller(editor.id);
+
+      // A grant the editor added themselves doesn't stop them.
+      await asEditor.page.invite({ id: page.id, userIds: [grantee.id], role: "viewer" });
+      await expect(
+        asEditor.page.move({ id: page.id, workspaceId: to.id, projectId: null }),
+      ).resolves.toMatchObject({ id: page.id });
+      await createTestCaller(owner.id).page.move({ id: page.id, workspaceId: from.id, projectId: null });
+
+      // One the owner added does.
+      await db.knowledgePageMember.updateMany({ where: { pageId: page.id }, data: { invitedById: owner.id } });
+      await expect(
+        asEditor.page.move({ id: page.id, workspaceId: to.id, projectId: null }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    });
   });
 });
