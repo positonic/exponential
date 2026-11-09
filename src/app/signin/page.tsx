@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "~/server/auth";
+import { resolveSignInMethods } from "~/server/auth/signInMethods";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { SignInLandingPage } from "./SignInLandingPage";
 
@@ -19,5 +20,16 @@ export default async function SignIn() {
     redirect("/home");
   }
 
-  return <SignInLandingPage />;
+  const methods = resolveSignInMethods(process.env);
+
+  return (
+    <SignInLandingPage
+      options={{
+        google: methods.google,
+        microsoft: methods.microsoft,
+        discord: methods.discord,
+        email: methods.emailDelivery !== null,
+      }}
+    />
+  );
 }

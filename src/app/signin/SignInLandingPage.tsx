@@ -5,7 +5,6 @@ import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
-import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getDesktopBridge } from "~/lib/platform";
 import { AuthMarketingPanel } from "~/app/_components/auth/AuthMarketingPanel";
@@ -43,7 +42,20 @@ function signInErrorMessage(error: string | null): string | null {
   }
 }
 
-export function SignInLandingPage() {
+/**
+ * The ways in `/signin` offers, resolved on the server from
+ * `resolveSignInMethods` so a button is shown exactly when its provider is
+ * registered (and without waiting on a query).
+ */
+export interface SignInOptions {
+  google: boolean;
+  microsoft: boolean;
+  discord: boolean;
+  /** A Sign-in code can be delivered (Postmark, SMTP or the server log). */
+  email: boolean;
+}
+
+export function SignInLandingPage({ options }: { options: SignInOptions }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/home";
@@ -54,7 +66,7 @@ export function SignInLandingPage() {
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
   const isBusy = pendingProvider !== null;
 
-  const { data: providers } = api.auth.getConfiguredProviders.useQuery();
+  const hasOAuth = options.google || options.microsoft || options.discord;
 
   const startSignIn = async (provider: string) => {
     // In a desktop shell, in-window OAuth is a dead end: an embedded webview has
@@ -163,7 +175,7 @@ export function SignInLandingPage() {
             )}
 
             <div className="providers">
-              {providers?.google && (
+              {options.google && (
                 <button
                   type="button"
                   className="provider"
@@ -178,7 +190,7 @@ export function SignInLandingPage() {
                 </button>
               )}
 
-              {providers?.microsoft && (
+              {options.microsoft && (
                 <button
                   type="button"
                   className="provider"
@@ -195,7 +207,7 @@ export function SignInLandingPage() {
                 </button>
               )}
 
-              {providers?.discord && (
+              {options.discord && (
                 <button
                   type="button"
                   className="provider"
@@ -211,35 +223,39 @@ export function SignInLandingPage() {
               )}
             </div>
 
-            <div className="or-div">
-              <span className="or-div__line" />
-              <span className="or-div__txt">or email a sign-in code</span>
-              <span className="or-div__line" />
-            </div>
+            {options.email && hasOAuth && (
+              <div className="or-div">
+                <span className="or-div__line" />
+                <span className="or-div__txt">or email a sign-in code</span>
+                <span className="or-div__line" />
+              </div>
+            )}
 
-            <form className="field" onSubmit={handleSubmit}>
-              <label className="field__label" htmlFor="signin-email">
-                Work email
-              </label>
-              <input
-                id="signin-email"
-                className="field__input"
-                type="email"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                required
-              />
-              <button
-                className="btn-primary"
-                type="submit"
-                disabled={isBusy || !email}
-              >
-                <span>Send me a sign-in code</span>
-                <ArrowRightGlyph />
-              </button>
-            </form>
+            {options.email && (
+              <form className="field" onSubmit={handleSubmit}>
+                <label className="field__label" htmlFor="signin-email">
+                  Work email
+                </label>
+                <input
+                  id="signin-email"
+                  className="field__input"
+                  type="email"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+                <button
+                  className="btn-primary"
+                  type="submit"
+                  disabled={isBusy || !email}
+                >
+                  <span>Send me a sign-in code</span>
+                  <ArrowRightGlyph />
+                </button>
+              </form>
+            )}
 
             <p className="terms">
               By continuing, you agree to our{" "}

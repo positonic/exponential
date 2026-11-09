@@ -11,16 +11,13 @@ import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
 import { sendFirstLoginWelcomeEmail } from "~/server/services/EmailService";
 import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
-import { MICROSOFT_LOGIN_ENABLED, signInMethodWarnings } from "~/server/auth/signInMethods";
+import { resolveSignInMethods, signInMethodWarnings } from "~/server/auth/signInMethods";
 import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
-/**
- * Re-exported for existing importers; it lives in `signInMethods` so the pure
- * resolver can read it without importing this module.
- */
-export { MICROSOFT_LOGIN_ENABLED };
+/** Which ways in this install has, resolved once at config load. */
+const signInMethods = resolveSignInMethods(process.env);
 
 // Once per process, at config load: log delivery on, or its flag ignored.
 for (const warning of signInMethodWarnings(process.env)) console.warn(warning);
@@ -52,38 +49,50 @@ export const authConfig = {
     verifyRequest: '/auth/verify-request',
   },
   providers: [
-    DiscordProvider({
-      clientId: process.env.AUTH_DISCORD_ID!,
-      clientSecret: process.env.AUTH_DISCORD_SECRET!,
-      authorization: {
-        url: "https://discord.com/api/oauth2/authorize",
-        params: {
-          scope: "identify email guilds",
-        },
-      },
-      allowDangerousEmailAccountLinking: true,
-    }),
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      allowDangerousEmailAccountLinking: true,
-      authorization: {
-        params: {
-          access_type: "offline",
-          prompt: "consent",
-          scope: [
-            "openid",
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile",
-          ].join(" "),
-        },
-      },
-    }),
-    ...(MICROSOFT_LOGIN_ENABLED && process.env.MICROSOFT_ENTRA_ID_CLIENT_ID
+    // OAuth providers register only when their id and secret are both set, so
+    // an install never offers a button that bounces with "provider not
+    // found". `/signin`, the invite page and `auth.getConfiguredProviders`
+    // read the same resolver.
+    ...(signInMethods.discord
+      ? [
+          DiscordProvider({
+            clientId: process.env.AUTH_DISCORD_ID,
+            clientSecret: process.env.AUTH_DISCORD_SECRET,
+            authorization: {
+              url: "https://discord.com/api/oauth2/authorize",
+              params: {
+                scope: "identify email guilds",
+              },
+            },
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
+    ...(signInMethods.google
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true,
+            authorization: {
+              params: {
+                access_type: "offline",
+                prompt: "consent",
+                scope: [
+                  "openid",
+                  "https://www.googleapis.com/auth/userinfo.email",
+                  "https://www.googleapis.com/auth/userinfo.profile",
+                ].join(" "),
+              },
+            },
+          }),
+        ]
+      : []),
+    ...(signInMethods.microsoft
       ? [
           MicrosoftEntraID({
             clientId: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
-            clientSecret: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET!,
+            clientSecret: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET,
             issuer: process.env.MICROSOFT_ENTRA_ID_TENANT_ID
               ? `https://login.microsoftonline.com/${process.env.MICROSOFT_ENTRA_ID_TENANT_ID}/v2.0`
               : undefined,
@@ -96,19 +105,23 @@ export const authConfig = {
           }),
         ]
       : []),
-    NotionProvider({
-      clientId: process.env.NOTION_CLIENT_ID!,
-      clientSecret: process.env.NOTION_CLIENT_SECRET!,
-      redirectUri: process.env.NOTION_REDIRECT_URI!,
-      authorization: {
-        params: {
-          scope: 'basic read_databases write_databases',
-          owner: 'user',
-          response_type: 'code'
-        },
-        redirectUri: process.env.NOTION_REDIRECT_URI!,
-      }
-    }),
+    ...(signInMethods.notion
+      ? [
+          NotionProvider({
+            clientId: process.env.NOTION_CLIENT_ID,
+            clientSecret: process.env.NOTION_CLIENT_SECRET,
+            redirectUri: process.env.NOTION_REDIRECT_URI!,
+            authorization: {
+              params: {
+                scope: 'basic read_databases write_databases',
+                owner: 'user',
+                response_type: 'code'
+              },
+              redirectUri: process.env.NOTION_REDIRECT_URI!,
+            }
+          }),
+        ]
+      : []),
     // The email provider. Its id is `postmark` whatever actually delivers the
     // code (Postmark, SMTP or, opt-in, the server log — `deliverSignInCode`
     // decides), because the id is load-bearing: `buildSignInCodeCallbackUrl`

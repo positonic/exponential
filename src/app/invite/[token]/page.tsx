@@ -347,6 +347,7 @@ function InviteLandingPage({
   // its ?error= param; this page owns its own copy because it never leaves.
   const [sendError, setSendError] = useState<string | null>(null);
   const { data: providers } = api.auth.getConfiguredProviders.useQuery();
+  const emailOffered = providers?.email !== false;
 
   const daysUntilExpiry = useMemo(() => {
     const ms = new Date(invitation.expiresAt).getTime() - Date.now();
@@ -570,11 +571,16 @@ function InviteLandingPage({
               )}
             </div>
 
-            <div className="or-div">
-              <span className="or-div__line" />
-              <span className="or-div__txt">or email a sign-in code</span>
-              <span className="or-div__line" />
-            </div>
+            {/* Hidden only once the server says no Sign-in code can be
+                delivered: while the query loads the form stays, so it
+                doesn't flicker on installs that have email. */}
+            {emailOffered && (
+              <div className="or-div">
+                <span className="or-div__line" />
+                <span className="or-div__txt">or email a sign-in code</span>
+                <span className="or-div__line" />
+              </div>
+            )}
 
             {sendError && (
               <p className="auth-error" role="alert">
@@ -582,31 +588,33 @@ function InviteLandingPage({
               </p>
             )}
 
-            <form className="field" onSubmit={handleSubmit}>
-              <label className="field__label" htmlFor="invite-confirm-email">
-                Confirm your email
-              </label>
-              <input
-                id="invite-confirm-email"
-                className="field__input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-              <button
-                className="btn-primary"
-                type="submit"
-                disabled={isBusy}
-              >
-                <span>
-                  {alreadyMember
-                    ? `Sign in & open ${workspaceName}`
-                    : `Accept invite & join ${workspaceName}`}
-                </span>
-                <ArrowRightGlyph />
-              </button>
-            </form>
+            {emailOffered && (
+              <form className="field" onSubmit={handleSubmit}>
+                <label className="field__label" htmlFor="invite-confirm-email">
+                  Confirm your email
+                </label>
+                <input
+                  id="invite-confirm-email"
+                  className="field__input"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                />
+                <button
+                  className="btn-primary"
+                  type="submit"
+                  disabled={isBusy}
+                >
+                  <span>
+                    {alreadyMember
+                      ? `Sign in & open ${workspaceName}`
+                      : `Accept invite & join ${workspaceName}`}
+                  </span>
+                  <ArrowRightGlyph />
+                </button>
+              </form>
+            )}
 
             <p className="terms">
               By {alreadyMember ? "signing in" : "joining"}, you agree to our{" "}
