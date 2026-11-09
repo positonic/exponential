@@ -737,6 +737,46 @@ describe("page router", () => {
       expect(await listed(member.id, ws.id)).toContain(page.id);
     });
 
+    it("a grant shows the page on every dependent surface, and removing it hides it again", async () => {
+      const { author, outsider, ws, page } = await setup("pg-grant-surfaces");
+      await db.knowledgePage.update({ where: { id: page.id }, data: { title: "Grant parity plan" } });
+      const owner = createTestCaller(author.id);
+      const grantee = createTestCaller(outsider.id);
+      const searched = async () =>
+        (await grantee.search.global({ query: "Grant parity", workspaceId: ws.id })).results.some(
+          (r) => r.id === page.id,
+        );
+      const favourited = async () =>
+        (await grantee.favorite.list({ workspaceId: ws.id })).some(
+          (f) => f.entityId === `pages/${page.id}`,
+        );
+
+      expect(await searched()).toBe(false);
+      await expect(
+        grantee.favorite.toggle({ entityType: "page", entityId: `pages/${page.id}`, workspaceId: ws.id }),
+      ).rejects.toThrow(TRPCError);
+
+      await owner.page.invite({ id: page.id, userIds: [outsider.id], role: "viewer" });
+      expect(await searched()).toBe(true);
+      await grantee.favorite.toggle({
+        entityType: "page",
+        entityId: `pages/${page.id}`,
+        workspaceId: ws.id,
+      });
+      expect(await favourited()).toBe(true);
+      // The roster agrees: the grantee is in the page's audience.
+      expect((await owner.page.audience({ id: page.id })).people.map((p) => p.id)).toContain(
+        outsider.id,
+      );
+
+      await owner.page.removeInvite({ id: page.id, userId: outsider.id });
+      expect(await searched()).toBe(false);
+      expect(await favourited()).toBe(false);
+      expect((await owner.page.audience({ id: page.id })).people.map((p) => p.id)).not.toContain(
+        outsider.id,
+      );
+    });
+
     it("a grantee who leaves the workspace loses the page from their list", async () => {
       const { author, outsider, ws, page } = await setup("pg-grant-leave");
       await createTestCaller(author.id).page.invite({

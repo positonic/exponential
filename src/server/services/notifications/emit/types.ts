@@ -38,8 +38,9 @@ export interface MeetingParticipantAddedSubject {
 }
 
 /**
- * Page shared (ADR-0069): an invite-only Page and the workspace members just
- * invited to it. The access gate re-checks each still can view the page.
+ * Page shared (ADR-0069, ADR-0080): a Page, in any mode, and the workspace
+ * members just granted access to it. The access gate re-checks each still can
+ * view the page.
  */
 export interface PageSharedSubject {
   pageId: string;
