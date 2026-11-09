@@ -35,6 +35,7 @@ import {
   assertNotRow,
   ensurePageAccess,
   loadPageForAccess,
+  pageAccessDeniedError,
   type PageForAccess,
 } from "~/server/services/pages/access";
 import {
@@ -66,6 +67,7 @@ import {
   filterWorkspaceMembers,
   hasMinimumWorkspaceRole,
   listKnowledgePageViewers,
+  projectAccessDeniedError,
 } from "~/server/services/access";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
@@ -353,10 +355,13 @@ async function assertCanPlacePage(
     }
     const access = await getProjectAccess(db, userId, projectId);
     if (!canEditProject(access)) {
-      throw new TRPCError({
-        code: "FORBIDDEN",
-        message: "You don't have permission to add a page to this project",
-      });
+      throw await projectAccessDeniedError(
+        db,
+        userId,
+        projectId,
+        "add a page to this project",
+        access,
+      );
     }
     return;
   }
@@ -686,10 +691,7 @@ export const pageRouter = createTRPCRouter({
         page,
       );
       if (!canViewKnowledgePage(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have access to this page",
-        });
+        throw await pageAccessDeniedError(ctx.db, ctx.session.user.id, page, access, "view");
       }
 
       // A database block is stored as a marker; readers see its table
@@ -1573,10 +1575,7 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       const access = await getKnowledgePageAccess(ctx.db, userId, page);
       if (!canViewKnowledgePage(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You don't have access to this page",
-        });
+        throw await pageAccessDeniedError(ctx.db, userId, page, access, "view");
       }
       const canManage = canManageKnowledgePageAccess(access);
       // Invitee rows outlive switching invite-only off (so switching back

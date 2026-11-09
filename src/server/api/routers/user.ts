@@ -15,13 +15,45 @@ export const userRouter = createTRPCRouter({
     return isGoogleOAuthTester(ctx.session.user.email);
   }),
 
+  /**
+   * Who the caller is. For an External agent's key (ADR-0049) this is the
+   * agent's shadow user, so `isAgent` and `agent` say so and name the owner —
+   * `exponential auth whoami` shows them, so the person holding the key can
+   * tell which account to grant access to (ticket alpha.shark, ticket 819).
+   */
   getCurrentUser: protectedProcedure
     .query(async ({ ctx }) => {
+      const userId = ctx.session.user.id;
+      const row = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { isAgent: true },
+      });
+      const isAgent = row?.isAgent ?? false;
+      const externalAgent = isAgent
+        ? await ctx.db.externalAgent.findUnique({
+            where: { shadowUserId: userId },
+            select: { id: true, name: true, ownerId: true },
+          })
+        : null;
+      const owner = externalAgent
+        ? await ctx.db.user.findUnique({
+            where: { id: externalAgent.ownerId },
+            select: { id: true, name: true },
+          })
+        : null;
       return {
-        id: ctx.session.user.id,
+        id: userId,
         name: ctx.session.user.name,
         email: ctx.session.user.email,
         image: ctx.session.user.image,
+        isAgent,
+        agent: externalAgent
+          ? {
+              id: externalAgent.id,
+              name: externalAgent.name,
+              owner: { id: externalAgent.ownerId, name: owner?.name ?? null },
+            }
+          : null,
       };
     }),
 
@@ -55,20 +87,41 @@ export const userRouter = createTRPCRouter({
       query: z.string().min(2),
       excludeTeamId: z.string().optional(),
       excludeWorkspaceId: z.string().optional(),
+      /**
+       * Also match External agents (ADR-0049) that are already members of this
+       * workspace. For the project Members picker: an agent gets into a
+       * restricted project by being added there, and it can only be found by
+       * name — it has no email.
+       */
+      agentsInWorkspaceId: z.string().optional(),
       limit: z.number().min(1).max(20).default(5),
     }))
     .query(async ({ ctx, input }) => {
+      const matchesQuery = {
+        OR: [
+          { email: { contains: input.query, mode: 'insensitive' as const } },
+          { name: { contains: input.query, mode: 'insensitive' as const } },
+        ],
+      };
       return ctx.db.user.findMany({
         where: {
-          OR: [
-            { email: { contains: input.query, mode: 'insensitive' } },
-            { name: { contains: input.query, mode: 'insensitive' } },
-          ],
+          ...matchesQuery,
           id: { not: ctx.session.user.id },
-          // Every caller adds the picked user by email; Assistants and External
-          // agents are emailless shadow principals (ADR-0049) granted access
-          // from their own settings, so they can never be added this way.
-          isAgent: false,
+          // Most callers add the picked user by email; Assistants and External
+          // agents are emailless shadow principals (ADR-0049) granted their
+          // workspaces from their own settings, so they are left out — unless
+          // the caller asks for the agents already in a given workspace.
+          ...(input.agentsInWorkspaceId
+            ? {
+                OR: [
+                  { isAgent: false },
+                  {
+                    isAgent: true,
+                    workspaceMemberships: { some: { workspaceId: input.agentsInWorkspaceId } },
+                  },
+                ],
+              }
+            : { isAgent: false }),
           ...(input.excludeTeamId ? {
             teams: { none: { teamId: input.excludeTeamId } },
           } : {}),
@@ -81,6 +134,7 @@ export const userRouter = createTRPCRouter({
           name: true,
           email: true,
           image: true,
+          isAgent: true,
         },
         take: input.limit,
         orderBy: { name: 'asc' },

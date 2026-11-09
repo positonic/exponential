@@ -12,6 +12,8 @@ import {
   canManageKnowledgePageAccess,
   canViewKnowledgePage,
   getKnowledgePageAccess,
+  projectAccessDeniedError,
+  type KnowledgePageAccessInfo,
 } from "~/server/services/access";
 
 /** A Page reduced to exactly what the access resolver needs. */
@@ -64,6 +66,46 @@ export async function loadPageForAccess(db: PrismaClient, id: string) {
   return page;
 }
 
+/**
+ * The FORBIDDEN for a page refusing `userId` `permission`. When the refusal
+ * comes from the page's project (a restricted project the caller isn't in),
+ * the message names the account, the project and the missing access — the
+ * case an agent's owner hit in ticket alpha.shark (ticket 819), where "You don't
+ * have access to this page" gave them nothing to act on.
+ */
+export async function pageAccessDeniedError(
+  db: PrismaClient,
+  userId: string,
+  page: Pick<PageForAccess, "projectId" | "isInviteOnly">,
+  access: KnowledgePageAccessInfo,
+  permission: PageAccessPermission,
+): Promise<TRPCError> {
+  const projectId = page.projectId;
+  const deniedByProject =
+    projectId !== null &&
+    permission !== "manage" &&
+    !access.isInviteOnly &&
+    !access.isOwner &&
+    (permission === "view" ? !access.hasProjectAccess : !access.canEditProject);
+  if (projectId !== null && deniedByProject) {
+    return projectAccessDeniedError(
+      db,
+      userId,
+      projectId,
+      permission === "view" ? "read this page" : "edit this page",
+    );
+  }
+  return new TRPCError({
+    code: "FORBIDDEN",
+    message:
+      permission === "view"
+        ? "You don't have access to this page"
+        : permission === "edit"
+          ? "You don't have permission to edit this page"
+          : "Only the page's owner can change who it's shared with",
+  });
+}
+
 /** Throw unless the user has view/edit/manage access to the page. */
 export async function ensurePageAccess(
   db: PrismaClient,
@@ -79,14 +121,6 @@ export async function ensurePageAccess(
         ? canEditKnowledgePage(access)
         : canManageKnowledgePageAccess(access);
   if (!allowed) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        permission === "view"
-          ? "You don't have access to this page"
-          : permission === "edit"
-            ? "You don't have permission to edit this page"
-            : "Only the page's owner can change who it's shared with",
-    });
+    throw await pageAccessDeniedError(db, userId, page, access, permission);
   }
 }

@@ -14,7 +14,12 @@ import {
   isWorkspaceGuest,
   getWorkspaceMembership,
   AccessControlService,
+  projectAccessDeniedError,
 } from "~/server/services/access";
+import {
+  assertAgentProjectMembership,
+  cascadeOwnerRemovedFromProject,
+} from "~/server/services/externalAgentAccess";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { projectActivityScopeWhere } from "~/server/services/projectActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
@@ -1020,10 +1025,15 @@ export const projectRouter = createTRPCRouter({
 
       const access = await getProjectAccess(ctx.db, ctx.session.user.id, projectExists.id);
       if (!hasProjectAccess(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied - you don't have permission to view this project",
-        });
+        // Says who was refused and what they lack (ticket alpha.shark): an
+        // agent's owner reads this in a terminal and has to act on it.
+        throw await projectAccessDeniedError(
+          ctx.db,
+          ctx.session.user.id,
+          projectExists.id,
+          "view this project",
+          access,
+        );
       }
 
       // Return the project with only the relations the detail page actually
@@ -1243,10 +1253,16 @@ export const projectRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const user = await ctx.db.user.findUnique({
         where: { id: input.userId },
-        select: { name: true, email: true },
+        select: { name: true, email: true, isAgent: true },
       });
       if (!user) {
         throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      }
+      if (user.isAgent) {
+        // An External agent joins a project under the same ceiling as a
+        // workspace (ADR-0049): its owner must hold the project, and it is
+        // never an admin. This is how an agent gets into a restricted project.
+        await assertAgentProjectMembership(ctx.db, input.userId, input.projectId, input.role);
       }
 
       // Idempotent via @@unique([projectId, userId]): upsert keeps repeated
@@ -1304,6 +1320,9 @@ export const projectRouter = createTRPCRouter({
           userId: input.userId,
         },
       });
+      // A person's agents leave the project with them (ADR-0049 delegation
+      // invariant): their access never outlives the owner's.
+      await cascadeOwnerRemovedFromProject(ctx.db, input.userId, input.projectId);
 
       return { success: true };
     }),
@@ -1320,12 +1339,18 @@ export const projectRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const member = await ctx.db.projectMember.findFirst({
         where: { projectId: input.projectId, userId: input.userId },
-        select: { id: true },
+        select: { id: true, user: { select: { isAgent: true } } },
       });
       if (!member) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Project member not found",
+        });
+      }
+      if (member.user.isAgent && input.role === "admin") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "An agent can be a project editor or viewer, not an admin",
         });
       }
 
