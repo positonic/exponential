@@ -114,7 +114,7 @@ describe("applyCadenceChange", () => {
   it("does nothing when no cadence field changed", async () => {
     const db = mockDeep<PrismaClient>();
     const res = await applyCadenceChange(db, before, { ...before, id: "cer-1", isOneOff: false }, NOW);
-    expect(res).toEqual({ occurrencesDeleted: 0, occurrencesSkipped: 0 });
+    expect(res).toEqual({ occurrencesDeleted: 0, occurrencesSkipped: 0, skippedOccurrenceIds: [] });
     expect(db.ceremonyOccurrence.findMany).not.toHaveBeenCalled();
   });
 
@@ -129,7 +129,7 @@ describe("applyCadenceChange", () => {
 
     const res = await applyCadenceChange(db, before, after, NOW);
 
-    expect(res).toEqual({ occurrencesDeleted: 1, occurrencesSkipped: 1 });
+    expect(res).toEqual({ occurrencesDeleted: 1, occurrencesSkipped: 1, skippedOccurrenceIds: ["occ-updates"] });
     const where = db.ceremonyOccurrence.findMany.mock.calls[0]![0]!.where;
     expect(where).toMatchObject({
       ceremonyId: "cer-1",
@@ -162,7 +162,7 @@ describe("applyCadenceChange", () => {
 
     const res = await applyCadenceChange(db, before, { ...before, id: "cer-1", isOneOff: false, durationMinutes: 30 }, NOW);
 
-    expect(res).toEqual({ occurrencesDeleted: 0, occurrencesSkipped: 0 });
+    expect(res).toEqual({ occurrencesDeleted: 0, occurrencesSkipped: 0, skippedOccurrenceIds: [] });
     expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({
       where: { id: "occ-16" },
       data: { scheduledEnd: new Date(MON_16.getTime() + 30 * 60_000) },

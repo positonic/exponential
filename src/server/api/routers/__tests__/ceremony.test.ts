@@ -86,9 +86,13 @@ vi.mock("~/server/db", () => {
 
 import { createMockCaller } from "~/test/trpc-helpers";
 
-const { cancelScheduledMeetingMock, previewOneOffAgendaMock } = vi.hoisted(() => ({
+const { cancelScheduledMeetingMock, previewOneOffAgendaMock, emitNotificationMock } = vi.hoisted(() => ({
   cancelScheduledMeetingMock: vi.fn(),
   previewOneOffAgendaMock: vi.fn(),
+  emitNotificationMock: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
+  emitNotification: emitNotificationMock,
 }));
 vi.mock("~/server/services/ceremonies/agenda/previewOneOff", () => ({
   previewOneOffAgenda: previewOneOffAgendaMock,
@@ -142,6 +146,7 @@ describe("ceremony router", () => {
   beforeEach(() => {
     db = getDbMock();
     mockReset(db);
+    emitNotificationMock.mockClear();
   });
 
   describe("reads gate on workspace membership", () => {
@@ -517,6 +522,7 @@ describe("ceremony router", () => {
         expect.objectContaining({ where: { id: { in: ["occ-updated"] } }, data: expect.objectContaining({ status: "SKIPPED" }) }),
       );
       expect(res[0]).toMatchObject({ action: "updated", occurrencesCreated: 2, occurrencesDeleted: 1, occurrencesSkipped: 1 });
+      expect(emitNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ subject: { occurrenceId: "occ-updated" } }));
     });
 
     it("refuses a partial definition for a ceremony that does not exist yet", async () => {
@@ -881,6 +887,11 @@ describe("ceremony router", () => {
         expect.objectContaining({ where: { id: { in: ["occ-with-notes"] } }, data: expect.objectContaining({ status: "SKIPPED" }) }),
       );
       expect(res).toMatchObject({ occurrencesDeleted: 1, occurrencesSkipped: 1 });
+      // Participants get the same skip notice an explicit skip sends, for the skipped row only.
+      expect(emitNotificationMock).toHaveBeenCalledTimes(1);
+      expect(emitNotificationMock).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "agenda_ready", actorUserId: USER_ID, subject: { occurrenceId: "occ-with-notes" } }),
+      );
     });
 
     it("on a duration-only change keeps every occurrence and its id, only moving the end time", async () => {
@@ -898,6 +909,7 @@ describe("ceremony router", () => {
       expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({ where: { id: "occ-1" }, data: { scheduledEnd: new Date(tick.getTime() + 45 * 60_000) } });
       expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({ where: { id: "occ-2" }, data: { scheduledEnd: new Date(nextTick.getTime() + 45 * 60_000) } });
       expect(res).toMatchObject({ occurrencesDeleted: 0, occurrencesSkipped: 0 });
+      expect(emitNotificationMock).not.toHaveBeenCalled();
     });
 
     it("touches no occurrence when no cadence field changed", async () => {

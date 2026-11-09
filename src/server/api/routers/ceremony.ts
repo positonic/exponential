@@ -68,6 +68,25 @@ const slugify = (value: string) => {
   return slug.length > 0 ? slug : "ceremony";
 };
 
+/**
+ * The skip notice for occurrences a cadence change skipped, as
+ * `skipOccurrence` sends for an explicit skip (AGENDA_READY on a SKIPPED row
+ * renders as "Skipped: …"). Sent after the transaction commits; a failed
+ * notice never undoes the edit.
+ */
+async function notifyCadenceSkips(db: PrismaClient, occurrenceIds: string[], actorUserId: string) {
+  for (const occurrenceId of occurrenceIds) {
+    await emitNotification({
+      db,
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId,
+      subject: { occurrenceId },
+    }).catch((err) => {
+      console.error("[ceremonies] cadence-change skip notification failed:", err);
+    });
+  }
+}
+
 /** Validates the RRULE body by building the engine; surfaces a 400 on garbage. */
 function assertValidCadence(cadenceRule: string, timezone: string) {
   try {
@@ -1076,7 +1095,7 @@ export const ceremonyRouter = createTRPCRouter({
         durationMinutes: fields.durationMinutes ?? existing.durationMinutes,
       });
 
-      const { ceremony, occurrencesDeleted, occurrencesSkipped } = await ctx.db.$transaction(async (tx) => {
+      const { ceremony, occurrencesDeleted, occurrencesSkipped, skippedOccurrenceIds } = await ctx.db.$transaction(async (tx) => {
         const updated = await tx.ceremony.update({
           where: { id },
           data: {
@@ -1098,6 +1117,7 @@ export const ceremonyRouter = createTRPCRouter({
         const reconciled = await applyCadenceChange(tx, existing, updated);
         return { ceremony: updated, ...reconciled };
       });
+      await notifyCadenceSkips(ctx.db, skippedOccurrenceIds, ctx.session.user.id);
 
       let occurrencesCreated = 0;
       if (ceremony.isActive && (cadenceChanged || input.isActive === true)) {
@@ -1178,7 +1198,7 @@ export const ceremonyRouter = createTRPCRouter({
         // A re-import that changes the cadence reconciles future occurrences
         // exactly as `update` does (`applyCadenceChange`); otherwise the old
         // ticks would linger beside the new ones and both get agendas.
-        const { ceremony, occurrencesDeleted, occurrencesSkipped } = existing
+        const { ceremony, occurrencesDeleted, occurrencesSkipped, skippedOccurrenceIds } = existing
           ? await ctx.db.$transaction(async (tx) => {
               const updated = await tx.ceremony.update({
                 where: { id: existing.id },
@@ -1199,6 +1219,7 @@ export const ceremonyRouter = createTRPCRouter({
           : {
               occurrencesDeleted: 0,
               occurrencesSkipped: 0,
+              skippedOccurrenceIds: [] as string[],
               ceremony: await ctx.db.ceremony.create({
                 data: {
                   ...present,
@@ -1215,6 +1236,7 @@ export const ceremonyRouter = createTRPCRouter({
                 },
               }),
             };
+        await notifyCadenceSkips(ctx.db, skippedOccurrenceIds, userId);
         const occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
         await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, userId);
         results.push({

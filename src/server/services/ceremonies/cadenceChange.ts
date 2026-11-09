@@ -13,7 +13,9 @@
  * - a row the new rule no longer produces but that holds human input — an
  *   agenda, a notes page, async updates, linked decisions or actions — is
  *   marked SKIPPED with a reason instead. Its data survives, the agenda sweep
- *   (PLANNED only) stops circulating it, and the owner can unskip it.
+ *   (PLANNED only) stops circulating it, and the owner can unskip it. The
+ *   caller sends the usual skip notice for each one once its transaction
+ *   commits (`skippedOccurrenceIds`), as an explicit skip does.
  *
  * Rows that are moved off their tick, added by hand (null `cadenceStart`),
  * booked (`scheduledMeetingId`) or recorded are deliberate acts and are never
@@ -29,9 +31,12 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 type CadenceFields = Pick<Ceremony, "cadenceRule" | "timezone" | "startsOn" | "durationMinutes">;
 
-/** Reason written on an occurrence skipped because the cadence moved away from it. */
-export const CADENCE_CHANGE_SKIP_REASON =
-  "The ceremony's schedule changed and this time is no longer on it. Kept because it already had notes, updates or decisions; unskip it to hold it anyway.";
+/**
+ * Reason written on an occurrence skipped because the cadence moved away from
+ * it. Participants read it in the skip notice (`<when> · <reason> — …`), so
+ * it stays short and says what happened, not what the owner could do.
+ */
+export const CADENCE_CHANGE_SKIP_REASON = "Dropped from the schedule when the ceremony's cadence changed";
 
 /** Whether any field that decides when occurrences fall has changed. */
 export function cadenceChanged(before: CadenceFields, after: CadenceFields): boolean {
@@ -118,6 +123,8 @@ export function planCadenceChange(
 export interface CadenceChangeResult {
   occurrencesDeleted: number;
   occurrencesSkipped: number;
+  /** The rows marked SKIPPED; the caller notifies participants after commit. */
+  skippedOccurrenceIds: string[];
 }
 
 /**
@@ -131,7 +138,7 @@ export async function applyCadenceChange(
   after: CadenceFields & Pick<Ceremony, "id" | "isOneOff">,
   now = new Date(),
 ): Promise<CadenceChangeResult> {
-  const result: CadenceChangeResult = { occurrencesDeleted: 0, occurrencesSkipped: 0 };
+  const result: CadenceChangeResult = { occurrencesDeleted: 0, occurrencesSkipped: 0, skippedOccurrenceIds: [] };
   if (!cadenceChanged(before, after)) return result;
 
   const candidates = await db.ceremonyOccurrence.findMany({
@@ -165,6 +172,7 @@ export async function applyCadenceChange(
       data: { status: "SKIPPED", skipReason: CADENCE_CHANGE_SKIP_REASON },
     });
     result.occurrencesSkipped = skipped.count;
+    result.skippedOccurrenceIds = plan.skipIds;
   }
   if (plan.deleteIds.length > 0) {
     // Re-check emptiness in the delete itself: something added between the
