@@ -209,6 +209,25 @@ describe("transport selection", () => {
     expect(createTransport).toHaveBeenLastCalledWith(expect.objectContaining({ port: 465, secure: true }));
   });
 
+  it("SMTP_SECURE=1 means implicit TLS, like the other env flags", async () => {
+    delete process.env.AUTH_POSTMARK_KEY;
+    configureSmtp();
+    process.env.SMTP_PORT = "587";
+    process.env.SMTP_SECURE = "1";
+    await sendSignInCodeEmail("someone@example.test", "ABCD2345");
+    expect(createTransport).toHaveBeenLastCalledWith(expect.objectContaining({ port: 587, secure: true }));
+  });
+
+  it("a non-numeric SMTP_PORT makes SMTP unusable instead of handing nodemailer NaN", async () => {
+    delete process.env.AUTH_POSTMARK_KEY;
+    configureSmtp();
+    process.env.SMTP_PORT = "smtp";
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(sendSignInCodeEmail("someone@example.test", "ABCD2345")).rejects.toThrow(/not configured/);
+    expect(createTransport).not.toHaveBeenCalledWith(expect.objectContaining({ port: Number.NaN }));
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
   it("SMTP never sends as exponential.im: with no sender it is not configured", async () => {
     delete process.env.AUTH_POSTMARK_KEY;
     delete process.env.AUTH_POSTMARK_FROM;

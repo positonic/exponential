@@ -351,6 +351,9 @@ function InviteLandingPage({
   // The "or" divider only separates the form from OAuth buttons; while the
   // query loads, keep it (most installs have both).
   const oauthOffered = !providers || providers.google || providers.microsoft || providers.discord;
+  // Loaded and nothing usable: same state as /signin's setup panel. Say so
+  // rather than leave the invitee on a page with no way to accept.
+  const noWayIn = !!providers && !emailOffered && !oauthOffered;
 
   const daysUntilExpiry = useMemo(() => {
     const ms = new Date(invitation.expiresAt).getTime() - Date.now();
@@ -582,6 +585,17 @@ function InviteLandingPage({
                 <span className="or-div__line" />
                 <span className="or-div__txt">or email a sign-in code</span>
                 <span className="or-div__line" />
+              </div>
+            )}
+
+            {noWayIn && (
+              <div className="setup-error" role="alert">
+                <p className="setup-error__note">
+                  This install has no way to sign in yet, so the invite
+                  can&apos;t be accepted. Ask whoever runs it to set up
+                  sign-in; <Link href="/signin">the sign-in page</Link> lists
+                  what to configure.
+                </p>
               </div>
             )}
 

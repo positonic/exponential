@@ -39,7 +39,8 @@ export interface SmtpMessage {
 /**
  * SMTP settings from the environment, or null when SMTP isn't usable: no
  * `SMTP_HOST`, or no sender (`EMAIL_FROM ?? AUTH_POSTMARK_FROM`). `SMTP_PORT`
- * defaults to 587; `SMTP_SECURE` defaults to true only on port 465.
+ * defaults to 587 (an invalid port makes SMTP unusable); `SMTP_SECURE`
+ * ("true"/"1" or "false"/"0") defaults to true only on port 465.
  */
 export function resolveSmtpSettings(env: SignInEnv): SmtpSettings | null {
   const host = nonEmpty(env.SMTP_HOST);
@@ -47,9 +48,14 @@ export function resolveSmtpSettings(env: SignInEnv): SmtpSettings | null {
   if (!host || !from) return null;
 
   const portSetting = nonEmpty(env.SMTP_PORT);
-  const port = portSetting ? Number(portSetting) : 587;
+  // env.js rejects a non-numeric SMTP_PORT at startup; this guards callers
+  // that skip validation, so nodemailer never gets NaN.
+  const parsedPort = portSetting ? Number(portSetting) : 587;
+  if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) return null;
+  const port = parsedPort;
   const secureSetting = nonEmpty(env.SMTP_SECURE);
-  const secure = secureSetting ? secureSetting === "true" : port === 465;
+  // "1"/"0" too, like the other env flags (AUTH_LOG_SIGN_IN_CODES).
+  const secure = secureSetting ? secureSetting === "true" || secureSetting === "1" : port === 465;
 
   return {
     host,

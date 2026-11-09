@@ -43,11 +43,11 @@ export const env = createEnv({
     // AUTH_POSTMARK_FROM); the cross-field rule lives in signInMethods.ts and
     // the self-host preflight, since t3-env validates each field alone.
     SMTP_HOST: z.string().optional(),
-    // Default 587. SMTP_SECURE="true" means implicit TLS, default only on 465.
+    // Default 587. SMTP_SECURE="true" (or "1") means implicit TLS, default only on 465.
     SMTP_PORT: z.string().regex(/^\d+$/, "SMTP_PORT must be a port number").optional(),
     SMTP_USER: z.string().optional(),
     SMTP_PASSWORD: z.string().optional(),
-    SMTP_SECURE: z.enum(["true", "false"]).optional(),
+    SMTP_SECURE: z.enum(["true", "false", "1", "0"]).optional(),
     // Sender for auth and transactional email. Postmark falls back to
     // AUTH_POSTMARK_FROM, then noreply@exponential.im; SMTP never falls back
     // to exponential.im.
