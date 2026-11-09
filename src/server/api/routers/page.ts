@@ -294,37 +294,74 @@ async function inviteOnlyBlockedIds(
 }
 
 /**
- * The linked sub-pages "Apply to sub-pages" would update: ones the caller
- * owns that can be invite-only. Shared by the count in `sharing` and the
- * mutation, so the button never promises more than it does.
+ * What "Apply to sub-pages" (ADR-0069, ADR-0080) would do from `page`, shared
+ * by the count in `sharing` and the mutation, so the button never promises
+ * more than it does:
+ * - `shareTo`: linked sub-pages the caller may share, which get the page's
+ *   grants. Empty when the page has none to copy.
+ * - `restrict`: when the page is restricted, the linked sub-pages the caller
+ *   may restrict (today: owns) and that can be restricted.
+ * - `skipped`: linked pages neither step touches.
+ * Each decision comes from the centralized resolver per sub-page, so this
+ * follows whatever "may share" and "may manage" mean without a second copy.
+ * Rows of a Database follow their holding page and are never targets.
  */
 async function applicableSubpages(
   db: PrismaClient,
   userId: string,
-  page: { id: string; workspaceId: string },
+  page: { id: string; workspaceId: string; isInviteOnly: boolean },
+  hasGrants: boolean,
 ) {
-  const linked = await collectLinkedPages(db, page);
-  // The manage decision comes from the centralized resolver per sub-page, not
-  // from `createdById` alone, so this follows whatever "may manage access"
-  // means for a Page (today: its owner) without a second copy of the rule.
-  const manageable = (
-    await Promise.all(
-      linked.map(async (p) => ({
-        page: p,
-        canManage: canManageKnowledgePageAccess(await getKnowledgePageAccess(db, userId, p)),
-      })),
-    )
-  )
-    .filter((entry) => entry.canManage)
-    .map((entry) => entry.page);
+  const linked = (await collectLinkedPages(db, page)).filter((p) => !p.databaseId);
+  const decided = await Promise.all(
+    linked.map(async (p) => {
+      const access = await getKnowledgePageAccess(db, userId, p);
+      return {
+        id: p.id,
+        createdById: p.createdById,
+        canShare: canShareKnowledgePage(access),
+        canManage: canManageKnowledgePageAccess(access),
+      };
+    }),
+  );
+  const shareTo = hasGrants ? decided.filter((d) => d.canShare) : [];
+  const manageable = page.isInviteOnly ? decided.filter((d) => d.canManage) : [];
   const blocked = await inviteOnlyBlockedIds(
     db,
-    manageable.map((p) => p.id),
+    manageable.map((d) => d.id),
   );
+  const restrict = manageable.filter((d) => !blocked.has(d.id)).map((d) => d.id);
+  const touched = new Set([...shareTo.map((d) => d.id), ...restrict]);
   return {
-    targets: manageable.filter((p) => !blocked.has(p.id)).map((p) => p.id),
-    skipped: linked.length - manageable.length + blocked.size,
+    shareTo,
+    restrict,
+    touched: touched.size,
+    skipped: linked.length - touched.size,
   };
+}
+
+/**
+ * The page's grants that "Apply to sub-pages" may copy: only grantees who
+ * still belong to the workspace, as `invite` admits only current members — a
+ * person who left must not regain access to sub-pages nobody knowingly shared
+ * with them by rejoining later.
+ */
+async function copyableGrants(
+  db: PrismaClient,
+  page: { id: string; workspaceId: string },
+) {
+  const grants = await db.knowledgePageMember.findMany({
+    where: { pageId: page.id },
+    select: { userId: true, role: true },
+  });
+  const stillMembers = await filterWorkspaceMembers(
+    db,
+    page.workspaceId,
+    grants.map((g) => g.userId),
+  );
+  return grants.filter(
+    (g) => stillMembers.has(g.userId) && isKnowledgePageInviteRole(g.role),
+  );
 }
 
 /** Most people `page.audience` returns; the rest are only counted. */
@@ -584,6 +621,7 @@ async function collectLinkedPages(
     projectId: string | null;
     workspaceId: string;
     isInviteOnly: boolean;
+    databaseId: string | null;
   }[] = [];
   const rootLinks = await db.pageLink.findMany({
     where: { fromPageId: root.id },
@@ -606,6 +644,7 @@ async function collectLinkedPages(
         projectId: true,
         workspaceId: true,
         isInviteOnly: true,
+        databaseId: true,
         linksFrom: {
           orderBy: { position: "asc" },
           select: { toPageId: true },
@@ -1679,12 +1718,15 @@ export const pageRouter = createTRPCRouter({
       const canManage = canManageKnowledgePageAccess(access);
       const canShare = canShareKnowledgePage(access);
 
-      const [{ audience, isWorkspaceMember }, blocker, subpages] = await Promise.all([
+      const [{ audience, isWorkspaceMember }, blocker, subpagesToApply] = await Promise.all([
         buildAudience(ctx.db, userId, page),
         canManage ? inviteOnlyBlocker(ctx.db, page.id) : Promise.resolve(null),
-        canManage && page.isInviteOnly
-          ? applicableSubpages(ctx.db, userId, page)
-          : Promise.resolve({ targets: [], skipped: 0 }),
+        canShare
+          ? copyableGrants(ctx.db, page).then(
+              async (grants) =>
+                (await applicableSubpages(ctx.db, userId, page, grants.length > 0)).touched,
+            )
+          : Promise.resolve(0),
       ]);
       const invites = isWorkspaceMember
         ? await ctx.db.knowledgePageMember.findMany({
@@ -1709,7 +1751,7 @@ export const pageRouter = createTRPCRouter({
         canShare,
         canManage,
         inviteOnlyBlockedReason: blocker,
-        subpagesToApply: subpages.targets.length,
+        subpagesToApply,
         audience,
         invitees: invites.map((i) => ({
           id: i.user.id,
@@ -1893,13 +1935,15 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * One-off "Apply to sub-pages" (ADR-0069: sub-pages keep their own access,
-   * nothing is inherited live). From an invite-only page only: makes the
-   * linked sub-pages the caller owns invite-only too and invites this page's
-   * invitees to them. Additive — a sub-page's own invitees are kept, and
-   * nobody's role is lowered. Sub-pages owned by others, and pages that can't
-   * be invite-only, are skipped and counted. Nobody is re-notified — they
-   * were invited to the parent.
+   * One-off "Apply to sub-pages" (ADR-0069, ADR-0080: sub-pages keep their own
+   * access, nothing is inherited live). From any page the caller may share:
+   * - copies this page's grants to each linked sub-page the caller may share;
+   * - when this page is restricted, also restricts the linked sub-pages the
+   *   caller may restrict (their own).
+   * Additive — a sub-page's own grants are kept and nobody's role is changed
+   * (existing rows are skipped). A non-owner of a sub-page copies an editor
+   * grant for a workspace Viewer as a viewer grant, the rule `invite`
+   * applies. Nobody is re-notified — they were shared the parent.
    */
   applySharingToSubpages: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -1907,50 +1951,63 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      await ensurePageAccess(ctx.db, userId, page, "manage");
-      if (!page.isInviteOnly) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Only an invite-only page's sharing can be applied to its sub-pages",
-        });
-      }
+      await ensureCanShare(ctx.db, userId, page);
 
-      const [{ targets, skipped }, invites] = await Promise.all([
-        applicableSubpages(ctx.db, userId, page),
-        ctx.db.knowledgePageMember.findMany({
-          where: { pageId: page.id },
-          select: { userId: true, role: true },
-        }),
-      ]);
-      // Invitee rows outlive leaving the workspace (they grant nothing until
-      // the person is back). Copy only current members, as `invite` admits only
-      // current members: someone who left must not regain access to sub-pages
-      // the owner never knowingly shared by rejoining later.
-      const stillMembers = await filterWorkspaceMembers(
+      const grants = await copyableGrants(ctx.db, page);
+      const { shareTo, restrict, skipped } = await applicableSubpages(
         ctx.db,
-        page.workspaceId,
-        invites.map((i) => i.userId),
+        userId,
+        page,
+        grants.length > 0,
       );
-      const rows = targets.flatMap((pageId) =>
-        invites
-          .filter((i) => stillMembers.has(i.userId))
-          .map((i) => ({ pageId, userId: i.userId, role: i.role, invitedById: userId })),
+      const readOnly =
+        grants.some((g) => g.role === "editor") && shareTo.some((t) => !t.canManage)
+          ? new Set(
+              (
+                await ctx.db.workspaceUser.findMany({
+                  where: {
+                    workspaceId: page.workspaceId,
+                    userId: { in: grants.map((g) => g.userId) },
+                    role: "viewer",
+                  },
+                  select: { userId: true },
+                })
+              ).map((w) => w.userId),
+            )
+          : new Set<string>();
+      const rows = shareTo.flatMap((target) =>
+        grants
+          // The sub-page's owner has access already; a grant row adds nothing.
+          .filter((g) => g.userId !== target.createdById)
+          .map((g) => ({
+            pageId: target.id,
+            userId: g.userId,
+            role:
+              !target.canManage && g.role === "editor" && readOnly.has(g.userId)
+                ? "viewer"
+                : g.role,
+            invitedById: userId,
+          })),
       );
 
-      if (targets.length > 0) {
+      if (rows.length > 0 || restrict.length > 0) {
         await ctx.db.$transaction([
-          ctx.db.knowledgePage.updateMany({
-            where: { id: { in: targets } },
-            data: { isInviteOnly: true },
-          }),
-          // Targets are capped by LINKED_PAGES_LIMIT; invitees are not, so the
+          ...(restrict.length > 0
+            ? [
+                ctx.db.knowledgePage.updateMany({
+                  where: { id: { in: restrict } },
+                  data: { isInviteOnly: true },
+                }),
+              ]
+            : []),
+          // Targets are capped by LINKED_PAGES_LIMIT; grants are not, so the
           // product is written in bounded statements inside the one transaction.
           ...chunk(rows, SUBPAGE_INVITE_ROWS_PER_STATEMENT).map((data) =>
             ctx.db.knowledgePageMember.createMany({ data, skipDuplicates: true }),
           ),
         ]);
       }
-      return { updated: targets.length, skipped };
+      return { shared: shareTo.length, restricted: restrict.length, skipped };
     }),
 
   /**

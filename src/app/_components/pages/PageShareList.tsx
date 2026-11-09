@@ -112,14 +112,18 @@ export function PageShareList({ pageId, workspaceId }: PageShareListProps) {
     onError: onError("Could not remove"),
   });
   const applyToSubpages = api.page.applySharingToSubpages.useMutation({
-    onSuccess: ({ updated, skipped }) => {
+    onSuccess: ({ shared, restricted, skipped }) => {
       refresh();
+      const parts = [
+        shared > 0 ? `shared ${shared}` : null,
+        restricted > 0 ? `restricted ${restricted}` : null,
+      ].filter((part): part is string => part !== null);
       notifications.show({
         color: "teal",
-        title: `Updated ${updated} sub-page${updated === 1 ? "" : "s"}`,
+        title: parts.length > 0 ? `Sub-pages: ${parts.join(", ")}` : "No sub-pages changed",
         message:
           skipped > 0
-            ? `${skipped} skipped — pages you can't share, or that can't be restricted.`
+            ? `${skipped} skipped — pages you can't share or restrict.`
             : "This page's people can see them too.",
       });
     },

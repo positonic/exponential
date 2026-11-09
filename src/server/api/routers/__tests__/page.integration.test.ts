@@ -944,15 +944,33 @@ describe("page router", () => {
       expect(asOutsider.canShare).toBe(false);
     });
 
-    it("refuses to apply sharing from a page that isn't invite-only", async () => {
-      const { author, ws } = await setup("pg-io-apply-open");
+    it("an editor applies an unrestricted page's grants to sub-pages without restricting them (ADR-0080)", async () => {
+      const { author, invitee, bystander, ws } = await setup("pg-io-apply-open");
       const open = await createPage(db, { createdById: author.id, workspaceId: ws.id });
+      const sub = await createPage(db, { createdById: author.id, workspaceId: ws.id, title: "Sub" });
+      await db.knowledgePage.update({ where: { id: open.id }, data: { bodyDoc: linkDoc(sub.id) } });
+      await syncPageLinks(db, open.id, linkDoc(sub.id));
+      await createTestCaller(author.id).page.invite({
+        id: open.id,
+        userIds: [invitee.id],
+        role: "viewer",
+      });
+
+      // The bystander is a workspace member, so they can edit — and share.
       await expect(
-        createTestCaller(author.id).page.applySharingToSubpages({ id: open.id }),
-      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+        createTestCaller(bystander.id).page.applySharingToSubpages({ id: open.id }),
+      ).resolves.toEqual({ shared: 1, restricted: 0, skipped: 0 });
+      const after = await db.knowledgePage.findUniqueOrThrow({
+        where: { id: sub.id },
+        include: { members: true },
+      });
+      expect(after.isInviteOnly).toBe(false);
+      expect(after.members.map((m) => [m.userId, m.invitedById])).toEqual([
+        [invitee.id, bystander.id],
+      ]);
     });
 
-    it("applies the parent's sharing to the owner's own sub-pages only", async () => {
+    it("shares to every sub-page the caller may share, and restricts only their own", async () => {
       const { author, invitee, bystander, ws, page } = await setup("pg-io-subpages");
       await addWorkspaceMember(db, ws.id, (await createUser(db)).id, "member");
       const mine = await createPage(db, {
@@ -975,9 +993,12 @@ describe("page router", () => {
 
       const caller = createTestCaller(author.id);
       await caller.page.invite({ id: page.id, userIds: [invitee.id], role: "editor" });
+      // The author owns the workspace, so they may share the bystander's
+      // workspace page too — but restrict only their own.
       await expect(caller.page.applySharingToSubpages({ id: page.id })).resolves.toEqual({
-        updated: 1,
-        skipped: 1,
+        shared: 2,
+        restricted: 1,
+        skipped: 0,
       });
 
       const [mineAfter, theirsAfter] = await Promise.all([
@@ -992,6 +1013,28 @@ describe("page router", () => {
         ].sort(),
       );
       expect(theirsAfter.isInviteOnly).toBe(false);
+      expect(theirsAfter.members.map((m) => [m.userId, m.role])).toEqual([[invitee.id, "editor"]]);
+    });
+
+    it("copies a workspace Viewer's editor grant as viewer to a sub-page the caller doesn't own", async () => {
+      const { author, bystander, ws, page } = await setup("pg-io-subpages-viewer");
+      const readOnly = await createUser(db);
+      await addWorkspaceMember(db, ws.id, readOnly.id, "viewer");
+      const mine = await createPage(db, { createdById: author.id, workspaceId: ws.id, title: "Mine" });
+      const theirs = await createPage(db, { createdById: bystander.id, workspaceId: ws.id, title: "Theirs" });
+      await db.knowledgePage.update({ where: { id: page.id }, data: { bodyDoc: linkDoc(mine.id, theirs.id) } });
+      await syncPageLinks(db, page.id, linkDoc(mine.id, theirs.id));
+
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [readOnly.id], role: "editor" });
+      await caller.page.applySharingToSubpages({ id: page.id });
+
+      const roleOn = async (pageId: string) =>
+        (await db.knowledgePageMember.findUniqueOrThrow({
+          where: { pageId_userId: { pageId, userId: readOnly.id } },
+        })).role;
+      expect(await roleOn(mine.id)).toBe("editor");
+      expect(await roleOn(theirs.id)).toBe("viewer");
     });
 
     it("does not copy an invitee who has since left the workspace to sub-pages", async () => {
@@ -1011,7 +1054,8 @@ describe("page router", () => {
       await db.workspaceUser.deleteMany({ where: { workspaceId: ws.id, userId: leaver.id } });
 
       await expect(caller.page.applySharingToSubpages({ id: page.id })).resolves.toEqual({
-        updated: 1,
+        shared: 1,
+        restricted: 1,
         skipped: 0,
       });
       const members = await db.knowledgePageMember.findMany({ where: { pageId: mine.id } });
