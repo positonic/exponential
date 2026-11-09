@@ -10,6 +10,7 @@ import { TRPCError } from "@trpc/server";
 import {
   canEditKnowledgePage,
   canManageKnowledgePageAccess,
+  canShareKnowledgePage,
   canViewKnowledgePage,
   getKnowledgePageAccess,
   projectAccessDeniedError,
@@ -52,7 +53,14 @@ export function assertNotRow(page: { databaseId?: string | null }, action: strin
   }
 }
 
-export type PageAccessPermission = "view" | "edit" | "manage";
+/**
+ * - `view`/`edit`: read or change the page.
+ * - `share`: add people, and change or remove grants you added (ADR-0080) —
+ *   anyone who can edit.
+ * - `manage`: restrict the page, publish a restricted page, and change
+ *   anyone's grants — the owner alone.
+ */
+export type PageAccessPermission = "view" | "edit" | "share" | "manage";
 
 /** Load the access-relevant slice of a Page, or NOT_FOUND. */
 export async function loadPageForAccess(db: PrismaClient, id: string) {
@@ -83,7 +91,7 @@ export async function pageAccessDeniedError(
   const projectId = page.projectId;
   const deniedByProject =
     projectId !== null &&
-    permission !== "manage" &&
+    (permission === "view" || permission === "edit") &&
     !access.isInviteOnly &&
     !access.isOwner &&
     (permission === "view" ? !access.hasProjectAccess : !access.canEditProject);
@@ -102,11 +110,13 @@ export async function pageAccessDeniedError(
         ? "You don't have access to this page"
         : permission === "edit"
           ? "You don't have permission to edit this page"
-          : "Only the page's owner can change who it's shared with",
+          : permission === "share"
+            ? "You need edit access to share this page"
+            : "Only the page's owner can change who it's shared with",
   });
 }
 
-/** Throw unless the user has view/edit/manage access to the page. */
+/** Throw unless the user has view/edit/share/manage access to the page. */
 export async function ensurePageAccess(
   db: PrismaClient,
   userId: string,
@@ -119,7 +129,9 @@ export async function ensurePageAccess(
       ? canViewKnowledgePage(access)
       : permission === "edit"
         ? canEditKnowledgePage(access)
-        : canManageKnowledgePageAccess(access);
+        : permission === "share"
+          ? canShareKnowledgePage(access)
+          : canManageKnowledgePageAccess(access);
   if (!allowed) {
     throw await pageAccessDeniedError(db, userId, page, access, permission);
   }

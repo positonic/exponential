@@ -823,7 +823,7 @@ describe("page router", () => {
       await expect(createTestCaller(invitee.id).page.get({ id: page.id })).rejects.toThrow(TRPCError);
     });
 
-    it("an editor invitee can edit but can't share, unshare or publish", async () => {
+    it("an editor invitee can edit and share, but can't unrestrict or publish (ADR-0080)", async () => {
       const { author, invitee, bystander, page } = await setup("pg-io-editor");
       await createTestCaller(author.id).page.invite({
         id: page.id,
@@ -834,7 +834,7 @@ describe("page router", () => {
       await expect(caller.page.get({ id: page.id })).resolves.toMatchObject({ canEdit: true });
       await expect(
         caller.page.invite({ id: page.id, userIds: [bystander.id], role: "viewer" }),
-      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      ).resolves.toMatchObject({ added: 1 });
       await expect(
         caller.page.setInviteOnly({ id: page.id, inviteOnly: false }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -905,15 +905,43 @@ describe("page router", () => {
       expect(copy).toEqual({ projectId: null, isInviteOnly: true });
     });
 
-    it("hides a page's old invitee list from viewers once invite-only is off", async () => {
-      const { author, invitee, bystander, page } = await setup("pg-io-stale");
+    it("lists grantees to workspace members once invite-only is off, emails only to sharers (ADR-0080)", async () => {
+      const { author, admin, invitee, bystander, page } = await setup("pg-io-stale");
       const caller = createTestCaller(author.id);
       await caller.page.invite({ id: page.id, userIds: [invitee.id], role: "viewer" });
       await caller.page.setInviteOnly({ id: page.id, inviteOnly: false });
-      const asViewer = await createTestCaller(bystander.id).page.sharing({ id: page.id });
-      expect(asViewer.invitees).toEqual([]);
+      // Off, the grant still counts, so the grantee is part of the audience.
+      const asMember = await createTestCaller(bystander.id).page.sharing({ id: page.id });
+      expect(asMember.invitees.map((i) => i.id)).toEqual([invitee.id]);
+      expect(asMember).toMatchObject({ canShare: true, canManage: false });
+      expect(asMember.invitees[0]).toMatchObject({ canChange: false });
       const asOwner = await caller.page.sharing({ id: page.id });
-      expect(asOwner.invitees.map((i) => i.id)).toEqual([invitee.id]);
+      expect(asOwner.invitees[0]).toMatchObject({ id: invitee.id, canChange: true });
+      expect(asOwner.invitees[0]?.email).toBeTruthy();
+      expect(asOwner.audience.people.map((p) => p.id)).toContain(admin.id);
+    });
+
+    it("withholds the grantee list from a signed-in viewer outside the workspace", async () => {
+      const { author, invitee, outsider, ws } = await setup("pg-io-public");
+      const project = await createProject(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        isPublic: true,
+      });
+      const page = await createPage(db, {
+        createdById: author.id,
+        workspaceId: ws.id,
+        projectId: project.id,
+      });
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "viewer",
+      });
+      const asOutsider = await createTestCaller(outsider.id).page.sharing({ id: page.id });
+      expect(asOutsider.invitees).toEqual([]);
+      expect(asOutsider.audience.people).toEqual([]);
+      expect(asOutsider.canShare).toBe(false);
     });
 
     it("refuses to apply sharing from a page that isn't invite-only", async () => {

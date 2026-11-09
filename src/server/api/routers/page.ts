@@ -59,6 +59,7 @@ import {
   canViewKnowledgePage,
   canEditKnowledgePage,
   canManageKnowledgePageAccess,
+  canShareKnowledgePage,
   isKnowledgePageInviteRole,
   buildKnowledgePageAccessWhere,
   getProjectAccess,
@@ -189,6 +190,73 @@ function chunk<T>(items: T[], size: number): T[][] {
 const inviteRoleSchema = z.enum(["viewer", "editor"]);
 
 /**
+ * Load the caller's access to a page and refuse unless they may share it
+ * (ADR-0080: anyone who can edit). Returns whether they are also its manager
+ * (the owner), who alone may change grants someone else added.
+ */
+async function ensureCanShare(
+  db: PrismaClient,
+  userId: string,
+  page: PageForAccess,
+): Promise<{ canManage: boolean }> {
+  const access = await getKnowledgePageAccess(db, userId, page);
+  if (!canShareKnowledgePage(access)) {
+    throw await pageAccessDeniedError(db, userId, page, access, "share");
+  }
+  return { canManage: canManageKnowledgePageAccess(access) };
+}
+
+/**
+ * Refuse a non-owner giving page-editor rights to someone whose workspace role
+ * is Viewer, a read-only role (ADR-0080) — otherwise any editor could undo
+ * the workspace's choice. The owner may still do it. A direct workspace role
+ * wins over team-derived membership, as in the resolver.
+ */
+async function assertMayGrantEditor(
+  db: PrismaClient,
+  workspaceId: string,
+  userIds: string[],
+): Promise<void> {
+  const readOnly = await db.workspaceUser.findFirst({
+    where: { workspaceId, userId: { in: userIds }, role: "viewer" },
+    select: { userId: true },
+  });
+  if (readOnly) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Only the page's owner can make someone with the workspace Viewer role an editor",
+    });
+  }
+}
+
+/**
+ * A non-owner may change or remove only the grants they added (ADR-0080);
+ * the owner may change any. NOT_FOUND when the person holds no grant.
+ */
+async function ensureMayChangeGrant(
+  db: PrismaClient,
+  userId: string,
+  pageId: string,
+  granteeId: string,
+  canManage: boolean,
+): Promise<void> {
+  const grant = await db.knowledgePageMember.findUnique({
+    where: { pageId_userId: { pageId, userId: granteeId } },
+    select: { invitedById: true },
+  });
+  if (!grant) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Not shared with this person" });
+  }
+  if (!canManage && grant.invitedById !== userId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You can only change people you added — ask the page's owner",
+    });
+  }
+}
+
+/**
  * Pages that can't be made invite-only (ADR-0069): a Workspace update's body
  * and a ceremony occurrence's notes canvas are shared surfaces by design —
  * reviewers and ceremony participants must keep reaching them.
@@ -261,6 +329,67 @@ async function applicableSubpages(
 
 /** Most people `page.audience` returns; the rest are only counted. */
 const AUDIENCE_PEOPLE_LIMIT = 50;
+
+/** What {@link buildAudience} needs to know about a Page. */
+const AUDIENCE_PAGE_SELECT = {
+  id: true,
+  createdById: true,
+  projectId: true,
+  workspaceId: true,
+  isInviteOnly: true,
+  databaseId: true,
+  isPublic: true,
+  workspace: { select: { name: true } },
+  project: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      isRestricted: true,
+      isPublic: true,
+    },
+  },
+} satisfies Prisma.KnowledgePageSelect;
+
+/**
+ * Who can see a page — the inherited audience plus its grantees — for
+ * `page.audience` and `page.sharing`. Names are hydrated only for members of
+ * the page's workspace: a page in a public project is viewable by every
+ * signed-in user, who must not get a directory of the workspace from it.
+ * The caller must already have passed the view check.
+ */
+async function buildAudience(
+  db: PrismaClient,
+  userId: string,
+  page: Prisma.KnowledgePageGetPayload<{ select: typeof AUDIENCE_PAGE_SELECT }>,
+) {
+  const [{ isPublicProject, viewers }, membership] = await Promise.all([
+    listKnowledgePageViewers(db, page),
+    getWorkspaceMembership(db, userId, page.workspaceId),
+  ]);
+  // Hydrate only what the avatar row shows; `total` carries the rest.
+  const people = membership
+    ? await db.user.findMany({
+        where: { id: { in: viewers.map((v) => v.userId) } },
+        select: { id: true, name: true, image: true },
+        orderBy: { name: "asc" },
+        take: AUDIENCE_PEOPLE_LIMIT,
+      })
+    : [];
+  return {
+    isWorkspaceMember: membership !== null,
+    audience: {
+      workspaceName: page.workspace.name,
+      project: page.project,
+      isInviteOnly: page.isInviteOnly,
+      isPublishedToWeb: page.isPublic,
+      isPublicProject,
+      total: viewers.length,
+      people,
+      includesAdminEscapeHatch: viewers.some((v) => v.viaAdminEscapeHatch),
+    },
+  };
+}
 
 
 /**
@@ -759,55 +888,14 @@ export const pageRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const page = await ctx.db.knowledgePage.findUnique({
         where: { id: input.id },
-        select: {
-          id: true,
-          createdById: true,
-          projectId: true,
-          workspaceId: true,
-          isInviteOnly: true,
-          isPublic: true,
-          workspace: { select: { name: true } },
-          project: {
-            select: {
-              id: true,
-              name: true,
-              slug: true,
-              isRestricted: true,
-              isPublic: true,
-            },
-          },
-        },
+        select: AUDIENCE_PAGE_SELECT,
       });
       if (!page) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
       }
       const userId = ctx.session.user.id;
       await ensurePageAccess(ctx.db, userId, page, "view");
-
-      const [{ isPublicProject, viewers }, membership] = await Promise.all([
-        listKnowledgePageViewers(ctx.db, page),
-        getWorkspaceMembership(ctx.db, userId, page.workspaceId),
-      ]);
-      // Hydrate only what the avatar row shows; `total` carries the rest.
-      const people = membership
-        ? await ctx.db.user.findMany({
-            where: { id: { in: viewers.map((v) => v.userId) } },
-            select: { id: true, name: true, image: true },
-            orderBy: { name: "asc" },
-            take: AUDIENCE_PEOPLE_LIMIT,
-          })
-        : [];
-
-      return {
-        workspaceName: page.workspace.name,
-        project: page.project,
-        isInviteOnly: page.isInviteOnly,
-        isPublishedToWeb: page.isPublic,
-        isPublicProject,
-        total: viewers.length,
-        people,
-        includesAdminEscapeHatch: viewers.some((v) => v.viaAdminEscapeHatch),
-      };
+      return (await buildAudience(ctx.db, userId, page)).audience;
     }),
 
   /**
@@ -1562,42 +1650,53 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * The page's invite-only state and invitees (ADR-0069), for the Share
-   * popover. Any viewer may read it — on an invite-only page the invitees are
-   * exactly the people who can see it. `canManage` (owner only) drives whether
-   * the controls render; `subpagesToApply` counts the owner's own linked
-   * sub-pages that "Apply to sub-pages" would update.
+   * Everything the Share popover shows, in one call (ADR-0069, ADR-0080): the
+   * inherited audience (`audience`, as `page.audience` returns it), the
+   * grantees with their roles, and what the caller may do. Any viewer may read
+   * it. Grantees are listed only to members of the page's workspace (a page
+   * in a public project is viewable by every signed-in user); emails only to
+   * people who can share. `canShare` (anyone who can edit) drives Add people;
+   * `canManage` (the owner) drives the restrict switch; each grantee's
+   * `canChange` says whether the caller may change or remove that row.
+   * `subpagesToApply` counts the linked sub-pages "Apply to sub-pages" would
+   * update.
    */
   sharing: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const page = await loadPageForAccess(ctx.db, input.id);
+      const page = await ctx.db.knowledgePage.findUnique({
+        where: { id: input.id },
+        select: AUDIENCE_PAGE_SELECT,
+      });
+      if (!page) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Page not found" });
+      }
       const access = await getKnowledgePageAccess(ctx.db, userId, page);
       if (!canViewKnowledgePage(access)) {
         throw await pageAccessDeniedError(ctx.db, userId, page, access, "view");
       }
       const canManage = canManageKnowledgePageAccess(access);
-      // Invitee rows outlive switching invite-only off (so switching back
-      // restores them) but grant nothing then — only the owner sees them.
-      const showInvitees = page.isInviteOnly || canManage;
+      const canShare = canShareKnowledgePage(access);
 
-      const [invites, blocker, subpages] = await Promise.all([
-        showInvitees
-          ? ctx.db.knowledgePageMember.findMany({
-              where: { pageId: page.id },
-              orderBy: { createdAt: "asc" },
-              select: {
-                role: true,
-                user: { select: { id: true, name: true, image: true, email: true } },
-              },
-            })
-          : Promise.resolve([]),
+      const [{ audience, isWorkspaceMember }, blocker, subpages] = await Promise.all([
+        buildAudience(ctx.db, userId, page),
         canManage ? inviteOnlyBlocker(ctx.db, page.id) : Promise.resolve(null),
         canManage && page.isInviteOnly
           ? applicableSubpages(ctx.db, userId, page)
           : Promise.resolve({ targets: [], skipped: 0 }),
       ]);
+      const invites = isWorkspaceMember
+        ? await ctx.db.knowledgePageMember.findMany({
+            where: { pageId: page.id },
+            orderBy: { createdAt: "asc" },
+            select: {
+              role: true,
+              invitedById: true,
+              user: { select: { id: true, name: true, image: true, email: true } },
+            },
+          })
+        : [];
       const stillMembers = await filterWorkspaceMembers(
         ctx.db,
         page.workspaceId,
@@ -1607,18 +1706,22 @@ export const pageRouter = createTRPCRouter({
       return {
         isInviteOnly: page.isInviteOnly,
         ownerId: page.createdById,
+        canShare,
         canManage,
         inviteOnlyBlockedReason: blocker,
         subpagesToApply: subpages.targets.length,
+        audience,
         invitees: invites.map((i) => ({
           id: i.user.id,
           name: i.user.name,
           image: i.user.image,
-          // Email only to the owner, who chose them; viewers see names.
-          email: canManage ? i.user.email : null,
+          // Email only to people who can share; everyone else sees names.
+          email: canShare ? i.user.email : null,
           role: isKnowledgePageInviteRole(i.role) ? i.role : ("viewer" as const),
-          // Invited, but has since left the workspace: no access.
+          // Has since left the workspace: the grant gives no access.
           isWorkspaceMember: stillMembers.has(i.user.id),
+          // The owner may change anyone's grant; other sharers only their own.
+          canChange: canManage || (canShare && i.invitedById === userId),
         })),
       };
     }),
@@ -1667,12 +1770,12 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      await ensurePageAccess(ctx.db, userId, page, "manage");
+      const { canManage } = await ensureCanShare(ctx.db, userId, page);
 
       const userIds = [...new Set(input.userIds)].filter(
         (id) => id !== page.createdById,
       );
-      if (userIds.length === 0) return { added: 0, updated: 0 };
+      if (userIds.length === 0) return { added: 0, updated: 0, unchanged: 0 };
       const members = await filterWorkspaceMembers(
         ctx.db,
         page.workspaceId,
@@ -1686,12 +1789,21 @@ export const pageRouter = createTRPCRouter({
         });
       }
 
+      if (!canManage && input.role === "editor") {
+        await assertMayGrantEditor(ctx.db, page.workspaceId, userIds);
+      }
+
       const existing = await ctx.db.knowledgePageMember.findMany({
         where: { pageId: page.id, userId: { in: userIds } },
-        select: { userId: true },
+        select: { userId: true, invitedById: true },
       });
       const already = new Set(existing.map((e) => e.userId));
       const added = userIds.filter((id) => !already.has(id));
+      // Re-sharing changes the role only on grants the caller may change: the
+      // owner any, anyone else only their own. The rest stay as they are.
+      const changeable = existing
+        .filter((e) => canManage || e.invitedById === userId)
+        .map((e) => e.userId);
 
       await ctx.db.$transaction([
         ...(added.length
@@ -1707,10 +1819,10 @@ export const pageRouter = createTRPCRouter({
               }),
             ]
           : []),
-        ...(already.size
+        ...(changeable.length
           ? [
               ctx.db.knowledgePageMember.updateMany({
-                where: { pageId: page.id, userId: { in: [...already] } },
+                where: { pageId: page.id, userId: { in: changeable } },
                 data: { role: input.role },
               }),
             ]
@@ -1727,33 +1839,53 @@ export const pageRouter = createTRPCRouter({
           db: ctx.db,
         }).catch(() => undefined);
       }
-      return { added: added.length, updated: already.size };
+      return {
+        added: added.length,
+        updated: changeable.length,
+        unchanged: already.size - changeable.length,
+      };
     }),
 
-  /** Change an invitee's role (owner only). */
+  /**
+   * Change a grantee's role. The owner may change anyone's; another editor
+   * only the grants they added, and never to editor for a workspace Viewer.
+   */
   updateInvite: protectedProcedure
     .input(z.object({ id: z.string(), userId: z.string(), role: inviteRoleSchema }))
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "manage");
-      const { count } = await ctx.db.knowledgePageMember.updateMany({
+      const { canManage } = await ensureCanShare(ctx.db, userId, page);
+      await ensureMayChangeGrant(ctx.db, userId, page.id, input.userId, canManage);
+      if (!canManage && input.role === "editor") {
+        await assertMayGrantEditor(ctx.db, page.workspaceId, [input.userId]);
+      }
+      await ctx.db.knowledgePageMember.updateMany({
         where: { pageId: page.id, userId: input.userId },
         data: { role: input.role },
       });
-      if (count === 0) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Not invited to this page" });
-      }
       return { success: true };
     }),
 
-  /** Remove an invitee (owner only). Takes effect immediately. */
+  /**
+   * Remove a grantee. Takes effect immediately. The owner may remove anyone;
+   * another editor only the people they added.
+   */
   removeInvite: protectedProcedure
     .input(z.object({ id: z.string(), userId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      await ensurePageAccess(ctx.db, ctx.session.user.id, page, "manage");
+      const { canManage } = await ensureCanShare(ctx.db, userId, page);
+      const grant = await ctx.db.knowledgePageMember.findUnique({
+        where: { pageId_userId: { pageId: page.id, userId: input.userId } },
+        select: { id: true },
+      });
+      // Already gone: removing is idempotent.
+      if (!grant) return { success: true };
+      await ensureMayChangeGrant(ctx.db, userId, page.id, input.userId, canManage);
       await ctx.db.knowledgePageMember.deleteMany({
         where: { pageId: page.id, userId: input.userId },
       });
