@@ -4,6 +4,7 @@ import { auth } from "~/server/auth";
 import { resolveSignInMethods } from "~/server/auth/signInMethods";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { SignInLandingPage } from "./SignInLandingPage";
+import { SignInSetupError } from "./SignInSetupError";
 
 export const metadata: Metadata = {
   title: `Sign In | ${PRODUCT_NAME}`,
@@ -21,6 +22,12 @@ export default async function SignIn() {
   }
 
   const methods = resolveSignInMethods(process.env);
+
+  // No OAuth provider, no email delivery and no log delivery: say what to set
+  // instead of offering a form whose every submit fails.
+  if (methods.missing.length > 0) {
+    return <SignInSetupError />;
+  }
 
   return (
     <SignInLandingPage

@@ -114,6 +114,35 @@
   line-height: 1.5;
 }
 
+/* /signin on an install with no way in: the variables an operator can set.
+   Tokens only — not modelled on .auth-error above, which predates the shape
+   tokens. */
+.auth-surface .setup-error {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-brand-warning);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+}
+.auth-surface .setup-error__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.auth-surface .setup-error__item { display: flex; flex-direction: column; gap: 2px; }
+.auth-surface .setup-error__vars { font-size: 12.5px; color: var(--color-text-primary); }
+.auth-surface .setup-error__note { font-size: 12.5px; color: var(--color-text-secondary); line-height: 1.5; }
+.auth-surface .setup-error code,
+.auth-surface .auth-note code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
 /* ===== INVITE CARD ===== */
 .auth-surface .invite-card {
   margin-bottom: 20px;
