@@ -9,20 +9,21 @@ import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
-import { sendFirstLoginWelcomeEmail, sendSignInCodeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
+import { sendFirstLoginWelcomeEmail } from "~/server/services/EmailService";
+import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
+import { MICROSOFT_LOGIN_ENABLED, signInMethodWarnings } from "~/server/auth/signInMethods";
 import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
 /**
- * Kill switch for Microsoft Entra ID sign-in. Set to `false` to disable the
- * "Sign in with Microsoft" option regardless of whether the
- * `MICROSOFT_ENTRA_ID_*` env vars are configured. The provider code and env
- * wiring are intentionally left in place so it can be re-enabled by flipping
- * this back to `true`. Also consumed by the `auth` router
- * (`getConfiguredProviders`) so the UI button stays in sync.
+ * Re-exported for existing importers; it lives in `signInMethods` so the pure
+ * resolver can read it without importing this module.
  */
-export const MICROSOFT_LOGIN_ENABLED = false;
+export { MICROSOFT_LOGIN_ENABLED };
+
+// Once per process, at config load: log delivery on, or its flag ignored.
+for (const warning of signInMethodWarnings(process.env)) console.warn(warning);
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -108,6 +109,14 @@ export const authConfig = {
         redirectUri: process.env.NOTION_REDIRECT_URI!,
       }
     }),
+    // The email provider. Its id is `postmark` whatever actually delivers the
+    // code (Postmark, SMTP or, opt-in, the server log — `deliverSignInCode`
+    // decides), because the id is load-bearing: `buildSignInCodeCallbackUrl`
+    // hard-codes `/api/auth/callback/postmark` and three forms call
+    // `signIn("postmark")`. The factory only supplies the token generator and
+    // `sendVerificationRequest`; its apiKey/from are unused. Registered
+    // unconditionally, so a code requested on an install with no delivery
+    // fails as a send (SEND_FAILED_MESSAGE) rather than "provider not found".
     Postmark({
       apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? "",
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
@@ -125,87 +134,8 @@ export const authConfig = {
        */
       generateVerificationToken: generateSignInCode,
       maxAge: SIGN_IN_CODE_TTL_SECONDS,
-      sendVerificationRequest: async ({ identifier, token, expires }) => {
-        if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
-          throw new Error(
-            'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
-          );
-        }
-        try {
-          // Check if user exists to determine which email to send
-          const existingUser = await db.user.findUnique({
-            where: { email: identifier },
-            select: { id: true },
-          });
-
-          if (existingUser) {
-            // Returning user - send the bare sign-in code
-            await sendSignInCodeEmail(identifier, token);
-          } else {
-            // New user - send welcome email with the code embedded
-            await sendWelcomeWithSignInCodeEmail(identifier, token);
-          }
-        } catch (error) {
-          console.error(
-            `[Auth] Failed to send sign-in code email to ${identifier}:`,
-            error
-          );
-          throw error;
-        }
-
-        try {
-          // Retire this address's older codes, because the entropy argument in
-          // ADR-0056 assumes one live code per identifier and Auth.js's
-          // `sendToken` never retires the previous row. Without this, N
-          // requests leave N simultaneously-valid codes and the odds of a
-          // blind guess landing scale linearly with N — on an endpoint we
-          // can't rate limit. `expires` is issue time + maxAge, so "older" is
-          // exactly "expires sooner".
-          //
-          // Strictly after the send, and that ordering is load-bearing: Auth.js
-          // writes the new row via `Promise.all` whether or not the send throws,
-          // so retiring first would answer a failed send by destroying the code
-          // the user could still have typed and replacing it with one that never
-          // arrived. Leaving them with nothing is worse than leaving them with
-          // two.
-          //
-          // Retiring a still-unused code is otherwise the point, not a side
-          // effect: ask for a second code and the first stops working. The
-          // comparison is strict, so this can never delete the row for the code
-          // just sent.
-          //
-          // Deliberately not keyed off the token hash, which would identify
-          // "mine" exactly: that means re-deriving `sha256(token + secret)`,
-          // and if `AUTH_SECRET` ever becomes an array for rotation the hash
-          // silently diverges and this deletes the live row instead of the
-          // stale ones — sign-in breaks for everyone. The residual cost of the
-          // timestamp approach is far smaller: two near-simultaneous requests
-          // for one address, on instances whose clocks disagree by more than
-          // the gap between them, can retire the newer code instead of the
-          // older. The user asks for another code.
-          //
-          // Emails only: legacy API-key rows share this table under an
-          // `api-key:<userId>:<uid>` identifier, which never matches.
-          await db.verificationToken.deleteMany({
-            where: { identifier, expires: { lt: expires } },
-          });
-        } catch (error) {
-          // Its own catch, and it deliberately does not rethrow: by this point
-          // the code is in the user's inbox. Letting a failed cleanup escape
-          // would surface as "we couldn't send that email, so no code is on
-          // its way" — telling someone holding a working code to go and get
-          // another one. Failing to retire the old ones just leaves the
-          // pre-ADR-0056 status quo of more than one live code.
-          //
-          // Not routed through `reportHandledError`: it pulls in
-          // `@sentry/nextjs`, and `middleware.ts` drags this whole config into
-          // the Edge bundle. Revisit once the Edge-safe config split lands.
-          console.error(
-            `[Auth] Sent a sign-in code to ${identifier} but could not retire the older ones:`,
-            error
-          );
-        }
-      },
+      sendVerificationRequest: ({ identifier, token, expires }) =>
+        deliverSignInCode({ identifier, token, expires }),
     }),
     /**
      * Desktop (Electron) sign-in bridge. The Electron app can't run Google/
