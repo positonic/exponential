@@ -1,0 +1,124 @@
+/**
+ * Self-host preflight: the checks `start:selfhost` runs before migrating, so a
+ * misconfigured install fails at once with one line that says what to fix,
+ * rather than halfway through 274 migrations or at the first sign-in.
+ *
+ * The decisions are pure functions (unit-tested in
+ * scripts/__tests__/selfhost-preflight.test.ts); `start.ts` does the I/O.
+ */
+
+import {
+  resolveSignInMethods,
+  signInMethodWarnings,
+  type SignInEnv,
+} from "../../src/server/auth/signInMethods";
+
+/** The `vector` row of `pg_available_extensions`, or undefined when there is none. */
+export interface PgvectorRow {
+  default_version: string | null;
+  installed_version: string | null;
+}
+
+export type PgvectorCheck =
+  | { ok: true; installed: boolean }
+  | { ok: false; message: string };
+
+/** HNSW indexes (`USING hnsw (embedding vector_cosine_ops)`) arrived in pgvector 0.5.0. */
+const MIN_PGVECTOR = [0, 5, 0] as const;
+
+export const PGVECTOR_MISSING_MESSAGE =
+  "This Postgres does not provide the pgvector extension, which Exponential needs (vector(1536) columns and an HNSW index). Use a pgvector image such as pgvector/pgvector:pg16.";
+
+function parseVersion(version: string): number[] {
+  return version.split(".").map((part) => Number.parseInt(part, 10) || 0);
+}
+
+function isAtLeast(version: string, minimum: readonly number[]): boolean {
+  const parts = parseVersion(version);
+  for (let index = 0; index < minimum.length; index++) {
+    const have = parts[index] ?? 0;
+    const want = minimum[index] ?? 0;
+    if (have !== want) return have > want;
+  }
+  return true;
+}
+
+/**
+ * Decide whether this database can hold Exponential's schema.
+ *
+ * - No `vector` row: the server doesn't ship pgvector at all. Fail.
+ * - Below 0.5.0: no HNSW. Fail, naming pgvector.
+ * - Available but not installed: fine, the knowledge-base migration runs
+ *   `CREATE EXTENSION IF NOT EXISTS vector`.
+ */
+export function checkPgvector(row: PgvectorRow | undefined): PgvectorCheck {
+  if (!row?.default_version) return { ok: false, message: PGVECTOR_MISSING_MESSAGE };
+
+  const version = row.installed_version ?? row.default_version;
+  if (!isAtLeast(version, MIN_PGVECTOR)) {
+    return {
+      ok: false,
+      message: `This Postgres provides pgvector ${version}, but Exponential needs pgvector 0.5.0 or newer for its HNSW index. Use a newer pgvector image such as pgvector/pgvector:pg16.`,
+    };
+  }
+  return { ok: true, installed: row.installed_version !== null };
+}
+
+/**
+ * Rewrite a failed `prisma migrate deploy` that tripped over creating the
+ * extension, so the operator learns it is a pgvector privilege problem rather
+ * than reading a Prisma stack.
+ */
+export function explainMigrationFailure(output: string): string | null {
+  if (/permission denied to create extension "vector"|must be superuser to create this extension/i.test(output)) {
+    return 'The database user may not create the pgvector extension. Run CREATE EXTENSION vector as a superuser on this database, then start again.';
+  }
+  if (/extension "vector" is not available|could not open extension control file .*vector/i.test(output)) {
+    return PGVECTOR_MISSING_MESSAGE;
+  }
+  return null;
+}
+
+export interface EnvPreflight {
+  /** Set when startup must stop. */
+  error: string | null;
+  /** Printed either way. */
+  lines: string[];
+}
+
+/**
+ * The env checks t3-env can't express (it validates each field on its own):
+ * SMTP needs a sender. Also reports the active sign-in methods, and warns —
+ * without failing — when log delivery is on or there is no way in at all; the
+ * `/signin` setup error is the user-facing path for that.
+ */
+export function preflightEnv(env: SignInEnv): EnvPreflight {
+  const has = (name: string) => (env[name] ?? "").length > 0;
+
+  if (has("SMTP_HOST") && !has("EMAIL_FROM") && !has("AUTH_POSTMARK_FROM")) {
+    return {
+      error: "SMTP_HOST is set but there is no sender. Set EMAIL_FROM to the address sign-in codes and other email should come from.",
+      lines: [],
+    };
+  }
+
+  const methods = resolveSignInMethods(env);
+  const active = [
+    methods.google && "Google",
+    methods.discord && "Discord",
+    methods.notion && "Notion",
+    methods.microsoft && "Microsoft",
+    methods.emailDelivery === "postmark" && "email codes (Postmark)",
+    methods.emailDelivery === "smtp" && "email codes (SMTP)",
+    methods.emailDelivery === "log" && "sign-in codes in the server log",
+  ].filter((method): method is string => typeof method === "string");
+
+  const lines =
+    active.length > 0
+      ? [`[selfhost] Sign-in methods: ${active.join(", ")}`]
+      : [
+          `[selfhost] WARNING: no sign-in method is configured, so nobody can sign in. /signin will show a setup error. Set one of: ${methods.missing.join(", ")}.`,
+        ];
+
+  return { error: null, lines: [...lines, ...signInMethodWarnings(env)] };
+}

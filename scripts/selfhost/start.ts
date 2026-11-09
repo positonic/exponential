@@ -6,9 +6,13 @@
  * readable line:
  *
  *   1. Defaults — trust the Host header (AUTH_TRUST_HOST), production mode.
- *   2. Apply pending migrations (`prisma migrate deploy`; Prisma's advisory
+ *   2. Env preflight — `src/env.js` (the four required variables and the
+ *      encryption key's shape), SMTP_HOST needs a sender, and the active
+ *      sign-in methods, with loud warnings for log delivery or no way in.
+ *   3. pgvector preflight — this Postgres must provide pgvector 0.5.0+.
+ *   4. Apply pending migrations (`prisma migrate deploy`; Prisma's advisory
  *      lock makes concurrent starts safe).
- *   3. Serve (`next start`, which honours PORT, default 3000).
+ *   5. Serve (`next start`, which honours PORT, default 3000).
  *
  * exponential.im never runs this: Vercel builds with `vercel.json`'s
  * buildCommand, migrations run from `.github/workflows/prisma-migrate.yml`, and
@@ -18,6 +22,12 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  checkPgvector,
+  explainMigrationFailure,
+  preflightEnv,
+  type PgvectorRow,
+} from "./preflight";
 
 /** Exit with one readable line. */
 export class StartupError extends Error {}
@@ -35,13 +45,27 @@ export function applySelfHostDefaults(env: Record<string, string | undefined>): 
   env.NODE_ENV ??= "production";
 }
 
-/** Run a local binary (node_modules/.bin) with inherited stdio; resolve with its exit code. */
-function run(bin: string, args: string[]): Promise<number> {
+/**
+ * Run a local binary (node_modules/.bin), resolving with its exit code. Output
+ * goes straight to ours; with `capture`, it is also kept so a failure can be
+ * explained.
+ */
+function run(bin: string, args: string[], capture?: string[]): Promise<number> {
   const binDir = path.join(process.cwd(), "node_modules", ".bin");
   const child = spawn(bin, args, {
-    stdio: "inherit",
+    stdio: capture ? ["inherit", "pipe", "pipe"] : "inherit",
     env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}` },
   });
+  if (capture) {
+    child.stdout?.on("data", (chunk: Buffer) => {
+      process.stdout.write(chunk);
+      capture.push(chunk.toString());
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      capture.push(chunk.toString());
+    });
+  }
   // Forward stop signals so a container stop reaches `next start` (and a
   // migration in flight) instead of orphaning it.
   // (Typed as a plain EventEmitter: electron's global `Process` overloads
@@ -61,16 +85,55 @@ function run(bin: string, args: string[]): Promise<number> {
   });
 }
 
+async function preflightEnvironment(): Promise<void> {
+  try {
+    // Validates on import. t3-env prints each invalid variable first.
+    await import("../../src/env.js");
+  } catch {
+    throw new StartupError(
+      "Invalid environment (details above). Required: DATABASE_URL, AUTH_SECRET, DATABASE_ENCRYPTION_KEY, OPENAI_API_KEY; see .env.selfhost.example.",
+    );
+  }
+  const { error, lines } = preflightEnv(process.env);
+  if (error) throw new StartupError(error);
+  for (const line of lines) console.log(line);
+}
+
+async function preflightPgvector(): Promise<void> {
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient();
+  let rows: PgvectorRow[];
+  try {
+    rows = await prisma.$queryRaw<PgvectorRow[]>`
+      SELECT default_version, installed_version
+      FROM pg_available_extensions
+      WHERE name = 'vector'`;
+  } catch (error) {
+    const message = error instanceof Error ? error.message.trim().split("\n").pop() : String(error);
+    throw new StartupError(`Could not query the database at DATABASE_URL: ${message}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+  const result = checkPgvector(rows[0]);
+  if (!result.ok) throw new StartupError(result.message);
+}
+
 async function migrate(): Promise<void> {
   console.log("[selfhost] Applying database migrations (prisma migrate deploy)…");
-  const code = await run("prisma", ["migrate", "deploy"]);
+  const output: string[] = [];
+  const code = await run("prisma", ["migrate", "deploy"], output);
   if (code !== 0) {
-    throw new StartupError(`prisma migrate deploy failed (exit ${code}); see the Prisma output above.`);
+    throw new StartupError(
+      explainMigrationFailure(output.join("")) ??
+        `prisma migrate deploy failed (exit ${code}); see the Prisma output above.`,
+    );
   }
 }
 
 export async function main(): Promise<number> {
   applySelfHostDefaults(process.env);
+  await preflightEnvironment();
+  await preflightPgvector();
   await migrate();
   console.log(`[selfhost] Starting Exponential on port ${process.env.PORT ?? "3000"}…`);
   return run("next", ["start"]);
