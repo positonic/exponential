@@ -5,7 +5,9 @@
  * runs instead of `npm start`. In order, and any failing step exits 1 with one
  * readable line:
  *
- *   1. Defaults — trust the Host header (AUTH_TRUST_HOST), production mode.
+ *   1. Load `.env` files the way `next start` will (`@next/env`, production
+ *      mode), so the preflight sees what the app will; then defaults — trust
+ *      the Host header (AUTH_TRUST_HOST), production mode.
  *   2. Env preflight — `src/env.js` (the four required variables and the
  *      encryption key's shape), SMTP_HOST needs a sender, and the active
  *      sign-in methods, with loud warnings for log delivery or no way in.
@@ -160,7 +162,20 @@ async function ensureReferenceData(): Promise<void> {
   }
 }
 
+/** Load `.env*` with Next's own loader and precedence, in production mode. */
+async function loadEnvFiles(): Promise<void> {
+  // `@next/env` is CJS: under tsx the namespace may carry it on `default`.
+  const envModule = (await import("@next/env")) as unknown as {
+    default?: { loadEnvConfig: (dir: string, dev?: boolean) => void };
+    loadEnvConfig?: (dir: string, dev?: boolean) => void;
+  };
+  const loadEnvConfig = envModule.default?.loadEnvConfig ?? envModule.loadEnvConfig;
+  if (!loadEnvConfig) throw new StartupError("Could not load @next/env to read .env files.");
+  loadEnvConfig(process.cwd(), false);
+}
+
 export async function main(): Promise<number> {
+  await loadEnvFiles();
   applySelfHostDefaults(process.env);
   await preflightEnvironment();
   await preflightPgvector();

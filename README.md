@@ -69,7 +69,8 @@ An open-source productivity and project management platform built with the T3 St
    |----------|-------------|
    | `DATABASE_URL` | PostgreSQL connection string |
    | `AUTH_SECRET` | Generate with `npx auth secret` |
-   | OAuth provider | At least one: Discord, Google, Microsoft, or Notion |
+   | `DATABASE_ENCRYPTION_KEY` | Generate with `openssl rand -base64 32` (required in production) |
+   | A way to sign in | An OAuth pair (Google or Discord), SMTP or Postmark for emailed sign-in codes, or `AUTH_LOG_SIGN_IN_CODES=true` to print codes to the server log |
 
    See [.env.example](.env.example) for all available configuration options.
 
@@ -87,6 +88,24 @@ An open-source productivity and project management platform built with the T3 St
 
    Open [http://localhost:3000](http://localhost:3000).
 
+### Self-hosting
+
+A production install needs four variables (`DATABASE_URL` for a Postgres with
+pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`, `OPENAI_API_KEY`) and one
+way to sign in. No OAuth app or Postmark account is required. Start from
+[.env.selfhost.example](.env.selfhost.example), which lists only what an
+install needs, then:
+
+```bash
+SKIP_ENV_VALIDATION=1 npm run build
+npm run start:selfhost      # checks env and pgvector, applies migrations, serves
+npm run scheduler:selfhost  # in a second process: runs the scheduled jobs
+```
+
+Sign-up is open: anyone who can reach the install and complete a sign-in gets
+an account, as on exponential.im. There is no allowlist yet, so keep a private
+install off the public internet or choose a way in that strangers can't use.
+
 ## Scripts
 
 | Command | Description |
@@ -94,6 +113,8 @@ An open-source productivity and project management platform built with the T3 St
 | `npm run dev` | Start dev server (Turbopack) |
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
+| `npm run start:selfhost` | Self-host start: preflight, apply migrations, serve |
+| `npm run scheduler:selfhost` | Self-host scheduler: calls the `vercel.json` crons |
 | `npm run check` | Lint + type check (run before committing) |
 | `npm run lint:fix` | Auto-fix ESLint issues |
 | `npm run format:write` | Format with Prettier |
