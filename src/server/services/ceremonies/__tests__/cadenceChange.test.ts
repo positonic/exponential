@@ -139,12 +139,14 @@ describe("applyCadenceChange", () => {
       recordedMeetings: { none: {} },
       cadenceStart: { not: null },
     });
+    const untouched = { status: "PLANNED", scheduledMeetingId: null, recordedMeetings: { none: {} } };
     expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["occ-updates"] } },
+      where: { ...untouched, id: { in: ["occ-updates"] } },
       data: { status: "SKIPPED", skipReason: CADENCE_CHANGE_SKIP_REASON },
     });
     expect(db.ceremonyOccurrence.deleteMany).toHaveBeenCalledWith({
       where: {
+        ...untouched,
         id: { in: ["occ-empty"] },
         agenda: { equals: Prisma.AnyNull },
         agendaCirculatedAt: null,
@@ -163,11 +165,37 @@ describe("applyCadenceChange", () => {
     const res = await applyCadenceChange(db, before, { ...before, id: "cer-1", isOneOff: false, durationMinutes: 30 }, NOW);
 
     expect(res).toEqual({ occurrencesDeleted: 0, occurrencesSkipped: 0, skippedOccurrenceIds: [] });
-    expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({
-      where: { id: "occ-16" },
+    // Guarded and tolerant of a row that vanished meanwhile (updateMany, not update).
+    expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledTimes(1);
+    expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith({
+      where: { status: "PLANNED", scheduledMeetingId: null, recordedMeetings: { none: {} }, id: "occ-16" },
       data: { scheduledEnd: new Date(MON_16.getTime() + 30 * 60_000) },
     });
+    expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
     expect(db.ceremonyOccurrence.deleteMany).not.toHaveBeenCalled();
-    expect(db.ceremonyOccurrence.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("notifies only for rows the skip write actually reached", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.ceremonyOccurrence.findMany
+      .mockResolvedValueOnce([
+        row("occ-a", MON_16, { notesPageId: "page-a" }),
+        row("occ-b", MON_23, { notesPageId: "page-b" }),
+      ] as never)
+      // occ-b was booked between the read and the write.
+      .mockResolvedValueOnce([{ id: "occ-a" }] as never);
+    db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
+
+    const res = await applyCadenceChange(db, before, after, NOW);
+
+    expect(res).toEqual({ occurrencesDeleted: 0, occurrencesSkipped: 1, skippedOccurrenceIds: ["occ-a"] });
+  });
+
+  it("does nothing for a one-off or a ceremony without a rule, even when the duration changes", async () => {
+    const db = mockDeep<PrismaClient>();
+    await applyCadenceChange(db, before, { ...before, id: "cer-1", isOneOff: true, durationMinutes: 60 }, NOW);
+    await applyCadenceChange(db, before, { ...before, id: "cer-1", isOneOff: false, cadenceRule: null, durationMinutes: 60 }, NOW);
+    expect(db.ceremonyOccurrence.findMany).not.toHaveBeenCalled();
+    expect(db.ceremonyOccurrence.deleteMany).not.toHaveBeenCalled();
   });
 });

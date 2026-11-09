@@ -140,14 +140,24 @@ export async function applyCadenceChange(
 ): Promise<CadenceChangeResult> {
   const result: CadenceChangeResult = { occurrencesDeleted: 0, occurrencesSkipped: 0, skippedOccurrenceIds: [] };
   if (!cadenceChanged(before, after)) return result;
+  // Nothing on a one-off or a rule-less ceremony derives from a cadence (a
+  // one-off's occurrence has no tick), so there is nothing to reconcile —
+  // and an empty tick set must never read as "every tick was dropped".
+  if (after.isOneOff || !after.cadenceRule) return result;
+
+  // Every write below repeats these conditions, so a row booked, recorded,
+  // skipped or captured after this read is left alone.
+  const stillUntouched = {
+    status: "PLANNED",
+    scheduledMeetingId: null,
+    recordedMeetings: { none: {} },
+  } satisfies Prisma.CeremonyOccurrenceWhereInput;
 
   const candidates = await db.ceremonyOccurrence.findMany({
     where: {
+      ...stillUntouched,
       ceremonyId: after.id,
-      status: "PLANNED",
       scheduledStart: { gt: now },
-      scheduledMeetingId: null,
-      recordedMeetings: { none: {} },
       cadenceStart: { not: null },
     },
     select: {
@@ -164,21 +174,36 @@ export async function applyCadenceChange(
   const plan = planCadenceChange(after, candidates);
 
   for (const row of plan.retime) {
-    await db.ceremonyOccurrence.update({ where: { id: row.id }, data: { scheduledEnd: row.scheduledEnd } });
+    // updateMany, not update: a row deleted or booked meanwhile is skipped
+    // rather than failing the whole ceremony edit.
+    await db.ceremonyOccurrence.updateMany({
+      where: { ...stillUntouched, id: row.id },
+      data: { scheduledEnd: row.scheduledEnd },
+    });
   }
   if (plan.skipIds.length > 0) {
     const skipped = await db.ceremonyOccurrence.updateMany({
-      where: { id: { in: plan.skipIds } },
+      where: { ...stillUntouched, id: { in: plan.skipIds } },
       data: { status: "SKIPPED", skipReason: CADENCE_CHANGE_SKIP_REASON },
     });
     result.occurrencesSkipped = skipped.count;
-    result.skippedOccurrenceIds = plan.skipIds;
+    // Notify only for rows this write actually skipped.
+    result.skippedOccurrenceIds =
+      skipped.count === plan.skipIds.length
+        ? plan.skipIds
+        : (
+            await db.ceremonyOccurrence.findMany({
+              where: { id: { in: plan.skipIds }, status: "SKIPPED", skipReason: CADENCE_CHANGE_SKIP_REASON },
+              select: { id: true },
+            })
+          ).map((o) => o.id);
   }
   if (plan.deleteIds.length > 0) {
     // Re-check emptiness in the delete itself: something added between the
     // read and here must not be destroyed.
     const deleted = await db.ceremonyOccurrence.deleteMany({
       where: {
+        ...stillUntouched,
         id: { in: plan.deleteIds },
         agenda: { equals: Prisma.AnyNull },
         agendaCirculatedAt: null,

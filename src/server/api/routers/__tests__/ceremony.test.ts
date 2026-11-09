@@ -519,7 +519,7 @@ describe("ceremony router", () => {
 
       expect(db.ceremonyOccurrence.deleteMany.mock.calls[0]![0]!.where).toMatchObject({ id: { in: ["occ-empty"] } });
       expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: { in: ["occ-updated"] } }, data: expect.objectContaining({ status: "SKIPPED" }) }),
+        expect.objectContaining({ where: expect.objectContaining({ status: "PLANNED", id: { in: ["occ-updated"] } }), data: expect.objectContaining({ status: "SKIPPED" }) }),
       );
       expect(res[0]).toMatchObject({ action: "updated", occurrencesCreated: 2, occurrencesDeleted: 1, occurrencesSkipped: 1 });
       expect(emitNotificationMock).toHaveBeenCalledWith(expect.objectContaining({ subject: { occurrenceId: "occ-updated" } }));
@@ -884,7 +884,7 @@ describe("ceremony router", () => {
       // … a moved row survives, an empty one goes, and one with notes is skipped, not lost.
       expect(db.ceremonyOccurrence.deleteMany.mock.calls[0]![0]!.where).toMatchObject({ id: { in: ["occ-on-tick"] } });
       expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: { in: ["occ-with-notes"] } }, data: expect.objectContaining({ status: "SKIPPED" }) }),
+        expect.objectContaining({ where: expect.objectContaining({ status: "PLANNED", id: { in: ["occ-with-notes"] } }), data: expect.objectContaining({ status: "SKIPPED" }) }),
       );
       expect(res).toMatchObject({ occurrencesDeleted: 1, occurrencesSkipped: 1 });
       // Participants get the same skip notice an explicit skip sends, for the skipped row only.
@@ -905,9 +905,14 @@ describe("ceremony router", () => {
       const res = await caller(db).ceremony.update({ workspaceId: WORKSPACE_ID, id: "cer-1", durationMinutes: 45 });
 
       expect(db.ceremonyOccurrence.deleteMany).not.toHaveBeenCalled();
-      expect(db.ceremonyOccurrence.updateMany).not.toHaveBeenCalled();
-      expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({ where: { id: "occ-1" }, data: { scheduledEnd: new Date(tick.getTime() + 45 * 60_000) } });
-      expect(db.ceremonyOccurrence.update).toHaveBeenCalledWith({ where: { id: "occ-2" }, data: { scheduledEnd: new Date(nextTick.getTime() + 45 * 60_000) } });
+      // Two guarded re-times, nothing set to SKIPPED.
+      expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledTimes(2);
+      expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: "occ-1" }), data: { scheduledEnd: new Date(tick.getTime() + 45 * 60_000) } }),
+      );
+      expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ id: "occ-2" }), data: { scheduledEnd: new Date(nextTick.getTime() + 45 * 60_000) } }),
+      );
       expect(res).toMatchObject({ occurrencesDeleted: 0, occurrencesSkipped: 0 });
       expect(emitNotificationMock).not.toHaveBeenCalled();
     });
