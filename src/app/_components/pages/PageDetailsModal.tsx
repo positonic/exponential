@@ -112,6 +112,7 @@ export function PageDetailsModal({
         utils.page.list.invalidate(),
         utils.page.get.invalidate({ id: page.id }),
         utils.page.audience.invalidate({ id: page.id }),
+        utils.page.sharing.invalidate({ id: page.id }),
       ]);
       onClose();
       if (movedToSlug) {

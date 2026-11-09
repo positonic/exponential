@@ -38,8 +38,7 @@ import {
   buildMarkdownExport,
   markdownFilename,
 } from "~/lib/pages/markdown-export";
-import { PageAudience } from "~/app/_components/pages/PageAudience";
-import { PageInvites } from "~/app/_components/pages/PageInvites";
+import { PageShareList } from "~/app/_components/pages/PageShareList";
 
 interface PageShareMenuProps {
   pageId: string;
@@ -68,9 +67,9 @@ interface PageShareMenuProps {
 
 /**
  * The "Share" popover + page actions menu on the Page editor. The popover
- * leads with who can see the page now (and, for editors, how to change that
- * by moving it between projects); publishing to the web (ADR-0038) comes
- * last, for editors only. Publishing is gated server-side on edit access;
+ * leads with the one share list ({@link PageShareList}: inherited audience,
+ * people it is shared with, Add people, the restrict switch); publishing to
+ * the web (ADR-0038) comes last, for editors only. Publishing is gated server-side on edit access;
  * this component is the consent surface — it says plainly that the page
  * becomes public.
  */
@@ -129,12 +128,12 @@ export function PageShareMenu({
     },
     onError: (e) => onError(e, "Could not publish linked pages"),
   });
-  // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
-  // An invite-only page publishes only by its owner (ADR-0069) — an invited
-  // editor sees the switch locked. Shares the cache with PageInvites.
+  // A restricted page publishes only by its owner (ADR-0069) — an editor
+  // sees the switch locked. Shares the cache with PageShareList.
   const sharing = api.page.sharing.useQuery({ id: pageId });
   const publishLocked =
     !!sharing.data?.isInviteOnly && !sharing.data.canManage;
+  // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
   const children = api.page.children.useQuery({ id: pageId });
   const hasSubpages = (children.data?.length ?? 0) > 0;
   const duplicate = api.page.duplicate.useMutation({
@@ -218,12 +217,7 @@ export function PageShareMenu({
         </Popover.Target>
         <Popover.Dropdown>
           <Stack gap="sm">
-            <PageAudience
-              pageId={pageId}
-              workspaceId={workspaceId}
-              canEdit={canEdit}
-            />
-            <PageInvites pageId={pageId} workspaceId={workspaceId} />
+            <PageShareList pageId={pageId} workspaceId={workspaceId} />
 
             {canEdit ? (
               <>
@@ -232,7 +226,7 @@ export function PageShareMenu({
                 label="Publish to web"
                 description={
                   publishLocked
-                    ? "Only the page's owner can publish an invite-only page."
+                    ? "Only the page's owner can publish a restricted page."
                     : "Makes the page public: anyone with the link can view the live page, no sign-in needed."
                 }
                 checked={isPublic}
