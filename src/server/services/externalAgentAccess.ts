@@ -98,6 +98,35 @@ export async function cascadeOwnerRemovedFromProject(
 }
 
 /**
+ * Owner's project role changed → their agents' roles in that project are
+ * clamped to it. Agents hold `editor` or `viewer`; an owner dropped to
+ * `viewer` can no longer delegate editing, so their agents become viewers.
+ * Promotions and editor↔admin moves are no-ops. Returns the rows changed.
+ */
+export async function cascadeOwnerProjectRoleChanged(
+  db: Db,
+  ownerId: string,
+  projectId: string,
+  newRole: string,
+): Promise<number> {
+  if (newRole !== "viewer") return 0;
+  const agents = await db.externalAgent.findMany({
+    where: { ownerId },
+    select: { shadowUserId: true },
+  });
+  if (agents.length === 0) return 0;
+  const result = await db.projectMember.updateMany({
+    where: {
+      projectId,
+      userId: { in: agents.map((a) => a.shadowUserId) },
+      role: { not: "viewer" },
+    },
+    data: { role: "viewer" },
+  });
+  return result.count;
+}
+
+/**
  * Grant-time guard for adding an External agent's shadow user to a project
  * (ticket alpha.shark, ticket 819: this is how an agent gets into a restricted
  * project). Throws unless all of these hold:

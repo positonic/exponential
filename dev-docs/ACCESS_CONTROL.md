@@ -109,7 +109,8 @@ applies. `project.addMember` and `updateMemberRole` admit an agent's shadow user
 when it is already a member of the project's workspace, its owner has access to
 the project, and the role is `viewer`, or `editor` only if the owner can edit
 (`assertAgentProjectMembership`); `removeMember` on a person also removes that
-person's agents (`cascadeOwnerRemovedFromProject`), and losing the workspace
+person's agents (`cascadeOwnerRemovedFromProject`), demoting a person to viewer
+clamps their agents to viewer (`cascadeOwnerProjectRoleChanged`), and losing the workspace
 (`externalAgent.revokeWorkspace`, `cascadeOwnerRemovedFromWorkspace`) drops the
 agent's project memberships there (`revokeAgentProjectMembershipsInWorkspace`).
 A project refusal is worded by `projectAccessDeniedError`: it names the account

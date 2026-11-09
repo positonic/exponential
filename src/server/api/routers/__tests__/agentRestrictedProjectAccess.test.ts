@@ -315,6 +315,8 @@ describe("an agent that is a workspace member but not a member of a restricted p
       expect(message).toContain("Stranger");
       expect(message).toMatch(/workspace/i);
       expect(message).not.toMatch(/Members tab/i);
+      // An outsider must not learn the project's name from the refusal.
+      expect(message).not.toContain(PROJECT_NAME);
     } finally {
       USERS.pop();
     }
@@ -500,5 +502,36 @@ describe("user.searchByEmail with agentsInWorkspaceId", () => {
     expect(where.AND).toHaveLength(2);
     expect(JSON.stringify(where.AND[0])).toContain("claude");
     expect(JSON.stringify(where.AND[1])).toContain(WORKSPACE_ID);
+  });
+});
+
+describe("demoting a person in the project clamps their agents", () => {
+  it("owner editor → viewer makes their agent a viewer too", async () => {
+    const db = getDbMock();
+    const james = callerFor(JAMES);
+    await james.project.addMember({ projectId: PROJECT_ID, userId: ANDI.id, role: "editor" });
+    await james.project.addMember({ projectId: PROJECT_ID, userId: ANDI_AGENT.id, role: "editor" });
+    db.projectMember.update.mockImplementation(((args: { data: { role: string } }) => {
+      projectMembers.set(ANDI.id, args.data.role);
+      return Promise.resolve({ id: `pm-${ANDI.id}`, role: args.data.role });
+    }) as never);
+    db.projectMember.updateMany.mockImplementation(((args: {
+      where: { userId: { in: string[] } };
+      data: { role: string };
+    }) => {
+      let count = 0;
+      for (const id of args.where.userId.in) {
+        if (projectMembers.has(id) && projectMembers.get(id) !== "viewer") {
+          projectMembers.set(id, args.data.role);
+          count++;
+        }
+      }
+      return Promise.resolve({ count });
+    }) as never);
+
+    await james.project.updateMemberRole({ projectId: PROJECT_ID, userId: ANDI.id, role: "viewer" });
+
+    expect(projectMembers.get(ANDI.id)).toBe("viewer");
+    expect(projectMembers.get(ANDI_AGENT.id)).toBe("viewer");
   });
 });

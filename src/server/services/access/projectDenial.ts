@@ -69,7 +69,8 @@ export async function projectAccessDeniedError(
 
   let why: string;
   if (!resolved.isWorkspaceMember && !resolved.isTeamMember) {
-    why = `${shortWho} is not a member of the workspace that owns "${projectName}".`;
+    // An outsider learns nothing about the project itself, not even its name.
+    why = `${shortWho} is not a member of the workspace that owns this project.`;
     why += agent
       ? " The agent's owner can add that workspace under Settings → Agents."
       : " A workspace admin can invite them first.";

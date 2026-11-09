@@ -18,6 +18,7 @@ import {
 } from "~/server/services/access";
 import {
   assertAgentProjectMembership,
+  cascadeOwnerProjectRoleChanged,
   cascadeOwnerRemovedFromProject,
 } from "~/server/services/externalAgentAccess";
 import { recordActivity } from "~/server/services/activity/recordActivity";
@@ -1353,10 +1354,16 @@ export const projectRouter = createTRPCRouter({
         await assertAgentProjectMembership(ctx.db, input.userId, input.projectId, input.role);
       }
 
-      return ctx.db.projectMember.update({
+      const updated = await ctx.db.projectMember.update({
         where: { id: member.id },
         data: { role: input.role },
       });
+      if (!member.user.isAgent) {
+        // A person's agents never sit above them: demoting the owner to
+        // viewer clamps their agents in this project too.
+        await cascadeOwnerProjectRoleChanged(ctx.db, input.userId, input.projectId, input.role);
+      }
+      return updated;
     }),
 
   updateTaskManagement: protectedProcedure
