@@ -67,6 +67,7 @@ export {
 // Resolvers (for direct use when needed)
 export {
   getWorkspaceMembership,
+  getWorkspaceRoles,
   filterWorkspaceMembers,
   assertWorkspaceRole,
   assertWorkspaceMembership,
@@ -124,6 +125,8 @@ export {
   listKnowledgePageViewers,
   canManageKnowledgePageAccess,
   canShareKnowledgePage,
+  canGrantKnowledgePageRole,
+  canChangeKnowledgePageGrant,
   isKnowledgePageInviteRole,
 } from "./resolvers/knowledgePageResolver";
 export type {

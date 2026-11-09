@@ -206,12 +206,44 @@ function inheritedEdit(access: KnowledgePageAccessInfo): boolean {
 }
 
 /**
- * Who may add people to a page (ADR-0080): anyone who can edit it. A non-owner
- * may change or remove only the grants they added, and may not grant editor to
- * a workspace Viewer — the router enforces both, since they depend on the row.
+ * Who may add people to a page (ADR-0080): anyone who can edit it. How far
+ * they may go is {@link canGrantKnowledgePageRole} and
+ * {@link canChangeKnowledgePageGrant}.
  */
 export function canShareKnowledgePage(access: KnowledgePageAccessInfo): boolean {
   return canEditKnowledgePage(access);
+}
+
+/**
+ * May the caller give a person `role` on the page (ADR-0080)? A sharer may
+ * grant at or below their own level, except that only the owner may make
+ * someone whose workspace role is Viewer (a read-only role) a page editor —
+ * otherwise any editor could undo the workspace's choice.
+ * `granteeWorkspaceRole` is the grantee's role in the page's workspace
+ * ({@link getWorkspaceRoles}), null when not a member.
+ */
+export function canGrantKnowledgePageRole(
+  access: KnowledgePageAccessInfo,
+  role: KnowledgePageInviteRole,
+  granteeWorkspaceRole: WorkspaceRole | null,
+): boolean {
+  if (canManageKnowledgePageAccess(access)) return true;
+  if (!canShareKnowledgePage(access)) return false;
+  return !(role === "editor" && granteeWorkspaceRole === "viewer");
+}
+
+/**
+ * May the caller change or remove an existing grant (ADR-0080)? The owner may
+ * change any; another sharer only the grants they added, so one editor can't
+ * silently undo another's sharing.
+ */
+export function canChangeKnowledgePageGrant(
+  access: KnowledgePageAccessInfo,
+  callerId: string,
+  grant: { invitedById: string | null },
+): boolean {
+  if (canManageKnowledgePageAccess(access)) return true;
+  return canShareKnowledgePage(access) && grant.invitedById === callerId;
 }
 
 /**

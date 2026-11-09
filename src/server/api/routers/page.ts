@@ -60,6 +60,11 @@ import {
   canEditKnowledgePage,
   canManageKnowledgePageAccess,
   canShareKnowledgePage,
+  canGrantKnowledgePageRole,
+  canChangeKnowledgePageGrant,
+  getWorkspaceRoles,
+  type KnowledgePageAccessInfo,
+  type KnowledgePageInviteRole,
   isKnowledgePageInviteRole,
   buildKnowledgePageAccessWhere,
   getProjectAccess,
@@ -191,37 +196,32 @@ const inviteRoleSchema = z.enum(["viewer", "editor"]);
 
 /**
  * Load the caller's access to a page and refuse unless they may share it
- * (ADR-0080: anyone who can edit). Returns whether they are also its manager
- * (the owner), who alone may change grants someone else added.
+ * (ADR-0080: anyone who can edit). Returns the access for the finer rules
+ * ({@link canGrantKnowledgePageRole}, {@link canChangeKnowledgePageGrant}).
  */
 async function ensureCanShare(
   db: PrismaClient,
   userId: string,
   page: PageForAccess,
-): Promise<{ canManage: boolean }> {
+): Promise<KnowledgePageAccessInfo> {
   const access = await getKnowledgePageAccess(db, userId, page);
   if (!canShareKnowledgePage(access)) {
     throw await pageAccessDeniedError(db, userId, page, access, "share");
   }
-  return { canManage: canManageKnowledgePageAccess(access) };
+  return access;
 }
 
-/**
- * Refuse a non-owner giving page-editor rights to someone whose workspace role
- * is Viewer, a read-only role (ADR-0080) — otherwise any editor could undo
- * the workspace's choice. The owner may still do it. A direct workspace role
- * wins over team-derived membership, as in the resolver.
- */
-async function assertMayGrantEditor(
+/** Refuse unless the caller may give every one of `userIds` `role`. */
+async function assertMayGrantRole(
   db: PrismaClient,
+  access: KnowledgePageAccessInfo,
   workspaceId: string,
   userIds: string[],
+  role: KnowledgePageInviteRole,
 ): Promise<void> {
-  const readOnly = await db.workspaceUser.findFirst({
-    where: { workspaceId, userId: { in: userIds }, role: "viewer" },
-    select: { userId: true },
-  });
-  if (readOnly) {
+  if (canManageKnowledgePageAccess(access)) return;
+  const roles = await getWorkspaceRoles(db, workspaceId, userIds);
+  if (userIds.some((id) => !canGrantKnowledgePageRole(access, role, roles.get(id) ?? null))) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message:
@@ -231,15 +231,15 @@ async function assertMayGrantEditor(
 }
 
 /**
- * A non-owner may change or remove only the grants they added (ADR-0080);
- * the owner may change any. NOT_FOUND when the person holds no grant.
+ * Refuse unless the caller may change or remove `granteeId`'s grant.
+ * NOT_FOUND when the person holds no grant.
  */
 async function ensureMayChangeGrant(
   db: PrismaClient,
+  access: KnowledgePageAccessInfo,
   userId: string,
   pageId: string,
   granteeId: string,
-  canManage: boolean,
 ): Promise<void> {
   const grant = await db.knowledgePageMember.findUnique({
     where: { pageId_userId: { pageId, userId: granteeId } },
@@ -248,7 +248,7 @@ async function ensureMayChangeGrant(
   if (!grant) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Not shared with this person" });
   }
-  if (!canManage && grant.invitedById !== userId) {
+  if (!canChangeKnowledgePageGrant(access, userId, grant)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "You can only change people you added — ask the page's owner",
@@ -319,6 +319,7 @@ async function applicableSubpages(
       return {
         id: p.id,
         createdById: p.createdById,
+        access,
         canShare: canShareKnowledgePage(access),
         canManage: canManageKnowledgePageAccess(access),
       };
@@ -359,8 +360,10 @@ async function copyableGrants(
     page.workspaceId,
     grants.map((g) => g.userId),
   );
-  return grants.filter(
-    (g) => stillMembers.has(g.userId) && isKnowledgePageInviteRole(g.role),
+  return grants.flatMap((g) =>
+    stillMembers.has(g.userId) && isKnowledgePageInviteRole(g.role)
+      ? [{ userId: g.userId, role: g.role }]
+      : [],
   );
 }
 
@@ -1692,8 +1695,9 @@ export const pageRouter = createTRPCRouter({
    * Everything the Share popover shows, in one call (ADR-0069, ADR-0080): the
    * inherited audience (`audience`, as `page.audience` returns it), the
    * grantees with their roles, and what the caller may do. Any viewer may read
-   * it. Grantees are listed only to members of the page's workspace (a page
-   * in a public project is viewable by every signed-in user); emails only to
+   * it. Grantees are listed only to members of the page's workspace and to
+   * its owner (a page in a public project is viewable by every signed-in
+   * user); emails only to
    * people who can share. `canShare` (anyone who can edit) drives Add people;
    * `canManage` (the owner) drives the restrict switch; each grantee's
    * `canChange` says whether the caller may change or remove that row.
@@ -1728,7 +1732,9 @@ export const pageRouter = createTRPCRouter({
             )
           : Promise.resolve(0),
       ]);
-      const invites = isWorkspaceMember
+      // Names go to workspace members only; the owner chose these people, so
+      // an owner who has since left the workspace still sees and manages them.
+      const invites = isWorkspaceMember || canManage
         ? await ctx.db.knowledgePageMember.findMany({
             where: { pageId: page.id },
             orderBy: { createdAt: "asc" },
@@ -1763,7 +1769,7 @@ export const pageRouter = createTRPCRouter({
           // Has since left the workspace: the grant gives no access.
           isWorkspaceMember: stillMembers.has(i.user.id),
           // The owner may change anyone's grant; other sharers only their own.
-          canChange: canManage || (canShare && i.invitedById === userId),
+          canChange: canChangeKnowledgePageGrant(access, userId, i),
         })),
       };
     }),
@@ -1812,7 +1818,7 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      const { canManage } = await ensureCanShare(ctx.db, userId, page);
+      const access = await ensureCanShare(ctx.db, userId, page);
 
       const userIds = [...new Set(input.userIds)].filter(
         (id) => id !== page.createdById,
@@ -1831,9 +1837,7 @@ export const pageRouter = createTRPCRouter({
         });
       }
 
-      if (!canManage && input.role === "editor") {
-        await assertMayGrantEditor(ctx.db, page.workspaceId, userIds);
-      }
+      await assertMayGrantRole(ctx.db, access, page.workspaceId, userIds, input.role);
 
       const existing = await ctx.db.knowledgePageMember.findMany({
         where: { pageId: page.id, userId: { in: userIds } },
@@ -1844,7 +1848,7 @@ export const pageRouter = createTRPCRouter({
       // Re-sharing changes the role only on grants the caller may change: the
       // owner any, anyone else only their own. The rest stay as they are.
       const changeable = existing
-        .filter((e) => canManage || e.invitedById === userId)
+        .filter((e) => canChangeKnowledgePageGrant(access, userId, e))
         .map((e) => e.userId);
 
       await ctx.db.$transaction([
@@ -1898,11 +1902,9 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      const { canManage } = await ensureCanShare(ctx.db, userId, page);
-      await ensureMayChangeGrant(ctx.db, userId, page.id, input.userId, canManage);
-      if (!canManage && input.role === "editor") {
-        await assertMayGrantEditor(ctx.db, page.workspaceId, [input.userId]);
-      }
+      const access = await ensureCanShare(ctx.db, userId, page);
+      await ensureMayChangeGrant(ctx.db, access, userId, page.id, input.userId);
+      await assertMayGrantRole(ctx.db, access, page.workspaceId, [input.userId], input.role);
       await ctx.db.knowledgePageMember.updateMany({
         where: { pageId: page.id, userId: input.userId },
         data: { role: input.role },
@@ -1920,14 +1922,14 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "sharing");
-      const { canManage } = await ensureCanShare(ctx.db, userId, page);
+      const access = await ensureCanShare(ctx.db, userId, page);
       const grant = await ctx.db.knowledgePageMember.findUnique({
         where: { pageId_userId: { pageId: page.id, userId: input.userId } },
         select: { id: true },
       });
       // Already gone: removing is idempotent.
       if (!grant) return { success: true };
-      await ensureMayChangeGrant(ctx.db, userId, page.id, input.userId, canManage);
+      await ensureMayChangeGrant(ctx.db, access, userId, page.id, input.userId);
       await ctx.db.knowledgePageMember.deleteMany({
         where: { pageId: page.id, userId: input.userId },
       });
@@ -1960,21 +1962,11 @@ export const pageRouter = createTRPCRouter({
         page,
         grants.length > 0,
       );
-      const readOnly =
-        grants.some((g) => g.role === "editor") && shareTo.some((t) => !t.canManage)
-          ? new Set(
-              (
-                await ctx.db.workspaceUser.findMany({
-                  where: {
-                    workspaceId: page.workspaceId,
-                    userId: { in: grants.map((g) => g.userId) },
-                    role: "viewer",
-                  },
-                  select: { userId: true },
-                })
-              ).map((w) => w.userId),
-            )
-          : new Set<string>();
+      const roles = await getWorkspaceRoles(
+        ctx.db,
+        page.workspaceId,
+        grants.map((g) => g.userId),
+      );
       const rows = shareTo.flatMap((target) =>
         grants
           // The sub-page's owner has access already; a grant row adds nothing.
@@ -1982,10 +1974,12 @@ export const pageRouter = createTRPCRouter({
           .map((g) => ({
             pageId: target.id,
             userId: g.userId,
-            role:
-              !target.canManage && g.role === "editor" && readOnly.has(g.userId)
-                ? "viewer"
-                : g.role,
+            // A role the caller may not grant on this sub-page (an editor
+            // grant for a workspace Viewer, from a non-owner) is copied as
+            // viewer — the same rule `invite` applies.
+            role: canGrantKnowledgePageRole(target.access, g.role, roles.get(g.userId) ?? null)
+              ? g.role
+              : "viewer",
             invitedById: userId,
           })),
       );

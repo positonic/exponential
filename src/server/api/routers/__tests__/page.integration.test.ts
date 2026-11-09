@@ -961,6 +961,15 @@ describe("page router", () => {
       expect(asOwner.audience.people.map((p) => p.id)).toContain(admin.id);
     });
 
+    it("an owner who has left the workspace still sees and manages the grantees", async () => {
+      const { author, invitee, ws, page } = await setup("pg-io-owner-left");
+      const caller = createTestCaller(author.id);
+      await caller.page.invite({ id: page.id, userIds: [invitee.id], role: "viewer" });
+      await db.workspaceUser.deleteMany({ where: { workspaceId: ws.id, userId: author.id } });
+      const sharing = await caller.page.sharing({ id: page.id });
+      expect(sharing.invitees).toMatchObject([{ id: invitee.id, canChange: true }]);
+    });
+
     it("withholds the grantee list from a signed-in viewer outside the workspace", async () => {
       const { author, invitee, outsider, ws } = await setup("pg-io-public");
       const project = await createProject(db, {

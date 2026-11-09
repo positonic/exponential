@@ -14,7 +14,10 @@ import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
   canEditKnowledgePage,
+  canGrantKnowledgePageRole,
+  canChangeKnowledgePageGrant,
   listKnowledgePageViewers,
+  type KnowledgePageAccessInfo,
   buildKnowledgePageAccessWhere,
 } from "../resolvers/knowledgePageResolver";
 
@@ -394,5 +397,36 @@ describe("buildKnowledgePageAccessWhere", () => {
     const where = JSON.stringify(buildKnowledgePageAccessWhere("u1"));
     expect(where).toContain('{"AND":[{"members":{"some":{"userId":"u1"}}},{"workspace"');
     expect(where).not.toContain('{"isInviteOnly":true}');
+  });
+});
+
+describe("sharing rules (ADR-0080)", () => {
+  const base: KnowledgePageAccessInfo = {
+    isOwner: false,
+    isInviteOnly: false,
+    inviteRole: null,
+    hasProject: false,
+    hasProjectAccess: false,
+    canEditProject: false,
+    workspaceRole: "member",
+  };
+  const owner = { ...base, isOwner: true };
+  const editor = base;
+  const reader = { ...base, workspaceRole: "viewer" as const };
+
+  it("a sharer grants at or below their level, except editor to a workspace Viewer", () => {
+    expect(canGrantKnowledgePageRole(editor, "editor", "member")).toBe(true);
+    expect(canGrantKnowledgePageRole(editor, "viewer", "viewer")).toBe(true);
+    expect(canGrantKnowledgePageRole(editor, "editor", "viewer")).toBe(false);
+    expect(canGrantKnowledgePageRole(owner, "editor", "viewer")).toBe(true);
+    expect(canGrantKnowledgePageRole(reader, "viewer", "member")).toBe(false);
+  });
+
+  it("a non-owner changes only the grants they added", () => {
+    expect(canChangeKnowledgePageGrant(editor, "me", { invitedById: "me" })).toBe(true);
+    expect(canChangeKnowledgePageGrant(editor, "me", { invitedById: "them" })).toBe(false);
+    expect(canChangeKnowledgePageGrant(editor, "me", { invitedById: null })).toBe(false);
+    expect(canChangeKnowledgePageGrant(owner, "me", { invitedById: "them" })).toBe(true);
+    expect(canChangeKnowledgePageGrant(reader, "me", { invitedById: "me" })).toBe(false);
   });
 });
