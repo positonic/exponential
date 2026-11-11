@@ -62,10 +62,8 @@ import { dependencyProgress } from "~/app/_components/product/dependencyOrdering
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { useTicketPropertyMutations } from "~/app/_components/product/useTicketPropertyMutations";
-import {
-  STATUS_OPTIONS,
-  STATUS_COLORS,
-} from "~/lib/ticket-statuses";
+import { STATUS_OPTIONS } from "~/lib/ticket-statuses";
+import { TicketStatusBadge } from "~/app/_components/product/TicketStatusBadge";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
@@ -436,14 +434,7 @@ export function TicketDetailClient() {
               >
                 {ticket.type.toLowerCase()}
               </Badge>
-              <Badge
-                size="xs"
-                variant="filled"
-                color={STATUS_COLORS[ticket.status] ?? "gray"}
-                styles={{ label: { color: "var(--mantine-color-dark-9)" } }}
-              >
-                {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
-              </Badge>
+              <TicketStatusBadge status={ticket.status} />
               {displayId && (
                 <Text size="xs" className="text-text-muted font-mono">
                   {displayId}

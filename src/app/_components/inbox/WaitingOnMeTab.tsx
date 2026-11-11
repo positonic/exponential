@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
-import { Button, Skeleton, UnstyledButton } from '@mantine/core';
+import { Button, Checkbox, Select, Skeleton, UnstyledButton } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconClockExclamation,
@@ -18,7 +18,10 @@ import { ticketDisplayId, ticketUrlId } from '~/lib/fun-ids';
 import { toPlainText } from '~/lib/content/plainText';
 import { overdueAnchor } from '~/lib/actions/partition';
 import type { RouterOutputs } from '~/trpc/react';
+import { STATUS_OPTIONS, type TicketStatus } from '~/lib/ticket-statuses';
+import { TicketStatusBadge } from '~/app/_components/product/TicketStatusBadge';
 import { InboxPeekDrawer, inboxPeekLinkProps } from './InboxPeek';
+import { useSetTicketStatus } from './useSetTicketStatus';
 
 type WaitingOnMe = RouterOutputs['inbox']['waitingOnMe'];
 
@@ -59,6 +62,7 @@ function Section({
   shown,
   total,
   more,
+  lead,
   action,
   children,
 }: {
@@ -67,6 +71,8 @@ function Section({
   total: number;
   /** Where the full list lives, when the tab shows only the first rows. */
   more?: { href: string; label: string };
+  /** A control before the label, such as a select-all box. */
+  lead?: ReactNode;
   /** A bulk control for the section's rows, beside the label. */
   action?: ReactNode;
   children: ReactNode;
@@ -76,6 +82,7 @@ function Section({
     <>
       <div className="wsa-sub">
         <span className="wsa-sub__label">
+          {lead}
           {label}
           <span className="wsa-sub__badge">{total}</span>
         </span>
@@ -191,6 +198,149 @@ function ConfirmAllDraftsButton({ drafts }: { drafts: ConfirmableDraft[] }) {
           ? 'Confirm this one'
           : `Confirm these ${drafts.length}`}
     </Button>
+  );
+}
+
+const STATUS_PICKER_COMBOBOX = { withinPortal: true, width: 170, position: 'bottom-end' } as const;
+
+/**
+ * QA tickets theirs to promote. Each row carries the ticket's status pill and
+ * the detail page's status picker; ticking two or more rows brings up a
+ * group picker in the section header that sets them all at once. A ticket
+ * moved out of QA drops off the list on the inbox's next refetch.
+ */
+function QaTicketsSection({
+  tickets,
+  total,
+  startOfToday,
+}: {
+  tickets: WaitingOnMe['qaTickets'];
+  total: number;
+  startOfToday: Date;
+}) {
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const setStatus = useSetTicketStatus(startOfToday);
+
+  // Only rows still listed count — a promoted ticket leaves the list.
+  const selectedIds = tickets.filter((t) => selected.has(t.id)).map((t) => t.id);
+  const allSelected = tickets.length > 0 && selectedIds.length === tickets.length;
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const apply = (ids: string[], status: TicketStatus) => {
+    if (ids.length > 0) setStatus.mutate({ ids, status });
+  };
+
+  return (
+    <Section
+      label="QA tickets"
+      shown={tickets.length}
+      total={total}
+      lead={
+        <Checkbox
+          size="xs"
+          aria-label={allSelected ? 'Deselect all QA tickets' : 'Select all QA tickets'}
+          checked={allSelected}
+          indeterminate={selectedIds.length > 0 && !allSelected}
+          onChange={() =>
+            setSelected(allSelected ? new Set() : new Set(tickets.map((t) => t.id)))
+          }
+        />
+      }
+      action={
+        selectedIds.length > 1 ? (
+          <span className="wsa-bulk">
+            <span className="wsa-item__meta">{selectedIds.length} selected</span>
+            <Select
+              size="xs"
+              w={150}
+              placeholder="Set status…"
+              aria-label={`Set status of ${selectedIds.length} selected tickets`}
+              data={STATUS_OPTIONS}
+              value={null}
+              onChange={(val) => {
+                if (!val) return;
+                apply(selectedIds, val as TicketStatus);
+                setSelected(new Set());
+              }}
+              comboboxProps={STATUS_PICKER_COMBOBOX}
+            />
+            <button
+              type="button"
+              className="wsa-sub__action"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear
+            </button>
+          </span>
+        ) : undefined
+      }
+    >
+      {tickets.map((ticket) => {
+        const checked = selected.has(ticket.id);
+        const href = hrefs.qaTicket(ticket);
+        return (
+          <div
+            key={ticket.id}
+            className={checked ? 'wsa-row wsa-row--wrap wsa-row--selected' : 'wsa-row wsa-row--wrap'}
+          >
+            <span className="wsa-row__select">
+              <Checkbox
+                size="xs"
+                aria-label={`Select ${ticket.title}`}
+                checked={checked}
+                onChange={() => toggle(ticket.id)}
+              />
+            </span>
+            <UnstyledButton
+              component={Link}
+              href={href}
+              className="wsa-item"
+              {...inboxPeekLinkProps(href)}
+            >
+              <span className="wsa-item__icon">
+                <IconTicket size={14} stroke={1.75} />
+              </span>
+              <span className="wsa-item__label">
+                {ticket.title}
+                <span className="wsa-item__sub">
+                  {withWorkspace(ticket.workspace, ticketDisplayId(ticket.product, ticket))}
+                </span>
+              </span>
+              <span className="wsa-item__meta">
+                {ticket.prMerged && (
+                  <span className="wsa-item__chip wsa-item__chip--go">
+                    PR merged — promote?
+                  </span>
+                )}
+                {compactAge(ticket.updatedAt)}
+              </span>
+            </UnstyledButton>
+            <span className="wsa-row__status">
+              <TicketStatusBadge status={ticket.status} />
+              <Select
+                size="xs"
+                w={120}
+                aria-label={`Status of ${ticket.title}`}
+                data={STATUS_OPTIONS}
+                value={ticket.status}
+                allowDeselect={false}
+                onChange={(val) => {
+                  if (val && val !== ticket.status) apply([ticket.id], val as TicketStatus);
+                }}
+                comboboxProps={STATUS_PICKER_COMBOBOX}
+              />
+            </span>
+          </div>
+        );
+      })}
+    </Section>
   );
 }
 
@@ -312,30 +462,11 @@ export function WaitingOnMeTab() {
         ))}
       </Section>
 
-      <Section label="QA tickets" shown={data.qaTickets.length} total={counts.qaTickets}>
-        {data.qaTickets.map((ticket) => (
-          <Row
-            key={ticket.id}
-            href={hrefs.qaTicket(ticket)}
-            icon={<IconTicket size={14} stroke={1.75} />}
-            label={ticket.title}
-            sub={withWorkspace(
-              ticket.workspace,
-              `${ticketDisplayId(ticket.product, ticket)} · in QA`,
-            )}
-            meta={
-              <>
-                {ticket.prMerged && (
-                  <span className="wsa-item__chip wsa-item__chip--go">
-                    PR merged — promote?
-                  </span>
-                )}
-                {compactAge(ticket.updatedAt)}
-              </>
-            }
-          />
-        ))}
-      </Section>
+      <QaTicketsSection
+        tickets={data.qaTickets}
+        total={counts.qaTickets}
+        startOfToday={startOfToday}
+      />
 
       <Section
         label="Overdue actions"
