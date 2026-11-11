@@ -12,6 +12,11 @@ import { cx } from "./cx";
  *   </Toolbar>
  *
  * `bordered` draws the hairline under it that separates it from the content.
+ *
+ * No `role="toolbar"` by default: that role promises arrow-key focus movement
+ * between the controls (roving tabindex), which this layout primitive does not
+ * implement, so it stays a plain container and every control keeps its own Tab
+ * stop. Pass `role="toolbar"` only alongside real arrow-key handling.
  */
 
 export interface ToolbarProps extends ComponentPropsWithoutRef<"div"> {
@@ -22,7 +27,6 @@ export interface ToolbarProps extends ComponentPropsWithoutRef<"div"> {
 function ToolbarRoot({ bordered = false, className, ...rest }: ToolbarProps) {
   return (
     <div
-      role="toolbar"
       {...rest}
       className={cx(
         "flex flex-wrap items-center gap-2",
