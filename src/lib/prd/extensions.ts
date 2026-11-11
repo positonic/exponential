@@ -15,6 +15,7 @@ import { CommentMark } from "./comment-mark";
 import { PlainTextClipboard } from "./plain-text-clipboard";
 import { PageLink } from "./page-link";
 import { DatabaseNode } from "./database-node";
+import { YouTubeNode } from "./youtube-node";
 
 /**
  * The schema for the **PRD body** — the single scoped exception to ADR-0017
@@ -31,7 +32,8 @@ import { DatabaseNode } from "./database-node";
  * projection.
  *
  * Capability is deliberately "Tier B / Linear-grade": headings, lists, task
- * lists, code blocks, tables, links, inline marks, and anchored comment marks.
+ * lists, code blocks, tables, links, YouTube embeds, inline marks, and anchored
+ * comment marks.
  * Every node/mark here is serialisable by tiptap-markdown except
  * {@link CommentMark}, which intentionally drops from the Markdown projection.
  */
@@ -101,6 +103,8 @@ export function buildPrdExtensions(
     CommentMark,
     options.pageLink ?? PageLink,
     options.database ?? DatabaseNode,
+    // YouTube embeds: a bare watch URL on its own line in Markdown.
+    YouTubeNode,
     PlainTextClipboard,
     Placeholder.configure({
       placeholder: options.placeholder ?? PRD_DEFAULT_PLACEHOLDER,
