@@ -233,8 +233,8 @@ function QaTicketsSection({
       return next;
     });
 
-  const apply = (ids: string[], status: TicketStatus) => {
-    if (ids.length > 0) setStatus.mutate({ ids, status });
+  const apply = (ids: string[], status: TicketStatus, onSuccess?: () => void) => {
+    if (ids.length > 0) setStatus.mutate({ ids, status }, { onSuccess });
   };
 
   return (
@@ -266,8 +266,9 @@ function QaTicketsSection({
               value={null}
               onChange={(val) => {
                 if (!val) return;
-                apply(selectedIds, val as TicketStatus);
-                setSelected(new Set());
+                // Cleared only once saved: a failed change keeps the rows
+                // ticked so a retry is one pick away.
+                apply(selectedIds, val as TicketStatus, () => setSelected(new Set()));
               }}
               comboboxProps={STATUS_PICKER_COMBOBOX}
             />
