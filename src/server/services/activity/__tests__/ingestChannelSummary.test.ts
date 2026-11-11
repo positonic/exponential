@@ -43,7 +43,7 @@ function mockLink(
     createdById: string | null;
   }> = {},
 ) {
-  db.channelLink.findUnique.mockResolvedValue({
+  db.channelLink.findFirst.mockResolvedValue({
     id: "cl-1",
     provider: PROVIDER,
     externalId: EXTERNAL_ID,
@@ -67,7 +67,7 @@ describe("ingestChannelSummary", () => {
 
   describe("drop-if-unlinked", () => {
     it("drops when no link exists, writing nothing", async () => {
-      db.channelLink.findUnique.mockResolvedValue(null as never);
+      db.channelLink.findFirst.mockResolvedValue(null as never);
 
       const result = await ingestChannelSummary(db, baseInput());
 

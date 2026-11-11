@@ -25,9 +25,14 @@ type DecisionStatus = "OPEN" | "PROPOSED" | "ACCEPTED" | "SUPERSEDED" | "DEPRECA
 interface DecisionStatusMenuProps {
   workspaceId: string;
   decision: { id: string; label: string; status: DecisionStatus };
+  /** Button text; "Change status" by default, "Decide" inline on an agenda. */
+  targetLabel?: string;
+  size?: "xs" | "compact-xs";
+  /** Called after a status change lands, with the new status. */
+  onChanged?: (status: DecisionStatus) => void;
 }
 
-export function DecisionStatusMenu({ workspaceId, decision }: DecisionStatusMenuProps) {
+export function DecisionStatusMenu({ workspaceId, decision, targetLabel = "Change status", size = "xs", onChanged }: DecisionStatusMenuProps) {
   const utils = api.useUtils();
   const [supersedeOpen, setSupersedeOpen] = useState(false);
   const [successorId, setSuccessorId] = useState<string | null>(null);
@@ -45,6 +50,7 @@ export function DecisionStatusMenu({ workspaceId, decision }: DecisionStatusMenu
       }
       setSupersedeOpen(false);
       setSuccessorId(null);
+      onChanged?.(updated.status);
     },
     onError: (error) =>
       notifications.show({
@@ -73,11 +79,11 @@ export function DecisionStatusMenu({ workspaceId, decision }: DecisionStatusMenu
         <Menu.Target>
           <Button
             variant="default"
-            size="xs"
+            size={size}
             rightSection={<IconChevronDown size={13} />}
             loading={setStatus.isPending}
           >
-            Change status
+            {targetLabel}
           </Button>
         </Menu.Target>
         <Menu.Dropdown>

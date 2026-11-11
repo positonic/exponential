@@ -422,6 +422,11 @@ Rules of the folder:
 
 ### Interactive Elements
 - `bg-brand-primary` - Primary buttons/actions
+- `text-link` / `hover:text-link-hover` - Inline text links. **Never `text-brand-primary`
+  on a link**: the brand fill is tuned for buttons and drops to ~3:1 on dark surfaces,
+  while `--color-link` lifts two tuple stops in dark/slate (7:1+). Mantine `<Anchor>`,
+  `MarkdownRenderer` and `.chat-html-content a` already use it, so a plain `<Anchor>`
+  needs no colour class.
 - `bg-brand-success` - Success states
 - `bg-brand-error` - Error states
 - `bg-brand-warning` - Warning states

@@ -201,7 +201,9 @@ const DEFAULT_PROPERTY_NAMES: OutboundPropertyNames = {
   assignee: "Assignee",
 };
 
-function resolvePropertyNames(raw: Prisma.JsonValue | null): OutboundPropertyNames {
+export function resolvePushPropertyNames(
+  raw: Prisma.JsonValue | null,
+): OutboundPropertyNames {
   const overrides =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Partial<OutboundPropertyNames>)
@@ -357,7 +359,7 @@ export async function runOutboundTicketPush(
   }
 
   const statusMap = (config.statusMap ?? null) as Record<string, TicketStatus> | null;
-  const propertyNames = resolvePropertyNames(config.propertyNames);
+  const propertyNames = resolvePushPropertyNames(config.propertyNames);
   const local = ticketToLocalFields(sync.ticket);
 
   // ── Full-mirror creation: a sentinel externalId means the Notion row does

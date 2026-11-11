@@ -23,6 +23,12 @@ export type EmbeddingStatus =
   | "completed"
   | "failed";
 
+/** A part of a source to chunk on its own, with context repeated on every chunk. */
+export interface EmbeddingSection {
+  context: string;
+  text: string;
+}
+
 /**
  * Interface for any source that can be embedded.
  * Implement this for new source types to enable automatic embedding.
@@ -30,6 +36,13 @@ export type EmbeddingStatus =
 export interface EmbeddingSource {
   /** Get the text content to embed */
   getContent(): string | null;
+
+  /**
+   * Optional: the content split into sections, each with a line naming what it
+   * belongs to. Chunks then stay meaningful when retrieved alone. Without this
+   * the whole of `getContent()` is chunked as one run of text.
+   */
+  getSections?(): EmbeddingSection[] | null;
 
   /** Get the source type identifier */
   getSourceType(): EmbeddingSourceType;

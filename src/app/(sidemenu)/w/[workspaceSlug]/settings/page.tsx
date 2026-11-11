@@ -1116,7 +1116,7 @@ export default function WorkspaceSettingsPage() {
                           <span key={project.id} className="text-[12.5px]">
                             <a
                               href={`/w/${workspace.slug}/projects/${project.slug}?tab=access`}
-                              className="text-brand-primary hover:underline"
+                              className="text-link hover:underline"
                             >
                               {project.name}
                             </a>

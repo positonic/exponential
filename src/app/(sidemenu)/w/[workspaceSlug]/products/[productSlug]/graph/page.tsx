@@ -2,13 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Group, Skeleton, Stack, Switch } from "@mantine/core";
-import { IconAffiliate } from "@tabler/icons-react";
+import { Group, Skeleton, Stack, Switch, Tooltip } from "@mantine/core";
+import { useSession } from "next-auth/react";
+import { IconAffiliate, IconArrowBackUp, IconLink } from "@tabler/icons-react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { useViewPrefs } from "~/hooks/useViewPrefs";
+import { useTicketViewUrl } from "~/hooks/useTicketViewUrl";
 import { EmptyState } from "~/app/_components/EmptyState";
 import {
+  ListPageButton,
   ListPageFilterPills,
   ListPageFilterPopover,
   type ListPageFilterPill,
@@ -43,19 +46,27 @@ export default function ProductGraphPage() {
   // The Backlog's facet filters, shared through the same saved view prefs: a
   // filter applied on either tab narrows the other. Changes here save back
   // under the same key, so the Backlog picks them up on its next mount.
-  const [filters, setFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
+  const [prefFilters, setPrefFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  // A link carrying a view (shared from the Backlog or this tab) shows its
+  // filters instead of the saved ones; changes then go to the URL, not prefs.
+  const { data: session } = useSession();
+  const { urlView, replaceView, exitView, copyViewLink } = useTicketViewUrl({
+    sessionUserId: session?.user?.id,
+  });
+  const filters = urlView?.filters ?? prefFilters;
   const { prefs: savedPrefs, isError: prefsFailed, save: savePrefs } =
     useViewPrefs<{ filters: TicketFilters }>({ productSlug, workspaceId }, { debounceMs: 500 });
   useEffect(() => {
     if (savedPrefs && !prefsLoaded) {
-      setFilters(parseSavedTicketFilters(savedPrefs.filters));
+      setPrefFilters(parseSavedTicketFilters(savedPrefs.filters));
       setPrefsLoaded(true);
     }
   }, [savedPrefs, prefsLoaded]);
   // Hold the canvas until the saved filters are known: a graph drawn
   // unfiltered first would re-layout the moment they land.
-  const awaitingPrefs = !prefsLoaded && !prefsFailed;
+  // A link's filters need nothing from the prefs, so they don't wait.
+  const awaitingPrefs = !prefsLoaded && !prefsFailed && !urlView;
 
   const { data: product, isLoading: isProductLoading } =
     api.product.product.getBySlug.useQuery(
@@ -136,16 +147,19 @@ export default function ProductGraphPage() {
 
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
 
+  const applyFilters = (next: TicketFilters) => {
+    if (urlView) {
+      replaceView({ ...urlView, filters: next });
+      return;
+    }
+    setPrefFilters(next);
+    savePrefs({ filters: next });
+  };
   const toggleFilter = (key: keyof TicketFilters, value: string) => {
-    setFilters((prev) => {
-      const next = toggleTicketFilter(prev, key, value);
-      savePrefs({ filters: next });
-      return next;
-    });
+    applyFilters(toggleTicketFilter(filters, key, value));
   };
   const clearFilters = () => {
-    setFilters(EMPTY_TICKET_FILTERS);
-    savePrefs({ filters: EMPTY_TICKET_FILTERS });
+    applyFilters(EMPTY_TICKET_FILTERS);
   };
 
   // Pills wait for the tickets: labels (tags) only resolve from them.
@@ -212,6 +226,23 @@ export default function ProductGraphPage() {
             onToggle={toggleFilter}
             onClear={clearFilters}
           />
+          {urlView && (
+            <Tooltip label="Leave this shared view and go back to your own" withinPortal>
+              <ListPageButton aria-label="Back to my view" onClick={exitView}>
+                <IconArrowBackUp size={13} stroke={1.75} />
+                My view
+              </ListPageButton>
+            </Tooltip>
+          )}
+          <Tooltip label="Copy a link to the graph with these filters" withinPortal>
+            <ListPageButton
+              aria-label="Copy link to this view"
+              onClick={() => copyViewLink({ ...urlView, filters })}
+            >
+              <IconLink size={13} stroke={1.75} />
+              Copy link
+            </ListPageButton>
+          </Tooltip>
           <Switch
             label="Show completed"
             checked={showCompleted}

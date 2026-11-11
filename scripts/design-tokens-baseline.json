@@ -57,6 +57,7 @@
   "src/app/_components/decisions/decisions-index.css": 3,
   "src/app/_components/docs/DocsFeedback.tsx": 1,
   "src/app/_components/docs/DocsSidebarNav.tsx": 1,
+  "src/app/_components/goals/GoalsPage.tsx": 2,
   "src/app/_components/home/FeaturesMenu.tsx": 1,
   "src/app/_components/home/HowItWorksSection.tsx": 1,
   "src/app/_components/home/KeyFeaturesSection.tsx": 1,
@@ -70,7 +71,6 @@
   "src/app/_components/home/coaching-home.css": 12,
   "src/app/_components/home/zoe-canvas/ZoeCanvas.module.css": 3,
   "src/app/_components/initiatives/GoalDetailContent.tsx": 1,
-  "src/app/_components/initiatives/InitiativeDashboard.module.css": 2,
   "src/app/_components/knowledge-base/KnowledgeBaseContent.module.css": 2,
   "src/app/_components/layout/ActiveTimerWidget.tsx": 1,
   "src/app/_components/layout/WorkspaceSwitcher.tsx": 1,
@@ -108,8 +108,8 @@
   "src/app/_components/wheel-of-life/PriorityGapChart.tsx": 1,
   "src/app/dev/mastra-client-tools/ClientToolsSpike.tsx": 1,
   "src/plugins/okr/client/components/ObjectiveCardV2.tsx": 1,
-  "src/plugins/okr/client/components/OkrDashboard.tsx": 2,
   "src/plugins/okr/client/components/OkrDetailDrawer.tsx": 12,
+  "src/plugins/okr/client/components/OkrObjectivesView.tsx": 2,
   "src/plugins/okr/client/components/OkrTimeline.css": 4,
   "src/styles/auth-surface.css": 9
 }

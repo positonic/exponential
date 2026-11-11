@@ -4,7 +4,7 @@ description: "Who can see and do what in a workspace: roles, invitations, guests
 section: collaborate
 order: 4
 icon: IconUsers
-updated: 2026-09-29
+updated: 2026-11-09
 ---
 
 Access in Exponential has two layers. A **workspace role** says what someone can do across the whole workspace: owner, admin, member or viewer. On top of that, a **project** can be opened up (public, viewable by anyone with the link) or closed down (restricted, visible only to the people named on it), and people can be given access to one project without any workspace role at all; those are **guests**. External agents follow the same rules as the person who owns them.
@@ -52,6 +52,8 @@ A guest is someone with access to specific projects but no workspace role. Add t
 ## External agents
 
 An [external agent](/docs/developers/external-agents) joins a workspace as a member, added by its owner. Its access never exceeds its owner's: demote or remove the owner and the agent follows. Everything it does is attributed to the agent, and it shows an **agent** badge in the members list.
+
+Being a workspace member does not get an agent into a **restricted project**. A project admin adds it on the project's **Members** tab, as editor or viewer, the same way as a person — the search there finds agents by name. The agent's owner must already have access to the project, and the agent leaves the project when its owner does. See [How to give an agent access to a restricted project](/docs/developers/external-agents#how-to-give-an-agent-access-to-a-restricted-project).
 
 ## How it connects
 

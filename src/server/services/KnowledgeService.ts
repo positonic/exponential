@@ -8,6 +8,7 @@ import type {
   EmbeddingSource,
   EmbeddingResult,
   EmbeddingOptions,
+  EmbeddingSection,
   EmbeddingSourceType,
 } from "./embedding/types";
 
@@ -177,7 +178,10 @@ export class KnowledgeService {
 
     try {
       // Chunk the content before starting transaction
-      const chunks = this.chunkText(content, maxTokensPerChunk, chunkOverlap);
+      const sections = source.getSections?.();
+      const chunks = sections
+        ? this.chunkSections(sections, maxTokensPerChunk, chunkOverlap)
+        : this.chunkText(content, maxTokensPerChunk, chunkOverlap);
 
       if (chunks.length === 0) {
         return { success: true, chunkCount: 0 };
@@ -334,12 +338,39 @@ export class KnowledgeService {
   }
 
   /**
-   * Split text into sentences
+   * Split text into sentences. Text after the last punctuation mark (a list
+   * item, a code block) is a sentence too, or it would never reach the index.
+   * Closing marks stay with their sentence, so `**Bold.** Next` splits cleanly.
    */
   splitIntoSentences(text: string): string[] {
     // Split on sentence boundaries while preserving the delimiter
-    const sentences = text.match(/[^.!?]+[.!?]+[\s]*/g) ?? [text];
+    const sentences = text.match(/[^.!?]+(?:[.!?]+[*_)\]"'”’]*\s*|$)/g) ?? [text];
     return sentences.map((s) => s.trim()).filter((s) => s.length > 0);
+  }
+
+  /** Chunk each section on its own, repeating its context on every chunk. */
+  chunkSections(
+    sections: EmbeddingSection[],
+    maxTokens: number = DEFAULT_CHUNK_SIZE,
+    overlapTokens: number = DEFAULT_CHUNK_OVERLAP
+  ): Chunk[] {
+    const chunks: Chunk[] = [];
+    let offset = 0;
+    for (const { context, text } of sections) {
+      const contextTokens = this.estimateTokens(context);
+      const room = Math.max(overlapTokens + 1, maxTokens - contextTokens);
+      for (const chunk of this.chunkText(text, room, overlapTokens)) {
+        chunks.push({
+          text: `${context}\n\n${chunk.text}`,
+          index: chunks.length,
+          startPos: offset + chunk.startPos,
+          endPos: offset + chunk.endPos,
+          tokenCount: contextTokens + chunk.tokenCount,
+        });
+      }
+      offset += text.length;
+    }
+    return chunks;
   }
 
   /**
@@ -635,16 +666,19 @@ export class KnowledgeService {
       transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
     }
 
-    // Resource access: owner only. The query already joins the live Resource
-    // row (`r`), so ownership is read from it rather than from the chunk — a
-    // deleted Resource's orphaned chunks never match.
+    // Resource access: owner only, in the searched workspace. The query
+    // already joins the live Resource row (`r`), so ownership and workspace
+    // are read from it rather than from the chunk — a deleted Resource's
+    // orphaned chunks never match, and neither do the stale chunks of one
+    // moved to another workspace (a move does not re-embed), which would
+    // otherwise let an agent read a row moved out of its delegation (ADR-0079).
     const searchesResources =
       !sourceTypes?.length || sourceTypes.includes("resource");
     let resourceAccessCondition = Prisma.empty;
     if (searchesResources && !resourceViewerId) {
       resourceAccessCondition = Prisma.sql`AND kc."sourceType" <> 'resource'`;
     } else if (searchesResources && resourceViewerId) {
-      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR r."userId" = ${resourceViewerId})`;
+      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR (r."userId" = ${resourceViewerId} AND r."workspaceId" = ${workspaceId}))`;
     }
 
     // Execute vector search with parameterized query

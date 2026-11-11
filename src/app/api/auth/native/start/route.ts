@@ -50,11 +50,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!codeChallenge && !state && !redirectUri) {
     const saved = verifyRequestState(request.cookies.get(NATIVE_AUTH_REQUEST_COOKIE)?.value);
-    if (saved) {
-      codeChallenge = saved.codeChallenge;
-      state = saved.state;
-      redirectUri = saved.redirectUri;
+    if (!saved) {
+      // No handshake in flight: a browser arrived here on a stale Auth.js
+      // callback-url cookie (e.g. after sign-out). Nothing to resume, so send
+      // it home rather than dead-ending on a bare 400.
+      return NextResponse.redirect(new URL("/", url.origin));
     }
+    codeChallenge = saved.codeChallenge;
+    state = saved.state;
+    redirectUri = saved.redirectUri;
   }
 
   // Validate every input before trusting any of it.

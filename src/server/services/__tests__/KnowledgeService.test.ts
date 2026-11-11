@@ -162,6 +162,64 @@ function meetingFindMany(db: unknown): ReturnType<typeof vi.fn> {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
+describe("KnowledgeService — splitIntoSentences", () => {
+  const split = (text: string) => new KnowledgeService({} as never).splitIntoSentences(text);
+
+  it("keeps text after the last punctuation mark", () => {
+    expect(split("A sentence.\n\n- Redis")).toEqual(["A sentence.", "- Redis"]);
+    expect(split("One. Two! ```\ncode\n```")).toEqual(["One.", "Two!", "```\ncode\n```"]);
+  });
+
+  it("keeps closing marks with their sentence", () => {
+    expect(split("**Bold lead.** The rest. *Italic.* \"Quoted.\" End")).toEqual([
+      "**Bold lead.**",
+      "The rest.",
+      "*Italic.*",
+      "\"Quoted.\"",
+      "End",
+    ]);
+  });
+
+  it("still handles text with no punctuation at all", () => {
+    expect(split("no punctuation here")).toEqual(["no punctuation here"]);
+    expect(split("")).toEqual([""].filter(Boolean));
+  });
+});
+
+describe("KnowledgeService — chunkSections", () => {
+  const svc = () => new KnowledgeService({} as never);
+
+  it("indexes a section's unpunctuated ending", () => {
+    const chunks = svc().chunkSections([{ context: "T › S", text: "A sentence.\n\n- Redis" }]);
+
+    expect(chunks.map((c) => c.text).join(" ")).toContain("- Redis");
+  });
+
+  it("repeats a section's context on every chunk and numbers chunks across sections", () => {
+    const long = "A sentence about contracts that goes on for a while. ".repeat(80);
+
+    const chunks = svc().chunkSections([
+      { context: "A talk", text: "The standfirst." },
+      { context: "A talk › Composing (41:49)", text: long },
+    ]);
+
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks[0]!.text).toBe("A talk\n\nThe standfirst.");
+    for (const chunk of chunks.slice(1)) {
+      expect(chunk.text.startsWith("A talk › Composing (41:49)\n\n")).toBe(true);
+    }
+    expect(chunks.map((c) => c.index)).toEqual(chunks.map((_, i) => i));
+  });
+
+  it("keeps each chunk within the size limit, counting its context", () => {
+    const long = "A sentence about contracts that goes on for a while. ".repeat(200);
+
+    for (const chunk of svc().chunkSections([{ context: "A title ".repeat(10), text: long }], 200, 20)) {
+      expect(chunk.tokenCount).toBeLessThanOrEqual(220);
+    }
+  });
+});
+
 describe("KnowledgeService — workspace scoping", () => {
   describe("embedSource", () => {
     it("stamps workspaceId on every chunk insert (batch path)", async () => {
@@ -483,9 +541,23 @@ describe("KnowledgeService — workspace scoping", () => {
       const { fragments, bound } = nestedSql(queryRawCalls[0]!);
       // Ownership comes from the joined Resource row (`r`), not the chunk's
       // copied userId, so a deleted resource's orphaned chunks never match.
-      expect(fragments).toContain(`kc."sourceType" <> 'resource' OR r."userId" = `);
+      expect(fragments).toContain(`kc."sourceType" <> 'resource' OR (r."userId" = `);
       expect(fragments).not.toContain(`kc."userId" =`);
       expect(bound).toContain("u-7");
+    });
+
+    it("reads a resource's workspace from the live row, so a moved resource's stale chunks never match", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", resourceViewerId: "u-7" });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      // A workspace move does not re-embed, so the chunk's workspaceId can be
+      // stale; the live row must sit in the searched workspace (ADR-0079).
+      expect(fragments).toContain(` AND r."workspaceId" = `);
+      expect(bound).toContain("ws-A");
     });
 
     it("drops resource chunks entirely when no resourceViewerId is given (fails closed)", async () => {

@@ -119,6 +119,8 @@ function installPage(db: DeepMockProxy<PrismaClient>, store: StoredPage) {
   } as never);
   db.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) =>
     fn(db)) as never);
+  // Every landed write snapshots a revision (ADR-0074); the mock just needs a row back.
+  db.knowledgePageRevision.create.mockResolvedValue({ id: "rev-1" } as never);
   db.knowledgePage.update.mockImplementation(((args: {
     where: { id: string; docVersion?: number };
     data: { body?: string; docVersion?: { increment: number } };

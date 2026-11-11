@@ -3,6 +3,7 @@
 import {
   Alert,
   Avatar,
+  Badge,
   Button,
   Center,
   Group,
@@ -255,6 +256,7 @@ export function ProjectMembersPanel({ projectId }: ProjectMembersPanelProps) {
       {canManage && (
         <AddMemberSection
           projectId={projectId}
+          workspaceId={projectQuery.data?.workspaceId ?? null}
           existingUserIds={new Set([
             ...(creator ? [creator.id] : []),
             ...members.map((m) => m.user.id),
@@ -271,12 +273,15 @@ export function ProjectMembersPanel({ projectId }: ProjectMembersPanelProps) {
 
 interface AddMemberSectionProps {
   projectId: string;
+  /** The project's workspace — its External agents are offered too. */
+  workspaceId: string | null;
   existingUserIds: Set<string>;
   onAdd: (userId: string, role: Role) => void;
   isPending: boolean;
 }
 
 function AddMemberSection({
+  workspaceId,
   existingUserIds,
   onAdd,
   isPending,
@@ -285,9 +290,15 @@ function AddMemberSection({
   const [debouncedQuery] = useDebouncedValue(query, 300);
   const [role, setRole] = useState<Role>("editor");
 
+  // Agents in the workspace are searchable by name here: adding one is how
+  // it gets into a restricted project (ADR-0049; ticket alpha.shark).
   const { data: results, isLoading: isSearching } =
     api.user.searchByEmail.useQuery(
-      { query: debouncedQuery, limit: 5 },
+      {
+        query: debouncedQuery,
+        limit: 5,
+        agentsInWorkspaceId: workspaceId ?? undefined,
+      },
       { enabled: debouncedQuery.length >= 2 },
     );
 
@@ -303,7 +314,7 @@ function AddMemberSection({
         </Text>
         <Group gap="xs" align="flex-end" wrap="nowrap">
           <TextInput
-            placeholder="Search by name or email…"
+            placeholder="Search by name or email — agents too…"
             leftSection={<IconSearch size={14} />}
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
@@ -362,11 +373,20 @@ function AddMemberSection({
                         "?"}
                     </Avatar>
                     <Stack gap={0}>
-                      <Text size="sm" fw={500} className="text-text-primary">
-                        {user.name ?? "Unnamed"}
-                      </Text>
+                      <Group gap={6} wrap="nowrap">
+                        <Text size="sm" fw={500} className="text-text-primary">
+                          {user.name ?? "Unnamed"}
+                        </Text>
+                        {user.isAgent && (
+                          <Badge size="xs" variant="light" color="gray">
+                            Agent
+                          </Badge>
+                        )}
+                      </Group>
                       <Text size="xs" className="text-text-muted">
-                        {user.email}
+                        {user.isAgent
+                          ? "External agent — editor or viewer only"
+                          : user.email}
                       </Text>
                     </Stack>
                   </Group>
@@ -375,12 +395,13 @@ function AddMemberSection({
                     variant="light"
                     leftSection={<IconUserPlus size={14} />}
                     loading={isPending}
+                    // Agents never manage members: an admin pick becomes editor.
                     onClick={() => {
-                      onAdd(user.id, role);
+                      onAdd(user.id, user.isAgent && role === "admin" ? "editor" : role);
                       setQuery("");
                     }}
                   >
-                    Add as {role}
+                    Add as {user.isAgent && role === "admin" ? "editor" : role}
                   </Button>
                 </Group>
               </Paper>

@@ -1,111 +1,43 @@
 /**
  * Content of a ceremony occurrence's notes page (ADR-0059 + ADR-0033):
- * seeded from the agenda when the page is created, and extended with the
- * recording's summary when the occurrence is captured.
+ * created empty with the first agenda, and extended with the recording's
+ * summary when the occurrence is captured.
  *
- * Both writers assemble a ProseMirror document with the shared codec and
- * derive the Markdown projection from that document, so `bodyDoc` and
- * `body` can never disagree (ADR-0024). Nothing here ever overwrites text
- * a person has typed: the seed only lands on an empty page, and the append
- * is a compare-and-set on `docVersion` that retries once against a fresh
- * read and then gives up.
+ * The append assembles a ProseMirror document with the shared codec and
+ * derives the Markdown projection from that document, so `bodyDoc` and
+ * `body` can never disagree (ADR-0024). Nothing here ever overwrites text a
+ * person has typed: the append is a compare-and-set on `docVersion` that
+ * retries once against a fresh read and then gives up.
  */
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { JSONContent } from "@tiptap/core";
 import { z } from "zod";
 import { docToMarkdownServer, markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
-import type { AgendaSnapshot } from "./agenda/types";
+import { recordPageRevision } from "~/server/services/pages/revisions";
 import { ensureOccurrenceNotesPage, type NotesPageCeremony, type NotesPageOccurrence } from "./notesPage";
 
-export const DRAFT_AGENDA_HEADING = "Draft agenda";
 export const MEETING_SUMMARY_HEADING = "Meeting summary";
 
-export interface NotesSeed {
-  bodyDoc: JSONContent;
-  body: string;
-}
-
-/** Push every Markdown heading one level down so the narrative nests under its own heading. */
+/** Push every Markdown heading one level down so a summary nests under its own heading. */
 export function demoteHeadings(markdown: string): string {
   return markdown.replace(/^(#{1,5})(?=\s)/gm, "#$1");
 }
 
 /**
- * The seed as Markdown: one `##` heading per agenda section, in order, then
- * the AI pre-read under "Draft agenda" when there is one. Headings only —
- * the sections' items live in the structured agenda above the page and are
- * not copied, so a regenerated agenda and the notes cannot drift apart.
+ * Make sure the occurrence has a notes page, created empty. The page used to
+ * be seeded with the section headings and a copy of the pre-read; nobody
+ * wrote under them, and the copy drifted from the agenda above it, so a new
+ * page now starts blank and an existing one is never touched here. Called
+ * once the agenda is durable.
  */
-export function buildNotesSeedMarkdown(agenda: AgendaSnapshot): string {
-  const parts = agenda.sections.map((section) => `## ${section.title.trim() || section.key}`);
-  const narrative = agenda.narrative?.trim();
-  if (narrative) {
-    parts.push(`## ${DRAFT_AGENDA_HEADING}`, demoteHeadings(narrative));
-  }
-  return parts.join("\n\n");
-}
-
-/** The seed as the editor stores it: canonical doc plus its Markdown projection. */
-export function buildNotesSeed(agenda: AgendaSnapshot): NotesSeed {
-  const bodyDoc = markdownToDocServer(buildNotesSeedMarkdown(agenda));
-  return { bodyDoc, body: docToMarkdownServer(bodyDoc) };
-}
-
-/** True when the doc carries no text at all (an empty paragraph counts as empty). */
-function isDocBlank(doc: JSONContent | null | undefined): boolean {
-  if (!doc) return true;
-  return docToMarkdownServer(doc).trim() === "";
-}
-
-/**
- * Seed a page that exists but has never been written to — the case for
- * pages created before seeding shipped, or created without a seed. A page
- * anyone has saved (`docVersion > 0`) or that carries any text is left
- * alone; the write is guarded on `docVersion = 0` so an editor save that
- * lands in between wins.
- */
-export async function seedNotesPageIfUntouched(db: PrismaClient, pageId: string, seed: NotesSeed): Promise<boolean> {
-  const page = await db.knowledgePage.findUnique({
-    where: { id: pageId },
-    select: { docVersion: true, body: true, bodyDoc: true },
-  });
-  if (!page || page.docVersion > 0) return false;
-  if (page.body?.trim()) return false;
-  if (!isDocBlank(page.bodyDoc as JSONContent | null)) return false;
-  const written = await writePageBodyIfVersion(db, {
-    pageId,
-    expectedVersion: 0,
-    doc: seed.bodyDoc,
-    data: { body: seed.body },
-  });
-  if (!written) return false;
-  getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);
-  return true;
-}
-
-/**
- * Make sure the occurrence has a notes page and that a page nobody has
- * touched carries the agenda seed. Called once the agenda (and its
- * narrative, when narration ran) is durable.
- */
-export async function ensureSeededOccurrenceNotesPage(
+export async function ensureEmptyOccurrenceNotesPage(
   db: PrismaClient,
   occurrence: NotesPageOccurrence,
   ceremony: NotesPageCeremony,
-  agenda: AgendaSnapshot,
-): Promise<{ pageId: string; created: boolean; seeded: boolean }> {
-  const seed = buildNotesSeed(agenda);
-  const { pageId, created } = await ensureOccurrenceNotesPage(db, occurrence, ceremony, {
-    seed: { bodyDoc: seed.bodyDoc as Prisma.InputJsonValue, body: seed.body },
-  });
-  if (created) {
-    if (seed.body.trim()) getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);
-    return { pageId, created, seeded: true };
-  }
-  const seeded = await seedNotesPageIfUntouched(db, pageId, seed);
-  return { pageId, created, seeded };
+): Promise<{ pageId: string; created: boolean }> {
+  return ensureOccurrenceNotesPage(db, occurrence, ceremony);
 }
 
 const firefliesSummary = z.object({
@@ -195,6 +127,13 @@ export async function appendMeetingSummaryToNotes(
       expectedVersion: page.docVersion,
       doc: nextDoc,
       data: { body: nextBody },
+      afterWrite: (tx) =>
+        recordPageRevision(tx, {
+          pageId,
+          kind: "markdown",
+          authorId: null,
+          note: "Meeting summary appended from the recording",
+        }),
     });
     if (written) {
       getEmbeddingTriggerService(db).triggerPageEmbedding(pageId);
