@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Combobox, InputBase, Select } from '@mantine/core';
 import type { ComboboxItem, MantineColor } from '@mantine/core';
+import { pillTint } from './pillTint';
 
 interface PillSelectProps {
   value: string;
@@ -13,11 +14,6 @@ interface PillSelectProps {
   disabled?: boolean;
   'aria-label'?: string;
 }
-
-// Neutral palettes whose "filled" shade has too little contrast on their own
-// light tint (gray in the light theme; dark is near-invisible in the dark
-// theme). Their text uses the secondary text token instead.
-const NEUTRAL_COLORS = new Set<string>(['gray', 'dark']);
 
 /**
  * An in-place editable value shown as a tinted pill: the Status / Priority
@@ -41,11 +37,7 @@ export function PillSelect({
 
   const styles = {
     input: {
-      backgroundColor: `var(--mantine-color-${color}-light)`,
-      color:
-        NEUTRAL_COLORS.has(color)
-          ? 'var(--color-text-secondary)'
-          : `var(--mantine-color-${color}-filled)`,
+      ...pillTint(color),
       fontWeight: 500,
       border: 'none',
     },

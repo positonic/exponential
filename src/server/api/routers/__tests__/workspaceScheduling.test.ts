@@ -128,6 +128,8 @@ describe("workspaceScheduling router (mocked)", () => {
     projectAccessMock.mockReset().mockResolvedValue({ isWorkspaceMember: true });
     recordOccurrenceSkippedMock.mockReset().mockResolvedValue(undefined);
     dbMock.$transaction.mockImplementation(((fn: (tx: unknown) => unknown) => fn(dbMock)) as never);
+    dbMock.availabilityBlock.findMany.mockResolvedValue([] as never);
+    dbMock.availabilityBlock.groupBy.mockResolvedValue([] as never);
   });
 
   /** Users by id, for the organizer lookup and member resolution. */
@@ -873,6 +875,44 @@ describe("workspaceScheduling router (mocked)", () => {
       // The organizer rides along in the availability computation and has no
       // synced calendar either — flagged honestly.
       expect(result.availabilityUnknownUserIds).toEqual(["user-nodata", ORGANIZER_ID]);
+    });
+
+    it("a member's marked Availability block constrains slots and makes them known", async () => {
+      memberRoster([ORGANIZER_ID, "user-manual"]);
+      dbMock.calendarEvent.findMany.mockResolvedValue([] as never);
+      dbMock.calendarEvent.groupBy.mockResolvedValue([] as never);
+      dbMock.availabilityBlock.findMany.mockResolvedValue([
+        { userId: "user-manual", startsAt: at(9), endsAt: at(17), isAllDay: false },
+      ] as never);
+      dbMock.availabilityBlock.groupBy.mockResolvedValue([{ userId: "user-manual" }] as never);
+      dbMock.user.findMany.mockResolvedValue([
+        {
+          id: "user-manual",
+          workHoursEnabled: false,
+          workDaysJson: null,
+          workHoursStart: null,
+          workHoursEnd: null,
+          timezone: null,
+        },
+      ] as never);
+      dbMock.user.findUnique.mockResolvedValue({ timezone: "UTC" } as never);
+
+      const caller = createMockCaller({ userId: ORGANIZER_ID, db: dbMock });
+      const result = await caller.workspaceScheduling.suggestSlots({
+        workspaceId: WORKSPACE_ID,
+        attendeeUserIds: ["user-manual"],
+        durationMinutes: 60,
+        rangeStart: at(8),
+        rangeEnd: at(19),
+      });
+
+      expect(result.slots.map((s) => s.startsAt.toISOString())).toEqual([
+        at(8).toISOString(),
+        at(17).toISOString(),
+        at(17, 30).toISOString(),
+        at(18).toISOString(),
+      ]);
+      expect(result.availabilityUnknownUserIds).toEqual([ORGANIZER_ID]);
     });
   });
 

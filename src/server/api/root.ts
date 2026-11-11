@@ -26,6 +26,7 @@ import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
+import { availabilityRouter } from "./routers/availability";
 import { feedbackRouter } from "./routers/feedback";
 import { docsRouter } from "./routers/docs";
 import { featureRequestRouter } from "./routers/featureRequest";
@@ -99,6 +100,7 @@ import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
 import { pageCommentRouter } from "./routers/pageComment";
+import { databaseRouter } from "./routers/database";
 import { yourWorkRouter } from "./routers/yourWork";
 /**
  * This is the primary router for your server.
@@ -133,6 +135,7 @@ export const appRouter = createTRPCRouter({
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
   workspaceScheduling: workspaceSchedulingRouter,
+  availability: availabilityRouter,
   feedback: feedbackRouter,
   docs: docsRouter,
   featureRequest: featureRequestRouter,
@@ -201,6 +204,7 @@ export const appRouter = createTRPCRouter({
   voice: voiceRouter,
   page: pageRouter,
   pageComment: pageCommentRouter,
+  database: databaseRouter,
   yourWork: yourWorkRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,

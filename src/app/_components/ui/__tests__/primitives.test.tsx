@@ -98,15 +98,16 @@ describe("SectionHeader", () => {
 });
 
 describe("Toolbar", () => {
-  test("exposes toolbar and group roles, a spacer, and the optional hairline", () => {
+  test("renders groups, a spacer and the optional hairline, without promising toolbar keyboard nav", () => {
     render(
-      <Toolbar aria-label="Projects" bordered>
+      <Toolbar data-testid="bar" bordered>
         <Toolbar.Group>a</Toolbar.Group>
         <Toolbar.Spacer data-testid="s" />
         <Toolbar.Group>b</Toolbar.Group>
       </Toolbar>,
     );
-    const bar = screen.getByRole("toolbar", { name: "Projects" });
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    const bar = screen.getByTestId("bar");
     expect(bar.className).toContain("border-b");
     expect(screen.getAllByRole("group")).toHaveLength(2);
     expect(screen.getByTestId("s").className).toContain("flex-1");

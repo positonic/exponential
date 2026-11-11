@@ -12,6 +12,7 @@ import {
   IconRobot,
   IconRobotFace,
   IconBell,
+  IconCalendarOff,
   IconSettings,
 } from '@tabler/icons-react';
 import {
@@ -27,6 +28,7 @@ const GROUPS: SidebarGroup<string>[] = [
     title: 'Account',
     items: [
       { id: '/settings/profile', label: 'Profile', icon: IconUser, href: '/settings/profile' },
+      { id: '/settings/availability', label: 'Availability', icon: IconCalendarOff, href: '/settings/availability' },
       { id: '/settings/notifications', label: 'Notifications', icon: IconBell, href: '/settings/notifications' },
     ],
   },

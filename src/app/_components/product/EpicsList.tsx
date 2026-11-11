@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ActionIcon, Badge, Menu, Table, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Menu, Tooltip } from "@mantine/core";
 import {
   IconDots,
+  IconEdit,
   IconPencil,
   IconSelector,
   IconSortAscending,
@@ -13,6 +14,8 @@ import {
 import { PriorityIcon } from "./PriorityIcon";
 import { EditEpicModal } from "~/app/_components/EditEpicModal";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { ListPageChip } from "~/app/_components/listPage";
+import table from "~/app/_components/listPage/DataTable.module.css";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -37,6 +40,22 @@ const EPIC_STATUS_ORDER: Record<string, number> = {
   IN_PROGRESS: 1,
   DONE: 2,
   CANCELLED: 3,
+};
+
+// Same palette as the Projects page's priority pills (Epic priority shares its
+// HIGH / MEDIUM / LOW / NONE scale).
+const EPIC_PRIORITY_COLORS: Record<string, string> = {
+  HIGH: "red",
+  MEDIUM: "orange",
+  LOW: "blue",
+  NONE: "gray",
+};
+
+const EPIC_PRIORITY_LABELS: Record<string, string> = {
+  HIGH: "High",
+  MEDIUM: "Medium",
+  LOW: "Low",
+  NONE: "None",
 };
 
 const PRIORITY_TO_NUM: Record<string, number> = {
@@ -72,21 +91,26 @@ type SortDir = "asc" | "desc";
 // Sort header
 // ---------------------------------------------------------------------------
 
-function SortHeader({ label, field, sortField, sortDir, onSort }: {
-  label: string; field: SortField; sortField: SortField; sortDir: SortDir; onSort: (f: SortField) => void;
+function SortHeader({ label, field, sortField, sortDir, onSort, width }: {
+  label: string; field: SortField; sortField: SortField; sortDir: SortDir; onSort: (f: SortField) => void; width?: number;
 }) {
   const active = sortField === field;
   return (
-    <Table.Th onClick={() => onSort(field)} className="cursor-pointer select-none hover:bg-surface-hover transition-colors">
-      <div className="flex items-center gap-1">
-        <span>{label}</span>
+    <th
+      onClick={() => onSort(field)}
+      className={table.sortable}
+      style={width ? { width } : undefined}
+      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <span className={table.sortInner}>
+        {label}
         {active ? (
-          sortDir === "asc" ? <IconSortAscending size={14} className="text-text-muted" /> : <IconSortDescending size={14} className="text-text-muted" />
+          sortDir === "asc" ? <IconSortAscending size={13} /> : <IconSortDescending size={13} />
         ) : (
-          <IconSelector size={14} className="text-text-muted opacity-40" />
+          <IconSelector size={13} className="opacity-40" />
         )}
-      </div>
-    </Table.Th>
+      </span>
+    </th>
   );
 }
 
@@ -160,9 +184,9 @@ export function EpicsList({
 
   if (filtered.length === 0) {
     return (
-      <Text size="sm" className="text-text-muted py-8 text-center">
+      <div className={table.empty}>
         {epics.length === 0 ? "No epics yet." : "No epics match your search."}
-      </Text>
+      </div>
     );
   }
 
@@ -172,11 +196,17 @@ export function EpicsList({
         label="Not assigned to a product yet — open it to pick one"
         position="top"
       >
-        <Badge size="xs" variant="outline" color="orange" className="shrink-0">
-          Unassigned
-        </Badge>
+        <span className="shrink-0">
+          <ListPageChip color="orange">Unassigned</ListPageChip>
+        </span>
       </Tooltip>
     );
+
+  const statusChip = (epic: EpicRow) => (
+    <ListPageChip color={EPIC_STATUS_COLORS[epic.status] ?? "gray"}>
+      {EPIC_STATUS_LABELS[epic.status] ?? epic.status}
+    </ListPageChip>
+  );
 
   const renderEditMenu = (epicId: string) => (
     <Menu position="bottom-end" withinPortal>
@@ -214,28 +244,30 @@ export function EpicsList({
     />
   ) : null;
 
-  // ── List view ──
+  // ── List view: DataTable's list variant, like Backlog › List ──
   if (view === "list") {
     return (
       <>
-        <div className="border border-border-primary rounded-lg overflow-hidden">
-          {filtered.map((epic, i) => (
+        <div className={table.list}>
+          {filtered.map((epic) => (
             <div
               key={epic.id}
-              className={`flex items-center gap-3 px-3 py-2 hover:bg-surface-hover transition-colors cursor-pointer ${i < filtered.length - 1 ? "border-b border-border-primary" : ""}`}
+              className={table.listRow}
               onClick={() => router.push(`${basePath}/${epic.id}`)}
             >
-              <Badge size="xs" variant="filled" color={EPIC_STATUS_COLORS[epic.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }} className="shrink-0">
-                {EPIC_STATUS_LABELS[epic.status] ?? epic.status}
-              </Badge>
-              <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
-                {epic.name}
-              </Text>
-              {renderUnassignedBadge(epic)}
-              <PriorityIcon priority={PRIORITY_TO_NUM[epic.priority] ?? 4} size={14} />
-              <Text size="xs" className="text-text-muted shrink-0">
+              <span className="w-[124px] shrink-0">{statusChip(epic)}</span>
+              <div className={table.listTitle}>
+                <span className={`${table.nameText} min-w-0`}>{epic.name}</span>
+                {renderUnassignedBadge(epic)}
+              </div>
+              <Tooltip label={EPIC_PRIORITY_LABELS[epic.priority] ?? epic.priority} withArrow>
+                <span className="flex w-5 shrink-0 justify-center">
+                  <PriorityIcon priority={PRIORITY_TO_NUM[epic.priority] ?? 4} size={16} />
+                </span>
+              </Tooltip>
+              <span className={`${table.muted} w-[72px] shrink-0 text-right`}>
                 {epic._count?.tickets ?? 0} tickets
-              </Text>
+              </span>
               {renderEditMenu(epic.id)}
             </div>
           ))}
@@ -248,58 +280,60 @@ export function EpicsList({
   // ── Table view ──
   return (
     <>
-      <div className="border border-border-primary rounded-lg overflow-hidden">
-        <Table
-          highlightOnHover
-          verticalSpacing={6}
-          horizontalSpacing="md"
-          styles={{
-            table: { fontSize: "0.8rem" },
-            th: { fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--color-text-muted)", borderBottom: "1px solid var(--color-border-primary)" },
-            td: { borderBottom: "1px solid var(--color-border-primary)" },
-            tr: { backgroundColor: "transparent" },
-          }}
-        >
-          <Table.Thead>
-            <Table.Tr>
-              <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+      <div className={table.tableWrap}>
+        <table className={table.table}>
+          <thead className={table.tableHead}>
+            <tr>
               <SortHeader label="Name" field="name" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <SortHeader label="Tickets" field="tickets" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <Table.Th style={{ width: 40 }} />
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
+              <SortHeader label="Status" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} width={150} />
+              <SortHeader label="Priority" field="priority" sortField={sortField} sortDir={sortDir} onSort={handleSort} width={120} />
+              <SortHeader label="Tickets" field="tickets" sortField={sortField} sortDir={sortDir} onSort={handleSort} width={100} />
+              <th style={{ width: 72 }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
             {filtered.map((epic) => (
-              <Table.Tr key={epic.id} className="hover:bg-surface-hover transition-colors cursor-pointer" onClick={() => router.push(`${basePath}/${epic.id}`)}>
-                <Table.Td style={{ width: 110 }}>
-                  <Badge size="xs" variant="filled" color={EPIC_STATUS_COLORS[epic.status] ?? "gray"} styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
-                    {EPIC_STATUS_LABELS[epic.status] ?? epic.status}
-                  </Badge>
-                </Table.Td>
-                <Table.Td>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Text size="sm" className="text-text-primary min-w-0" lineClamp={1}>{epic.name}</Text>
+              <tr
+                key={epic.id}
+                className={table.tableRow}
+                data-clickable="true"
+                onClick={() => router.push(`${basePath}/${epic.id}`)}
+              >
+                <td style={{ width: "100%", maxWidth: 0 }}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={`${table.nameText} min-w-0`}>{epic.name}</span>
                     {renderUnassignedBadge(epic)}
                   </div>
-                </Table.Td>
-                <Table.Td style={{ width: 40 }}>
-                  <Tooltip label={epic.priority.toLowerCase()} position="top">
-                    <div className="flex items-center justify-center">
-                      <PriorityIcon priority={PRIORITY_TO_NUM[epic.priority] ?? 4} size={16} />
-                    </div>
-                  </Tooltip>
-                </Table.Td>
-                <Table.Td style={{ width: 80 }}>
-                  <Text size="xs" className="text-text-secondary">{epic._count?.tickets ?? 0}</Text>
-                </Table.Td>
-                <Table.Td style={{ width: 40 }}>
-                  {renderEditMenu(epic.id)}
-                </Table.Td>
-              </Table.Tr>
+                  {epic.description && (
+                    <div className={`${table.nameSub} overflow-hidden text-ellipsis`}>{epic.description}</div>
+                  )}
+                </td>
+                <td>{statusChip(epic)}</td>
+                <td>
+                  <ListPageChip color={EPIC_PRIORITY_COLORS[epic.priority] ?? "gray"}>
+                    {EPIC_PRIORITY_LABELS[epic.priority] ?? epic.priority}
+                  </ListPageChip>
+                </td>
+                <td>
+                  <span className={table.muted}>{epic._count?.tickets ?? 0}</span>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="flex text-text-muted hover:text-brand-primary"
+                    aria-label="Edit epic"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditEpicId(epic.id);
+                    }}
+                  >
+                    <IconEdit size={18} />
+                  </button>
+                </td>
+              </tr>
             ))}
-          </Table.Tbody>
-        </Table>
+          </tbody>
+        </table>
       </div>
       {modal}
     </>

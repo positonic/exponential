@@ -13,6 +13,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import type { JSONContent } from "@tiptap/core";
 
 import { collectPageLinkIds } from "~/lib/pages/public-doc";
+import { syncPageDatabases } from "~/server/services/databases/sync";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -61,6 +62,8 @@ export async function writePageBodyIfVersion(
     expectedVersion: number;
     doc: JSONContent;
     data?: Omit<Prisma.KnowledgePageUncheckedUpdateManyInput, "bodyDoc" | "docVersion">;
+    /** Runs in the same transaction once the write landed (e.g. record the revision). */
+    afterWrite?: (tx: Prisma.TransactionClient) => Promise<unknown>;
   },
 ): Promise<boolean> {
   return db.$transaction(async (tx) => {
@@ -74,6 +77,9 @@ export async function writePageBodyIfVersion(
     });
     if (count !== 1) return false;
     await syncPageLinks(tx, args.pageId, args.doc);
+    // Database blocks detach/re-attach with the body too (ADR-0078).
+    await syncPageDatabases(tx, args.pageId, { doc: args.doc });
+    await args.afterWrite?.(tx);
     return true;
   });
 }

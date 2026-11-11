@@ -565,7 +565,7 @@ function KrLine({
                 <>
                   <span className="h-px w-3 flex-shrink-0 bg-border-secondary" />
                   <RowIcon size={12} className="flex-shrink-0 text-text-muted" />
-                  <span className="truncate text-xs text-text-secondary transition-colors group-hover/link:text-brand-primary">
+                  <span className="truncate text-xs text-text-secondary transition-colors group-hover/link:text-link">
                     {row.name}
                   </span>
                   <Badge size="xs" variant="light" color="gray">

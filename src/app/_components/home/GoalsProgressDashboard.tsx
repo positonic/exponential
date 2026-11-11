@@ -162,7 +162,7 @@ export function GoalsProgressDashboard() {
               </Group>
               <Link
                 href={okrsPath}
-                className="text-brand-primary hover:underline text-sm flex items-center gap-1"
+                className="text-link hover:underline text-sm flex items-center gap-1"
                 onClick={stopAccordionToggle}
               >
                 View All <IconChevronRight size={14} />
@@ -306,7 +306,7 @@ export function GoalsProgressDashboard() {
                 {objectives.length > 5 && (
                   <Link
                     href={goalsPath}
-                    className="text-center text-sm text-brand-primary hover:underline py-2"
+                    className="text-center text-sm text-link hover:underline py-2"
                   >
                     View all my {objectives.length} {terminology.goals.toLowerCase()}
                   </Link>

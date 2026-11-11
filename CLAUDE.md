@@ -219,8 +219,10 @@ HOME=/Users/james/.config/agent-homes/claude exponential actions kanban --json
 # List all projects in the workspace
 HOME=/Users/james/.config/agent-homes/claude exponential projects list --workspace exponential --json
 
-# Check auth status — also the fastest way to confirm which identity you are
-HOME=/Users/james/.config/agent-homes/claude exponential auth status
+# Who am I — prints the account's name and id, and its owner when it is an agent.
+# Run this first on a FORBIDDEN: the account it names is the one James must add
+# to the restricted project (project → Members tab, search by name).
+HOME=/Users/james/.config/agent-homes/claude exponential auth whoami
 ```
 
 The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.

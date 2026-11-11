@@ -6,6 +6,7 @@ import type { JSONContent } from "@tiptap/core";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 import {
   sanitizeDocForPublic,
+  type PublicDatabaseMap,
   type PublicPageLinkMap,
 } from "~/lib/pages/public-doc";
 
@@ -20,9 +21,10 @@ import {
 export function renderPublicPageHtml(
   bodyDoc: JSONContent,
   pageLinks?: PublicPageLinkMap,
+  databases?: PublicDatabaseMap,
 ): string {
   return generateHTML(
-    sanitizeDocForPublic(bodyDoc, pageLinks),
+    sanitizeDocForPublic(bodyDoc, pageLinks, databases),
     buildPrdExtensions(),
   );
 }

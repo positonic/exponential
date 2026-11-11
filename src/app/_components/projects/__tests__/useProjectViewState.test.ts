@@ -28,6 +28,7 @@ vi.mock("next/navigation", () => ({
 import {
   useProjectViewState,
   computeProjectFilterCounts,
+  collectProjectGoals,
   filterProjects,
 } from "../useProjectViewState";
 import {
@@ -465,5 +466,53 @@ describe("project filter pills", () => {
     expect(
       countActiveProjectFilters({ status: ["ACTIVE", "ON_HOLD"], driId: ["me"], eta: undefined }),
     ).toBe(3);
+  });
+});
+
+describe("goal filter", () => {
+  const launch = { id: 1, title: "Launch v2" };
+  const hire = { id: 2, title: "Hire a designer" };
+  const projects = [
+    { name: "Site", status: "ACTIVE", priority: "HIGH", goals: [launch] },
+    { name: "Recruiting", status: "ACTIVE", priority: "LOW", goals: [hire] },
+    { name: "Both", status: "ON_HOLD", priority: "NONE", goals: [launch, hire] },
+    { name: "Loose", status: "ACTIVE", priority: "NONE", goals: [] },
+  ];
+  const names = (rows: Array<{ name: string }>) => rows.map((r) => r.name);
+
+  it("keeps projects attached to any selected goal", () => {
+    expect(names(filterProjects(projects, { goalId: ["1"] }, ""))).toEqual(["Site", "Both"]);
+    expect(names(filterProjects(projects, { goalId: ["1", "2"] }, ""))).toEqual([
+      "Site",
+      "Recruiting",
+      "Both",
+    ]);
+  });
+
+  it("selects goal-less projects with the `none` sentinel, OR-ed with goals", () => {
+    expect(names(filterProjects(projects, { goalId: ["none"] }, ""))).toEqual(["Loose"]);
+    expect(names(filterProjects(projects, { goalId: ["none", "2"] }, ""))).toEqual([
+      "Recruiting",
+      "Both",
+      "Loose",
+    ]);
+  });
+
+  it("counts a project under each of its goals, or under `none`", () => {
+    const counts = computeProjectFilterCounts(projects, { priority: ["HIGH", "NONE"] }, "");
+    expect(counts.goalId).toEqual({ "1": 2, "2": 1, none: 1 });
+  });
+
+  it("lists the distinct goals the projects are attached to, by title", () => {
+    expect(collectProjectGoals(projects)).toEqual([hire, launch]);
+  });
+
+  it("labels goal pills by title, falling back to the id for an unknown goal", () => {
+    const pills = describeActiveProjectFilters(
+      { goalId: ["none", "1", "99"] },
+      [],
+      [launch, hire],
+    );
+    expect(pills.map((p) => p.label)).toEqual(["No goal", "Goal: Launch v2", "Goal: 99"]);
   });
 });

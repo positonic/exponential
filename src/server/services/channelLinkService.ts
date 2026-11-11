@@ -2,9 +2,11 @@
  * channelLinkService — deep module owning the inbound, provider-agnostic
  * `ChannelLink` (ADR-0023).
  *
- * A `ChannelLink` is the *routing* authority: it maps `(provider, externalId)`
- * → a workspace (required) and project (optional). It is integration-free and
- * deliberately distinct from the outbound `SlackChannelConfig`.
+ * A `ChannelLink` is the *routing* authority: an inbound row maps
+ * `(provider, externalId)` → a workspace (required) and project (optional); an
+ * outbound row (`direction: "outbound"`, with a `kind`) maps the other way — where a
+ * scope's content of that kind goes (ADR-0075). This module owns the inbound side;
+ * outbound resolution lives in `~/server/services/outboundPosts`.
  *
  * Functions take an explicit `db` handle (+ the acting `userId` where access
  * matters) rather than a full tRPC `ctx`, so they are callable from both the
@@ -54,8 +56,10 @@ export async function resolveChannelLink(
   provider: string,
   externalId: string,
 ) {
-  const link = await db.channelLink.findUnique({
-    where: { provider_externalId: { provider, externalId } },
+  // The unique is `(provider, externalId, direction, kind)` since D-0055, so a room
+  // may also have outbound rows; the inbound one is the only one this path wants.
+  const link = await db.channelLink.findFirst({
+    where: { provider, externalId, direction: INBOUND },
   });
   if (!link || !link.isActive) return null;
   // Only an *explicitly* outbound row is excluded. Anything else — the "inbound"
@@ -86,12 +90,11 @@ export async function createChannelLink(
     });
   }
 
-  const existing = await db.channelLink.findUnique({
+  const existing = await db.channelLink.findFirst({
     where: {
-      provider_externalId: {
-        provider: input.provider,
-        externalId: input.externalId,
-      },
+      provider: input.provider,
+      externalId: input.externalId,
+      direction: INBOUND,
     },
     select: { id: true },
   });

@@ -69,7 +69,7 @@ export function PageSubpages({
             <IconFileText size={15} className="shrink-0 text-text-muted" />
             <Link
               href={`/w/${workspaceSlug}/pages/${child.id}`}
-              className="min-w-0 flex-1 truncate text-sm text-text-primary hover:text-brand-primary"
+              className="min-w-0 flex-1 truncate text-sm text-text-primary hover:text-link"
             >
               {child.title}
             </Link>

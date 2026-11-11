@@ -87,7 +87,7 @@ export default async function LearnLayout({
                 </Link>
                 <Link
                   href="/signin"
-                  className="text-brand-primary hover:text-brand-primary/80 transition-colors text-base font-medium py-2"
+                  className="text-link hover:text-link-hover transition-colors text-base font-medium py-2"
                 >
                   Sign In
                 </Link>
