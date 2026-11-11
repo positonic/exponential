@@ -118,7 +118,7 @@ export function UiGallery() {
       <section className="flex flex-col gap-3">
         <SectionHeader as="h2" title="Toolbar" />
         <Panel padding="lg">
-          <Toolbar aria-label="Example" bordered>
+          <Toolbar bordered>
             <Toolbar.Group>
               <Pill>Filter: open</Pill>
               <Pill>Sort: due</Pill>
