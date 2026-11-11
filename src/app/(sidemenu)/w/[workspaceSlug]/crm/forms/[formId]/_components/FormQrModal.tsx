@@ -131,7 +131,7 @@ export function FormQrModal({ opened, onClose, url, slug }: FormQrModalProps) {
             justifyContent: 'center',
             borderRadius: 'var(--mantine-radius-md)',
             background:
-              'repeating-conic-gradient(var(--background-secondary) 0% 25%, var(--background-primary) 0% 50%) 0 0 / 24px 24px',
+              'repeating-conic-gradient(var(--color-bg-secondary) 0% 25%, var(--color-bg-primary) 0% 50%) 0 0 / 24px 24px',
           }}
         >
           {previewSrc && (

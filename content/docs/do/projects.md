@@ -3,7 +3,7 @@ title: Projects
 description: Group related actions into a project with an owner, a status, a priority and the goals it serves
 icon: IconFolders
 order: 3
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 A Project groups the actions that deliver one outcome. It has a status, a priority, a DRI, optional dates, and links to the [Goals](/docs/plan/goals) it serves. Each project has its own board, timeline, meetings and integrations, and its access can be opened to the workspace or restricted to named members.
@@ -12,7 +12,7 @@ A Project groups the actions that deliver one outcome. It has a status, a priori
 
 ## Where to find it
 
-**Deliver** → **Projects** in the sidebar. The page has three tabs — **Projects**, **Projects & Tasks** and **Timeline** — plus **Search** (⌘F), **Filter**, **Sort**, **Ask Zoe** and **New project**.
+**Work** → **Projects** in the sidebar. The page has three tabs — **Projects**, **Projects & Tasks** and **Timeline** — plus **Search** (⌘F), **Filter**, **Sort**, **Ask Zoe** and **New project**.
 
 ## How to create a project
 

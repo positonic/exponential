@@ -79,6 +79,7 @@ Colors are consumed exclusively through semantic tokens (`bg-background-primary`
 
 ### Hierarchy
 - **Title** (700, 1.25rem, tight): entity titles on detail pages and peeks; rendered as invisible inputs when editable.
+- **Document title** (700, 2.5rem, 1.2 line-height, -0.01em): the Knowledge Page title only - the largest text on a page, above the body's H1 (1.875rem/600). Page body prose runs 1rem/1.6 with headings that hug the text below them (globals.css `.knowledge-page`); the rest of the app keeps the Body density.
 - **Body** (400, 0.875rem / `size="sm"`): prose, comments, cell content.
 - **Control** (500, 0.8rem / `size="xs"`): buttons, inputs, selects, table text - the app's working density.
 - **Label** (600, 0.75rem, +0.05em, UPPERCASE): section headers (`ACTIVITY`, `ACTIONS`), group headers, sidebar labels - always `text-text-muted`.

@@ -23,7 +23,7 @@ export function ReleaseBody({ markdown }: { markdown: string }) {
               style={{
                 width: "100%",
                 height: "auto",
-                borderRadius: 8,
+                borderRadius: 'var(--radius-lg)',
                 margin: "12px 0",
               }}
             />

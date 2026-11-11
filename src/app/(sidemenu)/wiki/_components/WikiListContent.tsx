@@ -17,6 +17,7 @@ import { reportHandledError } from "~/lib/reportHandledError";
 import { pageFolder, pageTitle, wikiHref } from "~/lib/wiki/wikiLinks";
 import { useRefreshOnWikiChange, useWikiBridge } from "~/lib/wiki/useWikiBridge";
 import { WikiCommitList } from "./WikiCommitList";
+import { Panel } from "~/app/_components/ui";
 
 /**
  * The three fixed files `schema.md` names — the wiki's spine. They sort first
@@ -73,7 +74,7 @@ function PageRow({ page, title }: { page: WikiPage; title?: string }) {
   return (
     <Link
       href={wikiHref(page.path)}
-      className="group flex items-center justify-between gap-4 rounded-[10px] border border-border-primary bg-background-secondary px-[18px] py-3 transition-colors hover:border-border-focus hover:bg-surface-hover"
+      className="group flex items-center justify-between gap-4 rounded-lg border border-border-primary bg-background-secondary px-[18px] py-3 transition-colors hover:border-border-focus hover:bg-surface-hover"
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
         <IconNotebook size={15} className="shrink-0 text-text-muted" aria-hidden />
@@ -98,9 +99,9 @@ function SearchResults({
 }) {
   if (hits.length === 0) {
     return (
-      <div className="rounded-[10px] border border-border-primary bg-background-secondary px-6 py-12 text-center">
+      <Panel variant="muted" padding="none" className="px-6 py-12 text-center">
         <Text className="text-text-secondary">Nothing in the wiki matches that.</Text>
-      </div>
+      </Panel>
     );
   }
 
@@ -110,7 +111,7 @@ function SearchResults({
         <Link
           key={hit.path}
           href={wikiHref(hit.path)}
-          className="flex flex-col gap-1 rounded-[10px] border border-border-primary bg-background-secondary px-[18px] py-3 transition-colors hover:border-border-focus hover:bg-surface-hover"
+          className="flex flex-col gap-1 rounded-lg border border-border-primary bg-background-secondary px-[18px] py-3 transition-colors hover:border-border-focus hover:bg-surface-hover"
         >
           <div className="flex items-center gap-2">
             <IconNotebook size={15} className="shrink-0 text-text-muted" aria-hidden />
@@ -244,7 +245,7 @@ export function WikiListContent() {
   if (!bridge) {
     return (
       <div className="w-full px-6 py-8">
-        <div className="mx-auto max-w-md rounded-[10px] border border-border-primary bg-background-secondary px-6 py-12 text-center">
+        <Panel variant="muted" padding="none" className="mx-auto max-w-md px-6 py-12 text-center">
           <IconBook2 size={28} className="mx-auto text-text-muted" aria-hidden />
           <Text className="mt-3 font-semibold text-text-primary">
             The local wiki lives on your machine
@@ -253,7 +254,7 @@ export function WikiListContent() {
             It&apos;s a folder of markdown files the librarian keeps, so it&apos;s only
             reachable from the desktop app.
           </Text>
-        </div>
+        </Panel>
       </div>
     );
   }
@@ -335,11 +336,11 @@ export function WikiListContent() {
           <Skeleton height={56} />
         </div>
       ) : pages.length === 0 ? (
-        <div className="rounded-[10px] border border-border-primary bg-background-secondary px-6 py-12 text-center">
+        <Panel variant="muted" padding="none" className="px-6 py-12 text-center">
           <Text className="text-text-secondary">
             Nothing filed yet. Ask the librarian something worth remembering.
           </Text>
-        </div>
+        </Panel>
       ) : (
         <div className="flex flex-col gap-6">
           {groups.map((group) => (

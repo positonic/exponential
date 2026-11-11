@@ -21,13 +21,14 @@ export function defaultGenerateDeps(
     writer: process.env.ANTHROPIC_API_KEY
       ? createClaudeWriter({ log: { db, workspaceId: scope.workspaceId, userId: scope.userId ?? undefined } })
       : createTemplateWriter("ANTHROPIC_API_KEY is not set"),
-    notify: (notice) =>
-      emitNotification({
+    notify: async (notice) => {
+      await emitNotification({
         db,
         category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
         actorUserId: notice.actorUserId,
         subject: { updateId: notice.updateId, reviewerIds: notice.reviewerIds },
-      }),
+      });
+    },
     baseUrl: getPublicBaseUrlFromEnv(),
   };
 }

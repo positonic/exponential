@@ -4,7 +4,7 @@ description: "Four ways to see the workspace as a whole: what happened, a board 
 section: do
 order: 8
 icon: IconChartBar
-updated: 2026-09-30
+updated: 2026-10-23
 ---
 
 Most pages show one object. These four show the workspace: the **activity feed** is everything that happened, newest first, with a week-in-review on top; **Views** is a kanban of every action you can filter, group and save as a list; the projects **Timeline** lays projects out by start and end date; and **Favourites** is your own pinned shortlist in the sidebar.
@@ -13,8 +13,8 @@ Most pages show one object. These four show the workspace: the **activity feed**
 
 - Activity: the panel on the workspace home, the full page at **Activity** in the workspace (`/w/<slug>/activity`), and [Activity](/activity) across all your workspaces.
 - Views: `/w/<slug>/views`, reached from the **Projects & Tasks** view and the command palette's **Tasks** page.
-- Timeline: the **Timeline** tab at the top of [**Deliver → Projects**](/go/projects).
-- Favourites: the **Favourites** section of the sidebar, below the Amplify section.
+- Timeline: the **Timeline** tab at the top of [**Work → Projects**](/go/projects).
+- Favourites: the **Favourites** section of the sidebar, above the Plan / Work / People / Tools sections.
 
 ## How to read the activity feed
 
@@ -38,7 +38,7 @@ Most pages show one object. These four show the workspace: the **activity feed**
 
 ![The projects timeline](/doc-assets/timeline.png)
 
-On [**Deliver → Projects**](/go/projects), the **Timeline** tab draws each project as a bar from its start date to its end date, by **Month**, **Quarter** or **Year**; **Today** jumps to now. Projects without dates do not appear, so set them on the project. The status and priority filters from the Projects tab apply here too.
+On [**Work → Projects**](/go/projects), the **Timeline** tab draws each project as a bar from its start date to its end date, by **Month**, **Quarter** or **Year**; **Today** jumps to now. Projects without dates do not appear, so set them on the project. The status and priority filters from the Projects tab apply here too.
 
 ## How to use Favourites
 

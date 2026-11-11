@@ -281,6 +281,135 @@ When making style changes:
 4. **Test both themes** - Ensure changes work in light and dark modes
 5. **Update consistently** - If changing a color pattern, update all instances
 
+## Shape tokens
+
+Colour has tokens, a lint rule and a pre-commit hook, and every page converged
+on it. Shape (radius, shadow) had none, so each redesign invented its own
+scale: Tailwind's, Mantine's, raw pixels in a feature stylesheet, or
+`--radius-*` tokens scoped to a single page. The meeting detail page shipped
+with square corners because its stylesheet referenced `var(--radius-md)` and
+that token only existed inside two other pages' blocks.
+
+There is now **one radius scale and one elevation scale**, declared on `:root`
+in `globals.css`, and every layer reads it:
+
+| Token | Value | Tailwind | Mantine | Use for |
+|---|---|---|---|---|
+| `--radius-xs` | 2px | `rounded-xs` | `radius="xs"` | hairline chips, progress bars, text highlights |
+| `--radius-sm` | 4px | `rounded-sm` / `rounded` | `radius="sm"` (default) | inputs, buttons, tags |
+| `--radius-md` | 6px | `rounded-md` | `radius="md"` | list rows, menu items, small cards |
+| `--radius-lg` | 8px | `rounded-lg` | `radius="lg"` | cards, panels, popovers |
+| `--radius-xl` | 12px | `rounded-xl` | — | hero panels, modals, drawers |
+| `--radius-2xl` | 16px | `rounded-2xl` | — | marketing surfaces only |
+| `--radius-full` | 9999px | `rounded-full` | `radius="xl"` | pills, avatars |
+
+| Token | Tailwind | Mantine | Use for |
+|---|---|---|---|
+| `--shadow-sm` | `shadow-sm` / `shadow` | `shadow="xs"`, `"sm"` | a barely-there lift |
+| `--shadow-md` | `shadow-md` | `shadow="md"` | dropdowns, popovers, hover lift |
+| `--shadow-lg` | `shadow-lg` | `shadow="lg"` | modals, drawers |
+| `--shadow-xl` | `shadow-xl` | `shadow="xl"` | hero / marketing only |
+| `--shadow-overlay` | `shadow-overlay` | — | the calendar/popover composite (see the Mantine theme) |
+
+Mantine's `xl` is the one deliberate asymmetry: Mantine's own Avatar, Badge
+and Pill rely on `xl` meaning "fully round", and ~200 call sites pass
+`radius="xl"` for exactly that. For a 12px corner on a Mantine component use
+`lg` or a Tailwind class.
+
+### Rules
+
+- **Draw boxes with `<Panel>`**, labels with `<SectionHeader>`, chips with
+  `<Pill>` (see "Primitives" below). The tokens are the numbers; the
+  primitives are where the numbers get used.
+- **Pick a step, never a number.** `rounded-[10px]`, `radius={12}`,
+  `borderRadius: 8` and `border-radius: 10px` are all lint errors. If a design
+  handoff says 10px, use `lg` (8px); the scale wins over the mock.
+- **Feature stylesheets consume tokens, they do not declare them.** No
+  `--radius-*` / `--shadow-*` / `--xx-radius-*` inside a page's scope. If a
+  page genuinely needs a new step, add it to `:root` and to the table above.
+- **A `var()` must resolve.** `var(--background-primary)` is not a token (the
+  token is `--color-bg-primary`) and an undefined variable silently invalidates
+  the whole declaration: square corners, inherited fonts, missing borders. The
+  checker fails on any bare reference to a variable declared nowhere under
+  `src/`. Use a fallback (`var(--x, 4px)`) only for a value that is set at
+  runtime from JS.
+- **Shadows are painted with a token colour**, never `rgba(...)`.
+
+### Enforcement
+
+- ESLint (`no-restricted-syntax` in `.eslintrc.cjs`): arbitrary
+  `rounded-[...]` / `shadow-[...]`, numeric `radius={n}`, numeric or pixel
+  `borderRadius` in style objects. Fires in the editor and in `npm run check`.
+- `npm run tokens:check` (`scripts/check-design-tokens.ts`): the CSS-side and
+  CI backstop. Undefined variables and arbitrary values are hard failures. Raw
+  `border-radius` / `box-shadow` values in existing stylesheets are
+  **ratcheted** against `scripts/design-tokens-baseline.json`: a file may never
+  have more than its baseline, a new file must have none. When you clear some,
+  run `npm run tokens:check -- --update-baseline` so the ceiling drops with
+  you. Runs in the pre-commit hook and the CI lint job.
+
+## Primitives
+
+The shape tokens say what the numbers are; the primitives in
+`src/app/_components/ui/` are the only place those numbers get composed into
+a box. A page never writes `rounded-lg border border-border-primary
+bg-surface-secondary` again: it renders `<Panel>`.
+
+```tsx
+import { Panel, SectionHeader, Pill, Toolbar, EmptyState } from "~/app/_components/ui";
+
+<Panel>                                   // card: surface-secondary, border-primary, lg radius, p-4
+<Panel variant="muted" radius="md">       // quieter tonal row (meeting cards, list rows)
+<Panel variant="elevated">                // floats: bg-elevated + shadow-md
+<Panel interactive as="button">           // hover affordance; `as` takes any element or Link
+<Panel padding="none" className="divide-y divide-border-primary">   // list container
+
+<SectionHeader title="Needs your attention" icon={<IconBell size={14} />} count={4}
+               action={<Anchor size="xs">All projects</Anchor>} />
+
+<Pill>470</Pill>  <Pill tone="danger" size="xs">due 15d ago</Pill>
+
+<Toolbar bordered>
+  <Toolbar.Group>…filters…</Toolbar.Group>
+  <Toolbar.Spacer />
+  <Toolbar.Group>…actions…</Toolbar.Group>
+</Toolbar>
+```
+
+| Primitive | Owns | You choose | You never pass |
+|---|---|---|---|
+| `Panel` | surface, border, radius, padding, hover | `variant` default/muted/elevated, `radius` md/lg/xl, `padding` none/sm/md/lg, `interactive`, `as` | `rounded-*`, `border-*`, `bg-*`, `p-*` for the box itself |
+| `SectionHeader` | the uppercase muted label row | `title`, `icon`, `count`, `action`, `as` h2/h3/h4/div, `size` | `uppercase tracking-* text-text-muted` by hand |
+| `Pill` | rounded-full chip | `tone` neutral/brand/warning/danger, `size` xs/sm, `icon` | `rounded-full px-2 text-[11px]` by hand |
+| `Toolbar` | a control row with optional hairline | `bordered`, `Toolbar.Group`, `Toolbar.Spacer` | ad-hoc `flex items-center gap-2 border-b` rows |
+| `EmptyState` | the empty placeholder (predates this folder, uses Mantine) | `icon`, `title`, `message`, `action`, `compact` | |
+
+Rules of the folder:
+
+- **Primitives are dependency-free and server-safe.** No Mantine, no hooks,
+  no `"use client"`. They render in Server Components and in the marketing
+  routes alike. `EmptyState` is the one re-export that breaks this and is
+  documented as such.
+- **`className` is appended, never merged.** There is no tailwind-merge. A
+  `className="rounded-none"` on a Panel is a bug, not an override; if a
+  variant is missing, add the variant.
+- **Odd padding goes through `padding="none"`.** An empty state's
+  `px-6 py-12` is `<Panel padding="none" className="px-6 py-12">`. A padding
+  step plus `p-*` in `className` is rejected by `tokens:check`
+  (`panel-padding-conflict`), because stylesheet order, not the prop, would
+  decide which wins.
+- **`Toolbar` is not `role="toolbar"`.** That role promises arrow-key focus
+  movement between controls; the primitive is layout only, so each control
+  keeps its own Tab stop. Add the role only together with roving-tabindex
+  handling.
+- **Adding a variant is a design decision**, not a local tweak: add it to the
+  primitive, the table above, and a test in `ui/__tests__/primitives.test.tsx`.
+- **Feature CSS classes (`.wsa-card`, `.mp-card`) are the migration backlog.**
+  `npm run tokens:check` ratchets hand-rolled surfaces in TSX (a className
+  with `rounded-*` + `border` + `bg-surface-*`/`bg-background-*`) the same way
+  it ratchets raw radius values: new code must use `Panel`; existing counts
+  may only go down.
+
 ## Quick Reference
 
 ### Background Colors
@@ -302,6 +431,11 @@ When making style changes:
 
 ### Interactive Elements
 - `bg-brand-primary` - Primary buttons/actions
+- `text-link` / `hover:text-link-hover` - Inline text links. **Never `text-brand-primary`
+  on a link**: the brand fill is tuned for buttons and drops to ~3:1 on dark surfaces,
+  while `--color-link` lifts two tuple stops in dark/slate (7:1+). Mantine `<Anchor>`,
+  `MarkdownRenderer` and `.chat-html-content a` already use it, so a plain `<Anchor>`
+  needs no colour class.
 - `bg-brand-success` - Success states
 - `bg-brand-error` - Error states
 - `bg-brand-warning` - Warning states

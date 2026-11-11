@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ActionIcon,
+  Avatar,
   Button,
   Combobox,
   Group,
@@ -19,6 +20,7 @@ import {
   IconAlertTriangle,
   IconArrowNarrowLeft,
   IconArrowNarrowRight,
+  IconGitPullRequest,
   IconPlus,
   IconX,
 } from "@tabler/icons-react";
@@ -34,6 +36,8 @@ import {
   useTicketSummaryCache,
   withBlockedFlag,
 } from "~/app/_components/product/useTicketSummaryCache";
+import { sortOpenFirst } from "~/app/_components/product/dependencyOrdering";
+import { httpUrlOrNull } from "~/lib/safeUrl";
 
 interface LinkedTicket {
   id: string;
@@ -42,8 +46,12 @@ interface LinkedTicket {
   title: string;
   status: TicketStatus;
   priority: number | null;
+  /** Optional: the search endpoint and older callers don't carry it. */
+  prUrl?: string | null;
   assignee: { id: string; name: string | null; image: string | null } | null;
 }
+
+export type DependencyGroup = "dependsOn" | "requiredFor";
 
 interface Props {
   ticketId: string;
@@ -54,6 +62,11 @@ interface Props {
   /** "sidebar" (default) keeps the dense PropertiesSidebar layout;
    *  "wide" adds shortId + status labels for the peek's full-width body. */
   variant?: "sidebar" | "wide";
+  /** Which groups to render. Both lists are still needed (the add search
+   *  excludes every already-linked ticket) even when only one is shown, so
+   *  the ticket detail page can put "Depends on" in the body and leave
+   *  "Required for" in the sidebar. Default: both. */
+  groups?: readonly DependencyGroup[];
   /** Enable display IDs (PPV-12 / fun shortId) on rows and search results. */
   productName?: string;
   funTicketIds?: boolean;
@@ -245,10 +258,13 @@ export function TicketDependenciesSection({
   dependsOn,
   requiredFor,
   variant = "sidebar",
+  groups = ["dependsOn", "requiredFor"],
   productName,
   funTicketIds,
 }: Props) {
   const mutations = useDependencyMutations(ticketId, productId);
+  const showDependsOn = groups.includes("dependsOn");
+  const showRequiredFor = groups.includes("requiredFor");
   const alreadyLinkedIds = new Set([
     ...dependsOn.map((t) => t.id),
     ...requiredFor.map((t) => t.id),
@@ -265,32 +281,38 @@ export function TicketDependenciesSection({
     // (the section anatomy rule); groups separate at 16px while label-to-rows
     // stays 4px. Sidebar keeps the flush dense layout.
     <div className={variant === "wide" ? "flex flex-col gap-4" : "flex flex-col gap-3"}>
-      <DependencySection
-        icon={<IconArrowNarrowLeft size={13} />}
-        label="Depends on"
-        direction="out"
-        tickets={dependsOn}
-        ticketId={ticketId}
-        productId={productId}
-        basePath={basePath}
-        alreadyLinkedIds={alreadyLinkedIds}
-        wide={variant === "wide"}
-        getDisplayId={getDisplayId}
-        mutations={mutations}
-      />
-      <DependencySection
-        icon={<IconArrowNarrowRight size={13} />}
-        label="Required for"
-        direction="in"
-        tickets={requiredFor}
-        ticketId={ticketId}
-        productId={productId}
-        basePath={basePath}
-        alreadyLinkedIds={alreadyLinkedIds}
-        wide={variant === "wide"}
-        getDisplayId={getDisplayId}
-        mutations={mutations}
-      />
+      {showDependsOn && (
+        <DependencySection
+          icon={<IconArrowNarrowLeft size={13} />}
+          label="Depends on"
+          direction="out"
+          tickets={dependsOn}
+          ticketId={ticketId}
+          productId={productId}
+          basePath={basePath}
+          alreadyLinkedIds={alreadyLinkedIds}
+          wide={variant === "wide"}
+          // The body section's own header already says "Depends on".
+          hideLabel={variant === "wide" && !showRequiredFor}
+          getDisplayId={getDisplayId}
+          mutations={mutations}
+        />
+      )}
+      {showRequiredFor && (
+        <DependencySection
+          icon={<IconArrowNarrowRight size={13} />}
+          label="Required for"
+          direction="in"
+          tickets={requiredFor}
+          ticketId={ticketId}
+          productId={productId}
+          basePath={basePath}
+          alreadyLinkedIds={alreadyLinkedIds}
+          wide={variant === "wide"}
+          getDisplayId={getDisplayId}
+          mutations={mutations}
+        />
+      )}
     </div>
   );
 }
@@ -307,6 +329,7 @@ function DependencySection({
   basePath,
   alreadyLinkedIds,
   wide,
+  hideLabel = false,
   getDisplayId,
   mutations,
 }: {
@@ -319,36 +342,47 @@ function DependencySection({
   basePath: string;
   alreadyLinkedIds: Set<string>;
   wide: boolean;
+  hideLabel?: boolean;
   getDisplayId: GetDisplayId;
   mutations: DependencyMutations;
 }) {
   const [isAdding, setIsAdding] = useState(false);
+  // Wide (body) lists are work breakdowns more often than true blockers, so
+  // the open items come first and finished ones sink to the bottom. Within
+  // each half the link order (creation order) is kept - that's the order the
+  // breakdown was written in. The sidebar stays in plain link order.
+  const ordered = useMemo(
+    () => (wide ? sortOpenFirst(tickets) : tickets),
+    [wide, tickets],
+  );
 
   return (
     <div>
       {/* Icon sits in the same 14px column as the row dots and the Add plus,
           so label, ID, and Add text share one left rail. */}
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="inline-flex w-3.5 justify-center text-text-muted">{icon}</span>
-        <Text fz={11} fw={600} className="text-text-muted uppercase tracking-wider">
-          {label}
-        </Text>
-      </div>
+      {!hideLabel && (
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="inline-flex w-3.5 justify-center text-text-muted">{icon}</span>
+          <Text fz={11} fw={600} className="text-text-muted uppercase tracking-wider">
+            {label}
+          </Text>
+        </div>
+      )}
       <div className="flex flex-col gap-1">
-        {tickets.length > 0 &&
+        {ordered.length > 0 &&
           (wide ? (
             // The container-list grammar (see DESIGN.md): one bordered
             // container, divider-separated rows - same as Actions, Scopes,
             // Requirements, and Docs.
             <div className="border border-border-primary rounded-lg overflow-hidden">
-              {tickets.map((t, i) => (
+              {ordered.map((t, i) => (
                 <DependencyRow
                   key={t.id}
                   ticket={t}
                   basePath={basePath}
                   direction={direction}
                   wide={wide}
-                  withDivider={i < tickets.length - 1}
+                  withDivider={i < ordered.length - 1}
                   getDisplayId={getDisplayId}
                   onRemove={mutations.remove}
                 />
@@ -420,6 +454,9 @@ function DependencyRow({
   const statusLabel = STATUS_LABELS[ticket.status] ?? ticket.status;
   const statusColor = STATUS_COLORS[ticket.status] ?? "gray";
   const displayId = wide ? getDisplayId(ticket) : null;
+  // The router now only accepts http(s) here, but rows older than that
+  // guard (and anything written straight to the DB) still go through it.
+  const prHref = httpUrlOrNull(ticket.prUrl);
 
   return (
     <div
@@ -466,6 +503,39 @@ function DependencyRow({
         <Text size="xs" className="text-text-muted shrink-0">
           {statusLabel}
         </Text>
+      )}
+      {/* Wide only: the PR that fixed it and who's on it. Both are "glance"
+          affordances that the sidebar's dense rows have no room for. */}
+      {wide && (
+        <span className="ml-auto inline-flex items-center gap-1.5 shrink-0">
+          {prHref && (
+            <Tooltip label="Open pull request" position="top" withArrow>
+              <ActionIcon
+                component="a"
+                href={prHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="subtle"
+                size="xs"
+                aria-label="Open pull request"
+                className="text-text-muted hover:text-brand-primary hover:bg-surface-hover"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <IconGitPullRequest size={13} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+          {ticket.assignee && (
+            <Avatar
+              src={ticket.assignee.image}
+              size={18}
+              radius="xl"
+              title={ticket.assignee.name ?? ""}
+            >
+              {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
+            </Avatar>
+          )}
+        </span>
       )}
       <ActionIcon
         variant="subtle"

@@ -27,7 +27,7 @@ export interface TicketNodeData extends Record<string, unknown> {
   assignee: { id: string; name: string | null; image: string | null } | null;
   openBlockerCount: number;
   isBlocked: boolean;
-  /** Out-of-cycle direct blocker shown under a cycle filter. */
+  /** Direct blocker outside the applied filters, kept for context. */
   dimmed: boolean;
   /** Cycle name for the chip on dimmed cards; null reads as "No cycle". */
   cycleName: string | null;

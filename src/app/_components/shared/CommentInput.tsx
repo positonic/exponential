@@ -19,6 +19,8 @@ interface CommentInputProps {
   placeholder?: string;
   mentionCandidates?: MentionCandidate[];
   actionId?: string;
+  /** Focus the editor on mount (a composer opened by a click). */
+  autoFocus?: boolean;
 }
 
 /**
@@ -32,6 +34,7 @@ export function CommentInput({
   placeholder = "Add a comment...",
   mentionCandidates,
   actionId,
+  autoFocus = false,
 }: CommentInputProps) {
   const hasMentions = mentionCandidates && mentionCandidates.length > 0;
   const [plainContent, setPlainContent] = useState("");
@@ -151,6 +154,7 @@ export function CommentInput({
         onKeyDown={handleKeyDown}
         onPaste={actionId ? handleImagePaste : undefined}
         placeholder={placeholder}
+        autoFocus={autoFocus}
         minRows={2}
         maxRows={6}
         disabled={isSubmitting || isUploading}

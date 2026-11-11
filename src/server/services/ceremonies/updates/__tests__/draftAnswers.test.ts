@@ -14,7 +14,8 @@ function db() {
   mock.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
   mock.ticket.findMany.mockResolvedValue([] as never);
   mock.gitHubActivity.findMany.mockResolvedValue([] as never);
-  mock.integration.findFirst.mockResolvedValue(null as never);
+  mock.integration.findMany.mockResolvedValue([] as never);
+  mock.integrationUserMapping.findMany.mockResolvedValue([] as never);
   return mock;
 }
 
@@ -132,9 +133,9 @@ describe("ticket and commit sources", () => {
 
   it("matches commits through the participant's own github login", async () => {
     const mock = db();
-    mock.integration.findFirst.mockResolvedValue({
-      credentials: [{ key: JSON.stringify({ githubUsername: "positonic" }) }],
-    } as never);
+    mock.integration.findMany.mockResolvedValue([
+      { userId: "u-1", credentials: [{ key: JSON.stringify({ githubUsername: "positonic" }) }] },
+    ] as never);
     mock.gitHubActivity.findMany.mockResolvedValue([
       { commitSha: "9ac790c", commitMessage: "feat(ceremonies): draft an update\n\nbody" },
       { commitSha: null, commitMessage: "   " },
@@ -153,6 +154,24 @@ describe("ticket and commit sources", () => {
     expect(answers.done).toBe("- `9ac790c` feat(ceremonies): draft an update");
   });
 
+  it("matches commits through a username a workspace admin set", async () => {
+    const mock = db();
+    mock.integrationUserMapping.findMany.mockResolvedValue([
+      { userId: "u-1", externalUserId: "set-by-admin" },
+    ] as never);
+    mock.gitHubActivity.findMany.mockResolvedValue([
+      { commitSha: "1234567", commitMessage: "fix: a thing" },
+    ] as never);
+    const { answers } = await buildDraftAnswers(mock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      questions,
+      since,
+      until,
+    });
+    expect(answers.done).toBe("- `1234567` fix: a thing");
+  });
+
   it("drafts no commits for someone with no github integration", async () => {
     const mock = db();
     await buildDraftAnswers(mock, { workspaceId: "ws-1", userId: "u-1", questions, since, until });
@@ -161,7 +180,9 @@ describe("ticket and commit sources", () => {
 
   it("survives unreadable integration metadata", async () => {
     const mock = db();
-    mock.integration.findFirst.mockResolvedValue({ credentials: [{ key: "not json" }] } as never);
+    mock.integration.findMany.mockResolvedValue([
+      { userId: "u-1", credentials: [{ key: "not json" }] },
+    ] as never);
     const { answers } = await buildDraftAnswers(mock, {
       workspaceId: "ws-1",
       userId: "u-1",

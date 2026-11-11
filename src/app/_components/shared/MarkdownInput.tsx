@@ -9,6 +9,7 @@ import {
   IconLink,
 } from "@tabler/icons-react";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { handleLinkPaste } from "~/lib/content/pasteLink";
 
 interface MarkdownInputProps {
   value: string;
@@ -39,6 +40,8 @@ interface MarkdownInputProps {
   overlay?: ReactNode;
   /** Visual style of the textarea. */
   variant?: "default" | "unstyled";
+  /** Focus the textarea on mount (a composer opened by a click). */
+  autoFocus?: boolean;
 }
 
 type ToolbarAction = "bold" | "italic" | "list" | "link";
@@ -50,7 +53,8 @@ type ToolbarAction = "bold" | "italic" | "list" | "link";
  * what you preview is exactly what the feed will show.
  *
  * Controlled: the parent owns `value`. Mentions and image paste are layered on
- * by the parent via onChange/onKeyDown/onPaste (see CommentInput).
+ * by the parent via onChange/onKeyDown/onPaste (see CommentInput). Pasting a
+ * URL over selected text links it, after the parent's onPaste has had its turn.
  */
 export function MarkdownInput({
   value,
@@ -64,6 +68,7 @@ export function MarkdownInput({
   textareaRef,
   onKeyDown,
   onPaste,
+  autoFocus = false,
   hint,
   rightSection,
   overlay,
@@ -176,21 +181,25 @@ export function MarkdownInput({
               onChange(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)
             }
             onKeyDown={onKeyDown}
-            onPaste={onPaste}
+            onPaste={(e) => {
+              onPaste?.(e);
+              handleLinkPaste(e, onChange);
+            }}
             placeholder={placeholder}
             minRows={minRows}
             maxRows={maxRows}
             autosize
+            autoFocus={autoFocus}
             variant={variant === "unstyled" ? "unstyled" : "default"}
             disabled={disabled}
             styles={
               variant === "unstyled"
-                ? { input: { color: "var(--text-primary)", padding: 0 } }
+                ? { input: { color: "var(--color-text-primary)", padding: 0 } }
                 : {
                     input: {
-                      backgroundColor: "var(--surface-secondary)",
-                      borderColor: "var(--border-primary)",
-                      color: "var(--text-primary)",
+                      backgroundColor: "var(--color-surface-secondary)",
+                      borderColor: "var(--color-border-primary)",
+                      color: "var(--color-text-primary)",
                     },
                   }
             }

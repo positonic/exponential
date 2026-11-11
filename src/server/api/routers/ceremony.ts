@@ -9,16 +9,18 @@ import {
   getTranscriptionAccess,
 } from "~/server/services/access/resolvers/transcriptionResolver";
 import { ensureOccurrences } from "~/server/services/ceremonies/occurrences";
+import { applyCadenceChange, cadenceChanged as didCadenceChange } from "~/server/services/ceremonies/cadenceChange";
+import { addOccurrence, rescheduleOccurrence } from "~/server/services/ceremonies/schedule";
 import { buildRule } from "~/server/services/ceremonies/expandOccurrences";
 import { CEREMONY_TEMPLATES } from "~/server/services/ceremonies/templates";
 import { CEREMONY_ICON_KEYS } from "~/lib/ceremonies/icons";
 import { backfillWorkspaceAttachments } from "~/server/services/ceremonies/autoAttach";
 import { recordOccurrenceCaptured, recordOccurrencesScheduled } from "~/server/services/ceremonies/activity";
 import { generateAgenda } from "~/server/services/ceremonies/agenda/generateAgenda";
-import { circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
-import { addAgendaItem, reorderAgendaItems, setAgendaItemResolved } from "~/server/services/ceremonies/agenda/items";
-import { postAgendaToMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
-import { canManageCeremony } from "~/server/services/ceremonies/access";
+import { agendaChangedSinceSent, circulateAgenda } from "~/server/services/ceremonies/agenda/circulateAgenda";
+import { addAgendaItem, reorderAgendaItems, resolveAgendaItem } from "~/server/services/ceremonies/agenda/items";
+import { postAgendaToMatrix, removeAgendaFromMatrix } from "~/server/services/ceremonies/agenda/postAgendaToMatrix";
+import { canManageCeremony, canManageCeremonyAs } from "~/server/services/ceremonies/access";
 import { canEditWorkspaceContent, getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import {
   draftMyUpdate,
@@ -31,9 +33,14 @@ import { evaluateSkipProposal, skipOccurrence, unskipOccurrence } from "~/server
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { cancelScheduledMeeting } from "~/server/services/calendar/cancelScheduledMeeting";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
-import { readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { AGENDA_ITEM_KINDS, readAgendaSnapshot } from "~/server/services/ceremonies/agenda/types";
+import { parseDecisionLabel } from "~/lib/decision-label";
+import { enrichAgendaLive } from "~/server/services/ceremonies/agenda/live";
+import { actionWriteDeps } from "~/server/services/actions/types";
 import { previewOneOffAgenda } from "~/server/services/ceremonies/agenda/previewOneOff";
 import { ONE_OFF_SECTION_TYPES } from "~/server/services/ceremonies/oneOffPresets";
+import { findCeremonyForMeetingUrl } from "~/server/services/ceremonies/matchMeetingUrl";
+import { meetingUrlKey } from "~/lib/ceremonies/meetingUrl";
 
 /**
  * Ceremonies router (ADR-0059).
@@ -61,6 +68,25 @@ const slugify = (value: string) => {
   return slug.length > 0 ? slug : "ceremony";
 };
 
+/**
+ * The skip notice for occurrences a cadence change skipped, as
+ * `skipOccurrence` sends for an explicit skip (AGENDA_READY on a SKIPPED row
+ * renders as "Skipped: …"). Sent after the transaction commits; a failed
+ * notice never undoes the edit.
+ */
+async function notifyCadenceSkips(db: PrismaClient, occurrenceIds: string[], actorUserId: string) {
+  for (const occurrenceId of occurrenceIds) {
+    await emitNotification({
+      db,
+      category: NOTIFICATION_CATEGORIES.AGENDA_READY,
+      actorUserId,
+      subject: { occurrenceId },
+    }).catch((err) => {
+      console.error("[ceremonies] cadence-change skip notification failed:", err);
+    });
+  }
+}
+
 /** Validates the RRULE body by building the engine; surfaces a 400 on garbage. */
 function assertValidCadence(cadenceRule: string, timezone: string) {
   try {
@@ -87,6 +113,19 @@ async function assertProjectsInWorkspace(db: PrismaClient, workspaceId: string, 
   }
   return ids;
 }
+
+/**
+ * The ceremony's video room link. Blank clears it (stored as null); anything
+ * else must be a link with a host and a path (see `meetingUrlKey`).
+ */
+const meetingUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .transform((v) => (v === "" ? null : v))
+  .refine((v) => v === null || meetingUrlKey(v) !== null, {
+    message: "Enter the full room link, e.g. https://talk.syntro.fi/rooms/standup",
+  });
 
 const agendaSectionSchema = z.object({
   key: z.string().min(1),
@@ -124,6 +163,7 @@ const ceremonyFieldsSchema = z.object({
   /** Run "Extract outputs" on every recording that attaches to an occurrence (see `meetings/autoExtractOutputs`). */
   autoExtractOutputs: z.boolean().default(false),
   matrixRoomId: z.string().nullish(),
+  meetingUrl: meetingUrlSchema.nullish(),
 });
 
 /**
@@ -188,17 +228,26 @@ export const ceremonyRouter = createTRPCRouter({
     )
     .use(requireWorkspaceMembership("view"))
     .query(async ({ ctx, input }) => {
-      return ctx.db.ceremony.findMany({
-        where: {
-          workspaceId: input.workspaceId,
-          // One-offs are meetings booked from a project, not part of the
-          // operating rhythm (ADR-0059 amendment, 2026-10-07).
-          isOneOff: false,
-          ...(input.includeInactive ? {} : { isActive: true }),
-        },
-        select: ceremonySummarySelect,
-        orderBy: [{ isActive: "desc" }, { name: "asc" }],
-      });
+      const userId = ctx.session.user.id;
+      const [ceremonies, membership] = await Promise.all([
+        ctx.db.ceremony.findMany({
+          where: {
+            workspaceId: input.workspaceId,
+            // One-offs are meetings booked from a project, not part of the
+            // operating rhythm (ADR-0059 amendment, 2026-10-07).
+            isOneOff: false,
+            ...(input.includeInactive ? {} : { isActive: true }),
+          },
+          select: ceremonySummarySelect,
+          orderBy: [{ isActive: "desc" }, { name: "asc" }],
+        }),
+        getWorkspaceMembership(ctx.db, userId, input.workspaceId),
+      ]);
+      // The owner's bar — the same rule `addOccurrence`, `rescheduleOccurrence`
+      // and skip enforce through `canManageCeremony`, applied here with one
+      // membership query for the whole list — so a picker offers those
+      // actions only where they would succeed.
+      return ceremonies.map((c) => ({ ...c, canManage: canManageCeremonyAs(userId, c.ownerId, membership) }));
     }),
 
   /**
@@ -402,6 +451,7 @@ export const ceremonyRouter = createTRPCRouter({
         id: true,
         scheduledStart: true,
         scheduledEnd: true,
+        cadenceStart: true,
         status: true,
         skipReason: true,
         agendaGeneratedAt: true,
@@ -431,6 +481,9 @@ export const ceremonyRouter = createTRPCRouter({
       // service so the page never hand-rolls a role list.
       const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
       const canEdit = canEditWorkspaceContent(membership?.role ?? null);
+      // Whether the caller may add or move occurrences — the owner's bar
+      // (`canManageCeremony`), the one `addOccurrence` and `rescheduleOccurrence` enforce.
+      const canManage = await canManageCeremony(ctx.db, userId, input.workspaceId, ceremony.ownerId);
 
       // Meeting visibility (ADR-0014): resolve which linked recordings the
       // caller may see; the rest are returned as existence-only stubs.
@@ -446,6 +499,7 @@ export const ceremonyRouter = createTRPCRouter({
       return {
         ...ceremony,
         canEdit,
+        canManage,
         occurrences: occurrences.map((o) => ({
           ...o,
           recordedMeetings: o.recordedMeetings.map((m) => {
@@ -486,9 +540,37 @@ export const ceremonyRouter = createTRPCRouter({
           ceremonyId: true,
           scheduledStart: true,
           scheduledEnd: true,
+          // A moved occurrence still holds its tick: `addOccurrence` refuses
+          // that time too, so the meeting picker needs it to hide "Add".
+          cadenceStart: true,
           status: true,
           ceremony: { select: { id: true, name: true, kind: true } },
         },
+      });
+    }),
+
+  /**
+   * The ceremony that meets in a video room, with the occurrence on at `at`
+   * (default now) and its project when it has exactly one — so a recorder in
+   * that room can file the meeting without anyone choosing. Searches every
+   * workspace the caller belongs to unless `workspaceId` narrows it. Null when
+   * no ceremony has this link, or several do and none is on now. Rules in
+   * `services/ceremonies/matchMeetingUrl.ts`.
+   */
+  matchMeetingUrl: protectedProcedure
+    .input(
+      z.object({
+        url: z.string().min(1).max(2000),
+        at: z.coerce.date().optional(),
+        workspaceId: z.string().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return findCeremonyForMeetingUrl(ctx.db, {
+        userId: ctx.session.user.id,
+        url: input.url,
+        at: input.at ?? new Date(),
+        workspaceId: input.workspaceId,
       });
     }),
 
@@ -515,6 +597,8 @@ export const ceremonyRouter = createTRPCRouter({
               isOneOff: true,
               purpose: true,
               owner: { select: { id: true, name: true, email: true } },
+              // Ticket numbers in hand-added items link into this product.
+              product: { select: { slug: true } },
             },
           },
           recordedMeetings: { select: { id: true } },
@@ -540,9 +624,18 @@ export const ceremonyRouter = createTRPCRouter({
       const visibleById = new Map(visible.map((m) => [m.id, m]));
       const canGenerate = await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId);
       const skipProposal = await evaluateSkipProposal(ctx.db, occurrence.id);
+      const stored = readAgendaSnapshot(occurrence.agenda);
+      // Live owner, due date and status for items that reference records.
+      const agenda = stored
+        ? await enrichAgendaLive(ctx.db, stored, { workspaceId: input.workspaceId, userId })
+        : null;
       const { scheduledMeeting } = occurrence;
       return {
         ...occurrence,
+        changedSinceSent: agendaChangedSinceSent(occurrence.agendaGeneratedAt, occurrence.agendaCirculatedAt, agenda?.editedAt),
+        // Who the last send reached, recorded at send time; null for agendas
+        // sent before that was recorded (the line then omits the count).
+        recipientCount: occurrence.agendaCirculatedAt ? (agenda?.sentRecipientCount ?? null) : null,
         isOneOff: occurrence.ceremony.isOneOff,
         purpose: occurrence.ceremony.purpose,
         // Attendee names only — external attendees' addresses stay off the page.
@@ -554,7 +647,7 @@ export const ceremonyRouter = createTRPCRouter({
               attendees: scheduledMeeting.attendees.map((a) => ({ userId: a.userId, name: a.name })),
             }
           : null,
-        agenda: readAgendaSnapshot(occurrence.agenda),
+        agenda,
         canGenerate,
         skipProposal,
         recordedMeetings: occurrence.recordedMeetings.map((m) => {
@@ -750,6 +843,50 @@ export const ceremonyRouter = createTRPCRouter({
       return unskipOccurrence(ctx.db, { occurrenceId: occurrence.id, workspaceId: input.workspaceId, actorUserId: userId });
     }),
 
+  /**
+   * Add one occurrence at any time (ADR-0059 amendment, 2026-10-21): the
+   * meeting that happened off the cadence, or a tick's occurrence before the
+   * sweep gets to it. Owner (or workspace owner/admin), like skip.
+   */
+  addOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), ceremonyId: z.string(), scheduledStart: z.coerce.date() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const ceremony = await ctx.db.ceremony.findFirst({ where: { id: input.ceremonyId, workspaceId: input.workspaceId } });
+      if (!ceremony) throw new TRPCError({ code: "NOT_FOUND", message: "Ceremony not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can add an occurrence" });
+      }
+      return addOccurrence(ctx.db, { ceremony, scheduledStart: input.scheduledStart, actorUserId: userId });
+    }),
+
+  /**
+   * Move an occurrence that has not happened yet to another time. It keeps
+   * its agenda, notes, updates and recordings, and still accounts for its
+   * cadence tick, so the sweep never re-creates the slot it left.
+   */
+  rescheduleOccurrence: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), scheduledStart: z.coerce.date() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can move an occurrence" });
+      }
+      return rescheduleOccurrence(ctx.db, {
+        occurrenceId: occurrence.id,
+        workspaceId: input.workspaceId,
+        scheduledStart: input.scheduledStart,
+        actorUserId: userId,
+      });
+    }),
+
   /** Mark one agenda item resolved (or reopen it). Any non-viewer member; survives regeneration. */
   resolveAgendaItem: protectedProcedure
     .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), itemId: z.string(), resolved: z.boolean() }))
@@ -760,13 +897,50 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      const agenda = await setAgendaItemResolved(ctx.db, occurrence.id, input.itemId, input.resolved);
+      // An Action-backed item completes (or reopens) the Action itself.
+      const agenda = await resolveAgendaItem(ctx.db, occurrence.id, input.itemId, input.resolved, actionWriteDeps(ctx).actor);
       return { occurrenceId: occurrence.id, agenda };
     }),
 
-  /** Add an item by hand to a section; kept across regeneration. */
+  /**
+   * Add an item by hand to a section; kept across regeneration (V9). `kind`
+   * says what it is: a note (the default, so a caller that sends only a title
+   * and detail keeps working), or an action, which creates a real Action
+   * owned by `assigneeId` and due `dueDate`, linked to this occurrence.
+   */
   addAgendaItem: protectedProcedure
-    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), sectionKey: z.string(), title: z.string().trim().min(1).max(300), detail: z.string().max(500).nullish() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        occurrenceId: z.string(),
+        sectionKey: z.string(),
+        // Optional only for a decision item, which defaults to the Decision's statement.
+        title: z.string().trim().max(300).optional(),
+        detail: z.string().max(5000).nullish(),
+        kind: z.enum(AGENDA_ITEM_KINDS).optional(),
+        assigneeId: z.string().nullish(),
+        // Coerced: agents post over plain JSON, where a date arrives as a string.
+        dueDate: z.coerce.date().nullish(),
+        decisionId: z.string().nullish(),
+        // The number behind D-0150; a "D-0150" label is accepted too.
+        decisionNumber: z
+          .union([z.number().int().positive(), z.string().trim()])
+          .nullish()
+          .transform((v, zctx) => {
+            if (v === null || v === undefined || typeof v === "number") return v;
+            const n = parseDecisionLabel(v) ?? (/^\d+$/.test(v) ? Number(v) : null);
+            if (n === null) {
+              zctx.addIssue({ code: z.ZodIssueCode.custom, message: "Not a decision number" });
+              return z.NEVER;
+            }
+            return n;
+          }),
+      }).superRefine((v, zctx) => {
+        if (v.kind !== "decision" && !v.title) {
+          zctx.addIssue({ code: z.ZodIssueCode.custom, path: ["title"], message: "Title is required" });
+        }
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
@@ -774,7 +948,18 @@ export const ceremonyRouter = createTRPCRouter({
         select: { id: true },
       });
       if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
-      const agenda = await addAgendaItem(ctx.db, occurrence.id, { sectionKey: input.sectionKey, title: input.title, detail: input.detail, userId: ctx.session.user.id });
+      const agenda = await addAgendaItem(ctx.db, occurrence.id, {
+        sectionKey: input.sectionKey,
+        title: input.title ?? "",
+        detail: input.detail,
+        userId: ctx.session.user.id,
+        kind: input.kind,
+        assigneeId: input.assigneeId,
+        dueDate: input.dueDate,
+        decisionId: input.decisionId,
+        decisionNumber: input.decisionNumber,
+        actor: actionWriteDeps(ctx).actor,
+      });
       return { occurrenceId: occurrence.id, agenda };
     }),
 
@@ -807,6 +992,23 @@ export const ceremonyRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can post its agenda" });
       }
       return postAgendaToMatrix(ctx.db, { occurrenceId: occurrence.id, actorUserId: userId, confirmRepost: input.confirmRepost });
+    }),
+
+  /** Delete one of the bot's agenda posts from its Matrix room (owner, or workspace owner/admin). */
+  removeAgendaFromMatrix: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), occurrenceId: z.string(), eventId: z.string() }))
+    .use(requireWorkspaceMembership("edit"))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const occurrence = await ctx.db.ceremonyOccurrence.findFirst({
+        where: { id: input.occurrenceId, workspaceId: input.workspaceId },
+        select: { id: true, ceremony: { select: { ownerId: true } } },
+      });
+      if (!occurrence) throw new TRPCError({ code: "NOT_FOUND", message: "Occurrence not found" });
+      if (!(await canManageCeremony(ctx.db, userId, input.workspaceId, occurrence.ceremony.ownerId))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the ceremony owner can remove its agenda from Matrix" });
+      }
+      return removeAgendaFromMatrix(ctx.db, { occurrenceId: occurrence.id, eventId: input.eventId, actorUserId: userId });
     }),
 
   /** Create a ceremony and its first occurrence(s) for the rolling window. */
@@ -850,8 +1052,10 @@ export const ceremonyRouter = createTRPCRouter({
 
   /**
    * Edit a definition. Existing occurrences keep their snapshot; when the
-   * cadence changes, future PLANNED occurrences that nothing has attached to
-   * yet are dropped and regenerated so the schedule follows the new rule.
+   * cadence changes, future planned ticks are reconciled with the new rule
+   * (`applyCadenceChange`): rows still on it keep their id, empty rows off it
+   * are deleted, and rows off it that hold notes, updates or decisions are
+   * skipped rather than lost. The counts come back on the result.
    */
   update: protectedProcedure
     .input(
@@ -884,13 +1088,14 @@ export const ceremonyRouter = createTRPCRouter({
         if (clash) throw new TRPCError({ code: "CONFLICT", message: `A ceremony with slug "${slug}" already exists` });
       }
 
-      const cadenceChanged =
-        cadenceRule !== existing.cadenceRule ||
-        timezone !== existing.timezone ||
-        (fields.startsOn !== undefined && fields.startsOn.getTime() !== existing.startsOn.getTime()) ||
-        (fields.durationMinutes !== undefined && fields.durationMinutes !== existing.durationMinutes);
+      const cadenceChanged = didCadenceChange(existing, {
+        cadenceRule,
+        timezone,
+        startsOn: fields.startsOn ?? existing.startsOn,
+        durationMinutes: fields.durationMinutes ?? existing.durationMinutes,
+      });
 
-      const ceremony = await ctx.db.$transaction(async (tx) => {
+      const { ceremony, occurrencesDeleted, occurrencesSkipped, skippedOccurrenceIds } = await ctx.db.$transaction(async (tx) => {
         const updated = await tx.ceremony.update({
           where: { id },
           data: {
@@ -909,26 +1114,17 @@ export const ceremonyRouter = createTRPCRouter({
             ...(projects ? { projects: { deleteMany: {}, create: projects.map((projectId) => ({ projectId })) } } : {}),
           },
         });
-        if (cadenceChanged) {
-          await tx.ceremonyOccurrence.deleteMany({
-            where: {
-              ceremonyId: id,
-              status: "PLANNED",
-              scheduledStart: { gt: new Date() },
-              scheduledMeetingId: null,
-              recordedMeetings: { none: {} },
-            },
-          });
-        }
-        return updated;
+        const reconciled = await applyCadenceChange(tx, existing, updated);
+        return { ceremony: updated, ...reconciled };
       });
+      await notifyCadenceSkips(ctx.db, skippedOccurrenceIds, ctx.session.user.id);
 
       let occurrencesCreated = 0;
       if (ceremony.isActive && (cadenceChanged || input.isActive === true)) {
         occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
         await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, ctx.session.user.id);
       }
-      return { ceremony, occurrencesCreated };
+      return { ceremony, occurrencesCreated, occurrencesDeleted, occurrencesSkipped };
     }),
 
   /**
@@ -962,7 +1158,14 @@ export const ceremonyRouter = createTRPCRouter({
       }
       const resolve = (name: string | undefined) => (name ? byKey.get(name.trim().toLowerCase()) ?? null : null);
 
-      const results: Array<{ slug: string; action: "created" | "updated"; occurrencesCreated: number; unresolved: string[] }> = [];
+      const results: Array<{
+        slug: string;
+        action: "created" | "updated";
+        occurrencesCreated: number;
+        occurrencesDeleted: number;
+        occurrencesSkipped: number;
+        unresolved: string[];
+      }> = [];
       for (const def of input.definitions) {
         const slug = slugify(def.slug);
         const existing = await ctx.db.ceremony.findUnique({
@@ -992,38 +1195,58 @@ export const ceremonyRouter = createTRPCRouter({
         // resets aliases, kind, agenda, duration, lead time, owner or
         // participants it did not mention.
         const present = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
-        const ceremony = existing
-          ? await ctx.db.ceremony.update({
-              where: { id: existing.id },
-              data: {
-                ...present,
-                timezone,
-                startsOn,
-                ...(agendaTemplate ? { agendaTemplate: agendaTemplate as Prisma.InputJsonValue } : {}),
-                ...(ownerId ? { ownerId } : {}),
-                ...(participantIds
-                  ? { participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) } }
-                  : {}),
-              },
+        // A re-import that changes the cadence reconciles future occurrences
+        // exactly as `update` does (`applyCadenceChange`); otherwise the old
+        // ticks would linger beside the new ones and both get agendas.
+        const { ceremony, occurrencesDeleted, occurrencesSkipped, skippedOccurrenceIds } = existing
+          ? await ctx.db.$transaction(async (tx) => {
+              const updated = await tx.ceremony.update({
+                where: { id: existing.id },
+                data: {
+                  ...present,
+                  timezone,
+                  startsOn,
+                  ...(agendaTemplate ? { agendaTemplate: agendaTemplate as Prisma.InputJsonValue } : {}),
+                  ...(ownerId ? { ownerId } : {}),
+                  ...(participantIds
+                    ? { participants: { deleteMany: {}, create: Array.from(participantIds).map((id) => ({ userId: id })) } }
+                    : {}),
+                },
+              });
+              const reconciled = await applyCadenceChange(tx, existing, updated);
+              return { ceremony: updated, ...reconciled };
             })
-          : await ctx.db.ceremony.create({
-              data: {
-                ...present,
-                name: def.name!,
-                cadenceRule: def.cadenceRule!,
-                slug,
-                timezone,
-                startsOn,
-                workspaceId: input.workspaceId,
-                ownerId: ownerId ?? userId,
-                createdById: userId,
-                agendaTemplate: (agendaTemplate ?? []) as Prisma.InputJsonValue,
-                participants: { create: Array.from(participantIds ?? []).map((id) => ({ userId: id })) },
-              },
-            });
+          : {
+              occurrencesDeleted: 0,
+              occurrencesSkipped: 0,
+              skippedOccurrenceIds: [] as string[],
+              ceremony: await ctx.db.ceremony.create({
+                data: {
+                  ...present,
+                  name: def.name!,
+                  cadenceRule: def.cadenceRule!,
+                  slug,
+                  timezone,
+                  startsOn,
+                  workspaceId: input.workspaceId,
+                  ownerId: ownerId ?? userId,
+                  createdById: userId,
+                  agendaTemplate: (agendaTemplate ?? []) as Prisma.InputJsonValue,
+                  participants: { create: Array.from(participantIds ?? []).map((id) => ({ userId: id })) },
+                },
+              }),
+            };
+        await notifyCadenceSkips(ctx.db, skippedOccurrenceIds, userId);
         const occurrencesCreated = await ensureOccurrences(ctx.db, ceremony);
         await recordOccurrencesScheduled(ctx.db, ceremony, occurrencesCreated, userId);
-        results.push({ slug, action: existing ? "updated" : "created", occurrencesCreated, unresolved });
+        results.push({
+          slug,
+          action: existing ? "updated" : "created",
+          occurrencesCreated,
+          occurrencesDeleted,
+          occurrencesSkipped,
+          unresolved,
+        });
       }
       return results;
     }),

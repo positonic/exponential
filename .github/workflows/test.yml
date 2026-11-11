@@ -35,6 +35,7 @@ jobs:
       - uses: ./.github/actions/npm-install
       - run: npx tsc --noEmit
       - run: npx next lint
+      - run: npm run tokens:check
 
   unit-tests:
     name: Unit Tests

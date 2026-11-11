@@ -405,7 +405,7 @@ export function WhatsAppTemplateApprovalManager() {
             {selectedTemplate.headerText && (
               <Box>
                 <Text size="sm" fw={500} mb={4}>Header ({selectedTemplate.headerType})</Text>
-                <Text size="sm" p="sm" bg="gray.0" style={{ borderRadius: 4 }}>
+                <Text size="sm" p="sm" bg="gray.0" style={{ borderRadius: 'var(--radius-sm)' }}>
                   {selectedTemplate.headerText}
                 </Text>
               </Box>
@@ -413,7 +413,7 @@ export function WhatsAppTemplateApprovalManager() {
 
             <Box>
               <Text size="sm" fw={500} mb={4}>Body Text</Text>
-              <Text size="sm" p="sm" bg="blue.0" style={{ borderRadius: 4 }}>
+              <Text size="sm" p="sm" bg="blue.0" style={{ borderRadius: 'var(--radius-sm)' }}>
                 {selectedTemplate.bodyText}
               </Text>
             </Box>
@@ -421,7 +421,7 @@ export function WhatsAppTemplateApprovalManager() {
             {selectedTemplate.footerText && (
               <Box>
                 <Text size="sm" fw={500} mb={4}>Footer</Text>
-                <Text size="sm" p="sm" bg="gray.0" style={{ borderRadius: 4 }}>
+                <Text size="sm" p="sm" bg="gray.0" style={{ borderRadius: 'var(--radius-sm)' }}>
                   {selectedTemplate.footerText}
                 </Text>
               </Box>
@@ -430,7 +430,7 @@ export function WhatsAppTemplateApprovalManager() {
             {selectedTemplate.buttons && (
               <Box>
                 <Text size="sm" fw={500} mb={4}>Buttons</Text>
-                <Text size="xs" p="sm" bg="gray.1" style={{ borderRadius: 4, fontFamily: 'monospace' }}>
+                <Text size="xs" p="sm" bg="gray.1" style={{ borderRadius: 'var(--radius-sm)', fontFamily: 'monospace' }}>
                   {JSON.stringify(selectedTemplate.buttons, null, 2)}
                 </Text>
               </Box>

@@ -15,6 +15,7 @@ import {
   Select,
   Skeleton,
   Stack,
+  Switch,
   Text,
   Tooltip,
 } from "@mantine/core";
@@ -22,8 +23,11 @@ import {
   IconAdjustments,
   IconChevronDown,
   IconChevronRight,
+  IconCornerDownRight,
   IconDots,
   IconLayoutKanban,
+  IconLink,
+  IconArrowBackUp,
   IconList,
   IconPencil,
   IconPlus,
@@ -53,6 +57,7 @@ import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
 import { generateLinearId } from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { useViewPrefs } from "~/hooks/useViewPrefs";
+import { useTicketViewUrl } from "~/hooks/useTicketViewUrl";
 import { PriorityIcon, PRIORITY_LABELS as PRIORITY_LABEL_MAP } from "~/app/_components/product/PriorityIcon";
 import {
   PRIORITY_PILL_OPTIONS,
@@ -60,7 +65,7 @@ import {
   priorityPillColor,
   priorityPillValue,
 } from "~/app/_components/product/priorityPill";
-import { TICKET_TYPES, type TicketTypeValue } from "~/lib/ticket-types";
+import type { TicketTypeValue } from "~/lib/ticket-types";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { BlockedIndicator } from "~/app/_components/product/TicketDependenciesSection";
 import { EpicsList } from "~/app/_components/product/EpicsList";
@@ -73,6 +78,7 @@ import {
   ListPageButton,
   ListPagePrimaryButton,
   ListPageFilterPills,
+  ListPageChip,
   ListPageFilterPopover,
   PillSelect,
 } from "~/app/_components/listPage";
@@ -85,6 +91,28 @@ import {
   GROUP_BY_OPTIONS,
   type GroupByField,
 } from "./ticketGrouping";
+import { nestTicketsByDependency, type NestedTicketRow } from "./ticketNesting";
+import {
+  countActiveTicketFilters,
+  deriveTicketFacetOptions,
+  EMPTY_TICKET_FILTERS,
+  matchesTicketFilters,
+  parseSavedTicketFilters,
+  TICKET_FILTER_FACETS,
+  TICKET_TYPE_COLORS,
+  TICKET_TYPE_LABELS,
+  TICKET_TYPE_OPTIONS,
+  ticketFacetPillColor,
+  ticketFacetPillLabel,
+  toggleTicketFilter,
+  type TicketFilterKey,
+  type TicketFilters,
+} from "~/app/_components/product/ticketFilters";
+import {
+  ASSIGNEE_ME,
+  isCompleteTicketView,
+  type TicketViewState,
+} from "~/app/_components/product/ticketViewUrl";
 import {
   STATUS_LABELS,
   STATUS_COLORS,
@@ -101,41 +129,15 @@ import {
 
 const PRIORITY_LABELS = PRIORITY_LABEL_MAP;
 
-const TYPE_COLORS: Record<string, string> = {
-  BUG: "red", FEATURE: "blue", CHORE: "gray", IMPROVEMENT: "teal", SPIKE: "violet", RESEARCH: "yellow",
-};
+const TYPE_COLORS = TICKET_TYPE_COLORS;
+const TYPE_OPTIONS = TICKET_TYPE_OPTIONS;
 
 type TicketType = TicketTypeValue;
 
-const TYPE_LABELS: Record<TicketType, string> = {
-  BUG: "Bug", FEATURE: "Feature", CHORE: "Chore", IMPROVEMENT: "Improvement", SPIKE: "Spike", RESEARCH: "Research",
-};
+// The facet filters (keys, matching, options, pill labels) live in
+// ~/app/_components/product/ticketFilters and are shared with the Graph tab,
+// which reads and writes the same saved `filters` pref.
 
-const TYPE_OPTIONS = TICKET_TYPES.map((value) => ({ value, label: TYPE_LABELS[value] }));
-
-// Colours of the toolbar pills naming each applied filter.
-const FACET_PILL_COLORS: Record<Exclude<FilterKey, "status" | "type">, string> = {
-  priority: "grape", assignee: "brand", epic: "indigo", cycle: "cyan", labels: "teal",
-};
-
-// ---------------------------------------------------------------------------
-// Filters
-// ---------------------------------------------------------------------------
-
-type FilterKey = "status" | "priority" | "type" | "assignee" | "epic" | "cycle" | "labels";
-
-interface TicketFilters {
-  status: string[];
-  priority: string[];
-  type: string[];
-  assignee: string[];
-  epic: string[];
-  cycle: string[];
-  labels: string[];
-}
-
-// Arrays are never mutated in place (all updates spread), so a shared empty
-// reference is safe to use as the default / cleared state.
 /** The per-user, per-product view prefs the page persists (saveViewPrefs input). */
 interface SavedViewPrefs {
   view: string;
@@ -145,23 +147,12 @@ interface SavedViewPrefs {
   visibleColumns: string[];
   entity: "tickets" | "epics";
   filters: TicketFilters;
+  /** Table / list: nest each ticket's dependencies beneath it. */
+  nestDependencies: boolean;
 }
 
-const EMPTY_FILTERS: TicketFilters = {
-  status: [], priority: [], type: [], assignee: [], epic: [], cycle: [], labels: [],
-};
-
-const FILTER_FACET_META: Array<{ key: FilterKey; label: string }> = [
-  { key: "status", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "type", label: "Type" },
-  { key: "assignee", label: "DRI" },
-  { key: "epic", label: "Epic" },
-  { key: "cycle", label: "Cycle" },
-  { key: "labels", label: "Labels" },
-];
-
-type FacetOptions = Record<FilterKey, Array<{ value: string; label: string }>>;
+/** Indent per nesting level in the nested-dependencies view, in px. */
+const NEST_INDENT = 20;
 
 
 // ---------------------------------------------------------------------------
@@ -170,6 +161,9 @@ type FacetOptions = Record<FilterKey, Array<{ value: string; label: string }>>;
 
 type SortField = "status" | "title" | "priority" | "assignee" | "type" | "epic" | "cycle";
 type SortDir = "asc" | "desc";
+
+/** The group-by values a shared link may name. */
+const GROUP_BY_VALUES: readonly string[] = GROUP_BY_OPTIONS.map((o) => o.value);
 
 function cmp(a: string | number, b: string | number, dir: SortDir) {
   if (a < b) return dir === "asc" ? -1 : 1;
@@ -230,31 +224,37 @@ export default function TicketsBacklogPage() {
   const productSlug = params.productSlug as string;
   const { workspace, workspaceId } = useWorkspace();
 
-  // URL-driven filters - deep links from the Overview tab
-  // (?status=BLOCKED, ?assignee=me). Applied server-side via ticket.listSummaries.
-  const statusParam = searchParams.get("status");
-  const urlStatus =
-    statusParam && statusParam in STATUS_LABELS
-      ? (statusParam as TicketStatus)
-      : undefined;
-  const filterAssigneeMe = searchParams.get("assignee") === "me";
   const sessionUserId = session?.user?.id;
-  // With ?assignee=me the ticket query stays disabled until the session
-  // resolves; treat that gap as loading so we don't flash an empty state.
-  const sessionPending = filterAssigneeMe && !sessionUserId;
+  // A view carried by the URL - a shared link, or an Overview deep link
+  // (?status=BLOCKED, ?assignee=me) - shows in place of the user's saved
+  // prefs, and changes to it go to the URL, never to the prefs.
+  const { urlView, replaceView, exitView, copyViewLink } = useTicketViewUrl({
+    sessionUserId,
+    groupByValues: GROUP_BY_VALUES,
+  });
+  // `assignee=me` resolves to the session user; until the session lands,
+  // treat the gap as loading so the list doesn't flash unfiltered.
+  const sessionPending =
+    (searchParams.get("assignee")?.split(",").includes(ASSIGNEE_ME) ?? false) && !sessionUserId;
   const [modalOpened, setModalOpened] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   usePageSearchHotkey(searchRef);
   const [editTicketId, setEditTicketId] = useState<string | null>(null);
   const [epicModalOpened, setEpicModalOpened] = useState(false);
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<SortField>("status");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [view, setView] = useState("table");
-  const [entity, setEntity] = useState<"tickets" | "epics">("tickets");
-  const [groupBy, setGroupBy] = useState<GroupByField>("none");
-  const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
+  // The user's own view, restored from and saved to their prefs. The values
+  // the page renders (sortField, filters, ...) take the URL's view first.
+  const [prefSortField, setPrefSortField] = useState<SortField>("status");
+  const [prefSortDir, setPrefSortDir] = useState<SortDir>("asc");
+  const [prefView, setPrefView] = useState("table");
+  const [prefEntity, setPrefEntity] = useState<"tickets" | "epics">("tickets");
+  const [prefGroupBy, setPrefGroupBy] = useState<GroupByField>("none");
+  const [prefFilters, setPrefFilters] = useState<TicketFilters>(EMPTY_TICKET_FILTERS);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [prefNestDependencies, setPrefNestDependencies] = useState(false);
+  // Tickets whose nested dependencies are folded away (by id, so a ticket
+  // that appears under several parents folds everywhere at once).
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(["id", "status", "title", "priority", "dri", "type", "labels", "epic", "cycle"]),
   );
@@ -271,7 +271,44 @@ export default function TicketsBacklogPage() {
   // list that arrives first would otherwise render unfiltered, then re-sort
   // and shrink when the prefs land: a second full render and a page-sized
   // layout shift. A failed prefs read falls back to the defaults.
-  const awaitingPrefs = !prefsLoaded && !prefsFailed;
+  // A complete shared link needs nothing from the prefs, so it doesn't wait.
+  const awaitingPrefs =
+    !prefsLoaded && !prefsFailed && !(urlView && isCompleteTicketView(urlView));
+
+  const sortField = (urlView?.sortField as SortField | undefined) ?? prefSortField;
+  const sortDir = urlView?.sortDir ?? prefSortDir;
+  const view = urlView?.layout ?? prefView;
+  const entity = urlView?.entity ?? prefEntity;
+  const groupBy = (urlView?.groupBy as GroupByField | undefined) ?? prefGroupBy;
+  const filters = urlView?.filters ?? prefFilters;
+  const nestDependencies = urlView?.nestDependencies ?? prefNestDependencies;
+
+  /**
+   * Change part of the view. Inside a URL-carried view the change rewrites
+   * the URL (so the view stays shareable, and the user's prefs untouched);
+   * otherwise it updates and saves the user's own view, as before.
+   */
+  const applyView = (patch: Partial<TicketViewState>) => {
+    if (urlView) {
+      replaceView({
+        filters, sortField, sortDir, groupBy, layout: view, entity, nestDependencies,
+        ...patch,
+      });
+      return;
+    }
+    const prefs: Partial<SavedViewPrefs> = {};
+    if (patch.filters) { setPrefFilters(patch.filters); prefs.filters = patch.filters; }
+    if (patch.sortField) { setPrefSortField(patch.sortField as SortField); prefs.sortField = patch.sortField; }
+    if (patch.sortDir) { setPrefSortDir(patch.sortDir); prefs.sortDir = patch.sortDir; }
+    if (patch.groupBy) { setPrefGroupBy(patch.groupBy as GroupByField); prefs.groupBy = patch.groupBy; }
+    if (patch.layout) { setPrefView(patch.layout); prefs.view = patch.layout; }
+    if (patch.entity) { setPrefEntity(patch.entity); prefs.entity = patch.entity; }
+    if (patch.nestDependencies !== undefined) {
+      setPrefNestDependencies(patch.nestDependencies);
+      prefs.nestDependencies = patch.nestDependencies;
+    }
+    debouncedSave(prefs);
+  };
 
   const utils = api.useUtils();
 
@@ -281,41 +318,31 @@ export default function TicketsBacklogPage() {
       // Saved prefs are untrusted JSON: take only values of the right shape.
       const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : undefined);
       const savedView = str(savedPrefs.view);
-      if (savedView) setView(savedView);
+      if (savedView) setPrefView(savedView);
       const savedGroupBy = str(savedPrefs.groupBy);
-      if (savedGroupBy) setGroupBy(savedGroupBy as GroupByField);
+      if (savedGroupBy) setPrefGroupBy(savedGroupBy as GroupByField);
       // Epic and Cycle are sub-line metadata now, with no header to show or
       // flip that sort; fall back to the default rather than sort invisibly.
       const savedSortField = str(savedPrefs.sortField);
       if (savedSortField) {
         const f = savedSortField as SortField;
-        setSortField(f === "epic" || f === "cycle" ? "status" : f);
+        setPrefSortField(f === "epic" || f === "cycle" ? "status" : f);
       }
       const savedSortDir = str(savedPrefs.sortDir);
-      if (savedSortDir) setSortDir(savedSortDir as SortDir);
+      if (savedSortDir) setPrefSortDir(savedSortDir as SortDir);
       if (Array.isArray(savedPrefs.visibleColumns)) {
         setVisibleColumns(
           new Set(savedPrefs.visibleColumns.filter((c): c is string => typeof c === "string")),
         );
       }
       if (savedPrefs.entity === "epics" || savedPrefs.entity === "tickets") {
-        setEntity(savedPrefs.entity);
+        setPrefEntity(savedPrefs.entity);
       }
       if (savedPrefs.filters && typeof savedPrefs.filters === "object") {
-        // Saved prefs are untrusted JSON - guard each facet is actually an
-        // array. Stale values (e.g. a deleted epic id) are harmless: they
-        // simply match no tickets and aren't offered in facetOptions.
-        const f = savedPrefs.filters as Partial<TicketFilters>;
-        const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
-        setFilters({
-          status: arr(f.status),
-          priority: arr(f.priority),
-          type: arr(f.type),
-          assignee: arr(f.assignee),
-          epic: arr(f.epic),
-          cycle: arr(f.cycle),
-          labels: arr(f.labels),
-        });
+        setPrefFilters(parseSavedTicketFilters(savedPrefs.filters));
+      }
+      if (typeof savedPrefs.nestDependencies === "boolean") {
+        setPrefNestDependencies(savedPrefs.nestDependencies);
       }
       setPrefsLoaded(true);
     }
@@ -354,6 +381,15 @@ export default function TicketsBacklogPage() {
     });
   };
 
+  const toggleNodeCollapsed = (ticketId: string) => {
+    setCollapsedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticketId)) next.delete(ticketId);
+      else next.add(ticketId);
+      return next;
+    });
+  };
+
   const { data: product } = api.product.product.getBySlug.useQuery(
     { workspaceId: workspaceId ?? "", slug: productSlug },
     { enabled: !!workspaceId && !!productSlug },
@@ -362,21 +398,13 @@ export default function TicketsBacklogPage() {
   // Kept as one memoised object because the bulk-update optimistic patch
   // must read/write the cache under the exact same query input.
   const listInput = useMemo(
-    () => ({
-      productId: product?.id ?? "",
-      ...(urlStatus ? { status: urlStatus } : {}),
-      ...(filterAssigneeMe && sessionUserId
-        ? { assigneeId: sessionUserId }
-        : {}),
-    }),
-    [product?.id, urlStatus, filterAssigneeMe, sessionUserId],
+    () => ({ productId: product?.id ?? "" }),
+    [product?.id],
   );
 
   const { data: tickets, isLoading } = api.product.ticket.listSummaries.useQuery(
     listInput,
-    // When ?assignee=me is present, wait for the session so the first fetch
-    // is already filtered instead of flashing the full backlog.
-    { enabled: !!product?.id && (!filterAssigneeMe || !!sessionUserId) },
+    { enabled: !!product?.id },
   );
 
   const { data: features } = api.product.feature.list.useQuery(
@@ -439,7 +467,7 @@ export default function TicketsBacklogPage() {
   // underlying item set changes meaning (filters, search, entity, deep links).
   useEffect(() => {
     selClear();
-  }, [selClear, entity, search, filters, urlStatus, filterAssigneeMe, productSlug]);
+  }, [selClear, entity, search, filters, productSlug]);
 
   type BulkPatch = {
     status?: TicketStatus;
@@ -593,13 +621,9 @@ export default function TicketsBacklogPage() {
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
-      const newDir = sortDir === "asc" ? "desc" : "asc";
-      setSortDir(newDir);
-      debouncedSave({ sortField: field, sortDir: newDir });
+      applyView({ sortField: field, sortDir: sortDir === "asc" ? "desc" : "asc" });
     } else {
-      setSortField(field);
-      setSortDir("asc");
-      debouncedSave({ sortField: field, sortDir: "asc" });
+      applyView({ sortField: field, sortDir: "asc" });
     }
   };
 
@@ -617,80 +641,24 @@ export default function TicketsBacklogPage() {
 
   // ── Filters ──
   // Facet options are derived from the loaded tickets, so only values actually
-  // present in the product are offered. "none" is a synthetic value for the
-  // unset bucket (no priority / unassigned / no epic / no cycle).
-  const facetOptions = useMemo<FacetOptions>(() => {
-    const status = new Map<string, string>();
-    const priority = new Map<string, string>();
-    const type = new Map<string, string>();
-    const assignee = new Map<string, string>();
-    const epic = new Map<string, string>();
-    const cycle = new Map<string, string>();
-    const labels = new Map<string, string>();
+  // present in the product are offered.
+  const facetOptions = useMemo(() => deriveTicketFacetOptions(tickets ?? []), [tickets]);
 
-    for (const t of tickets ?? []) {
-      status.set(t.status, STATUS_LABELS[t.status] ?? t.status);
-      const pKey = t.priority == null ? "none" : String(t.priority);
-      priority.set(pKey, t.priority == null ? "No priority" : (PRIORITY_LABELS[t.priority] ?? pKey));
-      type.set(t.type, t.type.toLowerCase());
-      assignee.set(t.assignee?.id ?? "none", t.assignee?.name ?? "Unassigned");
-      epic.set(t.epic?.id ?? "none", t.epic?.name ?? "No epic");
-      cycle.set(t.cycle?.id ?? "none", t.cycle?.name ?? "No cycle");
-      for (const x of t.tags ?? []) labels.set(x.tag.id, x.tag.name);
-    }
+  const activeFilterCount = countActiveTicketFilters(filters);
 
-    const toOpts = (m: Map<string, string>) =>
-      Array.from(m, ([value, label]) => ({ value, label }));
-    // "none" always sorts last; other values alphabetical by label.
-    const alpha = (m: Map<string, string>) =>
-      toOpts(m).sort((a, b) =>
-        a.value === "none" ? 1 : b.value === "none" ? -1 : a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
-      );
-
-    return {
-      status: toOpts(status).sort((a, b) => (STATUS_ORDER[a.value] ?? 99) - (STATUS_ORDER[b.value] ?? 99)),
-      priority: toOpts(priority).sort(
-        (a, b) => (a.value === "none" ? 99 : Number(a.value)) - (b.value === "none" ? 99 : Number(b.value)),
-      ),
-      type: alpha(type),
-      assignee: alpha(assignee),
-      epic: alpha(epic),
-      cycle: alpha(cycle),
-      labels: alpha(labels),
-    };
-  }, [tickets]);
-
-  const activeFilterCount = FILTER_FACET_META.reduce((n, f) => n + filters[f.key].length, 0);
-
-  const toggleFilter = (key: FilterKey, value: string) => {
-    setFilters((prev) => {
-      const cur = prev[key];
-      const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
-      const updated = { ...prev, [key]: next };
-      debouncedSave({ filters: updated });
-      return updated;
-    });
+  const toggleFilter = (key: TicketFilterKey, value: string) => {
+    applyView({ filters: toggleTicketFilter(filters, key, value) });
   };
 
   const clearFilters = () => {
-    setFilters(EMPTY_FILTERS);
-    debouncedSave({ filters: EMPTY_FILTERS });
+    applyView({ filters: EMPTY_TICKET_FILTERS });
   };
 
   // Filter + sort
   const sorted = useMemo(() => {
     if (!tickets) return [];
     const q = search.toLowerCase().trim();
-    const matchesFilters = (t: (typeof tickets)[number]) => {
-      if (filters.status.length && !filters.status.includes(t.status)) return false;
-      if (filters.priority.length && !filters.priority.includes(t.priority == null ? "none" : String(t.priority))) return false;
-      if (filters.type.length && !filters.type.includes(t.type)) return false;
-      if (filters.assignee.length && !filters.assignee.includes(t.assignee?.id ?? "none")) return false;
-      if (filters.epic.length && !filters.epic.includes(t.epic?.id ?? "none")) return false;
-      if (filters.cycle.length && !filters.cycle.includes(t.cycle?.id ?? "none")) return false;
-      if (filters.labels.length && !(t.tags ?? []).some((x) => filters.labels.includes(x.tag.id))) return false;
-      return true;
-    };
+    const matchesFilters = (t: (typeof tickets)[number]) => matchesTicketFilters(t, filters);
     const matchesSearch = (t: (typeof tickets)[number]) =>
       !q ||
       t.title.toLowerCase().includes(q) ||
@@ -728,20 +696,26 @@ export default function TicketsBacklogPage() {
     [activeTickets, groupBy],
   );
 
-  // Visible row order for shift-click range selection.
+  // Visible row order for shift-click range selection and peek prev/next.
+  // With dependencies nested it follows the tree walk; a ticket shown under
+  // several parents counts once, at its first appearance.
   const visibleIds = useMemo(() => {
     if (view === "board") return sorted.map((t) => t.id);
+    const rowIds = (items: typeof sorted) =>
+      nestDependencies
+        ? nestTicketsByDependency(items, collapsedNodes).map((r) => r.ticket.id)
+        : items.map((t) => t.id);
     const ids: string[] = [];
     for (const g of groups) {
       if (groupBy === "none" || !collapsed.has(g.key)) {
-        ids.push(...g.items.map((t) => t.id));
+        ids.push(...rowIds(g.items));
       }
     }
     if (!collapsed.has("__completed")) {
-      ids.push(...completedTickets.map((t) => t.id));
+      ids.push(...rowIds(completedTickets));
     }
-    return ids;
-  }, [view, sorted, groups, groupBy, collapsed, completedTickets]);
+    return nestDependencies ? Array.from(new Set(ids)) : ids;
+  }, [view, sorted, groups, groupBy, collapsed, completedTickets, nestDependencies, collapsedNodes]);
 
   // ── Peek drawer (?peek=<id>) - detail-over-list, the list never unmounts ──
   const peekBasePath = `/w/${workspace?.slug ?? ""}/products/${productSlug}/tickets`;
@@ -764,75 +738,19 @@ export default function TicketsBacklogPage() {
   const basePath = `/w/${workspace.slug}/products/${productSlug}/tickets`;
   const epicsBasePath = `/w/${workspace.slug}/products/${productSlug}/epics`;
 
-  // Drop overview deep-link params (?status=, ?assignee=me); keep the rest.
-  const removeUrlFilters = (keys: Array<"status" | "assignee">) => {
-    const next = new URLSearchParams(searchParams.toString());
-    for (const k of keys) next.delete(k);
-    const qs = next.toString();
-    router.replace(qs ? `${basePath}?${qs}` : basePath);
-  };
-
-  const clearAllFilters = () => {
-    clearFilters();
-    if (urlStatus ?? filterAssigneeMe) removeUrlFilters(["status", "assignee"]);
-  };
-
-  // One toolbar pill per applied filter: the deep-link params first, then each
-  // facet value picked in the Filter popover.
-  // Labels come from the page's own entity lists, not the ticket-derived
-  // facets: a saved filter can name an epic, cycle or member that no loaded
-  // ticket carries (deleted, or narrowed out by ?status=), and a raw id is no
-  // label.
-  const facetPillLabel = (key: FilterKey, value: string): string => {
-    const fromFacets = facetOptions[key].find((o) => o.value === value)?.label;
-    if (value === "none") return fromFacets ?? "None"; // "No priority", "Unassigned", "No epic"...
-    switch (key) {
-      case "status": return STATUS_LABELS[value] ?? value;
-      case "priority": {
-        const n = Number(value);
-        // 4 is the stored "No priority", which already names itself.
-        return n === 4 ? (PRIORITY_LABELS[4] ?? "No priority") : `${PRIORITY_LABELS[n] ?? value} priority`;
-      }
-      case "type": return TYPE_LABELS[value as TicketType] ?? value;
-      case "assignee":
-        return `DRI: ${members.find((m) => m.id === value)?.name ?? fromFacets ?? "Unknown member"}`;
-      case "epic":
-        return `Epic: ${(epics ?? []).find((e) => e.id === value)?.name ?? fromFacets ?? "Unknown epic"}`;
-      case "cycle":
-        return (cycles ?? []).find((c) => c.id === value)?.name ?? fromFacets ?? "Unknown cycle";
-      case "labels":
-        return fromFacets ?? "Unknown label";
-    }
-  };
-  const facetPillColor = (key: FilterKey, value: string): string => {
-    if (key === "status") return STATUS_COLORS[value] ?? "gray";
-    if (key === "type") return TYPE_COLORS[value] ?? "gray";
-    return FACET_PILL_COLORS[key];
-  };
+  // One toolbar pill per applied facet value, wherever it came from (the
+  // Filter popover, the user's prefs, or a link). Names come from the page's own
+  // entity lists before the ticket-derived facets (see ticketFacetPillLabel).
+  const facetPillLabel = (key: TicketFilterKey, value: string): string =>
+    ticketFacetPillLabel(key, value, facetOptions, { members, epics, cycles });
   const filterPills: ListPageFilterPill[] = [
-    ...(urlStatus
-      ? [{
-          key: "url-status",
-          label: STATUS_LABELS[urlStatus] ?? urlStatus,
-          color: STATUS_COLORS[urlStatus] ?? "gray",
-          onRemove: () => removeUrlFilters(["status"]),
-        }]
-      : []),
-    ...(filterAssigneeMe
-      ? [{
-          key: "url-assignee",
-          label: "My tickets",
-          color: "brand",
-          onRemove: () => removeUrlFilters(["assignee"]),
-        }]
-      : []),
     // Saved facet filters wait for the tickets: labels (tags) only resolve
     // from them, and a flash of "Unknown label" on every load is noise.
-    ...(tickets ? FILTER_FACET_META : []).flatMap((facet) =>
+    ...(tickets ? TICKET_FILTER_FACETS : []).flatMap((facet) =>
       filters[facet.key].map((value) => ({
         key: `${facet.key}-${value}`,
         label: facetPillLabel(facet.key, value),
-        color: facetPillColor(facet.key, value),
+        color: ticketFacetPillColor(facet.key, value),
         onRemove: () => toggleFilter(facet.key, value),
       })),
     ),
@@ -879,79 +797,173 @@ export default function TicketsBacklogPage() {
     );
   };
 
-  // List item renderer (compact, no table)
-  const renderListItem = (ticket: (typeof sorted)[number]) => (
-    <div
-      key={ticket.id}
-      className={`group/row flex items-center gap-3 px-8 py-2 transition-colors cursor-pointer border-b border-border-primary ${sel.isSelected(ticket.id) ? "bg-surface-hover" : "hover:bg-surface-hover"}`}
-      {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
-    >
-      <SelectSlot
-        className="w-14 shrink-0"
-        selected={sel.isSelected(ticket.id)}
-        onToggle={() => sel.toggle(ticket.id)}
-        onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+  type NestedRow = NestedTicketRow<(typeof sorted)[number]>;
+
+  // The slot before a title in the nested-dependencies view: a fold chevron
+  // when the ticket has nested dependencies, a corner mark on nested rows,
+  // and an empty slot otherwise so titles stay aligned.
+  const renderNestSlot = (nested: NestedRow) => (
+    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+      {nested.childCount > 0 ? (
+        <button
+          type="button"
+          aria-label={nested.isCollapsed ? "Expand dependencies" : "Collapse dependencies"}
+          aria-expanded={!nested.isCollapsed}
+          className="flex h-4 w-4 items-center justify-center rounded text-text-muted hover:text-text-primary"
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation();
+            toggleNodeCollapsed(nested.ticket.id);
+          }}
+        >
+          {nested.isCollapsed ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}
+        </button>
+      ) : nested.depth > 0 ? (
+        <IconCornerDownRight size={12} className="text-text-muted opacity-60" aria-hidden />
+      ) : null}
+    </span>
+  );
+
+  // Rows for one bucket (a group, or the Completed section): flat, or the
+  // dependency tree walk when "Nest dependencies" is on.
+  const renderRows = (
+    items: typeof sorted,
+    render: (ticket: (typeof sorted)[number], nested?: NestedRow) => React.ReactNode,
+  ) =>
+    nestDependencies
+      ? nestTicketsByDependency(items, collapsedNodes).map((r) => render(r.ticket, r))
+      : items.map((t) => render(t));
+
+  // List item renderer: the compact one-line counterpart of the table row.
+  // Same row look (DataTable's list variant); values are read-only chips here
+  // - edit them from the Table view or the peek. Honours Display › Visibility
+  // like the table does; the leading ID slot always renders so the hover
+  // checkbox has a home.
+  const renderListItem = (ticket: (typeof sorted)[number], nested?: NestedRow) => {
+    const vis = visibleColumns;
+    const meta = [
+      vis.has("epic") ? ticket.epic?.name : null,
+      vis.has("cycle") ? ticket.cycle?.name : null,
+    ].filter(Boolean).join(" · ");
+    const tags = vis.has("labels") ? (ticket.tags ?? []) : [];
+    return (
+      <div
+        key={nested?.rowKey ?? ticket.id}
+        data-depth={nested?.depth}
+        className={`${table.listRow} group/row`}
+        data-selected={sel.isSelected(ticket.id) ? "true" : "false"}
+        {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
       >
-        <Text size="xs" className="text-text-muted font-mono" lineClamp={1}>
-          {product?.funTicketIds && ticket.shortId ? ticket.shortId : (ticket.number > 0 && product ? generateLinearId(product.name, ticket.number) : null)}
-        </Text>
-      </SelectSlot>
-      <Badge size="xs" variant="filled" color={STATUS_COLORS[ticket.status] ?? "gray"} className="shrink-0" styles={{ label: { color: "var(--mantine-color-dark-9)" } }}>
-        {STATUS_LABELS[ticket.status] ?? ticket.status}
-      </Badge>
-      <Text size="sm" className="text-text-primary flex-1 min-w-0" lineClamp={1}>
-        {ticket.title}
-      </Text>
-      <BlockedIndicator
-        openBlockerCount={ticket.openBlockerCount}
-        isBlocked={ticket.isBlocked}
-      />
-      <NotionSyncBadge syncs={ticket.syncs} size={14} />
-      <div className="shrink-0">
-        <PriorityIcon priority={ticket.priority} size={14} />
-      </div>
-      {ticket.assignee && (
-        <Avatar size="xs" radius="xl" src={ticket.assignee.image} className="shrink-0">
-          {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
-        </Avatar>
-      )}
-      <Badge size="xs" variant="light" color={TYPE_COLORS[ticket.type] ?? "gray"} className="shrink-0">
-        {ticket.type.toLowerCase()}
-      </Badge>
-      {ticket.tags && ticket.tags.length > 0 && (
-        <div className="flex gap-1 shrink-0">
-          {ticket.tags.slice(0, 1).map((t: { tag: { id: string; name: string; color: string } }) => (
-            <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
-          ))}
-          {ticket.tags.length > 1 && (
-            <Text size="xs" className="text-text-muted">+{ticket.tags.length - 1}</Text>
+        <SelectSlot
+          className="w-[72px] shrink-0"
+          selected={sel.isSelected(ticket.id)}
+          onToggle={() => sel.toggle(ticket.id)}
+          onRangeToggle={() => sel.selectRange(ticket.id, visibleIds)}
+        >
+          {vis.has("id") ? (
+            <span className={`${table.muted} font-mono`}>{ticketDisplayId(ticket)}</span>
+          ) : (
+            <span className="inline-block h-4 w-4" />
           )}
+        </SelectSlot>
+        {vis.has("status") && (
+          <span className="w-[124px] shrink-0">
+            <ListPageChip color={STATUS_COLORS[ticket.status] ?? "gray"}>
+              {STATUS_LABELS[ticket.status] ?? ticket.status}
+            </ListPageChip>
+          </span>
+        )}
+        <div
+          className={table.listTitle}
+          style={nested ? { paddingLeft: nested.depth * NEST_INDENT } : undefined}
+        >
+          {nested && renderNestSlot(nested)}
+          <span className={`${table.nameText} min-w-0`}>{ticket.title}</span>
+          <BlockedIndicator
+            openBlockerCount={ticket.openBlockerCount}
+            isBlocked={ticket.isBlocked}
+          />
+          <NotionSyncBadge syncs={ticket.syncs} size={14} />
+          {meta && <span className={table.listMeta}>{meta}</span>}
         </div>
-      )}
-      <Menu position="bottom-end" withinPortal>
-        <Menu.Target>
-          <ActionIcon
-            variant="subtle"
-            size="sm"
-            className="shrink-0 text-text-muted hover:text-text-primary"
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            aria-label="Ticket actions"
-          >
-            <IconDots size={14} />
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Item
-            leftSection={<IconPencil size={14} />}
-            onClick={(e: React.MouseEvent) => {
-              e.stopPropagation();
-              setEditTicketId(ticket.id);
-            }}
-          >
-            Edit
-          </Menu.Item>
-        </Menu.Dropdown>
-      </Menu>
+        {tags.length > 0 && (
+          <div className="flex shrink-0 items-center gap-1">
+            {tags.slice(0, 2).map((t: { tag: { id: string; name: string; color: string } }) => (
+              <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
+            ))}
+            {tags.length > 2 && <span className={table.muted}>+{tags.length - 2}</span>}
+          </div>
+        )}
+        {vis.has("type") && (
+          <span className="w-[104px] shrink-0">
+            <ListPageChip color={TYPE_COLORS[ticket.type] ?? "gray"}>
+              {TICKET_TYPE_LABELS[ticket.type as TicketType] ?? ticket.type}
+            </ListPageChip>
+          </span>
+        )}
+        {vis.has("priority") && (
+          <Tooltip label={PRIORITY_LABELS[ticket.priority ?? 4] ?? "No priority"} withArrow>
+            <span className="flex w-5 shrink-0 justify-center">
+              <PriorityIcon priority={ticket.priority} size={16} />
+            </span>
+          </Tooltip>
+        )}
+        {vis.has("dri") && (
+          <span className="flex w-[26px] shrink-0 justify-center">
+            {ticket.assignee ? (
+              <Tooltip label={ticket.assignee.name ?? "Unknown"} withArrow>
+                <Avatar
+                  src={ticket.assignee.image}
+                  size={24}
+                  radius="xl"
+                  color={getAvatarColor(ticket.assignee.id)}
+                >
+                  {getInitial(ticket.assignee.name)}
+                </Avatar>
+              </Tooltip>
+            ) : (
+              <span className={table.muted}>—</span>
+            )}
+          </span>
+        )}
+        <Menu position="bottom-end" withinPortal>
+          <Menu.Target>
+            <ActionIcon
+              variant="subtle"
+              size="sm"
+              className="shrink-0 text-text-muted hover:text-text-primary"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              aria-label="Ticket actions"
+            >
+              <IconDots size={14} />
+            </ActionIcon>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              leftSection={<IconPencil size={14} />}
+              onClick={(e: React.MouseEvent) => {
+                e.stopPropagation();
+                setEditTicketId(ticket.id);
+              }}
+            >
+              Edit
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </div>
+    );
+  };
+
+  const renderListGroupRow = (key: string, label: string, ids: string[]) => (
+    <div
+      key={`group-${key}`}
+      className={`${table.listGroupRow} group/row`}
+      onClick={() => toggleCollapsed(key)}
+    >
+      <div className={table.groupLabel}>
+        {renderGroupChevron(ids, key)}
+        {label}
+        <Badge size="xs" variant="light">{ids.length}</Badge>
+      </div>
     </div>
   );
 
@@ -976,18 +988,20 @@ export default function TicketsBacklogPage() {
   const stopRowClick = (e: React.MouseEvent) => e.stopPropagation();
 
   // Shared row renderer
-  const renderRow = (ticket: (typeof sorted)[number]) => {
+  const renderRow = (ticket: (typeof sorted)[number], nested?: NestedRow) => {
     const tags = vc.has("labels") ? (ticket.tags ?? []) : [];
     const metaText = [
       vc.has("epic") ? ticket.epic?.name : null,
       vc.has("cycle") ? ticket.cycle?.name : null,
     ].filter(Boolean);
     const hasMeta = metaText.length > 0 || tags.length > 0;
+    const indent = nested ? { paddingLeft: nested.depth * NEST_INDENT } : undefined;
     return (
       <tr
-        key={ticket.id}
+        key={nested?.rowKey ?? ticket.id}
         className={`${table.tableRow} group/row`}
         data-clickable="true"
+        data-depth={nested?.depth}
         data-selected={sel.isSelected(ticket.id) ? "true" : "false"}
         {...rowClickHandlers(ticket.id, () => setPeek(ticket.id))}
       >
@@ -1005,7 +1019,8 @@ export default function TicketsBacklogPage() {
           </SelectSlot>
         </td>
         <td style={{ width: "100%", maxWidth: 0 }}>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2" style={indent}>
+            {nested && renderNestSlot(nested)}
             <span className={`${table.nameText} min-w-0`}>{ticket.title}</span>
             <BlockedIndicator
               openBlockerCount={ticket.openBlockerCount}
@@ -1013,7 +1028,7 @@ export default function TicketsBacklogPage() {
             />
           </div>
           {hasMeta && (
-            <div className={table.nameMeta}>
+            <div className={table.nameMeta} style={indent}>
               {metaText.length > 0 && <span>{metaText.join(" · ")}</span>}
               {tags.slice(0, 3).map((t: { tag: { id: string; name: string; color: string } }) => (
                 <TagBadge key={t.tag.id} tag={t.tag} size="xs" />
@@ -1122,16 +1137,16 @@ export default function TicketsBacklogPage() {
               aria-label="Tickets or epics"
               tabs={entityTabs}
               active={entity}
-              onTabClick={(v) => { setEntity(v); debouncedSave({ entity: v }); }}
+              onTabClick={(v) => applyView({ entity: v })}
             />
             <ListPageViewTabs
               aria-label="View"
               tabs={viewTabs}
               active={view}
-              onTabClick={(v) => { setView(v); debouncedSave({ view: v }); }}
+              onTabClick={(v) => applyView({ layout: v })}
             />
             {entity === "tickets" && (
-              <ListPageFilterPills pills={filterPills} onClearAll={clearAllFilters} />
+              <ListPageFilterPills pills={filterPills} onClearAll={clearFilters} />
             )}
           </>
         }
@@ -1142,7 +1157,7 @@ export default function TicketsBacklogPage() {
             {entity === "tickets" && (
               <ListPageFilterPopover
                 aria-label="Filter tickets"
-                facets={FILTER_FACET_META}
+                facets={TICKET_FILTER_FACETS}
                 options={facetOptions}
                 selected={filters}
                 activeCount={activeFilterCount}
@@ -1150,6 +1165,29 @@ export default function TicketsBacklogPage() {
                 onClear={clearFilters}
               />
             )}
+
+            {urlView && (
+              <Tooltip label="Leave this shared view and go back to your own" withinPortal>
+                <ListPageButton aria-label="Back to my view" onClick={exitView}>
+                  <IconArrowBackUp size={13} stroke={1.75} />
+                  My view
+                </ListPageButton>
+              </Tooltip>
+            )}
+
+            <Tooltip label="Copy a link to this exact view" withinPortal>
+              <ListPageButton
+                aria-label="Copy link to this view"
+                onClick={() =>
+                  copyViewLink({
+                    filters, sortField, sortDir, groupBy, layout: view, entity, nestDependencies,
+                  })
+                }
+              >
+                <IconLink size={13} stroke={1.75} />
+                Copy link
+              </ListPageButton>
+            </Tooltip>
 
             <Popover position="bottom-end" withinPortal shadow="md">
               <Popover.Target>
@@ -1174,7 +1212,7 @@ export default function TicketsBacklogPage() {
                         <Text size="xs" className="text-text-muted whitespace-nowrap">Group by</Text>
                         <Select
                           value={groupBy}
-                          onChange={(v) => { if (v) { setGroupBy(v as GroupByField); debouncedSave({ groupBy: v }); } }}
+                          onChange={(v) => { if (v) applyView({ groupBy: v }); }}
                           data={GROUP_BY_OPTIONS}
                           size="xs"
                           variant="filled"
@@ -1182,6 +1220,18 @@ export default function TicketsBacklogPage() {
                           styles={{
                             root: { flex: 1 },
                             input: { fontSize: "0.8rem", height: 28, minHeight: 28 },
+                          }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 py-1">
+                        <Text size="xs" className="text-text-muted whitespace-nowrap">Nest dependencies</Text>
+                        <Switch
+                          size="xs"
+                          aria-label="Nest dependencies"
+                          checked={nestDependencies}
+                          disabled={view === "board"}
+                          onChange={(e) => {
+                            applyView({ nestDependencies: e.currentTarget.checked });
                           }}
                         />
                       </div>
@@ -1236,15 +1286,15 @@ export default function TicketsBacklogPage() {
 
       {/* Content */}
       {entity === "epics" ? (
-        <div className="px-8 py-4">
-          {view === "timeline" ? (
+        view === "timeline" ? (
+          <div className="px-8 py-4">
             <div className="border border-border-primary rounded-lg p-8 flex items-center justify-center min-h-[200px]">
               <Text size="sm" className="text-text-muted">Timeline view coming soon</Text>
             </div>
-          ) : (
-            <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
-          )}
-        </div>
+          </div>
+        ) : (
+          <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
+        )
       ) : (isLoading || sessionPending || awaitingPrefs) ? (
         <Stack gap="xs" className="px-8 py-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
@@ -1263,37 +1313,21 @@ export default function TicketsBacklogPage() {
             />
           </div>
         ) : view === "list" ? (
-          <div>
+          <div className={table.list}>
             {groups.map((group) => (
               groupBy === "none" ? (
-                <div key={group.key}>{group.items.map(renderListItem)}</div>
+                <div key={group.key}>{renderRows(group.items, renderListItem)}</div>
               ) : (
                 <React.Fragment key={`group-${group.key}`}>
-                  <div
-                    className="group/row bg-surface-secondary/50 px-8 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
-                    onClick={() => toggleCollapsed(group.key)}
-                  >
-                    {renderGroupChevron(group.items.map((t) => t.id), group.key)}
-                    <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">
-                      {group.label}
-                    </Text>
-                    <Badge size="xs" variant="light">{group.items.length}</Badge>
-                  </div>
-                  {!collapsed.has(group.key) && group.items.map(renderListItem)}
+                  {renderListGroupRow(group.key, group.label, group.items.map((t) => t.id))}
+                  {!collapsed.has(group.key) && renderRows(group.items, renderListItem)}
                 </React.Fragment>
               )
             ))}
             {completedTickets.length > 0 && (
               <>
-                <div
-                  className="group/row bg-surface-secondary/50 px-8 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
-                  onClick={() => toggleCollapsed("__completed")}
-                >
-                  {renderGroupChevron(completedTickets.map((t) => t.id), "__completed")}
-                  <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">Completed</Text>
-                  <Badge size="xs" variant="light">{completedTickets.length}</Badge>
-                </div>
-                {!collapsed.has("__completed") && completedTickets.map(renderListItem)}
+                {renderListGroupRow("__completed", "Completed", completedTickets.map((t) => t.id))}
+                {!collapsed.has("__completed") && renderRows(completedTickets, renderListItem)}
               </>
             )}
           </div>
@@ -1326,11 +1360,11 @@ export default function TicketsBacklogPage() {
             <tbody>
               {groups.map((group) => (
                 groupBy === "none" ? (
-                  group.items.map(renderRow)
+                  renderRows(group.items, renderRow)
                 ) : (
                   <React.Fragment key={`group-${group.key}`}>
                     {renderGroupRow(group.key, group.label, group.items.map((t) => t.id))}
-                    {!collapsed.has(group.key) && group.items.map(renderRow)}
+                    {!collapsed.has(group.key) && renderRows(group.items, renderRow)}
                   </React.Fragment>
                 )
               ))}
@@ -1339,7 +1373,7 @@ export default function TicketsBacklogPage() {
               {completedTickets.length > 0 && (
                 <>
                   {renderGroupRow("__completed", "Completed", completedTickets.map((t) => t.id))}
-                  {!collapsed.has("__completed") && completedTickets.map(renderRow)}
+                  {!collapsed.has("__completed") && renderRows(completedTickets, renderRow)}
                 </>
               )}
             </tbody>
@@ -1484,7 +1518,6 @@ export default function TicketsBacklogPage() {
           features={features}
           cycles={cycles}
           epics={epics}
-          members={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
         />
       )}
 
@@ -1495,7 +1528,6 @@ export default function TicketsBacklogPage() {
           ticketId={editTicketId}
           productName={product.name}
           workspaceId={workspaceId ?? undefined}
-          assignableMembers={workspace?.members?.map((m: { user: { id: string; name: string | null } }) => ({ id: m.user.id, name: m.user.name })) ?? []}
         />
       )}
 

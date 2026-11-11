@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Page history (ADR-0074) has its own tests; here it only has to be called.
+const recordPageRevision = vi.hoisted(() => vi.fn());
+vi.mock("~/server/services/pages/revisions", () => ({ recordPageRevision }));
 import type { PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
 import {
@@ -50,6 +54,13 @@ describe("ensureOccurrenceNotesPage", () => {
     expect(db.ceremonyOccurrence.updateMany).toHaveBeenCalledWith({
       where: { id: "occ-1", notesPageId: null },
       data: { notesPageId: "page-1" },
+    });
+    // Its first revision names no person: nobody wrote this text.
+    expect(recordPageRevision).toHaveBeenCalledWith(db, {
+      pageId: "page-1",
+      kind: "create",
+      authorId: null,
+      note: "Notes page created for this meeting",
     });
   });
 

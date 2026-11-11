@@ -11,6 +11,7 @@ import {
   IconRoute,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useDocumentTitle } from '~/hooks/useDocumentTitle';
 import styles from './ProductsViewTabs.module.css';
 
 const VIEW_TABS = [
@@ -49,6 +50,13 @@ export function ProductsViewTabs({ actions }: ProductsViewTabsProps) {
     return 'list';
   }, [pathname]);
 
+  // List and Grid are the same set of products, so both tabs read "Products".
+  useDocumentTitle(
+    activeTab === 'list' || activeTab === 'grid'
+      ? 'Products'
+      : VIEW_TABS.find((t) => t.value === activeTab)?.label,
+  );
+
   return (
     <div className={styles.topBar}>
       <nav className={styles.viewTabs}>
@@ -58,9 +66,11 @@ export function ProductsViewTabs({ actions }: ProductsViewTabsProps) {
             href={`${prefix}${path}`}
             className={styles.viewTab}
             data-active={activeTab === value ? 'true' : 'false'}
+            aria-label={label}
+            title={label}
           >
             <Icon size={13} stroke={1.75} />
-            {label}
+            <span className={styles.viewTabLabel}>{label}</span>
           </Link>
         ))}
       </nav>

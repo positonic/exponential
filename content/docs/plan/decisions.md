@@ -4,7 +4,7 @@ description: "The Decision Log: every choice your workspace made, where it came 
 section: plan
 order: 4
 icon: IconFlag
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 A decision is a recorded choice: one line saying what was decided, the context and alternatives behind it, who decided and when, and where it came from, whether a meeting, a person, or an agent. The Decision Log keeps them beside the architecture decision records (ADRs) of the repositories your workspace tracks, so "why did we do it this way?" has one answer for product and engineering alike. An open question is simply a decision that has not been made yet.
@@ -13,7 +13,7 @@ A decision is a recorded choice: one line saying what was decided, the context a
 
 ## Where to find it
 
-[**Align → Decisions**](/go/decisions) in the sidebar. Each product also has a **Decisions** tab scoped to it, and each meeting's **Decisions** tab shows what that meeting produced. ADR sync is configured at [workspace settings → **Decisions**](/go/settings/decisions).
+[**Plan → Decisions**](/go/decisions) in the sidebar. Each product also has a **Decisions** tab scoped to it, and each meeting's **Decisions** tab shows what that meeting produced. ADR sync is configured at [workspace settings → **Decisions**](/go/settings/decisions).
 
 ## How to read the log
 

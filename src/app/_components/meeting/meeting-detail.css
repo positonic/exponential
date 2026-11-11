@@ -95,6 +95,20 @@
 .mp-btn--primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
 .mp-btn:disabled { opacity: 0.6; cursor: default; }
 
+/* Phones: the title gets the full width and the actions drop beneath it as
+   compact buttons, rather than squeezing the title into a sliver beside them. */
+@media (max-width: 640px) {
+  .mp-head { padding: 26px 16px 0; }
+  .mp-crumb { margin-left: 36px; } /* clear the mobile nav's hamburger, which shares this row */
+  .mp-titlebar { flex-direction: column; gap: 14px; }
+  .mp-titlebar__main { width: 100%; }
+  .mp-title { font-size: 22px; align-items: flex-start; }
+  .mp-title__text { overflow-wrap: anywhere; }
+  .mp-title__edit { margin-top: -2px; }
+  .mp-head-actions { flex-wrap: wrap; gap: 6px; }
+  .mp-head-actions .mp-btn { height: 28px; padding: 0 10px; font-size: 12px; gap: 5px; }
+}
+
 /* ============ TABS ============ */
 .mp-tabs {
   display: flex; align-items: center; gap: 2px; margin-top: 22px; padding: 0 34px;
@@ -106,9 +120,22 @@
 }
 .mp-tab:hover { color: var(--color-text-primary); }
 .mp-tab.on { color: var(--color-text-primary); }
-.mp-tab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; background: var(--brand-400); border-radius: 2px 2px 0 0; }
+.mp-tab.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; height: 2px; background: var(--brand-400); border-radius: 2px 2px 0 0; }
 .mp-tab__count { font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 10px; background: var(--color-surface-muted); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .mp-tab.on .mp-tab__count { background: var(--mp-brand-14); color: var(--brand-400); }
+/* The tab row scrolls sideways rather than clipping its last tabs. */
+.mp-tabs { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.meeting-detail .mp-tabs::-webkit-scrollbar { display: none; }
+.mp-tab { flex-shrink: 0; }
+/* Phones: fade the right edge so the hidden tabs read as "scroll for more";
+   the end padding lets the last tab clear the fade once scrolled to. */
+@media (max-width: 640px) {
+  .mp-tabs {
+    padding: 0 32px 0 8px;
+    -webkit-mask-image: linear-gradient(90deg, var(--color-text-primary) calc(100% - 32px), transparent);
+    mask-image: linear-gradient(90deg, var(--color-text-primary) calc(100% - 32px), transparent);
+  }
+}
 
 /* ============ BODY (two-column grid, independent scroll) ============ */
 .mp-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 312px; min-height: 0; overflow: hidden; }

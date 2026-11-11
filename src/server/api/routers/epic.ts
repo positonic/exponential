@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import {
+  assertAssignableUser,
   assertWorkspaceMembership,
   assertWorkspaceWriteRole,
   hasMinimumWorkspaceRole,
@@ -201,10 +202,18 @@ export const epicRouter = createTRPCRouter({
          * in another product show up as foreign on the detail page.
          */
         productId: z.string().optional(),
+        /**
+         * Hand the epic to someone else — how an agent that created it on a
+         * person's behalf gives it to them. The new owner must already be
+         * able to read the epic (a member of its workspace), the same rule as
+         * a ticket's assignee. `Epic.ownerId` is NOT NULL, so `null` is
+         * refused: an epic always has an owner.
+         */
+        ownerId: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
+      const { id, ownerId, ...updateData } = input;
 
       const epic = await ctx.db.epic.findUnique({
         where: { id },
@@ -219,6 +228,20 @@ export const epicRouter = createTRPCRouter({
 
       await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, epic.workspaceId);
 
+      // There is no "no owner" to move to: refuse `null` outright rather than
+      // drop it, which would leave the caller believing they cleared it.
+      if (ownerId === null) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "An epic always has an owner. Pass the new owner's user id instead of null.",
+        });
+      }
+      // Only someone who can already read the epic may own it: the owner's
+      // name and email come back through `getById`'s include, so a foreign id
+      // here would be the ticket-assignee PII leak reopened one entity over.
+      await assertAssignableUser(ctx.db, epic.workspaceId, ownerId, "Owner");
+
       if (updateData.productId) {
         await assertProductInWorkspace(
           ctx.db,
@@ -229,7 +252,7 @@ export const epicRouter = createTRPCRouter({
 
       return ctx.db.epic.update({
         where: { id },
-        data: updateData,
+        data: { ...updateData, ...(ownerId ? { ownerId } : {}) },
       });
     }),
 

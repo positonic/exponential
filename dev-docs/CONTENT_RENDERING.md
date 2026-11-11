@@ -61,6 +61,7 @@ For comments use `CommentInput`, which composes `MarkdownInput` and adds @mentio
 - `~/lib/content/remarkMentions.ts` — turns `@[Name](id)` into mention badges (handles the Markdown-link collision).
 - `~/lib/content/remarkSoftBreaks.ts` — soft line breaks for compact surfaces.
 - `~/app/_components/shared/MarkdownImage.tsx` — client image lightbox for compact.
+- `~/app/_components/shared/MermaidDiagram.tsx` — a ```` ```mermaid ```` fence renders as a diagram (Mermaid loads on first use, follows light/dark). The same rendering (`~/lib/mermaid/render.ts`) backs the Page/Feature editor's code-block node view (`CodeBlockView.tsx`) and the published `/p/` body, so a diagram written once shows everywhere.
 
 ## Migration note (HTML → Markdown)
 

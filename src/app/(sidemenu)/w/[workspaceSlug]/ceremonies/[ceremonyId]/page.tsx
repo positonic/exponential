@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import {
   Badge,
   Button,
@@ -16,15 +17,16 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconArrowLeft, IconSettings } from "@tabler/icons-react";
+import { IconArrowLeft, IconCalendarPlus, IconPencil } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { CeremonyOccurrenceStatus } from "@prisma/client";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { describeCadence } from "~/lib/ceremonies/cadence";
-import { CEREMONY_KIND_LABELS } from "~/app/_components/ceremonies/CeremonyEditorModal";
+import { CEREMONY_KIND_LABELS, CeremonyEditorDrawer } from "~/app/_components/ceremonies/CeremonyEditorDrawer";
 import { CeremonyIconTile } from "~/app/_components/ceremonies/CeremonyIcon";
+import { OccurrenceDateModal } from "~/app/_components/ceremonies/OccurrenceDateModal";
 
 /**
  * Ceremony page (ADR-0059, V1 minimal): the definition summary and the
@@ -81,9 +83,12 @@ export default function CeremonyPage() {
     { enabled: !!workspaceId },
   );
 
-  // The one definition setting edited in place here: the rest live in the
-  // editor under Settings → Ceremonies. Whether the caller may flip it comes
-  // from the server (`ceremony.get` → `canEdit`), the same bar `update` enforces.
+  // The full definition opens in the editor drawer (Edit, top right).
+  const [editorOpened, setEditorOpened] = useState(false);
+
+  // The one definition setting also edited in place here. Whether the caller
+  // may flip it, or open the editor, comes from the server (`ceremony.get` →
+  // `canEdit`), the same bar `update` enforces.
   const updateAutoExtract = api.ceremony.update.useMutation({
     onSuccess: async (res) => {
       await utils.ceremony.get.invalidate();
@@ -96,6 +101,22 @@ export default function CeremonyPage() {
       });
     },
     onError: (e) => notifications.show({ title: "Couldn't save", message: e.message, color: "red" }),
+  });
+
+  // Add occurrence (ADR-0059 amendment, 2026-10-21): the owner puts one on
+  // any date — a meeting held off the cadence, or a tick before the sweep.
+  const [addOpened, setAddOpened] = useState(false);
+  const addOccurrence = api.ceremony.addOccurrence.useMutation({
+    onSuccess: async (res) => {
+      setAddOpened(false);
+      notifications.show({
+        title: "Occurrence added",
+        message: new Date(res.scheduledStart).toLocaleString(undefined, whenFmt),
+        color: "green",
+      });
+      await Promise.all([utils.ceremony.get.invalidate(), utils.ceremony.listOccurrences.invalidate()]);
+    },
+    onError: (e) => notifications.show({ title: "Couldn't add occurrence", message: e.message, color: "red" }),
   });
 
   if (isLoading || !workspace || (ceremonyLoading && !ceremony)) {
@@ -131,6 +152,16 @@ export default function CeremonyPage() {
           >
             {new Date(o.scheduledStart).toLocaleString(undefined, whenFmt)}
           </Link>
+          {o.cadenceStart && new Date(o.cadenceStart).getTime() !== new Date(o.scheduledStart).getTime() && (
+            <Text size="xs" className="text-text-muted">
+              moved from {new Date(o.cadenceStart).toLocaleString(undefined, whenFmt)}
+            </Text>
+          )}
+          {!o.cadenceStart && !ceremony.isOneOff && (
+            <Text size="xs" className="text-text-muted">
+              ad hoc
+            </Text>
+          )}
         </Table.Td>
         <Table.Td>
           <Badge size="sm" variant="light" color={STATUS_COLOR[o.status]}>
@@ -195,16 +226,28 @@ export default function CeremonyPage() {
               {describeCadence(ceremony.cadenceRule)} · {ceremony.timezone} · {ceremony.durationMinutes} min
             </Text>
           </div>
-          <Button
-            component={Link}
-            href={`/w/${workspace.slug}/settings/ceremonies`}
-            variant="default"
-            size="sm"
-            leftSection={<IconSettings size={14} />}
-          >
-            Edit in settings
-          </Button>
+          {/* One-offs have no cadence, and `ceremony.update` rejects the
+              cadence fields the editor always sends, so they get no editor. */}
+          {ceremony.canEdit && !ceremony.isOneOff && workspaceId && (
+            <Button
+              variant="default"
+              size="sm"
+              leftSection={<IconPencil size={14} />}
+              onClick={() => setEditorOpened(true)}
+              data-testid="edit-ceremony"
+            >
+              Edit
+            </Button>
+          )}
         </Group>
+        {workspaceId && (
+          <CeremonyEditorDrawer
+            opened={editorOpened}
+            onClose={() => setEditorOpened(false)}
+            workspaceId={workspaceId}
+            ceremonyId={ceremony.id}
+          />
+        )}
 
         <Paper withBorder radius="md" p="lg">
           <Stack gap="md">
@@ -268,10 +311,35 @@ export default function CeremonyPage() {
         <Paper withBorder radius="md" p={0}>
           <Group justify="space-between" px="lg" py="sm">
             <Title order={4}>Occurrences</Title>
-            <Text size="xs" className="text-text-muted">
-              {upcoming.length} upcoming · {past.length} past
-            </Text>
+            <Group gap="sm">
+              <Text size="xs" className="text-text-muted">
+                {upcoming.length} upcoming · {past.length} past
+              </Text>
+              {ceremony.canManage && (
+                <Button
+                  variant="default"
+                  size="compact-sm"
+                  leftSection={<IconCalendarPlus size={14} />}
+                  onClick={() => setAddOpened(true)}
+                  data-testid="add-occurrence"
+                >
+                  Add occurrence
+                </Button>
+              )}
+            </Group>
           </Group>
+          <OccurrenceDateModal
+            opened={addOpened}
+            onClose={() => setAddOpened(false)}
+            title="Add an occurrence"
+            hint="For a meeting held off the cadence. On a cadence date it becomes that date's occurrence."
+            submitLabel="Add"
+            initial={null}
+            loading={addOccurrence.isPending}
+            onSubmit={(start) =>
+              workspaceId && addOccurrence.mutate({ workspaceId, ceremonyId: ceremony.id, scheduledStart: start })
+            }
+          />
           {ceremony.occurrences.length === 0 ? (
             <Text size="sm" className="text-text-muted" px="lg" pb="lg">
               No occurrences yet. They are generated hourly from the cadence.

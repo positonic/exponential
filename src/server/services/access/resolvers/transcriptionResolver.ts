@@ -21,6 +21,7 @@ import {
   hasProjectAccess,
   canEditProject,
   buildProjectAccessWhere,
+  buildProjectEditWhere,
 } from "./projectResolver";
 import {
   getWorkspaceMembership,
@@ -117,6 +118,48 @@ export function buildTranscriptionAccessWhere(
         AND: [
           { projectId: null },
           { workspace: buildWorkspaceAccessWhere(userId) },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Prisma WHERE clause for transcription sessions a user can EDIT. Mirrors
+ * `canEditTranscription` exactly: the owner, project edit access for
+ * project-assigned sessions, and a write role (never viewer; attendance never
+ * counts) in the workspace for project-less ones.
+ *
+ * Use to scope bulk writes (`bulkArchiveTranscriptions`,
+ * `bulkDeleteTranscriptions`) so they reach exactly the rows the per-row
+ * `ensureTranscriptionAccess(…, "edit")` path would allow.
+ */
+export function buildTranscriptionEditWhere(
+  userId: string,
+): Prisma.TranscriptionSessionWhereInput {
+  return {
+    OR: [
+      // Session owner
+      { userId },
+      // Project-assigned sessions: project edit access is authoritative
+      { project: buildProjectEditWhere(userId) },
+      // Project-less sessions: a write role in the workspace. A direct
+      // WorkspaceUser row wins over team-linked access (as in
+      // `getWorkspaceMembership`), so a direct viewer stays a viewer.
+      {
+        AND: [
+          { projectId: null },
+          {
+            workspace: {
+              OR: [
+                { members: { some: { userId, role: { in: ["owner", "admin", "member"] } } } },
+                {
+                  teams: { some: { members: { some: { userId } } } },
+                  members: { none: { userId } },
+                },
+              ],
+            },
+          },
         ],
       },
     ],

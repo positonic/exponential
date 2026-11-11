@@ -21,6 +21,7 @@ describe("listBusyBlocksByUser", () => {
 
   beforeEach(() => {
     db = mockDeep<PrismaClient>();
+    db.availabilityBlock.findMany.mockResolvedValue([] as never);
   });
 
   it("selects ONLY the free/busy fields — title/location/attendee columns are never requested", async () => {
@@ -99,6 +100,49 @@ describe("listBusyBlocksByUser", () => {
       endsAt: { gt: RANGE.from },
       OR: [{ sourceType: { not: "ics" } }, { calendarFeed: { isEnabled: true } }],
     });
+  });
+
+  it("reads Availability blocks as times only — the owner's note is never selected", async () => {
+    db.calendarEvent.findMany.mockResolvedValue([] as never);
+
+    await listBusyBlocksByUser(db, ["user-a"], RANGE);
+
+    const arg = db.availabilityBlock.findMany.mock.calls[0]![0] as {
+      select: Record<string, boolean>;
+      where: Record<string, unknown>;
+    };
+    expect(arg.select).toEqual({ userId: true, startsAt: true, endsAt: true, isAllDay: true });
+    expect(arg.where).toMatchObject({
+      userId: { in: ["user-a"] },
+      startsAt: { lt: RANGE.to },
+      endsAt: { gt: RANGE.from },
+    });
+  });
+
+  it("merges marked blocks in as sourceType manual, in time order, without their note", async () => {
+    db.calendarEvent.findMany.mockResolvedValue([
+      {
+        userId: "user-a",
+        startsAt: new Date("2026-08-18T13:00:00Z"),
+        endsAt: new Date("2026-08-18T14:00:00Z"),
+        isAllDay: false,
+        sourceType: "google",
+      },
+    ] as never);
+    db.availabilityBlock.findMany.mockResolvedValue([
+      {
+        userId: "user-a",
+        startsAt: new Date("2026-08-18T09:00:00Z"),
+        endsAt: new Date("2026-08-18T10:00:00Z"),
+        isAllDay: false,
+        note: "SECRET dentist",
+      },
+    ] as never);
+
+    const result = await listBusyBlocksByUser(db, ["user-a"], RANGE);
+
+    expect(result.get("user-a")!.map((b) => b.sourceType)).toEqual(["manual", "google"]);
+    expect(JSON.stringify(result.get("user-a"))).not.toMatch(/SECRET/);
   });
 
   it("returns empty map without querying when no users are requested", async () => {

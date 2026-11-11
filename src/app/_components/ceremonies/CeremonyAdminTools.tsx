@@ -39,9 +39,10 @@ export function CeremonyAdminTools({ workspaceId }: { workspaceId: string }) {
       const created = rows.filter((r) => r.action === "created").length;
       const updated = rows.length - created;
       const unresolved = rows.flatMap((r) => r.unresolved);
+      const skipped = rows.reduce((n, r) => n + r.occurrencesSkipped, 0);
       notifications.show({
         title: "Definitions imported",
-        message: `${created} created, ${updated} updated${unresolved.length ? `; unresolved names: ${Array.from(new Set(unresolved)).join(", ")}` : ""}.`,
+        message: `${created} created, ${updated} updated${unresolved.length ? `; unresolved names: ${Array.from(new Set(unresolved)).join(", ")}` : ""}${skipped ? `; ${skipped} upcoming occurrence${skipped === 1 ? "" : "s"} off the new schedule kept as skipped` : ""}.`,
         color: unresolved.length ? "yellow" : "green",
       });
       await utils.ceremony.list.invalidate();

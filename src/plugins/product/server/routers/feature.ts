@@ -635,7 +635,7 @@ export const featureRouter = createTRPCRouter({
         vision: boundedText("Vision", TEXT_LIMITS.SHORT).optional(),
         status: featureStatusEnum.optional(),
         effort: z.number().nullable().optional(),
-        priority: z.number().int().min(0).max(4).optional(),
+        priority: z.number().int().min(0).max(4).nullable().optional(),
         goalId: z.number().int().nullable().optional(),
         // PRD body save (ADR-0024). `descriptionDoc` is the canonical document;
         // `description` rides along as its derived Markdown projection (the

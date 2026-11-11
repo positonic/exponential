@@ -48,10 +48,12 @@ describe("ensureOccurrences", () => {
     expect(created).toBe(3);
     const args = db.ceremonyOccurrence.createMany.mock.calls[0]![0];
     expect(args.skipDuplicates).toBe(true);
-    const rows = args.data as Array<{ scheduledStart: Date; workspaceId: string; definitionSnapshot: { slug: string } }>;
+    const rows = args.data as Array<{ scheduledStart: Date; cadenceStart: Date; workspaceId: string; definitionSnapshot: { slug: string } }>;
     // 1 Sep (Tue) .. 23 Sep (Wed): 17 weekday ticks, none before startsOn.
     expect(rows).toHaveLength(17);
     expect(rows[0]!.scheduledStart.toISOString()).toBe("2026-09-01T07:00:00.000Z");
+    // Every generated row records the tick it stands for (`schedule.ts` keeps it on a move).
+    expect(rows.every((r) => r.cadenceStart.getTime() === r.scheduledStart.getTime())).toBe(true);
     expect(rows.at(-1)!.scheduledStart.toISOString()).toBe("2026-09-23T07:00:00.000Z");
     expect(rows[0]!.workspaceId).toBe("ws-1");
     expect(rows[0]!.definitionSnapshot.slug).toBe("daily-standup");

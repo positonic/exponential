@@ -7,7 +7,7 @@
  * and the run item it returns.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient, TicketStatus, TicketType } from "@prisma/client";
@@ -485,6 +485,15 @@ describe("runOutboundTicketPush — idempotency / ping-pong", () => {
 });
 
 describe("runOutboundTicketPush — full-mirror creation", () => {
+  // The back-link resolves to exponential.im only on Vercel (production).
+  beforeEach(() => {
+    vi.stubEnv("VERCEL", "1");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("creates a Notion page for a sentinel link and stores the real page id", async () => {
     db.ticketSync.findUnique.mockResolvedValue(
       syncRecord({

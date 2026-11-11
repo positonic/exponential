@@ -16,8 +16,10 @@ import {
   type PublicPageLinkMap,
 } from "~/lib/pages/public-doc";
 import { renderPublicPageHtml } from "~/server/services/pages/public-html";
+import { publicDatabaseTables, publicRowHeader } from "~/server/services/databases/public";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { PublicThemeToggle } from "./_components/PublicThemeToggle";
+import { PublicPageBody } from "./_components/PublicPageBody";
 
 // Live content (ADR-0038): unpublish must 404 immediately, so never cache.
 export const dynamic = "force-dynamic";
@@ -37,6 +39,11 @@ const getPublishedPage = cache(async (param: string) => {
       publicId: true,
       publicSlug: true,
       publicSeoIndexed: true,
+      // A Row (ADR-0078): its values make the header above the prose.
+      databaseId: true,
+      properties: true,
+      createdAt: true,
+      createdById: true,
       updatedAt: true,
       createdBy: { select: { name: true } },
       workspace: { select: { name: true } },
@@ -195,14 +202,26 @@ export default async function PublishedPage({
     permanentRedirect(buildPublicPagePath(canonicalSlug, page.publicId!));
   }
 
+  // Database blocks render as static tables (ADR-0078); a Row page gets its
+  // property header and a crumb to its holding page, when that is published.
+  const [pageLinks, databases, rowHeader] = await Promise.all([
+    page.bodyDoc ? resolvePublishedPageLinks(page.bodyDoc as JSONContent) : Promise.resolve(new Map()),
+    page.bodyDoc ? publicDatabaseTables(db, page.id) : Promise.resolve(new Map()),
+    publicRowHeader(db, page),
+  ]);
   const html = page.bodyDoc
-    ? renderPublicPageHtml(
-        page.bodyDoc as JSONContent,
-        await resolvePublishedPageLinks(page.bodyDoc as JSONContent),
-      )
+    ? renderPublicPageHtml(page.bodyDoc as JSONContent, pageLinks, databases)
     : null;
 
-  const parent = await resolvePublishedParent(page.id, page.workspaceId);
+  const holder = rowHeader
+    ? await db.knowledgePage.findFirst({
+        where: { id: rowHeader.database.pageId, isPublic: true, publicId: { not: null } },
+        select: { title: true, publicId: true, publicSlug: true },
+      })
+    : null;
+  const parent = holder
+    ? { title: holder.title, href: buildPublicPagePath(holder.publicSlug ?? "untitled", holder.publicId!) }
+    : await resolvePublishedParent(page.id, page.workspaceId);
 
   const updatedAt = new Intl.DateTimeFormat("en", {
     day: "numeric",
@@ -238,7 +257,7 @@ export default async function PublishedPage({
               <span className="text-text-secondary">{page.title}</span>
             </nav>
           ) : null}
-          <h1 className="mb-2 text-3xl font-bold text-text-primary">
+          <h1 className="mb-2 text-[2.5rem] font-bold leading-[1.2] tracking-[-0.01em] text-text-primary">
             {page.title}
           </h1>
           <p className="mb-8 text-sm text-text-muted">
@@ -246,17 +265,24 @@ export default async function PublishedPage({
               .filter(Boolean)
               .join(" · ")}
           </p>
+          {rowHeader && rowHeader.fields.length > 0 ? (
+            <dl
+              className="mb-8 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm"
+              data-testid="public-row-properties"
+            >
+              {rowHeader.fields.map((field) => (
+                <div key={field.name} className="contents">
+                  <dt className="text-text-muted">{field.name}</dt>
+                  <dd className="text-text-primary">{field.value || "—"}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
           {html ? (
             <TypographyStylesProvider>
-              {/* Server-generated from the schema-constrained ProseMirror doc
-                  after the ADR-0038 sanitization pass — the deliberate, narrow
-                  exception to the no-dangerouslySetInnerHTML rule.
-                  `prd-document` is the same class the in-app editor/viewer sets:
-                  Tailwind Preflight strips list markers and list padding, and
-                  TypographyStylesProvider has no ul/ol rules to put them back, so
-                  without it bullets and numbers vanish on the public render (it
-                  also carries the table and task-list styling). */}
-              <div className="prd-document" dangerouslySetInnerHTML={{ __html: html }} />
+              <div className="knowledge-page">
+                <PublicPageBody html={html} />
+              </div>
             </TypographyStylesProvider>
           ) : page.body ? (
             <MarkdownRenderer content={page.body} variant="prose" />

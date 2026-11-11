@@ -462,6 +462,9 @@ export default function NavigationSettingsPage(): React.ReactElement {
             <Text c="dimmed" mt="xs" size="sm">
               Drag to reorder sections and items. Click a section name to rename it. Toggle visibility with the eye icon or switch.
             </Text>
+            <Text c="dimmed" mt="xs" size="sm">
+              This is your default layout. To arrange one workspace differently, right-click its sidebar and choose Customize sidebar.
+            </Text>
           </div>
           <Button
             variant="light"

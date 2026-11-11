@@ -2,18 +2,21 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { Badge, Button, Container, Group, Paper, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { IconArrowLeft, IconBrandMatrix, IconCalendarX, IconSend, IconSparkles } from "@tabler/icons-react";
+import { IconArrowLeft, IconBrandMatrix, IconCalendarClock, IconCalendarX, IconSend, IconSparkles, IconTrash } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { modals } from "@mantine/modals";
 import { useSession } from "next-auth/react";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { AgendaView } from "~/app/_components/ceremonies/AgendaView";
+import { AgendaSentStatus } from "~/app/_components/ceremonies/AgendaSentStatus";
 import { OccurrenceUpdatePanel } from "~/app/_components/ceremonies/OccurrenceUpdatePanel";
 import { OccurrenceAsyncSummary } from "~/app/_components/ceremonies/OccurrenceAsyncSummary";
 import { OccurrenceSkipBanner } from "~/app/_components/ceremonies/OccurrenceSkipBanner";
 import { OccurrenceNotes } from "~/app/_components/ceremonies/OccurrenceNotes";
+import { OccurrenceDateModal } from "~/app/_components/ceremonies/OccurrenceDateModal";
 import { useRegisterTopbarCrumbs } from "~/app/_components/layout/TopbarCrumbs";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 
@@ -80,6 +83,30 @@ export default function OccurrencePage() {
     },
     onError: (e) => notifications.show({ title: "Couldn't post to Matrix", message: e.message, color: "red" }),
   });
+  const removeFromMatrix = api.ceremony.removeAgendaFromMatrix.useMutation({
+    onSuccess: async (res) => {
+      if (res.kind === "removed") notifications.show({ title: "Removed from Matrix", message: res.roomId, color: "green" });
+      else if (res.kind === "already-removed") notifications.show({ title: "Already removed", message: res.roomId, color: "yellow" });
+      else notifications.show({ title: "Not removed", message: "reason" in res ? res.reason : "That post is no longer on this agenda.", color: "red" });
+      await invalidate();
+    },
+    onError: (e) => notifications.show({ title: "Couldn't remove from Matrix", message: e.message, color: "red" }),
+  });
+  const confirmRemoveFromMatrix = (eventId: string, roomId: string) => {
+    if (!workspaceId || !occurrence) return;
+    modals.openConfirmModal({
+      title: "Remove from Matrix?",
+      children: (
+        <Text size="sm">
+          The bot deletes its agenda message from {roomId}. Room members see it as a removed message. The
+          agenda here is not affected.
+        </Text>
+      ),
+      labels: { confirm: "Remove from Matrix", cancel: "Keep it" },
+      confirmProps: { color: "red" },
+      onConfirm: () => removeFromMatrix.mutate({ workspaceId, occurrenceId: occurrence.id, eventId }),
+    });
+  };
   const { data: session } = useSession();
   const isOneOff = occurrence?.isOneOff ?? false;
   useRegisterTopbarCrumbs(isOneOff && occurrence ? [{ label: occurrence.ceremony.name }] : null, {
@@ -114,6 +141,22 @@ export default function OccurrencePage() {
     });
   };
 
+  // Move (ADR-0059 amendment, 2026-10-21): the owner shifts an occurrence
+  // that has not happened yet; agenda, notes and recordings ride along.
+  const [moveOpened, setMoveOpened] = useState(false);
+  const reschedule = api.ceremony.rescheduleOccurrence.useMutation({
+    onSuccess: async (res) => {
+      setMoveOpened(false);
+      notifications.show({
+        title: "Occurrence moved",
+        message: `Now ${new Date(res.scheduledStart).toLocaleString(undefined, whenFmt)}.`,
+        color: "green",
+      });
+      await Promise.all([invalidate(), utils.ceremony.get.invalidate(), utils.ceremony.listOccurrences.invalidate()]);
+    },
+    onError: (e) => notifications.show({ title: "Couldn't move occurrence", message: e.message, color: "red" }),
+  });
+
   const resolveItem = api.ceremony.resolveAgendaItem.useMutation({
     onSuccess: async () => {
       await utils.ceremony.getOccurrence.invalidate({ workspaceId: workspaceId ?? "", occurrenceId: params.occurrenceId });
@@ -141,7 +184,19 @@ export default function OccurrencePage() {
   const booking = occurrence.scheduledMeeting;
   const canCancel =
     isOneOff && booking?.status === "confirmed" && booking.organizerId === session?.user?.id;
+  const cadenceStart = occurrence.cadenceStart ? new Date(occurrence.cadenceStart) : null;
+  const scheduledStart = new Date(occurrence.scheduledStart);
+  const movedFrom = cadenceStart && cadenceStart.getTime() !== scheduledStart.getTime() ? cadenceStart : null;
+  const isAdHoc = !isOneOff && !cadenceStart;
+  const canMove =
+    occurrence.canGenerate &&
+    !isOneOff &&
+    !occurrence.scheduledMeetingId &&
+    (occurrence.status === "PLANNED" || occurrence.status === "AGENDA_CIRCULATED" || occurrence.status === "IN_PROGRESS");
   const attendeeNames = (booking?.attendees ?? []).map((a) => a.name).filter((n): n is string => !!n);
+  // Listed from the ledger, not the ceremony's current room: a post stays
+  // removable after the ceremony stops posting to Matrix.
+  const liveMatrixPosts = (occurrence.agenda?.matrixPosts ?? []).filter((p) => !p.removedAt);
   return (
     <Container size="lg" py="xl">
       <Stack gap="lg">
@@ -173,21 +228,51 @@ export default function OccurrencePage() {
               <Badge variant="light">
                 {isOneOff && booking?.status === "cancelled" ? "cancelled" : occurrence.status.replace(/_/g, " ").toLowerCase()}
               </Badge>
+              {movedFrom && (
+                <Badge variant="outline" color="gray" data-testid="occurrence-moved">
+                  moved from {movedFrom.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </Badge>
+              )}
+              {isAdHoc && (
+                <Badge variant="outline" color="gray" data-testid="occurrence-ad-hoc">
+                  ad hoc
+                </Badge>
+              )}
               <Text size="sm" className="text-text-muted">
                 {occurrence.ceremony.durationMinutes} min · {isOneOff ? "organizer" : "owner"}{" "}
                 {occurrence.ceremony.owner.name ?? occurrence.ceremony.owner.email ?? "—"}
                 {isOneOff && attendeeNames.length > 0 ? ` · with ${attendeeNames.join(", ")}` : ""}
               </Text>
-              {occurrence.agendaGeneratedAt && (
-                <Text size="xs" className="text-text-muted">
-                  agenda generated {new Date(occurrence.agendaGeneratedAt).toLocaleString()}
-                  {occurrence.agendaCirculatedAt ? ` · circulated ${new Date(occurrence.agendaCirculatedAt).toLocaleString()}` : ""}
-                </Text>
-              )}
             </Group>
+            <div className="mt-1">
+              <AgendaSentStatus
+                agendaGeneratedAt={occurrence.agendaGeneratedAt}
+                agendaCirculatedAt={occurrence.agendaCirculatedAt}
+                changedSinceSent={occurrence.changedSinceSent}
+                recipientCount={occurrence.recipientCount}
+                recipientNoun={isOneOff ? "attendees" : "participants"}
+                narrative={occurrence.agenda?.narrative}
+                onResend={
+                  occurrence.canGenerate && occurrence.status !== "SKIPPED"
+                    ? () => generate.mutate({ workspaceId, occurrenceId: occurrence.id, circulate: true })
+                    : undefined
+                }
+                resendLoading={generate.isPending && Boolean(generate.variables?.circulate)}
+              />
+            </div>
           </div>
           {occurrence.canGenerate && occurrence.status !== "SKIPPED" && (
             <Group gap="xs">
+              {canMove && (
+                <Button
+                  variant="default"
+                  leftSection={<IconCalendarClock size={14} />}
+                  onClick={() => setMoveOpened(true)}
+                  data-testid="move-occurrence"
+                >
+                  Move
+                </Button>
+              )}
               {canCancel && booking && (
                 <Button
                   variant="default"
@@ -234,6 +319,46 @@ export default function OccurrencePage() {
           )}
         </Group>
 
+        <OccurrenceDateModal
+          opened={moveOpened}
+          onClose={() => setMoveOpened(false)}
+          title="Move this occurrence"
+          hint="The agenda, notes and linked recordings move with it. The cadence itself does not change."
+          submitLabel="Move"
+          initial={scheduledStart}
+          loading={reschedule.isPending}
+          onSubmit={(start) => reschedule.mutate({ workspaceId, occurrenceId: occurrence.id, scheduledStart: start })}
+        />
+
+        {occurrence.canGenerate && liveMatrixPosts.length > 0 && (
+          <Paper withBorder radius="md" p="md" data-testid="agenda-matrix-posts">
+            <Stack gap="xs">
+              {liveMatrixPosts.map((post) => (
+                <Group key={post.eventId} justify="space-between" wrap="nowrap">
+                  <Group gap="xs" wrap="nowrap" className="min-w-0">
+                    <IconBrandMatrix size={16} className="shrink-0 text-text-muted" />
+                    <Text size="sm" className="truncate">
+                      Posted to <span className="font-mono">{post.roomId}</span> on{" "}
+                      {new Date(post.postedAt).toLocaleString(undefined, whenFmt)}
+                    </Text>
+                  </Group>
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    size="compact-sm"
+                    leftSection={<IconTrash size={14} />}
+                    loading={removeFromMatrix.isPending && removeFromMatrix.variables?.eventId === post.eventId}
+                    onClick={() => confirmRemoveFromMatrix(post.eventId, post.roomId)}
+                    data-testid="remove-agenda-matrix"
+                  >
+                    Remove from Matrix
+                  </Button>
+                </Group>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+
         <OccurrenceSkipBanner
           workspaceId={workspaceId}
           occurrenceId={occurrence.id}
@@ -256,13 +381,34 @@ export default function OccurrencePage() {
             onToggleResolved={(itemId, resolved) =>
               resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved })
             }
-            onAddItem={(sectionKey, title) => addItem.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, title })}
-            onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
-            narrativeHint={
-              occurrence.notesPageId
-                ? "This pre-read is a snapshot. The editable copy lives in the notes page below, under \"Draft agenda\"."
-                : undefined
+            workspaceId={workspaceId}
+            onAddItem={(sectionKey, input) =>
+              addItem.mutate(
+                input.kind === "decision"
+                  ? { workspaceId, occurrenceId: occurrence.id, sectionKey, kind: "decision", decisionId: input.decisionId }
+                  : input.kind === "action"
+                    ? {
+                        workspaceId,
+                        occurrenceId: occurrence.id,
+                        sectionKey,
+                        kind: "action",
+                        title: input.title,
+                        assigneeId: input.assigneeId,
+                        dueDate: input.dueDate,
+                      }
+                    : { workspaceId, occurrenceId: occurrence.id, sectionKey, kind: "note", title: input.title },
+              )
             }
+            onReorder={(sectionKey, itemIds) => reorder.mutate({ workspaceId, occurrenceId: occurrence.id, sectionKey, itemIds })}
+            refLinks={{ workspaceSlug: workspace.slug, productSlug: occurrence.ceremony.product?.slug ?? null }}
+            decide={{
+              workspaceId,
+              // Accepting the Decision resolves its line; any other move just refreshes the live status.
+              onChanged: (itemId, status) =>
+                status === "ACCEPTED"
+                  ? resolveItem.mutate({ workspaceId, occurrenceId: occurrence.id, itemId, resolved: true })
+                  : void invalidate(),
+            }}
           />
         ) : (
           <Paper withBorder radius="md" p="lg">

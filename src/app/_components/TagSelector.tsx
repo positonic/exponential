@@ -182,7 +182,7 @@ export function TagSelector({
                     variant={newTagColor === key ? 'filled' : 'light'}
                     color={mantine}
                     onClick={() => setNewTagColor(key)}
-                    style={newTagColor === key ? { outline: '2px solid var(--border-focus)', outlineOffset: 1 } : undefined}
+                    style={newTagColor === key ? { outline: '2px solid var(--color-border-focus)', outlineOffset: 1 } : undefined}
                   >
                     <span />
                   </ActionIcon>

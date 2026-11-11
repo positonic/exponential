@@ -98,7 +98,7 @@ describe("channelLink router (mocked)", () => {
   describe("link — membership gate", () => {
     it("allows a workspace member to link a channel", async () => {
       mockRole(dbMock, "member");
-      dbMock.channelLink.findUnique.mockResolvedValue(null as never); // no duplicate
+      dbMock.channelLink.findFirst.mockResolvedValue(null as never); // no duplicate
       dbMock.channelLink.create.mockResolvedValue({
         id: "cl-1",
         provider: PROVIDER,
@@ -147,7 +147,7 @@ describe("channelLink router (mocked)", () => {
   describe("link — uniqueness", () => {
     it("rejects a duplicate (provider, externalId)", async () => {
       mockRole(dbMock, "member");
-      dbMock.channelLink.findUnique.mockResolvedValue({ id: "existing" } as never);
+      dbMock.channelLink.findFirst.mockResolvedValue({ id: "existing" } as never);
 
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });
       await expect(
@@ -230,7 +230,7 @@ describe("channelLink router (mocked)", () => {
    */
   describe("direction", () => {
     it("resolves an existing WhatsApp row, which defaults to inbound", async () => {
-      dbMock.channelLink.findUnique.mockResolvedValue({
+      dbMock.channelLink.findFirst.mockResolvedValue({
         id: "cl-1",
         provider: PROVIDER,
         externalId: EXTERNAL_ID,
@@ -245,7 +245,7 @@ describe("channelLink router (mocked)", () => {
     });
 
     it("is blind to an outbound row", async () => {
-      dbMock.channelLink.findUnique.mockResolvedValue({
+      dbMock.channelLink.findFirst.mockResolvedValue({
         id: "cl-outbound",
         provider: "matrix",
         externalId: "!room:example.org",
@@ -260,7 +260,7 @@ describe("channelLink router (mocked)", () => {
     });
 
     it("still drops an inactive inbound row", async () => {
-      dbMock.channelLink.findUnique.mockResolvedValue({
+      dbMock.channelLink.findFirst.mockResolvedValue({
         id: "cl-1",
         provider: PROVIDER,
         externalId: EXTERNAL_ID,

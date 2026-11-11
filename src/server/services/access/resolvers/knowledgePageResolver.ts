@@ -17,6 +17,11 @@
  * belong to its workspace — nobody else, workspace owners/admins included.
  * Project placement grants nothing. Invitee role "editor" may edit; "viewer"
  * may only view. Only the owner manages access ({@link canManageKnowledgePageAccess}).
+ *
+ * A **Row** of a Database (ADR-0078 §4, `databaseId` set) has no access of
+ * its own: every question about it is answered for the page that holds its
+ * database, by the same rules. Rows copy their holding page's placement, but
+ * that copy is never consulted here — only the holding page is.
  */
 
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -59,17 +64,58 @@ export interface KnowledgePageAccessInfo {
   workspaceRole: WorkspaceRole | null;
 }
 
+/** The page fields the resolver reads. `databaseId` marks a Row (ADR-0078). */
+export interface KnowledgePageForAccess {
+  id: string;
+  createdById: string;
+  projectId: string | null;
+  workspaceId: string;
+  isInviteOnly: boolean;
+  databaseId?: string | null;
+}
+
+const HOLDING_PAGE_SELECT = {
+  id: true,
+  createdById: true,
+  projectId: true,
+  workspaceId: true,
+  isInviteOnly: true,
+} as const;
+
+/** The page that holds a Row's database, or null when the database is gone. */
+async function loadHoldingPage(
+  db: PrismaClient,
+  databaseId: string,
+): Promise<KnowledgePageForAccess | null> {
+  const database = await db.pageDatabase.findUnique({
+    where: { id: databaseId },
+    select: { page: { select: HOLDING_PAGE_SELECT } },
+  });
+  return database?.page ?? null;
+}
+
+/** Access info that admits nobody — a Row whose database no longer exists. */
+const NO_ACCESS: KnowledgePageAccessInfo = {
+  isOwner: false,
+  isInviteOnly: false,
+  inviteRole: null,
+  hasProject: false,
+  hasProjectAccess: false,
+  canEditProject: false,
+  workspaceRole: null,
+};
+
 export async function getKnowledgePageAccess(
   db: PrismaClient,
   userId: string,
-  page: {
-    id: string;
-    createdById: string;
-    projectId: string | null;
-    workspaceId: string;
-    isInviteOnly: boolean;
-  },
+  page: KnowledgePageForAccess,
 ): Promise<KnowledgePageAccessInfo> {
+  if (page.databaseId) {
+    // A Row answers for its holding page, whose own `databaseId` is always
+    // null (a row page cannot hold a database), so this recurses once.
+    const holder = await loadHoldingPage(db, page.databaseId);
+    return holder ? getKnowledgePageAccess(db, userId, holder) : NO_ACCESS;
+  }
   const isOwner = page.createdById === userId;
 
   if (page.isInviteOnly) {
@@ -163,6 +209,20 @@ export function canManageKnowledgePageAccess(
 export function buildKnowledgePageAccessWhere(
   userId: string,
 ): Prisma.KnowledgePageWhereInput {
+  const own = ownPageAccessWhere(userId);
+  return {
+    OR: [
+      // An ordinary page: its own placement decides.
+      { AND: [{ databaseId: null }, own] },
+      // A Row (ADR-0078 §4): the page holding its database decides, never
+      // the row's copied placement.
+      { AND: [{ databaseId: { not: null } }, { database: { page: own } }] },
+    ],
+  };
+}
+
+/** The access clause for a page judged on its own placement (not a Row). */
+function ownPageAccessWhere(userId: string): Prisma.KnowledgePageWhereInput {
   return {
     OR: [
       // Page owner
@@ -222,14 +282,14 @@ export interface KnowledgePageViewer {
  */
 export async function listKnowledgePageViewers(
   db: PrismaClient,
-  page: {
-    id: string;
-    createdById: string;
-    projectId: string | null;
-    workspaceId: string;
-    isInviteOnly: boolean;
-  },
+  page: KnowledgePageForAccess,
 ): Promise<{ isPublicProject: boolean; viewers: KnowledgePageViewer[] }> {
+  if (page.databaseId) {
+    const holder = await loadHoldingPage(db, page.databaseId);
+    return holder
+      ? listKnowledgePageViewers(db, holder)
+      : { isPublicProject: false, viewers: [] };
+  }
   if (page.isInviteOnly) {
     return {
       isPublicProject: false,

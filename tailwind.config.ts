@@ -10,6 +10,34 @@ export default {
         sans: ["var(--font-geist-sans)", ...fontFamily.sans],
         inter: ["var(--font-inter)", ...fontFamily.sans],
       },
+      // Shape tokens (globals.css `:root`). `rounded-md` here, `radius="md"`
+      // on a Mantine component and `var(--radius-md)` in feature CSS are the
+      // same number. Tailwind's native scale is kept (lg = 8px) because that
+      // is what 600+ existing call sites already mean; the one change is
+      // `rounded-sm`, which was 2px and is now the 4px input radius - use
+      // `rounded-xs` for the hairline case. Arbitrary values (`rounded-[10px]`)
+      // are lint errors; pick the nearest step instead.
+      borderRadius: {
+        none: '0',
+        xs: 'var(--radius-xs)',
+        sm: 'var(--radius-sm)',
+        DEFAULT: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
+        '2xl': 'var(--radius-2xl)',
+        full: 'var(--radius-full)',
+      },
+      boxShadow: {
+        none: 'none',
+        sm: 'var(--shadow-sm)',
+        DEFAULT: 'var(--shadow-sm)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)',
+        xl: 'var(--shadow-xl)',
+        '2xl': 'var(--shadow-xl)',
+        overlay: 'var(--shadow-overlay)',
+      },
       colors: {
         // Background colors
         background: {
@@ -72,6 +100,14 @@ export default {
           // triplet form so opacity modifiers like `bg-brand-400/10` resolve
           // through Tailwind's <alpha-value> substitution.
           400: 'rgb(var(--brand-400-rgb) / <alpha-value>)',
+        },
+        // Inline text links. Not the brand fill: see the `--color-link` note
+        // in globals.css. `text-link` / `hover:text-link-hover`.
+        // The default uses the RGB triplet so opacity modifiers resolve
+        // (`decoration-link/40`); Tailwind v3 cannot alpha `currentColor`.
+        link: {
+          DEFAULT: 'rgb(var(--color-link-rgb) / <alpha-value>)',
+          hover: 'var(--color-link-hover)',
         },
         // Error/Warning utility colors
         error: {
