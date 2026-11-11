@@ -25,6 +25,7 @@ vi.mock("~/server/services/decisions/generateDraftDecisions", () => ({
 }));
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({ emitNotification: emitMock }));
 vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity: recordActivityMock }));
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: vi.fn() }));
 
 import { summarizeMeetingRow } from "../ensureMeetingSummary";
 import { isPostSummaryDecisionExtractionEnabled } from "~/server/services/decisions/postSummaryExtraction";
