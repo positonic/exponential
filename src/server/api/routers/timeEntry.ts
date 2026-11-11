@@ -401,12 +401,15 @@ export const timeEntryRouter = createTRPCRouter({
         }
       }
       const service = new TimeEntryService(ctx.db);
+      // Editing Proposed time confirms it (ADR-0061) — a person's act. Zoe
+      // can correct it for them, but it stays PROPOSED (ADR-0070).
       return service.update({
         userId: ctx.userId,
         entryId: input.entryId,
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         actionId: input.actionId,
+        keepProposed: isAgentActorToken(ctx.tokenType),
       });
     }),
 

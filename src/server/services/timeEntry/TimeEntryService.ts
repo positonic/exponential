@@ -678,7 +678,10 @@ export class TimeEntryService {
    * being edited, and since Proposed time never contributed to
    * `timeSpentMins`, its old duration counts as zero here — the arithmetic
    * below then simply adds the new duration. The Daily worklog will not touch
-   * the entry again (`upsertBySourceRef` reports "left").
+   * the entry again (`upsertBySourceRef` reports "left"). Unless
+   * `keepProposed`: an agent acting for the person (Zoe, ADR-0070) may
+   * correct Proposed time, but the entry stays `PROPOSED` and still counts
+   * for nothing until the person confirms it.
    *
    * Throws NOT_FOUND for missing entries, FORBIDDEN for other users' entries,
    * BAD_REQUEST when `endedAt <= startedAt`.
@@ -689,6 +692,7 @@ export class TimeEntryService {
     startedAt?: Date;
     endedAt?: Date | null;
     actionId?: string;
+    keepProposed?: boolean;
   }): Promise<TimeEntryWithAction> {
     return this.db.$transaction(async (tx) => {
       const existing = await tx.timeEntry.findUnique({
@@ -717,15 +721,19 @@ export class TimeEntryService {
       }
 
       // Compute old & new contributions to timeSpentMins. A PROPOSED entry
-      // never contributed, so its baseline is zero.
+      // never contributed, so its baseline is zero — and one that stays
+      // PROPOSED contributes nothing afterwards either.
       const wasProposed = existing.status === "PROPOSED";
+      const confirms = wasProposed && !input.keepProposed;
+      const staysProposed = wasProposed && !confirms;
       const oldDurMins =
         existing.endedAt && !wasProposed
           ? durationMinutes(existing.startedAt, existing.endedAt)
           : 0;
-      const newDurMins = newEndedAt
-        ? durationMinutes(newStartedAt, newEndedAt)
-        : 0;
+      const newDurMins =
+        newEndedAt && !staysProposed
+          ? durationMinutes(newStartedAt, newEndedAt)
+          : 0;
 
       // If reassigned, validate target action exists and inherit its workspaceId.
       let newWorkspaceId: string | null = existing.workspaceId;
@@ -750,7 +758,7 @@ export class TimeEntryService {
           endedAt: newEndedAt,
           actionId: newActionId,
           workspaceId: newWorkspaceId,
-          ...(wasProposed ? { status: "CONFIRMED" as const } : {}),
+          ...(confirms ? { status: "CONFIRMED" as const } : {}),
         },
         include: {
           action: {

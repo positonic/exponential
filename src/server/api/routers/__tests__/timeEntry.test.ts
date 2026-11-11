@@ -475,6 +475,43 @@ describe("timeEntry.upsertBySourceRef", () => {
   });
 });
 
+describe("timeEntry.update — editing Proposed time confirms it, unless Zoe edits", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const NEW_END = new Date("2026-09-11T10:00:00Z"); // 38 minutes
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    withTransaction(db);
+    db.timeEntry.findUnique.mockResolvedValue(entryRow({ createdByAgentId: null }) as never);
+    db.timeEntry.update.mockResolvedValue(entryRow({ endedAt: NEW_END }) as never);
+  });
+
+  it.each(ZOE_TOKEN_TYPES)(
+    "a %s token corrects a PROPOSED entry, which stays PROPOSED and moves no spent time",
+    async (tokenType) => {
+      await callerWithToken(db, tokenType).timeEntry.update({ entryId: "entry-1", endedAt: NEW_END });
+
+      const data = db.timeEntry.update.mock.calls[0]![0].data;
+      expect(data).toMatchObject({ endedAt: NEW_END });
+      expect(data).not.toHaveProperty("status");
+      expect(db.action.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(PERSON_TOKEN_TYPES)("a %s token is the person, so the edit confirms it", async (tokenType) => {
+    await callerWithToken(db, tokenType).timeEntry.update({ entryId: "entry-1", endedAt: NEW_END });
+
+    expect(db.timeEntry.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ endedAt: NEW_END, status: "CONFIRMED" }) }),
+    );
+    expect(db.action.update).toHaveBeenCalledWith({
+      where: { id: ACTION_ID },
+      data: { timeSpentMins: { increment: 38 } },
+    });
+  });
+});
+
 describe("timeEntry.confirmDay — human-only", () => {
   let db: DeepMockProxy<PrismaClient>;
   const day = new Date("2026-09-11T00:00:00");
