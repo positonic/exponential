@@ -257,18 +257,20 @@ describe("EmbeddingTriggerService — reindexStalePages (cron backstop)", () => 
     deleteChunks.mockResolvedValue(undefined);
   });
 
-  it("re-embeds stale searchable pages and clears opted-out ones", async () => {
+  it("re-embeds stale searchable pages and clears opted-out or emptied ones", async () => {
     const { svc, sweepRows } = makeService({
       p1: fullPage,
       p2: { ...fullPage, id: "p2", includeInSearch: false },
+      p4: { ...fullPage, id: "p4", body: "" },
     });
-    sweepRows.mockResolvedValueOnce([{ id: "p1" }, { id: "p2" }]);
+    sweepRows.mockResolvedValueOnce([{ id: "p1" }, { id: "p2" }, { id: "p4" }]);
 
     const result = await svc.reindexStalePages(new Date("2026-10-08T12:00:00Z"), 20);
 
-    expect(result).toEqual({ checked: 2, embedded: 1, cleared: 1, failed: 0 });
+    expect(result).toEqual({ checked: 3, embedded: 1, cleared: 2, failed: 0 });
     expect(embedSource).toHaveBeenCalledTimes(1);
     expect(deleteChunks).toHaveBeenCalledWith("page", "p2");
+    expect(deleteChunks).toHaveBeenCalledWith("page", "p4");
   });
 
   it("bounds the sweep to settled saves inside the lookback window", async () => {
@@ -277,7 +279,10 @@ describe("EmbeddingTriggerService — reindexStalePages (cron backstop)", () => 
     await svc.reindexStalePages(now, 20);
 
     const [strings, ...values] = sweepRows.mock.calls[0] as [readonly string[], ...unknown[]];
-    expect(strings.join("?")).toContain('"KnowledgeChunk"');
+    const sql = strings.join("?");
+    expect(sql).toContain('"KnowledgeChunk"');
+    // An emptied page that still has chunks is a candidate, not just pages with a body.
+    expect(sql).toMatch(/btrim\(coalesce\(p\.body, ''\)\) <> ''\s+OR EXISTS/);
     expect(values).toEqual([
       new Date("2026-10-07T12:00:00Z"), // 24h lookback
       new Date("2026-10-08T11:58:00Z"), // still-settling saves are left to their trigger
