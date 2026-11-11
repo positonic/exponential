@@ -10,7 +10,9 @@ import { assertAssignableUsers } from "~/server/services/actions/containment";
 import { ASSIGNABLE_USER_SELECT } from "~/server/services/access/assignability";
 import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
-import OpenAI from "openai";
+import type OpenAI from "openai";
+import { getOpenAIClient } from "~/server/services/ai/clients";
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -51,9 +53,6 @@ import {
   resolveOrCreateWorkspaceTags,
   attachTicketTags,
 } from "~/server/services/notionTicketImport";
-
-// OpenAI client for embeddings
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Parse an ISO date string supplied by an agent tool into a Date. Empty/nullish
 // values clear the field (return null); a malformed string throws BAD_REQUEST
@@ -198,7 +197,7 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   }
 
   try {
-    const embedRes = await openai.embeddings.create({
+    const embedRes = await getOpenAIClient("Choosing an agent").embeddings.create({
       model: 'text-embedding-3-small',
       input: valid.map(v => v.instructions),
     });
@@ -367,7 +366,7 @@ export const mastraRouter = createTRPCRouter({
       if (trimmed.length === 0) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Message is empty' });
       }
-      const msgEmbRes = await openai.embeddings.create({
+      const msgEmbRes = await getOpenAIClient("Choosing an agent").embeddings.create({
         model: 'text-embedding-3-small',
         input: trimmed,
       });
@@ -1867,7 +1866,11 @@ export const mastraRouter = createTRPCRouter({
       });
 
       // Extract insights using AI-enhanced analysis
-      const insights = await extractInsightsFromTranscriptions(transcriptions, input.insightTypes, openai);
+      const insights = await extractInsightsFromTranscriptions(
+        transcriptions,
+        input.insightTypes,
+        isAiConfigured("openai") ? getOpenAIClient() : undefined,
+      );
 
       return {
         insights,

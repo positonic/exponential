@@ -96,6 +96,7 @@ import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
 import { productPluginRouter } from "~/plugins/product/server/routers";
 import { favoriteRouter } from "~/server/api/routers/favorite";
 import { authRouter } from "./routers/auth";
+import { aiRouter } from "./routers/ai";
 import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
@@ -200,6 +201,7 @@ export const appRouter = createTRPCRouter({
   goalActivity: goalActivityRouter,
   crmApi: crmApiRouter,
   auth: authRouter,
+  ai: aiRouter,
   document: documentRouter,
   voice: voiceRouter,
   page: pageRouter,

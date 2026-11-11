@@ -1,7 +1,5 @@
-import OpenAI from "openai";
+import { getOpenAIClient } from "~/server/services/ai/clients";
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
  * Uses AI to generate a formatted standup summary from collected data
@@ -45,7 +43,7 @@ export class AiGenerateStandupStep implements IStepExecutor {
       outputFormat
     );
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAIClient("The AI standup step").chat.completions.create({
       model: modelName,
       messages: [
         {
