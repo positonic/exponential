@@ -102,6 +102,26 @@ npm run start:selfhost      # checks env and pgvector, applies migrations, serve
 npm run scheduler:selfhost  # in a second process: runs the scheduled jobs (reads the same .env)
 ```
 
+#### Container images
+
+Two images, both built from the repo root. Neither bakes in any
+configuration: every variable is read when the container starts.
+
+```bash
+docker build -t exponential-app .                                          # the app
+docker build -f docker/scheduler.Dockerfile -t exponential-scheduler .      # the scheduler
+```
+
+- **App** (`Dockerfile`): starts with `npm run start:selfhost`, so the
+  container checks its environment and pgvector, applies pending migrations,
+  then serves on port 3000. Health check: `GET /api/health`. The build needs
+  a builder with **at least 10 GB of memory**: measured in a container, its
+  working set peaks at about 9.2 GB, it completes under a 10 GB limit, and it
+  is killed for running out of memory under 8 GB (with 4 CPUs or 14).
+- **Scheduler** (`docker/scheduler.Dockerfile`): a small Node image with no
+  Next build. It calls the app's cron routes on `vercel.json`'s schedule, so
+  point `SCHEDULER_TARGET_URL` at the app's address on the network they share.
+
 Sign-up is open: anyone who can reach the install and complete a sign-in gets
 an account, as on exponential.im. There is no allowlist yet, so keep a private
 install off the public internet or choose a way in that strangers can't use.
