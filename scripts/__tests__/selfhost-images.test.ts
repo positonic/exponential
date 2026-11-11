@@ -1,12 +1,14 @@
 // @vitest-environment node
 /**
- * Guards on the self-host container images (`Dockerfile`, `.dockerignore`). Building an image takes
+ * Guards on the self-host container images (`Dockerfile`,
+ * `docker/scheduler.Dockerfile`, `.dockerignore`). Building an image takes
  * minutes and needs Docker, so these read the files and pin the properties
  * that would otherwise only fail at build or run time — or not fail at all,
  * like a secret slipping into an image.
  */
 
 import { readFileSync } from "node:fs";
+import { builtinModules } from "node:module";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -50,5 +52,48 @@ describe("app Dockerfile", () => {
 
   it("starts with the self-host start command", () => {
     expect(dockerfile).toMatch(/^CMD \["npm", "run", "start:selfhost"\]$/m);
+  });
+});
+
+describe("scheduler image", () => {
+  const dockerfile = read("docker/scheduler.Dockerfile");
+
+  /** Module specifiers imported by a TypeScript file. */
+  const importsOf = (file: string) =>
+    [...read(file).matchAll(/^import\s[^;]*?from\s+"([^"]+)";/gms)].map((m) => m[1]!);
+
+  /** Every repo file the scheduler entry point reaches through relative imports. */
+  function localClosure(entry: string): string[] {
+    const seen = new Set<string>();
+    const visit = (file: string) => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      for (const spec of importsOf(file)) {
+        if (!spec.startsWith(".")) continue;
+        visit(path.posix.join(path.posix.dirname(file), spec) + ".ts");
+      }
+    };
+    visit(entry);
+    return [...seen];
+  }
+
+  it("copies every file the scheduler imports", () => {
+    const copied = dockerfile
+      .split("\n")
+      .filter((line) => line.startsWith("COPY "))
+      .flatMap((line) => line.split(/\s+/).slice(1, -1));
+    for (const file of localClosure("scripts/selfhost/scheduler.ts")) {
+      expect(copied, `${file} is imported by the scheduler but not copied`).toContain(file);
+    }
+  });
+
+  it("installs every package the scheduler imports", () => {
+    const builtins = new Set(builtinModules);
+    const packages = localClosure("scripts/selfhost/scheduler.ts")
+      .flatMap(importsOf)
+      .filter((spec) => !spec.startsWith(".") && !spec.startsWith("node:") && !builtins.has(spec));
+    // The image installs exactly these two (plus tsx to run them).
+    expect([...new Set(packages)].sort()).toEqual(["node-cron"]);
+    expect(dockerfile).toMatch(/"node-cron": pin\("node-cron"\)/);
   });
 });
