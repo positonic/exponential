@@ -301,7 +301,7 @@ A **Time entry** a person made by hand, with the **Timer** or by editing. Always
 _Avoid_: Tracked time (both kinds are tracked), real time.
 
 **Proposed time**:
-A **Time entry** the **Daily worklog** created that its owner has not yet confirmed. Shown distinctly, counted in totals with a visible marker, and it does not move an Action's spent-time figure until confirmed. Confirming the day, or editing the entry, makes it confirmed; the worklog never touches a confirmed entry again (decision 2026-09-12). Same word as the Decision lifecycle's `PROPOSED` on purpose.
+A **Time entry** the **Daily worklog** created that its owner has not yet confirmed. Shown distinctly, counted in totals with a visible marker, and it does not move an Action's spent-time figure until confirmed. Confirming the day, or the person editing the entry, makes it confirmed; the worklog never touches a confirmed entry again (decision 2026-09-12). Zoe acting for the person can correct or discard Proposed time, but it stays proposed, and she can neither change nor delete a confirmed entry (ADR-0070; decision 2026-11-11). Same word as the Decision lifecycle's `PROPOSED` on purpose.
 _Avoid_: Draft (reserved for extracted Decisions), suggested time, estimate.
 
 **Agent-run time**:

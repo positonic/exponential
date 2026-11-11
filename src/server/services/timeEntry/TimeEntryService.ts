@@ -118,6 +118,21 @@ const ACTION_INCLUDE = {
 } as const;
 
 /**
+ * Confirmed time is the person's own record (ADR-0061): an agent acting for
+ * them (Zoe, ADR-0070) may correct or discard Proposed time, never change or
+ * remove what the person confirmed.
+ */
+function assertNotConfirmed(status: TimeEntryStatus): void {
+  if (status === "CONFIRMED") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Confirmed time can only be changed or deleted by the person themselves — agents (including Zoe) cannot",
+    });
+  }
+}
+
+/**
  * The data a just-completed TimeEntry needs to surface as a `time_entry`
  * activity event. Collected inside the stop transaction so the activity write
  * (which runs after commit, on the non-transactional client) has everything it
@@ -678,13 +693,19 @@ export class TimeEntryService {
    * being edited, and since Proposed time never contributed to
    * `timeSpentMins`, its old duration counts as zero here — the arithmetic
    * below then simply adds the new duration. The Daily worklog will not touch
-   * the entry again (`upsertBySourceRef` reports "left"). Unless
-   * `keepProposed`: an agent acting for the person (Zoe, ADR-0070) may
-   * correct Proposed time, but the entry stays `PROPOSED` and still counts
-   * for nothing until the person confirms it.
+   * the entry again (`upsertBySourceRef` reports "left").
    *
-   * Throws NOT_FOUND for missing entries, FORBIDDEN for other users' entries,
-   * BAD_REQUEST when `endedAt <= startedAt`.
+   * `agentActing` (Zoe acting for the person, ADR-0070): she may correct
+   * Proposed time, but the entry stays `PROPOSED` and still counts for
+   * nothing until the person confirms it. CONFIRMED time is the person's own
+   * record and is refused outright: turning it back into a proposal would
+   * hand a confirmed worklog row back to `upsertBySourceRef` to overwrite
+   * and lose the confirmed value, and keeping it CONFIRMED would move spent
+   * time with no human act.
+   *
+   * Throws NOT_FOUND for missing entries, FORBIDDEN for other users' entries
+   * and for CONFIRMED entries under `agentActing`, BAD_REQUEST when
+   * `endedAt <= startedAt`.
    */
   async update(input: {
     userId: string;
@@ -692,7 +713,7 @@ export class TimeEntryService {
     startedAt?: Date;
     endedAt?: Date | null;
     actionId?: string;
-    keepProposed?: boolean;
+    agentActing?: boolean;
   }): Promise<TimeEntryWithAction> {
     return this.db.$transaction(async (tx) => {
       const existing = await tx.timeEntry.findUnique({
@@ -707,6 +728,7 @@ export class TimeEntryService {
           message: "Cannot edit another user's time entry",
         });
       }
+      if (input.agentActing) assertNotConfirmed(existing.status);
 
       const newStartedAt = input.startedAt ?? existing.startedAt;
       const newEndedAt =
@@ -724,7 +746,7 @@ export class TimeEntryService {
       // never contributed, so its baseline is zero — and one that stays
       // PROPOSED contributes nothing afterwards either.
       const wasProposed = existing.status === "PROPOSED";
-      const confirms = wasProposed && !input.keepProposed;
+      const confirms = wasProposed && !input.agentActing;
       const staysProposed = wasProposed && !confirms;
       const oldDurMins =
         existing.endedAt && !wasProposed
@@ -806,8 +828,16 @@ export class TimeEntryService {
    * `timeSpentMins` by the entry's recorded duration (running entries — those
    * with no endedAt — contribute 0, and so does a PROPOSED entry, which never
    * counted; deleting one is its confirmation-and-removal in one step).
+   *
+   * `agentActing` (Zoe acting for the person, ADR-0070): she may discard
+   * Proposed time, which never counted, but deleting CONFIRMED time would
+   * undo the person's confirmation with no way back, so it is FORBIDDEN.
    */
-  async delete(input: { userId: string; entryId: string }): Promise<{ id: string }> {
+  async delete(input: {
+    userId: string;
+    entryId: string;
+    agentActing?: boolean;
+  }): Promise<{ id: string }> {
     return this.db.$transaction(async (tx) => {
       const existing = await tx.timeEntry.findUnique({
         where: { id: input.entryId },
@@ -821,6 +851,7 @@ export class TimeEntryService {
           message: "Cannot delete another user's time entry",
         });
       }
+      if (input.agentActing) assertNotConfirmed(existing.status);
 
       const dur =
         existing.endedAt && existing.status !== "PROPOSED"
