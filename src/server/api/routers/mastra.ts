@@ -70,12 +70,11 @@ function parseAgentDate(value: string | null | undefined, field: string): Date |
   return parsed;
 }
 
-// Get Mastra API URL from environment variable
-const MASTRA_API_URL = process.env.MASTRA_API_URL;
-
-if (!MASTRA_API_URL) {
-  throw new Error("MASTRA_API_URL environment variable is not set");
-}
+// Mastra API URL. Defaults to a local Mastra, like the chat stream route and
+// the voice bridges. It used to throw at module load when unset, which took
+// down the whole tRPC router (this file is mounted in root.ts), so an install
+// without Mastra could not even sign in.
+const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
 // Server-to-server API key for authenticating with Mastra API.
 // Used for calls without a user-specific JWT (e.g., listing agents).
@@ -275,12 +274,6 @@ export const mastraRouter = createTRPCRouter({
       }),
     )
     .mutation(({ ctx }) => {
-      if (!MASTRA_API_URL) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "MASTRA_API_URL is not configured",
-        });
-      }
       // A wiki turn is not one request: each client-tool round re-POSTs the
       // whole turn, and the agent is allowed up to twenty steps. If the token
       // expires partway through, the next round 401s and the user loses the

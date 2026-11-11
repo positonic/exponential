@@ -9,11 +9,12 @@
  * nothing here re-tests them through the scheduler.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { InvalidCronPlanError, readCronPlan } from "../selfhost/cronPlan";
-import { createTick, type SchedulerConfig } from "../selfhost/scheduler";
+import { createTick, loadEnvFiles, type SchedulerConfig } from "../selfhost/scheduler";
 
 const CONFIG: SchedulerConfig = {
   targetUrl: "http://app.internal:3000",
@@ -257,5 +258,39 @@ describe("vercel.json ↔ cron route parity", () => {
 
   it("has a route for every vercel.json cron", () => {
     expect(plannedPaths.filter((plannedPath) => !routePaths.includes(plannedPath))).toEqual([]);
+  });
+});
+
+describe("loadEnvFiles", () => {
+  const keys = ["SCHED_TEST_FROM_ENV", "SCHED_TEST_LOCAL_WINS", "SCHED_TEST_EXPORTED"];
+
+  it("reads .env like start:selfhost, with exported vars and .env.local taking precedence", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "sched-env-"));
+    try {
+      writeFileSync(
+        path.join(dir, ".env"),
+        "SCHED_TEST_FROM_ENV=from-env\nSCHED_TEST_LOCAL_WINS=from-env\nSCHED_TEST_EXPORTED=from-env\n",
+      );
+      writeFileSync(path.join(dir, ".env.local"), "SCHED_TEST_LOCAL_WINS=from-local\n");
+      process.env.SCHED_TEST_EXPORTED = "exported";
+
+      loadEnvFiles(dir);
+
+      expect(process.env.SCHED_TEST_FROM_ENV).toBe("from-env");
+      expect(process.env.SCHED_TEST_LOCAL_WINS).toBe("from-local");
+      expect(process.env.SCHED_TEST_EXPORTED).toBe("exported");
+    } finally {
+      for (const key of keys) delete process.env[key];
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does nothing when no env file exists", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "sched-env-"));
+    try {
+      expect(() => loadEnvFiles(dir)).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

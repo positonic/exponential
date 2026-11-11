@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { connection } from "next/server";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { SIGN_IN_CODE_TTL_MINUTES } from "~/lib/signInCode";
+import { resolveSignInMethods } from "~/server/auth/signInMethods";
 import { AuthMarketingPanel } from "~/app/_components/auth/AuthMarketingPanel";
 import { SignInCodeForm } from "./SignInCodeForm";
 import "~/styles/auth-surface.css";
@@ -17,8 +19,15 @@ export const metadata: Metadata = {
  * Where /signin (and the invite page) land after emailing a **Sign-in code**
  * (ADR-0056). Same `.auth-surface` chrome as /signin — only the left column's
  * content differs: enter-the-code instead of pick-a-provider.
+ *
+ * Under opt-in log delivery the code went to the server log, not an inbox, so
+ * the copy says so.
  */
-export default function VerifyRequest() {
+export default async function VerifyRequest() {
+  // Rendered per request: the delivery channel is runtime configuration, and
+  // without a dynamic API this page would be prerendered with the build's env.
+  await connection();
+  const isLogDelivery = resolveSignInMethods(process.env).emailDelivery === "log";
   const supportEmail =
     process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@exponential.im";
 
@@ -50,9 +59,15 @@ export default function VerifyRequest() {
               <span>Sign-in code sent</span>
             </div>
 
-            <h1 className="auth-title">Check your email</h1>
+            <h1 className="auth-title">
+              {isLogDelivery ? "Check the server log" : "Check your email"}
+            </h1>
             <p className="auth-sub">
-              We&apos;ve sent a sign-in code to your email address.
+              {isLogDelivery ? (
+                <>Your sign-in code has been written to the server log.</>
+              ) : (
+                <>We&apos;ve sent a sign-in code to your email address.</>
+              )}
             </p>
 
             <SignInCodeForm />
@@ -60,9 +75,11 @@ export default function VerifyRequest() {
             <p className="auth-note">
               The code expires in <b>{SIGN_IN_CODE_TTL_MINUTES} minutes</b>.
             </p>
-            <p className="auth-note">
-              If you don&apos;t see the email, check your spam folder.
-            </p>
+            {!isLogDelivery && (
+              <p className="auth-note">
+                If you don&apos;t see the email, check your spam folder.
+              </p>
+            )}
 
             <Link href="/signin" className="auth-back">
               <ArrowLeftGlyph />

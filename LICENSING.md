@@ -20,13 +20,20 @@ This is the same approach used by GitLab, Grafana, Mattermost, and other success
 
 You can clone this repo and run Exponential on your own machine or server at no cost. This includes all features in the open source codebase. You own your data.
 
+To self-host:
+
 ```bash
 git clone https://github.com/positonic/exponential.git
 cd exponential
 npm install
-npx prisma migrate dev
-npm run dev
+cp .env.selfhost.example .env   # then fill in the four required variables and one way to sign in
+SKIP_ENV_VALIDATION=1 npm run build
+npm run start:selfhost   # applies pending migrations, then serves on $PORT (default 3000)
 ```
+
+The four required variables are a pgvector Postgres `DATABASE_URL`, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY` and `OPENAI_API_KEY`. No OAuth app or Postmark account is needed: sign-in codes can go out over any SMTP server, and a single-user install can opt in to having them written to the server log. Sign-up is open to anyone who can reach the install. [`.env.selfhost.example`](.env.selfhost.example) explains each variable. Run `npm run scheduler:selfhost` next to the app so scheduled jobs run off Vercel.
+
+For local development instead, see the setup in the [README](README.md).
 
 ### Modify the code
 
