@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
+import { aiConfiguredOrSkip } from "~/server/services/ai/requireAi";
 import { db } from "~/server/db";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 
@@ -38,13 +39,11 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const result = await runMeetingSummarySweep(db);
-
-    if (result.notConfigured) {
-      console.warn(
-        "[Cron] auto-summarize-meetings: summarization not configured (missing OPENAI_API_KEY)",
-      );
+    if (!aiConfiguredOrSkip("summaries", "cron auto-summarize-meetings")) {
+      return NextResponse.json({ success: true, skipped: "ai-not-configured" });
     }
+
+    const result = await runMeetingSummarySweep(db);
 
     return NextResponse.json({ success: true, ...result });
   } catch (error) {

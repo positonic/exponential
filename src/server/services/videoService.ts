@@ -2,6 +2,7 @@ import { type PrismaClient } from "@prisma/client";
 import type { TranscriptionSummary, TranscriptionSetups } from "~/types/transcription";
 import { VideoRepository } from "~/server/repositories/videoRepository";
 import { db } from "~/server/db";
+import { requireAi } from "~/server/services/ai/requireAi";
 // Define types based on Prisma schema
 type VideoCreateInput = {
   id?: string;
@@ -215,6 +216,7 @@ const getPrompt = (summaryType: string): string => {
 };
 
 export async function summarizeTranscription(transcription: string, summaryType: string, captions?: {text: string, startSeconds: number, endSeconds: number}[], videoUrl?: string): Promise<TranscriptionSummary> {
+    requireAi("openai", "Video summaries");
     console.log("transcription, summaryType, captions, videoUrl ", transcription, summaryType, captions, videoUrl)    
     const isDescription = summaryType === 'description';
 
@@ -282,6 +284,7 @@ export async function summarizeTranscription(transcription: string, summaryType:
     return content;
 }
 export async function getSetups(transcription: string, summaryType: string): Promise<TranscriptionSetups> {
+    requireAi("openai", "Video trade setups");
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
+import { aiConfiguredOrSkip } from "~/server/services/ai/requireAi";
 import { db } from "~/server/db";
 import { runMeetingEmbeddingSweep } from "~/server/services/meetings/meetingEmbeddingSweep";
 
@@ -34,6 +35,10 @@ export async function GET(_request: NextRequest) {
     const provided = Buffer.from(authHeader ?? "");
     if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!aiConfiguredOrSkip("openai", "cron embed-meetings")) {
+      return NextResponse.json({ success: true, skipped: "ai-not-configured" });
     }
 
     const result = await runMeetingEmbeddingSweep(db);

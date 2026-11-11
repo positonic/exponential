@@ -13,6 +13,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { createHash, randomBytes } from "node:crypto";
 import OpenAI from "openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import type { ManagerOverview } from "./managerOverviewLoader";
@@ -25,6 +26,7 @@ const DAY = 86_400_000;
 
 let _defaultOpenAI: OpenAI | undefined;
 function getDefaultOpenAI(): OpenAI {
+  requireAi("openai", "The product overview summary");
   return (_defaultOpenAI ??= new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: 30_000,

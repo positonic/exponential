@@ -43,7 +43,7 @@ export class AiGenerateStandupStep implements IStepExecutor {
       outputFormat
     );
 
-    const response = await getOpenAIClient("The AI standup step").chat.completions.create({
+    const response = await getOpenAIClient(`The "${this.label}" step`).chat.completions.create({
       model: modelName,
       messages: [
         {
