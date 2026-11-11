@@ -14,6 +14,18 @@ import { sanitizeDocForPublic } from "~/lib/pages/public-doc";
 const ID = "dQw4w9WgXcQ";
 const nodesOf = (doc: JSONContent) => (doc.content ?? []).map((n) => n.type);
 
+/**
+ * A real paste event: `view.pasteText` forces plain-text mode, which skips
+ * the Markdown parse (as Shift+Cmd+V does in the browser).
+ */
+function pasteText(editor: Editor, text: string) {
+  const clipboardData = new DataTransfer();
+  clipboardData.setData("text/plain", text);
+  editor.view.dom.dispatchEvent(
+    new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }),
+  );
+}
+
 describe("parseYouTubeUrl", () => {
   it.each([
     [`https://www.youtube.com/watch?v=${ID}`, { videoId: ID }],
@@ -119,16 +131,51 @@ describe("youtube node", () => {
   it("turns a pasted YouTube URL into an embed", () => {
     const editor = new Editor({ extensions: PRD_EXTENSIONS, content: "<p></p>" });
     try {
-      // A real paste event: `view.pasteText` forces plain-text mode, which
-      // skips the Markdown parse (as Shift+Cmd+V does in the browser).
-      const clipboardData = new DataTransfer();
-      clipboardData.setData("text/plain", `https://www.youtube.com/watch?v=${ID}`);
-      editor.view.dom.dispatchEvent(
-        new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }),
-      );
+      pasteText(editor, `https://www.youtube.com/watch?v=${ID}`);
       expect(editor.getJSON().content).toEqual([
         { type: "youtube", attrs: { videoId: ID, start: null } },
       ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps a URL pasted into a sentence as an inline link", () => {
+    const editor = new Editor({ extensions: PRD_EXTENSIONS, content: "<p>Watch this today</p>" });
+    try {
+      editor.commands.setTextSelection({ from: 7, to: 11 }); // "this"
+      pasteText(editor, `https://youtu.be/${ID}`);
+      const json = editor.getJSON();
+      expect(nodesOf(json)).toEqual(["paragraph"]);
+      const linked = json.content?.[0]?.content?.find((n) => n.marks?.length);
+      expect(linked).toMatchObject({
+        text: `https://youtu.be/${ID}`,
+        marks: [{ type: "link", attrs: { href: `https://youtu.be/${ID}` } }],
+      });
+      expect(editor.getText()).toBe(`Watch https://youtu.be/${ID} today`);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("puts the watch URL on the plain-text clipboard", () => {
+    const editor = new Editor({
+      extensions: PRD_EXTENSIONS,
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Intro" }] },
+          { type: "youtube", attrs: { videoId: ID, start: 42 } },
+        ],
+      },
+    });
+    try {
+      const { doc } = editor.state;
+      const slice = doc.slice(0, doc.content.size);
+      const text = editor.view.someProp("clipboardTextSerializer", (f) =>
+        (f as (s: typeof slice) => string)(slice),
+      );
+      expect(text).toBe(`Intro\n\nhttps://www.youtube.com/watch?v=${ID}&t=42s`);
     } finally {
       editor.destroy();
     }

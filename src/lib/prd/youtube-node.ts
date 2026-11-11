@@ -1,6 +1,8 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { MarkdownSerializerState } from "@tiptap/pm/markdown";
+import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
+import type { Slice } from "@tiptap/pm/model";
 
 import {
   parseYouTubeUrl,
@@ -24,7 +26,9 @@ import {
  * a YouTube video back into the node. That same rule is how a pasted URL
  * becomes an embed: tiptap-markdown parses pasted plain text as Markdown. A
  * named link (`[my talk](https://youtu.be/…)`) or a link inside a sentence
- * stays a link.
+ * stays a link. The paste parse cannot see where the text lands, so the
+ * plugin below turns a lone pasted embed back into a link when the cursor is
+ * in a line that already has text.
  */
 
 interface MarkdownItToken {
@@ -110,6 +114,22 @@ export function youTubeMarkdownPlugin(md: YouTubeMarkdownItLike): void {
   });
 }
 
+/** True when the selection is a whole textblock's content — an empty line, or a fully selected one. */
+function selectionIsWholeLine(state: EditorState): boolean {
+  const { $from, $to } = state.selection;
+  if (!$from.parent.isTextblock) return true;
+  return (
+    $from.sameParent($to) &&
+    $from.parentOffset === 0 &&
+    $to.parentOffset === $from.parent.content.size
+  );
+}
+
+/** The pasted slice is nothing but one YouTube embed (a pasted bare URL). */
+function isLoneEmbed(slice: Slice): boolean {
+  return slice.content.childCount === 1 && slice.content.firstChild?.type.name === "youtube";
+}
+
 export const YouTubeNode = Node.create({
   name: "youtube",
   group: "block",
@@ -168,6 +188,31 @@ export const YouTubeNode = Node.create({
           allowfullscreen: "true",
         },
       ],
+    ];
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey("youtubeInlinePaste"),
+        props: {
+          // A URL pasted into a line that already has text stays inline as a
+          // link, so the sentence is not split around a player.
+          handlePaste: (view, event, slice) => {
+            if (!isLoneEmbed(slice) || selectionIsWholeLine(view.state)) return false;
+            const text = event.clipboardData?.getData("text/plain").trim() ?? "";
+            const link = view.state.schema.marks.link;
+            if (!text || !link || !parseYouTubeUrl(text)) return false;
+            const href = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+            view.dispatch(
+              view.state.tr
+                .replaceSelectionWith(view.state.schema.text(text, [link.create({ href })]), false)
+                .scrollIntoView(),
+            );
+            return true;
+          },
+        },
+      }),
     ];
   },
 
