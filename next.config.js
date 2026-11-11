@@ -105,6 +105,13 @@ const config = {
         destination,
         permanent: true,
       })),
+      // The Exponential Method's short address. Temporary (307), so /method can
+      // become its own page later without browsers having cached a 308.
+      {
+        source: "/method",
+        destination: "/docs/method",
+        permanent: false,
+      },
       // Renamed so it stops competing with /features/weekly-plan in search.
       {
         source: "/features/weekly-planning",
